@@ -1,6 +1,6 @@
 # Architecture
 
-Only the layout model and bootstrap executable exist today. The runtime components below are the implementation target.
+Version 0.1.0 implements the configuration catalog, key-state engine, native renderer, host preview and manually launched OpenVR panel. The uinput backend passed an isolated kernel-event test. Steam takeover, target-keymap detection and independent stock recovery remain unimplemented.
 
 ## Components
 
@@ -12,7 +12,7 @@ Only the layout model and bootstrap executable exist today. The runtime componen
 | Key state | Pointer capture, key transitions, modifiers, repeat and cancellation | C++20, independent of renderer/backend |
 | Renderer | Draw key faces/sides/legends and animations | Cairo + font handling |
 | VR panel | Own overlay, pose, size, pointer events and texture submission | OpenVR + Vulkan |
-| Input backend | Translate logical actions into actual press/release events | Linux uinput candidate; direct Steam key-state alternative |
+| Input backend | Translate physical actions into press/release events | Linux uinput; explicitly armed, matching target-language declaration required |
 | Steam bridge | Request lifecycle, target metadata, stock suppression/restoration | Minimal JS through the existing local CDP interface, if needed |
 | Recovery | Release keys and restore stock UI after native/bridge failure | Independent watchdog or lease owned by a surviving component |
 
@@ -28,7 +28,7 @@ The HTML in `design/` is a design artifact only. It is not an embedded browser r
 
 [Configuration](configuration.md) defines independent layout, language and theme profiles. Native rendering consumes the selected model, not hardcoded US keys or graphite colors. The VR settings panel uses the same catalog and validation as the host preview. Prepare a complete candidate before activation, release keys using the old mapping, and atomically replace geometry and hit regions. Persist the selection only after successful activation.
 
-The language model must negotiate with the input backend and receiving session. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
+The language model validates required physical keys. v0.1 uses the explicit `--target-language` declaration; automatic negotiation with the receiving session remains future work. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
 
 ## Input and focus
 

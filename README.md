@@ -1,62 +1,97 @@
 # FrameKeyboard
 
-A standalone native virtual keyboard for Steam Frame, with a full-size custom layout, real Enter, Ctrl/Alt, and dedicated Copy/Paste keys on the left. The target is local applications, including Brave in KDE and Brave as a standalone floating window.
+A native C++20 virtual keyboard for Steam Frame. Version 0.1.0 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
-## Current state
+The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
-This repository contains the project foundation, the approved HTML visual reference, a validated 106-key layout, a theme specification, and a buildable C++20 command-line bootstrap. **It is not a working VR keyboard yet.** The executable does not open overlays, create input devices, change Steam, or register autostart.
+## What works in this version
 
-- [Implementation plan](docs/plan.md)
-- [Architecture and unresolved integration questions](docs/architecture.md)
-- [Configuration and VR profile switching](docs/configuration.md)
-- [Acceptance checks](docs/acceptance.md)
-- [Visual reference](design/index.html)
+- Native rendering and controller mouse-event handling, with two pointer IDs.
+- US and international full-size layouts, English/German XKB legends, Graphite/Midnight themes.
+- VR settings for layout, language and theme selection, favorites, reload and persistent selection.
+- One-shot modifier taps, held chords, repeat, release-all, cancellation and a ten-second missing-release timeout.
+- Optional native key events. Copy/Paste send Ctrl+C/Ctrl+V without reading the clipboard.
+- Host preview, PNG export, profile validation and an ARM64 package.
 
-## Build on CachyOS
+The ARM64 core tests, offscreen rendering, isolated kernel-input test and a brief VR overlay smoke test passed on Frame. **Live controller typing and focus in KDE Brave and standalone floating Brave remain unverified.** This version does not replace the stock keyboard or intercept its summon button. It does not change Steam files, start SteamVR, or register autostart.
 
-Requirements for this bootstrap: CMake 3.24+, Ninja, a C++20 compiler, and Python 3. Python validates the JSON layout and generates a C++ header at build time; it is not a runtime dependency of the executable.
+## Run on the development host
+
+Build dependencies: CMake 3.24+, Ninja, Python 3, a C++20 compiler, pkg-config, Cairo, Pango, libxkbcommon, json-c, SDL2, Vulkan and the SteamVR OpenVR library. Python is used only during the build. Pass `-DOPENVR_LIBRARY=/path/to/libopenvr_api.so` if SteamVR is installed elsewhere.
 
 ```sh
 ./scripts/build.sh host
-./build/host/framekeyboard --describe-layout
+ctest --test-dir build/host --output-on-failure
+./build/host/framekeyboard --preview
+./build/host/framekeyboard --render /tmp/framekeyboard.png
+./build/host/framekeyboard --render-settings /tmp/framekeyboard-settings.png
+./build/host/framekeyboard --check
 ```
 
-Build for Frame using the existing sibling toolchain and copied Frame sysroot:
+The desktop preview never injects OS input. It exercises the same native renderer, key state and settings controls as VR. Use the Settings button to switch profiles; a preview is not a desktop replacement keyboard.
+
+## Build and install on Frame
+
+Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
-./scripts/build.sh frame-arm64
+./scripts/package.sh
+scp out/framekeyboard-0.1.0-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
-The ARM64 preset expects `../toolchains/steam-frame/aarch64-clang.cmake`. See the toolchain's README for its library snapshot and refresh procedure. For another host/toolchain, use a local, ignored `CMakeUserPresets.json` or configure CMake directly with `-DCMAKE_TOOLCHAIN_FILE=...`.
-
-Host and target builds stay in separate directories. `build/frame-arm64/framekeyboard` is the deployment candidate; the script checks its ELF machine type. Do not execute it on the x86_64 host. Cross-compilation does not establish on-device behavior. No deployment or install script exists yet.
-
-## Visual reference
+On Frame, extract the package into a temporary directory and run its installer:
 
 ```sh
-./scripts/preview.sh
+mkdir -p /tmp/framekeyboard-install
+cd /tmp/framekeyboard-install
+tar -xzf /tmp/framekeyboard-0.1.0-aarch64.tar.gz
+./framekeyboard-0.1.0-aarch64/install.sh
 ```
 
-Open `http://127.0.0.1:8767/`. A different port may be supplied as the first argument. The HTML is also self-contained and can be opened directly. Copy/Paste in this reference uses an internal demonstration clipboard. It does not operate the system keyboard or clipboard.
+The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens a VR preview with input disabled. It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
 
-The approved appearance has a flat charcoal surface, grey gradient keycaps, white legends, rounded corners, and shallow raised sides. Keycaps move down at a fixed size when pressed. Preserve the 3.5px side depth and 3px press travel unless the design changes.
+## Try native input on Frame
 
-## Layouts, languages and themes
-
-`layouts/en-us.json` defines the native layout in unscaled design pixels, excluding outer case padding. It has 104 standard keys plus Copy and Paste. IDs distinguish left/right modifiers and main/numpad Enter. Actions use logical names rather than OS scan codes. Backends must explicitly map those names to their own codes.
+With SteamVR already running and the receiving session using a US keymap:
 
 ```sh
-python3 tools/compile_layout.py layouts/en-us.json
+~/.local/bin/framekeyboard --vr --input uinput --target-language en-us
 ```
 
-The validator checks text fields, unique IDs, finite positive dimensions, canvas bounds and non-overlapping hit regions. Building embeds the validated layout. Runtime configuration is a core requirement of the next milestone. `themes/graphite.json` records the renderer's visual targets. `languages/` contains proposed English and German profiles, and `config/default.json` demonstrates active selection and favorites. These settings, languages and themes are not consumed by the bootstrap yet.
+The panel starts with input off. Focus a disposable text field in the receiving app, then select **Input off** on the panel to enable typing. Tap Ctrl/Alt/Shift to latch it for the next key; tap it again to clear it. Release all clears held and latched keys. Close destroys the panel and virtual device.
 
-Users will add JSON profiles under `~/.config/framekeyboard/` and select layouts, languages and themes in VR, with reload and persistent selection. Language support must include correct input mapping as well as translated key legends. See [the configuration contract](docs/configuration.md).
+`--target-language` is an explicit statement about the target session's existing keymap. The program does not detect or change that session's language. For German, the target must already use German; launch with `--target-language de-de`, then choose the Deutsch favorite in Settings. That favorite includes the extra physical language key.
 
-`design/index.html` is a visual reference snapshot, not generated from the JSON. During native renderer work, compare geometry and behavior against it and document intentional differences.
+The selected profile must match the declared target language before input can be enabled. Editing or reloading a language file turns input off. IME composition, automatic target-keymap synchronization, lock-state synchronization with other keyboards and stock takeover are not implemented. uinput hotplug/routing may require further Frame integration; do not restart SteamVR as part of an automated test.
 
-## Planned runtime
+## Customize inside VR
 
-C++ draws the keyboard using Cairo, uploads its image to a Vulkan texture, and displays it through OpenVR. This follows the existing Frame overlay's approach. Input delivery and stock-keyboard integration are isolated adapters. A small runtime JavaScript bridge may be needed to use the existing keyboard button and suppress the stock popup; it would not render our keys.
+Copy a bundled JSON file into one of these directories, edit it, and select Settings → Reload profiles:
 
-Keep source and builds on CachyOS. Eventual installation belongs under the Frame user's home directory. Packaged Steam files and the read-only OS are not patched.
+```text
+~/.config/framekeyboard/config.json
+~/.config/framekeyboard/layouts/*.json
+~/.config/framekeyboard/languages/*.json
+~/.config/framekeyboard/themes/*.json
+```
+
+Use a new `id` for an additional profile, or the same `id` to override a bundled one. Select the profiles with the arrow controls, then Apply and save. Invalid files leave the last valid version available and report an error. Deleting an active custom profile leaves the current session unchanged until another valid profile is selected.
+
+[Configuration details](docs/configuration.md) cover fields, input-language constraints and fallback behavior. `config/default.json` is an example settings file; installation never overwrites an existing user config.
+
+## Code map
+
+| File | Responsibility |
+| --- | --- |
+| `src/config.cpp` | JSON validation, profile discovery and settings persistence |
+| `src/input.cpp` | Physical key mapping, XKB legends, key state and uinput |
+| `src/panel.cpp` | Cairo/Pango painting, press animation and shared hit testing |
+| `src/app.cpp` | Profile controls, selection transactions and input arming |
+| `src/preview.cpp` | SDL host preview |
+| `src/vr.cpp` | OpenVR lifecycle, world placement, controller events and texture submission |
+| `tests/keyboard_tests.cpp` | Input sequences, recovery, profiles, language legends and rendering |
+| `tests/uinput_smoke.cpp` | Opt-in test against an exclusively grabbed, newly created device |
+
+Comments explain the non-obvious boundaries: XKB versus evdev codes, modifier ownership, error cleanup, press geometry, pixel formats and compositor texture lifetime. `.clang-format` defines formatting for our C++ code. Third-party transport code retains its upstream style and license, with provenance in `third_party/README.md`.
+
+[Implementation plan](docs/plan.md) · [Architecture](docs/architecture.md) · [Acceptance checks](docs/acceptance.md)

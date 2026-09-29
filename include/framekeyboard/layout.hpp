@@ -1,27 +1,30 @@
 #pragma once
 
-#include <string_view>
+#include <string>
+#include <vector>
 
 namespace framekeyboard {
 
-// Coordinates are unscaled design pixels. Rendering and hit testing must share them.
+// Design coordinates are shared by painting and hit testing, before panel scaling.
 struct Rect {
-    double x;
-    double y;
-    double width;
-    double height;
+    double x{}, y{}, width{}, height{};
+    bool contains(double px, double py) const {
+        return px >= x && py >= y && px < x + width && py < y + height;
+    }
 };
 
 enum class ActionKind { Key, Shortcut };
-
 struct Key {
-    std::string_view id;
-    std::string_view label;
-    std::string_view secondary_label;
+    std::string id, label, secondary_label;
     Rect bounds;
-    ActionKind action_kind;
-    // Logical key name or shortcut name, never an implicit Steam/evdev numeric code.
-    std::string_view action;
+    ActionKind action_kind{};
+    // Physical key name or shortcut name; never a Steam numeric key code.
+    std::string action;
+};
+struct Layout {
+    std::string id, name;
+    double width{}, height{};
+    std::vector<Key> keys;
 };
 
 } // namespace framekeyboard

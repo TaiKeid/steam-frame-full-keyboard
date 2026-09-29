@@ -1,6 +1,6 @@
 # Acceptance checks
 
-These are planned runtime checks, not claims of completed testing. Record actual results in the parent SteamFrame notes, including date, artifact, target machine and limitations.
+The matrix below tracks target application acceptance. v0.1 core regression tests, isolated kernel delivery, native rendering and overlay visibility are verified; that does not complete the application or controller checks. Record actual results in the parent SteamFrame notes, including date, artifact, target machine and limitations.
 
 ## Visuals
 

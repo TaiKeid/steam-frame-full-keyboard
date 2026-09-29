@@ -6,22 +6,57 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo xkbcommon json-c)
+pkg_check_modules(SDL REQUIRED IMPORTED_TARGET sdl2)
+pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
 
-set(LAYOUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/layouts/en-us.json")
-set(LAYOUT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/default_layout.hpp")
-add_custom_command(
-    OUTPUT "${LAYOUT_HEADER}"
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_layout.py"
-            "${LAYOUT_FILE}" --output "${LAYOUT_HEADER}"
-    DEPENDS "${LAYOUT_FILE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_layout.py"
-    VERBATIM
-    COMMENT "Validate and compile the keyboard layout"
-)
-add_executable(framekeyboard src/main.cpp "${LAYOUT_HEADER}")
-target_include_directories(framekeyboard PRIVATE include "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+file(GLOB LAYOUT_FILES CONFIGURE_DEPENDS layouts/*.json)
+file(GLOB PROFILE_FILES CONFIGURE_DEPENDS layouts/*.json languages/*.json themes/*.json)
+set(PROFILE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/bundled_profiles.hpp")
+add_custom_command(OUTPUT "${PROFILE_HEADER}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_layout.py"
+            ${LAYOUT_FILES}
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_defaults.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
+    DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
+    VERBATIM)
+add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp "${PROFILE_HEADER}")
+target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE)
+target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+
+# Link the matching architecture from the sysroot; embed only the device runtime path.
+if(CMAKE_CROSSCOMPILING)
+    set(OPENVR_LIBRARY "${CMAKE_SYSROOT}/opt/steamvr/bin/linuxarm64/libopenvr_api.so" CACHE FILEPATH "OpenVR library")
+    set(OPENVR_RUNTIME_PATH "/opt/steamvr/bin/linuxarm64")
+else()
+    find_library(OPENVR_LIBRARY openvr_api HINTS
+        "$ENV{HOME}/.local/share/Steam/steamapps/common/SteamVR/bin/linux64"
+        "$ENV{HOME}/.local/share/Steam/ubuntu12_64" REQUIRED)
+    get_filename_component(OPENVR_RUNTIME_PATH "${OPENVR_LIBRARY}" DIRECTORY)
 endif()
-# Rendering, OpenVR and input dependencies are added with their implementation milestones.
-# This bootstrap intentionally has no device access, injection or autostart.
+add_library(overlay_texture third_party/overlay_texture/vk_texture.cpp)
+target_include_directories(overlay_texture PUBLIC third_party/overlay_texture third_party/openvr)
+target_link_libraries(overlay_texture PUBLIC PkgConfig::VULKAN "${OPENVR_LIBRARY}")
+add_executable(framekeyboard src/main.cpp src/preview.cpp src/vr.cpp)
+target_link_libraries(framekeyboard PRIVATE keyboard_core overlay_texture PkgConfig::SDL)
+target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(keyboard-tests tests/keyboard_tests.cpp)
+    target_link_libraries(keyboard-tests PRIVATE keyboard_core)
+    target_compile_options(keyboard-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME keyboard-core COMMAND keyboard-tests)
+    # Intentionally excluded from CTest: requires an accessible kernel uinput device.
+    add_executable(uinput-smoke-test tests/uinput_smoke.cpp)
+    target_link_libraries(uinput-smoke-test PRIVATE keyboard_core)
+endif()
+install(TARGETS framekeyboard RUNTIME DESTINATION bin)
+install(DIRECTORY layouts languages themes config DESTINATION share/framekeyboard)
+install(FILES third_party/README.md DESTINATION share/framekeyboard/licenses)
+install(FILES third_party/openvr/LICENSE DESTINATION share/framekeyboard/licenses RENAME OpenVR-LICENSE)
+install(FILES third_party/overlay_texture/LICENSE DESTINATION share/framekeyboard/licenses RENAME overlay-texture-LICENSE)

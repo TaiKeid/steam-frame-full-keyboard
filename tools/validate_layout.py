@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate layout geometry and optionally generate a C++20 data header."""
+"""Validate bundled layout geometry before embedding the JSON resources."""
 import argparse
 import json
 import math
@@ -58,39 +58,14 @@ def validate(data):
     return data
 
 
-def cpp_string(value):
-    return json.dumps(value, ensure_ascii=False)
-
-
-def compile_header(data):
-    lines = ["// Generated from layout JSON. Do not edit.", "#pragma once", "#include <array>",
-             '#include "framekeyboard/layout.hpp"', "namespace framekeyboard::default_layout {",
-             f'inline constexpr std::string_view name = {cpp_string(data["name"])};',
-             f'inline constexpr double width = {data["width"]};',
-             f'inline constexpr double height = {data["height"]};',
-             f'inline constexpr std::array<Key, {len(data["keys"])}> keys = {{{{']
-    for key in data["keys"]:
-        bounds = ", ".join(str(key[k]) for k in ("x", "y", "width", "height"))
-        kind = "Key" if key["action"]["kind"] == "key" else "Shortcut"
-        fields = [cpp_string(key["id"]), cpp_string(key["label"]),
-                  cpp_string(key.get("secondary_label", "")), "{" + bounds + "}",
-                  f"ActionKind::{kind}", cpp_string(key["action"]["value"])]
-        lines.append("    {" + ", ".join(fields) + "},")
-    lines += ["}};", "} // namespace framekeyboard::default_layout", ""]
-    return "\n".join(lines)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("layout", type=Path)
-    parser.add_argument("--output", type=Path)
+    parser.add_argument("layouts", type=Path, nargs="+")
     args = parser.parse_args()
     try:
-        data = validate(json.loads(args.layout.read_text(encoding="utf-8")))
-        if args.output:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(compile_header(data), encoding="utf-8")
-        print(f'Valid: {data["name"]}, {len(data["keys"])} keys, no overlapping hit areas')
+        for path in args.layouts:
+            data = validate(json.loads(path.read_text(encoding="utf-8")))
+            print(f'Valid: {data["name"]}, {len(data["keys"])} keys, no overlapping hit areas')
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Layout error: {error}", file=sys.stderr)
         return 1

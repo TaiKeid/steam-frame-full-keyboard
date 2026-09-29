@@ -17,5 +17,8 @@
   "font_families": [
     "Noto Sans",
     "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
   ]
 }

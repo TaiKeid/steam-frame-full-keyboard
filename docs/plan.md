@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.1.0 implementation status
+
+Implemented: runtime profile loading and persistence, native preview and PNG export, full-size US/international layouts, English/German legends, two themes, profile controls, key state, uinput, and a manually launched Vulkan/OpenVR panel. Host and Frame core tests, isolated Frame kernel-input tests and a short visible-overlay smoke test passed. Live controller interaction, Brave focus/delivery and stock takeover remain pending. See README for the supported launch path and limits.
+
 ## Milestones
 
 ### 0. Repository and build foundation
@@ -20,22 +24,22 @@ Layouts, languages and themes must load from user-editable config files. Provide
 
 ### 1. Configuration foundation
 
-- [ ] Implement versioned runtime JSON loading for settings, layouts, languages and themes.
-- [ ] Discover bundled and user profiles, with stable IDs and validated overrides.
-- [ ] Provide a profile catalog and selection model shared by preview and VR UI.
-- [ ] Keep geometry, language mapping and appearance independent; no fixed key count.
-- [ ] Prepare transactional switching, release-all handling and atomic persistence.
-- [ ] Retain the working configuration on invalid files and provide a built-in fallback.
+- [x] Implement versioned runtime JSON loading for settings, layouts, languages and themes.
+- [x] Discover bundled and user profiles, with stable IDs and validated overrides.
+- [x] Provide a profile catalog and selection model shared by preview and VR UI.
+- [x] Keep geometry, language mapping and appearance independent; no fixed key count.
+- [x] Prepare transactional switching, release-all handling and atomic persistence.
+- [x] Retain the working configuration on invalid files and provide a built-in fallback.
 
 Exit condition: host checks load an added layout, language and theme without rebuilding, reject invalid profiles, and preserve selection across restart. No input injection is needed for this milestone.
 
 ### 2. Native rendering reference
 
-- [ ] Implement layout-to-canvas geometry and hit testing using the same coordinates.
-- [ ] Render the full keyboard to an image using Cairo and a bundled or verified target font.
-- [ ] Reproduce case, gradients, rounded caps, 3.5px sides and fixed-size 3px press travel.
+- [x] Implement layout-to-canvas geometry and hit testing using the same coordinates.
+- [x] Render the full keyboard to an image using Cairo and a bundled or verified target font.
+- [x] Reproduce case, gradients, rounded caps, 3.5px sides and fixed-size 3px press travel.
 - [ ] Render normal, hovered, pressed, latched and disabled states; no exposed upper side during a press.
-- [ ] Add a host preview mode and image export without any OS input injection.
+- [x] Add a host preview mode and image export without any OS input injection.
 - [ ] Compare the native image against the approved HTML before VR interaction work.
 
 Exit condition: the native renderer matches the approved design and key hit regions match the visible caps. Redraw only on state changes and while animations are active.
@@ -44,9 +48,9 @@ Exit condition: the native renderer matches the approved design and key hit regi
 
 This is the first device milestone. Prove routing with a small set of keys before implementing the full keyboard behavior.
 
-- [ ] Add a standalone OpenVR overlay with a Vulkan texture and pointer hit testing.
-- [ ] Keep the stock keyboard available; initially launch ours manually.
-- [ ] Add an input backend interface and a receiver that records only synthetic test events.
+- [x] Add a standalone OpenVR overlay with a Vulkan texture and pointer hit testing.
+- [x] Keep the stock keyboard available; initially launch ours manually.
+- [x] Add an input backend interface and a receiver that records only synthetic test events.
 - [ ] Implement a uinput candidate and investigate input-device discovery/startup timing.
 - [ ] Compare Steam's direct key-state API through an optional bridge if focus/routing requires it.
 - [ ] Verify real Enter, Tab, Ctrl+A, Copy and Paste in both Brave modes with disposable text.

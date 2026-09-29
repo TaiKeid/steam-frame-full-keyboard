@@ -16,7 +16,7 @@
     {
       "id": "german",
       "name": "Deutsch",
-      "layout": "en-us-full",
+      "layout": "international-full",
       "language": "de-de",
       "theme": "graphite"
     }

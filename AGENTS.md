@@ -15,3 +15,6 @@ Follow the parent SteamFrame instructions. This file describes project engineeri
 - Private Steam interfaces must be feature-checked with a fallback to the stock keyboard. Avoid patching installed Steam files.
 - Vendor external code only with a pinned revision and its license/attribution. The sibling overlay is a reference, not an implicit build dependency.
 - Git stays local until publication is requested. Do not copy build sysroots, credentials, machine logs, or recovery backups into Git.
+
+- Use `.clang-format` for our C++ files. Keep functions focused and comment non-obvious state ownership, coordinate/code conversions and cleanup ordering. Do not reformat vendored code without reason.
+- Run `ctest --test-dir build/host --output-on-failure` for core changes. Run the separate uinput smoke test only against its exclusively grabbed device; never turn it into a test of the user's focused app.
