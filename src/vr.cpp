@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/placement_store.hpp"
+#include "framekeyboard/vr_haptics.hpp"
 #include "openvr.h"
 #include "vk_texture.h"
 
@@ -14,7 +15,6 @@
 
 namespace framekeyboard {
 namespace {
-enum class KeyFeedback { Hover, Click };
 void check(vr::EVROverlayError error, const char* operation) {
     if (error != vr::VROverlayError_None) {
         throw std::runtime_error(std::string(operation) + ": " +
@@ -281,18 +281,6 @@ class VrPanel {
             vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_CurrentUniverseId_Uint64, &error);
         return error == vr::TrackedProp_Success ? id : 0;
     }
-    void key_haptic(KeyFeedback feedback) {
-        // The overlay API routes feedback through SteamVR's laser mouse, without
-        // registering input actions or claiming controller input from the dashboard.
-        const bool hover = feedback == KeyFeedback::Hover;
-        const auto error = vr::VROverlay()->TriggerLaserMouseHapticVibration(
-            handle_, hover ? .004f : .025f, hover ? 240.f : 150.f, hover ? .1f : 1.f);
-        if (error != vr::VROverlayError_None && !haptic_error_reported_) {
-            std::cerr << "Key haptics unavailable: "
-                      << vr::VROverlay()->GetOverlayErrorNameFromEnum(error) << '\n';
-            haptic_error_reported_ = true;
-        }
-    }
     void submit(PanelRenderer& renderer) {
         const auto rgba = renderer.rgba();
         std::string error;
@@ -303,7 +291,7 @@ class VrPanel {
     vr::VROverlayHandle_t handle() const { return handle_; }
 
   private:
-    bool connected_{}, haptic_error_reported_{};
+    bool connected_{};
     vr::VROverlayHandle_t handle_{};
     VulkanContext vulkan_;
     OverlayTexture texture_;
@@ -312,6 +300,14 @@ class VrPanel {
 int run_vr(App& app, VrInstance& instance, double duration) {
     VrPanel panel;
     panel.connect();
+    VrHaptics haptics;
+    auto manifest = fs::canonical("/proc/self/exe").parent_path().parent_path() /
+                    "share/framekeyboard/vr/actions.json";
+    if (!fs::is_regular_file(manifest)) {
+        manifest = fs::path(FRAMEKEYBOARD_SOURCE_DIR) / "vr/actions.json";
+    }
+    haptics.connect(manifest);
+    KeyHaptics feedback;
     GrabInput grip_input;
     if (!grip_input.connect()) {
         app.report_status("Native grip unavailable; use Move / align.");
@@ -342,6 +338,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     HorizonAlignment horizon;
     LaserDrag drag;
     auto stop_drag = [&](bool finish_alignment = false) {
+        feedback.cancel();
         if (drag.active()) {
             drag.stop();
             app.set_dragging(false);
@@ -394,23 +391,14 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 app.cancel();
             }
         }
-        std::optional<KeyFeedback> feedback;
-        auto request_feedback = [&](KeyFeedback kind) {
-            if (event.trackedDeviceIndex >= vr::k_unMaxTrackedDeviceCount ||
-                vr::VRSystem()->GetTrackedDeviceClass(event.trackedDeviceIndex) !=
-                    vr::TrackedDeviceClass_Controller) {
-                return;
-            }
-            // Press/release wins over hover events in the same frame, so a hover
-            // pulse cannot replace the stronger click when the pointer moves.
-            if (!feedback || kind == KeyFeedback::Click) {
-                feedback = kind;
-            }
-        };
         while (vr::VROverlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
             const double x = event.data.mouse.x, y = panel_height - event.data.mouse.y;
             const auto pointer = event.data.mouse.cursorIndex;
+            const auto device = event.trackedDeviceIndex;
+            const bool controller =
+                device < vr::k_unMaxTrackedDeviceCount &&
+                vr::VRSystem()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller;
             switch (event.eventType) {
             case vr::VREvent_MouseMove: {
                 if (event.trackedDeviceIndex < hovered_devices.size()) {
@@ -418,8 +406,8 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                         x >= 0 && x < panel_width && y >= 0 && y < panel_height;
                 }
                 if (!drag.active()) {
-                    if (app.move(pointer, x, y)) {
-                        request_feedback(KeyFeedback::Hover);
+                    if (app.move(pointer, x, y) && controller) {
+                        feedback.hover(device);
                     }
                 }
                 break;
@@ -432,8 +420,8 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     });
                     if (!grabbing) {
                         const bool key_pressed = app.down(pointer, x, y, now);
-                        if (key_pressed) {
-                            request_feedback(KeyFeedback::Click);
+                        if (key_pressed && controller) {
+                            feedback.press(pointer, device);
                         }
                     }
                 }
@@ -441,7 +429,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             case vr::VREvent_MouseButtonUp:
                 if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
                     if (app.up(pointer, x, y)) {
-                        request_feedback(KeyFeedback::Click);
+                        feedback.release(pointer);
                     }
                 }
                 break;
@@ -452,6 +440,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     hovered_devices.fill(false);
                 }
                 if (!drag.active()) {
+                    feedback.cancel();
                     app.cancel();
                 }
                 break;
@@ -486,13 +475,16 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     // horizon assistance, so regrabbing never snaps the keyboard.
                     placement.restore(displayed.transform(), displayed.width());
                     horizon.reset();
+                    feedback.cancel();
                     app.set_dragging(true);
                     break;
                 }
             }
         }
-        if (feedback && !drag.active() && visible) {
-            panel.key_haptic(*feedback);
+        for (const auto& [device, kind] : feedback.take(now)) {
+            if (!drag.active() && visible) {
+                haptics.send(device, kind);
+            }
         }
         if (app.take_recenter()) {
             stop_drag();

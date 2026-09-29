@@ -50,7 +50,7 @@ Transform HorizonAlignment::update(const Transform& raw, double now) {
         from_correction_ = correction_;
         started_ = now;
     }
-    const double t = std::clamp(now - started_, 0.0, 1.0);
+    const double t = std::clamp((now - started_) / .5, 0.0, 1.0);
     const double ease = t * t * (3 - 2 * t);
     // Track the live roll while easing in. On leaving the capture range, ease
     // the existing correction away instead of jumping back to the raw pose.

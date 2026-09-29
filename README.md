@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.3.5 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.3.6 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -40,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.3.5-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.3.6-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -48,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.3.5-aarch64.tar.gz
-./framekeyboard-0.3.5-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.3.6-aarch64.tar.gz
+./framekeyboard-0.3.6-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English. Pause typing disables output. It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -74,13 +74,13 @@ To move the keyboard, point the controller laser anywhere on it and hold the **g
 
 While grabbing, push that controller’s **thumbstick up** to move the keyboard farther along the laser, or **down** to bring it closer. Either hand works; the other controller’s stick has no effect. Release the stick to stop changing depth, then release grab to place the keyboard.
 
-When the sideways lean is within 5 degrees of the horizon, the keyboard eases level over one second, including while grabbed. It preserves its forward/back tilt, heading, position and size. Releasing grab lets the easing finish; tilting outside the range smoothly releases the alignment.
+When the sideways lean is within 5 degrees of the horizon, the keyboard eases level over 500 ms, including while grabbed. It preserves its forward/back tilt, heading, position and size. Releasing grab lets the easing finish; tilting outside the range smoothly releases the alignment.
 
 Select **Move / align** in the top row. Position buttons move 2.5 cm per tap; rotation buttons turn 5 degrees; size buttons change width by 5 cm. **Face me** keeps the current position and size while turning the panel toward your head and leveling it. **Done** returns to the keys.
 
 **Recenter**, **Reset position**, or launching the app while it is already running brings the keyboard in front of your current horizontal viewing direction, preserving its size. Closing saves position, rotation and size to `~/.config/framekeyboard/placement.json`; opening a new instance restores them. First launch, invalid saved data, or a different known tracking space falls back to recentering. Brief tracking loss hides the panel and preserves its position. A tracking-origin reset recenters it.
 
-Accepted key presses and releases produce a firm haptic click through the controller laser. Entering a different key produces a lighter, higher-frequency pulse. Staying over the same key, dragging, toolbar controls, duplicate events and key repeat do not produce pulses.
+Accepted key presses and releases give a haptic click on the controller that pressed the key. The release pulse is shorter to balance its perceived strength. Entering a different key produces a lighter, higher-frequency pulse. Staying over the same key, dragging, toolbar controls, duplicate events and key repeat do not produce pulses.
 
 Launching again sends a request to the existing process before connecting to SteamVR. It returns to the keys, releases held modifiers, and preserves your typing/pause choice. The first process keeps its language/backend launch options; later launch flags do not change them. Close the existing panel first if you need to change its input backend or target language.
 

@@ -141,13 +141,13 @@ int main(int argc, char** argv) {
                 return std::atan2(pose.m[1][0], pose.m[1][1]);
             };
             const double early = roll(transform(panel));
-            require(early > .04 && early < .0873, "alignment must ease rather than snap");
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            require(early > .02 && early < .0873, "alignment must ease rather than snap");
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             const double middle = roll(transform(panel));
             require(middle > .005 && middle < early, "roll must move toward the horizon");
-            std::this_thread::sleep_for(std::chrono::milliseconds(750));
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
             const auto after = transform(panel);
-            require(std::abs(roll(after)) < .00001, "roll must finish level after one second");
+            require(std::abs(roll(after)) < .00001, "roll must finish level after 500 ms");
             for (int row = 0; row < 3; ++row) {
                 for (int col : {2, 3}) {
                     require(std::abs(before.m[row][col] - after.m[row][col]) < .00001,

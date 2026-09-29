@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/feedback.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include <fstream>
@@ -154,10 +155,9 @@ void horizon_tests() {
         fk::HorizonAlignment horizon;
         const auto raw = rolled(degrees);
         near(roll_degrees(horizon.update(raw, 10)), degrees, "alignment starts without a jump");
-        near(roll_degrees(horizon.update(raw, 10.25)), degrees * .84375,
-             "one-second smoothstep eases in");
-        near(roll_degrees(horizon.update(raw, 10.5)), degrees * .5, "halfway roll");
-        const auto aligned = horizon.update(raw, 11);
+        near(roll_degrees(horizon.update(raw, 10.125)), degrees * .84375, "500 ms smoothstep eases in");
+        near(roll_degrees(horizon.update(raw, 10.25)), degrees * .5, "halfway roll");
+        const auto aligned = horizon.update(raw, 10.5);
         for (int r = 0; r < 3; ++r) {
             for (int c = 0; c < 4; ++c) {
                 near(aligned[r][c], level[r][c], "alignment preserves heading, pitch and position");
@@ -174,13 +174,14 @@ void horizon_tests() {
     fk::HorizonAlignment horizon;
     near(roll_degrees(horizon.update(rolled(5.01), 20)), 5.01, "outside range is untouched");
     horizon.update(rolled(4), 21);
-    const auto partial = horizon.update(rolled(4), 21.5);
+    const auto partial = horizon.update(rolled(4), 21.25);
     near(roll_degrees(partial), 2, "partial correction");
-    near(roll_degrees(horizon.update(rolled(6), 21.5)), 4, "leaving range retains correction initially");
-    near(roll_degrees(horizon.update(rolled(6), 22)), 5, "leaving range eases correction away");
-    near(roll_degrees(horizon.update(rolled(6), 22.5)), 6, "larger deliberate lean is restored");
+    near(roll_degrees(horizon.update(rolled(6), 21.25)), 4,
+         "leaving range retains correction initially");
+    near(roll_degrees(horizon.update(rolled(6), 21.5)), 5, "leaving range eases correction away");
+    near(roll_degrees(horizon.update(rolled(6), 21.75)), 6, "larger deliberate lean is restored");
     horizon.update(rolled(-4), 23);
-    near(roll_degrees(horizon.update(rolled(-4), 24)), 0, "reentry aligns opposite roll");
+    near(roll_degrees(horizon.update(rolled(-4), 23.5)), 0, "reentry aligns opposite roll");
     horizon.reset();
     near(roll_degrees(horizon.update(partial, 25)), 2, "cancel freezes visible intermediate pose");
     const fk::Transform flat{{{1, 0, 0, 0}, {0, 0, 1, 1}, {0, -1, 0, 2}}};
@@ -331,6 +332,31 @@ void key_feedback_tests() {
         }
     }
     throw std::runtime_error("A key hit region missing");
+}
+void haptic_routing_tests() {
+    fk::KeyHaptics feedback;
+    using Pulse = std::pair<unsigned, fk::KeyFeedback>;
+    feedback.hover(2);
+    feedback.press(0, 1);
+    feedback.hover(1);
+    require(feedback.take(1) ==
+                std::vector<Pulse>{{1, fk::KeyFeedback::Press}, {2, fk::KeyFeedback::Hover}},
+            "click wins only on its controller; other hand keeps its hover");
+    feedback.hover(1);
+    require(feedback.take(1.01).empty(), "hover cannot extend a click into the next frame");
+    feedback.hover(1);
+    require(feedback.take(1.04) == std::vector<Pulse>{{1, fk::KeyFeedback::Hover}},
+            "hover resumes after click");
+    feedback.press(1, 2);
+    feedback.release(0);
+    require(feedback.take(2) ==
+                std::vector<Pulse>{{1, fk::KeyFeedback::Release}, {2, fk::KeyFeedback::Press}},
+            "release belongs to original press hand while other hand presses");
+    feedback.release(0);
+    require(feedback.take(3).empty(), "duplicate release cannot vibrate");
+    feedback.cancel();
+    feedback.release(1);
+    require(feedback.take(4).empty(), "canceled key has no release pulse");
 }
 void grip_tests() {
     const auto released = head();
@@ -497,6 +523,7 @@ int main() {
         grip_tests();
         persistence_tests();
         key_feedback_tests();
+        haptic_routing_tests();
         instance_tests();
         ui_tests();
         typing_tests();

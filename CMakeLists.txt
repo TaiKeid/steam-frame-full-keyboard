@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.3.5 LANGUAGES CXX)
+project(framekeyboard VERSION 0.3.6 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -43,7 +43,8 @@ target_link_libraries(overlay_texture PUBLIC PkgConfig::VULKAN "${OPENVR_LIBRARY
 add_executable(framekeyboard src/main.cpp src/preview.cpp src/vr.cpp)
 target_link_libraries(framekeyboard PRIVATE keyboard_core overlay_texture PkgConfig::SDL)
 target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
-target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}"
+    FRAMEKEYBOARD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
 
 include(CTest)
@@ -68,12 +69,16 @@ if(BUILD_TESTING)
     add_executable(vr-panel-probe tests/vr_panel_probe.cpp)
     target_link_libraries(vr-panel-probe PRIVATE keyboard_core overlay_texture)
     set_target_properties(vr-panel-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+    # Opt-in: sends physical haptic output, so it must not run in CTest.
+    add_executable(haptics-probe tests/haptics_probe.cpp)
+    target_link_libraries(haptics-probe PRIVATE keyboard_core overlay_texture)
+    set_target_properties(haptics-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
     # Intentionally excluded from CTest: requires an accessible kernel uinput device.
     add_executable(uinput-smoke-test tests/uinput_smoke.cpp)
     target_link_libraries(uinput-smoke-test PRIVATE keyboard_core)
 endif()
 install(TARGETS framekeyboard RUNTIME DESTINATION bin)
-install(DIRECTORY layouts languages themes config DESTINATION share/framekeyboard)
+install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
 install(FILES third_party/README.md DESTINATION share/framekeyboard/licenses)
 install(FILES third_party/openvr/LICENSE DESTINATION share/framekeyboard/licenses RENAME OpenVR-LICENSE)
 install(FILES third_party/overlay_texture/LICENSE DESTINATION share/framekeyboard/licenses RENAME overlay-texture-LICENSE)

@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.6 follow-up
+
+Reduce horizon easing to 500 ms. Route haptics explicitly to the originating controller with output-only actions, retain press ownership for release, tune release strength independently, and prevent hover from extending clicks.
+
 ## Version 0.3.5 follow-up
 
 Ease sideways lean to the horizon over one second when within 5 degrees. Preserve forward/back tilt and position, assist during grab and after release, and capture/save the displayed pose. Keep the subtle hover pulse from 0.3.4.
