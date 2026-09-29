@@ -55,8 +55,9 @@ class KeyboardState {
   public:
     explicit KeyboardState(KeySink& sink) : sink_(sink) {}
     ~KeyboardState();
-    void down(unsigned pointer, const Key& key, double now);
-    void up(unsigned pointer);
+    bool down(unsigned pointer, const Key& key, double now);
+    bool up(unsigned pointer);
+    bool pointer_pressed(unsigned pointer) const { return presses_.contains(pointer); }
     void cancel_all();
     bool tick(double now);
     bool pressed(const std::string& id) const;

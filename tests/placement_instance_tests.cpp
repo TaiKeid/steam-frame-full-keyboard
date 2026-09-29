@@ -1,5 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/grip.hpp"
+#include "framekeyboard/placement_store.hpp"
+#include <fstream>
 
 #include <chrono>
 #include <cmath>
@@ -127,6 +129,93 @@ void drag_tests() {
     panel.recenter(head());
     near(panel.transform()[0][3], 1, "recenter resets dragged position");
     near(panel.transform()[1][1], 1, "recenter levels dragged rotation");
+}
+void persistence_tests() {
+    TemporaryDirectory temp;
+    const auto path = temp.path / "placement.json";
+    require(!fk::load_placement(path), "first launch has no saved placement");
+    fk::PanelPlacement original;
+    original.recenter(head());
+    original.adjust(fk::PlacementAction::Right);
+    original.adjust(fk::PlacementAction::TiltUp);
+    original.adjust(fk::PlacementAction::RollRight);
+    original.adjust(fk::PlacementAction::Larger);
+    fk::save_placement(path, {original.transform(), original.width(), 18446744073709551615ULL});
+    const auto saved = fk::load_placement(path);
+    require(saved && saved->universe == 18446744073709551615ULL, "universe ID retains all bits");
+    fk::PanelPlacement reopened;
+    reopened.restore(saved->transform, saved->width);
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near(reopened.transform()[r][c], original.transform()[r][c], "reopen preserves pose");
+        }
+    }
+    near(reopened.width(), original.width(), "reopen preserves width");
+    reopened.recenter(head());
+    near(reopened.transform()[1][1], 1, "explicit relaunch can recenter restored pose");
+    near(reopened.width(), original.width(), "recenter retains saved size");
+    auto invalid = *saved;
+    invalid.transform[0][0] *= 2;
+    bool rejected = false;
+    try {
+        fk::save_placement(path, invalid);
+    } catch (const std::exception&) {
+        rejected = true;
+    }
+    require(rejected, "scaled transform rejected");
+    near(fk::load_placement(path)->transform[0][0], saved->transform[0][0],
+         "failed save preserves prior file");
+    for (const std::string bad : {"{", "{}", "{\"schema_version\":2}"}) {
+        {
+            std::ofstream file(path);
+            file << bad;
+        }
+        rejected = false;
+        try {
+            fk::load_placement(path);
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        require(rejected, "corrupt or unsupported placement rejected");
+    }
+    fk::save_placement(path, *saved);
+    require(fk::load_placement(path).has_value(), "fresh valid save replaces corrupt placement");
+}
+void key_feedback_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    fk::NullSink sink;
+    fk::App app(options, sink);
+    require(!app.down(0, -1, -1, 0), "background press has no key feedback");
+    require(!app.down(0, 50, 33, 0), "toolbar press has no key feedback");
+    require(!app.up(0, -1, -1), "toolbar release has no key feedback");
+    app.cancel();
+    const auto view = app.view();
+    for (int y = 96; y < fk::panel_height; y += 2) {
+        for (int x = 0; x < fk::panel_width; x += 2) {
+            const auto* key = app.renderer.hit_key(view, x, y);
+            if (!key || key->id != "KeyA") {
+                continue;
+            }
+            require(app.move(0, x, y), "entering a key requests hover feedback");
+            require(!app.move(0, x, y), "stationary hover does not buzz");
+            require(app.move(1, x, y), "each pointer tracks hover independently");
+            require(app.down(0, x, y, 0), "key press requests feedback even in input-disabled preview");
+            require(!app.down(0, x, y, .01), "duplicate down does not repeat feedback");
+            require(!app.move(0, -1, -1), "leaving a key does not pulse");
+            require(!app.move(0, x, y), "held pointer does not generate hover pulses");
+            require(app.up(0, -1, -1), "release outside captured key still clicks");
+            require(!app.up(0, x, y), "duplicate release does not click");
+            require(app.down(0, x, y, .02), "next press requests new feedback");
+            app.set_dragging(true);
+            require(!app.up(0, x, y), "canceled press has no release click");
+            require(!app.move(1, x, y), "dragging suppresses hover feedback");
+            require(!app.down(1, x, y, .03), "dragging suppresses key feedback");
+            return;
+        }
+    }
+    throw std::runtime_error("A key hit region missing");
 }
 void grip_tests() {
     const auto released = head();
@@ -289,6 +378,8 @@ int main() {
         placement_tests();
         drag_tests();
         grip_tests();
+        persistence_tests();
+        key_feedback_tests();
         instance_tests();
         ui_tests();
         typing_tests();

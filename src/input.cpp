@@ -321,13 +321,13 @@ void KeyboardState::release(int code) {
         references_.erase(found);
     }
 }
-void KeyboardState::down(unsigned pointer, const Key& key, double now) {
+bool KeyboardState::down(unsigned pointer, const Key& key, double now) {
     if (presses_.contains(pointer)) {
-        return;
+        return false;
     }
     // A second pointer must not turn Copy into Ctrl+Shift+C while a chord is held.
     if (key.action_kind == ActionKind::Shortcut && !references_.empty()) {
-        return;
+        return false;
     }
     Press press;
     press.id = key.id;
@@ -336,7 +336,7 @@ void KeyboardState::down(unsigned pointer, const Key& key, double now) {
     if (is_modifier(code)) {
         press.modifier = code;
         presses_.emplace(pointer, std::move(press));
-        return;
+        return true;
     }
     // A modifier tap latches visually but emits nothing until used. This avoids
     // leaving Ctrl physically held while the user navigates another application.
@@ -373,11 +373,13 @@ void KeyboardState::down(unsigned pointer, const Key& key, double now) {
     if (code == KEY_NUMLOCK) {
         num_ = !num_;
     }
+    return true;
 }
-void KeyboardState::up(unsigned pointer) {
+
+bool KeyboardState::up(unsigned pointer) {
     auto found = presses_.find(pointer);
     if (found == presses_.end()) {
-        return;
+        return false;
     }
     auto& press = found->second;
     if (press.modifier && !press.used) {
@@ -390,7 +392,9 @@ void KeyboardState::up(unsigned pointer) {
         release(*it);
     }
     presses_.erase(found);
+    return true;
 }
+
 void KeyboardState::cancel_all() {
     std::exception_ptr failure;
     // Release non-modifiers first; try every release even if one backend call fails.

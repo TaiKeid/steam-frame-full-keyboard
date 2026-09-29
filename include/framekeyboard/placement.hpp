@@ -28,6 +28,7 @@ class PanelPlacement {
     void face(const Transform& head);
     Transform transform() const;
     void set_transform(const Transform& world);
+    void restore(const Transform& world, double width);
     double width() const { return width_; }
     bool ready() const { return ready_; }
 

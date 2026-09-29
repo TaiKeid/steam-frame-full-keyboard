@@ -61,3 +61,7 @@ Persist successful selection to `config.json` using an atomic write. If saving f
 ## Implementation order
 
 Profile parsing, catalog discovery, native rendering and VR selector code are implemented. Next verify controller interaction and real language output in both target sessions. See the plan and acceptance checks for the remaining integration work.
+
+## Saved VR placement
+
+`placement.json` is separate from profile selection and honors `--config-dir`. Schema 1 stores `space: "standing"`, a decimal-string `universe` ID, a three-by-four rigid `transform`, and `width_m` between 0.45 and 2.0. The app writes it atomically on orderly close, including SIGTERM. It stores position, orientation and size, with no key input data. A missing or invalid file recenters on first launch. A relaunch of an already running instance always requests recentering, without reloading this file. The next close saves the new position. Forced termination cannot save the latest movement.

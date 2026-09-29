@@ -32,9 +32,12 @@ class App {
   public:
     App(const Options& options, KeySink& sink);
     PanelView view() const;
-    void down(unsigned pointer, double x, double y, double now);
-    void move(unsigned pointer, double x, double y);
-    void up(unsigned pointer, double x, double y);
+    // True only for a newly accepted keyboard key, so VR can provide haptics.
+    bool down(unsigned pointer, double x, double y, double now);
+    // True when an unpressed pointer enters a different keyboard key.
+    bool move(unsigned pointer, double x, double y);
+    // True when this pointer releases a captured keyboard key, even outside it.
+    bool up(unsigned pointer, double x, double y);
     void cancel();
     bool tick(double now);
     void paint(double now);
@@ -46,6 +49,7 @@ class App {
     std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
     void reload();
+    const fs::path& config_dir() const { return options_.config_dir; }
     bool quitting() const { return quit_; }
     bool take_recenter();
     bool dirty{true};

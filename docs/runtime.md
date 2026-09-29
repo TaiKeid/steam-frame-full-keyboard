@@ -8,7 +8,7 @@ Explicit backend launches start paused unless `--start-enabled` is included. Dev
 
 libei owns only a keyboard-capable device. It sends evdev down/up transitions; repeat belongs to the compositor. A paused, removed or disconnected device disables typing, clears held state, and requires reopening the app. No events or typed text are logged.
 
-The panel starts world-fixed, 1.15 meters wide, 85 cm ahead and 25 cm below the headset. Recenter uses the current horizontal heading, removing head pitch and roll. A valid tracked headset pose is required before showing it. The panel hides and releases keys when tracking is lost, then recenters after tracking returns. Tracking-origin reset events also request recentering.
+Without a saved placement, the panel starts world-fixed, 1.15 meters wide, 85 cm ahead and 25 cm below the headset. Recenter uses the current horizontal heading, removing head pitch and roll. A valid tracked headset pose is required before showing it. The panel hides and releases keys when tracking is lost, then returns to its position when tracking resumes. Tracking-origin reset events also request recentering.
 
 Point the laser anywhere on the keyboard and squeeze the controller grab/grip button to move and rotate it. Release grab to place it. There is no move handle and trigger clicks remain typing actions. Frame's dashboard masks both legacy controller input and modern grip actions. The native render-model API still exposes physical grip travel through the `button_grip` component. This version supports the named left/right Frame controller models, with 1-degree press and 0.5-degree release thresholds across their 9.5-degree travel. Touch alone does not grab. Startup or reconnect while squeezed requires a release before grabbing. Unknown models or missing component state refuse capture; Move / align remains available. This path does not change SteamVR's global input settings. Tracked poses are read independently; the initial controller-to-panel transform preserves the grabbed offset. Input/tracking loss, hide, recenter and a 30-second timeout end capture.
 
@@ -74,5 +74,12 @@ Keep `~/.config/framekeyboard` to preserve custom profiles. Removing the applica
 
 `vr-panel-probe` is an opt-in on-device check. It requires the exact PID of a direct-binary test instance with no `--input` or `--start-enabled` flags and confirms overlay ownership before posting UI events. `--exercise PID` clicks only Move / align controls and checks the resulting overlay transform/width. After relaunching the keyboard, `--check-centered PID` verifies the same owner remains visible with level rotation. Do not run it on a user typing session or a different keyboard version.
 
-
 `ei-target-probe` is an opt-in Frame test, excluded from CTest. It maps its own disposable Xwayland window, verifies that exact window has keyboard focus before every emitted event, and checks A, Enter and Ctrl+A down/up delivery through Gamescope. It does not read other windows, clipboard data or browser fields. Core tests also cover enabled launch, pause on backend loss, typing preservation across relaunch, drag key suppression, no-jump grabs, controller translation/rotation and recenter after dragging.
+
+## Placement persistence and key feedback
+
+Closing the keyboard atomically saves its position, rotation and size in the selected config directory’s `placement.json`. Opening it from a stopped state restores that pose. Opening the app while its process already runs requests recentering and keeps its size. Brief tracking loss preserves placement; a known tracking-space mismatch or origin reset recenters it. Corrupt saved data is ignored. SIGKILL cannot save the latest movement.
+
+Key presses and releases use a 25 ms, 150 Hz, full-amplitude pulse through `TriggerLaserMouseHapticVibration`. Entering a different key uses an 8 ms, 240 Hz pulse at 0.4 amplitude. Preview keys also provide feedback. Stationary hover, repeat, toolbar controls, canceled/duplicate events and dragging do not pulse. Hover from a pointer holding a key is suppressed, and clicks take priority within a frame. Haptic failure logs once and does not prevent typing.
+
+The live probe also supports `--snapshot PID FILE` to capture pose/width read-only, `--check-snapshot PID FILE` to compare a reopened input-disabled instance, and `--watch-close PID FILE` to observe its final live pose while the user closes it. The latter times out after 60 seconds. Synthetic clicks still require an input-disabled instance.

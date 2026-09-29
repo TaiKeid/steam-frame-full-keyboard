@@ -134,9 +134,10 @@ PanelView App::view() const {
     }
     return v;
 }
-void App::move(unsigned pointer, double x, double y) {
+bool App::move(unsigned pointer, double x, double y) {
     const auto v = view();
     std::string id;
+    bool keyboard_key = false;
     for (const auto& control : v.controls) {
         if (control.bounds.contains(x, y)) {
             id = control.id;
@@ -145,32 +146,39 @@ void App::move(unsigned pointer, double x, double y) {
     if (id.empty()) {
         if (const auto* key = renderer.hit_key(v, x, y)) {
             id = key->id;
+            keyboard_key = true;
         }
     }
     if (hovered_[pointer] != id) {
         hovered_[pointer] = id;
         dirty = true;
+        return keyboard_key && !dragging_ && !keyboard_.pointer_pressed(pointer);
     }
+    return false;
 }
-void App::down(unsigned pointer, double x, double y, double now) {
+
+bool App::down(unsigned pointer, double x, double y, double now) {
     if (dragging_) {
-        return;
+        return false;
     }
     move(pointer, x, y);
     const auto v = view();
     for (const auto& control : v.controls) {
         if (control.bounds.contains(x, y)) {
             pressed_controls_[pointer] = control.id;
-            return;
+            return false;
         }
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
-        keyboard_.down(pointer, *key, now);
-        dirty = true;
+        const bool accepted = keyboard_.down(pointer, *key, now);
+        dirty |= accepted;
+        return accepted;
     }
+    return false;
 }
-void App::up(unsigned pointer, double x, double y) {
-    keyboard_.up(pointer);
+
+bool App::up(unsigned pointer, double x, double y) {
+    const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
     if (it != pressed_controls_.end()) {
@@ -185,7 +193,9 @@ void App::up(unsigned pointer, double x, double y) {
         }
     }
     dirty = true;
+    return key_released;
 }
+
 void App::cancel() {
     keyboard_.cancel_all();
     pressed_controls_.clear();

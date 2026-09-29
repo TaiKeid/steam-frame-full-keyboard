@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/grip.hpp"
+#include "framekeyboard/placement_store.hpp"
 #include "openvr.h"
 #include "vk_texture.h"
 
@@ -13,6 +14,7 @@
 
 namespace framekeyboard {
 namespace {
+enum class KeyFeedback { Hover, Click };
 void check(vr::EVROverlayError error, const char* operation) {
     if (error != vr::VROverlayError_None) {
         throw std::runtime_error(std::string(operation) + ": " +
@@ -235,6 +237,24 @@ class VrPanel {
         check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
               "Resize keyboard");
     }
+    std::uint64_t universe() const {
+        vr::ETrackedPropertyError error{};
+        const auto id = vr::VRSystem()->GetUint64TrackedDeviceProperty(
+            vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_CurrentUniverseId_Uint64, &error);
+        return error == vr::TrackedProp_Success ? id : 0;
+    }
+    void key_haptic(KeyFeedback feedback) {
+        // The overlay API routes feedback through SteamVR's laser mouse, without
+        // registering input actions or claiming controller input from the dashboard.
+        const bool hover = feedback == KeyFeedback::Hover;
+        const auto error = vr::VROverlay()->TriggerLaserMouseHapticVibration(
+            handle_, hover ? .008f : .025f, hover ? 240.f : 150.f, hover ? .4f : 1.f);
+        if (error != vr::VROverlayError_None && !haptic_error_reported_) {
+            std::cerr << "Key haptics unavailable: "
+                      << vr::VROverlay()->GetOverlayErrorNameFromEnum(error) << '\n';
+            haptic_error_reported_ = true;
+        }
+    }
     void submit(PanelRenderer& renderer) {
         const auto rgba = renderer.rgba();
         std::string error;
@@ -245,7 +265,7 @@ class VrPanel {
     vr::VROverlayHandle_t handle() const { return handle_; }
 
   private:
-    bool connected_{};
+    bool connected_{}, haptic_error_reported_{};
     vr::VROverlayHandle_t handle_{};
     VulkanContext vulkan_;
     OverlayTexture texture_;
@@ -270,7 +290,15 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     } release{app};
     const double start = monotonic_seconds();
     bool done = false, visible = false;
-    bool recenter_pending = true, transform_dirty = false, show_pending = false;
+    const auto placement_path = app.config_dir() / "placement.json";
+    std::optional<SavedPlacement> saved;
+    try {
+        saved = load_placement(placement_path);
+    } catch (const std::exception& error) {
+        std::cerr << "Saved placement ignored: " << error.what() << '\n';
+    }
+    bool recenter_pending = !saved, transform_dirty = false, show_pending = false;
+    std::uint64_t placement_universe = 0;
     bool waiting_for_tracking = false;
     PanelPlacement placement;
     LaserDrag drag;
@@ -305,12 +333,26 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 stop_drag();
                 app.cancel();
                 recenter_pending = true;
+                saved.reset();
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
                 stop_drag();
                 app.cancel();
             }
         }
+        std::optional<KeyFeedback> feedback;
+        auto request_feedback = [&](KeyFeedback kind) {
+            if (event.trackedDeviceIndex >= vr::k_unMaxTrackedDeviceCount ||
+                vr::VRSystem()->GetTrackedDeviceClass(event.trackedDeviceIndex) !=
+                    vr::TrackedDeviceClass_Controller) {
+                return;
+            }
+            // Press/release wins over hover events in the same frame, so a hover
+            // pulse cannot replace the stronger click when the pointer moves.
+            if (!feedback || kind == KeyFeedback::Click) {
+                feedback = kind;
+            }
+        };
         while (vr::VROverlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
             const double x = event.data.mouse.x, y = panel_height - event.data.mouse.y;
@@ -322,7 +364,9 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                         x >= 0 && x < panel_width && y >= 0 && y < panel_height;
                 }
                 if (!drag.active()) {
-                    app.move(pointer, x, y);
+                    if (app.move(pointer, x, y)) {
+                        request_feedback(KeyFeedback::Hover);
+                    }
                 }
                 break;
             }
@@ -333,13 +377,18 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                         return grip.active && grip.held && grip.device == event.trackedDeviceIndex;
                     });
                     if (!grabbing) {
-                        app.down(pointer, x, y, now);
+                        const bool key_pressed = app.down(pointer, x, y, now);
+                        if (key_pressed) {
+                            request_feedback(KeyFeedback::Click);
+                        }
                     }
                 }
                 break;
             case vr::VREvent_MouseButtonUp:
                 if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
-                    app.up(pointer, x, y);
+                    if (app.up(pointer, x, y)) {
+                        request_feedback(KeyFeedback::Click);
+                    }
                 }
                 break;
             case vr::VREvent_FocusLeave:
@@ -384,8 +433,12 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
             }
         }
+        if (feedback && !drag.active() && visible) {
+            panel.key_haptic(*feedback);
+        }
         if (app.take_recenter()) {
             stop_drag();
+            saved.reset();
             recenter_pending = true;
             adjustments.clear();
             show_pending = true;
@@ -415,13 +468,27 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     app.cancel();
                     check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
                     visible = false;
-                    // A wake or tracking-origin change can invalidate old world placement.
-                    recenter_pending = true;
+                    // A brief tracking loss hides the panel without losing its position.
+                    // Actual tracking-origin changes request recentering via the event above.
                 }
             } else {
                 waiting_for_tracking = false;
+                if (saved) {
+                    const auto universe = panel.universe();
+                    if (saved->universe && universe && saved->universe != universe) {
+                        recenter_pending = true;
+                        std::cout << "Tracking space changed; recentering keyboard.\n";
+                    } else {
+                        placement.restore(saved->transform, saved->width);
+                        placement_universe = universe;
+                        transform_dirty = true;
+                        std::cout << "Restored saved keyboard placement.\n" << std::flush;
+                    }
+                    saved.reset();
+                }
                 if (recenter_pending) {
                     placement.recenter(head);
+                    placement_universe = panel.universe();
                     recenter_pending = false;
                     transform_dirty = true;
                     std::cout << "Keyboard recentered at current headset heading.\n" << std::flush;
@@ -463,6 +530,14 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             std::chrono::milliseconds((drag.active() || app.renderer.animating()) ? 16 : 20));
     }
     app.cancel();
+    if (placement.ready()) {
+        try {
+            save_placement(placement_path,
+                           {placement.transform(), placement.width(), placement_universe});
+        } catch (const std::exception& error) {
+            std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
+        }
+    }
     if (!placement.ready()) {
         std::cout << "No valid headset pose; panel was not shown.\n";
     }

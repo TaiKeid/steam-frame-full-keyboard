@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.2 follow-up
+
+Persist standing-space position, rotation, width and tracking-universe ID in a separate placement file on orderly close. Cold launch restores; an existing instance still responds to relaunch by recentering. Validate saved transforms and replace the file atomically. Brief tracking loss preserves placement. Add haptic clicks on accepted key press/release and a lighter pulse when entering a key through the native overlay API.
+
 ## Version 0.3.1 follow-up
 
 Replaced the trigger handle with whole-keyboard grip movement. Frame's dashboard masks both legacy controller polling and modern grip actions, including the tested global-priority route. Native Frame render-component travel provides squeeze state without changing SteamVR settings. The user confirmed following the controller and staying in place on release. Added hysteresis and startup/reconnect release gating; retained independent tracked poses and key cancellation. Other controller models and future Valve model revisions require separate validation.

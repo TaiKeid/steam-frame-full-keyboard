@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.3.1 LANGUAGES CXX)
+project(framekeyboard VERSION 0.3.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,7 +22,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/grip.cpp src/ei_input.cpp "${PROFILE_HEADER}")
+add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -62,7 +62,7 @@ if(BUILD_TESTING)
     add_executable(ei-target-probe tests/ei_target_probe.cpp)
     target_link_libraries(ei-target-probe PRIVATE keyboard_core PkgConfig::X11)
     add_executable(vr-panel-probe tests/vr_panel_probe.cpp)
-    target_link_libraries(vr-panel-probe PRIVATE overlay_texture)
+    target_link_libraries(vr-panel-probe PRIVATE keyboard_core overlay_texture)
     set_target_properties(vr-panel-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
     # Intentionally excluded from CTest: requires an accessible kernel uinput device.
     add_executable(uinput-smoke-test tests/uinput_smoke.cpp)

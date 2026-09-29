@@ -64,6 +64,10 @@ void PanelPlacement::set_transform(const Transform& world) {
     x_ = y_ = z_ = pitch_ = yaw_ = roll_ = 0;
     ready_ = true;
 }
+void PanelPlacement::restore(const Transform& world, double width) {
+    set_transform(world);
+    width_ = width;
+}
 void PanelPlacement::recenter(const Transform& head) {
     const auto rotation = level_heading(head);
     for (std::size_t row = 0; row < 3; ++row) {

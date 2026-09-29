@@ -1,18 +1,19 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.3.1 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.3.2 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
 ## What works in this version
 
 - Native rendering and controller mouse-event handling, with two pointer IDs.
-- Launch again to show and recenter the existing panel. One VR process owns the keyboard.
+- Close and reopen to restore position, rotation and size. Launch while running to recenter the existing panel. One VR process owns the keyboard.
 - Grip-to-move anywhere on the keyboard: point the laser at it, hold grab, move/turn your hand, then release.
 - Move / align controls for position, tilt, yaw, roll and size, plus Face me.
 - US and international full-size layouts, English/German XKB legends, Graphite/Midnight themes.
 - VR settings for layout, language and theme selection, favorites, reload and persistent selection.
 - One-shot modifier taps, held chords, repeat, release-all, cancellation and a ten-second missing-release timeout.
+- Firm haptic clicks on key press/release, with lighter feedback when entering a key.
 - Native key events. Copy/Paste send Ctrl+C/Ctrl+V without reading the clipboard.
 - Host preview, PNG export, profile validation and an ARM64 package.
 
@@ -39,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.3.1-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.3.2-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -47,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.3.1-aarch64.tar.gz
-./framekeyboard-0.3.1-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.3.2-aarch64.tar.gz
+./framekeyboard-0.3.2-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English. Pause typing disables output. It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -73,7 +74,9 @@ To move the keyboard, point the controller laser anywhere on it and hold the **g
 
 Select **Move / align** in the top row. Position buttons move 2.5 cm per tap; rotation buttons turn 5 degrees; size buttons change width by 5 cm. **Face me** keeps the current position and size while turning the panel toward your head and leveling it. **Done** returns to the keys.
 
-**Recenter**, **Reset position**, or launching the app again brings the keyboard in front of your current horizontal viewing direction. Position and angle adjustments reset, while the running instance keeps your chosen size. A new process starts at the default size. Placement adjustments are session-only in this release.
+**Recenter**, **Reset position**, or launching the app while it is already running brings the keyboard in front of your current horizontal viewing direction, preserving its size. Closing saves position, rotation and size to `~/.config/framekeyboard/placement.json`; opening a new instance restores them. First launch, invalid saved data, or a different known tracking space falls back to recentering. Brief tracking loss hides the panel and preserves its position. A tracking-origin reset recenters it.
+
+Accepted key presses and releases produce a firm haptic click through the controller laser. Entering a different key produces a lighter, higher-frequency pulse. Staying over the same key, dragging, toolbar controls, duplicate events and key repeat do not produce pulses.
 
 Launching again sends a request to the existing process before connecting to SteamVR. It returns to the keys, releases held modifiers, and preserves your typing/pause choice. The first process keeps its language/backend launch options; later launch flags do not change them. Close the existing panel first if you need to change its input backend or target language.
 
