@@ -88,6 +88,27 @@ std::optional<Transform> dashboard_anchor(const Transform& scaled_bottom) {
     }
     return anchor;
 }
+void DashboardAnchor::restore(std::optional<Transform> anchor, std::optional<Transform> bar) {
+    anchor_ = anchor;
+    bar_ = bar;
+}
+std::optional<Transform> DashboardAnchor::update(std::optional<Transform> main,
+                                                 std::optional<Transform> bar) {
+    if (!main && !bar) {
+        return {};
+    }
+    if (main) {
+        anchor_ = main;
+    } else if (anchor_ && bar_) {
+        anchor_ = move_with_dashboard(*anchor_, *bar_, *bar);
+    } else {
+        // A first launch directly into an app has no calibrated main-tab mount.
+        // Use the live bar instead of an invisible tab's stale room position.
+        anchor_ = bar;
+    }
+    bar_ = bar;
+    return anchor_;
+}
 Transform move_with_dashboard(const Transform& panel, const Transform& previous,
                               const Transform& current) {
     // Invert only the rigid anchor, never Steam's scaled overlay matrix.

@@ -266,11 +266,12 @@ class VrPanel {
         }
         return true;
     }
-    std::optional<Transform> read_dashboard() {
+    std::optional<Transform> read_dashboard(const char* key, bool bottom_center) {
         auto* overlay = vr::VROverlay();
         vr::VROverlayHandle_t dashboard{};
         if (!overlay->IsDashboardVisible() ||
-            overlay->FindOverlay("valve.steam.gamepadui.main", &dashboard) != vr::VROverlayError_None) {
+            overlay->FindOverlay(key, &dashboard) != vr::VROverlayError_None ||
+            !overlay->IsOverlayVisible(dashboard)) {
             return {};
         }
         vr::HmdVector2_t scale{};
@@ -279,10 +280,9 @@ class VrPanel {
             scale.v[1] <= 0) {
             return {};
         }
-        // Query the dashboard itself. The hidden stock keyboard can retain an
-        // old pose after the dashboard moves. Coordinates here are mouse pixels,
-        // with Y=0 at the bottom, and the returned basis includes overlay scale.
-        vr::HmdVector2_t bottom{{scale.v[0] / 2, 0}};
+        // Invisible tabs return a valid but frozen transform, so reject them
+        // above. Coordinates use mouse pixels and include overlay scale.
+        vr::HmdVector2_t bottom{{scale.v[0] / 2, bottom_center ? 0 : scale.v[1] / 2}};
         vr::HmdMatrix34_t world{};
         if (overlay->GetTransformForOverlayCoordinates(dashboard, vr::TrackingUniverseStanding, bottom,
                                                        &world) != vr::VROverlayError_None) {
@@ -367,6 +367,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     PanelPlacement placement, displayed;
     HorizonAlignment horizon;
     std::optional<Transform> previous_dashboard;
+    DashboardAnchor dashboard_anchor;
+    if (saved && (!saved->universe || !panel.universe() || saved->universe == panel.universe())) {
+        dashboard_anchor.restore(saved->dashboard, saved->dashboard_bar);
+    }
     LaserDrag drag;
     auto stop_drag = [&](bool finish_alignment = false) {
         feedback.cancel();
@@ -437,6 +441,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 recenter_pending = true;
                 saved.reset();
                 previous_dashboard.reset();
+                dashboard_anchor = {};
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
                 stop_drag();
@@ -587,7 +592,9 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 hide_panel();
             } else {
                 waiting_for_tracking = false;
-                const auto dashboard = panel.read_dashboard();
+                const auto dashboard =
+                    dashboard_anchor.update(panel.read_dashboard("valve.steam.gamepadui.main", true),
+                                            panel.read_dashboard("valve.steam.gamepadui.bar", false));
                 if (!adjustments.empty()) {
                     stop_drag();
                 }
@@ -674,7 +681,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     if (displayed.ready()) {
         try {
             save_placement(placement_path, {displayed.transform(), displayed.width(), placement_universe,
-                                            previous_dashboard});
+                                            previous_dashboard, dashboard_anchor.bar()});
         } catch (const std::exception& error) {
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }

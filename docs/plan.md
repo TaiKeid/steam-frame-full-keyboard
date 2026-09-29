@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.7 follow-up
+
+Follow the live dashboard bar while Brave or another app tab hides Steam’s main tab. Reject frozen transforms from hidden overlays and persist the bar reference with saved placement.
+
 ## Version 0.4.6 follow-up
 
 Remove the Release all toolbar button; use gear, back, recenter and close icons. Render configurable Copy/Paste icons on their key faces. Keep F1-F12 labels at one font size and show Japanese input presets only for a pending Japanese layout or language.

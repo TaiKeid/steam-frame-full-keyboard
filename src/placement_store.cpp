@@ -54,6 +54,10 @@ void validate(const SavedPlacement& saved) {
     if (saved.dashboard) {
         validate_transform(*saved.dashboard);
     }
+    if (saved.dashboard_bar) {
+        require(saved.dashboard.has_value());
+        validate_transform(*saved.dashboard_bar);
+    }
 }
 Transform read_transform(json_object* rows) {
     require(json_object_is_type(rows, json_type_array) && json_object_array_length(rows) == 3);
@@ -102,6 +106,10 @@ std::optional<SavedPlacement> load_placement(const std::filesystem::path& path) 
     if (json_object_object_get_ex(document.get(), "dashboard_anchor", &dashboard)) {
         saved.dashboard = read_transform(dashboard);
     }
+    json_object* bar{};
+    if (json_object_object_get_ex(document.get(), "dashboard_bar", &bar)) {
+        saved.dashboard_bar = read_transform(bar);
+    }
     validate(saved);
     return saved;
 }
@@ -116,6 +124,9 @@ void save_placement(const std::filesystem::path& path, const SavedPlacement& sav
     json_object_object_add(document.get(), "transform", write_transform(saved.transform));
     if (saved.dashboard) {
         json_object_object_add(document.get(), "dashboard_anchor", write_transform(*saved.dashboard));
+    }
+    if (saved.dashboard_bar) {
+        json_object_object_add(document.get(), "dashboard_bar", write_transform(*saved.dashboard_bar));
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

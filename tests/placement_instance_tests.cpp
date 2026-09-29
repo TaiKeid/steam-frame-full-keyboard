@@ -42,6 +42,34 @@ struct TemporaryDirectory {
 fk::Transform head() {
     return {{{1, 0, 0, 1}, {0, 1, 0, 1.7}, {0, 0, 1, 2}}};
 }
+void dashboard_tab_tests() {
+    fk::DashboardAnchor tracker;
+    const fk::Transform main{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    const fk::Transform bar{{{1, 0, 0, 0}, {0, 1, 0, .85}, {0, 0, 1, -.8}}};
+    const fk::Transform moved_bar{{{0, 0, 1, 2}, {0, 1, 0, .9}, {-1, 0, 0, -3}}};
+    require(tracker.update(main, bar) == main, "visible Steam tab calibrates bottom-center mount");
+    auto expected = fk::move_with_dashboard(main, bar, moved_bar);
+    auto followed = tracker.update({}, moved_bar);
+    require(followed.has_value(), "app tabs retain a live dashboard anchor");
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near((*followed)[r][c], expected[r][c], "hidden main follows bar translation and yaw");
+        }
+    }
+    require(!tracker.update({}, {}), "missing visible overlays supply no stale anchor");
+    require(tracker.update({}, moved_bar) == followed, "temporary hide retains calibrated placement");
+    fk::DashboardAnchor reopened;
+    reopened.restore(followed, tracker.bar());
+    auto returned = reopened.update({}, bar);
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near((*returned)[r][c], main[r][c], "reopening an app tab uses saved bar reference");
+        }
+    }
+    fk::DashboardAnchor fresh;
+    require(fresh.update({}, moved_bar) == moved_bar, "first app launch uses live bar fallback");
+    require(fresh.update(main, bar) == main, "returning to Steam calibrates the true bottom edge");
+}
 void placement_tests() {
     fk::PanelPlacement panel;
     panel.recenter(head());
@@ -299,9 +327,13 @@ void persistence_tests() {
     require(!saved->dashboard, "legacy world-space placement still loads");
     auto anchored = *saved;
     anchored.dashboard = head();
+    anchored.dashboard_bar = head();
+    (*anchored.dashboard_bar)[1][3] -= .15;
     fk::save_placement(path, anchored);
     require(fk::load_placement(path)->dashboard == anchored.dashboard,
             "dashboard anchor survives close and reopen");
+    require(fk::load_placement(path)->dashboard_bar == anchored.dashboard_bar,
+            "dashboard bar reference survives close and reopen");
     auto bad_anchor = anchored;
     (*bad_anchor.dashboard)[0][0] = 2;
     bool bad_anchor_rejected = false;
@@ -684,6 +716,7 @@ void ui_tests() {
 int main() {
     try {
         placement_tests();
+        dashboard_tab_tests();
         drag_tests();
         horizon_tests();
         stick_depth_tests();
