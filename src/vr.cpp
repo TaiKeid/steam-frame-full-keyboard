@@ -403,6 +403,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     std::vector<PlacementAction> adjustments;
     double next_tracking_check = 0;
     while (!done && !app.quitting() && !interrupted) {
+        const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
         if (duration > 0 && now - start >= duration) {
             break;
@@ -575,7 +576,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 stop_drag();
             }
         }
-        if (dashboard_visible && now >= next_tracking_check) {
+        if (dashboard_visible && (visible || now >= next_tracking_check)) {
             Transform head{};
             if (!panel.read_head(head)) {
                 if (recenter_pending && !waiting_for_tracking) {
@@ -649,7 +650,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     std::cout << "FrameKeyboard overlay visible.\n" << std::flush;
                 }
             }
-            next_tracking_check = now + (visible ? .05 : .25);
+            next_tracking_check = now + .25;
         }
         if (visible && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
@@ -663,14 +664,11 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             app.paint(now);
             panel.submit(app.renderer);
         }
-        const bool pointing = std::any_of(hovered_devices.begin(), hovered_devices.end(),
-                                          [](bool hovered) { return hovered; });
-        const bool interactive =
-            pointing || drag.active() || horizon.animating() || app.renderer.animating();
-        // Redrawing is still event-driven. These intervals only govern input
-        // polling; SteamVR continues presenting the existing texture itself.
-        const int wait_ms = !visible ? 250 : (interactive ? 16 : 50);
-        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
+        // Follow the dashboard every visible frame, even without a laser over
+        // the keys. Budget work inside the 60 Hz period instead of adding a full
+        // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
+        const auto period = std::chrono::microseconds(visible ? 16667 : 250000);
+        std::this_thread::sleep_until(frame_started + period);
     }
     app.cancel();
     if (displayed.ready()) {

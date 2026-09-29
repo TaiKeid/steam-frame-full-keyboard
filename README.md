@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.4.3 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.4.4 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -40,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.4.3-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.4.4-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -48,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.4.3-aarch64.tar.gz
-./framekeyboard-0.4.3-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.4.4-aarch64.tar.gz
+./framekeyboard-0.4.4-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English.  It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -100,7 +100,7 @@ Accepted key presses and releases give a haptic click on the controller that pre
 
 Launching again sends a request to the existing process before connecting to SteamVR. It returns to the keys, releases held modifiers, and keeps the input connection unchanged. The first process keeps its language/backend launch options; later launch flags do not change them. Close the existing panel first if you need to change its input backend or target language.
 
-The VR loop polls roughly 60 times per second while pointing at the panel, dragging or animating, 20 times per second while idle, and 4 times per second while hidden for tracking loss. It redraws and uploads the keyboard texture only when the display changes or an animation is running. SteamVR presents the existing texture at its own display cadence; these polling rates do not limit headset refresh. Closing the keyboard exits its process.
+The VR loop targets 60 updates per second while visible, including dashboard following when no laser is over the keys, and 4 updates per second while hidden. Processing time is included in the visible 16.667 ms frame budget. It redraws and uploads the keyboard texture only when the display changes or an animation is running. SteamVR presents the existing texture at its own display cadence; these polling rates do not limit headset refresh. Closing the keyboard exits its process.
 
 ## Customize inside VR
 
