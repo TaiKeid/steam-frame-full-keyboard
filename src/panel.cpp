@@ -216,13 +216,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
             secondary.clear();
         }
     }
-    if (key.action.starts_with("Key")) {
-        auto* upper = g_utf8_strup(text.c_str(), -1);
-        text = upper;
-        g_free(upper);
-        if (!view.key_labels.contains(key.id)) {
-            secondary.clear();
-        }
+    if (key.action.starts_with("Key") && !view.key_labels.contains(key.id)) {
+        // The main legend already reflects Shift/Caps; avoid a duplicate shifted letter.
+        secondary.clear();
     }
     // F10-F12 must not shrink simply because their names have three characters.
     const bool function_key = key.action_kind == ActionKind::Key && key.action.starts_with("F") &&

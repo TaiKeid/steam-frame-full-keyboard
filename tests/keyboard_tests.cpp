@@ -204,6 +204,12 @@ void profile_tests(const fk::Profiles& defaults) {
     fk::LanguageMap english(defaults.languages.at("en-us")), german(defaults.languages.at("de-de"));
     const auto& layout = defaults.layouts.at("en-us-full");
     require(english.legend(key(layout, "KeyY"), {}, false, false) == "y", "US Y legend");
+    require(english.legend(key(layout, "KeyY"), {KEY_LEFTSHIFT}, false, false) == "Y",
+            "Shift uppercases letter legends");
+    require(english.legend(key(layout, "KeyY"), {}, true, false) == "Y",
+            "Caps Lock uppercases letter legends");
+    require(english.legend(key(layout, "KeyY"), {KEY_RIGHTSHIFT}, true, false) == "y",
+            "Shift with Caps Lock matches lowercase key output");
     require(german.legend(key(layout, "KeyY"), {}, false, false) == "z", "German Z legend");
     require(german.legend(key(layout, "BracketLeft"), {}, false, false) == "ü", "German umlaut");
     require(german.legend(key(layout, "Backquote"), {}, false, false) == "^", "German dead-key legend");
