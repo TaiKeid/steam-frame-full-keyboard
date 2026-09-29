@@ -305,6 +305,9 @@ void App::set_interaction_active(bool active) {
     }
 }
 void App::set_dragging(bool dragging) {
+    if (dragging_ == dragging) {
+        return;
+    }
     cancel();
     dragging_ = dragging;
     status_.clear();

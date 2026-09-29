@@ -80,6 +80,30 @@ void state_tests(const fk::Layout& layout) {
     require(sink.events.size() == 1, "two pointers share one down");
     state.up(1);
     require(sink.events.size() == 2 && sink.events.back().second == 0, "last pointer releases key");
+    for (const auto* id : {"CapsLock", "NumLock"}) {
+        const auto& lock = key(layout, id);
+        const int code = fk::key_code(lock.action);
+        auto locked = [&] { return code == KEY_CAPSLOCK ? state.caps() : state.num(); };
+        // Exercise both release orders, and a new click while the other hand
+        // still holds the key. Only the final release permits another toggle.
+        for (unsigned first : {0u, 1u}) {
+            sink.events.clear();
+            require(!locked(), "lock starts off");
+            state.down(0, lock, 3);
+            state.down(1, lock, 3.1);
+            require(locked(), "overlapping lock presses toggle only once");
+            state.up(first);
+            state.down(first, lock, 3.2);
+            require(locked() && sink.events.size() == 1, "remaining hold prevents a second toggle");
+            state.up(first);
+            state.up(1 - first);
+            require(sink.events == std::vector<std::pair<int, int>>{{code, 1}, {code, 0}},
+                    "overlapping lock holds share one backend press and release");
+            state.down(first, lock, 3.3);
+            state.up(first);
+            require(!locked() && sink.events.size() == 4, "next separate click toggles lock off");
+        }
+    }
     sink.events.clear();
     state.down(0, key(layout, "ShiftLeft"), 4);
     state.down(1, key(layout, "KeyA"), 4);

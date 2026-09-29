@@ -42,6 +42,7 @@ class PanelPlacement {
     void adjust(PlacementAction action);
     Transform transform() const { return world_; }
     void set_transform(const Transform& world);
+    void set_width(double width);
     void restore(const Transform& world, double width);
     double width() const { return width_; }
     bool ready() const { return ready_; }

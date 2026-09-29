@@ -315,6 +315,14 @@ void KeyboardState::acquire(int code) {
     auto& count = references_[code];
     if (count++ == 0) {
         sink_.send(code, 1);
+        // Both controllers can hold the same lock key. Its state changes once
+        // per backend key-down, not once per pointer.
+        if (code == KEY_CAPSLOCK) {
+            caps_ = !caps_;
+        }
+        if (code == KEY_NUMLOCK) {
+            num_ = !num_;
+        }
     }
 }
 void KeyboardState::release(int code) {
@@ -376,12 +384,6 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     presses_.emplace(pointer, press);
     for (int key_value : press.codes) {
         acquire(key_value);
-    }
-    if (code == KEY_CAPSLOCK) {
-        caps_ = !caps_;
-    }
-    if (code == KEY_NUMLOCK) {
-        num_ = !num_;
     }
     return true;
 }

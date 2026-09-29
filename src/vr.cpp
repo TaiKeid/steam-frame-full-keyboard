@@ -365,6 +365,11 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     std::uint64_t placement_universe = 0;
     bool waiting_for_tracking = false;
     PanelPlacement placement, displayed;
+    if (saved) {
+        // Size survives tracking-space changes, including a reset event before
+        // the first valid head pose. Restore the world pose only after checking its universe.
+        placement.set_width(saved->width);
+    }
     HorizonAlignment horizon;
     std::optional<Transform> previous_dashboard;
     DashboardAnchor dashboard_anchor;
@@ -374,10 +379,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     LaserDrag drag;
     auto stop_drag = [&](bool align_after_release = false) {
         feedback.cancel();
-        if (drag.active()) {
-            drag.stop();
-            app.set_dragging(false);
-        }
+        // Tracking loss or timeout may already have stopped LaserDrag. Always
+        // release the app's input gate as well; repeated cleanup is harmless.
+        drag.stop();
+        app.set_dragging(false);
         if (align_after_release) {
             // Release may arrive without another movement sample. Schedule the
             // first alignment frame even when the hand was completely still.

@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.12 follow-up
+
+Recover typing after a grab times out or loses tracking, retain the saved width when tracking space changes, and toggle lock keys once for overlapping controller presses. Add regression coverage without changing polling or rendering rates.
+
 ## Version 0.4.11 follow-up
 
 Slightly brighten Graphite key faces and hover colors while retaining the near-black background.

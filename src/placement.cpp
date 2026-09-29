@@ -223,7 +223,10 @@ void PanelPlacement::set_transform(const Transform& world) {
 }
 void PanelPlacement::restore(const Transform& world, double width) {
     set_transform(world);
-    width_ = width;
+    set_width(width);
+}
+void PanelPlacement::set_width(double width) {
+    width_ = std::clamp(width, .45, 2.0);
 }
 void PanelPlacement::recenter(const Transform& head, const Transform* dashboard_bottom,
                               double height_over_width) {

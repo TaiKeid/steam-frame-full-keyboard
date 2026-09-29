@@ -132,6 +132,11 @@ void dashboard_tab_tests() {
     }
 }
 void placement_tests() {
+    fk::PanelPlacement resized;
+    resized.set_width(.7);
+    require(!resized.ready(), "restoring size alone must not make an old tracking pose usable");
+    resized.recenter(head());
+    near(resized.width(), .7, "recenter in a new tracking space preserves the restored size");
     fk::PanelPlacement panel;
     panel.recenter(head());
     near(panel.width(), .95, "default width is four 5 cm steps below 1.15 m");
@@ -635,10 +640,22 @@ void typing_tests() {
     type_key();
     require(sink.events.size() == 8, "drag capture suppresses keys");
     app.set_dragging(false);
+    type_key();
+    require(sink.events.size() == 10, "ending a drag restores typing");
+    app.report_status("Tracking recovered");
+    app.dirty = false;
+    app.set_dragging(false);
+    require(app.view().status == "Tracking recovered" && !app.dirty,
+            "repeated drag cleanup leaves status and rendering alone");
+    type_a(app, false);
+    app.set_dragging(false);
+    require(sink.events.size() == 11 && sink.events.back() == std::pair<int, int>{30, 1},
+            "repeated drag cleanup cannot cancel a newly held key");
+    app.cancel();
     sink.ready = false;
     app.tick(2);
     type_key();
-    require(sink.events.size() == 8, "lost backend disables typing");
+    require(sink.events.size() == 12, "lost backend disables typing");
     require(app.view().status.find("connection lost") != std::string::npos, "lost backend is visible");
 }
 void hidden_input_tests() {
