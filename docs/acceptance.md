@@ -14,18 +14,22 @@ Use this checklist for a release candidate. Automated core tests and earlier hea
 
 Run against harmless test content, first in a dedicated receiver, then in Brave. Open the bundled [input check page](input-check.html) in each Brave mode. Its checklist exercises native controls and focus without logging typed characters or reading the clipboard.
 
-Version 0.5.0: automated ARM64 engine tests cover Korean spaces/digits/punctuation and Chinese punctuation/digits, including failed commits. Missing-module/dependency recovery is tested separately. These checks do not mark the manual application rows below as passed.
+Version 0.5.0: automated ARM64 engine tests cover Korean spaces/digits/punctuation and Chinese punctuation/digits, including failed commits. Missing-module/dependency recovery is tested separately. These automated checks do not substitute for the manual application rows below.
+
+On-device report, 2026-09-29, version 0.5.0: the tester completed all six steps of the bundled input check page using the controllers in both KDE Brave and standalone floating Brave. The passes below are user-reported headset results, not inferred from automation.
 
 | Check | KDE Brave | Standalone floating Brave |
 | --- | --- | --- |
-| Main Enter and numpad Enter deliver key-down/up | Pending | Pending |
-| Tab and Shift+Tab change focus correctly | Pending | Pending |
-| Ctrl+A, Copy, Paste | Pending | Pending |
-| Ctrl/Alt combined with letters on the same backend | Pending | Pending |
-| Arrow/navigation/numpad keys | Pending | Pending |
-| Focus survives a keyboard pointer click | Pending | Pending |
-| No doubled characters from stock keyboard | Pending | Pending |
-| Switching apps releases modifiers | Pending | Pending |
+| Main Enter and numpad Enter deliver key-down/up | Passed | Passed |
+| Tab and Shift+Tab change focus correctly | Passed | Passed |
+| Ctrl+A, Copy, Paste | Passed | Passed |
+| Ctrl/Alt combined with letters on the same backend | Passed | Passed |
+| Arrow/navigation/numpad keys | Passed | Passed |
+| Focus survives a keyboard pointer click | Passed | Passed |
+| No doubled characters from stock keyboard | Passed | Passed |
+| Switching apps releases modifiers | Passed | Passed |
+
+The same tester also confirmed typing, Backspace, arrow navigation and Enter in Steam search and KDE Konsole on 0.5.0. These are basic application checks, not a full language-quality or long-session test.
 
 Test a form that submits on Enter and a multiline field that inserts a newline. The keyboard must emit Enter consistently; it cannot force arbitrary websites to implement form submission.
 
