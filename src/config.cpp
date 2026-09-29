@@ -191,6 +191,10 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::Copy;
         } else if (icon == "paste") {
             key.icon = Icon::Paste;
+        } else if (icon == "steam-frame") {
+            key.icon = Icon::SteamFrame;
+        } else if (icon == "steam-os") {
+            key.icon = Icon::SteamOS;
         } else if (!icon.empty()) {
             throw std::runtime_error("unknown key icon");
         }
@@ -206,6 +210,9 @@ Layout parse_layout(const std::string& json) {
             key.action_kind = ActionKind::Shortcut;
         } else {
             throw std::runtime_error("unknown key action");
+        }
+        if (auto* sticky = field(entry, "sticky", json_type_boolean, true)) {
+            key.sticky = json_object_get_boolean(sticky);
         }
         if (!ids.insert(key.id).second) {
             throw std::runtime_error("duplicate key ID");

@@ -399,8 +399,16 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         key.action_kind == ActionKind::Key ? (native_code ? native_code : key_code(key.action)) : 0;
     if (is_modifier(code)) {
         press.modifier = code;
-        press.used = references_.contains(code);
+        press.used = !key.sticky || references_.contains(code);
+        if (!key.sticky) {
+            // A momentary Super key must reach the OS even without a chord.
+            // Keep its own reference so overlapping hands share one down/up.
+            press.codes.push_back(code);
+        }
         presses_.emplace(pointer, std::move(press));
+        if (!key.sticky) {
+            acquire(code);
+        }
         return true;
     }
     // A modifier tap latches visually but emits nothing until used. This avoids

@@ -56,6 +56,45 @@ const fk::Key& key(const fk::Layout& layout, const std::string& id) {
 void state_tests(const fk::Layout& layout) {
     Capture sink;
     fk::KeyboardState state(sink);
+    const auto left_super = key(layout, "MetaLeft");
+    const auto right_super = key(layout, "MetaRight");
+    require(left_super.sticky && !right_super.sticky, "Super keys have distinct tap behavior");
+    state.down(0, left_super, 0);
+    state.up(0);
+    require(sink.events.empty() && state.modifiers().contains(KEY_LEFTMETA),
+            "left Super tap latches without opening a menu");
+    state.down(0, key(layout, "KeyA"), .1);
+    state.up(0);
+    require(sink.events ==
+                std::vector<std::pair<int, int>>{
+                    {KEY_LEFTMETA, 1}, {KEY_A, 1}, {KEY_A, 0}, {KEY_LEFTMETA, 0}},
+            "latched Super sends a native chord");
+    sink.events.clear();
+    state.down(0, right_super, 0);
+    state.tick(20);
+    require(sink.events == std::vector<std::pair<int, int>>{{KEY_RIGHTMETA, 1}},
+            "right Super sends immediate down without repeating");
+    state.up(0);
+    require(sink.events == std::vector<std::pair<int, int>>{{KEY_RIGHTMETA, 1}, {KEY_RIGHTMETA, 0}} &&
+                state.modifiers().empty(),
+            "right Super sends up without latching");
+    for (bool cancel_all : {false, true}) {
+        sink.events.clear();
+        state.down(0, right_super, 0);
+        state.down(1, right_super, 0);
+        state.up(0);
+        require(sink.events.size() == 1, "overlapping Super holds share native ownership");
+        if (cancel_all) {
+            state.cancel_all();
+        } else {
+            state.cancel_pointer(1);
+        }
+        require(sink.events ==
+                        std::vector<std::pair<int, int>>{{KEY_RIGHTMETA, 1}, {KEY_RIGHTMETA, 0}} &&
+                    state.modifiers().empty(),
+                "canceling Super releases its native hold without a latch");
+    }
+    sink.events.clear();
     state.down(0, key(layout, "ControlLeft"), 0);
     state.up(0);
     require(sink.events.empty(), "a latched modifier must not reach the OS until used");
@@ -110,7 +149,7 @@ void state_tests(const fk::Layout& layout) {
     state.up(0);
     state.up(1);
     require(state.modifiers().empty(), "a modifier used while held must not latch on release");
-    for (const auto* modifier : {"ControlLeft", "ShiftLeft", "AltLeft"}) {
+    for (const auto* modifier : {"ControlLeft", "ShiftLeft", "AltLeft", "MetaLeft", "MetaRight"}) {
         sink.events.clear();
         const int code = fk::key_code(modifier);
         state.down(0, key(layout, modifier), 4);
@@ -271,7 +310,7 @@ int main() {
     try {
         const auto defaults = fk::load_profiles({}, {});
         require(defaults.errors.empty(), "bundled profiles valid");
-        require(defaults.layouts.at("en-us-full").keys.size() == 104, "104 baseline keys");
+        require(defaults.layouts.at("en-us-full").keys.size() == 106, "106 baseline keys");
         state_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         app_tests();

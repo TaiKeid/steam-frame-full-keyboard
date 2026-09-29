@@ -306,15 +306,15 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
-        if (!pending_text_.empty() &&
-            (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)))) {
+        const bool sends_action = key->action_kind == ActionKind::Shortcut ||
+                                  !is_modifier(key_code(key->action)) || !key->sticky;
+        if (!pending_text_.empty() && sends_action) {
             if (!flush_text()) {
                 dirty = true;
                 return false;
             }
         }
-        if (!local && (!composition_.empty() || (cjk_ && !cjk_->empty())) &&
-            (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)))) {
+        if (!local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
             // Submit before key-down: Tab/shortcuts can move focus, and the text
             // transport refuses a commit while physical keys are held.
             try {

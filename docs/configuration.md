@@ -34,7 +34,7 @@ Keep a compiled safe default available. If a user override is invalid, retain th
 
 ## Layouts and styles
 
-Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy` or `paste`; omitting it renders the text label. Icons use the theme legend color and move with the key face. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
+Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy`, `paste`, `steam-frame`, or `steam-os`; omitting it renders the text label. Icons use the theme legend color and move with the key face. Modifiers latch on tap by default. Set a key's `sticky` field to `false` for a native press/release hold; bundled right Super uses this for the desktop menu. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
 
 Theme JSON defines renderer properties directly. Support surface and legend colors, key-face gradients, side colors/depth, corner radii, spacing/padding and font sizing, plus hover, pressed, latched and disabled state styles. The current renderer consumes the graphite fields plus `font_size`, `small_font_size`, `padding`, `hover` and `latched`. It uses immediate hover/latched colors and animated press travel. The reserved `disabled` color is parsed but has no disabled-key state in this release. Per-key fonts, arbitrary spacing rules and additional state styles remain future work. Native rendering does not require CSS or JavaScript theme execution.
 

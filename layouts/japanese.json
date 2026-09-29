@@ -892,6 +892,21 @@
       }
     },
     {
+      "id": "MetaLeft",
+      "label": "Super",
+      "secondary_label": "",
+      "x": 195.5,
+      "y": 354,
+      "width": 69.5,
+      "height": 62,
+      "action": {
+        "kind": "key",
+        "value": "MetaLeft"
+      },
+      "icon": "steam-frame",
+      "sticky": true
+    },
+    {
       "id": "AltLeft",
       "label": "Alt",
       "secondary_label": "",
@@ -923,12 +938,27 @@
       "secondary_label": "",
       "x": 844.8,
       "y": 354,
-      "width": 99.7,
+      "width": 46.85,
       "height": 62,
       "action": {
         "kind": "key",
         "value": "AltRight"
       }
+    },
+    {
+      "id": "MetaRight",
+      "label": "Super",
+      "secondary_label": "",
+      "x": 897.65,
+      "y": 354,
+      "width": 46.85,
+      "height": 62,
+      "action": {
+        "kind": "key",
+        "value": "MetaRight"
+      },
+      "icon": "steam-os",
+      "sticky": false
     },
     {
       "id": "ControlRight",

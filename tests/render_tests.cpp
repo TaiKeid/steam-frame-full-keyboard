@@ -83,7 +83,8 @@ void exercise(Layout layout, Theme theme, Language language) {
     keyboard.cancel_all();
     view.hovered.clear();
     compare.settle(view, "cancel");
-    for (const auto* action : {"ShiftLeft", "CapsLock", "NumLock", "ControlLeft"}) {
+    for (const auto* action :
+         {"ShiftLeft", "CapsLock", "NumLock", "ControlLeft", "MetaLeft", "MetaRight"}) {
         const auto key = find_key(layout, action);
         keyboard.down(0, key, compare.now);
         compare.settle(view, "modifier/lock press");

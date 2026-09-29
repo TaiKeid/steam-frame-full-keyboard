@@ -61,6 +61,8 @@ To update, **close the keyboard**, download the new release assets, and repeat t
 | --- | --- |
 | Type | Point at a key and press the controller trigger |
 | Use a shortcut | Tap Ctrl, Alt, or Shift, then another key; or hold the modifier with one controller and press a key with the other |
+| Super shortcuts | Tap the left Frame icon, then a key, or hold it with the other controller |
+| Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
 | Copy / paste | Use the two icons on the left; select text first when copying |
 | Move / rotate | Point anywhere on the keyboard, hold grab/grip, move your hand, then release |

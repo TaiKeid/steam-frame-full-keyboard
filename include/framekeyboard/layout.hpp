@@ -14,7 +14,19 @@ struct Rect {
     }
 };
 
-enum class Icon { None, ScaleDown, ScaleUp, Settings, Back, Recenter, Close, Copy, Paste };
+enum class Icon {
+    None,
+    ScaleDown,
+    ScaleUp,
+    Settings,
+    Back,
+    Recenter,
+    Close,
+    Copy,
+    Paste,
+    SteamFrame,
+    SteamOS
+};
 
 enum class ActionKind { Key, Shortcut };
 struct Key {
@@ -25,6 +37,8 @@ struct Key {
     // Physical key name or shortcut name; never a Steam numeric key code.
     std::string action;
     Icon icon{Icon::None};
+    // Modifiers normally latch on a tap. False sends a physical hold instead.
+    bool sticky{true};
 };
 struct Layout {
     bool operator==(const Layout&) const = default;

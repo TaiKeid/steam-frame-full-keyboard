@@ -88,6 +88,22 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_line_to(cr, x2, y2);
     };
     switch (icon) {
+    case Icon::SteamFrame:
+        cairo_rectangle(cr, -10, -10, 20, 4.8);
+        cairo_rectangle(cr, -10, -5.2, 4.8, 15.2);
+        cairo_move_to(cr, 10, 10);
+        cairo_arc(cr, 10, 10, 13.2, pi, 1.5 * pi);
+        cairo_close_path(cr);
+        cairo_fill(cr);
+        break;
+    case Icon::SteamOS:
+        cairo_arc(cr, -5, 0, 7, 0, 2 * pi);
+        cairo_fill(cr);
+        cairo_arc(cr, 0, 0, 12, -.5 * pi, .5 * pi);
+        cairo_arc_negative(cr, 0, 0, 8.5, .5 * pi, -.5 * pi);
+        cairo_close_path(cr);
+        cairo_fill(cr);
+        break;
     case Icon::Settings:
         // Each tooth has a flat tip and a recessed gap.
         for (int i = 0; i < 32; ++i) {
