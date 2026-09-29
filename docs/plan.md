@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.7 follow-up
+
+Remove Move / align and Pause typing from the toolbar. Add native minus/plus zoom icons for 5 cm width adjustments in the main view. Preserve explicit typing opt-in and target-language checks when applying or reloading profiles.
+
 ## Version 0.3.6 follow-up
 
 Reduce horizon easing to 500 ms. Route haptics explicitly to the originating controller with output-only actions, retain press ownership for release, tune release strength independently, and prevent hover from extending clicks.

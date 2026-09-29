@@ -310,7 +310,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     KeyHaptics feedback;
     GrabInput grip_input;
     if (!grip_input.connect()) {
-        app.report_status("Native grip unavailable; use Move / align.");
+        app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
     }
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     struct ReleaseBeforeVrShutdown {

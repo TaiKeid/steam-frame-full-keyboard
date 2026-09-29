@@ -52,11 +52,11 @@ Use font fallback and text shaping for non-Latin legends. Treat interface transl
 
 ## Switching inside VR
 
-The top row provides Settings, Release all, Input on/off, Recenter and Close. Settings provides Layout, Language and Theme selectors, favorite combinations, Apply and save, and Reload profiles. Applying returns to the keyboard, which shows the selected design. A separate temporary preview/apply workflow remains future work. Newly added files appear after reload; an automatic file watcher is optional.
+The top row provides Settings, Release all, Recenter, smaller/larger icons and Close. Settings provides Layout, Language and Theme selectors, favorite combinations, Apply and save, and Reload profiles. Applying returns to the keyboard, which shows the selected design. A separate temporary preview/apply workflow remains future work. Newly added files appear after reload; an automatic file watcher is optional.
 
 Validate and prepare a candidate configuration off to the side. On Apply, cancel active pointer presses, stop repeat and release held keys through the old backend before changing mappings. Clear latched modifiers, replace geometry and hit regions together, and redraw. Preserve the target application's focus. A failed apply keeps the previous working configuration and reports the error in VR.
 
-Persist successful selection to `config.json` using an atomic write. If saving fails, keep the usable runtime configuration and report that it will not survive restart. Reloading files must not overwrite unrelated favorites or silently activate an edited profile while a key is held. The active selection survives app restart; the installer preserves user files across application updates. Reload turns input off and reloads favorites. It keeps the active selection rather than activating a config.json edit behind the user's back.
+Persist successful selection to `config.json` using an atomic write. If saving fails, keep the usable runtime configuration and report that it will not survive restart. Reloading files must not overwrite unrelated favorites or silently activate an edited profile while a key is held. The active selection survives app restart; the installer preserves user files across application updates. Reload releases held keys and reloads favorites. After Apply or Reload, typing is enabled only when the launch used `--start-enabled`, the backend is live, and the selected language matches the declared target keymap. A mismatch leaves the panel visible but input-disabled until a matching profile is selected or the app is reopened with matching target options. It keeps the active selection rather than activating a config.json edit behind the user's back.
 
 ## Implementation order
 

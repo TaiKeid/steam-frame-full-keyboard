@@ -54,30 +54,10 @@ std::vector<Control> App::controls() const {
     std::vector<Control> result = {
         {"settings", settings_open_ ? "Back" : "Settings", {18, 12, 132, 42}},
         {"release", "Release all", {160, 12, 155, 42}},
-        {"input",
-         options_.input == "none" ? "Preview" : (gate_.enabled ? "Pause typing" : "Resume typing"),
-         {325, 12, 155, 42},
-         gate_.enabled},
-        {"recenter", "Recenter", {490, 12, 125, 42}},
-        {"position", placement_open_ ? "Done" : "Move / align", {625, 12, 165, 42}},
+        {"recenter", "Recenter", {325, 12, 125, 42}},
+        {"size-smaller", "Smaller keyboard", {460, 12, 60, 42}, false, ControlIcon::ScaleDown},
+        {"size-larger", "Larger keyboard", {530, 12, 60, 42}, false, ControlIcon::ScaleUp},
         {"close", "Close", {1450, 12, 132, 42}}};
-    if (placement_open_) {
-        const std::vector<std::pair<std::string, std::string>> buttons = {
-            {"move-left", "Left"},         {"move-right", "Right"},    {"move-up", "Up"},
-            {"move-down", "Down"},         {"move-nearer", "Closer"},  {"move-farther", "Farther"},
-            {"tilt-up", "Tilt up"},        {"tilt-down", "Tilt down"}, {"turn-left", "Turn left"},
-            {"turn-right", "Turn right"},  {"roll-left", "Roll left"}, {"roll-right", "Roll right"},
-            {"size-smaller", "Smaller"},   {"size-larger", "Larger"},  {"face-me", "Face me"},
-            {"recenter", "Reset position"}};
-        for (std::size_t i = 0; i < buttons.size(); ++i) {
-            const auto& [id, label] = buttons[i];
-            result.push_back({id,
-                              label,
-                              {40.0 + static_cast<double>(i % 4) * 390,
-                               100.0 + static_cast<double>(i / 4) * 102, 350, 76}});
-        }
-        return result;
-    }
     if (!settings_open_) {
         return result;
     }
@@ -121,13 +101,12 @@ PanelView App::view() const {
     v.controls = controls();
     v.status = dragging_ ? "Release grab to place keyboard" : status_;
     if (v.status.empty() && !gate_.enabled) {
-        v.status = options_.input == "none" ? "Preview only: this launch cannot type."
-                                            : "Typing paused. Select Resume typing.";
+        v.status =
+            options_.input == "none"
+                ? "Preview only: this launch cannot type."
+                : "Typing unavailable. Reopen with a matching target language and --start-enabled.";
     }
-    if (placement_open_ && v.status.empty()) {
-        v.status = "Position: 2.5 cm per tap. Rotation: 5 degrees. Size: 5 cm.";
-    }
-    v.settings = settings_open_ || placement_open_;
+    v.settings = settings_open_;
     for (const auto& [pointer, id] : hovered_) {
         (void)pointer;
         v.hovered.insert(id);
@@ -226,22 +205,14 @@ void App::report_status(const std::string& message) {
 }
 void App::show_settings() {
     cancel();
-    placement_open_ = false;
     settings_open_ = true;
     pending_ = settings_.active;
     dirty = true;
 }
-void App::show_placement() {
+void App::summon() {
+    // Release held keys before moving; keep the input connection unchanged.
     cancel();
     settings_open_ = false;
-    placement_open_ = true;
-    status_.clear();
-    dirty = true;
-}
-void App::summon() {
-    // Release held keys before moving, but preserve the user's typing/pause choice.
-    cancel();
-    placement_open_ = settings_open_ = false;
     placement_actions_.clear();
     recenter_ = true;
     status_.clear();
@@ -253,15 +224,12 @@ std::vector<PlacementAction> App::take_placement_actions() {
 }
 void App::apply(Selection selection) {
     validate_selection(profiles_, selection);
-    if (gate_.enabled && selection.language != options_.target_language) {
-        throw std::runtime_error(
-            "Turn input off before selecting another language. Target keymap must match.");
-    }
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     cancel();
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
+    refresh_typing();
     status_.clear();
     try {
         save_selection(options_.config_dir, settings_.active);
@@ -276,39 +244,31 @@ void App::reload() {
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
     cancel();
-    gate_.enabled = false;
     profiles_ = std::move(candidate);
     keymap_ = std::move(keymap);
     const auto updated_settings = load_settings(options_.config_dir, profiles_.errors);
     settings_.favorites = updated_settings.favorites;
     favorite_index_ = 0;
     pending_ = settings_.active;
-    status_ = profiles_.errors.empty() ? "Profiles reloaded. Typing paused." : profiles_.errors.front();
+    refresh_typing();
+    status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
+}
+void App::refresh_typing() {
+    // A profile change releases keys first. Resume only an explicitly enabled
+    // launch with a live backend and a keymap matching the receiving session.
+    gate_.enabled = options_.start_enabled && options_.mode == "vr" &&
+                    (options_.input == "ei" || options_.input == "uinput") &&
+                    options_.target_language == settings_.active.language && gate_.pump();
 }
 void App::action(const std::string& id) {
     const std::map<std::string, PlacementAction> adjustments = {
-        {"move-left", PlacementAction::Left},       {"move-right", PlacementAction::Right},
-        {"move-up", PlacementAction::Up},           {"move-down", PlacementAction::Down},
-        {"move-nearer", PlacementAction::Nearer},   {"move-farther", PlacementAction::Farther},
-        {"tilt-up", PlacementAction::TiltUp},       {"tilt-down", PlacementAction::TiltDown},
-        {"turn-left", PlacementAction::TurnLeft},   {"turn-right", PlacementAction::TurnRight},
-        {"roll-left", PlacementAction::RollLeft},   {"roll-right", PlacementAction::RollRight},
-        {"size-smaller", PlacementAction::Smaller}, {"size-larger", PlacementAction::Larger},
-        {"face-me", PlacementAction::FaceMe}};
+        {"size-smaller", PlacementAction::Smaller}, {"size-larger", PlacementAction::Larger}};
     if (const auto adjustment = adjustments.find(id); adjustment != adjustments.end()) {
         cancel();
         placement_actions_.push_back(adjustment->second);
         return;
     }
-    if (id == "position") {
-        if (placement_open_) {
-            cancel();
-            placement_open_ = false;
-            status_.clear();
-        } else {
-            show_placement();
-        }
-    } else if (id == "close") {
+    if (id == "close") {
         cancel();
         gate_.enabled = false;
         quit_ = true;
@@ -325,26 +285,6 @@ void App::action(const std::string& id) {
         cancel();
         placement_actions_.clear();
         recenter_ = true;
-    } else if (id == "input") {
-        cancel();
-        if (gate_.enabled) {
-            gate_.enabled = false;
-            status_.clear();
-        } else {
-            if (options_.input != "uinput" && options_.input != "ei") {
-                throw std::runtime_error(
-                    "Preview only. Open FrameKeyboard from the application menu to type.");
-            }
-            if (options_.target_language != settings_.active.language) {
-                throw std::runtime_error(
-                    "Selected language must match --target-language and the target session keymap.");
-            }
-            if (!gate_.pump()) {
-                throw std::runtime_error("Keyboard connection unavailable. Reopen the app.");
-            }
-            gate_.enabled = true;
-            status_.clear();
-        }
     } else if (id == "apply") {
         apply(pending_);
         settings_open_ = false;

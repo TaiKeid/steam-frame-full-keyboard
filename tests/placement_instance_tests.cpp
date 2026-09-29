@@ -472,14 +472,23 @@ void typing_tests() {
     app.summon();
     type_key();
     require(sink.events.size() == 4, "relaunch preserves typing choice");
+    app.reload();
+    type_key();
+    require(sink.events.size() == 6, "profile reload keeps an enabled matching backend usable");
+    app.apply({"international-full", "de-de", "midnight"});
+    type_key();
+    require(sink.events.size() == 6, "mismatched language cannot type");
+    app.apply({"en-us-full", "en-us", "midnight"});
+    type_key();
+    require(sink.events.size() == 8, "matching selection resumes without a pause button");
     app.set_dragging(true);
     type_key();
-    require(sink.events.size() == 4, "drag capture suppresses keys");
+    require(sink.events.size() == 8, "drag capture suppresses keys");
     app.set_dragging(false);
     sink.ready = false;
     app.tick(2);
     type_key();
-    require(sink.events.size() == 4, "lost backend disables typing");
+    require(sink.events.size() == 8, "lost backend disables typing");
     require(app.view().status.find("connection lost") != std::string::npos, "lost backend is visible");
 }
 void ui_tests() {
@@ -488,26 +497,28 @@ void ui_tests() {
     options.config_dir = temp.path;
     fk::NullSink sink;
     fk::App app(options, sink);
-    app.show_placement();
-    const auto view = app.view();
-    require(view.settings, "placement controls hide key hit regions");
-    bool clicked = false;
-    for (const auto& control : view.controls) {
-        if (control.id != "move-right") {
-            continue;
-        }
-        const double x = control.bounds.x + control.bounds.width / 2;
-        const double y = control.bounds.y + control.bounds.height / 2;
-        app.down(0, x, y, 1);
-        app.up(0, x, y);
-        clicked = true;
-    }
-    require(clicked, "movement control exists");
+    require(!app.view().settings, "keyboard remains visible with resize controls");
     for (const auto& control : app.view().controls) {
-        require(control.id != "drag", "whole-keyboard grip requires no move handle");
+        require(control.id != "position" && control.id != "input", "removed toolbar controls absent");
     }
-    require(app.take_placement_actions() == std::vector{fk::PlacementAction::Right},
-            "UI queues placement command");
+    for (const auto* id : {"size-smaller", "size-larger"}) {
+        bool clicked = false;
+        for (const auto& control : app.view().controls) {
+            if (control.id != id) {
+                continue;
+            }
+            require(control.icon != fk::ControlIcon::None, "resize controls have icons");
+            const double x = control.bounds.x + control.bounds.width / 2;
+            const double y = control.bounds.y + control.bounds.height / 2;
+            app.down(0, x, y, 1);
+            app.up(0, x, y);
+            clicked = true;
+        }
+        require(clicked, "resize control exists on main view");
+    }
+    require(app.take_placement_actions() ==
+                std::vector{fk::PlacementAction::Smaller, fk::PlacementAction::Larger},
+            "main-view icons queue resize actions");
     app.summon();
     require(!app.view().settings && app.take_recenter(),
             "summon returns to keyboard and requests recenter");

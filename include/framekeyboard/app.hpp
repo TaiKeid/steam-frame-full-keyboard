@@ -42,7 +42,6 @@ class App {
     bool tick(double now);
     void paint(double now);
     void show_settings();
-    void show_placement();
     void summon();
     void set_dragging(bool dragging);
     void report_status(const std::string& message);
@@ -60,6 +59,7 @@ class App {
   private:
     std::vector<Control> controls() const;
     void action(const std::string& id);
+    void refresh_typing();
     Options options_;
     Profiles profiles_;
     Settings settings_;
@@ -69,7 +69,7 @@ class App {
     KeyboardState keyboard_;
     std::map<unsigned, std::string> hovered_, pressed_controls_;
     std::string status_;
-    bool settings_open_{false}, placement_open_{false}, quit_{false}, recenter_{false};
+    bool settings_open_{false}, quit_{false}, recenter_{false};
     std::vector<PlacementAction> placement_actions_;
     std::size_t favorite_index_{};
     bool dragging_{};

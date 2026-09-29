@@ -43,7 +43,7 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 ## Lifecycle and recovery
 
 - Existing system keyboard button opens/closes the replacement without loops.
-- Move / align buttons change position, tilt/yaw/roll and size; Face me preserves position and levels the panel.
+- Main-view minus/plus icons change width by 5 cm without moving the panel; grabbing handles position and rotation.
 - Launching repeatedly retains one owner, restores visibility and recenters it. Closing and reopening creates a fresh owner; abrupt exit leaves no permanent launch lock.
 - Recenter clears position/angle offsets while preserving the running panel width.
 - Stock keyboard stays blocked only while the replacement is healthy.

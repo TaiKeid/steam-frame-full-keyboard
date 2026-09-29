@@ -202,7 +202,29 @@ void PanelRenderer::paint(const PanelView& view, double now) {
         source(cr,
                control.selected ? t.latched : (view.hovered.contains(control.id) ? t.hover : t.bottom));
         cairo_fill(cr);
-        label(cr, control.label, control.bounds, 19, view.language->font, t.legend);
+        if (control.icon == ControlIcon::None) {
+            label(cr, control.label, control.bounds, 19, view.language->font, t.legend);
+        } else {
+            // Draw zoom icons as geometry so themes/languages need no icon font.
+            const double x = control.bounds.x + control.bounds.width / 2 - 3;
+            const double y = control.bounds.y + control.bounds.height / 2 - 3;
+            cairo_save(cr);
+            source(cr, t.legend);
+            cairo_set_line_width(cr, 2);
+            cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+            cairo_arc(cr, x, y, 9, 0, 6.283185307179586);
+            cairo_stroke(cr);
+            cairo_move_to(cr, x + 7, y + 7);
+            cairo_line_to(cr, x + 14, y + 14);
+            cairo_move_to(cr, x - 4, y);
+            cairo_line_to(cr, x + 4, y);
+            if (control.icon == ControlIcon::ScaleUp) {
+                cairo_move_to(cr, x, y - 4);
+                cairo_line_to(cr, x, y + 4);
+            }
+            cairo_stroke(cr);
+            cairo_restore(cr);
+        }
     }
     if (!view.status.empty()) {
         label(cr, view.status, view.settings ? Rect{30, 526, 1540, 54} : Rect{18, 60, 1564, 28}, 17,

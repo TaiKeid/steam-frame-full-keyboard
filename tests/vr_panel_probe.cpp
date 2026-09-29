@@ -45,8 +45,7 @@ int main(int argc, char** argv) {
         require(argc == 3 || argc == 4, "usage: vr-panel-probe MODE EXPECTED_PID [SNAPSHOT_FILE]");
         const std::string mode = argv[1];
         require(mode == "--exercise" || mode == "--check-centered" || mode == "--snapshot" ||
-                    mode == "--check-snapshot" || mode == "--watch-close" || mode == "--close" ||
-                    mode == "--check-horizon",
+                    mode == "--check-snapshot" || mode == "--watch-close" || mode == "--close",
                 "unknown probe mode");
         require((mode != "--snapshot" && mode != "--check-snapshot" && mode != "--watch-close") ||
                     argc == 4,
@@ -130,57 +129,23 @@ int main(int argc, char** argv) {
         } else if (mode == "--close") {
             click(panel, 1515, 33);
             std::cout << "Clicked Close on the input-disabled keyboard.\n";
-        } else if (mode == "--check-horizon") {
-            require(vr::VROverlayView() != nullptr, "overlay event interface unavailable");
-            click(panel, 552, 33);  // Start from a known upright pose.
-            click(panel, 707, 33);  // Move / align.
-            click(panel, 995, 240); // Tilt up, retained during roll alignment.
-            const auto before = transform(panel);
-            click(panel, 995, 342); // Roll left five degrees, starting the animation.
-            auto roll = [](const vr::HmdMatrix34_t& pose) {
-                return std::atan2(pose.m[1][0], pose.m[1][1]);
-            };
-            const double early = roll(transform(panel));
-            require(early > .02 && early < .0873, "alignment must ease rather than snap");
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            const double middle = roll(transform(panel));
-            require(middle > .005 && middle < early, "roll must move toward the horizon");
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
-            const auto after = transform(panel);
-            require(std::abs(roll(after)) < .00001, "roll must finish level after 500 ms");
-            for (int row = 0; row < 3; ++row) {
-                for (int col : {2, 3}) {
-                    require(std::abs(before.m[row][col] - after.m[row][col]) < .00001,
-                            "horizon alignment must preserve tilt, heading and position");
-                }
-            }
-            std::cout << "Live horizon easing reached level while preserving tilt and position.\n";
         } else if (mode == "--exercise") {
             require(vr::VROverlayView() != nullptr, "overlay event interface unavailable");
             const auto original = transform(panel);
-            float width = 0;
-            require(vr::VROverlay()->GetOverlayWidthInMeters(panel, &width) == vr::VROverlayError_None,
-                    "cannot read panel width");
-            click(panel, 707, 33);  // Open Move / align from the keyboard toolbar.
-            click(panel, 605, 138); // Move right twice: 5 cm in its horizontal frame.
-            click(panel, 605, 138);
-            const auto moved = transform(panel);
-            double squared = 0;
-            for (int row = 0; row < 3; ++row) {
-                squared += std::pow(moved.m[row][3] - original.m[row][3], 2);
-            }
-            require(std::abs(std::sqrt(squared) - .05) < .005, "position controls did not move 5 cm");
-            click(panel, 1385, 240); // Tilt up.
-            require(std::abs(transform(panel).m[1][2]) > .05, "tilt control did not rotate the panel");
-            click(panel, 605, 444); // Larger.
-            float resized = 0;
+            float width = 0, resized = 0;
+            vr::VROverlay()->GetOverlayWidthInMeters(panel, &width);
+            click(panel, 560, 33); // Main-view larger icon.
             vr::VROverlay()->GetOverlayWidthInMeters(panel, &resized);
-            require(std::abs(resized - width - .05) < .005, "size control did not enlarge 5 cm");
-            click(panel, 995, 444); // Face me, preserving position and clearing tilt/roll.
-            require(std::abs(transform(panel).m[1][1] - 1) < .001,
-                    "face-me control did not level panel");
-            click(panel, 1385, 240); // Leave it tilted; a relaunch should clear this.
-            std::cout << "Live overlay move, tilt, resize and face-me controls passed.\n";
+            require(std::abs(resized - width - .05) < .005, "larger icon adds 5 cm");
+            click(panel, 490, 33); // Main-view smaller icon.
+            vr::VROverlay()->GetOverlayWidthInMeters(panel, &resized);
+            require(std::abs(resized - width) < .005, "smaller icon restores width");
+            const auto after = transform(panel);
+            for (int row = 0; row < 3; ++row) {
+                require(std::abs(after.m[row][3] - original.m[row][3]) < .00001,
+                        "resize icons preserve position");
+            }
+            std::cout << "Live main-view resize icons changed width without moving the panel.\n";
         } else {
             const auto current = transform(panel);
             require(std::abs(current.m[1][0]) < .001 && std::abs(current.m[1][1] - 1) < .001 &&

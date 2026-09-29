@@ -15,7 +15,6 @@ void help() {
               << "  --vr                      Manually launched native VR panel\n"
               << "  --render FILE.png         Render the keyboard without a window\n"
               << "  --render-settings FILE    Render the profile selector\n"
-              << "  --render-placement FILE   Render the move/align controls\n"
               << "  --check                   Validate and list available profiles\n"
               << "  --describe-layout         Describe the active key geometry\n"
               << "  --input ei|uinput         Use compositor input or a virtual kernel device\n"
@@ -25,7 +24,7 @@ void help() {
               << "  --config-dir PATH         User profiles/settings directory\n"
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
-              << "Typing starts paused unless --start-enabled is supplied.\n"
+              << "Typing stays disabled unless --start-enabled is supplied.\n"
               << "Stock keyboard takeover and autostart are not enabled in this version.\n";
 }
 void signal_handler(int) {
@@ -62,8 +61,7 @@ int main(int argc, char** argv) {
                 mode("preview");
             } else if (argument == "--vr") {
                 mode("vr");
-            } else if (argument == "--render" || argument == "--render-settings" ||
-                       argument == "--render-placement") {
+            } else if (argument == "--render" || argument == "--render-settings") {
                 mode(argument.substr(2));
                 options.output = value();
             } else if (argument == "--check") {
@@ -156,13 +154,9 @@ int main(int argc, char** argv) {
             sink = std::make_unique<fk::NullSink>();
         }
         fk::App app(options, *sink);
-        if (options.mode == "render" || options.mode == "render-settings" ||
-            options.mode == "render-placement") {
+        if (options.mode == "render" || options.mode == "render-settings") {
             if (options.mode == "render-settings") {
                 app.show_settings();
-            }
-            if (options.mode == "render-placement") {
-                app.show_placement();
             }
             app.paint(fk::monotonic_seconds());
             app.renderer.write_png(options.output);
