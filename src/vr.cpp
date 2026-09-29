@@ -338,12 +338,28 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     bool recenter_pending = !saved, transform_dirty = false, show_pending = false;
     std::uint64_t placement_universe = 0;
     bool waiting_for_tracking = false;
-    PanelPlacement placement;
+    PanelPlacement placement, displayed;
+    HorizonAlignment horizon;
     LaserDrag drag;
-    auto stop_drag = [&] {
+    auto stop_drag = [&](bool finish_alignment = false) {
         if (drag.active()) {
             drag.stop();
             app.set_dragging(false);
+        }
+        if (!finish_alignment) {
+            if (displayed.ready()) {
+                placement.restore(displayed.transform(), displayed.width());
+            }
+            horizon.reset();
+        }
+    };
+    auto place_panel = [&](double now) {
+        const auto aligned = horizon.update(placement.transform(), now);
+        if (!displayed.ready() || aligned != displayed.transform() ||
+            placement.width() != displayed.width() || transform_dirty) {
+            displayed.restore(aligned, placement.width());
+            panel.place(displayed);
+            transform_dirty = false;
         }
     };
     std::vector<PlacementAction> adjustments;
@@ -460,12 +476,16 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 return grip.active && grip.held && grip.device == drag.device();
             });
             if (!held) {
-                stop_drag();
+                stop_drag(true);
             }
         } else if (visible && placement.ready()) {
             for (const auto& grip : grips) {
                 if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
-                    hovered_devices[grip.device] && drag.start(grip, placement, now)) {
+                    hovered_devices[grip.device] && drag.start(grip, displayed, now)) {
+                    // Capture the visible pose, not the uncorrected pose behind
+                    // horizon assistance, so regrabbing never snaps the keyboard.
+                    placement.restore(displayed.transform(), displayed.width());
+                    horizon.reset();
                     app.set_dragging(true);
                     break;
                 }
@@ -495,9 +515,9 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
             }
             if (drag.update(placement, now, stick_y)) {
-                panel.place(placement);
+                transform_dirty = true;
             } else {
-                app.set_dragging(false);
+                stop_drag();
             }
         }
         if (now >= next_tracking_check) {
@@ -517,6 +537,9 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
             } else {
                 waiting_for_tracking = false;
+                if (!adjustments.empty()) {
+                    stop_drag();
+                }
                 if (saved) {
                     const auto universe = panel.universe();
                     if (saved->universe && universe && saved->universe != universe) {
@@ -531,6 +554,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     saved.reset();
                 }
                 if (recenter_pending) {
+                    horizon.reset();
                     placement.recenter(head);
                     placement_universe = panel.universe();
                     recenter_pending = false;
@@ -547,8 +571,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
                 adjustments.clear();
                 if (transform_dirty) {
-                    panel.place(placement);
-                    transform_dirty = false;
+                    place_panel(now);
                 }
                 // Read actual compositor visibility rather than trusting our cached flag.
                 // Another UI can hide an overlay without destroying its owner process.
@@ -564,6 +587,9 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             }
             next_tracking_check = now + .1;
         }
+        if (visible && placement.ready()) {
+            place_panel(now);
+        }
         if (visible && app.tick(now)) {
             app.paint(now);
             panel.submit(app.renderer);
@@ -574,10 +600,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             std::chrono::milliseconds((drag.active() || app.renderer.animating()) ? 16 : 20));
     }
     app.cancel();
-    if (placement.ready()) {
+    if (displayed.ready()) {
         try {
             save_placement(placement_path,
-                           {placement.transform(), placement.width(), placement_universe});
+                           {displayed.transform(), displayed.width(), placement_universe});
         } catch (const std::exception& error) {
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }

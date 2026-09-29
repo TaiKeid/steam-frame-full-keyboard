@@ -130,6 +130,64 @@ void drag_tests() {
     near(panel.transform()[0][3], 1, "recenter resets dragged position");
     near(panel.transform()[1][1], 1, "recenter levels dragged rotation");
 }
+void horizon_tests() {
+    fk::PanelPlacement panel;
+    panel.recenter(head());
+    for (int i = 0; i < 6; ++i) {
+        panel.adjust(fk::PlacementAction::TiltDown);
+        panel.adjust(fk::PlacementAction::TurnRight);
+    }
+    const auto level = panel.transform();
+    auto rolled = [&](double degrees) {
+        auto pose = level;
+        const double angle = degrees * std::numbers::pi / 180;
+        for (int r = 0; r < 3; ++r) {
+            pose[r][0] = level[r][0] * std::cos(angle) + level[r][1] * std::sin(angle);
+            pose[r][1] = -level[r][0] * std::sin(angle) + level[r][1] * std::cos(angle);
+        }
+        return pose;
+    };
+    auto roll_degrees = [](const fk::Transform& pose) {
+        return std::atan2(pose[1][0], pose[1][1]) * 180 / std::numbers::pi;
+    };
+    for (double degrees : {-5., -2., 2., 5.}) {
+        fk::HorizonAlignment horizon;
+        const auto raw = rolled(degrees);
+        near(roll_degrees(horizon.update(raw, 10)), degrees, "alignment starts without a jump");
+        near(roll_degrees(horizon.update(raw, 10.25)), degrees * .84375,
+             "one-second smoothstep eases in");
+        near(roll_degrees(horizon.update(raw, 10.5)), degrees * .5, "halfway roll");
+        const auto aligned = horizon.update(raw, 11);
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                near(aligned[r][c], level[r][c], "alignment preserves heading, pitch and position");
+            }
+        }
+        near(roll_degrees(horizon.update(raw, 12)), 0, "stationary pose stays level after release");
+        // Regrab the displayed pose, then cancel assistance. Neither may expose
+        // the original raw roll or accumulate another rotation correction.
+        fk::PanelDrag drag;
+        drag.begin(head(), aligned);
+        horizon.reset();
+        near(roll_degrees(horizon.update(drag.update(head()), 13)), 0, "regrab stays level");
+    }
+    fk::HorizonAlignment horizon;
+    near(roll_degrees(horizon.update(rolled(5.01), 20)), 5.01, "outside range is untouched");
+    horizon.update(rolled(4), 21);
+    const auto partial = horizon.update(rolled(4), 21.5);
+    near(roll_degrees(partial), 2, "partial correction");
+    near(roll_degrees(horizon.update(rolled(6), 21.5)), 4, "leaving range retains correction initially");
+    near(roll_degrees(horizon.update(rolled(6), 22)), 5, "leaving range eases correction away");
+    near(roll_degrees(horizon.update(rolled(6), 22.5)), 6, "larger deliberate lean is restored");
+    horizon.update(rolled(-4), 23);
+    near(roll_degrees(horizon.update(rolled(-4), 24)), 0, "reentry aligns opposite roll");
+    horizon.reset();
+    near(roll_degrees(horizon.update(partial, 25)), 2, "cancel freezes visible intermediate pose");
+    const fk::Transform flat{{{1, 0, 0, 0}, {0, 0, 1, 1}, {0, -1, 0, 2}}};
+    require(horizon.update(flat, 26) == flat, "horizontal panel has no horizon roll");
+    require(horizon.update(rolled(4), std::numeric_limits<double>::quiet_NaN()) == rolled(4),
+            "invalid timing does not corrupt placement");
+}
 void stick_depth_tests() {
     // Tilt the component's neutral frame, as Frame's left/right models do.
     auto component = [](double x, double y) {
@@ -434,6 +492,7 @@ int main() {
     try {
         placement_tests();
         drag_tests();
+        horizon_tests();
         stick_depth_tests();
         grip_tests();
         persistence_tests();

@@ -45,7 +45,8 @@ int main(int argc, char** argv) {
         require(argc == 3 || argc == 4, "usage: vr-panel-probe MODE EXPECTED_PID [SNAPSHOT_FILE]");
         const std::string mode = argv[1];
         require(mode == "--exercise" || mode == "--check-centered" || mode == "--snapshot" ||
-                    mode == "--check-snapshot" || mode == "--watch-close" || mode == "--close",
+                    mode == "--check-snapshot" || mode == "--watch-close" || mode == "--close" ||
+                    mode == "--check-horizon",
                 "unknown probe mode");
         require((mode != "--snapshot" && mode != "--check-snapshot" && mode != "--watch-close") ||
                     argc == 4,
@@ -129,6 +130,31 @@ int main(int argc, char** argv) {
         } else if (mode == "--close") {
             click(panel, 1515, 33);
             std::cout << "Clicked Close on the input-disabled keyboard.\n";
+        } else if (mode == "--check-horizon") {
+            require(vr::VROverlayView() != nullptr, "overlay event interface unavailable");
+            click(panel, 552, 33);  // Start from a known upright pose.
+            click(panel, 707, 33);  // Move / align.
+            click(panel, 995, 240); // Tilt up, retained during roll alignment.
+            const auto before = transform(panel);
+            click(panel, 995, 342); // Roll left five degrees, starting the animation.
+            auto roll = [](const vr::HmdMatrix34_t& pose) {
+                return std::atan2(pose.m[1][0], pose.m[1][1]);
+            };
+            const double early = roll(transform(panel));
+            require(early > .04 && early < .0873, "alignment must ease rather than snap");
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            const double middle = roll(transform(panel));
+            require(middle > .005 && middle < early, "roll must move toward the horizon");
+            std::this_thread::sleep_for(std::chrono::milliseconds(750));
+            const auto after = transform(panel);
+            require(std::abs(roll(after)) < .00001, "roll must finish level after one second");
+            for (int row = 0; row < 3; ++row) {
+                for (int col : {2, 3}) {
+                    require(std::abs(before.m[row][col] - after.m[row][col]) < .00001,
+                            "horizon alignment must preserve tilt, heading and position");
+                }
+            }
+            std::cout << "Live horizon easing reached level while preserving tilt and position.\n";
         } else if (mode == "--exercise") {
             require(vr::VROverlayView() != nullptr, "overlay event interface unavailable");
             const auto original = transform(panel);

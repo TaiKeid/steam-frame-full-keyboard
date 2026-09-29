@@ -4,6 +4,17 @@
 namespace framekeyboard {
 // Row-major rigid transform. Its columns are right, up, toward viewer, position.
 using Transform = std::array<std::array<double, 4>, 3>;
+// Roll-only horizon assistance. Feed the uncorrected pose each frame so the
+// animation never feeds its own correction back into the controller grab.
+class HorizonAlignment {
+  public:
+    Transform update(const Transform& raw, double now);
+    void reset() { *this = {}; }
+
+  private:
+    double started_{}, from_correction_{}, correction_{};
+    bool within_threshold_{};
+};
 enum class PlacementAction {
     Left,
     Right,

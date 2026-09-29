@@ -34,6 +34,35 @@ Rotation level_heading(const Transform& head) {
     return {{{zz, 0, zx}, {0, 1, 0}, {-zx, 0, zz}}};
 }
 } // namespace
+Transform HorizonAlignment::update(const Transform& raw, double now) {
+    // A local Z rotation changes roll without changing the panel normal, hence
+    // preserves its heading and tilt. World Y projected onto right/up gives roll.
+    const double vertical = std::hypot(raw[1][0], raw[1][1]);
+    if (!std::isfinite(now) || !std::isfinite(vertical) || vertical < .001) {
+        // A panel facing straight up/down has no well-defined horizon roll.
+        reset();
+        return raw;
+    }
+    const double roll = std::atan2(raw[1][0], raw[1][1]);
+    const bool within = std::abs(roll) <= 5 * radians + 1e-9;
+    if (within != within_threshold_) {
+        within_threshold_ = within;
+        from_correction_ = correction_;
+        started_ = now;
+    }
+    const double t = std::clamp(now - started_, 0.0, 1.0);
+    const double ease = t * t * (3 - 2 * t);
+    // Track the live roll while easing in. On leaving the capture range, ease
+    // the existing correction away instead of jumping back to the raw pose.
+    correction_ = std::lerp(from_correction_, within ? -roll : 0.0, ease);
+    const double c = std::cos(correction_), s = std::sin(correction_);
+    auto result = raw;
+    for (std::size_t row = 0; row < 3; ++row) {
+        result[row][0] = raw[row][0] * c + raw[row][1] * s;
+        result[row][1] = -raw[row][0] * s + raw[row][1] * c;
+    }
+    return result;
+}
 Transform compose(const Transform& a, const Transform& b) {
     Transform result{};
     for (std::size_t r = 0; r < 3; ++r) {
