@@ -29,7 +29,9 @@ cat > "$HOME/.local/bin/framekeyboard" <<'LAUNCHER'
 #!/usr/bin/env bash
 set -euo pipefail
 install_root="$HOME/.local/share/framekeyboard/current"
-if [[ $# == 0 ]]; then set -- --vr; fi
+if [[ $# == 0 || ( $# == 1 && $1 == --vr ) ]]; then
+    set -- --vr --input ei --target-language "${FRAMEKEYBOARD_TARGET_LANGUAGE:-en-us}" --start-enabled
+fi
 exec "$install_root/bin/framekeyboard" --data-dir "$install_root/share/framekeyboard" "$@"
 LAUNCHER
 chmod +x "$HOME/.local/bin/framekeyboard"
@@ -37,8 +39,8 @@ cat > "$HOME/.local/share/applications/framekeyboard.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=FrameKeyboard
-Comment=Native VR keyboard preview; enable native input with the documented launch command
-Exec=$HOME/.local/bin/framekeyboard --vr
+Comment=Native VR keyboard with laser dragging
+Exec=$HOME/.local/bin/framekeyboard
 Icon=input-keyboard
 Terminal=false
 Categories=Utility;Accessibility;

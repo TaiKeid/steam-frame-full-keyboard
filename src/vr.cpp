@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 
@@ -15,6 +16,87 @@ void check(vr::EVROverlayError error, const char* operation) {
                                  vr::VROverlay()->GetOverlayErrorNameFromEnum(error));
     }
 }
+Transform from_vr(const vr::HmdMatrix34_t& pose) {
+    Transform result{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            result[r][c] = pose.m[r][c];
+        }
+    }
+    return result;
+}
+struct ControllerSample {
+    Transform pose;
+    std::uint64_t buttons;
+};
+std::optional<ControllerSample> read_controller(vr::TrackedDeviceIndex_t device) {
+    if (device >= vr::k_unMaxTrackedDeviceCount ||
+        vr::VRSystem()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
+        return {};
+    }
+    vr::VRControllerState_t state{};
+    vr::TrackedDevicePose_t pose{};
+    if (!vr::VRSystem()->GetControllerStateWithPose(vr::TrackingUniverseStanding, device, &state,
+                                                    sizeof(state), &pose) ||
+        !pose.bPoseIsValid || !pose.bDeviceIsConnected) {
+        return {};
+    }
+    return ControllerSample{from_vr(pose.mDeviceToAbsoluteTracking), state.ulButtonPressed};
+}
+class LaserDrag {
+  public:
+    bool start(const vr::VREvent_t& event, const PanelPlacement& placement, double now) {
+        const auto trigger = vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Trigger);
+        auto device = event.trackedDeviceIndex;
+        auto sample = read_controller(device);
+        if (!sample || !(sample->buttons & trigger)) {
+            // cursorIndex is primary/secondary laser, NOT a tracked-device ID.
+            // Some runtimes omit the source device: accept only one held trigger
+            // rather than guessing which hand owns the click.
+            sample.reset();
+            for (vr::TrackedDeviceIndex_t candidate = 1; candidate < vr::k_unMaxTrackedDeviceCount;
+                 ++candidate) {
+                auto current = read_controller(candidate);
+                if (current && (current->buttons & trigger)) {
+                    if (sample) {
+                        return false;
+                    }
+                    sample = current;
+                    device = candidate;
+                }
+            }
+        }
+        if (!sample) {
+            return false;
+        }
+        device_ = device;
+        pointer_ = event.data.mouse.cursorIndex;
+        started_ = now;
+        transform_.begin(sample->pose, placement.transform());
+        active_ = true;
+        return true;
+    }
+    bool update(PanelPlacement& placement, double now) {
+        const auto sample = read_controller(device_);
+        if (!sample || !(sample->buttons & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Trigger)) ||
+            now - started_ > 30) {
+            stop();
+            return false;
+        }
+        placement.set_transform(transform_.update(sample->pose));
+        return true;
+    }
+    bool active() const { return active_; }
+    unsigned pointer() const { return pointer_; }
+    void stop() { active_ = false; }
+
+  private:
+    PanelDrag transform_;
+    vr::TrackedDeviceIndex_t device_{vr::k_unTrackedDeviceIndexInvalid};
+    unsigned pointer_{};
+    double started_{};
+    bool active_{};
+};
 class VrPanel {
   public:
     ~VrPanel() {
@@ -127,6 +209,13 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     bool recenter_pending = true, transform_dirty = false, show_pending = false;
     bool waiting_for_tracking = false;
     PanelPlacement placement;
+    LaserDrag drag;
+    auto stop_drag = [&] {
+        if (drag.active()) {
+            drag.stop();
+            app.set_dragging(false);
+        }
+    };
     std::vector<PlacementAction> adjustments;
     double next_tracking_check = 0;
     while (!done && !app.quitting() && !interrupted) {
@@ -135,6 +224,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             break;
         }
         if (instance.poll_recenter()) {
+            stop_drag();
             std::cout << "Launch request received.\n" << std::flush;
             app.summon();
             show_pending = true;
@@ -147,10 +237,12 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             }
             if (event.eventType == vr::VREvent_SeatedZeroPoseReset ||
                 event.eventType == vr::VREvent_ChaperoneUniverseHasChanged) {
+                stop_drag();
                 app.cancel();
                 recenter_pending = true;
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
+                stop_drag();
                 app.cancel();
             }
         }
@@ -160,21 +252,49 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             const auto pointer = event.data.mouse.cursorIndex;
             switch (event.eventType) {
             case vr::VREvent_MouseMove:
-                app.move(pointer, x, y);
+                if (!drag.active()) {
+                    app.move(pointer, x, y);
+                }
                 break;
             case vr::VREvent_MouseButtonDown:
                 if (event.data.mouse.button == vr::VRMouseButton_Left) {
-                    app.down(pointer, x, y, now);
+                    if (drag.active()) {
+                        break;
+                    }
+                    if (app.drag_handle_contains(x, y) && placement.ready()) {
+                        app.cancel();
+                        if (drag.start(event, placement, now)) {
+                            app.set_dragging(true);
+                        } else {
+                            app.report_status(
+                                "Point one controller at the handle and hold its trigger.");
+                        }
+                    } else {
+                        app.down(pointer, x, y, now);
+                    }
                 }
                 break;
             case vr::VREvent_MouseButtonUp:
                 if (event.data.mouse.button == vr::VRMouseButton_Left) {
-                    app.up(pointer, x, y);
+                    if (drag.active()) {
+                        if (pointer == drag.pointer()) {
+                            stop_drag();
+                        }
+                    } else {
+                        app.up(pointer, x, y);
+                    }
                 }
                 break;
             case vr::VREvent_FocusLeave:
+                // Keep capture when the laser briefly leaves the moving panel.
+                // Physical trigger polling still ends the drag outside its bounds.
+                if (!drag.active()) {
+                    app.cancel();
+                }
+                break;
             case vr::VREvent_OverlayHidden:
             case vr::VREvent_Modal_Cancel:
+                stop_drag();
                 app.cancel();
                 break;
             case vr::VREvent_OverlayClosed:
@@ -188,6 +308,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             break;
         }
         if (app.take_recenter()) {
+            stop_drag();
             recenter_pending = true;
             adjustments.clear();
             show_pending = true;
@@ -198,6 +319,13 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         if (!actions.empty()) {
             next_tracking_check = 0;
         }
+        if (drag.active()) {
+            if (drag.update(placement, now)) {
+                panel.place(placement);
+            } else {
+                app.set_dragging(false);
+            }
+        }
         if (now >= next_tracking_check) {
             Transform head{};
             if (!panel.read_head(head)) {
@@ -206,6 +334,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
                 waiting_for_tracking = true;
                 if (visible) {
+                    stop_drag();
                     app.cancel();
                     check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
                     visible = false;
@@ -253,7 +382,8 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         } else {
             app.tick(now);
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(app.renderer.animating() ? 16 : 20));
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds((drag.active() || app.renderer.animating()) ? 16 : 20));
     }
     app.cancel();
     if (!placement.ready()) {

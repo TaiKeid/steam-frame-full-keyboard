@@ -2,15 +2,21 @@
 
 ## Frame launch
 
-The `framekeyboard` launcher defaults to `--vr`. With no input argument, it creates no virtual input device. Use `--vr --input uinput --target-language en-us` for a US target session. The panel still starts with input off until the user enables it.
+The installed launcher and menu entry default to `--vr --input ei --target-language en-us --start-enabled`. Typing is ready immediately, with Pause typing available in the panel. The native libei connection uses Gamescope's existing `/run/user/<uid>/gamescope-0-ei` socket. No SteamVR restart, browser bridge or kernel device is needed. `--ei-socket` overrides the socket path. The launcher reads `FRAMEKEYBOARD_TARGET_LANGUAGE` if a different default target language is needed; it does not change the receiving session's keymap.
+
+Explicit backend launches start paused unless `--start-enabled` is included. Development preview/PNG operations and direct binary `--vr` never type by default. Use `framekeyboard --vr --input none` for an installed input-disabled VR preview. The optional `--input uinput` backend requires matching `--target-language`, but newly created devices were not discovered by the current outer SteamVR session.
+
+libei owns only a keyboard-capable device. It sends evdev down/up transitions; repeat belongs to the compositor. A paused, removed or disconnected device disables typing, clears held state, and requires reopening the app. No events or typed text are logged.
 
 The panel starts world-fixed, 1.15 meters wide, 85 cm ahead and 25 cm below the headset. Recenter uses the current horizontal heading, removing head pitch and roll. A valid tracked headset pose is required before showing it. The panel hides and releases keys when tracking is lost, then recenters after tracking returns. Tracking-origin reset events also request recentering.
+
+Hold the trigger on the top-bar drag handle to move/rotate the keyboard with the controller. Release to place. The initial controller-to-panel transform preserves the grab offset. Physical trigger polling releases capture even if the ray leaves the panel; tracking loss, cancellation, recenter and a 30-second timeout also end dragging. Ambiguous controller ownership refuses the grab rather than moving the panel with the wrong hand.
 
 Move / align provides 2.5 cm position steps, 5-degree tilt/turn/roll steps, and 5 cm width steps. Face me changes orientation while preserving position. Recenter resets position and angle offsets, preserving the width of the running instance. Session adjustments are not written to disk.
 
 VR mode uses a private per-user directory under `/run/user/<uid>/framekeyboard`. `vr.lock` stays on disk while the kernel releases its flock when the owner exits. The socket path is removed on normal exit or recovered under that lock after a crash. The next launch sends a bounded, acknowledged recenter request before loading profiles, creating input devices or initializing OpenVR. No launch depends on a saved PID.
 
-A repeated launch returns to the keyboard, releases held keys and turns input off. It preserves the existing process's input-backend options. Subsequent arguments do not reconfigure that process. Closing the existing panel allows the next launch to use different options.
+A repeated launch returns to the keyboard and releases held keys while preserving the typing/pause choice. It preserves the existing process's input-backend options. Subsequent arguments do not reconfigure that process. Closing the existing panel allows the next launch to use different options.
 
 SIGINT, SIGTERM, Close, focus loss, hide and cancellation release held keys. A ten-second hold limit also covers lost pointer-up events. A killed process loses its uinput device when the kernel closes the descriptor. The program never suppresses the stock keyboard, so no separate stock-UI recovery service is needed in this version.
 
@@ -41,7 +47,7 @@ The second test opens only the event node of its own newly created virtual keybo
 For an input-disabled VR smoke test:
 
 ```sh
-framekeyboard --vr --duration 4 --config-dir /tmp/framekeyboard-smoke
+framekeyboard --vr --input none --duration 4 --config-dir /tmp/framekeyboard-smoke
 ```
 
 With an instance already running, this command only recenters that instance; the duration argument does not close it. For an isolated smoke test, close the existing panel first. The log reports whether the overlay became visible. That is not a controller-interaction or application-focus test. Successful kernel delivery also does not establish SteamVR hotplug discovery or Brave delivery. Test both Brave modes manually before enabling any stock replacement work.
@@ -66,4 +72,7 @@ Keep `~/.config/framekeyboard` to preserve custom profiles. Removing the applica
 
 `placement-instance-tests` is part of CTest. It covers consecutive launches, normal cleanup, stale-socket recovery after abrupt exit, leveling/recentering, translation/rotation/size bounds, and the panel's control dispatch.
 
-`vr-panel-probe` is an opt-in on-device check. It requires the exact PID of an input-disabled test instance and confirms overlay ownership before posting UI events. `--exercise PID` clicks only Move / align controls and checks the resulting overlay transform/width. After relaunching the keyboard, `--check-centered PID` verifies the same owner remains visible with level rotation. Do not run it on a user typing session or a different keyboard version.
+`vr-panel-probe` is an opt-in on-device check. It requires the exact PID of a direct-binary test instance with no `--input` or `--start-enabled` flags and confirms overlay ownership before posting UI events. `--exercise PID` clicks only Move / align controls and checks the resulting overlay transform/width. After relaunching the keyboard, `--check-centered PID` verifies the same owner remains visible with level rotation. Do not run it on a user typing session or a different keyboard version.
+
+
+`ei-target-probe` is an opt-in Frame test, excluded from CTest. It maps its own disposable Xwayland window, verifies that exact window has keyboard focus before every emitted event, and checks A, Enter and Ctrl+A down/up delivery through Gamescope. It does not read other windows, clipboard data or browser fields. Core tests also cover enabled launch, pause on backend loss, typing preservation across relaunch, drag key suppression, no-jump grabs, controller translation/rotation and recenter after dragging.

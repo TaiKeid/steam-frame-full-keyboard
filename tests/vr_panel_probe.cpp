@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
         // instance. The probe never injects into Steam's keyboard or a browser.
         std::ifstream command("/proc/" + std::to_string(pid) + "/cmdline");
         const std::string arguments((std::istreambuf_iterator<char>(command)), {});
-        require(!arguments.empty() && arguments.find("uinput") == std::string::npos,
+        require(!arguments.empty() && arguments.find("--input") == std::string::npos &&
+                    arguments.find("--start-enabled") == std::string::npos,
                 "probe requires an input-disabled test instance");
         vr::EVRInitError error{};
         vr::VR_Init(&error, vr::VRApplication_Background);

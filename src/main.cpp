@@ -1,9 +1,11 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/ei_input.hpp"
 #include <cmath>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
+#include <unistd.h>
 
 namespace fk = framekeyboard;
 namespace {
@@ -16,12 +18,14 @@ void help() {
               << "  --render-placement FILE   Render the move/align controls\n"
               << "  --check                   Validate and list available profiles\n"
               << "  --describe-layout         Describe the active key geometry\n"
-              << "  --input uinput            Create a virtual device in VR mode\n"
+              << "  --input ei|uinput         Use compositor input or a virtual kernel device\n"
+              << "  --ei-socket PATH          Override the Gamescope input socket\n"
+              << "  --start-enabled           Enable typing at startup with an explicit backend\n"
               << "  --target-language ID      Confirm the target session's matching keymap\n"
               << "  --config-dir PATH         User profiles/settings directory\n"
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
-              << "Input starts OFF. Use the panel's Input off button to enable typing.\n"
+              << "Typing starts paused unless --start-enabled is supplied.\n"
               << "Stock keyboard takeover and autostart are not enabled in this version.\n";
 }
 void signal_handler(int) {
@@ -70,8 +74,12 @@ int main(int argc, char** argv) {
                 options.config_dir = value();
             } else if (argument == "--data-dir") {
                 options.data_dir = value();
+            } else if (argument == "--ei-socket") {
+                options.ei_socket = value();
             } else if (argument == "--input") {
                 options.input = value();
+            } else if (argument == "--start-enabled") {
+                options.start_enabled = true;
             } else if (argument == "--target-language") {
                 options.target_language = value();
             } else if (argument == "--duration") {
@@ -89,12 +97,15 @@ int main(int argc, char** argv) {
             help();
             return 0;
         }
-        if (options.input != "none" && options.input != "uinput") {
-            throw std::runtime_error("input must be none or uinput");
+        if (options.input != "none" && options.input != "uinput" && options.input != "ei") {
+            throw std::runtime_error("input must be none, ei or uinput");
         }
-        if (options.input == "uinput" && (options.mode != "vr" || options.target_language.empty())) {
+        if (options.input != "none" && (options.mode != "vr" || options.target_language.empty())) {
             throw std::runtime_error(
-                "uinput requires --vr and --target-language; desktop preview never injects input");
+                "typing requires --vr and --target-language; desktop preview never injects input");
+        }
+        if (options.start_enabled && options.input == "none") {
+            throw std::runtime_error("--start-enabled requires an input backend");
         }
         std::unique_ptr<fk::VrInstance> instance;
         if (options.mode == "vr") {
@@ -130,10 +141,16 @@ int main(int argc, char** argv) {
             return profiles.errors.empty() ? 0 : 1;
         }
         std::unique_ptr<fk::KeySink> sink;
-        if (options.input == "uinput") {
-            if (!profiles.languages.contains(options.target_language)) {
-                throw std::runtime_error("unknown target-language profile");
+        if (options.input != "none" && !profiles.languages.contains(options.target_language)) {
+            throw std::runtime_error("unknown target-language profile");
+        }
+        if (options.input == "ei") {
+            if (options.ei_socket.empty()) {
+                options.ei_socket =
+                    std::string("/run/user/") + std::to_string(getuid()) + "/gamescope-0-ei";
             }
+            sink = std::make_unique<fk::EiSink>(options.ei_socket);
+        } else if (options.input == "uinput") {
             sink = std::make_unique<fk::UInputSink>();
         } else {
             sink = std::make_unique<fk::NullSink>();

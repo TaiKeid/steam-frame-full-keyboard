@@ -7,12 +7,13 @@
 
 namespace framekeyboard {
 struct Options {
-    fs::path data_dir, config_dir;
+    fs::path data_dir, config_dir, ei_socket;
     std::string mode{"help"}, output, input{"none"}, target_language;
     double duration{};
+    bool start_enabled{false};
 };
 
-// The UI must explicitly arm input. Preview/profile controls never type into apps.
+// Development previews never send input. The installed typing launcher opts in.
 class InputGate : public KeySink {
   public:
     explicit InputGate(KeySink& target) : target_(target) {}
@@ -21,6 +22,7 @@ class InputGate : public KeySink {
             target_.send(code, value);
         }
     }
+    bool pump() override { return target_.pump(); }
     bool enabled{false};
 
   private:
@@ -39,6 +41,9 @@ class App {
     void show_settings();
     void show_placement();
     void summon();
+    bool drag_handle_contains(double x, double y) const;
+    void set_dragging(bool dragging);
+    void report_status(const std::string& message);
     std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
     void reload();
@@ -64,6 +69,7 @@ class App {
     bool settings_open_{false}, placement_open_{false}, quit_{false}, recenter_{false};
     std::vector<PlacementAction> placement_actions_;
     std::size_t favorite_index_{};
+    bool dragging_{};
 };
 
 double monotonic_seconds();

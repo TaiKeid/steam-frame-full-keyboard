@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.0 follow-up
+
+Added native libei compositor input after the outer SteamVR session failed to discover the new uinput keyboard. The installed launcher now enables typing; development preview remains input-disabled. Added controller-laser dragging with preserved grab offset and cancellation. Dedicated Frame Xwayland receiver verified A, Enter and Ctrl+A. Physical controller dragging and both Brave modes still require user checks.
+
 ## Version 0.2.0 follow-up
 
 Added per-user VR instance ownership and acknowledged relaunch-to-recenter requests before OpenVR initialization. Added Move / align controls for position, tilt/yaw/roll, size and Face me. Pure placement/IPC tests run in CTest; the opt-in VR probe checks actual overlay transforms. Recenter removes old position/angle offsets and preserves the running panel's width. Placement persistence remains future work.

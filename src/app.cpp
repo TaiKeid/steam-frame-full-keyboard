@@ -41,15 +41,30 @@ App::App(const Options& options, KeySink& sink)
     keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
     pending_ = settings_.active;
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
+    if (options_.start_enabled) {
+        if ((options_.input != "uinput" && options_.input != "ei") || options_.mode != "vr" ||
+            options_.target_language != settings_.active.language) {
+            throw std::runtime_error(
+                "Typing startup requires a matching target language and VR input backend");
+        }
+        gate_.enabled = true;
+    }
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result = {
         {"settings", settings_open_ ? "Back" : "Settings", {18, 12, 132, 42}},
         {"release", "Release all", {160, 12, 155, 42}},
-        {"input", gate_.enabled ? "Input on" : "Input off", {325, 12, 155, 42}, gate_.enabled},
+        {"input",
+         options_.input == "none" ? "Preview" : (gate_.enabled ? "Pause typing" : "Resume typing"),
+         {325, 12, 155, 42},
+         gate_.enabled},
         {"recenter", "Recenter", {490, 12, 125, 42}},
         {"position", placement_open_ ? "Done" : "Move / align", {625, 12, 165, 42}},
-        {"close", "Close", {1450, 12, 132, 42}}};
+        {"close", "Close", {1450, 12, 132, 42}},
+        {"drag",
+         dragging_ ? "Release to place" : "Hold trigger here to move",
+         {805, 12, 625, 42},
+         dragging_}};
     if (placement_open_) {
         const std::vector<std::pair<std::string, std::string>> buttons = {
             {"move-left", "Left"},         {"move-right", "Right"},    {"move-up", "Up"},
@@ -109,6 +124,10 @@ PanelView App::view() const {
     v.keyboard = &keyboard_;
     v.controls = controls();
     v.status = status_;
+    if (v.status.empty() && !gate_.enabled) {
+        v.status = options_.input == "none" ? "Preview only: this launch cannot type."
+                                            : "Typing paused. Select Resume typing.";
+    }
     if (placement_open_ && v.status.empty()) {
         v.status = "Position: 2.5 cm per tap. Rotation: 5 degrees. Size: 5 cm.";
     }
@@ -138,6 +157,9 @@ void App::move(unsigned pointer, double x, double y) {
     }
 }
 void App::down(unsigned pointer, double x, double y, double now) {
+    if (dragging_) {
+        return;
+    }
     move(pointer, x, y);
     const auto v = view();
     for (const auto& control : v.controls) {
@@ -175,12 +197,29 @@ void App::cancel() {
     dirty = true;
 }
 bool App::tick(double now) {
+    if (!gate_.pump() && gate_.enabled) {
+        cancel();
+        gate_.enabled = false;
+        status_ = "Keyboard connection lost. Reopen the app to reconnect.";
+    }
     dirty |= keyboard_.tick(now);
     return dirty || renderer.animating();
 }
 void App::paint(double now) {
     renderer.paint(view(), now);
     dirty = false;
+}
+bool App::drag_handle_contains(double x, double y) const {
+    return Rect{805, 12, 625, 42}.contains(x, y);
+}
+void App::set_dragging(bool dragging) {
+    cancel();
+    dragging_ = dragging;
+    status_.clear();
+}
+void App::report_status(const std::string& message) {
+    status_ = message;
+    dirty = true;
 }
 void App::show_settings() {
     cancel();
@@ -197,10 +236,8 @@ void App::show_placement() {
     dirty = true;
 }
 void App::summon() {
-    // Relaunching can change application focus. Release everything before moving
-    // the panel, and require the user to arm typing again at the new location.
+    // Release held keys before moving, but preserve the user's typing/pause choice.
     cancel();
-    gate_.enabled = false;
     placement_open_ = settings_open_ = false;
     placement_actions_.clear();
     recenter_ = true;
@@ -243,7 +280,7 @@ void App::reload() {
     settings_.favorites = updated_settings.favorites;
     favorite_index_ = 0;
     pending_ = settings_.active;
-    status_ = profiles_.errors.empty() ? "Profiles reloaded. Input off." : profiles_.errors.front();
+    status_ = profiles_.errors.empty() ? "Profiles reloaded. Typing paused." : profiles_.errors.front();
 }
 void App::action(const std::string& id) {
     const std::map<std::string, PlacementAction> adjustments = {
@@ -291,12 +328,16 @@ void App::action(const std::string& id) {
             gate_.enabled = false;
             status_.clear();
         } else {
-            if (options_.input != "uinput") {
-                throw std::runtime_error("Preview only. Launch with --input uinput to enable typing.");
+            if (options_.input != "uinput" && options_.input != "ei") {
+                throw std::runtime_error(
+                    "Preview only. Open FrameKeyboard from the application menu to type.");
             }
             if (options_.target_language != settings_.active.language) {
                 throw std::runtime_error(
                     "Selected language must match --target-language and the target session keymap.");
+            }
+            if (!gate_.pump()) {
+                throw std::runtime_error("Keyboard connection unavailable. Reopen the app.");
             }
             gate_.enabled = true;
             status_.clear();

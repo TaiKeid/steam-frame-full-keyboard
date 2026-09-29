@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.2.0 LANGUAGES CXX)
+project(framekeyboard VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo xkbcommon json-c)
+pkg_check_modules(EI REQUIRED IMPORTED_TARGET libei-1.0)
 pkg_check_modules(SDL REQUIRED IMPORTED_TARGET sdl2)
 pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
 
@@ -21,9 +22,9 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp "${PROFILE_HEADER}")
+add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/ei_input.cpp "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE)
+target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
 # Link the matching architecture from the sysroot; embed only the device runtime path.
@@ -56,6 +57,10 @@ if(BUILD_TESTING)
     target_link_libraries(placement-instance-tests PRIVATE keyboard_core Threads::Threads)
     target_compile_options(placement-instance-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME placement-instance COMMAND placement-instance-tests)
+    # Opt-in only: maps a disposable window and verifies focus before each key.
+    pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
+    add_executable(ei-target-probe tests/ei_target_probe.cpp)
+    target_link_libraries(ei-target-probe PRIVATE keyboard_core PkgConfig::X11)
     add_executable(vr-panel-probe tests/vr_panel_probe.cpp)
     target_link_libraries(vr-panel-probe PRIVATE overlay_texture)
     set_target_properties(vr-panel-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")

@@ -94,6 +94,37 @@ void placement_tests() {
     near(pose[0][3], 2.15, "recenter uses current heading");
     near(pose[2][3], 4, "recenter clears old position offsets");
 }
+void drag_tests() {
+    fk::PanelPlacement panel;
+    panel.recenter(head());
+    panel.adjust(fk::PlacementAction::TiltUp);
+    panel.adjust(fk::PlacementAction::Larger);
+    const auto original = panel.transform();
+    fk::PanelDrag drag;
+    drag.begin(head(), original);
+    const auto no_jump = drag.update(head());
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near(no_jump[r][c], original[r][c], "grab does not jump");
+        }
+    }
+    auto moved = head();
+    moved[0][3] += .2;
+    moved[2][3] -= .3;
+    panel.set_transform(drag.update(moved));
+    near(panel.transform()[0][3], original[0][3] + .2, "controller translation moves panel");
+    near(panel.transform()[2][3], original[2][3] - .3, "controller depth moves panel");
+    near(panel.width(), 1.2, "drag retains size");
+    // A 90-degree controller turn rotates the original offset around that hand.
+    moved = {{{0, 0, 1, 1}, {0, 1, 0, 1.7}, {-1, 0, 0, 2}}};
+    const auto turned = drag.update(moved);
+    near(turned[0][3], .15, "controller yaw rotates laser distance around hand");
+    near(turned[2][3], 2, "rotation preserves grab distance");
+    panel.set_transform(turned);
+    panel.recenter(head());
+    near(panel.transform()[0][3], 1, "recenter resets dragged position");
+    near(panel.transform()[1][1], 1, "recenter levels dragged rotation");
+}
 void instance_tests() {
     TemporaryDirectory temp;
     const auto runtime = temp.path / "runtime";
@@ -140,6 +171,53 @@ void instance_tests() {
     fk::VrInstance recovered(runtime);
     require(recovered.is_owner(), "new launch recovers after abrupt exit");
 }
+struct RecordingSink : fk::KeySink {
+    std::vector<std::pair<int, int>> events;
+    bool ready{true};
+    void send(int code, int value) override { events.emplace_back(code, value); }
+    bool pump() override { return ready; }
+};
+void typing_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    options.mode = "vr";
+    options.input = "ei";
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    RecordingSink sink;
+    fk::App app(options, sink);
+    auto type_key = [&] {
+        // Find a real rendered key hit region, not a hardcoded toolbar coordinate.
+        const auto view = app.view();
+        for (int y = 96; y < fk::panel_height; y += 2) {
+            for (int x = 0; x < fk::panel_width; x += 2) {
+                auto* key = app.renderer.hit_key(view, x, y);
+                if (key && key->id == "KeyA") {
+                    app.down(0, x, y, 1);
+                    app.up(0, x, y);
+                    return;
+                }
+            }
+        }
+        throw std::runtime_error("A key hit region missing");
+    };
+    type_key();
+    require(sink.events == std::vector<std::pair<int, int>>{{30, 1}, {30, 0}},
+            "typing launcher delivers key events");
+    app.summon();
+    type_key();
+    require(sink.events.size() == 4, "relaunch preserves typing choice");
+    app.set_dragging(true);
+    type_key();
+    require(sink.events.size() == 4, "drag capture suppresses keys");
+    app.set_dragging(false);
+    sink.ready = false;
+    app.tick(2);
+    type_key();
+    require(sink.events.size() == 4, "lost backend disables typing");
+    require(app.view().status.find("connection lost") != std::string::npos, "lost backend is visible");
+}
 void ui_tests() {
     TemporaryDirectory temp;
     fk::Options options;
@@ -172,8 +250,10 @@ void ui_tests() {
 int main() {
     try {
         placement_tests();
+        drag_tests();
         instance_tests();
         ui_tests();
+        typing_tests();
         std::cout << "Placement, repeated-launch IPC, stale-owner recovery and placement UI passed.\n";
         return 0;
     } catch (const std::exception& error) {

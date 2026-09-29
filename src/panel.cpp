@@ -7,7 +7,7 @@
 
 namespace framekeyboard {
 namespace {
-constexpr double toolbar_height = 68;
+constexpr double toolbar_height = 96;
 struct Placement {
     double scale, x, y;
 };
@@ -205,7 +205,7 @@ void PanelRenderer::paint(const PanelView& view, double now) {
         label(cr, control.label, control.bounds, 19, view.language->font, t.legend);
     }
     if (!view.status.empty()) {
-        label(cr, view.status, view.settings ? Rect{30, 526, 1540, 54} : Rect{805, 12, 625, 40}, 17,
+        label(cr, view.status, view.settings ? Rect{30, 526, 1540, 54} : Rect{18, 60, 1564, 28}, 17,
               view.language->font, t.legend);
     }
     cairo_destroy(cr);

@@ -2,7 +2,7 @@
 
 File-based layouts, language support and editable themes are core requirements. Users must be able to add profiles, then select them inside VR without recompiling or restarting the keyboard.
 
-Version 0.1.0 implements runtime profiles, VR selectors, reload and persistent selection. The bundled resources are also embedded for fallback. English and German XKB legends are tested. Native output requires a matching target session keymap, explicitly declared with `--target-language`; automatic synchronization and application delivery remain unverified. IME composition is not implemented.
+Version 0.1.0 implements runtime profiles, VR selectors, reload and persistent selection. The bundled resources are also embedded for fallback. English and German XKB legends are tested. Native output through libei or uinput requires a matching target session keymap, explicitly declared with `--target-language`; automatic synchronization and application delivery remain unverified. IME composition is not implemented.
 
 ## Independent profiles
 

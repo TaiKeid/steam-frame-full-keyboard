@@ -12,7 +12,7 @@ Version 0.1.0 implements the configuration catalog, key-state engine, native ren
 | Key state | Pointer capture, key transitions, modifiers, repeat and cancellation | C++20, independent of renderer/backend |
 | Renderer | Draw key faces/sides/legends and animations | Cairo + font handling |
 | VR panel | Own overlay, pose, size, pointer events and texture submission | OpenVR + Vulkan |
-| Input backend | Translate physical actions into press/release events | Linux uinput; explicitly armed, matching target-language declaration required |
+| Input backend | Translate physical actions into press/release events | Native Gamescope libei or Linux uinput; matching target-language declaration required |
 | Steam bridge | Request lifecycle, target metadata, stock suppression/restoration | Minimal JS through the existing local CDP interface, if needed |
 | Recovery | Release keys and restore stock UI after native/bridge failure | Independent watchdog or lease owned by a surviving component |
 
@@ -31,6 +31,8 @@ The HTML in `design/` is a design artifact only. It is not an embedded browser r
 The language model validates required physical keys. v0.1 uses the explicit `--target-language` declaration; automatic negotiation with the receiving session remains future work. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
 
 ## Input and focus
+
+The installed launcher uses libei through the running Gamescope socket. A keyboard seat is bound, output starts only after device resume, and a pause/removal/disconnect disables input until reopen. Existing evdev key mapping is shared with uinput; compositor repeat replaces synthetic EV_KEY repeat in the libei path. Development previews remain input-disabled.
 
 Use logical names such as `Enter`, `ControlLeft`, `KeyC`, and `NumpadEnter`. Every backend owns its mapping. Steam key-state values are not Linux evdev values. The native keyboard must not use Steam's contextual Enter callback for its dedicated Enter action.
 
@@ -67,3 +69,5 @@ The parent research note `../notes/keyboard-replacement-research.md` relative to
 VR launches acquire `VrInstance` before touching OpenVR. A later launch connects to the owner's private local socket, sends only a recenter request, waits for acknowledgment, and exits. The render loop handles requests on its own thread; it releases keys, returns to the keyboard view, resets placement from the current headset heading, and shows its own overlay. This avoids duplicate overlay keys and avoids reassigning SteamVR's generated application PID through a second VR connection.
 
 `PanelPlacement` contains pure transform math with no VR calls. The UI queues bounded position/rotation/size actions. The VR loop consumes them, updates the transform/width, and checks compositor visibility independently of its cached state. Tracking loss clears held keys; a valid pose after loss triggers recentering. Absolute room-space positions are not persisted.
+
+Laser dragging captures a controller-to-panel transform at grab time, then composes each tracked controller pose with that fixed offset. The VR loop owns capture and releases it on physical trigger-up, lost tracking, cancellation or recenter. The UI suppresses keys while dragging. Cursor indices are not device indices; an absent device identity falls back only to a single held controller trigger.

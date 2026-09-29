@@ -17,6 +17,7 @@ class KeySink {
   public:
     virtual ~KeySink() = default;
     virtual void send(int code, int value) = 0;
+    virtual bool pump() { return true; }
 };
 class NullSink : public KeySink {
   public:

@@ -34,6 +34,36 @@ Rotation level_heading(const Transform& head) {
     return {{{zz, 0, zx}, {0, 1, 0}, {-zx, 0, zz}}};
 }
 } // namespace
+Transform compose(const Transform& a, const Transform& b) {
+    Transform result{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            for (std::size_t k = 0; k < 3; ++k) {
+                result[r][c] += a[r][k] * b[k][c];
+            }
+        }
+        result[r][3] += a[r][3];
+    }
+    return result;
+}
+void PanelDrag::begin(const Transform& controller, const Transform& panel) {
+    Transform inverse{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            inverse[r][c] = controller[c][r];
+            inverse[r][3] -= controller[c][r] * controller[c][3];
+        }
+    }
+    relative_ = compose(inverse, panel);
+}
+Transform PanelDrag::update(const Transform& controller) const {
+    return compose(controller, relative_);
+}
+void PanelPlacement::set_transform(const Transform& world) {
+    anchor_ = world;
+    x_ = y_ = z_ = pitch_ = yaw_ = roll_ = 0;
+    ready_ = true;
+}
 void PanelPlacement::recenter(const Transform& head) {
     const auto rotation = level_heading(head);
     for (std::size_t row = 0; row < 3; ++row) {
