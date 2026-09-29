@@ -903,19 +903,6 @@
       }
     },
     {
-      "id": "MetaLeft",
-      "label": "◇",
-      "secondary_label": "",
-      "x": 195.5,
-      "y": 354,
-      "width": 69.5,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "MetaLeft"
-      }
-    },
-    {
       "id": "AltLeft",
       "label": "Alt",
       "secondary_label": "",
@@ -952,19 +939,6 @@
       "action": {
         "kind": "key",
         "value": "AltRight"
-      }
-    },
-    {
-      "id": "MetaRight",
-      "label": "◇",
-      "secondary_label": "",
-      "x": 799.5,
-      "y": 354,
-      "width": 69.5,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "MetaRight"
       }
     },
     {

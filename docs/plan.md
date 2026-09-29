@@ -166,3 +166,7 @@ Exit condition: the user can install, disable, update and remove the keyboard wi
 | How are stuck keys and a hidden stock keyboard recovered after a crash? | No implementation yet | Independent recovery and crash tests |
 
 The critical path is establishing configurable profiles, rendering a small native panel, proving input/focus, then proving takeover. A completed visual layout does not establish any of those integration results.
+
+## 0.4.5 layout adjustment
+
+Removed Meta keys from the bundled US, international and Japanese layouts and the HTML design reference. Their positions remain empty; all other key geometry and custom-layout Meta support are preserved.

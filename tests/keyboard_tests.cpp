@@ -197,7 +197,7 @@ int main() {
     try {
         const auto defaults = fk::load_profiles({}, {});
         require(defaults.errors.empty(), "bundled profiles valid");
-        require(defaults.layouts.at("en-us-full").keys.size() == 106, "106 baseline keys");
+        require(defaults.layouts.at("en-us-full").keys.size() == 104, "104 baseline keys");
         state_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         app_tests();

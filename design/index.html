@@ -91,7 +91,7 @@ textarea:focus { border-color:#777e85; }
 </main>
 <script>
 const $ = s => document.querySelector(s);
-const modifiers = {Shift:false, Control:false, Alt:false, Meta:false};
+const modifiers = {Shift:false, Control:false, Alt:false};
 let caps=false, num=true, scroll=false, clipboard='';
 const input=$('#test-input');
 function key(label, code=label, units=4, options={}) {
@@ -117,9 +117,9 @@ const rows=[
  [utility('Tab','Tab',6,'align-left'),...Array.from('QWERTYUIOP',letter),punctuation('[','{'),punctuation(']','}'),punctuation('\\','|',6)],
  [mod('Caps Lock','CapsLock',7,'align-left'),...Array.from('ASDFGHJKL',letter),punctuation(';',':'),punctuation("'",'"'),utility('Enter ↵','Enter',9,'align-right enter')],
  [mod('Shift','Shift',9,'align-left'),...Array.from('ZXCVBNM',letter),punctuation(',','<'),punctuation('.','>'),punctuation('/','?'),mod('Shift','Shift',11,'align-right')],
- [mod('Ctrl','Control',5),mod('◇','Meta',5),mod('Alt','Alt',5),{label:'',code:' ',u:25,opts:{className:'space',aria:'Space'}},mod('Alt','Alt',5),mod('◇','Meta',5),utility('☰','ContextMenu',5),mod('Ctrl','Control',5)]
+ [mod('Ctrl','Control',5),{u:5,spacer:true},mod('Alt','Alt',5),{label:'',code:' ',u:25,opts:{className:'space',aria:'Space'}},mod('Alt','Alt',5),{u:5,spacer:true},utility('☰','ContextMenu',5),mod('Ctrl','Control',5)]
 ];
-for(const defs of rows){const row=document.createElement('div');row.className='key-row';for(const d of defs)row.append(key(d.label,d.code,d.u,d.opts));$('#typing').append(row);}
+for(const defs of rows){const row=document.createElement('div');row.className='key-row';for(const d of defs)row.append(d.spacer ? spacer(d.u) : key(d.label,d.code,d.u,d.opts));$('#typing').append(row);}
 function placed(parent,label,code,col,row,opts={}){const b=key(label,code,1,opts);b.style.gridColumn=col;b.style.gridRow=row;parent.append(b);return b;}
 const nav=$('#navigation');
 [['Prt Sc','PrintScreen'],['Scroll','ScrollLock'],['Pause','Pause']].forEach(([l,c],i)=>placed(nav,l,c,i+1,1,{className:'function'}));
@@ -148,7 +148,7 @@ function apply(b){
  if(k==='Copy'){copy();return;}if(k==='Paste'){paste();return;}
  input.focus({preventScroll:true});
  if(modifiers.Control){if(k==='a'){input.select();say('Selected all');}else if(k==='c')copy();else if(k==='v')paste();else if(k==='x'){copy();if(start!==end)replace('');}else say('Ctrl + '+k+' · layout preview');}
- else if(modifiers.Alt||modifiers.Meta){say(Object.keys(modifiers).filter(k=>modifiers[k]).join(' + ')+' + '+k+' · layout preview');}
+ else if(modifiers.Alt){say(Object.keys(modifiers).filter(k=>modifiers[k]).join(' + ')+' + '+k+' · layout preview');}
  else {
  const padChars={NumpadDivide:'/',NumpadMultiply:'*',NumpadSubtract:'-',NumpadAdd:'+',NumpadDecimal:'.'};
  if(k==='Enter'||k==='NumpadEnter'){replace('\n');say('Enter ↵');}
