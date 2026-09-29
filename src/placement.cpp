@@ -76,37 +76,83 @@ std::optional<Transform> dashboard_anchor(const Transform& scaled_bottom) {
             return {};
         }
     }
-    if (std::hypot(scaled_bottom[0][2], scaled_bottom[2][2]) < .001) {
+    // Remove overlay scale without flattening pitch. The normal determines
+    // facing direction; rebuild an orthogonal right/up basis around it.
+    std::array<double, 3> normal{}, right{}, up{};
+    const double normal_length =
+        std::hypot(scaled_bottom[0][2], scaled_bottom[1][2], scaled_bottom[2][2]);
+    if (normal_length < .001) {
         return {};
     }
-    const auto rotation = level_heading(scaled_bottom);
+    double projection = 0;
+    for (std::size_t r = 0; r < 3; ++r) {
+        normal[r] = scaled_bottom[r][2] / normal_length;
+        projection += scaled_bottom[r][0] * normal[r];
+    }
+    for (std::size_t r = 0; r < 3; ++r) {
+        right[r] = scaled_bottom[r][0] - projection * normal[r];
+    }
+    const double right_length = std::hypot(right[0], right[1], right[2]);
+    if (right_length < .001) {
+        return {};
+    }
+    for (auto& value : right) {
+        value /= right_length;
+    }
+    up = {normal[1] * right[2] - normal[2] * right[1], normal[2] * right[0] - normal[0] * right[2],
+          normal[0] * right[1] - normal[1] * right[0]};
+    double up_projection = 0;
+    for (std::size_t r = 0; r < 3; ++r) {
+        up_projection += up[r] * scaled_bottom[r][1];
+    }
+    if (up_projection < .001) {
+        return {}; // Reject degenerate or mirrored bases.
+    }
     Transform anchor = scaled_bottom;
-    for (std::size_t row = 0; row < 3; ++row) {
-        for (std::size_t col = 0; col < 3; ++col) {
-            anchor[row][col] = rotation[row][col];
-        }
+    for (std::size_t r = 0; r < 3; ++r) {
+        anchor[r][0] = right[r];
+        anchor[r][1] = up[r];
+        anchor[r][2] = normal[r];
     }
     return anchor;
 }
-void DashboardAnchor::restore(std::optional<Transform> anchor, std::optional<Transform> bar) {
+void DashboardAnchor::restore(std::optional<Transform> anchor, std::optional<Transform> bar,
+                              bool full_rotation) {
     anchor_ = anchor;
     bar_ = bar;
+    full_rotation_ = full_rotation;
 }
 std::optional<Transform> DashboardAnchor::update(std::optional<Transform> main,
                                                  std::optional<Transform> bar) {
     if (!main && !bar) {
         return {};
     }
-    if (main) {
+    if (anchor_ && bar_ && bar) {
+        auto current = *bar;
+        if (!full_rotation_) {
+            // Old saves contain yaw-only bar poses. Apply their last translation
+            // and yaw delta once, then adopt full rotation without a tilt jump.
+            const auto heading = level_heading(current);
+            for (std::size_t r = 0; r < 3; ++r) {
+                for (std::size_t c = 0; c < 3; ++c) {
+                    current[r][c] = heading[r][c];
+                }
+            }
+        }
+        if (current != *bar_) {
+            anchor_ = move_with_dashboard(*anchor_, *bar_, current);
+        }
+    } else if (main) {
         anchor_ = main;
-    } else if (anchor_ && bar_) {
-        anchor_ = move_with_dashboard(*anchor_, *bar_, *bar);
     } else {
         // A first launch directly into an app has no calibrated main-tab mount.
         // Use the live bar instead of an invisible tab's stale room position.
         anchor_ = bar;
     }
+    // Keep one reference across tab switches: the bar has its own fixed tilt,
+    // so replacing its carried anchor with a different tab's basis could snap.
     bar_ = bar;
+    full_rotation_ = true;
     return anchor_;
 }
 Transform move_with_dashboard(const Transform& panel, const Transform& previous,

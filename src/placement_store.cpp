@@ -110,6 +110,11 @@ std::optional<SavedPlacement> load_placement(const std::filesystem::path& path) 
     if (json_object_object_get_ex(document.get(), "dashboard_bar", &bar)) {
         saved.dashboard_bar = read_transform(bar);
     }
+    json_object* full_rotation{};
+    if (json_object_object_get_ex(document.get(), "dashboard_full_rotation", &full_rotation)) {
+        require(json_object_is_type(full_rotation, json_type_boolean));
+        saved.dashboard_full_rotation = json_object_get_boolean(full_rotation);
+    }
     validate(saved);
     return saved;
 }
@@ -128,6 +133,8 @@ void save_placement(const std::filesystem::path& path, const SavedPlacement& sav
     if (saved.dashboard_bar) {
         json_object_object_add(document.get(), "dashboard_bar", write_transform(*saved.dashboard_bar));
     }
+    json_object_object_add(document.get(), "dashboard_full_rotation",
+                           json_object_new_boolean(saved.dashboard_full_rotation));
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';
     std::filesystem::create_directories(path.parent_path());

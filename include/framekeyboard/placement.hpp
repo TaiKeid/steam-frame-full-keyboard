@@ -5,7 +5,7 @@
 namespace framekeyboard {
 // Row-major rigid transform. Its columns are right, up, toward viewer, position.
 using Transform = std::array<std::array<double, 4>, 3>;
-// Normalize Steam's scaled bottom-center pose into a level dashboard anchor.
+// Normalize Steam's scaled overlay pose into a rigid anchor, retaining its full rotation.
 std::optional<Transform> dashboard_anchor(const Transform& scaled_bottom);
 Transform move_with_dashboard(const Transform& panel, const Transform& previous,
                               const Transform& current);
@@ -13,12 +13,14 @@ Transform move_with_dashboard(const Transform& panel, const Transform& previous,
 // bottom-center anchor with the persistent dashboard bar during those tabs.
 class DashboardAnchor {
   public:
-    void restore(std::optional<Transform> anchor, std::optional<Transform> bar);
+    void restore(std::optional<Transform> anchor, std::optional<Transform> bar,
+                 bool full_rotation = true);
     std::optional<Transform> update(std::optional<Transform> main, std::optional<Transform> bar);
     const std::optional<Transform>& bar() const { return bar_; }
 
   private:
     std::optional<Transform> anchor_, bar_;
+    bool full_rotation_{true};
 };
 // Roll-only horizon assistance. Feed the uncorrected pose each frame so the
 // animation never feeds its own correction back into the controller grab.

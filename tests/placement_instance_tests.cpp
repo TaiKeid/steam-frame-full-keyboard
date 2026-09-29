@@ -68,7 +68,68 @@ void dashboard_tab_tests() {
     }
     fk::DashboardAnchor fresh;
     require(fresh.update({}, moved_bar) == moved_bar, "first app launch uses live bar fallback");
-    require(fresh.update(main, bar) == main, "returning to Steam calibrates the true bottom edge");
+    require(fresh.update(main, bar) == bar, "tab switches keep the existing bar-relative mount");
+
+    const double angle = 35 * std::numbers::pi / 180;
+    const fk::Transform tilt{{{1, 0, 0, 0},
+                              {0, std::cos(angle), -std::sin(angle), .4},
+                              {0, std::sin(angle), std::cos(angle), 0}}};
+    auto tilt_pose = [&](fk::Transform pose) {
+        const auto original = pose;
+        for (std::size_t col = 0; col < 4; ++col) {
+            pose[1][col] = std::cos(angle) * original[1][col] - std::sin(angle) * original[2][col];
+            pose[2][col] = std::sin(angle) * original[1][col] + std::cos(angle) * original[2][col];
+        }
+        pose[1][3] += .4;
+        return pose;
+    };
+    const auto tilted_bar = tilt_pose(bar);
+    fk::DashboardAnchor rotating;
+    rotating.update(main, bar);
+    auto tilted_mount = rotating.update({}, tilted_bar);
+    const auto expected_mount = tilt_pose(main);
+    fk::PanelPlacement keyboard;
+    keyboard.recenter(head(), &main);
+    const auto followed_keyboard = fk::move_with_dashboard(keyboard.transform(), main, *tilted_mount);
+    const auto expected_keyboard = tilt_pose(keyboard.transform());
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near((*tilted_mount)[r][c], expected_mount[r][c], "app-tab anchor follows dashboard pitch");
+            near(followed_keyboard[r][c], expected_keyboard[r][c],
+                 "dashboard pitch carries keyboard rotation and positional offset together");
+        }
+    }
+    require(rotating.update(expected_mount, tilted_bar) == tilted_mount,
+            "switching to Steam preserves full-rotation reference");
+
+    // The previous release saved a level bar, even though its mesh was tilted.
+    auto old_bar = bar;
+    old_bar[1][3] = tilted_bar[1][3];
+    old_bar[2][3] = tilted_bar[2][3];
+    fk::DashboardAnchor migrated;
+    migrated.restore(main, old_bar, false);
+    require(migrated.update({}, tilted_bar) == main, "legacy saves do not jump to the bar mesh tilt");
+    const auto tilted_again = tilt_pose(tilted_bar);
+    const auto after_migration = migrated.update({}, tilted_again);
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near((*after_migration)[r][c], expected_mount[r][c],
+                 "migrated saves follow subsequent pitch");
+        }
+    }
+    auto scaled_tilt = tilt;
+    for (auto& row : scaled_tilt) {
+        row[0] *= .7;
+        row[1] *= .5;
+        row[2] *= .3;
+    }
+    const auto normalized = fk::dashboard_anchor(scaled_tilt);
+    require(normalized.has_value(), "scaled tilted dashboard remains usable");
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near((*normalized)[r][c], tilt[r][c], "scale removal preserves dashboard pitch");
+        }
+    }
 }
 void placement_tests() {
     fk::PanelPlacement panel;
@@ -326,6 +387,7 @@ void persistence_tests() {
     near(reopened.width(), original.width(), "recenter retains saved size");
     require(!saved->dashboard, "legacy world-space placement still loads");
     auto anchored = *saved;
+    anchored.dashboard_full_rotation = true;
     anchored.dashboard = head();
     anchored.dashboard_bar = head();
     (*anchored.dashboard_bar)[1][3] -= .15;
@@ -334,6 +396,7 @@ void persistence_tests() {
             "dashboard anchor survives close and reopen");
     require(fk::load_placement(path)->dashboard_bar == anchored.dashboard_bar,
             "dashboard bar reference survives close and reopen");
+    require(fk::load_placement(path)->dashboard_full_rotation, "full-rotation marker persists");
     auto bad_anchor = anchored;
     (*bad_anchor.dashboard)[0][0] = 2;
     bool bad_anchor_rejected = false;

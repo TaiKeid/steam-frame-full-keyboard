@@ -369,7 +369,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     std::optional<Transform> previous_dashboard;
     DashboardAnchor dashboard_anchor;
     if (saved && (!saved->universe || !panel.universe() || saved->universe == panel.universe())) {
-        dashboard_anchor.restore(saved->dashboard, saved->dashboard_bar);
+        dashboard_anchor.restore(saved->dashboard, saved->dashboard_bar, saved->dashboard_full_rotation);
     }
     LaserDrag drag;
     auto stop_drag = [&](bool finish_alignment = false) {
@@ -592,6 +592,9 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 hide_panel();
             } else {
                 waiting_for_tracking = false;
+                if (recenter_pending) {
+                    dashboard_anchor = {}; // Recalibrate the mount only on an explicit reset.
+                }
                 const auto dashboard =
                     dashboard_anchor.update(panel.read_dashboard("valve.steam.gamepadui.main", true),
                                             panel.read_dashboard("valve.steam.gamepadui.bar", false));
@@ -681,7 +684,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     if (displayed.ready()) {
         try {
             save_placement(placement_path, {displayed.transform(), displayed.width(), placement_universe,
-                                            previous_dashboard, dashboard_anchor.bar()});
+                                            previous_dashboard, dashboard_anchor.bar(), true});
         } catch (const std::exception& error) {
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }

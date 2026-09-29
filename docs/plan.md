@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.8 follow-up
+
+Follow full dashboard rotation, including the pitch that faces the viewer when raised/lowered. Remove scale without leveling the tracking reference, retain custom relative keyboard tilt and migrate yaw-only saved bar poses without a startup tilt jump.
+
 ## Version 0.4.7 follow-up
 
 Follow the live dashboard bar while Brave or another app tab hides Steam’s main tab. Reject frozen transforms from hidden overlays and persist the bar reference with saved placement.
