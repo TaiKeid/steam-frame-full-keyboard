@@ -2,8 +2,8 @@
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/vr_haptics.hpp"
+#include "framekeyboard/vr_texture.hpp"
 #include "openvr.h"
-#include "vk_texture.h"
 
 #include <algorithm>
 #include <chrono>
@@ -249,7 +249,7 @@ class VrPanel {
             check(overlay->SetOverlayFlag(handle_, flag, true), "SetOverlayFlag");
         }
         std::string message;
-        if (!vulkan_.init(message) || !texture_.create(vulkan_, panel_width, panel_height, message)) {
+        if (!vulkan_.init(message) || !texture_.create(vulkan_, handle_, message)) {
             throw std::runtime_error(message);
         }
     }
@@ -311,10 +311,16 @@ class VrPanel {
         return error == vr::TrackedProp_Success ? id : 0;
     }
     void submit(PanelRenderer& renderer) {
-        const auto rgba = renderer.rgba();
         std::string error;
-        if (!texture_.update(handle_, rgba.data(), error)) {
+        if (!texture_.update(renderer, error)) {
             throw std::runtime_error(error);
+        }
+        const bool native = texture_.native_pixels();
+        if (!reported_native_ || *reported_native_ != native) {
+            std::cout << (native ? "Using native BGRA overlay texture.\n"
+                                 : "Using RGBA compatibility overlay texture.\n")
+                      << std::flush;
+            reported_native_ = native;
         }
     }
     vr::VROverlayHandle_t handle() const { return handle_; }
@@ -323,7 +329,8 @@ class VrPanel {
     bool connected_{};
     vr::VROverlayHandle_t handle_{};
     VulkanContext vulkan_;
-    OverlayTexture texture_;
+    PanelTexture texture_;
+    std::optional<bool> reported_native_;
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, double duration) {

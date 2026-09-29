@@ -2,11 +2,13 @@
 
 #include "input.hpp"
 #include <cairo.h>
+#include <optional>
 
 namespace framekeyboard {
 constexpr int panel_width = 1600;
 constexpr int panel_height = 600;
 struct Control {
+    bool operator==(const Control&) const = default;
     std::string id, label;
     Rect bounds;
     bool selected{};
@@ -33,7 +35,8 @@ class PanelRenderer {
     ~PanelRenderer();
     PanelRenderer(const PanelRenderer&) = delete;
     PanelRenderer& operator=(const PanelRenderer&) = delete;
-    void paint(const PanelView& view, double now);
+    // force_full is used by pixel-equivalence tests and rendering benchmarks.
+    void paint(const PanelView& view, double now, bool force_full = false);
     const Key* hit_key(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }
     cairo_surface_t* surface() const { return surface_; }
@@ -44,6 +47,17 @@ class PanelRenderer {
     struct Animation {
         double amount{}, target{}, from{}, started{};
     };
+    struct Snapshot {
+        Layout layout;
+        Theme theme;
+        Language language;
+        // Own all compared values; never dereference pointers from an old view.
+        PanelView view;
+        std::set<int> modifiers;
+        bool caps{}, num{};
+    };
+    std::optional<Snapshot> previous_;
+    std::map<std::string, Rect> key_bounds_;
     std::map<std::string, Animation> animations_;
     cairo_surface_t* surface_{};
     bool animating_{};

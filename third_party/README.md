@@ -4,7 +4,7 @@
 https://github.com/sasaken1102r/frame-perf-overlay at commit
 `61c597c4f57624339c222094582f15da32016716`, under its MIT license.
 It handles OpenVR-compatible persistent Vulkan textures. Local changes are noted
-in comments and Git history. Application behavior lives in our own `src/` files.
+in comments and Git history. The transport also accepts an explicit Vulkan pixel format, defaulting to its original RGBA format. Native-BGRA selection and fallback are owned by `include/framekeyboard/vr_texture.hpp`.
 
 `openvr/openvr.h` is the Valve OpenVR 2.15.6 header from that same pinned tree.
 The adjacent BSD license was retrieved from Valve's OpenVR repository.

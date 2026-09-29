@@ -7,6 +7,7 @@ namespace framekeyboard {
 
 // Design coordinates are shared by painting and hit testing, before panel scaling.
 struct Rect {
+    bool operator==(const Rect&) const = default;
     double x{}, y{}, width{}, height{};
     bool contains(double px, double py) const {
         return px >= x && py >= y && px < x + width && py < y + height;
@@ -17,6 +18,7 @@ enum class Icon { None, ScaleDown, ScaleUp, Settings, Back, Recenter, Close, Cop
 
 enum class ActionKind { Key, Shortcut };
 struct Key {
+    bool operator==(const Key&) const = default;
     std::string id, label, secondary_label;
     Rect bounds;
     ActionKind action_kind{};
@@ -25,6 +27,7 @@ struct Key {
     Icon icon{Icon::None};
 };
 struct Layout {
+    bool operator==(const Layout&) const = default;
     std::string id, name;
     double width{}, height{};
     std::vector<Key> keys;

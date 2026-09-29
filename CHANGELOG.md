@@ -13,6 +13,7 @@ Full Keyboard for Steam Frame is a separately launched alternative keyboard for 
 - Editable JSON layouts, languages, and themes, with in-VR selection, favorites, and profile reload.
 - English and German profiles, plus Japanese romaji/kana composition, kanji candidates, and an external JIS IME mode.
 - Graphite and Midnight themes, a native desktop preview, and image export.
+- Incremental key redraws and native pixel uploads where supported, with an RGBA compatibility fallback and event-driven idle rendering.
 - User-local ARM64 installation, preserved settings, versioned rollback, release checksums, and manual installation instructions.
 - MIT-licensed project code, build documentation, and automated regression tests.
 

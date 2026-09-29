@@ -20,6 +20,10 @@ Cairo/Pango draw into a CPU image, and the vendored Vulkan texture transport kee
 
 The renderer draws an image, then updates the GPU texture. The compositor reuses the submitted texture between updates. Short press animations need a bounded redraw loop; idle keys do not require a continuous CPU paint loop. The VR event loop targets a 16.667 ms period while visible, including its processing time, and 250 ms while hidden. It reads the dashboard pose every visible iteration; hidden tracking retries remain limited to 4 Hz. Hidden panels skip native controller-component queries. Stationary, fully aligned panels skip transform updates. These intervals control polling, not compositor presentation; SteamVR presents the existing texture independently.
 
+The image is retained between paints. Hover/press/release updates clear and redraw only damaged key regions, including overlapping neighboring ink in the original drawing order. Cairo recording surfaces measure ink bounds when the visual model changes; the bounds cover the entire press travel and include text outside the face rectangle. Profile snapshots compare values rather than pointer addresses so Reload cannot reuse stale geometry. Modifier/lock legends, composition/candidates, settings, status, and profile changes use full redraws. Pixel-comparison tests run the same interaction sequence against an always-full renderer.
+
+`PanelTexture` prefers Cairo's native premultiplied BGRA bytes on little-endian systems, using `VK_FORMAT_B8G8R8A8_UNORM` and `VROverlayFlags_IsPremultiplied`. It checks Vulkan format support and OpenVR flag acceptance, and falls back to straight RGBA conversion if setup or submission fails. Rejected native textures stay alive until VR shutdown. Both GPU images still receive full uploads; partial CPU painting does not introduce stale alternate textures. The visible 60 Hz pose loop and 80 ms Graphite animation duration are unchanged.
+
 The HTML in `design/` is a design artifact only. It is not an embedded browser requirement for the native app.
 
 ## Configuration and selection

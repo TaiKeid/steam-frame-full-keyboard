@@ -10,7 +10,6 @@
 
 namespace {
 
-constexpr VkFormat kFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
 /**
  * 空白区切りの拡張名の文字列を分ける（OpenVR が返す形式）。
@@ -218,9 +217,11 @@ OverlayTexture::~OverlayTexture() {
     destroy();
 }
 
-bool OverlayTexture::create(VulkanContext& context, int width, int height, std::string& error) {
+bool OverlayTexture::create(VulkanContext& context, int width, int height, std::string& error, VkFormat format) {
     destroy();
     context_ = &context;
+    // FrameKeyboard: the caller supplies the format matching its pixel bytes.
+    format_ = format;
     width_ = width;
     height_ = height;
     const VkDevice device = context.device();
@@ -230,7 +231,7 @@ bool OverlayTexture::create(VulkanContext& context, int width, int height, std::
         VkImageCreateInfo imageInfo {};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.format = kFormat;
+        imageInfo.format = format_;
         imageInfo.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
         imageInfo.mipLevels = 1;
         imageInfo.arrayLayers = 1;
@@ -450,7 +451,7 @@ bool OverlayTexture::update(uint64_t overlayHandle, const uint8_t* rgba, std::st
     data.m_nQueueFamilyIndex = context_->queueFamily();
     data.m_nWidth = static_cast<uint32_t>(width_);
     data.m_nHeight = static_cast<uint32_t>(height_);
-    data.m_nFormat = kFormat;
+    data.m_nFormat = format_;
     data.m_nSampleCount = 1;
     // Gamma = 画素値をそのまま表示に使う（これまでの SetOverlayRaw と同じ見え方）
     vr::Texture_t texture {&data, vr::TextureType_Vulkan, vr::ColorSpace_Gamma};

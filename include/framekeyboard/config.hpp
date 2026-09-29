@@ -9,9 +9,11 @@
 namespace framekeyboard {
 namespace fs = std::filesystem;
 struct Color {
+    bool operator==(const Color&) const = default;
     double r{}, g{}, b{};
 };
 struct Theme {
+    bool operator==(const Theme&) const = default;
     std::string id, name;
     Color surface, top, middle, bottom, side_top, side_bottom, legend;
     Color hover, latched, disabled;
@@ -19,6 +21,7 @@ struct Theme {
     double font_size{20}, small_font_size{13}, padding{20};
 };
 struct Language {
+    bool operator==(const Language&) const = default;
     std::string id, name, locale, rules, model, keymap, variant, options, font;
     std::string input_method{"xkb"};
     std::map<std::string, std::string> kana, kana_shift;

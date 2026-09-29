@@ -154,6 +154,92 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
     cairo_stroke(cr);
     cairo_restore(cr);
 }
+void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount) {
+    const auto& t = *view.theme;
+    const auto modifiers = view.keyboard->modifiers();
+    std::set<int> legend_modifiers;
+    for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
+        const int code = key_code(name);
+        if (modifiers.contains(code)) {
+            legend_modifiers.insert(code);
+        }
+    }
+    const auto r = key.bounds;
+    // The side begins below the resting face. A fixed-size face moves down
+    // over it; changing face height would make a pressed key look stretched.
+    Rect side{r.x, r.y + t.travel, r.width, r.height + t.depth - t.travel};
+    rounded(cr, side, t.radius);
+    gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
+    Rect face{r.x, r.y + amount * t.travel, r.width, r.height};
+    const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
+    const bool latched = modifiers.contains(code) ||
+                         (key.action == "CapsLock" && view.keyboard->caps()) ||
+                         (key.action == "NumLock" && view.keyboard->num());
+    rounded(cr, face, t.radius);
+    if (latched) {
+        source(cr, t.latched);
+        cairo_fill(cr);
+    } else if (view.hovered.contains(key.id)) {
+        gradient(cr, face, t.hover, t.middle, t.bottom);
+    } else {
+        gradient(cr, face, t.top, t.middle, t.bottom);
+    }
+    if (key.icon != Icon::None) {
+        draw_icon(cr, key.icon, face, t.legend, 32);
+        return;
+    }
+    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
+    if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
+        text = custom->second;
+    }
+    std::string secondary;
+    if (view.key_labels.contains(key.id)) {
+        const auto small = view.language->kana_shift.find(key.action);
+        if (small != view.language->kana_shift.end() && small->second != text) {
+            secondary = small->second;
+        }
+    } else if (key.action_kind == ActionKind::Key && key.action.starts_with("Numpad")) {
+        secondary = key.secondary_label;
+    } else if (key.action_kind == ActionKind::Key && !text.empty() && text != key.label &&
+               text.size() < 5) {
+        auto shifted = legend_modifiers;
+        shifted.insert(key_code("ShiftLeft"));
+        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        if (secondary == text) {
+            secondary.clear();
+        }
+    } else if (!key.secondary_label.empty()) {
+        auto shifted = legend_modifiers;
+        shifted.insert(key_code("ShiftLeft"));
+        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        if (secondary == text) {
+            secondary.clear();
+        }
+    }
+    if (key.action.starts_with("Key")) {
+        auto* upper = g_utf8_strup(text.c_str(), -1);
+        text = upper;
+        g_free(upper);
+        if (!view.key_labels.contains(key.id)) {
+            secondary.clear();
+        }
+    }
+    // F10-F12 must not shrink simply because their names have three characters.
+    const bool function_key = key.action_kind == ActionKind::Key && key.action.starts_with("F") &&
+                              key.action.size() > 1 &&
+                              key.action.find_first_not_of("0123456789", 1) == std::string::npos;
+    const bool utility =
+        g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
+    if (!secondary.empty()) {
+        label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40}, t.small_font_size,
+              view.language->font, t.legend, true);
+        label(cr, text, {face.x, face.y + face.height * .4, face.width, face.height * .55},
+              t.font_size * .85, view.language->font, t.legend, true);
+    } else {
+        label(cr, text, face, utility ? t.small_font_size : t.font_size, view.language->font, t.legend,
+              true);
+    }
+}
 } // namespace
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
@@ -180,9 +266,94 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
     }
     return nullptr;
 }
-void PanelRenderer::paint(const PanelView& view, double now) {
-    auto* cr = cairo_create(surface_);
+void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto& t = *view.theme;
+    const auto modifiers = view.keyboard->modifiers();
+    const bool scene_changed =
+        !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
+        previous_->language != *view.language || previous_->modifiers != modifiers ||
+        previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
+        previous_->view.controls != view.controls || previous_->view.status != view.status ||
+        previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
+        previous_->view.preedit != view.preedit || previous_->view.key_labels != view.key_labels;
+    bool full = force_full || scene_changed || view.settings;
+    std::vector<Rect> damage;
+    animating_ = false;
+    for (const auto& key : view.layout->keys) {
+        auto& animation = animations_[key.id];
+        const double old_amount = animation.amount;
+        const double target = view.keyboard->pressed(key.id) ? 1 : 0;
+        const bool changed_target = target != animation.target;
+        if (changed_target) {
+            animation.from = animation.amount;
+            animation.target = target;
+            animation.started = now;
+        }
+        const double progress =
+            t.duration_ms == 0 ? 1
+                               : std::clamp((now - animation.started) * 1000 / t.duration_ms, 0.0, 1.0);
+        animation.amount = animation.from + (animation.target - animation.from) * progress;
+        animating_ |= !view.settings && progress < 1;
+        if (!full && (changed_target || animation.amount != old_amount ||
+                      previous_->view.hovered.contains(key.id) != view.hovered.contains(key.id))) {
+            damage.push_back(key_bounds_.at(key.id));
+        }
+    }
+    // Toolbar changes are infrequent and may overlap custom key geometry.
+    if (!full) {
+        for (const auto& control : view.controls) {
+            if (previous_->view.hovered.contains(control.id) != view.hovered.contains(control.id)) {
+                full = true;
+            }
+        }
+    }
+    if (scene_changed) {
+        key_bounds_.clear();
+        // Capture the exact ink extents, including oversized/custom-font labels.
+        // These surfaces are only used to measure; pixels are drawn directly onto
+        // the image below, preserving Cairo's original blending and font rendering.
+        if (!view.settings) {
+            const auto p = placement(view);
+            for (const auto& key : view.layout->keys) {
+                auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
+                auto* bounds_cr = cairo_create(recording);
+                cairo_translate(bounds_cr, p.x, p.y);
+                cairo_scale(bounds_cr, p.scale, p.scale);
+                draw_key(bounds_cr, view, key, 0);
+                double x, y, width, height;
+                cairo_recording_surface_ink_extents(recording, &x, &y, &width, &height);
+                // Union the resting and fully depressed positions, then round
+                // outwards to pixel boundaries to avoid clipped antialiasing.
+                const double left = std::floor(x) - 2, top = std::floor(y) - 2;
+                key_bounds_[key.id] = {left, top, std::ceil(x + width) + 2 - left,
+                                       std::ceil(y + height + t.travel * p.scale) + 2 - top};
+                cairo_destroy(bounds_cr);
+                cairo_surface_destroy(recording);
+            }
+        }
+        previous_ =
+            Snapshot{*view.layout,        t, *view.language, view, modifiers, view.keyboard->caps(),
+                     view.keyboard->num()};
+        // No animation state from a removed key should survive a profile reload.
+        std::erase_if(animations_, [&](const auto& item) {
+            return std::none_of(view.layout->keys.begin(), view.layout->keys.end(),
+                                [&](const Key& key) { return key.id == item.first; });
+        });
+    } else {
+        previous_->view = view;
+    }
+    if (!full && damage.empty()) {
+        return;
+    }
+    auto* cr = cairo_create(surface_);
+    if (!full) {
+        for (const auto& r : damage) {
+            cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+        }
+        cairo_clip(cr);
+    }
+    // Clear and restore the case only inside the damaged pixels. Any neighboring
+    // key intersecting that region is repainted in the original stacking order.
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
@@ -190,112 +361,20 @@ void PanelRenderer::paint(const PanelView& view, double now) {
     rounded(cr, {0, 0, panel_width, panel_height}, t.surface_radius);
     source(cr, t.surface);
     cairo_fill(cr);
-    animating_ = false;
     if (!view.settings) {
         const auto p = placement(view);
         cairo_save(cr);
         cairo_translate(cr, p.x, p.y);
         cairo_scale(cr, p.scale, p.scale);
-        const auto modifiers = view.keyboard->modifiers();
-        std::set<int> legend_modifiers;
-        // Ctrl/Meta affect commands, not the printed character legends.
-        for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
-            const int code = key_code(name);
-            if (modifiers.contains(code)) {
-                legend_modifiers.insert(code);
-            }
-        }
         for (const auto& key : view.layout->keys) {
-            auto& animation = animations_[key.id];
-            const double target = view.keyboard->pressed(key.id) ? 1 : 0;
-            if (target != animation.target) {
-                animation.from = animation.amount;
-                animation.target = target;
-                animation.started = now;
-            }
-            const double progress =
-                t.duration_ms == 0
-                    ? 1
-                    : std::clamp((now - animation.started) * 1000 / t.duration_ms, 0.0, 1.0);
-            animation.amount = animation.from + (animation.target - animation.from) * progress;
-            animating_ |= progress < 1;
-            const auto r = key.bounds;
-            // The side begins below the resting face. A fixed-size face moves down
-            // over it; changing face height would make a pressed key look stretched.
-            Rect side{r.x, r.y + t.travel, r.width, r.height + t.depth - t.travel};
-            rounded(cr, side, t.radius);
-            gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
-            Rect face{r.x, r.y + animation.amount * t.travel, r.width, r.height};
-            const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
-            const bool latched = modifiers.contains(code) ||
-                                 (key.action == "CapsLock" && view.keyboard->caps()) ||
-                                 (key.action == "NumLock" && view.keyboard->num());
-            rounded(cr, face, t.radius);
-            if (latched) {
-                source(cr, t.latched);
-                cairo_fill(cr);
-            } else if (view.hovered.contains(key.id)) {
-                gradient(cr, face, t.hover, t.middle, t.bottom);
-            } else {
-                gradient(cr, face, t.top, t.middle, t.bottom);
-            }
-            if (key.icon != Icon::None) {
-                draw_icon(cr, key.icon, face, t.legend, 32);
-                continue;
-            }
-            auto text =
-                view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
-            if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
-                text = custom->second;
-            }
-            std::string secondary;
-            if (view.key_labels.contains(key.id)) {
-                const auto small = view.language->kana_shift.find(key.action);
-                if (small != view.language->kana_shift.end() && small->second != text) {
-                    secondary = small->second;
-                }
-            } else if (key.action_kind == ActionKind::Key && key.action.starts_with("Numpad")) {
-                secondary = key.secondary_label;
-            } else if (key.action_kind == ActionKind::Key && !text.empty() && text != key.label &&
-                       text.size() < 5) {
-                auto shifted = legend_modifiers;
-                shifted.insert(key_code("ShiftLeft"));
-                secondary =
-                    view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
-                if (secondary == text) {
-                    secondary.clear();
-                }
-            } else if (!key.secondary_label.empty()) {
-                auto shifted = legend_modifiers;
-                shifted.insert(key_code("ShiftLeft"));
-                secondary =
-                    view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
-                if (secondary == text) {
-                    secondary.clear();
-                }
-            }
-            if (key.action.starts_with("Key")) {
-                auto* upper = g_utf8_strup(text.c_str(), -1);
-                text = upper;
-                g_free(upper);
-                if (!view.key_labels.contains(key.id)) {
-                    secondary.clear();
-                }
-            }
-            // F10-F12 must not shrink simply because their names have three characters.
-            const bool function_key = key.action_kind == ActionKind::Key &&
-                                      key.action.starts_with("F") && key.action.size() > 1 &&
-                                      key.action.find_first_not_of("0123456789", 1) == std::string::npos;
-            const bool utility =
-                g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
-            if (!secondary.empty()) {
-                label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40},
-                      t.small_font_size, view.language->font, t.legend, true);
-                label(cr, text, {face.x, face.y + face.height * .4, face.width, face.height * .55},
-                      t.font_size * .85, view.language->font, t.legend, true);
-            } else {
-                label(cr, text, face, utility ? t.small_font_size : t.font_size, view.language->font,
-                      t.legend, true);
+            const auto& bounds = key_bounds_.at(key.id);
+            const bool intersects =
+                full || std::any_of(damage.begin(), damage.end(), [&](const Rect& r) {
+                    return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
+                           bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
+                });
+            if (intersects) {
+                draw_key(cr, view, key, animations_.at(key.id).amount);
             }
         }
         cairo_restore(cr);
@@ -334,7 +413,7 @@ std::vector<unsigned char> PanelRenderer::rgba() const {
             const auto pixel = row[x];
             const unsigned alpha = pixel >> 24;
             const auto at = static_cast<std::size_t>(y * panel_width + x) * 4;
-            // Cairo stores premultiplied ARGB. OpenVR expects straight RGBA.
+            // Compatibility uploads use straight RGBA; the native path skips this conversion.
             result[at] = static_cast<unsigned char>(
                 alpha ? std::min(255u, ((pixel >> 16) & 255u) * 255u / alpha) : 0);
             result[at + 1] = static_cast<unsigned char>(

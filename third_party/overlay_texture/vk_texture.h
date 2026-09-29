@@ -81,7 +81,8 @@ public:
      * @param error 失敗したときの理由
      * @return 成功したら true
      */
-    bool create(VulkanContext& context, int width, int height, std::string& error);
+    bool create(VulkanContext& context, int width, int height, std::string& error,
+                VkFormat format = VK_FORMAT_R8G8B8A8_UNORM);
 
     /** 作ったものを壊す（GPU の処理が終わるのを待ってから）。 */
     void destroy();
@@ -90,7 +91,8 @@ public:
      * RGBA の画素を GPU の画像に写し、SetOverlayTexture でオーバーレイに渡す。
      * 転送の完了を待ってから渡すので、渡した時点で画像は完成している。
      * @param overlayHandle vr::VROverlayHandle_t
-     * @param rgba 非乗算済み RGBA 8bit（width * height * 4 バイト）
+     * @param rgba Pixel bytes matching create() format (width * height * 4).
+     * FrameKeyboard: the caller configures overlay alpha to match these bytes.
      * @param error 失敗したときの理由
      * @return 成功したら true
      */
@@ -101,6 +103,8 @@ public:
 
 private:
     VulkanContext* context_ = nullptr;
+    // FrameKeyboard: allow Cairo-native BGRA while retaining RGBA as the default.
+    VkFormat format_ = VK_FORMAT_R8G8B8A8_UNORM;
     int width_ = 0;
     int height_ = 0;
     VkImage images_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
