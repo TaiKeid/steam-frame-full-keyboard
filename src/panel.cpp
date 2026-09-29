@@ -89,18 +89,34 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
     };
     switch (icon) {
     case Icon::SteamFrame:
-        cairo_rectangle(cr, -10, -10, 20, 4.8);
-        cairo_rectangle(cr, -10, -5.2, 4.8, 15.2);
-        cairo_move_to(cr, 10, 10);
-        cairo_arc(cr, 10, 10, 13.2, pi, 1.5 * pi);
+        // Trace the reference's 194px mark: 47.5px bars, a 128px
+        // quarter-circle and small rounded exterior corners. Inner corners
+        // stay square; stroking the outline would change the measured gaps.
+        cairo_scale(cr, 24.0 / 194, 24.0 / 194);
+        cairo_translate(cr, -225.5, -225.5);
+        cairo_move_to(cr, 131.5, 128.5);
+        cairo_line_to(cr, 319.5, 128.5);
+        cairo_arc(cr, 319.5, 131.5, 3, -.5 * pi, 0);
+        cairo_line_to(cr, 322.5, 176);
+        cairo_line_to(cr, 176, 176);
+        cairo_line_to(cr, 176, 322.5);
+        cairo_line_to(cr, 131.5, 322.5);
+        cairo_arc(cr, 131.5, 319.5, 3, .5 * pi, pi);
+        cairo_line_to(cr, 128.5, 131.5);
+        cairo_arc(cr, 131.5, 131.5, 3, pi, 1.5 * pi);
+        cairo_close_path(cr);
+        cairo_move_to(cr, 322.5, 322.5);
+        cairo_arc(cr, 322.5, 322.5, 128, pi, 1.5 * pi);
         cairo_close_path(cr);
         cairo_fill(cr);
         break;
     case Icon::SteamOS:
-        cairo_arc(cr, -5, 0, 7, 0, 2 * pi);
+        // The reference uses concentric radii 48, 62.4 and 96. Its ink
+        // bounds are 144x192, centered here without stretching to a square.
+        cairo_arc(cr, -3, 0, 6, 0, 2 * pi);
         cairo_fill(cr);
-        cairo_arc(cr, 0, 0, 12, -.5 * pi, .5 * pi);
-        cairo_arc_negative(cr, 0, 0, 8.5, .5 * pi, -.5 * pi);
+        cairo_arc(cr, -3, 0, 12, -.5 * pi, .5 * pi);
+        cairo_arc_negative(cr, -3, 0, 7.8, .5 * pi, -.5 * pi);
         cairo_close_path(cr);
         cairo_fill(cr);
         break;
@@ -201,7 +217,8 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
         gradient(cr, face, t.top, t.middle, t.bottom);
     }
     if (key.icon != Icon::None) {
-        draw_icon(cr, key.icon, face, t.legend, 32);
+        const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
+        draw_icon(cr, key.icon, face, t.legend, super_icon ? 22 : 32);
         return;
     }
     auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
