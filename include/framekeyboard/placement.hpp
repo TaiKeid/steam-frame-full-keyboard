@@ -26,7 +26,7 @@ class DashboardAnchor {
 // animation never feeds its own correction back into the controller grab.
 class HorizonAlignment {
   public:
-    Transform update(const Transform& raw, double now);
+    Transform update(const Transform& raw, double now, bool grabbed = false);
     void reset() { *this = {}; }
     bool animating() const { return animating_; }
 

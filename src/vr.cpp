@@ -372,13 +372,18 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         dashboard_anchor.restore(saved->dashboard, saved->dashboard_bar, saved->dashboard_full_rotation);
     }
     LaserDrag drag;
-    auto stop_drag = [&](bool finish_alignment = false) {
+    auto stop_drag = [&](bool align_after_release = false) {
         feedback.cancel();
         if (drag.active()) {
             drag.stop();
             app.set_dragging(false);
         }
-        if (!finish_alignment) {
+        if (align_after_release) {
+            // Release may arrive without another movement sample. Schedule the
+            // first alignment frame even when the hand was completely still.
+            horizon.reset();
+            transform_dirty = true;
+        } else {
             if (displayed.ready()) {
                 placement.restore(displayed.transform(), displayed.width());
             }
@@ -396,7 +401,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         }
     };
     auto place_panel = [&](double now) {
-        const auto aligned = horizon.update(placement.transform(), now);
+        const auto aligned = horizon.update(placement.transform(), now, drag.active());
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());

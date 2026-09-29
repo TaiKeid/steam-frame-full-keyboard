@@ -284,6 +284,17 @@ void horizon_tests() {
         horizon.reset();
         near(roll_degrees(horizon.update(drag.update(head()), 13)), 0, "regrab stays level");
     }
+    fk::HorizonAlignment grabbed;
+    grabbed.update(rolled(4), 1);
+    grabbed.update(rolled(4), 1.25);
+    require(grabbed.update(rolled(3), 2, true) == rolled(3),
+            "grab bypasses an existing alignment animation");
+    require(grabbed.update(rolled(-4), 12, true) == rolled(-4),
+            "long grab preserves exact hand pose within snapping threshold");
+    require(!grabbed.animating(), "grab does not advance horizon easing");
+    near(roll_degrees(grabbed.update(rolled(-4), 13)), -4, "release begins without a snap");
+    near(roll_degrees(grabbed.update(rolled(-4), 13.25)), -2, "release eases halfway after 250 ms");
+    near(roll_degrees(grabbed.update(rolled(-4), 13.5)), 0, "release levels after 500 ms");
     fk::HorizonAlignment horizon;
     near(roll_degrees(horizon.update(rolled(5.01), 20)), 5.01, "outside range is untouched");
     horizon.update(rolled(4), 21);

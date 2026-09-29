@@ -23,7 +23,13 @@ Rotation level_heading(const Transform& head) {
     return {{{zz, 0, zx}, {0, 1, 0}, {-zx, 0, zz}}};
 }
 } // namespace
-Transform HorizonAlignment::update(const Transform& raw, double now) {
+Transform HorizonAlignment::update(const Transform& raw, double now, bool grabbed) {
+    if (grabbed) {
+        // The hand owns the exact pose until release. Do not run the easing
+        // clock in the background, or a long grab would snap on release.
+        reset();
+        return raw;
+    }
     // A local Z rotation changes roll without changing the panel normal, hence
     // preserves its heading and tilt. World Y projected onto right/up gives roll.
     const double vertical = std::hypot(raw[1][0], raw[1][1]);
