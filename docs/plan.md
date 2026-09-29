@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.10 follow-up
+
+Darken Graphite toward the stock Steam keyboard palette: near-black background, dark blue-gray key faces, restrained raised-key shading and clear white legends. Keep geometry and interaction unchanged.
+
 ## Version 0.4.9 follow-up
 
 Suppress horizon correction while grabbed. Begin a fresh 500 ms roll alignment only after release, including release without a new movement sample.

@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "name": "Graphite",
-  "surface": "#303235",
+  "surface": "#0b1016",
   "surface_radius": 20,
-  "key_top": "#81858a",
-  "key_middle": "#707479",
-  "key_bottom": "#64686d",
-  "key_side_top": "#494c4f",
-  "key_side_bottom": "#35373a",
+  "key_top": "#242b33",
+  "key_middle": "#1b222a",
+  "key_bottom": "#141b22",
+  "key_side_top": "#10161d",
+  "key_side_bottom": "#080c11",
   "legend": "#ffffff",
   "key_radius": 8,
   "key_depth": 3.5,
@@ -18,7 +18,7 @@
   "font_size": 20,
   "small_font_size": 13,
   "padding": 20,
-  "hover": "#969ba3",
-  "latched": "#517ca6",
-  "disabled": "#46494d"
+  "hover": "#35404d",
+  "latched": "#355b7a",
+  "disabled": "#171e26"
 }
