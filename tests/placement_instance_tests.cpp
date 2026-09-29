@@ -654,7 +654,8 @@ void ui_tests() {
     fk::App app(options, sink);
     require(!app.view().settings, "keyboard remains visible with resize controls");
     for (const auto& control : app.view().controls) {
-        require(control.id != "position" && control.id != "input", "removed toolbar controls absent");
+        require(control.id != "position" && control.id != "input" && control.id != "release",
+                "removed toolbar controls absent");
     }
     for (const auto* id : {"size-smaller", "size-larger"}) {
         bool clicked = false;
@@ -662,7 +663,7 @@ void ui_tests() {
             if (control.id != id) {
                 continue;
             }
-            require(control.icon != fk::ControlIcon::None, "resize controls have icons");
+            require(control.icon != fk::Icon::None, "resize controls have icons");
             const double x = control.bounds.x + control.bounds.width / 2;
             const double y = control.bounds.y + control.bounds.height / 2;
             app.down(0, x, y, 1);

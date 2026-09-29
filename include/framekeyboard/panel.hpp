@@ -6,12 +6,11 @@
 namespace framekeyboard {
 constexpr int panel_width = 1600;
 constexpr int panel_height = 600;
-enum class ControlIcon { None, ScaleDown, ScaleUp };
 struct Control {
     std::string id, label;
     Rect bounds;
     bool selected{};
-    ControlIcon icon{ControlIcon::None};
+    Icon icon{Icon::None};
 };
 struct PanelView {
     const Layout* layout{};

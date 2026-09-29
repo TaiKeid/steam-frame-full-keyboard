@@ -13,6 +13,8 @@ struct Rect {
     }
 };
 
+enum class Icon { None, ScaleDown, ScaleUp, Settings, Back, Recenter, Close, Copy, Paste };
+
 enum class ActionKind { Key, Shortcut };
 struct Key {
     std::string id, label, secondary_label;
@@ -20,6 +22,7 @@ struct Key {
     ActionKind action_kind{};
     // Physical key name or shortcut name; never a Steam numeric key code.
     std::string action;
+    Icon icon{Icon::None};
 };
 struct Layout {
     std::string id, name;

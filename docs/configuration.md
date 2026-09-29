@@ -13,7 +13,7 @@ Version 0.1.0 implements runtime profiles, VR selectors, reload and persistent s
 | Theme | Colors, gradients, rounding, sides, press movement and animation timing | `themes/graphite.json` |
 | Settings | Active profile IDs and named favorite combinations | `config/default.json` |
 
-Keep these separate. The same geometry can display English or German legends, and a theme can apply to either language. A favorite saves a layout, language and theme together for one-step switching. Full-size is the default, but the runtime must not assume 106 keys or hardcode their arrangement.
+Keep these separate. The same geometry can display English or German legends, and a theme can apply to either language. A favorite saves a layout, language and theme together for one-step switching. Full-size is the default, but the runtime must not assume a fixed key count or hardcode their arrangement.
 
 The current `en-us-full` layout ID identifies the approved ANSI geometry and its fallback legends. Its name does not restrict it to English. Languages declare `required_keys` as physical action names. The German profile requires `IntlBackslash`, provided by `international-full`. Activation rejects a layout missing that key. This international variant retains the rectangular Enter from the approved design.
 
@@ -34,7 +34,7 @@ Keep a compiled safe default available. If a user override is invalid, retain th
 
 ## Layouts and styles
 
-Layout JSON defines key rectangles and actions. The existing validator checks bounds and overlap. Extend the runtime validator to limit profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
+Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy` or `paste`; omitting it renders the text label. Icons use the theme legend color and move with the key face. The existing validator checks bounds and overlap. Extend the runtime validator to limit profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
 
 Theme JSON defines renderer properties directly. Support surface and legend colors, key-face gradients, side colors/depth, corner radii, spacing/padding and font sizing, plus hover, pressed, latched and disabled state styles. The current renderer consumes the graphite fields plus `font_size`, `small_font_size`, `padding`, `hover` and `latched`. It uses immediate hover/latched colors and animated press travel. The reserved `disabled` color is parsed but has no disabled-key state in this release. Per-key fonts, arbitrary spacing rules and additional state styles remain future work. Native rendering does not require CSS or JavaScript theme execution.
 
@@ -52,7 +52,7 @@ Use font fallback and text shaping for non-Latin legends. Treat interface transl
 
 ## Switching inside VR
 
-The top row provides Settings, Release all, Recenter, smaller/larger icons and Close. Settings provides Layout, Language and Theme selectors, favorite combinations, Apply and save, and Reload profiles. Applying returns to the keyboard, which shows the selected design. A separate temporary preview/apply workflow remains future work. Newly added files appear after reload; an automatic file watcher is optional.
+The top row provides gear, recenter, smaller/larger and close icons. Settings uses a back arrow to return to the keyboard. Japanese Romaji/Kana/JIS shortcuts appear only when the pending language is Japanese or the layout has a KanaMode key. Settings provides Layout, Language and Theme selectors, favorite combinations, Apply and save, and Reload profiles. Applying returns to the keyboard, which shows the selected design. A separate temporary preview/apply workflow remains future work. Newly added files appear after reload; an automatic file watcher is optional.
 
 Validate and prepare a candidate configuration off to the side. On Apply, cancel active pointer presses, stop repeat and release held keys through the old backend before changing mappings. Clear latched modifiers, replace geometry and hit regions together, and redraw. Preserve the target application's focus. A failed apply keeps the previous working configuration and reports the error in VR.
 

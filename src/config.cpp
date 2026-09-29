@@ -186,6 +186,14 @@ Layout parse_layout(const std::string& json) {
         key.id = identifier(entry, "id");
         key.label = text(entry, "label");
         key.secondary_label = text(entry, "secondary_label", "", true);
+        const auto icon = text(entry, "icon", "", true);
+        if (icon == "copy") {
+            key.icon = Icon::Copy;
+        } else if (icon == "paste") {
+            key.icon = Icon::Paste;
+        } else if (!icon.empty()) {
+            throw std::runtime_error("unknown key icon");
+        }
         key.bounds = {number(entry, "x", 0, result.width), number(entry, "y", 0, result.height),
                       number(entry, "width", 8, result.width),
                       number(entry, "height", 8, result.height)};

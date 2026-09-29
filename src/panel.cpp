@@ -71,6 +71,89 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     pango_font_description_free(font);
     g_object_unref(layout);
 }
+// Shared vector icons keep controls independent of installed symbol fonts.
+// Key icons are centered on the moving face, so they follow press animation.
+void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 24) {
+    constexpr double pi = 3.141592653589793;
+    cairo_save(cr);
+    cairo_translate(cr, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    const double scale = std::min({size, bounds.width - 8, bounds.height - 8}) / 24;
+    cairo_scale(cr, scale, scale);
+    source(cr, color);
+    cairo_set_line_width(cr, 1.8);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    auto line = [&](double x1, double y1, double x2, double y2) {
+        cairo_move_to(cr, x1, y1);
+        cairo_line_to(cr, x2, y2);
+    };
+    switch (icon) {
+    case Icon::Settings:
+        // Each tooth has a flat tip and a recessed gap.
+        for (int i = 0; i < 32; ++i) {
+            const double angle = i * pi / 16;
+            const double radius = i % 4 < 2 ? 11 : 8.5;
+            const double x = radius * std::cos(angle), y = radius * std::sin(angle);
+            if (i == 0) {
+                cairo_move_to(cr, x, y);
+            } else {
+                cairo_line_to(cr, x, y);
+            }
+        }
+        cairo_close_path(cr);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 0, 0, 3.5, 0, 2 * pi);
+        break;
+    case Icon::Back:
+        line(9, 0, -9, 0);
+        line(-2, -7, -9, 0);
+        cairo_line_to(cr, -2, 7);
+        break;
+    case Icon::Recenter:
+        cairo_arc(cr, 0, 0, 7, 0, 2 * pi);
+        line(-11, 0, -5, 0);
+        line(5, 0, 11, 0);
+        line(0, -11, 0, -5);
+        line(0, 5, 0, 11);
+        break;
+    case Icon::Close:
+        line(-7, -7, 7, 7);
+        line(7, -7, -7, 7);
+        break;
+    case Icon::Copy:
+        rounded(cr, {-3, -3, 13, 14}, 2);
+        cairo_move_to(cr, 4, -6);
+        cairo_line_to(cr, 4, -9);
+        cairo_line_to(cr, -10, -9);
+        cairo_line_to(cr, -10, 5);
+        cairo_line_to(cr, -6, 5);
+        break;
+    case Icon::Paste:
+        cairo_move_to(cr, -5, -8);
+        cairo_line_to(cr, -9, -8);
+        cairo_line_to(cr, -9, 11);
+        cairo_line_to(cr, 9, 11);
+        cairo_line_to(cr, 9, -8);
+        cairo_line_to(cr, 5, -8);
+        rounded(cr, {-5, -11, 10, 6}, 2);
+        line(-4, 0, 4, 0);
+        line(-4, 5, 2, 5);
+        break;
+    case Icon::ScaleDown:
+    case Icon::ScaleUp:
+        cairo_arc(cr, -3, -3, 8, 0, 2 * pi);
+        line(3, 3, 10, 10);
+        line(-7, -3, 1, -3);
+        if (icon == Icon::ScaleUp) {
+            line(-3, -7, -3, 1);
+        }
+        break;
+    case Icon::None:
+        break;
+    }
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
 } // namespace
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
@@ -156,6 +239,10 @@ void PanelRenderer::paint(const PanelView& view, double now) {
             } else {
                 gradient(cr, face, t.top, t.middle, t.bottom);
             }
+            if (key.icon != Icon::None) {
+                draw_icon(cr, key.icon, face, t.legend, 32);
+                continue;
+            }
             auto text =
                 view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
             if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
@@ -195,7 +282,12 @@ void PanelRenderer::paint(const PanelView& view, double now) {
                     secondary.clear();
                 }
             }
-            const bool utility = g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key");
+            // F10-F12 must not shrink simply because their names have three characters.
+            const bool function_key = key.action_kind == ActionKind::Key &&
+                                      key.action.starts_with("F") && key.action.size() > 1 &&
+                                      key.action.find_first_not_of("0123456789", 1) == std::string::npos;
+            const bool utility =
+                g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
             if (!secondary.empty()) {
                 label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40},
                       t.small_font_size, view.language->font, t.legend, true);
@@ -219,28 +311,10 @@ void PanelRenderer::paint(const PanelView& view, double now) {
         source(cr,
                control.selected ? t.latched : (view.hovered.contains(control.id) ? t.hover : t.bottom));
         cairo_fill(cr);
-        if (control.icon == ControlIcon::None) {
+        if (control.icon == Icon::None) {
             label(cr, control.label, control.bounds, 19, view.language->font, t.legend);
         } else {
-            // Draw zoom icons as geometry so themes/languages need no icon font.
-            const double x = control.bounds.x + control.bounds.width / 2 - 3;
-            const double y = control.bounds.y + control.bounds.height / 2 - 3;
-            cairo_save(cr);
-            source(cr, t.legend);
-            cairo_set_line_width(cr, 2);
-            cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-            cairo_arc(cr, x, y, 9, 0, 6.283185307179586);
-            cairo_stroke(cr);
-            cairo_move_to(cr, x + 7, y + 7);
-            cairo_line_to(cr, x + 14, y + 14);
-            cairo_move_to(cr, x - 4, y);
-            cairo_line_to(cr, x + 4, y);
-            if (control.icon == ControlIcon::ScaleUp) {
-                cairo_move_to(cr, x, y - 4);
-                cairo_line_to(cr, x, y + 4);
-            }
-            cairo_stroke(cr);
-            cairo_restore(cr);
+            draw_icon(cr, control.icon, control.bounds, t.legend);
         }
     }
     if (!view.status.empty()) {

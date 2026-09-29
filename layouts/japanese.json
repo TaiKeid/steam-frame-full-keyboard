@@ -16,7 +16,8 @@
       "action": {
         "kind": "shortcut",
         "value": "copy"
-      }
+      },
+      "icon": "copy"
     },
     {
       "id": "Paste",
@@ -29,7 +30,8 @@
       "action": {
         "kind": "shortcut",
         "value": "paste"
-      }
+      },
+      "icon": "paste"
     },
     {
       "id": "Escape",

@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.4.5 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.4.6 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Bundled layouts leave the Meta key positions empty. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -12,7 +12,7 @@ The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. B
 - Main-view smaller/larger icons, with controller grabbing for positioning.
 - US, international and Japanese JIS layouts; English/German XKB legends; Japanese romaji/kana composition and kanji candidates; Graphite/Midnight themes.
 - VR settings for layout, language and theme selection, favorites, reload and persistent selection.
-- One-shot modifier taps, held chords, repeat, release-all, cancellation and a ten-second missing-release timeout.
+- One-shot modifier taps, held chords, repeat, cancellation and a ten-second missing-release timeout.
 - Firm haptic clicks on key press/release, with lighter feedback when entering a key.
 - Native key events. Copy/Paste send Ctrl+C/Ctrl+V without reading the clipboard.
 - Host preview, PNG export, profile validation and an ARM64 package.
@@ -40,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.4.5-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.4.6-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -48,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.4.5-aarch64.tar.gz
-./framekeyboard-0.4.5-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.4.6-aarch64.tar.gz
+./framekeyboard-0.4.6-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English.  It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -62,7 +62,7 @@ With SteamVR already running and the receiving session using a US keymap:
 ~/.local/bin/framekeyboard
 ```
 
-Focus a disposable text field in the receiving app, then type on the panel. The normal launcher uses `--input ei --target-language en-us --start-enabled`.  Tap Ctrl/Alt/Shift to latch it for the next key; tap it again to clear it. Release all clears held and latched keys. Close destroys the panel and input connection.
+Focus a disposable text field in the receiving app, then type on the panel. The normal launcher uses `--input ei --target-language en-us --start-enabled`.  Tap Ctrl/Alt/Shift to latch it for the next key; tap it again to clear it. Close destroys the panel and input connection.
 
 `--target-language` is an explicit statement about the target session's existing keymap. The program does not detect or change that session's language. For German, the target must already use German; launch explicitly with `--vr --input ei --target-language de-de`, then choose the Deutsch favorite in Settings. That favorite includes the extra physical language key.
 

@@ -56,12 +56,15 @@ App::App(const Options& options, KeySink& sink)
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result = {
-        {"settings", settings_open_ ? "Back" : "Settings", {18, 12, 132, 42}},
-        {"release", "Release all", {160, 12, 155, 42}},
-        {"recenter", "Recenter", {325, 12, 125, 42}},
-        {"size-smaller", "Smaller keyboard", {460, 12, 60, 42}, false, ControlIcon::ScaleDown},
-        {"size-larger", "Larger keyboard", {530, 12, 60, 42}, false, ControlIcon::ScaleUp},
-        {"close", "Close", {1450, 12, 132, 42}}};
+        {"settings",
+         settings_open_ ? "Back" : "Settings",
+         {18, 12, 60, 42},
+         false,
+         settings_open_ ? Icon::Back : Icon::Settings},
+        {"recenter", "Recenter", {88, 12, 60, 42}, false, Icon::Recenter},
+        {"size-smaller", "Smaller keyboard", {158, 12, 60, 42}, false, Icon::ScaleDown},
+        {"size-larger", "Larger keyboard", {228, 12, 60, 42}, false, Icon::ScaleUp},
+        {"close", "Close", {1522, 12, 60, 42}, false, Icon::Close}};
     if (!settings_open_) {
         if (japanese()) {
             result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
@@ -96,9 +99,19 @@ std::vector<Control> App::controls() const {
         }
         return result;
     }
-    result.push_back({"preset-ja-romaji", "日本語 Romaji", {610, 12, 230, 42}});
-    result.push_back({"preset-ja-kana", "日本語 Kana", {850, 12, 230, 42}});
-    result.push_back({"preset-ja-jis", "JIS (system IME)", {1090, 12, 250, 42}});
+    const auto& language = profiles_.languages.at(pending_.language);
+    const auto& layout = profiles_.layouts.at(pending_.layout);
+    const bool japanese_layout = std::any_of(layout.keys.begin(), layout.keys.end(), [](const Key& key) {
+        return key.action_kind == ActionKind::Key && key.action == "KanaMode";
+    });
+    // Use the pending selection so the options follow changes before Apply.
+    if (japanese_layout || language.locale == "ja" || language.locale.starts_with("ja-") ||
+        language.locale.starts_with("ja_") || language.keymap == "jp" ||
+        language.input_method.starts_with("japanese-")) {
+        result.push_back({"preset-ja-romaji", "日本語 Romaji", {610, 12, 230, 42}});
+        result.push_back({"preset-ja-kana", "日本語 Kana", {850, 12, 230, 42}});
+        result.push_back({"preset-ja-jis", "JIS (system IME)", {1090, 12, 250, 42}});
+    }
     auto row = [&](const std::string& kind, const std::string& name, double y) {
         result.push_back({kind + "-prev", "<", {40, y, 65, 64}});
         result.push_back({kind + "-label", name, {115, y, 1370, 64}});
@@ -514,8 +527,6 @@ void App::action(const std::string& id) {
         cancel();
         gate_.enabled = false;
         quit_ = true;
-    } else if (id == "release") {
-        cancel();
     } else if (id == "settings") {
         if (settings_open_) {
             cancel();

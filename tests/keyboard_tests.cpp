@@ -188,6 +188,32 @@ void app_tests() {
     app.show_settings();
     app.paint(3);
     require(app.renderer.hit_key(app.view(), 100, 100) == nullptr, "settings prevent hidden key hits");
+    auto has_japanese_presets = [&] {
+        const auto controls = app.view().controls;
+        return std::any_of(controls.begin(), controls.end(),
+                           [](const fk::Control& control) { return control.id == "preset-ja-romaji"; });
+    };
+    auto click_control = [&](const std::string& id) {
+        for (const auto& control : app.view().controls) {
+            if (control.id == id) {
+                const double x = control.bounds.x + control.bounds.width / 2;
+                const double y = control.bounds.y + control.bounds.height / 2;
+                app.down(0, x, y, 4);
+                app.up(0, x, y);
+                return;
+            }
+        }
+        throw std::runtime_error("missing settings control " + id);
+    };
+    require(!has_japanese_presets(), "German settings hide Japanese presets");
+    click_control("layout-next");
+    require(has_japanese_presets(), "pending Japanese layout shows presets before Apply");
+    click_control("layout-prev");
+    require(!has_japanese_presets(), "leaving Japanese layout hides presets");
+    click_control("language-next");    // German -> English.
+    click_control("language-next");    // English -> Japanese JIS.
+    click_control("preset-ja-romaji"); // Romaji uses the US layout.
+    require(has_japanese_presets(), "Japanese language shows presets with a US layout");
     require(sink.events.empty(), "preview settings do not emit input");
     rejects([&] { app.apply({"missing", "en-us", "graphite"}); }, "invalid selection rejected");
     require(app.selection().theme == "midnight", "failed apply retains prior selection");
