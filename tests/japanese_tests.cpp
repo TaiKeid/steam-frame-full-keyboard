@@ -158,6 +158,15 @@ int main() {
         sink.accept = true;
         app.cancel();
         require(app.view().preedit.empty(), "target cancellation discards preedit");
+        click_key(app, "KeyA");
+        require(!app.view().preedit.empty(), "preedit exists before dashboard closes");
+        const auto sent_before_hide = sink.text.size();
+        app.set_interaction_active(false);
+        require(app.view().preedit.empty(), "dashboard close discards Japanese preedit");
+        control(app, "ime-commit");
+        app.set_interaction_active(true);
+        control(app, "ime-commit");
+        require(sink.text.size() == sent_before_hide, "no hidden or stale Japanese commit");
         app.show_settings();
         control(app, "preset-ja-kana");
         control(app, "apply");

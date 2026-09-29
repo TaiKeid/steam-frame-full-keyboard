@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.4.2 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.4.3 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -40,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.4.2-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.4.3-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -48,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.4.2-aarch64.tar.gz
-./framekeyboard-0.4.2-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.4.3-aarch64.tar.gz
+./framekeyboard-0.4.3-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English.  It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -76,9 +76,15 @@ Romaji and direct Kana use the Frame's installed Anthy dictionary and an in-pane
 
 See [Japanese controls and requirements](docs/japanese.md). The native UTF-8 path passed a dedicated Frame Xwayland receiver test; interaction in the user's Brave windows remains to be checked.
 
+## Dashboard visibility and VR apps
+
+The keyboard is visible and accepts input only while the Frame dashboard is open. Closing the dashboard releases held keys, cancels composition/grabs, and hides it. Reopening restores it relative to the current dashboard position. Relaunching while the dashboard is closed queues a reset for its next opening; it does not force the dashboard open.
+
+The current backend sends input to Frame's local compositor. It does not route keyboard events to a streamed PC VR app. The overlay does not request input capture outside the dashboard. VRChat's OSC chatbox API is a possible separate integration, not general input into its search/login fields or other VR apps.
+
 ## Move, align and recover the keyboard
 
-The default width is **95 cm**, four 5 cm steps smaller than the original 115 cm. Initial placement and Recenter tilt the keyboard back **50° from upright** (40° above horizontal), with its top edge farther from you. Recenter uses the original Steam keyboard’s mounting point below the dashboard when it is available in front of you; otherwise it places ours 65 cm below eye level and 85 cm forward. Recenter keeps any width you have chosen; close/reopen restores your saved pose and size.
+The default width is **95 cm**, four 5 cm steps smaller than the original 115 cm. Initial placement and Recenter tilt the keyboard back **50° from upright** (40° above horizontal), with its top edge farther from you. Recenter reads the current dashboard bottom edge and places the keyboard just beneath it. Moving the dashboard carries the keyboard with it, including your custom drag offset. If the dashboard pose is unavailable, the fallback is 65 cm below eye level and 85 cm forward. Recenter keeps any width you have chosen; close/reopen restores your saved pose and size.
 
 To move the keyboard, point the controller laser anywhere on it and hold the **grab/grip** button. Move or rotate your hand, then release grab to place it. The trigger keeps typing normally; there is no move button. The grab offset is preserved so the panel does not jump. Losing tracking/input, hiding, recentering, or holding longer than 30 seconds cancels capture. Only the grabbing controller moves it, and typing is suppressed during a grab. Release the grip first if you launched or reconnected while squeezing it. Native Frame controller models are supported; the app leaves SteamVR input settings unchanged.
 
@@ -88,7 +94,7 @@ When the sideways lean is within 5 degrees of the horizon, the keyboard eases le
 
 Use the **minus/plus zoom icons** beside Recenter to make the keyboard smaller or larger by 5 cm per click. Width stays between 45 cm and 2 m; resizing preserves its position and is saved when you close it.
 
-**Recenter**, launching the app while it is already running brings the keyboard in front of your current horizontal viewing direction, preserving its size. Closing saves position, rotation and size to `~/.config/framekeyboard/placement.json`; opening a new instance restores them. First launch, invalid saved data, or a different known tracking space falls back to recentering. Brief tracking loss hides the panel and preserves its position. A tracking-origin reset recenters it.
+**Recenter**, launching the app while it is already running brings the keyboard in front of your current horizontal viewing direction, preserving its size. Closing saves position, rotation, dashboard anchor and size to `~/.config/framekeyboard/placement.json`; opening a new instance restores them. First launch, invalid saved data, or a different known tracking space falls back to recentering. Brief tracking loss hides the panel and preserves its position. A tracking-origin reset recenters it.
 
 Accepted key presses and releases give a haptic click on the controller that pressed the key. The release pulse is shorter to balance its perceived strength. Entering a different key produces a lighter, higher-frequency pulse. Staying over the same key, dragging, toolbar controls, duplicate events and key repeat do not produce pulses.
 

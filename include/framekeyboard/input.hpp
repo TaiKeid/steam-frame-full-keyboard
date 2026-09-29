@@ -1,7 +1,6 @@
 #pragma once
 
 #include "config.hpp"
-#include <functional>
 #include <map>
 #include <memory>
 #include <set>

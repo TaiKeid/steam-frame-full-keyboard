@@ -172,6 +172,9 @@ PanelView App::view() const {
     return v;
 }
 bool App::move(unsigned pointer, double x, double y) {
+    if (!interaction_active_) {
+        return false;
+    }
     const auto v = view();
     std::string id;
     bool keyboard_key = false;
@@ -195,7 +198,7 @@ bool App::move(unsigned pointer, double x, double y) {
 }
 
 bool App::down(unsigned pointer, double x, double y, double now) {
-    if (dragging_) {
+    if (dragging_ || !interaction_active_) {
         return false;
     }
     move(pointer, x, y);
@@ -231,6 +234,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 }
 
 bool App::up(unsigned pointer, double x, double y) {
+    if (!interaction_active_) {
+        return false;
+    }
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
@@ -271,9 +277,22 @@ void App::paint(double now) {
     renderer.paint(view(), now);
     dirty = false;
 }
+void App::set_interaction_active(bool active) {
+    if (active == interaction_active_) {
+        return;
+    }
+    // Release through the still-open gate; disabling first would strand held
+    // modifiers in the compositor. Also discard preedit and queued UI clicks.
+    cancel();
+    interaction_active_ = active;
+    if (active) {
+        refresh_typing();
+    } else {
+        gate_.enabled = false;
+    }
+}
 void App::set_dragging(bool dragging) {
     cancel();
-    composition_.cancel();
     dragging_ = dragging;
     status_.clear();
 }
@@ -283,7 +302,6 @@ void App::report_status(const std::string& message) {
 }
 void App::show_settings() {
     cancel();
-    composition_.cancel();
     settings_open_ = true;
     pending_ = settings_.active;
     dirty = true;
@@ -291,7 +309,6 @@ void App::show_settings() {
 void App::summon() {
     // Release held keys before moving; keep the input connection unchanged.
     cancel();
-    composition_.cancel();
     settings_open_ = false;
     placement_actions_.clear();
     recenter_ = true;
@@ -306,7 +323,6 @@ void App::apply(Selection selection) {
     validate_selection(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     cancel();
-    composition_.cancel();
     japanese_latin_ = false;
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
@@ -326,7 +342,6 @@ void App::reload() {
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
     cancel();
-    composition_.cancel();
     profiles_ = std::move(candidate);
     keymap_ = std::move(keymap);
     const auto updated_settings = load_settings(options_.config_dir, profiles_.errors);
@@ -346,7 +361,7 @@ void App::refresh_typing() {
     // the declared physical keymap. External JIS uses the ordinary strict gate.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
                           (japanese() || options_.target_language == settings_.active.language);
-    gate_.enabled = options_.start_enabled && options_.mode == "vr" &&
+    gate_.enabled = interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
                     (options_.input == "ei" || options_.input == "uinput") && matching &&
                     (!japanese() || text_ready_) && gate_.pump();
 }
@@ -501,7 +516,6 @@ void App::action(const std::string& id) {
         quit_ = true;
     } else if (id == "release") {
         cancel();
-        composition_.cancel();
     } else if (id == "settings") {
         if (settings_open_) {
             cancel();
@@ -511,7 +525,6 @@ void App::action(const std::string& id) {
         }
     } else if (id == "recenter") {
         cancel();
-        composition_.cancel();
         placement_actions_.clear();
         recenter_ = true;
     } else if (id == "apply") {

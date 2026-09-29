@@ -54,36 +54,20 @@ void placement_tests() {
     near(pose[0][3], 1, "centered horizontally");
     near(pose[1][3], 1.05, "fallback is 65 cm below eye level");
     near(pose[2][3], 1.15, "in front of headset");
-    panel.adjust(fk::PlacementAction::Right);
-    panel.adjust(fk::PlacementAction::Up);
-    panel.adjust(fk::PlacementAction::Nearer);
-    pose = panel.transform();
-    near(pose[0][3], 1.025, "move right");
-    near(pose[1][3], 1.075, "move up");
-    near(pose[2][3], 1.175, "move closer");
-    panel.adjust(fk::PlacementAction::TurnLeft);
-    panel.adjust(fk::PlacementAction::TiltUp);
-    panel.adjust(fk::PlacementAction::RollRight);
-    const auto rotated = panel.transform();
     for (int a = 0; a < 3; ++a) {
         for (int b = 0; b < 3; ++b) {
             double dot = 0;
             for (int row = 0; row < 3; ++row) {
-                dot += rotated[row][a] * rotated[row][b];
+                dot += pose[row][a] * pose[row][b];
             }
-            near(dot, a == b ? 1 : 0, "rotation remains orthonormal");
+            near(dot, a == b ? 1 : 0, "recenter rotation is orthonormal");
         }
-        near(rotated[a][3], pose[a][3], "rotate around panel center");
     }
-    auto moved_head = head();
-    moved_head[0][3] += 1;
-    panel.face(moved_head);
-    auto faced = panel.transform();
-    for (int row = 0; row < 3; ++row) {
-        near(faced[row][3], pose[row][3], "face me preserves position");
-    }
-    near(faced[1][1], 1, "face me levels roll and pitch");
-    require(faced[0][2] > 0, "normal points toward moved viewer");
+    panel.adjust(fk::PlacementAction::Smaller);
+    near(panel.width(), .9, "smaller removes 5 cm");
+    panel.adjust(fk::PlacementAction::Larger);
+    near(panel.width(), .95, "larger adds 5 cm");
+    require(panel.transform() == pose, "resizing preserves the entire pose");
     for (int i = 0; i < 100; ++i) {
         panel.adjust(fk::PlacementAction::Smaller);
     }
@@ -112,19 +96,35 @@ void placement_tests() {
     mount[0][0] = .7;
     mount[1][1] = .5;
     mount[2][2] = .3;
-    panel.recenter(head(), &mount);
+    const auto anchor = fk::dashboard_anchor(mount);
+    require(anchor.has_value(), "scaled dashboard has a usable anchor");
+    panel.recenter(head(), &*anchor);
     pose = panel.transform();
-    for (int row = 0; row < 3; ++row) {
-        near(pose[row][3], mount[row][3], "recenter uses stock keyboard center");
+    near(pose[0][3], .3, "centered beneath the dashboard");
+    near(pose[1][3] + panel.width() * .375 / 2 * pose[1][1], .55 - .06,
+         "top edge leaves 6 cm below dashboard at any width");
+    near(pose[2][3], -.76, "center is 24 cm toward viewer from dashboard bottom");
+    near(pose[0][0], 1, "dashboard scale is not inherited");
+    near(pose[1][2], std::sin(50 * std::numbers::pi / 180), "dashboard gets requested pitch");
+    near(panel.width(), 2, "dashboard recenter preserves chosen width");
+    const fk::Transform moved_dashboard{{{0, 0, 1, 5}, {0, 1, 0, 1}, {-1, 0, 0, -4}}};
+    const auto followed = fk::move_with_dashboard(pose, *anchor, moved_dashboard);
+    near(followed[0][3], 5.24, "dashboard translation and yaw carry keyboard offset");
+    near(followed[2][3], -4, "keyboard stays centered after walking across room");
+    near(followed[1][3] - 1, pose[1][3] - .55, "vertical custom offset is preserved");
+    const auto returned = fk::move_with_dashboard(followed, moved_dashboard, *anchor);
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near(returned[r][c], pose[r][c], "dashboard movement preserves full relative pose");
+        }
     }
-    near(pose[0][0], 1, "mount scale is not inherited");
-    near(pose[1][2], std::sin(50 * std::numbers::pi / 180), "mount gets requested pitch");
-    near(panel.width(), 2, "mount recenter preserves chosen width");
+    mount[0][3] = std::numeric_limits<double>::quiet_NaN();
+    require(!fk::dashboard_anchor(mount), "invalid dashboard is rejected");
+    require(!fk::dashboard_anchor({}), "missing dashboard cannot anchor at room origin");
 }
 void drag_tests() {
     fk::PanelPlacement panel;
     panel.recenter(head());
-    panel.adjust(fk::PlacementAction::TiltUp);
     panel.adjust(fk::PlacementAction::Larger);
     const auto original = panel.transform();
     fk::PanelDrag drag;
@@ -154,13 +154,13 @@ void drag_tests() {
          "recenter restores desk tilt after dragging");
 }
 void horizon_tests() {
-    fk::PanelPlacement panel;
-    panel.recenter(head());
-    for (int i = 0; i < 6; ++i) {
-        panel.adjust(fk::PlacementAction::TiltDown);
-        panel.adjust(fk::PlacementAction::TurnRight);
-    }
-    const auto level = panel.transform();
+    // A level pose with 30-degree yaw and 20-degree desk tilt, independent of
+    // the default recenter angle. Horizon assistance must preserve both.
+    const double yaw = 30 * std::numbers::pi / 180, pitch = -20 * std::numbers::pi / 180;
+    const fk::Transform level{
+        {{std::cos(yaw), std::sin(yaw) * std::sin(pitch), std::sin(yaw) * std::cos(pitch), 1},
+         {0, std::cos(pitch), -std::sin(pitch), 1.05},
+         {-std::sin(yaw), std::cos(yaw) * std::sin(pitch), std::cos(yaw) * std::cos(pitch), 1.15}}};
     auto rolled = [&](double degrees) {
         auto pose = level;
         const double angle = degrees * std::numbers::pi / 180;
@@ -275,11 +275,12 @@ void persistence_tests() {
     const auto path = temp.path / "placement.json";
     require(!fk::load_placement(path), "first launch has no saved placement");
     fk::PanelPlacement original;
-    original.recenter(head());
-    original.adjust(fk::PlacementAction::Right);
-    original.adjust(fk::PlacementAction::TiltUp);
-    original.adjust(fk::PlacementAction::RollRight);
+    // A dragged pose has arbitrary heading/tilt/roll and must survive resize
+    // and save/restore without being reconstructed from the recenter defaults.
+    const fk::Transform dragged{{{.8, -.6, 0, 1.2}, {0, 0, 1, 1.1}, {-.6, -.8, 0, 2.3}}};
+    original.set_transform(dragged);
     original.adjust(fk::PlacementAction::Larger);
+    require(original.transform() == dragged, "resizing preserves a dragged pose");
     fk::save_placement(path, {original.transform(), original.width(), 18446744073709551615ULL});
     const auto saved = fk::load_placement(path);
     require(saved && saved->universe == 18446744073709551615ULL, "universe ID retains all bits");
@@ -295,6 +296,21 @@ void persistence_tests() {
     near(reopened.transform()[1][1], std::cos(50 * std::numbers::pi / 180),
          "explicit relaunch restores default desk tilt");
     near(reopened.width(), original.width(), "recenter retains saved size");
+    require(!saved->dashboard, "legacy world-space placement still loads");
+    auto anchored = *saved;
+    anchored.dashboard = head();
+    fk::save_placement(path, anchored);
+    require(fk::load_placement(path)->dashboard == anchored.dashboard,
+            "dashboard anchor survives close and reopen");
+    auto bad_anchor = anchored;
+    (*bad_anchor.dashboard)[0][0] = 2;
+    bool bad_anchor_rejected = false;
+    try {
+        fk::save_placement(path, bad_anchor);
+    } catch (const std::exception&) {
+        bad_anchor_rejected = true;
+    }
+    require(bad_anchor_rejected, "scaled saved dashboard anchor is rejected");
     auto invalid = *saved;
     invalid.transform[0][0] *= 2;
     bool rejected = false;
@@ -466,15 +482,17 @@ struct RecordingSink : fk::KeySink {
     void send(int code, int value) override { events.emplace_back(code, value); }
     bool pump() override { return ready; }
 };
-void type_a(fk::App& app) {
+void type_a(fk::App& app, bool release = true, const std::string& id = "KeyA") {
     // Find a real rendered key hit region, not a hardcoded toolbar coordinate.
     const auto view = app.view();
     for (int y = 96; y < fk::panel_height; y += 2) {
         for (int x = 0; x < fk::panel_width; x += 2) {
             auto* key = app.renderer.hit_key(view, x, y);
-            if (key && key->id == "KeyA") {
+            if (key && key->id == id) {
                 app.down(0, x, y, 1);
-                app.up(0, x, y);
+                if (release) {
+                    app.up(0, x, y);
+                }
                 return;
             }
         }
@@ -516,6 +534,42 @@ void typing_tests() {
     type_key();
     require(sink.events.size() == 8, "lost backend disables typing");
     require(app.view().status.find("connection lost") != std::string::npos, "lost backend is visible");
+}
+void hidden_input_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    options.mode = "vr";
+    options.input = "ei";
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    RecordingSink sink;
+    fk::App app(options, sink);
+    type_a(app, true, "ControlLeft");
+    type_a(app, false);
+    require(sink.events == std::vector<std::pair<int, int>>{{29, 1}, {30, 1}},
+            "modified key held before hiding");
+    app.set_interaction_active(false);
+    require(sink.events.back() == std::pair{29, 0}, "hide releases modifier before disabling gate");
+    type_a(app);
+    app.summon();
+    app.reload();
+    app.apply({"en-us-full", "en-us", "graphite"});
+    type_a(app);
+    app.tick(20);
+    require(sink.events.size() == 4, "hidden dashboard blocks clicks, repeat, reload and relaunch");
+    app.set_interaction_active(true);
+    type_a(app, false);
+    require(sink.events.back() == std::pair{30, 1}, "reopening permits fresh press without stale Ctrl");
+    app.set_interaction_active(false);
+    require(sink.events.back() == std::pair{30, 0}, "hide releases ordinary held key");
+    const auto count = sink.events.size();
+    app.tick(50);
+    require(sink.events.size() == count, "hidden held key cannot repeat");
+    sink.ready = false;
+    app.set_interaction_active(true);
+    type_a(app);
+    require(sink.events.size() == count, "dashboard reopening cannot revive disconnected input");
 }
 void language_recovery_tests() {
     TemporaryDirectory temp;
@@ -639,6 +693,7 @@ int main() {
         instance_tests();
         ui_tests();
         typing_tests();
+        hidden_input_tests();
         language_recovery_tests();
         std::cout << "Placement, repeated-launch IPC, stale-owner recovery and placement UI passed.\n";
         return 0;

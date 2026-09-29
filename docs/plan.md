@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.3 follow-up
+
+Follow the live dashboard instead of the stock keyboard's cached mount, including saved custom offsets. Hide and release all input when the dashboard closes, and remove the flag that requests overlay interaction outside it. Streamed VR-app input remains unsupported; VRChat OSC would be a separate chatbox-specific backend. Includes removal of the obsolete Move/align code.
+
 ## Version 0.4.2 follow-up
 
 Place/recenter at the original Steam keyboard mount beneath the dashboard, rebuilding a rigid rotation with 50-degree backward tilt. Use a lower head-relative fallback when the mount is unavailable or stale. Retain 95 cm initial width and saved placement.

@@ -1,9 +1,14 @@
 #pragma once
 #include <array>
+#include <optional>
 
 namespace framekeyboard {
 // Row-major rigid transform. Its columns are right, up, toward viewer, position.
 using Transform = std::array<std::array<double, 4>, 3>;
+// Normalize Steam's scaled bottom-center pose into a level dashboard anchor.
+std::optional<Transform> dashboard_anchor(const Transform& scaled_bottom);
+Transform move_with_dashboard(const Transform& panel, const Transform& previous,
+                              const Transform& current);
 // Roll-only horizon assistance. Feed the uncorrected pose each frame so the
 // animation never feeds its own correction back into the controller grab.
 class HorizonAlignment {
@@ -16,37 +21,20 @@ class HorizonAlignment {
     double started_{}, from_correction_{}, correction_{};
     bool within_threshold_{}, animating_{};
 };
-enum class PlacementAction {
-    Left,
-    Right,
-    Up,
-    Down,
-    Nearer,
-    Farther,
-    TiltUp,
-    TiltDown,
-    TurnLeft,
-    TurnRight,
-    RollLeft,
-    RollRight,
-    Smaller,
-    Larger,
-    FaceMe
-};
+enum class PlacementAction { Smaller, Larger };
 class PanelPlacement {
   public:
-    void recenter(const Transform& head, const Transform* keyboard_mount = nullptr);
+    void recenter(const Transform& head, const Transform* dashboard_bottom = nullptr,
+                  double height_over_width = 600.0 / 1600.0);
     void adjust(PlacementAction action);
-    void face(const Transform& head);
-    Transform transform() const;
+    Transform transform() const { return world_; }
     void set_transform(const Transform& world);
     void restore(const Transform& world, double width);
     double width() const { return width_; }
     bool ready() const { return ready_; }
 
   private:
-    Transform anchor_{};
-    double x_{}, y_{}, z_{}, pitch_{}, yaw_{}, roll_{};
+    Transform world_{};
     double width_{.95};
     bool ready_{};
 };

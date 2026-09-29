@@ -27,9 +27,7 @@ double number(json_object* value) {
     require(std::isfinite(result));
     return result;
 }
-void validate(const SavedPlacement& saved) {
-    require(std::isfinite(saved.width) && saved.width >= .45 && saved.width <= 2);
-    const auto& m = saved.transform;
+void validate_transform(const Transform& m) {
     for (const auto& row : m) {
         for (double value : row) {
             require(std::isfinite(value));
@@ -50,6 +48,36 @@ void validate(const SavedPlacement& saved) {
                                m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     require(std::abs(determinant - 1) < .001);
 }
+void validate(const SavedPlacement& saved) {
+    require(std::isfinite(saved.width) && saved.width >= .45 && saved.width <= 2);
+    validate_transform(saved.transform);
+    if (saved.dashboard) {
+        validate_transform(*saved.dashboard);
+    }
+}
+Transform read_transform(json_object* rows) {
+    require(json_object_is_type(rows, json_type_array) && json_object_array_length(rows) == 3);
+    Transform result{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        auto* row = json_object_array_get_idx(rows, r);
+        require(json_object_is_type(row, json_type_array) && json_object_array_length(row) == 4);
+        for (std::size_t c = 0; c < 4; ++c) {
+            result[r][c] = number(json_object_array_get_idx(row, c));
+        }
+    }
+    return result;
+}
+json_object* write_transform(const Transform& transform) {
+    auto* rows = json_object_new_array();
+    for (const auto& values : transform) {
+        auto* row = json_object_new_array();
+        for (double value : values) {
+            json_object_array_add(row, json_object_new_double(value));
+        }
+        json_object_array_add(rows, row);
+    }
+    return rows;
+}
 } // namespace
 std::optional<SavedPlacement> load_placement(const std::filesystem::path& path) {
     if (!std::filesystem::exists(path)) {
@@ -69,14 +97,10 @@ std::optional<SavedPlacement> load_placement(const std::filesystem::path& path) 
     json_object* width{};
     require(json_object_object_get_ex(document.get(), "width_m", &width));
     saved.width = number(width);
-    auto* rows = field(document.get(), "transform", json_type_array);
-    require(json_object_array_length(rows) == 3);
-    for (std::size_t r = 0; r < 3; ++r) {
-        auto* row = json_object_array_get_idx(rows, r);
-        require(json_object_is_type(row, json_type_array) && json_object_array_length(row) == 4);
-        for (std::size_t c = 0; c < 4; ++c) {
-            saved.transform[r][c] = number(json_object_array_get_idx(row, c));
-        }
+    saved.transform = read_transform(field(document.get(), "transform", json_type_array));
+    json_object* dashboard{};
+    if (json_object_object_get_ex(document.get(), "dashboard_anchor", &dashboard)) {
+        saved.dashboard = read_transform(dashboard);
     }
     validate(saved);
     return saved;
@@ -89,15 +113,10 @@ void save_placement(const std::filesystem::path& path, const SavedPlacement& sav
     json_object_object_add(document.get(), "universe",
                            json_object_new_string(std::to_string(saved.universe).c_str()));
     json_object_object_add(document.get(), "width_m", json_object_new_double(saved.width));
-    auto* rows = json_object_new_array();
-    for (const auto& values : saved.transform) {
-        auto* row = json_object_new_array();
-        for (double value : values) {
-            json_object_array_add(row, json_object_new_double(value));
-        }
-        json_object_array_add(rows, row);
+    json_object_object_add(document.get(), "transform", write_transform(saved.transform));
+    if (saved.dashboard) {
+        json_object_object_add(document.get(), "dashboard_anchor", write_transform(*saved.dashboard));
     }
-    json_object_object_add(document.get(), "transform", rows);
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';
     std::filesystem::create_directories(path.parent_path());

@@ -4,7 +4,6 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <string_view>
 #include <unistd.h>
 
 namespace fk = framekeyboard;

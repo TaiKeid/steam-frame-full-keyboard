@@ -48,6 +48,8 @@ class App {
     void show_settings();
     void summon();
     void set_dragging(bool dragging);
+    // Hiding the VR context releases keys before closing the input gate.
+    void set_interaction_active(bool active);
     void report_status(const std::string& message);
     std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
@@ -57,7 +59,6 @@ class App {
     bool take_recenter();
     bool dirty{true};
     PanelRenderer renderer;
-    const Profiles& profiles() const { return profiles_; }
     const Selection& selection() const { return settings_.active; }
 
   private:
@@ -85,6 +86,7 @@ class App {
     std::vector<PlacementAction> placement_actions_;
     std::size_t favorite_index_{};
     bool dragging_{};
+    bool interaction_active_{true};
 };
 
 double monotonic_seconds();

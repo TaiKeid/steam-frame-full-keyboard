@@ -245,9 +245,7 @@ class VrPanel {
               "SetOverlayInputMethod");
         vr::HmdVector2_t scale{{panel_width, panel_height}};
         check(overlay->SetOverlayMouseScale(handle_, &scale), "SetOverlayMouseScale");
-        for (const auto flag :
-             {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible,
-              vr::VROverlayFlags_MultiCursor}) {
+        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
             check(overlay->SetOverlayFlag(handle_, flag, true), "SetOverlayFlag");
         }
         std::string message;
@@ -268,43 +266,29 @@ class VrPanel {
         }
         return true;
     }
-    bool read_keyboard_mount(const Transform& head, Transform& mount) {
+    std::optional<Transform> read_dashboard() {
         auto* overlay = vr::VROverlay();
-        vr::VROverlayHandle_t stock{};
-        if (overlay->FindOverlay("valve.steam.gamepadui.keyboard", &stock) != vr::VROverlayError_None) {
-            return false;
+        vr::VROverlayHandle_t dashboard{};
+        if (!overlay->IsDashboardVisible() ||
+            overlay->FindOverlay("valve.steam.gamepadui.main", &dashboard) != vr::VROverlayError_None) {
+            return {};
         }
         vr::HmdVector2_t scale{};
-        if (overlay->GetOverlayMouseScale(stock, &scale) != vr::VROverlayError_None ||
+        if (overlay->GetOverlayMouseScale(dashboard, &scale) != vr::VROverlayError_None ||
             !std::isfinite(scale.v[0]) || !std::isfinite(scale.v[1]) || scale.v[0] <= 0 ||
             scale.v[1] <= 0) {
-            return false;
+            return {};
         }
-        // The stock keyboard is parented to Steam's dashboard, not an absolute
-        // overlay. This API resolves that parent at its center in standing space.
-        vr::HmdVector2_t center{{scale.v[0] / 2, scale.v[1] / 2}};
+        // Query the dashboard itself. The hidden stock keyboard can retain an
+        // old pose after the dashboard moves. Coordinates here are mouse pixels,
+        // with Y=0 at the bottom, and the returned basis includes overlay scale.
+        vr::HmdVector2_t bottom{{scale.v[0] / 2, 0}};
         vr::HmdMatrix34_t world{};
-        if (overlay->GetTransformForOverlayCoordinates(stock, vr::TrackingUniverseStanding, center,
+        if (overlay->GetTransformForOverlayCoordinates(dashboard, vr::TrackingUniverseStanding, bottom,
                                                        &world) != vr::VROverlayError_None) {
-            return false;
+            return {};
         }
-        for (std::size_t r = 0; r < 3; ++r) {
-            for (std::size_t c = 0; c < 4; ++c) {
-                if (!std::isfinite(world.m[r][c])) {
-                    return false;
-                }
-                mount[r][c] = world.m[r][c];
-            }
-        }
-        const double dx = mount[0][3] - head[0][3], dy = mount[1][3] - head[1][3],
-                     dz = mount[2][3] - head[2][3];
-        const double distance = std::hypot(dx, dy, dz);
-        const double heading = std::hypot(head[0][2], head[2][2]);
-        // Hidden stock keyboards can still have a usable mount. Reject stale
-        // points behind/far from the user, so relaunch can always recover ours.
-        return distance > .2 && distance < 3 && dy < -.1 && dy > -1.5 &&
-               std::hypot(mount[0][2], mount[2][2]) > .001 &&
-               (heading < .1 || -(dx * head[0][2] + dz * head[2][2]) / heading > .1);
+        return dashboard_anchor(from_vr(world));
     }
     void place(const PanelPlacement& placement) {
         const auto world = placement.transform();
@@ -343,6 +327,7 @@ class VrPanel {
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, double duration) {
+    app.set_interaction_active(false);
     VrPanel panel;
     panel.connect();
     VrHaptics haptics;
@@ -381,6 +366,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     bool waiting_for_tracking = false;
     PanelPlacement placement, displayed;
     HorizonAlignment horizon;
+    std::optional<Transform> previous_dashboard;
     LaserDrag drag;
     auto stop_drag = [&](bool finish_alignment = false) {
         feedback.cancel();
@@ -393,6 +379,16 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 placement.restore(displayed.transform(), displayed.width());
             }
             horizon.reset();
+        }
+    };
+    auto hide_panel = [&] {
+        app.set_interaction_active(false);
+        stop_drag();
+        hovered_devices.fill(false);
+        grip_input.reset();
+        if (visible) {
+            check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
+            visible = false;
         }
     };
     auto place_panel = [&](double now) {
@@ -417,6 +413,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             app.summon();
             show_pending = true;
         }
+        const bool dashboard_visible = vr::VROverlay()->IsDashboardVisible();
+        if (!dashboard_visible) {
+            hide_panel();
+        }
         // Hidden panels cannot be grabbed. Do not query both render models in
         // standby; require a released grip sample again when the panel returns.
         if (!visible) {
@@ -435,6 +435,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 app.cancel();
                 recenter_pending = true;
                 saved.reset();
+                previous_dashboard.reset();
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
                 stop_drag();
@@ -442,6 +443,17 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             }
         }
         while (vr::VROverlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
+            // Recheck before every pointer event, not just once per batch. A
+            // closing dashboard must not deliver queued clicks to a local app.
+            if (!vr::VROverlay()->IsDashboardVisible()) {
+                hide_panel();
+            }
+            if (event.eventType == vr::VREvent_OverlayClosed) {
+                done = true;
+            }
+            if (!visible) {
+                continue;
+            }
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
             const double x = event.data.mouse.x, y = panel_height - event.data.mouse.y;
             const auto pointer = event.data.mouse.cursorIndex;
@@ -563,23 +575,18 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 stop_drag();
             }
         }
-        if (now >= next_tracking_check) {
+        if (dashboard_visible && now >= next_tracking_check) {
             Transform head{};
             if (!panel.read_head(head)) {
                 if (recenter_pending && !waiting_for_tracking) {
                     std::cout << "Waiting for valid headset pose before recentering.\n" << std::flush;
                 }
                 waiting_for_tracking = true;
-                if (visible) {
-                    stop_drag();
-                    app.cancel();
-                    check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
-                    visible = false;
-                    // A brief tracking loss hides the panel without losing its position.
-                    // Actual tracking-origin changes request recentering via the event above.
-                }
+                // Retain the dashboard-relative placement through brief tracking loss.
+                hide_panel();
             } else {
                 waiting_for_tracking = false;
+                const auto dashboard = panel.read_dashboard();
                 if (!adjustments.empty()) {
                     stop_drag();
                 }
@@ -591,6 +598,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     } else {
                         placement.restore(saved->transform, saved->width);
                         placement_universe = universe;
+                        previous_dashboard = saved->dashboard;
                         transform_dirty = true;
                         std::cout << "Restored saved keyboard placement.\n" << std::flush;
                     }
@@ -598,22 +606,29 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
                 if (recenter_pending) {
                     horizon.reset();
-                    Transform keyboard_mount{};
-                    const bool at_dashboard = panel.read_keyboard_mount(head, keyboard_mount);
-                    placement.recenter(head, at_dashboard ? &keyboard_mount : nullptr);
+                    placement.recenter(head, dashboard ? &*dashboard : nullptr,
+                                       static_cast<double>(panel_height) / panel_width);
+                    previous_dashboard = dashboard;
                     placement_universe = panel.universe();
                     recenter_pending = false;
                     transform_dirty = true;
-                    std::cout << (at_dashboard ? "Keyboard recentered at Steam keyboard mount.\n"
-                                               : "Keyboard recentered below current headset heading.\n")
+                    std::cout << (dashboard ? "Keyboard recentered below current dashboard.\n"
+                                            : "Keyboard recentered below current headset heading.\n")
                               << std::flush;
                 }
-                for (const auto action : adjustments) {
-                    if (action == PlacementAction::FaceMe) {
-                        placement.face(head);
-                    } else {
-                        placement.adjust(action);
+                if (dashboard) {
+                    if (previous_dashboard && *previous_dashboard != *dashboard && placement.ready() &&
+                        !drag.active()) {
+                        placement.set_transform(
+                            move_with_dashboard(placement.transform(), *previous_dashboard, *dashboard));
+                        transform_dirty = true;
                     }
+                    // While grabbed the hand owns placement; keep the anchor
+                    // current so release preserves the new custom offset.
+                    previous_dashboard = dashboard;
+                }
+                for (const auto action : adjustments) {
+                    placement.adjust(action);
                     transform_dirty = true;
                 }
                 adjustments.clear();
@@ -623,19 +638,25 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 // Read actual compositor visibility rather than trusting our cached flag.
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr::VROverlay()->IsOverlayVisible(panel.handle());
-                if (placement.ready() && (show_pending || !visible || !compositor_visible)) {
+                if (placement.ready() && vr::VROverlay()->IsDashboardVisible() &&
+                    (show_pending || !visible || !compositor_visible)) {
                     app.paint(now);
                     panel.submit(app.renderer);
                     check(vr::VROverlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     visible = true;
+                    app.set_interaction_active(true);
                     show_pending = false;
                     std::cout << "FrameKeyboard overlay visible.\n" << std::flush;
                 }
             }
-            next_tracking_check = now + (visible ? .1 : .25);
+            next_tracking_check = now + (visible ? .05 : .25);
         }
         if (visible && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
+        }
+        // Repeat and text commits share the same gate as pointer presses.
+        if (!vr::VROverlay()->IsDashboardVisible()) {
+            hide_panel();
         }
         const bool repaint = app.tick(now);
         if (visible && repaint) {
@@ -654,8 +675,8 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     app.cancel();
     if (displayed.ready()) {
         try {
-            save_placement(placement_path,
-                           {displayed.transform(), displayed.width(), placement_universe});
+            save_placement(placement_path, {displayed.transform(), displayed.width(), placement_universe,
+                                            previous_dashboard});
         } catch (const std::exception& error) {
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }
