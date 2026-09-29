@@ -29,9 +29,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .function-row { height:44px; display:grid; grid-template-columns:repeat(60,1fr); gap:6px; margin-bottom:12px; }
 .key-row { display:grid; grid-template-columns:repeat(60,1fr); gap:6px; height:62px; }
 .key { display:block; position:relative; min-width:0; height:100%; border:0; border-radius:9px; padding:0; background:transparent; box-shadow:none; color:#fff; cursor:pointer; touch-action:manipulation; user-select:none; }
-.key::before { content:""; position:absolute; inset:3px 0 0; border:1px solid #0c1117; border-radius:9px; background:linear-gradient(#10161d,#080c11); box-shadow:0 2px 2px #0008; transition:box-shadow 80ms ease; }
-.cap { position:absolute; inset:0 0 3.5px; display:flex; align-items:center; justify-content:center; border-radius:8px 8px 7px 7px; background:linear-gradient(165deg,#242b33 0%,#1b222a 48%,#141b22 100%); border:1px solid #52607145; border-bottom-color:#ffffff0c; box-shadow:inset 0 1px 0 #ffffff29,0 1px 1px #0004; transform:translateY(0); transition:transform 80ms ease,background 100ms ease; }
-.key:hover .cap { background:linear-gradient(165deg,#35404d,#283340 50%,#1b222a); }
+.key::before { content:""; position:absolute; inset:3px 0 0; border:1px solid #0c1117; border-radius:9px; background:linear-gradient(#141a21,#0c1015); box-shadow:0 2px 2px #0008; transition:box-shadow 80ms ease; }
+.cap { position:absolute; inset:0 0 3.5px; display:flex; align-items:center; justify-content:center; border-radius:8px 8px 7px 7px; background:linear-gradient(165deg,#2c333b 0%,#232a32 48%,#1c232a 100%); border:1px solid #52607145; border-bottom-color:#ffffff0c; box-shadow:inset 0 1px 0 #ffffff29,0 1px 1px #0004; transform:translateY(0); transition:transform 80ms ease,background 100ms ease; }
+.key:hover .cap { background:linear-gradient(165deg,#3d4855,#303b48 50%,#232a32); }
 .key:active::before,.key.pressed::before { box-shadow:0 1px 1px #0004; }
 .key:active .cap,.key.pressed .cap { transform:translateY(3px); border-top-color:transparent; box-shadow:none; }
 .key:focus-visible { outline:2px solid #e8eef4; outline-offset:3px; z-index:2; }
