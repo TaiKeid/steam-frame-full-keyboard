@@ -47,19 +47,19 @@ void placement_tests() {
     panel.recenter(head());
     near(panel.width(), .95, "default width is four 5 cm steps below 1.15 m");
     auto pose = panel.transform();
-    near(pose[1][1], std::cos(70 * std::numbers::pi / 180),
-         "default surface is tilted 70 degrees from upright");
-    near(pose[1][2], std::sin(70 * std::numbers::pi / 180), "typing surface faces upward");
+    near(pose[1][1], std::cos(50 * std::numbers::pi / 180),
+         "default surface is tilted 50 degrees from upright");
+    near(pose[1][2], std::sin(50 * std::numbers::pi / 180), "typing surface faces upward");
     require(pose[2][1] < 0, "top edge slopes away from the viewer");
     near(pose[0][3], 1, "centered horizontally");
-    near(pose[1][3], 1.45, "below eye level");
+    near(pose[1][3], 1.05, "fallback is 65 cm below eye level");
     near(pose[2][3], 1.15, "in front of headset");
     panel.adjust(fk::PlacementAction::Right);
     panel.adjust(fk::PlacementAction::Up);
     panel.adjust(fk::PlacementAction::Nearer);
     pose = panel.transform();
     near(pose[0][3], 1.025, "move right");
-    near(pose[1][3], 1.475, "move up");
+    near(pose[1][3], 1.075, "move up");
     near(pose[2][3], 1.175, "move closer");
     panel.adjust(fk::PlacementAction::TurnLeft);
     panel.adjust(fk::PlacementAction::TiltUp);
@@ -96,7 +96,7 @@ void placement_tests() {
     const fk::Transform looking_down{{{1, 0, 0, 0}, {0, 0, 1, 1.7}, {0, -1, 0, 0}}};
     panel.recenter(looking_down);
     pose = panel.transform();
-    near(pose[1][1], std::cos(70 * std::numbers::pi / 180), "recenter ignores head pitch");
+    near(pose[1][1], std::cos(50 * std::numbers::pi / 180), "recenter ignores head pitch");
     near(pose[2][3], -.85, "vertical gaze uses stable horizontal heading");
     near(panel.width(), 2, "recenter preserves chosen size");
     const fk::Transform turned{{{0, 0, 1, 3}, {0, 1, 0, 1.7}, {-1, 0, 0, 4}}};
@@ -104,6 +104,22 @@ void placement_tests() {
     pose = panel.transform();
     near(pose[0][3], 2.15, "recenter uses current heading");
     near(pose[2][3], 4, "recenter clears old position offsets");
+    auto mount = head();
+    mount[0][3] = .3;
+    mount[1][3] = .55;
+    mount[2][3] = -1;
+    // Steam's parented overlay transform may include nonuniform scale.
+    mount[0][0] = .7;
+    mount[1][1] = .5;
+    mount[2][2] = .3;
+    panel.recenter(head(), &mount);
+    pose = panel.transform();
+    for (int row = 0; row < 3; ++row) {
+        near(pose[row][3], mount[row][3], "recenter uses stock keyboard center");
+    }
+    near(pose[0][0], 1, "mount scale is not inherited");
+    near(pose[1][2], std::sin(50 * std::numbers::pi / 180), "mount gets requested pitch");
+    near(panel.width(), 2, "mount recenter preserves chosen width");
 }
 void drag_tests() {
     fk::PanelPlacement panel;
@@ -134,7 +150,7 @@ void drag_tests() {
     panel.set_transform(turned);
     panel.recenter(head());
     near(panel.transform()[0][3], 1, "recenter resets dragged position");
-    near(panel.transform()[1][1], std::cos(70 * std::numbers::pi / 180),
+    near(panel.transform()[1][1], std::cos(50 * std::numbers::pi / 180),
          "recenter restores desk tilt after dragging");
 }
 void horizon_tests() {
@@ -276,7 +292,7 @@ void persistence_tests() {
     }
     near(reopened.width(), original.width(), "reopen preserves width");
     reopened.recenter(head());
-    near(reopened.transform()[1][1], std::cos(70 * std::numbers::pi / 180),
+    near(reopened.transform()[1][1], std::cos(50 * std::numbers::pi / 180),
          "explicit relaunch restores default desk tilt");
     near(reopened.width(), original.width(), "recenter retains saved size");
     auto invalid = *saved;

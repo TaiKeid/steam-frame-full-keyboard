@@ -150,8 +150,8 @@ int main(int argc, char** argv) {
         } else {
             const auto current = transform(panel);
             require(std::abs(current.m[1][0]) < .001 &&
-                        std::abs(current.m[1][1] - std::cos(70 * std::numbers::pi / 180)) < .001 &&
-                        std::abs(current.m[1][2] - std::sin(70 * std::numbers::pi / 180)) < .001,
+                        std::abs(current.m[1][1] - std::cos(50 * std::numbers::pi / 180)) < .001 &&
+                        std::abs(current.m[1][2] - std::sin(50 * std::numbers::pi / 180)) < .001,
                     "relaunch did not clear rotation offsets");
             std::cout << "Overlay still visible with expected owner and recentered desk tilt.\n";
         }

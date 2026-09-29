@@ -35,7 +35,7 @@ enum class PlacementAction {
 };
 class PanelPlacement {
   public:
-    void recenter(const Transform& head);
+    void recenter(const Transform& head, const Transform* keyboard_mount = nullptr);
     void adjust(PlacementAction action);
     void face(const Transform& head);
     Transform transform() const;

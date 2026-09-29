@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.2 follow-up
+
+Place/recenter at the original Steam keyboard mount beneath the dashboard, rebuilding a rigid rotation with 50-degree backward tilt. Use a lower head-relative fallback when the mount is unavailable or stale. Retain 95 cm initial width and saved placement.
+
 ## Version 0.4.1 follow-up
 
 Reduce initial width from 115 cm to 95 cm and use a 70-degree backward tilt from upright for initial placement/recenter. Preserve saved poses on reopen, chosen width on recenter, and existing grip/horizon behavior.

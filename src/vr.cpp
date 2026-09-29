@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -266,6 +267,44 @@ class VrPanel {
             }
         }
         return true;
+    }
+    bool read_keyboard_mount(const Transform& head, Transform& mount) {
+        auto* overlay = vr::VROverlay();
+        vr::VROverlayHandle_t stock{};
+        if (overlay->FindOverlay("valve.steam.gamepadui.keyboard", &stock) != vr::VROverlayError_None) {
+            return false;
+        }
+        vr::HmdVector2_t scale{};
+        if (overlay->GetOverlayMouseScale(stock, &scale) != vr::VROverlayError_None ||
+            !std::isfinite(scale.v[0]) || !std::isfinite(scale.v[1]) || scale.v[0] <= 0 ||
+            scale.v[1] <= 0) {
+            return false;
+        }
+        // The stock keyboard is parented to Steam's dashboard, not an absolute
+        // overlay. This API resolves that parent at its center in standing space.
+        vr::HmdVector2_t center{{scale.v[0] / 2, scale.v[1] / 2}};
+        vr::HmdMatrix34_t world{};
+        if (overlay->GetTransformForOverlayCoordinates(stock, vr::TrackingUniverseStanding, center,
+                                                       &world) != vr::VROverlayError_None) {
+            return false;
+        }
+        for (std::size_t r = 0; r < 3; ++r) {
+            for (std::size_t c = 0; c < 4; ++c) {
+                if (!std::isfinite(world.m[r][c])) {
+                    return false;
+                }
+                mount[r][c] = world.m[r][c];
+            }
+        }
+        const double dx = mount[0][3] - head[0][3], dy = mount[1][3] - head[1][3],
+                     dz = mount[2][3] - head[2][3];
+        const double distance = std::hypot(dx, dy, dz);
+        const double heading = std::hypot(head[0][2], head[2][2]);
+        // Hidden stock keyboards can still have a usable mount. Reject stale
+        // points behind/far from the user, so relaunch can always recover ours.
+        return distance > .2 && distance < 3 && dy < -.1 && dy > -1.5 &&
+               std::hypot(mount[0][2], mount[2][2]) > .001 &&
+               (heading < .1 || -(dx * head[0][2] + dz * head[2][2]) / heading > .1);
     }
     void place(const PanelPlacement& placement) {
         const auto world = placement.transform();
@@ -559,11 +598,15 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
                 if (recenter_pending) {
                     horizon.reset();
-                    placement.recenter(head);
+                    Transform keyboard_mount{};
+                    const bool at_dashboard = panel.read_keyboard_mount(head, keyboard_mount);
+                    placement.recenter(head, at_dashboard ? &keyboard_mount : nullptr);
                     placement_universe = panel.universe();
                     recenter_pending = false;
                     transform_dirty = true;
-                    std::cout << "Keyboard recentered at current headset heading.\n" << std::flush;
+                    std::cout << (at_dashboard ? "Keyboard recentered at Steam keyboard mount.\n"
+                                               : "Keyboard recentered below current headset heading.\n")
+                              << std::flush;
                 }
                 for (const auto action : adjustments) {
                     if (action == PlacementAction::FaceMe) {

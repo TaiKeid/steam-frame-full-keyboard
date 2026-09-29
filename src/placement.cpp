@@ -129,18 +129,22 @@ void PanelPlacement::restore(const Transform& world, double width) {
     set_transform(world);
     width_ = width;
 }
-void PanelPlacement::recenter(const Transform& head) {
-    const auto rotation = level_heading(head);
+void PanelPlacement::recenter(const Transform& head, const Transform* keyboard_mount) {
+    // Steam supplies a scaled mount transform. Keep its center and horizontal
+    // heading; rebuild a rigid rotation rather than inheriting its scale/tilt.
+    const auto rotation = level_heading(keyboard_mount ? *keyboard_mount : head);
     for (std::size_t row = 0; row < 3; ++row) {
         for (std::size_t col = 0; col < 3; ++col) {
             anchor_[row][col] = rotation[row][col];
         }
-        anchor_[row][3] = head[row][3] - rotation[row][2] * .85 - rotation[row][1] * .25;
+        anchor_[row][3] = keyboard_mount
+                              ? (*keyboard_mount)[row][3]
+                              : head[row][3] - rotation[row][2] * .85 - rotation[row][1] * .65;
     }
     x_ = y_ = z_ = yaw_ = roll_ = 0;
-    // Tilt the top edge away from the viewer: 70 degrees from upright,
-    // leaving the typing surface 20 degrees above a horizontal desk.
-    pitch_ = -70 * radians;
+    // Tilt the top edge away from the viewer: 50 degrees from upright,
+    // leaving the typing surface 40 degrees above a horizontal desk.
+    pitch_ = -50 * radians;
     ready_ = true;
 }
 void PanelPlacement::adjust(PlacementAction action) {
