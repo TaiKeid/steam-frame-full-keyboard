@@ -286,7 +286,7 @@ class VrPanel {
         // registering input actions or claiming controller input from the dashboard.
         const bool hover = feedback == KeyFeedback::Hover;
         const auto error = vr::VROverlay()->TriggerLaserMouseHapticVibration(
-            handle_, hover ? .008f : .025f, hover ? 240.f : 150.f, hover ? .4f : 1.f);
+            handle_, hover ? .004f : .025f, hover ? 240.f : 150.f, hover ? .1f : 1.f);
         if (error != vr::VROverlayError_None && !haptic_error_reported_) {
             std::cerr << "Key haptics unavailable: "
                       << vr::VROverlay()->GetOverlayErrorNameFromEnum(error) << '\n';
