@@ -83,3 +83,9 @@ Closing the keyboard atomically saves its position, rotation and size in the sel
 Key presses and releases use a 25 ms, 150 Hz, full-amplitude pulse through `TriggerLaserMouseHapticVibration`. Entering a different key uses an 8 ms, 240 Hz pulse at 0.4 amplitude. Preview keys also provide feedback. Stationary hover, repeat, toolbar controls, canceled/duplicate events and dragging do not pulse. Hover from a pointer holding a key is suppressed, and clicks take priority within a frame. Haptic failure logs once and does not prevent typing.
 
 The live probe also supports `--snapshot PID FILE` to capture pose/width read-only, `--check-snapshot PID FILE` to compare a reopened input-disabled instance, and `--watch-close PID FILE` to observe its final live pose while the user closes it. The latter times out after 60 seconds. Synthetic clicks still require an input-disabled instance.
+
+## Thumbstick depth while grabbing
+
+Use the capturing controller’s stick: up moves farther along its laser, down moves closer. A 20% dead zone prevents drift; movement ramps to 0.65 m/s at full deflection. Normal depth limits are 0.2–3 m from the controller along its ray. An already out-of-range placement is preserved at capture and can move back toward that range. Elapsed time is capped at 50 ms per update to prevent jumps after a stall. Stick input never affects an ungrabbed panel, and the other hand cannot change depth. Rotation and size stay unchanged. Closing saves the resulting position as usual.
+
+`stick-component-probe` validates signed vertical-axis extraction against synthetic stick positions on both installed Frame render models. It performs model calculations only, without sending input or changing overlays.

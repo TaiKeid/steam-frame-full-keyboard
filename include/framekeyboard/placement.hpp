@@ -42,10 +42,14 @@ class PanelPlacement {
 // panel center to the ray. Later updates preserve the exact grabbed point.
 class PanelDrag {
   public:
-    void begin(const Transform& controller, const Transform& panel);
+    void begin(const Transform& controller, const Transform& panel,
+               std::array<double, 3> ray_direction = {0, 0, -1});
+    void move_depth(double stick_y, double elapsed_seconds);
     Transform update(const Transform& controller) const;
 
   private:
     Transform relative_{};
+    std::array<double, 3> ray_direction_{};
+    double depth_{}, minimum_depth_{}, maximum_depth_{};
 };
 } // namespace framekeyboard

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.3.2 LANGUAGES CXX)
+project(framekeyboard VERSION 0.3.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -61,6 +61,10 @@ if(BUILD_TESTING)
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
     add_executable(ei-target-probe tests/ei_target_probe.cpp)
     target_link_libraries(ei-target-probe PRIVATE keyboard_core PkgConfig::X11)
+    # Opt-in read-only validation against the installed Frame controller models.
+    add_executable(stick-component-probe tests/stick_component_probe.cpp)
+    target_link_libraries(stick-component-probe PRIVATE keyboard_core overlay_texture)
+    set_target_properties(stick-component-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
     add_executable(vr-panel-probe tests/vr_panel_probe.cpp)
     target_link_libraries(vr-panel-probe PRIVATE keyboard_core overlay_texture)
     set_target_properties(vr-panel-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")

@@ -130,6 +130,63 @@ void drag_tests() {
     near(panel.transform()[0][3], 1, "recenter resets dragged position");
     near(panel.transform()[1][1], 1, "recenter levels dragged rotation");
 }
+void stick_depth_tests() {
+    // Tilt the component's neutral frame, as Frame's left/right models do.
+    auto component = [](double x, double y) {
+        const double a = y * 20 * std::numbers::pi / 180;
+        const double b = x * 20 * std::numbers::pi / 180;
+        fk::Transform pose{{{std::cos(b), 0, std::sin(b), 0},
+                            {std::sin(a) * std::sin(b), std::cos(a), -std::sin(a) * std::cos(b), 0},
+                            {-std::cos(a) * std::sin(b), std::sin(a), std::cos(a) * std::cos(b), 0}}};
+        const double c = std::cos(.6), d = std::sin(.6);
+        for (std::size_t col = 0; col < 3; ++col) {
+            const double first = pose[0][col], second = pose[1][col];
+            pose[0][col] = c * first - d * second;
+            pose[1][col] = d * first + c * second;
+        }
+        return pose;
+    };
+    fk::ComponentAxis axis;
+    require(axis.calibrate(component(0, 0), component(0, 1)), "stick calibration");
+    for (double x : {-1., -.5, 0., .5, 1.}) {
+        for (double y : {-1., -.5, 0., .5, 1.}) {
+            near(axis.read(component(x, y)), y, "signed Y independent of sideways tilt");
+        }
+    }
+    require(!axis.calibrate(component(0, 0), component(0, 0)), "static component refuses calibration");
+    near(axis.read(component(0, 1)), 0, "failed calibration gives no motion");
+    fk::PanelPlacement panel;
+    panel.recenter(head());
+    fk::PanelDrag drag;
+    const auto original = panel.transform();
+    drag.begin(head(), original);
+    drag.move_depth(.19, .05);
+    near(drag.update(head())[2][3], original[2][3], "stick dead zone has no drift");
+    for (int i = 0; i < 20; ++i) {
+        drag.move_depth(1, .05);
+    }
+    near(drag.update(head())[2][3], original[2][3] - .65, "up moves farther at time-based speed");
+    for (int i = 0; i < 20; ++i) {
+        drag.move_depth(-1, .05);
+    }
+    near(drag.update(head())[2][3], original[2][3], "down moves closer");
+    for (int i = 0; i < 200; ++i) {
+        drag.move_depth(-1, .05);
+    }
+    near(head()[2][3] - drag.update(head())[2][3], .2, "near limit prevents crossing the controller");
+    for (int i = 0; i < 200; ++i) {
+        drag.move_depth(1, .05);
+    }
+    near(head()[2][3] - drag.update(head())[2][3], 3, "far limit");
+    drag.begin(head(), original);
+    drag.move_depth(1, 100);
+    near(drag.update(head())[2][3], original[2][3] - .0325, "stalled frame cannot jump depth");
+    drag.begin(head(), original, {1, 0, 0});
+    drag.move_depth(1, .05);
+    near(drag.update(head())[0][3], original[0][3] + .0325, "depth follows calibrated laser direction");
+    near(drag.update(head())[2][3], original[2][3], "sideways laser does not move along controller Z");
+    near(drag.update(head())[1][1], original[1][1], "stick leaves orientation unchanged");
+}
 void persistence_tests() {
     TemporaryDirectory temp;
     const auto path = temp.path / "placement.json";
@@ -377,6 +434,7 @@ int main() {
     try {
         placement_tests();
         drag_tests();
+        stick_depth_tests();
         grip_tests();
         persistence_tests();
         key_feedback_tests();

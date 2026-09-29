@@ -46,7 +46,8 @@ Transform compose(const Transform& a, const Transform& b) {
     }
     return result;
 }
-void PanelDrag::begin(const Transform& controller, const Transform& panel) {
+void PanelDrag::begin(const Transform& controller, const Transform& panel,
+                      std::array<double, 3> ray_direction) {
     Transform inverse{};
     for (std::size_t r = 0; r < 3; ++r) {
         for (std::size_t c = 0; c < 3; ++c) {
@@ -55,6 +56,36 @@ void PanelDrag::begin(const Transform& controller, const Transform& panel) {
         }
     }
     relative_ = compose(inverse, panel);
+    const double length = std::hypot(ray_direction[0], ray_direction[1], ray_direction[2]);
+    ray_direction_ = {0, 0, -1};
+    if (std::isfinite(length) && length > .001) {
+        for (std::size_t i = 0; i < 3; ++i) {
+            ray_direction_[i] = ray_direction[i] / length;
+        }
+    }
+    depth_ = 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        depth_ += relative_[i][3] * ray_direction_[i];
+    }
+    // Do not snap an existing out-of-range panel when grabbed. Allow the stick
+    // to bring it back toward the normal 20 cm to 3 m range, but not farther out.
+    minimum_depth_ = std::min(.2, depth_);
+    maximum_depth_ = std::max(3.0, depth_);
+}
+void PanelDrag::move_depth(double stick_y, double elapsed_seconds) {
+    constexpr double dead_zone = .2, speed = .65;
+    if (!std::isfinite(stick_y) || !std::isfinite(elapsed_seconds) || elapsed_seconds <= 0 ||
+        std::abs(stick_y) <= dead_zone) {
+        return;
+    }
+    const double magnitude = (std::min(std::abs(stick_y), 1.0) - dead_zone) / (1 - dead_zone);
+    // Cap elapsed time so a suspended/stalled frame cannot teleport the panel.
+    const double delta = std::copysign(magnitude, stick_y) * speed * std::min(elapsed_seconds, .05);
+    const double next = std::clamp(depth_ + delta, minimum_depth_, maximum_depth_);
+    for (std::size_t i = 0; i < 3; ++i) {
+        relative_[i][3] += ray_direction_[i] * (next - depth_);
+    }
+    depth_ = next;
 }
 Transform PanelDrag::update(const Transform& controller) const {
     return compose(controller, relative_);

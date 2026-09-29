@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.3 follow-up
+
+Add thumbstick depth control on the grabbing controller, for either hand. Native component calibration recovers the vertical stick axis in the dashboard. Up moves along the laser away from the controller; down brings the keyboard closer. Dead zone, proportional speed and depth/time bounds protect against drift and stalled frames. Existing saved placement, relaunch recovery and haptics remain.
+
 ## Version 0.3.2 follow-up
 
 Persist standing-space position, rotation, width and tracking-universe ID in a separate placement file on orderly close. Cold launch restores; an existing instance still responds to relaunch by recentering. Validate saved transforms and replace the file atomically. Brief tracking loss preserves placement. Add haptic clicks on accepted key press/release and a lighter pulse when entering a key through the native overlay API.

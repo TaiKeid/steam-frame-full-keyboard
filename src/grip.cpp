@@ -14,6 +14,68 @@ double component_rotation_degrees(const Transform& released, const Transform& cu
     }
     return std::acos(std::clamp((trace - 1) / 2, -1.0, 1.0)) * 180 / std::numbers::pi;
 }
+namespace {
+// Component travel stays close to neutral, where this quaternion extraction is
+// well-conditioned. Reject large/invalid rotations rather than causing motion.
+std::optional<std::array<double, 4>> relative_rotation(const Transform& neutral,
+                                                       const Transform& current) {
+    double rotation[3][3]{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            for (std::size_t k = 0; k < 3; ++k) {
+                rotation[r][c] += neutral[k][r] * current[k][c];
+            }
+        }
+    }
+    const double w = std::sqrt(std::max(0.0, 1 + rotation[0][0] + rotation[1][1] + rotation[2][2])) / 2;
+    if (!std::isfinite(w) || w < .8) {
+        return {};
+    }
+    std::array<double, 4> q{w, (rotation[2][1] - rotation[1][2]) / (4 * w),
+                            (rotation[0][2] - rotation[2][0]) / (4 * w),
+                            (rotation[1][0] - rotation[0][1]) / (4 * w)};
+    for (double value : q) {
+        if (!std::isfinite(value)) {
+            return {};
+        }
+    }
+    return q;
+}
+} // namespace
+bool ComponentAxis::calibrate(const Transform& neutral, const Transform& positive) {
+    full_angle_ = 0;
+    const auto q = relative_rotation(neutral, positive);
+    if (!q) {
+        return false;
+    }
+    const double length = std::hypot((*q)[1], (*q)[2], (*q)[3]);
+    const double angle = 2 * std::atan2(length, (*q)[0]);
+    if (angle < .01 || angle > 1) {
+        return false;
+    }
+    for (std::size_t i = 0; i < 3; ++i) {
+        axis_[i] = (*q)[i + 1] / length;
+    }
+    neutral_ = neutral;
+    full_angle_ = angle;
+    return true;
+}
+double ComponentAxis::read(const Transform& current) const {
+    if (full_angle_ <= 0) {
+        return 0;
+    }
+    const auto q = relative_rotation(neutral_, current);
+    if (!q) {
+        return 0;
+    }
+    double projection = 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+        projection += (*q)[i + 1] * axis_[i];
+    }
+    // Extract twist about the up/down axis. Sideways stick tilt is the other
+    // rotation axis and cancels from this ratio, including diagonal movement.
+    return std::clamp(2 * std::atan2(projection, (*q)[0]) / full_angle_, -1.0, 1.0);
+}
 GripTransition GripLatch::update(std::optional<double> angle_degrees) {
     if (!angle_degrees || !std::isfinite(*angle_degrees)) {
         reset();

@@ -47,11 +47,13 @@ std::optional<Transform> read_controller(vr::TrackedDeviceIndex_t device) {
     }
     return from_vr(pose.mDeviceToAbsoluteTracking);
 }
-struct GripSample {
+struct GrabSample {
     bool active{}, held{}, pressed{};
     vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
+    double stick_y{};
+    std::array<double, 3> ray_direction{0, 0, -1};
 };
-class GripInput {
+class GrabInput {
   public:
     bool connect() {
         auto* input = vr::VRInput();
@@ -62,8 +64,8 @@ class GripInput {
                  input->GetInputSourceHandle("/user/hand/right", &hands_[1]) == vr::VRInputError_None;
         return ready_;
     }
-    std::array<GripSample, 2> poll() {
-        std::array<GripSample, 2> result{};
+    std::array<GrabSample, 2> poll() {
+        std::array<GrabSample, 2> result{};
         if (!ready_) {
             return result;
         }
@@ -74,6 +76,7 @@ class GripInput {
             if (device != devices_[i]) {
                 latches_[i].reset();
                 devices_[i] = device;
+                sticks_[i] = {};
             }
             char model[1024]{};
             vr::ETrackedPropertyError error{};
@@ -83,6 +86,7 @@ class GripInput {
                                                 : "{frame_controller}frame_controller_right";
             if (error || model != expected || !vr::VRSystem()->IsTrackedDeviceConnected(device)) {
                 latches_[i].reset();
+                sticks_[i] = {};
                 continue;
             }
             vr::RenderModel_ControllerMode_State_t mode{};
@@ -106,11 +110,43 @@ class GripInput {
                                            from_vr(current.mTrackingToComponentRenderModel));
             const auto grip = latches_[i].update(angle);
             result[i] = {true, grip.held, grip.pressed, device};
+            if (grip.held) {
+                auto& stick = sticks_[i];
+                if (!stick.attempted) {
+                    stick.attempted = true;
+                    vr::RenderModel_ComponentState_t rest{}, up{}, tip{};
+                    vr::VRControllerState_t full_up{};
+                    full_up.rAxis[0].y = 1;
+                    stick.ready =
+                        models->GetComponentState(model, "thumbstick", &released, &mode, &rest) &&
+                        models->GetComponentState(model, "thumbstick", &full_up, &mode, &up) &&
+                        stick.axis.calibrate(from_vr(rest.mTrackingToComponentRenderModel),
+                                             from_vr(up.mTrackingToComponentRenderModel));
+                    if (models->GetComponentState(model, "tip", &released, &mode, &tip)) {
+                        for (std::size_t r = 0; r < 3; ++r) {
+                            stick.ray_direction[r] = -tip.mTrackingToComponentLocal.m[r][2];
+                        }
+                    }
+                }
+                vr::RenderModel_ComponentState_t current_stick{};
+                if (stick.ready && models->GetComponentStateForDevicePath(model, "thumbstick", hands_[i],
+                                                                          &mode, &current_stick)) {
+                    result[i].stick_y =
+                        stick.axis.read(from_vr(current_stick.mTrackingToComponentRenderModel));
+                }
+                result[i].ray_direction = stick.ray_direction;
+            }
         }
         return result;
     }
 
   private:
+    struct Stick {
+        ComponentAxis axis;
+        std::array<double, 3> ray_direction{0, 0, -1};
+        bool attempted{}, ready{};
+    };
+    std::array<Stick, 2> sticks_{};
     std::array<vr::VRInputValueHandle_t, 2> hands_{};
     std::array<GripLatch, 2> latches_{};
     bool ready_{};
@@ -119,23 +155,25 @@ class GripInput {
 };
 class LaserDrag {
   public:
-    bool start(vr::TrackedDeviceIndex_t device, const PanelPlacement& placement, double now) {
-        const auto pose = read_controller(device);
+    bool start(const GrabSample& input, const PanelPlacement& placement, double now) {
+        const auto pose = read_controller(input.device);
         if (!pose) {
             return false;
         }
-        device_ = device;
-        started_ = now;
-        transform_.begin(*pose, placement.transform());
+        device_ = input.device;
+        started_ = updated_ = now;
+        transform_.begin(*pose, placement.transform(), input.ray_direction);
         active_ = true;
         return true;
     }
-    bool update(PanelPlacement& placement, double now) {
+    bool update(PanelPlacement& placement, double now, double stick_y) {
         const auto pose = read_controller(device_);
         if (!pose || now - started_ > 30) {
             stop();
             return false;
         }
+        transform_.move_depth(stick_y, now - updated_);
+        updated_ = now;
         placement.set_transform(transform_.update(*pose));
         return true;
     }
@@ -146,7 +184,7 @@ class LaserDrag {
   private:
     PanelDrag transform_;
     vr::TrackedDeviceIndex_t device_{vr::k_unTrackedDeviceIndexInvalid};
-    double started_{};
+    double started_{}, updated_{};
     bool active_{};
 };
 class VrPanel {
@@ -274,7 +312,7 @@ class VrPanel {
 int run_vr(App& app, VrInstance& instance, double duration) {
     VrPanel panel;
     panel.connect();
-    GripInput grip_input;
+    GrabInput grip_input;
     if (!grip_input.connect()) {
         app.report_status("Native grip unavailable; use Move / align.");
     }
@@ -427,7 +465,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         } else if (visible && placement.ready()) {
             for (const auto& grip : grips) {
                 if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
-                    hovered_devices[grip.device] && drag.start(grip.device, placement, now)) {
+                    hovered_devices[grip.device] && drag.start(grip, placement, now)) {
                     app.set_dragging(true);
                     break;
                 }
@@ -450,7 +488,13 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             next_tracking_check = 0;
         }
         if (drag.active()) {
-            if (drag.update(placement, now)) {
+            double stick_y = 0;
+            for (const auto& input : grips) {
+                if (input.active && input.held && input.device == drag.device()) {
+                    stick_y = input.stick_y;
+                }
+            }
+            if (drag.update(placement, now, stick_y)) {
                 panel.place(placement);
             } else {
                 app.set_dragging(false);
