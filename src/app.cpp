@@ -60,11 +60,7 @@ std::vector<Control> App::controls() const {
          gate_.enabled},
         {"recenter", "Recenter", {490, 12, 125, 42}},
         {"position", placement_open_ ? "Done" : "Move / align", {625, 12, 165, 42}},
-        {"close", "Close", {1450, 12, 132, 42}},
-        {"drag",
-         dragging_ ? "Release to place" : "Hold trigger here to move",
-         {805, 12, 625, 42},
-         dragging_}};
+        {"close", "Close", {1450, 12, 132, 42}}};
     if (placement_open_) {
         const std::vector<std::pair<std::string, std::string>> buttons = {
             {"move-left", "Left"},         {"move-right", "Right"},    {"move-up", "Up"},
@@ -123,7 +119,7 @@ PanelView App::view() const {
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
     v.controls = controls();
-    v.status = status_;
+    v.status = dragging_ ? "Release grab to place keyboard" : status_;
     if (v.status.empty() && !gate_.enabled) {
         v.status = options_.input == "none" ? "Preview only: this launch cannot type."
                                             : "Typing paused. Select Resume typing.";
@@ -208,9 +204,6 @@ bool App::tick(double now) {
 void App::paint(double now) {
     renderer.paint(view(), now);
     dirty = false;
-}
-bool App::drag_handle_contains(double x, double y) const {
-    return Rect{805, 12, 625, 42}.contains(x, y);
 }
 void App::set_dragging(bool dragging) {
     cancel();

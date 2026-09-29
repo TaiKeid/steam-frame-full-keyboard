@@ -1,8 +1,11 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/grip.hpp"
 #include "openvr.h"
 #include "vk_texture.h"
 
+#include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -25,75 +28,122 @@ Transform from_vr(const vr::HmdMatrix34_t& pose) {
     }
     return result;
 }
-struct ControllerSample {
-    Transform pose;
-    std::uint64_t buttons;
-};
-std::optional<ControllerSample> read_controller(vr::TrackedDeviceIndex_t device) {
+std::optional<Transform> read_controller(vr::TrackedDeviceIndex_t device) {
     if (device >= vr::k_unMaxTrackedDeviceCount ||
         vr::VRSystem()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
         return {};
     }
-    vr::VRControllerState_t state{};
-    vr::TrackedDevicePose_t pose{};
-    if (!vr::VRSystem()->GetControllerStateWithPose(vr::TrackingUniverseStanding, device, &state,
-                                                    sizeof(state), &pose) ||
-        !pose.bPoseIsValid || !pose.bDeviceIsConnected) {
+    // Dashboard overlays receive laser events even when legacy controller input
+    // is unavailable. Query tracking separately; a missing button state is not
+    // evidence that the controller is untracked or its trigger was released.
+    vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
+    vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses,
+                                                    vr::k_unMaxTrackedDeviceCount);
+    const auto& pose = poses[device];
+    if (!pose.bPoseIsValid || !pose.bDeviceIsConnected) {
         return {};
     }
-    return ControllerSample{from_vr(pose.mDeviceToAbsoluteTracking), state.ulButtonPressed};
+    return from_vr(pose.mDeviceToAbsoluteTracking);
 }
+struct GripSample {
+    bool active{}, held{}, pressed{};
+    vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
+};
+class GripInput {
+  public:
+    bool connect() {
+        auto* input = vr::VRInput();
+        if (!input || !vr::VRRenderModels()) {
+            return false;
+        }
+        ready_ = input->GetInputSourceHandle("/user/hand/left", &hands_[0]) == vr::VRInputError_None &&
+                 input->GetInputSourceHandle("/user/hand/right", &hands_[1]) == vr::VRInputError_None;
+        return ready_;
+    }
+    std::array<GripSample, 2> poll() {
+        std::array<GripSample, 2> result{};
+        if (!ready_) {
+            return result;
+        }
+        for (std::size_t i = 0; i < hands_.size(); ++i) {
+            const auto role =
+                i == 0 ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
+            const auto device = vr::VRSystem()->GetTrackedDeviceIndexForControllerRole(role);
+            if (device != devices_[i]) {
+                latches_[i].reset();
+                devices_[i] = device;
+            }
+            char model[1024]{};
+            vr::ETrackedPropertyError error{};
+            vr::VRSystem()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String,
+                                                           model, sizeof(model), &error);
+            const std::string expected = i == 0 ? "{frame_controller}frame_controller_left"
+                                                : "{frame_controller}frame_controller_right";
+            if (error || model != expected || !vr::VRSystem()->IsTrackedDeviceConnected(device)) {
+                latches_[i].reset();
+                continue;
+            }
+            vr::RenderModel_ControllerMode_State_t mode{};
+            vr::RenderModel_ComponentState_t current{}, neutral{};
+            vr::VRControllerState_t released{};
+            auto* models = vr::VRRenderModels();
+            // Frame's dashboard masks grip actions and legacy controller state.
+            // Its render component still animates the physical squeeze. Supplying
+            // an all-released state gives a stable rest pose, even when launched
+            // while the user already holds the grip. This is Frame-model specific.
+            const bool valid =
+                models->GetComponentStateForDevicePath(model, "button_grip", hands_[i], &mode,
+                                                       &current) &&
+                models->GetComponentState(model, "button_grip", &released, &mode, &neutral);
+            if (!valid) {
+                latches_[i].reset();
+                continue;
+            }
+            const double angle =
+                component_rotation_degrees(from_vr(neutral.mTrackingToComponentRenderModel),
+                                           from_vr(current.mTrackingToComponentRenderModel));
+            const auto grip = latches_[i].update(angle);
+            result[i] = {true, grip.held, grip.pressed, device};
+        }
+        return result;
+    }
+
+  private:
+    std::array<vr::VRInputValueHandle_t, 2> hands_{};
+    std::array<GripLatch, 2> latches_{};
+    bool ready_{};
+    std::array<vr::TrackedDeviceIndex_t, 2> devices_{
+        {vr::k_unTrackedDeviceIndexInvalid, vr::k_unTrackedDeviceIndexInvalid}};
+};
 class LaserDrag {
   public:
-    bool start(const vr::VREvent_t& event, const PanelPlacement& placement, double now) {
-        const auto trigger = vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Trigger);
-        auto device = event.trackedDeviceIndex;
-        auto sample = read_controller(device);
-        if (!sample || !(sample->buttons & trigger)) {
-            // cursorIndex is primary/secondary laser, NOT a tracked-device ID.
-            // Some runtimes omit the source device: accept only one held trigger
-            // rather than guessing which hand owns the click.
-            sample.reset();
-            for (vr::TrackedDeviceIndex_t candidate = 1; candidate < vr::k_unMaxTrackedDeviceCount;
-                 ++candidate) {
-                auto current = read_controller(candidate);
-                if (current && (current->buttons & trigger)) {
-                    if (sample) {
-                        return false;
-                    }
-                    sample = current;
-                    device = candidate;
-                }
-            }
-        }
-        if (!sample) {
+    bool start(vr::TrackedDeviceIndex_t device, const PanelPlacement& placement, double now) {
+        const auto pose = read_controller(device);
+        if (!pose) {
             return false;
         }
         device_ = device;
-        pointer_ = event.data.mouse.cursorIndex;
         started_ = now;
-        transform_.begin(sample->pose, placement.transform());
+        transform_.begin(*pose, placement.transform());
         active_ = true;
         return true;
     }
     bool update(PanelPlacement& placement, double now) {
-        const auto sample = read_controller(device_);
-        if (!sample || !(sample->buttons & vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Trigger)) ||
-            now - started_ > 30) {
+        const auto pose = read_controller(device_);
+        if (!pose || now - started_ > 30) {
             stop();
             return false;
         }
-        placement.set_transform(transform_.update(sample->pose));
+        placement.set_transform(transform_.update(*pose));
         return true;
     }
     bool active() const { return active_; }
-    unsigned pointer() const { return pointer_; }
+    vr::TrackedDeviceIndex_t device() const { return device_; }
     void stop() { active_ = false; }
 
   private:
     PanelDrag transform_;
     vr::TrackedDeviceIndex_t device_{vr::k_unTrackedDeviceIndexInvalid};
-    unsigned pointer_{};
     double started_{};
     bool active_{};
 };
@@ -117,12 +167,21 @@ class VrPanel {
     }
     void connect() {
         vr::EVRInitError error = vr::VRInitError_None;
-        // A manual keyboard launch must not start SteamVR behind the user's back.
-        vr::VR_Init(&error, vr::VRApplication_Background);
-        if (error != vr::VRInitError_None) {
-            throw std::runtime_error(vr::VR_GetVRInitErrorAsEnglishDescription(error));
+        // Connect only once: a background connect/disconnect followed immediately
+        // by an overlay connection can leave SteamVR using the old legacy input
+        // context. On this Linux-only app, refuse launch if no VR server is running.
+        bool server_running = false;
+        for (const auto& entry : fs::directory_iterator("/proc")) {
+            std::ifstream name(entry.path() / "comm");
+            std::string process_name;
+            if (std::getline(name, process_name) && process_name == "vrserver") {
+                server_running = true;
+                break;
+            }
         }
-        vr::VR_Shutdown();
+        if (!server_running) {
+            throw std::runtime_error("SteamVR must already be running");
+        }
         vr::VR_Init(&error, vr::VRApplication_Overlay);
         if (error != vr::VRInitError_None) {
             throw std::runtime_error(vr::VR_GetVRInitErrorAsEnglishDescription(error));
@@ -195,6 +254,11 @@ class VrPanel {
 int run_vr(App& app, VrInstance& instance, double duration) {
     VrPanel panel;
     panel.connect();
+    GripInput grip_input;
+    if (!grip_input.connect()) {
+        app.report_status("Native grip unavailable; use Move / align.");
+    }
+    std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     struct ReleaseBeforeVrShutdown {
         App& app;
         ~ReleaseBeforeVrShutdown() {
@@ -229,6 +293,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             app.summon();
             show_pending = true;
         }
+        const auto grips = grip_input.poll();
         vr::VREvent_t event{};
         while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
             if (event.eventType == vr::VREvent_Quit) {
@@ -251,49 +316,45 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             const double x = event.data.mouse.x, y = panel_height - event.data.mouse.y;
             const auto pointer = event.data.mouse.cursorIndex;
             switch (event.eventType) {
-            case vr::VREvent_MouseMove:
+            case vr::VREvent_MouseMove: {
+                if (event.trackedDeviceIndex < hovered_devices.size()) {
+                    hovered_devices[event.trackedDeviceIndex] =
+                        x >= 0 && x < panel_width && y >= 0 && y < panel_height;
+                }
                 if (!drag.active()) {
                     app.move(pointer, x, y);
                 }
                 break;
+            }
             case vr::VREvent_MouseButtonDown:
-                if (event.data.mouse.button == vr::VRMouseButton_Left) {
-                    if (drag.active()) {
-                        break;
-                    }
-                    if (app.drag_handle_contains(x, y) && placement.ready()) {
-                        app.cancel();
-                        if (drag.start(event, placement, now)) {
-                            app.set_dragging(true);
-                        } else {
-                            app.report_status(
-                                "Point one controller at the handle and hold its trigger.");
-                        }
-                    } else {
+                if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
+                    // Grabbing cannot also type if grip and trigger arrive together.
+                    const bool grabbing = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
+                        return grip.active && grip.held && grip.device == event.trackedDeviceIndex;
+                    });
+                    if (!grabbing) {
                         app.down(pointer, x, y, now);
                     }
                 }
                 break;
             case vr::VREvent_MouseButtonUp:
-                if (event.data.mouse.button == vr::VRMouseButton_Left) {
-                    if (drag.active()) {
-                        if (pointer == drag.pointer()) {
-                            stop_drag();
-                        }
-                    } else {
-                        app.up(pointer, x, y);
-                    }
+                if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
+                    app.up(pointer, x, y);
                 }
                 break;
             case vr::VREvent_FocusLeave:
-                // Keep capture when the laser briefly leaves the moving panel.
-                // Physical trigger polling still ends the drag outside its bounds.
+                if (event.trackedDeviceIndex < hovered_devices.size()) {
+                    hovered_devices[event.trackedDeviceIndex] = false;
+                } else {
+                    hovered_devices.fill(false);
+                }
                 if (!drag.active()) {
                     app.cancel();
                 }
                 break;
             case vr::VREvent_OverlayHidden:
             case vr::VREvent_Modal_Cancel:
+                hovered_devices.fill(false);
                 stop_drag();
                 app.cancel();
                 break;
@@ -306,6 +367,22 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         }
         if (done || app.quitting()) {
             break;
+        }
+        if (drag.active()) {
+            const bool held = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
+                return grip.active && grip.held && grip.device == drag.device();
+            });
+            if (!held) {
+                stop_drag();
+            }
+        } else if (visible && placement.ready()) {
+            for (const auto& grip : grips) {
+                if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
+                    hovered_devices[grip.device] && drag.start(grip.device, placement, now)) {
+                    app.set_dragging(true);
+                    break;
+                }
+            }
         }
         if (app.take_recenter()) {
             stop_drag();

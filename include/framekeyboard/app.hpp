@@ -41,7 +41,6 @@ class App {
     void show_settings();
     void show_placement();
     void summon();
-    bool drag_handle_contains(double x, double y) const;
     void set_dragging(bool dragging);
     void report_status(const std::string& message);
     std::vector<PlacementAction> take_placement_actions();

@@ -1,0 +1,24 @@
+#pragma once
+#include "framekeyboard/placement.hpp"
+#include <optional>
+
+namespace framekeyboard {
+// Angular travel between a controller component's released and current poses.
+// Translation is deliberately ignored: the render model defines the button pivot.
+double component_rotation_degrees(const Transform& released, const Transform& current);
+
+struct GripTransition {
+    bool held{}, pressed{};
+};
+class GripLatch {
+  public:
+    // Frame's grip component has 9.5 degrees of travel. A small dead zone and
+    // separate release threshold keep a resting finger from chattering capture.
+    // Missing samples disarm it; startup/reconnect requires a release first.
+    GripTransition update(std::optional<double> angle_degrees);
+    void reset();
+
+  private:
+    bool armed_{}, held_{};
+};
+} // namespace framekeyboard

@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.3.0 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.3.1 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -8,7 +8,7 @@ The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. K
 
 - Native rendering and controller mouse-event handling, with two pointer IDs.
 - Launch again to show and recenter the existing panel. One VR process owns the keyboard.
-- A laser drag handle: hold the controller trigger on the top bar, move/turn your hand, then release.
+- Grip-to-move anywhere on the keyboard: point the laser at it, hold grab, move/turn your hand, then release.
 - Move / align controls for position, tilt, yaw, roll and size, plus Face me.
 - US and international full-size layouts, English/German XKB legends, Graphite/Midnight themes.
 - VR settings for layout, language and theme selection, favorites, reload and persistent selection.
@@ -16,7 +16,7 @@ The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. K
 - Native key events. Copy/Paste send Ctrl+C/Ctrl+V without reading the clipboard.
 - Host preview, PNG export, profile validation and an ARM64 package.
 
-The ARM64 core tests, offscreen rendering, isolated kernel-input test and VR overlay smoke test passed on Frame. Repeated-launch handling and placement controls passed on-device checks. The libei backend delivered A, Enter and Ctrl+A to a dedicated Frame Xwayland receiver. **Live controller typing and focus in KDE Brave and standalone floating Brave remain unverified.** This version does not replace the stock keyboard or intercept its summon button. It does not change Steam files, start SteamVR, or register autostart.
+The ARM64 core tests, offscreen rendering, isolated kernel-input test and VR overlay smoke test passed on Frame. Repeated-launch handling and placement controls passed on-device checks. Whole-keyboard grip movement and release were confirmed in the headset. The libei backend delivered A, Enter and Ctrl+A to a dedicated Frame Xwayland receiver. **Live controller typing and focus in KDE Brave and standalone floating Brave remain unverified.** This version does not replace the stock keyboard or intercept its summon button. It does not change Steam files, start SteamVR, or register autostart.
 
 ## Run on the development host
 
@@ -39,7 +39,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.3.0-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.3.1-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -47,8 +47,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.3.0-aarch64.tar.gz
-./framekeyboard-0.3.0-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.3.1-aarch64.tar.gz
+./framekeyboard-0.3.1-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English. Pause typing disables output. It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -69,7 +69,7 @@ The selected profile must match the declared target language before input can be
 
 ## Move, align and recover the keyboard
 
-To drag, point the laser at **Hold trigger here to move**, hold the trigger, move or rotate the controller, and release to place. Grabbing preserves the clicked offset; the keyboard does not jump to your hand. Tracking loss, trigger release, cancellation or a 30-second hold ends the drag. Only the dragging pointer controls it.
+To move the keyboard, point the controller laser anywhere on it and hold the **grab/grip** button. Move or rotate your hand, then release grab to place it. The trigger keeps typing normally; there is no move button. The grab offset is preserved so the panel does not jump. Losing tracking/input, hiding, recentering, or holding longer than 30 seconds cancels capture. Only the grabbing controller moves it, and typing is suppressed during a grab. Release the grip first if you launched or reconnected while squeezing it. Native Frame controller models are supported; the app leaves SteamVR input settings unchanged.
 
 Select **Move / align** in the top row. Position buttons move 2.5 cm per tap; rotation buttons turn 5 degrees; size buttons change width by 5 cm. **Face me** keeps the current position and size while turning the panel toward your head and leveling it. **Done** returns to the keys.
 

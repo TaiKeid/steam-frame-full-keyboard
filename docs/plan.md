@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.1 follow-up
+
+Replaced the trigger handle with whole-keyboard grip movement. Frame's dashboard masks both legacy controller polling and modern grip actions, including the tested global-priority route. Native Frame render-component travel provides squeeze state without changing SteamVR settings. The user confirmed following the controller and staying in place on release. Added hysteresis and startup/reconnect release gating; retained independent tracked poses and key cancellation. Other controller models and future Valve model revisions require separate validation.
+
 ## Version 0.3.0 follow-up
 
 Added native libei compositor input after the outer SteamVR session failed to discover the new uinput keyboard. The installed launcher now enables typing; development preview remains input-disabled. Added controller-laser dragging with preserved grab offset and cancellation. Dedicated Frame Xwayland receiver verified A, Enter and Ctrl+A. Physical controller dragging and both Brave modes still require user checks.

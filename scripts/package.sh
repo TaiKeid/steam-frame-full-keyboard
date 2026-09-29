@@ -6,6 +6,8 @@ cd "$project_dir"
 ./scripts/build.sh frame-arm64
 version=$(sed -n 's/^project(framekeyboard VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)
 package_dir="$project_dir/out/framekeyboard-$version-aarch64"
+# A rebuild must not retain resources removed from the install rules.
+rm -rf -- "$package_dir"
 mkdir -p "$package_dir"
 cmake --install build/frame-arm64 --prefix "$package_dir"
 cp scripts/install-local.sh "$package_dir/install.sh"

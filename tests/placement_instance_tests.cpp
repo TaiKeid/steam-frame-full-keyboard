@@ -1,9 +1,12 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/grip.hpp"
 
 #include <chrono>
 #include <cmath>
 #include <future>
 #include <iostream>
+#include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <sys/wait.h>
 #include <thread>
@@ -125,6 +128,37 @@ void drag_tests() {
     near(panel.transform()[0][3], 1, "recenter resets dragged position");
     near(panel.transform()[1][1], 1, "recenter levels dragged rotation");
 }
+void grip_tests() {
+    const auto released = head();
+    auto pressed = released;
+    const double radians = 9.5 * std::numbers::pi / 180;
+    pressed[0][0] = std::cos(radians);
+    pressed[0][1] = -std::sin(radians);
+    pressed[1][0] = std::sin(radians);
+    pressed[1][1] = std::cos(radians);
+    pressed[2][3] += 10; // Component pivot/translation must not alter squeeze travel.
+    near(fk::component_rotation_degrees(released, pressed), 9.5, "grip angular travel");
+    near(fk::component_rotation_degrees(pressed, pressed), 0, "neutral orientation");
+    // The reference orientation need not be axis-aligned in the controller model.
+    near(fk::component_rotation_degrees(pressed, released), 9.5, "relative rotation");
+    fk::GripLatch grip;
+    require(!grip.update(9.5).held, "startup while squeezed cannot start a drag");
+    require(!grip.update(0).held, "released sample arms grip");
+    require(!grip.update(.8).held, "small travel cannot start a drag");
+    auto state = grip.update(1.1);
+    require(state.held && state.pressed, "squeeze emits a single rising edge");
+    state = grip.update(.8);
+    require(state.held && !state.pressed, "hysteresis keeps grip held near press threshold");
+    require(grip.update(.55).held, "release dead zone avoids chatter");
+    require(!grip.update(.4).held, "release ends capture");
+    require(grip.update(2).pressed, "new squeeze captures again");
+    require(!grip.update(std::nullopt).held, "missing input releases grip");
+    require(!grip.update(2).held, "reconnect while held must wait for release");
+    grip.update(0);
+    require(grip.update(2).pressed, "release after reconnect re-arms grip");
+    require(!grip.update(std::numeric_limits<double>::quiet_NaN()).held,
+            "invalid component pose releases grip");
+}
 void instance_tests() {
     TemporaryDirectory temp;
     const auto runtime = temp.path / "runtime";
@@ -239,6 +273,9 @@ void ui_tests() {
         clicked = true;
     }
     require(clicked, "movement control exists");
+    for (const auto& control : app.view().controls) {
+        require(control.id != "drag", "whole-keyboard grip requires no move handle");
+    }
     require(app.take_placement_actions() == std::vector{fk::PlacementAction::Right},
             "UI queues placement command");
     app.summon();
@@ -251,6 +288,7 @@ int main() {
     try {
         placement_tests();
         drag_tests();
+        grip_tests();
         instance_tests();
         ui_tests();
         typing_tests();
