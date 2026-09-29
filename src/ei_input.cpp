@@ -2,10 +2,28 @@
 #include <chrono>
 #include <poll.h>
 #include <stdexcept>
+#include <string_view>
 
 namespace framekeyboard {
-EiSink::EiSink(const fs::path& socket) {
-    text_socket_ = socket.parent_path() / "gamescope-0";
+fs::path gamescope_text_socket(const fs::path& input_socket, const fs::path& explicit_text) {
+    if (!explicit_text.empty()) {
+        return explicit_text;
+    }
+    const auto name = input_socket.filename().string();
+    constexpr std::string_view prefix = "gamescope-", suffix = "-ei";
+    if (name.size() <= prefix.size() + suffix.size() || !name.starts_with(prefix) ||
+        !name.ends_with(suffix)) {
+        return {};
+    }
+    const auto number = name.substr(prefix.size(), name.size() - prefix.size() - suffix.size());
+    if (number.empty() || number.find_first_not_of("0123456789") != std::string::npos) {
+        return {};
+    }
+    // Relative names resolve under XDG_RUNTIME_DIR in both libei and Wayland.
+    return input_socket.parent_path() / name.substr(0, name.size() - suffix.size());
+}
+EiSink::EiSink(const fs::path& socket, const fs::path& text_socket)
+    : text_socket_(gamescope_text_socket(socket, text_socket)) {
     context_ = ei_new_sender(nullptr);
     if (!context_) {
         throw std::runtime_error("Cannot allocate compositor input connection");
@@ -32,6 +50,9 @@ EiSink::EiSink(const fs::path& socket) {
     }
 }
 bool EiSink::text_available() {
+    if (text_socket_.empty()) {
+        return false; // Never let Wayland fall back to an unrelated default display.
+    }
     if (!text_attempted_) {
         text_attempted_ = true;
         try {

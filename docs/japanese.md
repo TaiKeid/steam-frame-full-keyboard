@@ -10,7 +10,7 @@ Choose a Japanese language or the JIS layout in Settings to reveal the Japanese 
 
 ## Built-in composition
 
-Romaji is the default Japanese choice for someone unfamiliar with Japanese keyboard layouts. It supports common Hepburn and Japanese IME spellings, doubled consonants, `n'` disambiguation, `nn`, and small kana with `x`/`l` prefixes. Direct Kana has Shift variants for small kana and punctuation; ゛ and ゜ combine with the preceding kana.
+Romaji is the default Japanese choice for someone unfamiliar with Japanese keyboard layouts. It supports common Hepburn and Japanese IME spellings, doubled consonants, `n'` disambiguation, `nn`, and small kana with `x`/`l` prefixes. Additional aliases include `ca/ci/cu/ce/co`, `fya/fyu/fyo`, `tha/thi/thu/the/tho`, `dha/dhi/dhu/dhe/dho`, and `wu`, following the corresponding entries in [Mozc's romaji table](https://github.com/google/mozc/blob/master/src/data/preedit/romanji-hiragana.tsv). Direct Kana has Shift variants for small kana and punctuation; ゛ and ゜ combine with the preceding kana.
 
 - Space or 変換 starts conversion, then advances candidates. Shift+Space or ↑ goes back. Click a candidate to select it.
 - ←/→ select the phrase segment. The active segment is marked with 【 】 in the preedit. The selected candidate stays highlighted; ↑/↓ move through pages as needed.
@@ -26,7 +26,7 @@ The preedit stays in the keyboard until committed. Moving the laser off the keyb
 
 The integrated modes use `libanthy.so.0`, its installed dictionary and Japanese fonts. These were already present on the tested Steam Frame. No daemon, browser, online converter, clipboard fallback or dictionary training is added. Conversion runs only when requested; ordinary polling/rendering stays adaptive. The library/dictionary stay loaded after first conversion until the keyboard exits.
 
-The normal launcher with `--input ei --target-language en-us --start-enabled` supports the bundled integrated profiles. Their physical XKB definition remains US for shortcut routing; the selected language ID differs because Japanese characters are consumed locally. The text backend checks the private [Gamescope input-method protocol](https://github.com/ValveSoftware/gamescope/blob/6867f509874f9bc52e12d6f4c4596cdf0d5be6b4/protocol/gamescope-input-method.xml) before enabling output. Missing support leaves a conversion preview and a visible error. The uinput backend cannot deliver composed Japanese text.
+The normal launcher with `--input ei --target-language en-us --start-enabled` supports the bundled integrated profiles. Their physical XKB definition remains US for shortcut routing; the selected language ID differs because Japanese characters are consumed locally. The text backend checks the private [Gamescope input-method protocol](https://github.com/ValveSoftware/gamescope/blob/6867f509874f9bc52e12d6f4c4596cdf0d5be6b4/protocol/gamescope-input-method.xml) before enabling output. Missing support leaves a conversion preview and a visible error. The uinput backend cannot deliver composed Japanese text. A numbered `--ei-socket` selects the matching text compositor; custom names need `--text-socket`. See [runtime routing](runtime.md).
 
 External JIS is for a session already using the Japanese physical keymap and a working system IME. Close the running keyboard before changing launch options:
 

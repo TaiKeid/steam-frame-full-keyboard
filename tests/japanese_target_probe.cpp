@@ -10,7 +10,11 @@
 
 // Opt-in live test. Emit only while our newly created disposable window owns
 // X keyboard focus; never inspect or record events from another application.
-int main() {
+int main(int argc, char** argv) {
+    if (argc != 1 && argc != 3) {
+        std::cerr << "usage: japanese-target-probe [EI_SOCKET TEXT_SOCKET]\n";
+        return 2;
+    }
     std::setlocale(LC_ALL, "C.UTF-8");
     XSetLocaleModifiers("@im=none");
     Display* display = XOpenDisplay(nullptr);
@@ -32,7 +36,9 @@ int main() {
                 : nullptr;
     int result = 1;
     try {
-        framekeyboard::EiSink input("/run/user/" + std::to_string(getuid()) + "/gamescope-0-ei");
+        const auto key_socket = argc == 3 ? std::string(argv[1])
+                                          : "/run/user/" + std::to_string(getuid()) + "/gamescope-0-ei";
+        framekeyboard::EiSink input(key_socket, argc == 3 ? argv[2] : "");
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         XSetInputFocus(display, window, RevertToPointerRoot, CurrentTime);
         XSync(display, False);

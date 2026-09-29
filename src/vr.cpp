@@ -341,7 +341,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     auto manifest = fs::canonical("/proc/self/exe").parent_path().parent_path() /
                     "share/framekeyboard/vr/actions.json";
     if (!fs::is_regular_file(manifest)) {
-        manifest = fs::path(FRAMEKEYBOARD_SOURCE_DIR) / "vr/actions.json";
+        manifest = fs::canonical("/proc/self/exe").parent_path() / "vr/actions.json";
     }
     haptics.connect(manifest);
     KeyHaptics feedback;

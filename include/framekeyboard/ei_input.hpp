@@ -4,11 +4,15 @@
 #include <libei.h>
 
 namespace framekeyboard {
+// Infer only the documented gamescope-N-ei naming convention. Unknown names
+// require an explicit text socket; an empty result disables text delivery.
+fs::path gamescope_text_socket(const fs::path& input_socket, const fs::path& explicit_text = {});
+
 // Connect directly to the running Gamescope compositor. This avoids the
 // SteamVR startup-time discovery limitation of a newly created uinput device.
 class EiSink : public KeySink {
   public:
-    explicit EiSink(const fs::path& socket);
+    explicit EiSink(const fs::path& socket, const fs::path& text_socket = {});
     ~EiSink() override;
     void send(int code, int value) override;
     bool pump() override;

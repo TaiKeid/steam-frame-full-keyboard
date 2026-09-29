@@ -4,8 +4,11 @@
 #include <future>
 #include <iostream>
 #include <libeis.h>
+#include <poll.h>
 #include <stdexcept>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <thread>
 #include <unistd.h>
 
@@ -24,14 +27,14 @@ struct Server {
     eis_seat* seat{};
     eis_device* device{};
     std::vector<std::pair<unsigned, bool>> keys;
-    fs::path directory;
-    Server() {
+    fs::path directory, socket;
+    explicit Server(const std::string& socket_name = "input") {
         std::string temporary = "/tmp/full-keyboard-eis-XXXXXX";
         require(mkdtemp(temporary.data()), "temporary directory");
         directory = temporary;
         require(context && eis_set_flag(context, EIS_FLAG_DEVICE_READY) == 0, "device-ready protocol");
-        require(eis_setup_backend_socket(context, (directory / "input").c_str()) == 0,
-                "isolated EIS socket");
+        socket = directory / socket_name;
+        require(eis_setup_backend_socket(context, socket.c_str()) == 0, "isolated EIS socket");
     }
     ~Server() {
         if (device) {
@@ -109,8 +112,63 @@ struct Server {
     }
 };
 } // namespace
+namespace {
+struct TextListener {
+    int fd{-1};
+    explicit TextListener(const fs::path& path) {
+        fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+        require(fd >= 0, "text listener socket");
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        const auto name = path.string();
+        require(name.size() < sizeof(address.sun_path), "text listener path length");
+        std::memcpy(address.sun_path, name.c_str(), name.size() + 1);
+        require(bind(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0 &&
+                    listen(fd, 4) == 0,
+                "text listener bind");
+    }
+    ~TextListener() {
+        if (fd >= 0) {
+            close(fd);
+        }
+    }
+    bool contacted() const {
+        pollfd pending{fd, POLLIN, 0};
+        return poll(&pending, 1, 0) > 0 && (pending.revents & POLLIN);
+    }
+};
+void socket_routing_tests() {
+    require(gamescope_text_socket("/run/user/1000/gamescope-7-ei") == "/run/user/1000/gamescope-7",
+            "numbered compositor mapping");
+    require(gamescope_text_socket("gamescope-12-ei") == "gamescope-12",
+            "relative socket mapping retains runtime-directory semantics");
+    for (const auto* name :
+         {"input", "", "gamescope-ei", "gamescope--ei", "gamescope-wrong-ei", "gamescope-1-ei.backup"}) {
+        require(gamescope_text_socket(name).empty(), "unknown socket must not guess a target");
+    }
+    require(gamescope_text_socket("input", "custom-display") == "custom-display",
+            "explicit text socket takes priority");
+    for (int scenario = 0; scenario < 3; ++scenario) {
+        Server server(scenario == 0 ? "gamescope-7-ei" : "input");
+        TextListener default_display(server.directory / "gamescope-0");
+        const auto text_path = server.directory / (scenario == 0 ? "gamescope-7" : "custom-display");
+        TextListener selected_display(text_path);
+        auto connecting = std::async(std::launch::async, [&] {
+            return std::make_unique<EiSink>(server.socket, scenario == 1 ? text_path : fs::path{});
+        });
+        server.until([&] { return connecting.wait_for(0ms) == std::future_status::ready; });
+        auto input = connecting.get();
+        // Deliberately no Wayland protocol server: the bounded handshake fails,
+        // but accept queues reveal exactly which compositor was contacted.
+        require(!input->text_available(), "dummy text listener has no protocol support");
+        require(selected_display.contacted() == (scenario != 2), "text socket routing");
+        require(!default_display.contacted(), "must never contact unrelated gamescope-0");
+    }
+}
+} // namespace
 int main() {
     try {
+        socket_routing_tests();
         Server server;
         auto connecting = std::async(
             std::launch::async, [&] { return std::make_unique<EiSink>(server.directory / "input"); });
@@ -147,7 +205,8 @@ int main() {
         eis_client_disconnect(server.client);
         server.until([&] { return !sink->pump(); });
         require(!sink->can_resume() && sink->take_input_reset(), "disconnect requires a new connection");
-        std::cout << "Real libei pause/resume, stale-key suppression and disconnect passed.\n";
+        std::cout << "Compositor socket routing, real libei pause/resume, stale-key suppression and "
+                     "disconnect passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

@@ -9,7 +9,7 @@
 
 namespace framekeyboard {
 struct Options {
-    fs::path data_dir, config_dir, ei_socket;
+    fs::path data_dir, config_dir, ei_socket, text_socket;
     std::string mode{"help"}, output, input{"none"}, target_language;
     double duration{};
     bool start_enabled{false};

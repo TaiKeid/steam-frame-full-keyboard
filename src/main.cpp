@@ -18,6 +18,7 @@ void help() {
               << "  --describe-layout         Describe the active key geometry\n"
               << "  --input ei|uinput         Use compositor input or a virtual kernel device\n"
               << "  --ei-socket PATH          Override the Gamescope input socket\n"
+              << "  --text-socket PATH        Override its Japanese Wayland text socket\n"
               << "  --start-enabled           Enable typing at startup with an explicit backend\n"
               << "  --target-language ID      Confirm the target session's matching keymap\n"
               << "  --config-dir PATH         User profiles/settings directory\n"
@@ -73,6 +74,11 @@ int main(int argc, char** argv) {
                 options.data_dir = value();
             } else if (argument == "--ei-socket") {
                 options.ei_socket = value();
+            } else if (argument == "--text-socket") {
+                options.text_socket = value();
+                if (options.text_socket.empty()) {
+                    throw std::runtime_error("--text-socket requires a nonempty path");
+                }
             } else if (argument == "--input") {
                 options.input = value();
             } else if (argument == "--start-enabled") {
@@ -100,6 +106,9 @@ int main(int argc, char** argv) {
         if (options.input != "none" && (options.mode != "vr" || options.target_language.empty())) {
             throw std::runtime_error(
                 "typing requires --vr and --target-language; desktop preview never injects input");
+        }
+        if (!options.text_socket.empty() && options.input != "ei") {
+            throw std::runtime_error("--text-socket requires --input ei");
         }
         if (options.start_enabled && options.input == "none") {
             throw std::runtime_error("--start-enabled requires an input backend");
@@ -146,7 +155,7 @@ int main(int argc, char** argv) {
                 options.ei_socket =
                     std::string("/run/user/") + std::to_string(getuid()) + "/gamescope-0-ei";
             }
-            sink = std::make_unique<fk::EiSink>(options.ei_socket);
+            sink = std::make_unique<fk::EiSink>(options.ei_socket, options.text_socket);
         } else if (options.input == "uinput") {
             sink = std::make_unique<fk::UInputSink>();
         } else {

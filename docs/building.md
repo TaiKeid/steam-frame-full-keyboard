@@ -4,7 +4,7 @@ Most users should install the ARM64 archive described in the [README](../README.
 
 ## Dependencies
 
-Install a C++20 compiler, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, libei, Wayland, SDL2, and Vulkan. The build uses the host `wayland-scanner`. Tests also need X11 development files. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
+Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, libei, Wayland, SDL2, and Vulkan. The build uses the host `wayland-scanner`. Tests also need X11 development files. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
 
 The OpenVR header is vendored, but `libopenvr_api.so` comes from an installed SteamVR runtime or a separately supplied SDK library. The build searches common Linux Steam paths. Override discovery with `-DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so` when configuring CMake.
 
@@ -62,13 +62,17 @@ file build/frame-arm64/framekeyboard
 ./scripts/package.sh
 ```
 
-The package script builds ARM64, installs into `out/framekeyboard-VERSION-aarch64/`, includes docs/licenses/profiles, and writes an archive plus `out/SHA256SUMS`. The binary retains the device OpenVR runtime path `/opt/steamvr/bin/linuxarm64`. Third-party system libraries are not bundled.
+The generated Wayland protocol is compiled as C. GCC and Clang builds use the same warning flags; check clean builds of both before claiming a warning-free release.
+
+The package script builds ARM64, installs into `out/framekeyboard-VERSION-aarch64/`, includes docs/licenses/profiles, and writes an archive plus `out/SHA256SUMS`. Only the packaged executable is stripped, using the cross toolchain's `CMAKE_STRIP`; the build-directory executable retains debugging information. Packaging rejects remaining debug/static-symbol sections, a non-AArch64 binary, or embedded source/sysroot/builder-home paths. Compiler prefix maps remove build paths from diagnostics, and haptic manifests are found relative to the executable rather than through an embedded source path. Development builds copy the manifests into `build/<preset>/vr/`.
+
+The binary retains the device OpenVR runtime path `/opt/steamvr/bin/linuxarm64`. Third-party system libraries are not bundled.
 
 Host and ARM64 build directories are separate. If switching sysroots or toolchains for an existing build directory, use `cmake --fresh --preset frame-arm64` before rebuilding. The build script validates the executable's AArch64 architecture.
 
 ## Tests
 
-CTest includes `keyboard-core`, `placement-instance`, `japanese-input`, and `rendering`. The rendering suite compares incremental and forced full images pixel-by-pixel across all bundled languages, controller overlaps, animation reversal, modifiers, composition, settings, and profile changes. Host builds also run installer validation/failure/retry tests. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume and disconnect using an isolated compositor that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
+CTest includes `keyboard-core`, `placement-instance`, `japanese-input`, and `rendering`. The rendering suite compares incremental and forced full images pixel-by-pixel across all bundled languages, controller overlaps, animation reversal, modifiers, composition, settings, and profile changes. Host builds also run installer validation/failure/retry tests. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume, disconnect, and text-socket selection using an isolated compositor and dummy Wayland listeners that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
 
 Anthy integration is optional in normal test runs. To require the real conversion test when the library and dictionary are installed:
 

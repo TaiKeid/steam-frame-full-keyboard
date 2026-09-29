@@ -81,7 +81,7 @@ void state_tests(const fk::Layout& layout) {
     state.up(1);
     require(sink.events.size() == 2 && sink.events.back().second == 0, "last pointer releases key");
     for (const auto* id : {"CapsLock", "NumLock"}) {
-        const auto& lock = key(layout, id);
+        const auto lock = key(layout, id);
         const int code = fk::key_code(lock.action);
         auto locked = [&] { return code == KEY_CAPSLOCK ? state.caps() : state.num(); };
         // Exercise both release orders, and a new click while the other hand

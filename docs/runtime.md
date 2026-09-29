@@ -42,7 +42,16 @@ For a session already configured for German, close the keyboard and run:
 
 Choose the German language and international layout in Settings, then Apply and save. For an existing Japanese keymap and system IME, use `--target-language ja-jis` instead and select the JIS preset. A selected profile that does not match the declared target disables typing while keeping Settings accessible. The launcher also accepts `FRAMEKEYBOARD_TARGET_LANGUAGE` for a different default.
 
-`--ei-socket PATH` overrides the compositor socket. The optional `--input uinput` developer backend requires access to `/dev/uinput`; newly created devices were not discovered by the tested outer VR session. The installed launcher uses libei and does not need this backend.
+`--ei-socket PATH` overrides the compositor key-input socket. Japanese text follows the matching Wayland socket: for example, `/run/user/1000/gamescope-2-ei` pairs with `/run/user/1000/gamescope-2`. Relative names resolve under `$XDG_RUNTIME_DIR` in both backends. For nonstandard names, add `--text-socket PATH` explicitly; otherwise Japanese text is unavailable rather than being sent to the default compositor. `--text-socket` requires `--input ei`. Close the running keyboard before changing launch options, since launching a second instance only recenters the first.
+
+For example, with the chosen compositor already using the US physical keymap:
+
+```sh
+~/.local/bin/framekeyboard --vr --input ei --target-language en-us --start-enabled \
+  --ei-socket gamescope-2-ei
+```
+
+The optional `--input uinput` developer backend requires access to `/dev/uinput`; newly created devices were not discovered by the tested outer VR session. The installed launcher uses libei and does not need this backend.
 
 Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessions, implement terminal Ctrl+Shift shortcuts, or read clipboard data. Lock indicators follow presses in this panel and are not synchronized with physical keyboards or an already enabled session lock.
 

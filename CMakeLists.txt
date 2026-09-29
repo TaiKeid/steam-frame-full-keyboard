@@ -1,10 +1,19 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.4.13 LANGUAGES CXX)
+project(framekeyboard VERSION 0.4.13 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# Keep build-machine directories out of __FILE__, assertions and debug paths.
+# RelWithDebInfo remains useful locally; packaging strips only its installed copy.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=."
+                        "-ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=./build")
+    if(CMAKE_SYSROOT)
+        add_compile_options("-ffile-prefix-map=${CMAKE_SYSROOT}=/")
+    endif()
+endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo xkbcommon json-c)
@@ -12,7 +21,7 @@ pkg_check_modules(EI REQUIRED IMPORTED_TARGET libei-1.0 wayland-client)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 set(IME_XML "${CMAKE_CURRENT_SOURCE_DIR}/third_party/gamescope/gamescope-input-method.xml")
 set(IME_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/gamescope-input-method-client.h")
-set(IME_CODE "${CMAKE_CURRENT_BINARY_DIR}/generated/gamescope-input-method-protocol.cpp")
+set(IME_CODE "${CMAKE_CURRENT_BINARY_DIR}/generated/gamescope-input-method-protocol.c")
 add_custom_command(OUTPUT "${IME_HEADER}" "${IME_CODE}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
     COMMAND "${WAYLAND_SCANNER}" client-header "${IME_XML}" "${IME_HEADER}"
@@ -31,7 +40,6 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-set_source_files_properties("${IME_CODE}" PROPERTIES COMPILE_OPTIONS "-include;${IME_HEADER}")
 add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/text_input.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI ${CMAKE_DL_LIBS})
@@ -53,8 +61,13 @@ target_link_libraries(overlay_texture PUBLIC PkgConfig::VULKAN "${OPENVR_LIBRARY
 add_executable(framekeyboard src/main.cpp src/preview.cpp src/vr.cpp)
 target_link_libraries(framekeyboard PRIVATE keyboard_core overlay_texture PkgConfig::SDL)
 target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
-target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}"
-    FRAMEKEYBOARD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+# Development binaries find these beside themselves; packages use share/framekeyboard.
+# Do not embed an absolute source-tree path in the executable for this fallback.
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vr")
+foreach(manifest actions.json frame-controller.json)
+    configure_file("vr/${manifest}" "vr/${manifest}" COPYONLY)
+endforeach()
 set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
 
 include(CTest)
