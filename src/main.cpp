@@ -148,7 +148,8 @@ int main(int argc, char** argv) {
             return profiles.errors.empty() ? 0 : 1;
         }
         std::unique_ptr<fk::KeySink> sink;
-        if (options.input != "none" && !profiles.languages.contains(options.target_language)) {
+        if (options.input != "none" && !options.target_language.empty() &&
+            !profiles.languages.contains(options.target_language)) {
             throw std::runtime_error("unknown target-language profile");
         }
         if (options.input == "ei") {
