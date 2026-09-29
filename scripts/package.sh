@@ -11,6 +11,6 @@ rm -rf -- "$package_dir"
 mkdir -p "$package_dir"
 cmake --install build/frame-arm64 --prefix "$package_dir"
 cp scripts/install-local.sh "$package_dir/install.sh"
-cp README.md "$package_dir/README.md"
 tar -C out -czf "out/framekeyboard-$version-aarch64.tar.gz" "framekeyboard-$version-aarch64"
-sha256sum "out/framekeyboard-$version-aarch64.tar.gz"
+(cd out && sha256sum "framekeyboard-$version-aarch64.tar.gz" > SHA256SUMS)
+cat out/SHA256SUMS

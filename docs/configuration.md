@@ -2,7 +2,7 @@
 
 File-based layouts, language support and editable themes are core requirements. Users must be able to add profiles, then select them inside VR without recompiling or restarting the keyboard.
 
-Version 0.1.0 implements runtime profiles, VR selectors, reload and persistent selection. The bundled resources are also embedded for fallback. English and German XKB legends are tested. Native output through libei or uinput requires a matching target session keymap, explicitly declared with `--target-language`; automatic synchronization and application delivery remain unverified. Integrated Japanese composition is available; see [Japanese input](japanese.md).
+The app implements runtime profiles, VR selectors, reload and persistent selection. The bundled resources are also embedded for fallback. English and German XKB legends are tested. Native output through libei or uinput requires a matching target session keymap, explicitly declared with `--target-language`; automatic keymap synchronization is not implemented, and application coverage varies. Integrated Japanese composition is available; see [Japanese input](japanese.md).
 
 ## Independent profiles
 
@@ -19,7 +19,7 @@ The current `en-us-full` layout ID identifies the approved ANSI geometry and its
 
 ## File locations and discovery
 
-Packaged defaults live in the versioned installation's `layouts/`, `languages/`, and `themes/` directories. User files live under `$XDG_CONFIG_HOME/framekeyboard`, defaulting to `~/.config/framekeyboard`:
+Packaged defaults live in the versioned installation's `share/framekeyboard/layouts/`, `share/framekeyboard/languages/`, and `share/framekeyboard/themes/` directories. User files live under `$XDG_CONFIG_HOME/framekeyboard`, defaulting to `~/.config/framekeyboard`:
 
 ```text
 config.json
@@ -34,7 +34,7 @@ Keep a compiled safe default available. If a user override is invalid, retain th
 
 ## Layouts and styles
 
-Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy` or `paste`; omitting it renders the text label. Icons use the theme legend color and move with the key face. The existing validator checks bounds and overlap. Extend the runtime validator to limit profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
+Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy` or `paste`; omitting it renders the text label. Icons use the theme legend color and move with the key face. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
 
 Theme JSON defines renderer properties directly. Support surface and legend colors, key-face gradients, side colors/depth, corner radii, spacing/padding and font sizing, plus hover, pressed, latched and disabled state styles. The current renderer consumes the graphite fields plus `font_size`, `small_font_size`, `padding`, `hover` and `latched`. It uses immediate hover/latched colors and animated press travel. The reserved `disabled` color is parsed but has no disabled-key state in this release. Per-key fonts, arbitrary spacing rules and additional state styles remain future work. Native rendering does not require CSS or JavaScript theme execution.
 

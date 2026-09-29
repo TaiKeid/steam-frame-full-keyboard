@@ -237,7 +237,7 @@ class VrPanel {
             throw std::runtime_error("required OpenVR interfaces are unavailable");
         }
         auto* overlay = vr::VROverlay();
-        check(overlay->CreateOverlay("org.framekeyboard.panel", "FrameKeyboard", &handle_),
+        check(overlay->CreateOverlay("org.framekeyboard.panel", "Full Keyboard", &handle_),
               "CreateOverlay");
         check(overlay->SetOverlayWidthInMeters(handle_, static_cast<float>(PanelPlacement{}.width())),
               "SetOverlayWidthInMeters");
@@ -667,7 +667,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     visible = true;
                     app.set_interaction_active(true);
                     show_pending = false;
-                    std::cout << "FrameKeyboard overlay visible.\n" << std::flush;
+                    std::cout << "Full Keyboard overlay visible.\n" << std::flush;
                 }
             }
             next_tracking_check = now + .25;

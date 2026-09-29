@@ -14,7 +14,7 @@
       "displayName": "Steam Frame ARM64 cross-build",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/frame-arm64",
-      "toolchainFile": "${sourceDir}/../toolchains/steam-frame/aarch64-clang.cmake",
+      "toolchainFile": "${sourceDir}/cmake/steam-frame-aarch64.cmake",
       "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo"}
     }
   ],

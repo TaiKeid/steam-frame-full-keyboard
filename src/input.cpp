@@ -168,7 +168,7 @@ UInputSink::UInputSink() {
         // Repeat is scheduled by KeyboardState. Enabling EV_REP would double it.
         uinput_setup setup{};
         setup.id.bustype = BUS_VIRTUAL;
-        std::strncpy(setup.name, "FrameKeyboard", sizeof(setup.name) - 1);
+        std::strncpy(setup.name, "Full Keyboard", sizeof(setup.name) - 1);
         if (ioctl(fd_, UI_DEV_SETUP, &setup) < 0 || ioctl(fd_, UI_DEV_CREATE) < 0) {
             throw std::system_error(errno, std::generic_category(), "create virtual keyboard");
         }

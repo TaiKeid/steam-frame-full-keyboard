@@ -1,138 +1,120 @@
-# FrameKeyboard
+# Full Keyboard for Steam Frame
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.4.12 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons for browsing, signing in, editing text, and using local apps.
 
-The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Bundled layouts leave the Meta key positions empty. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
+**This is a separate app, not a replacement for the system keyboard.** Launch **Full Keyboard** yourself; SteamOS's existing keyboard button still opens the original keyboard.
 
-## What works in this version
+![Full Keyboard with the Graphite theme](docs/images/keyboard-graphite.png)
 
-- Native rendering and controller mouse-event handling, with two pointer IDs.
-- Close and reopen to restore position, rotation and size. Launch while running to recenter the existing panel. One VR process owns the keyboard.
-- Grip-to-move anywhere on the keyboard: point the laser at it, hold grab, move/turn your hand, then release.
-- Main-view smaller/larger icons, with controller grabbing for positioning.
-- US, international and Japanese JIS layouts; English/German XKB legends; Japanese romaji/kana composition and kanji candidates; Graphite/Midnight themes.
-- VR settings for layout, language and theme selection, favorites, reload and persistent selection.
-- One-shot modifier taps, held chords, repeat, cancellation and a ten-second missing-release timeout.
-- Firm haptic clicks on key press/release, with lighter feedback when entering a key.
-- Native key events. Copy/Paste send Ctrl+C/Ctrl+V without reading the clipboard.
-- Host preview, PNG export, profile validation and an ARM64 package.
+*The default English layout and Graphite theme, captured from the app's native renderer.*
 
-The ARM64 core tests, offscreen rendering, isolated kernel-input test and VR overlay smoke test passed on Frame. Repeated-launch handling and placement controls passed on-device checks. Whole-keyboard grip movement and release were confirmed in the headset. The libei backend delivered A, Enter and Ctrl+A to a dedicated Frame Xwayland receiver. **Live controller typing and focus in KDE Brave and standalone floating Brave remain unverified.** This version does not replace the stock keyboard or intercept its summon button. It does not change Steam files, start SteamVR, or register autostart.
+## What it does
 
-## Run on the development host
+- Full-size layout with F1–F12, navigation keys, arrow keys, numpad, Ctrl, Alt, and Shift.
+- Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
+- Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
+- Controller laser typing, press/release haptic clicks, and subtle hover feedback.
+- Grab anywhere to move and rotate the keyboard, with thumbstick depth adjustment and size controls.
+- Dashboard following, saved placement, and relaunch-to-recenter recovery.
+- Editable layouts, languages, and themes, with a settings menu inside VR.
+- English, German, and Japanese options, including romaji, direct kana, and an external JIS IME mode.
 
-Build dependencies: CMake 3.24+, Ninja, Python 3, a C++20 compiler, pkg-config, libei, Cairo, Pango, libxkbcommon, json-c, SDL2, Vulkan and the SteamVR OpenVR library. Python and wayland-scanner are used only during the build. Japanese conversion loads the optional system Anthy library and dictionary on first use; Noto Sans CJK JP is recommended for Japanese text. Pass `-DOPENVR_LIBRARY=/path/to/libopenvr_api.so` if SteamVR is installed elsewhere.
+## Where it works
 
-```sh
-./scripts/build.sh host
-ctest --test-dir build/host --output-on-failure
-./build/host/framekeyboard --preview
-./build/host/framekeyboard --render /tmp/framekeyboard.png
-./build/host/framekeyboard --render-settings /tmp/framekeyboard-settings.png
-./build/host/framekeyboard --check
-```
+Full Keyboard is a quality-of-life tool for the **on-device experience**. It is designed for the Frame dashboard and local apps, including desktop and floating app windows. Focus a text field in the app, then type using the controller laser.
 
-The desktop preview never injects OS input. It exercises the same native renderer, key state and settings controls as VR. Use the Settings button to switch profiles; a preview is not a desktop replacement keyboard.
+It is **not a keyboard for streamed VR applications such as VRChat**. Closing the dashboard hides the keyboard and releases its input. It does not capture controls or send keys to a streamed VR app. Reopening the dashboard brings it back.
 
-## Build and install on Frame
+This is an early release. App focus, non-US keymaps, and Japanese input can behave differently across applications; see [known limitations and troubleshooting](docs/runtime.md). Japanese composition has automated and dedicated-receiver coverage, but still needs feedback from fluent Japanese users.
 
-Build on CachyOS with the shared sibling ARM64 sysroot:
+## Install manually
 
-```sh
-./scripts/package.sh
-scp out/framekeyboard-0.4.12-aarch64.tar.gz steamos@steam-frame:/tmp/
-```
+No AI tools, compilation, `sudo`, or SteamOS write access are needed for the release package.
 
-On Frame, extract the package into a temporary directory and run its installer:
+1. On the **Steam Frame**, open the [GitHub Releases page](https://github.com/TaiKeid/steam-frame-full-keyboard/releases) in a browser. Download `framekeyboard-0.4.13-aarch64.tar.gz` and `SHA256SUMS` from the release assets into **Downloads**. Do not download GitHub's automatic source-code archive for this installation.
+2. Open a terminal in the Frame's desktop environment and run:
 
-```sh
-mkdir -p /tmp/framekeyboard-install
-cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.4.12-aarch64.tar.gz
-./framekeyboard-0.4.12-aarch64/install.sh
-```
+   ```sh
+   cd ~/Downloads
+   sha256sum -c SHA256SUMS
+   tar -xzf framekeyboard-0.4.13-aarch64.tar.gz
+   cd framekeyboard-0.4.13-aarch64
+   bash install.sh
+   ```
 
-The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English.  It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
+   Continue only if the checksum reports `OK`. For a newer version, use its archive and extracted directory names.
+3. Return to the Frame's dashboard and open **Full Keyboard** from the app launcher. The headset's VR session must already be running. You can also launch it from a terminal:
 
-## Try native input on Frame
+   ```sh
+   ~/.local/bin/framekeyboard
+   ```
 
-With SteamVR already running and the receiving session using a US keymap:
+The installer adds a desktop application entry named **Full Keyboard**. If you also want a Steam Library shortcut, use Steam's **Add a Non-Steam Game** option and select Full Keyboard. A manually created shortcut has its own name; rename an old FrameKeyboard shortcut in its Properties if needed.
 
-```sh
-~/.local/bin/framekeyboard
-```
+Everything installs under your home directory. The installer preserves settings and custom profiles, retains the previous release for rollback, and does not enable autostart or alter Steam files. Internal filenames and commands remain `framekeyboard`.
 
-Focus a disposable text field in the receiving app, then type on the panel. The normal launcher uses `--input ei --target-language en-us --start-enabled`.  Tap Ctrl/Alt/Shift to latch it for the next key; tap it again to clear it. Close destroys the panel and input connection.
+To update, **close the keyboard**, download the new release assets, and repeat the installation steps. The installer refuses to overwrite an already installed version. See [rollback and removal](docs/runtime.md#update-rollback-and-removal) for recovery instructions.
 
-`--target-language` is an explicit statement about the target session's existing keymap. The program does not detect or change that session's language. For German, the target must already use German; launch explicitly with `--vr --input ei --target-language de-de`, then choose the Deutsch favorite in Settings. That favorite includes the extra physical language key.
+## Use the keyboard
 
-The selected profile must match the declared target language and its XKB definition captured at launch before input can be enabled. A saved mismatch opens with typing disabled so Settings remains accessible; choose a matching profile to recover. Reload cannot silently redefine the declared target keymap. Applying or reloading profiles releases held keys and enables typing only for an explicitly enabled launch with a matching target language and a live backend. Automatic target-keymap synchronization, lock-state synchronization with other keyboards and stock takeover are not implemented. The compositor backend connects to `/run/user/<uid>/gamescope-0-ei`; `--ei-socket` overrides that path. It works without restarting SteamVR. The optional uinput backend remains available, but the current outer VR session did not discover a newly created device. Development `--preview` and direct binary `--vr` remain input-disabled. For an installed VR preview, pass `--vr --input none`.
+| Action | Control |
+| --- | --- |
+| Type | Point at a key and press the controller trigger |
+| Use a shortcut | Tap Ctrl, Alt, or Shift, then another key; or hold the modifier with one controller and press a key with the other |
+| Clear a tapped modifier | Tap it again |
+| Copy / paste | Use the two icons on the left; select text first when copying |
+| Move / rotate | Point anywhere on the keyboard, hold grab/grip, move your hand, then release |
+| Move farther / closer | While grabbing, push that same controller's thumbstick up / down |
+| Change size | Use the smaller / larger icons in the toolbar |
+| Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
+| Recenter | Use the recenter icon, or launch Full Keyboard again |
+| Close | Use the × icon |
 
-## Japanese input
+**If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
-Open **Settings**, select **日本語 Romaji**, **日本語 Kana**, or **JIS (system IME)**, then **Apply and save**. The preset picks the matching geometry and preserves your theme. Romaji is the starting choice if you are unsure: type `nihon`, press Space, choose 日本, then Enter to commit. Enter only submits when there is no active composition.
+Closing and reopening normally restores the last position, rotation, and size. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. After releasing a grab, a sideways lean within 5° eases level over 500 ms. This preserves the desk-like forward tilt and never fights your hand during a grab.
 
-Romaji and direct Kana use the Frame's installed Anthy dictionary and an in-panel candidate strip. **あ / A** switches between Japanese composition and ordinary Latin keys. Hiragana/Katakana buttons (or F6/F7) change the composed script. The JIS system-IME option instead sends physical JIS keys to an IME already configured in the receiving session. It does not install or select that IME.
+## Languages and customization
 
-See [Japanese controls and requirements](docs/japanese.md). The native UTF-8 path passed a dedicated Frame Xwayland receiver test; interaction in the user's Brave windows remains to be checked.
+The normal launcher assumes the receiving session uses a **US English physical keymap**. Selecting different legends does not change the system keymap. German and external JIS need a matching session and launch option; [language setup](docs/runtime.md#language-and-input-routing) explains how.
 
-## Dashboard visibility and VR apps
+For Japanese, choose a Japanese language or the JIS layout in Settings to reveal the **Romaji / Kana / JIS** presets. Romaji and Kana compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
 
-The keyboard is visible and accepts input only while the Frame dashboard is open. Closing the dashboard releases held keys, cancels composition/grabs, and hides it. Reopening restores it relative to the current dashboard position. Relaunching while the dashboard is closed queues a reset for its next opening; it does not force the dashboard open.
-
-The current backend sends input to Frame's local compositor. It does not route keyboard events to a streamed PC VR app. The overlay does not request input capture outside the dashboard. VRChat's OSC chatbox API is a possible separate integration, not general input into its search/login fields or other VR apps.
-
-## Move, align and recover the keyboard
-
-The default width is **95 cm**, four 5 cm steps smaller than the original 115 cm. Initial placement and Recenter tilt the keyboard back **50° from upright** (40° above horizontal), with its top edge farther from you. Recenter reads the current dashboard bottom edge and places the keyboard just beneath it. Moving the dashboard carries the keyboard with it, including your custom drag offset. If the dashboard pose is unavailable, the fallback is 65 cm below eye level and 85 cm forward. Recenter keeps any width you have chosen; close/reopen restores your saved pose and size.
-
-To move the keyboard, point the controller laser anywhere on it and hold the **grab/grip** button. Move or rotate your hand, then release grab to place it. The trigger keeps typing normally; there is no move button. The grab offset is preserved so the panel does not jump. Losing tracking/input, hiding, recentering, or holding longer than 30 seconds cancels capture. Only the grabbing controller moves it, and typing is suppressed during a grab. Release the grip first if you launched or reconnected while squeezing it. Native Frame controller models are supported; the app leaves SteamVR input settings unchanged.
-
-While grabbing, push that controller’s **thumbstick up** to move the keyboard farther along the laser, or **down** to bring it closer. Either hand works; the other controller’s stick has no effect. Release the stick to stop changing depth, then release grab to place the keyboard.
-
-When the sideways lean is within 5 degrees of the horizon, the keyboard eases level over 500 ms, including while grabbed. It preserves its forward/back tilt, heading, position and size. Releasing grab lets the easing finish; tilting outside the range smoothly releases the alignment.
-
-Use the **minus/plus zoom icons** beside Recenter to make the keyboard smaller or larger by 5 cm per click. Width stays between 45 cm and 2 m; resizing preserves its position and is saved when you close it.
-
-**Recenter**, launching the app while it is already running brings the keyboard in front of your current horizontal viewing direction, preserving its size. Closing saves position, rotation, dashboard anchor and size to `~/.config/framekeyboard/placement.json`; opening a new instance restores them. First launch, invalid saved data, or a different known tracking space falls back to recentering. Brief tracking loss hides the panel and preserves its position. A tracking-origin reset recenters it.
-
-Accepted key presses and releases give a haptic click on the controller that pressed the key. The release pulse is shorter to balance its perceived strength. Entering a different key produces a lighter, higher-frequency pulse. Staying over the same key, dragging, toolbar controls, duplicate events and key repeat do not produce pulses.
-
-Launching again sends a request to the existing process before connecting to SteamVR. It returns to the keys, releases held modifiers, and keeps the input connection unchanged. The first process keeps its language/backend launch options; later launch flags do not change them. Close the existing panel first if you need to change its input backend or target language.
-
-The VR loop targets 60 updates per second while visible, including dashboard following when no laser is over the keys, and 4 updates per second while hidden. Processing time is included in the visible 16.667 ms frame budget. It redraws and uploads the keyboard texture only when the display changes or an animation is running. SteamVR presents the existing texture at its own display cadence; these polling rates do not limit headset refresh. Closing the keyboard exits its process.
-
-## Customize inside VR
-
-Copy a bundled JSON file into one of these directories, edit it, and select Settings → Reload profiles:
+Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then choose **Reload profiles** in Settings:
 
 ```text
-~/.config/framekeyboard/config.json
-~/.config/framekeyboard/layouts/*.json
-~/.config/framekeyboard/languages/*.json
-~/.config/framekeyboard/themes/*.json
+~/.config/framekeyboard/layouts/
+~/.config/framekeyboard/languages/
+~/.config/framekeyboard/themes/
 ```
 
-Use a new `id` for an additional profile, or the same `id` to override a bundled one. Select the profiles with the arrow controls, then Apply and save. Invalid files leave the last valid version available and report an error. Deleting an active custom profile leaves the current session unchanged until another valid profile is selected.
+Use a new profile `id` to add a choice, or the same `id` to override a bundled one. [Configuration reference](docs/configuration.md) covers fields, favorites, validation, and saved placement.
 
-[Configuration details](docs/configuration.md) cover fields, input-language constraints and fallback behavior. `config/default.json` is an example settings file; installation never overwrites an existing user config.
+## How it works
 
-## Code map
+The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends key events to the Frame's local Gamescope compositor. Japanese composition uses a feature-checked Gamescope text-input protocol. It does not run a browser or need an internet connection.
 
-| File | Responsibility |
-| --- | --- |
-| `src/config.cpp` | JSON validation, profile discovery and settings persistence |
-| `src/ei_input.cpp` | Native compositor keyboard connection, lifecycle and release handling |
-| `src/input.cpp` | Physical key mapping, XKB legends, key state and uinput |
-| `src/panel.cpp` | Cairo/Pango painting, press animation and shared hit testing |
-| `src/app.cpp` | Profile controls, selection transactions and input arming |
-| `src/preview.cpp` | SDL host preview |
-| `src/instance.cpp` | Per-user instance lock and acknowledged recenter requests |
-| `src/placement.cpp` | Head-relative recentering and world-space placement math |
-| `src/vr.cpp` | OpenVR lifecycle, world placement, controller events and texture submission |
-| `tests/keyboard_tests.cpp` | Input sequences, recovery, profiles, language legends and rendering |
-| `tests/uinput_smoke.cpp` | Opt-in test against an exclusively grabbed, newly created device |
+Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save Japanese composition. Placement and profile preferences are stored locally.
 
-Comments explain the non-obvious boundaries: XKB versus evdev codes, modifier ownership, error cleanup, press geometry, pixel formats and compositor texture lifetime. `.clang-format` defines formatting for our C++ code. Third-party transport code retains its upstream style and license, with provenance in `third_party/README.md`.
+The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. Closing the keyboard exits the process. Battery impact has not been benchmarked.
 
-[Implementation plan](docs/plan.md) · [Architecture](docs/architecture.md) · [Acceptance checks](docs/acceptance.md)
+## Development and feedback
+
+- [Build from source](docs/building.md)
+- [Architecture and code map](docs/architecture.md)
+- [Runtime and troubleshooting](docs/runtime.md)
+- [Manual acceptance checks](docs/acceptance.md)
+- [Roadmap](docs/plan.md) and [changelog](CHANGELOG.md)
+- [Contributing and bug reports](CONTRIBUTING.md)
+- [Release checklist](docs/releasing.md)
+- [Third-party code and licenses](third_party/README.md)
+
+Please report the app version, SteamOS version, affected app, whether it is a desktop or floating window, and steps to reproduce. Remove private text from screenshots and logs.
+
+## License
+
+Project code is available under the [MIT License](LICENSE). Vendored components keep their [upstream licenses](third_party/README.md).
+
+## AI-generated project disclaimer
+
+This project is fully AI-generated. The author is unfamiliar with C++, so please have patience and understanding. Bugs and rough edges are expected; careful reviews, clear bug reports, and contributions are welcome. Third-party components retain their original authorship and licenses.

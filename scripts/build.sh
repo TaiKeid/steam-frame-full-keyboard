@@ -6,8 +6,8 @@ preset=${1:-host}
 case "$preset" in
     host) ;;
     frame-arm64)
-        if [[ ! -f ../toolchains/steam-frame/aarch64-clang.cmake ]]; then
-            echo 'Missing shared Frame toolchain. See README.md.' >&2
+        if [[ -z ${FRAMEKEYBOARD_SYSROOT:-} || ! -d $FRAMEKEYBOARD_SYSROOT/usr/include ]]; then
+            echo 'Set FRAMEKEYBOARD_SYSROOT to your Frame sysroot. See docs/building.md.' >&2
             exit 1
         fi
         ;;

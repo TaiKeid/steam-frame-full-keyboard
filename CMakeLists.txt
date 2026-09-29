@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.4.12 LANGUAGES CXX)
+project(framekeyboard VERSION 0.4.13 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -95,8 +95,10 @@ endif()
 install(TARGETS framekeyboard RUNTIME DESTINATION bin)
 install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
-install(FILES third_party/README.md DESTINATION share/framekeyboard/licenses)
-install(FILES third_party/openvr/LICENSE DESTINATION share/framekeyboard/licenses RENAME OpenVR-LICENSE)
-install(FILES third_party/overlay_texture/LICENSE DESTINATION share/framekeyboard/licenses RENAME overlay-texture-LICENSE)
+install(FILES third_party/README.md DESTINATION third_party)
+install(FILES third_party/openvr/LICENSE DESTINATION third_party/openvr)
+install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overlay_texture)
 
-install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION share/framekeyboard/licenses)
+install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
+
+install(FILES LICENSE README.md CHANGELOG.md CONTRIBUTING.md DESTINATION .)

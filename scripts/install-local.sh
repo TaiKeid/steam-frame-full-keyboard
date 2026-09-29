@@ -38,11 +38,11 @@ chmod +x "$HOME/.local/bin/framekeyboard"
 cat > "$HOME/.local/share/applications/framekeyboard.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=FrameKeyboard
-Comment=Native VR keyboard with laser dragging
+Name=Full Keyboard
+Comment=Full-size keyboard for Steam Frame dashboard and local apps
 Exec=$HOME/.local/bin/framekeyboard
 Icon=input-keyboard
 Terminal=false
 Categories=Utility;Accessibility;
 DESKTOP
-printf 'Installed FrameKeyboard %s. No autostart or Steam changes.\n' "$version"
+printf 'Installed Full Keyboard %s. No autostart or Steam changes.\n' "$version"

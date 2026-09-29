@@ -11,7 +11,7 @@ EiSink::EiSink(const fs::path& socket) {
         throw std::runtime_error("Cannot allocate compositor input connection");
     }
     try {
-        ei_configure_name(context_, "FrameKeyboard");
+        ei_configure_name(context_, "Full Keyboard");
         if (ei_setup_backend_socket(context_, socket.c_str()) != 0) {
             throw std::runtime_error("Cannot connect to compositor keyboard socket: " + socket.string());
         }

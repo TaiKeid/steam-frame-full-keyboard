@@ -9,7 +9,7 @@
 namespace fk = framekeyboard;
 namespace {
 void help() {
-    std::cout << "FrameKeyboard " << FRAMEKEYBOARD_VERSION << "\n\n"
+    std::cout << "Full Keyboard for Steam Frame " << FRAMEKEYBOARD_VERSION << "\n\n"
               << "  --preview                 Native desktop preview, no system input\n"
               << "  --vr                      Manually launched native VR panel\n"
               << "  --render FILE.png         Render the keyboard without a window\n"
@@ -24,7 +24,7 @@ void help() {
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
               << "Typing stays disabled unless --start-enabled is supplied.\n"
-              << "Stock keyboard takeover and autostart are not enabled in this version.\n";
+              << "Separate dashboard keyboard. Stock keyboard and autostart are unchanged.\n";
 }
 void signal_handler(int) {
     fk::interrupted = 1;
@@ -166,7 +166,7 @@ int main(int argc, char** argv) {
         return options.mode == "vr" ? fk::run_vr(app, *instance, options.duration)
                                     : fk::run_preview(app, options.duration);
     } catch (const std::exception& error) {
-        std::cerr << "FrameKeyboard: " << error.what() << '\n';
+        std::cerr << "Full Keyboard: " << error.what() << '\n';
         return 1;
     }
 }

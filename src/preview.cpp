@@ -18,7 +18,7 @@ int run_preview(App& app, double duration) {
     require(SDL_Init(SDL_INIT_VIDEO) == 0);
     QuitSDL cleanup;
     std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window(
-        SDL_CreateWindow("FrameKeyboard preview", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280,
+        SDL_CreateWindow("Full Keyboard preview", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280,
                          480, SDL_WINDOW_RESIZABLE),
         SDL_DestroyWindow);
     require(window != nullptr);

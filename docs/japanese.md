@@ -1,6 +1,6 @@
 # Japanese input
 
-Choose a Japanese preset at the top of Settings, then Apply and save. It preserves the theme and chooses the required keyboard geometry. Existing English/German profiles remain available in the language selector.
+Choose a Japanese language or the JIS layout in Settings to reveal the Japanese presets. Choose Romaji, Kana, or JIS, then Apply and save. It preserves the theme and chooses the required keyboard geometry. Existing English/German profiles remain available in the language selector.
 
 | Preset | Entry | Conversion/output |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ Romaji is the default Japanese choice for someone unfamiliar with Japanese keybo
 - あ / A toggles local composition and Latin keys. The JIS 半/全 and かな keys also toggle composition in the integrated modes.
 - Starting another word while candidates are active commits the chosen phrase first. Ctrl/Alt/Meta shortcuts and Copy/Paste remain physical shortcuts and discard an unfinished composition.
 
-The preedit stays in the keyboard until committed. Moving the laser off the keyboard keeps it. Release all, opening Settings, dragging, hiding, recentering, changing profiles or losing input focus discards it. This avoids committing an old phrase after a focus transition. Input routing follows compositor focus, just like the ordinary keyboard.
+The preedit stays in the keyboard until committed. Moving the laser off the keyboard keeps it. Opening Settings, dragging, hiding, recentering, changing profiles or losing input focus discards it. This avoids committing an old phrase after a focus transition. Input routing follows compositor focus, just like the ordinary keyboard.
 
 ## Runtime requirements
 

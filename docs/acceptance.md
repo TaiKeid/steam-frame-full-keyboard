@@ -1,6 +1,6 @@
 # Acceptance checks
 
-The matrix below tracks target application acceptance. v0.1 core regression tests, isolated kernel delivery, native rendering and overlay visibility are verified; that does not complete the application or controller checks. Record actual results in the parent SteamFrame notes, including date, artifact, target machine and limitations.
+Use this checklist for a release candidate. Automated core tests and earlier headset checks do not complete every application combination. Fill the matrix for the specific artifact under review; do not infer untested results from the intended use case. Keep private device logs and machine-specific deployment notes outside the public repository.
 
 ## Visuals
 
@@ -42,16 +42,19 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 
 ## Lifecycle and recovery
 
-- Existing system keyboard button opens/closes the replacement without loops.
+- Full Keyboard launches independently; the existing system keyboard button still opens the stock keyboard.
 - Main-view minus/plus icons change width by 5 cm without moving the panel; grabbing handles position and rotation.
 - Launching repeatedly retains one owner, restores visibility and recenters it. Closing and reopening creates a fresh owner; abrupt exit leaves no permanent launch lock.
-- Recenter clears position/angle offsets while preserving the running panel width.
-- Stock keyboard stays blocked only while the replacement is healthy.
+- Recenter clears position/angle offsets while preserving width, including after a tracking-space change.
+- Tracking loss and the 30-second grab timeout restore typing.
+- Grabbing with either hand disables horizon correction until release.
+- Two controllers holding Caps Lock or Num Lock produce one toggle and one backend down/up pair.
+- Closing the dashboard hides Full Keyboard and stops local typing without claiming streamed-app controls.
 - Cancelled pointer presses, tracking loss, focus loss and close release keys.
-- Native crash restores stock UI and releases keys without relying on native shutdown code.
-- Bridge failure, Steam restart, SteamVR restart, sleep/wake and reboot recover predictably.
-- Uninstall restores previous configuration and preserves user data.
-- Unsupported Steam API versions leave stock keyboard usable.
+- A crash leaves the stock keyboard usable and does not retain a stale instance lock.
+- Input connection loss, runtime restart, sleep/wake, and reboot fail or recover predictably.
+- Install/update/rollback/uninstall follow the documented steps and preserve user profiles.
+- Unsupported runtime interfaces fail without changing Steam files or global input settings.
 
 ## Performance and privacy
 
