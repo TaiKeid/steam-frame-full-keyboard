@@ -67,22 +67,32 @@ class VrPanel {
             throw std::runtime_error(message);
         }
     }
-    bool place() {
+    bool read_head(Transform& head) {
         vr::TrackedDevicePose_t pose{};
         vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
         if (!pose.bPoseIsValid) {
             return false;
         }
-        auto transform = pose.mDeviceToAbsoluteTracking;
-        // Snapshot the HMD pose, then place the panel below and in front of it.
-        // Keeping this world-fixed lets the user look between keyboard and browser.
-        for (int row = 0; row < 3; ++row) {
-            transform.m[row][3] += transform.m[row][1] * -.25f + transform.m[row][2] * -.85f;
+        for (std::size_t row = 0; row < 3; ++row) {
+            for (std::size_t col = 0; col < 4; ++col) {
+                head[row][col] = pose.mDeviceToAbsoluteTracking.m[row][col];
+            }
+        }
+        return true;
+    }
+    void place(const PanelPlacement& placement) {
+        const auto world = placement.transform();
+        vr::HmdMatrix34_t transform{};
+        for (std::size_t row = 0; row < 3; ++row) {
+            for (std::size_t col = 0; col < 4; ++col) {
+                transform.m[row][col] = static_cast<float>(world[row][col]);
+            }
         }
         check(vr::VROverlay()->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding,
                                                            &transform),
               "Place keyboard");
-        return true;
+        check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
+              "Resize keyboard");
     }
     void submit(PanelRenderer& renderer) {
         const auto rgba = renderer.rgba();
@@ -100,7 +110,7 @@ class VrPanel {
     OverlayTexture texture_;
 };
 } // namespace
-int run_vr(App& app, double duration) {
+int run_vr(App& app, VrInstance& instance, double duration) {
     VrPanel panel;
     panel.connect();
     struct ReleaseBeforeVrShutdown {
@@ -113,18 +123,32 @@ int run_vr(App& app, double duration) {
         }
     } release{app};
     const double start = monotonic_seconds();
-    bool done = false, placed = false, visible = false;
+    bool done = false, visible = false;
+    bool recenter_pending = true, transform_dirty = false, show_pending = false;
+    bool waiting_for_tracking = false;
+    PanelPlacement placement;
+    std::vector<PlacementAction> adjustments;
     double next_tracking_check = 0;
     while (!done && !app.quitting() && !interrupted) {
         const double now = monotonic_seconds();
         if (duration > 0 && now - start >= duration) {
             break;
         }
+        if (instance.poll_recenter()) {
+            std::cout << "Launch request received.\n" << std::flush;
+            app.summon();
+            show_pending = true;
+        }
         vr::VREvent_t event{};
         while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
             if (event.eventType == vr::VREvent_Quit) {
                 vr::VRSystem()->AcknowledgeQuit_Exiting();
                 done = true;
+            }
+            if (event.eventType == vr::VREvent_SeatedZeroPoseReset ||
+                event.eventType == vr::VREvent_ChaperoneUniverseHasChanged) {
+                app.cancel();
+                recenter_pending = true;
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
                 app.cancel();
@@ -160,28 +184,65 @@ int run_vr(App& app, double duration) {
                 break;
             }
         }
+        if (done || app.quitting()) {
+            break;
+        }
         if (app.take_recenter()) {
-            placed = false;
+            recenter_pending = true;
+            adjustments.clear();
+            show_pending = true;
+            next_tracking_check = 0;
+        }
+        const auto actions = app.take_placement_actions();
+        adjustments.insert(adjustments.end(), actions.begin(), actions.end());
+        if (!actions.empty()) {
+            next_tracking_check = 0;
         }
         if (now >= next_tracking_check) {
-            vr::TrackedDevicePose_t pose{};
-            vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
-            if (!pose.bPoseIsValid) {
+            Transform head{};
+            if (!panel.read_head(head)) {
+                if (recenter_pending && !waiting_for_tracking) {
+                    std::cout << "Waiting for valid headset pose before recentering.\n" << std::flush;
+                }
+                waiting_for_tracking = true;
                 if (visible) {
                     app.cancel();
                     check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
                     visible = false;
+                    // A wake or tracking-origin change can invalidate old world placement.
+                    recenter_pending = true;
                 }
             } else {
-                if (!placed) {
-                    placed = panel.place();
+                waiting_for_tracking = false;
+                if (recenter_pending) {
+                    placement.recenter(head);
+                    recenter_pending = false;
+                    transform_dirty = true;
+                    std::cout << "Keyboard recentered at current headset heading.\n" << std::flush;
                 }
-                if (placed && !visible) {
+                for (const auto action : adjustments) {
+                    if (action == PlacementAction::FaceMe) {
+                        placement.face(head);
+                    } else {
+                        placement.adjust(action);
+                    }
+                    transform_dirty = true;
+                }
+                adjustments.clear();
+                if (transform_dirty) {
+                    panel.place(placement);
+                    transform_dirty = false;
+                }
+                // Read actual compositor visibility rather than trusting our cached flag.
+                // Another UI can hide an overlay without destroying its owner process.
+                const bool compositor_visible = vr::VROverlay()->IsOverlayVisible(panel.handle());
+                if (placement.ready() && (show_pending || !visible || !compositor_visible)) {
                     app.paint(now);
                     panel.submit(app.renderer);
                     check(vr::VROverlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     visible = true;
-                    std::cout << "FrameKeyboard overlay visible; input starts off.\n" << std::flush;
+                    show_pending = false;
+                    std::cout << "FrameKeyboard overlay visible.\n" << std::flush;
                 }
             }
             next_tracking_check = now + .1;
@@ -195,7 +256,7 @@ int run_vr(App& app, double duration) {
         std::this_thread::sleep_for(std::chrono::milliseconds(app.renderer.animating() ? 16 : 20));
     }
     app.cancel();
-    if (!placed) {
+    if (!placement.ready()) {
         std::cout << "No valid headset pose; panel was not shown.\n";
     }
     return 0;

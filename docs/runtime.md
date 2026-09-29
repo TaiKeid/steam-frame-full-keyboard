@@ -4,7 +4,13 @@
 
 The `framekeyboard` launcher defaults to `--vr`. With no input argument, it creates no virtual input device. Use `--vr --input uinput --target-language en-us` for a US target session. The panel still starts with input off until the user enables it.
 
-The panel is world-fixed, 1.15 meters wide, and initially placed below and ahead of the headset. Recenter takes another headset-pose snapshot. A valid tracked headset pose is required before showing it. The panel hides and releases keys when headset tracking is lost. Placement persistence and resizing are later work.
+The panel starts world-fixed, 1.15 meters wide, 85 cm ahead and 25 cm below the headset. Recenter uses the current horizontal heading, removing head pitch and roll. A valid tracked headset pose is required before showing it. The panel hides and releases keys when tracking is lost, then recenters after tracking returns. Tracking-origin reset events also request recentering.
+
+Move / align provides 2.5 cm position steps, 5-degree tilt/turn/roll steps, and 5 cm width steps. Face me changes orientation while preserving position. Recenter resets position and angle offsets, preserving the width of the running instance. Session adjustments are not written to disk.
+
+VR mode uses a private per-user directory under `/run/user/<uid>/framekeyboard`. `vr.lock` stays on disk while the kernel releases its flock when the owner exits. The socket path is removed on normal exit or recovered under that lock after a crash. The next launch sends a bounded, acknowledged recenter request before loading profiles, creating input devices or initializing OpenVR. No launch depends on a saved PID.
+
+A repeated launch returns to the keyboard, releases held keys and turns input off. It preserves the existing process's input-backend options. Subsequent arguments do not reconfigure that process. Closing the existing panel allows the next launch to use different options.
 
 SIGINT, SIGTERM, Close, focus loss, hide and cancellation release held keys. A ten-second hold limit also covers lost pointer-up events. A killed process loses its uinput device when the kernel closes the descriptor. The program never suppresses the stock keyboard, so no separate stock-UI recovery service is needed in this version.
 
@@ -38,7 +44,7 @@ For an input-disabled VR smoke test:
 framekeyboard --vr --duration 4 --config-dir /tmp/framekeyboard-smoke
 ```
 
-The log reports whether the overlay became visible. That is not a controller-interaction or application-focus test. Successful kernel delivery also does not establish SteamVR hotplug discovery or Brave delivery. Test both Brave modes manually before enabling any stock replacement work.
+With an instance already running, this command only recenters that instance; the duration argument does not close it. For an isolated smoke test, close the existing panel first. The log reports whether the overlay became visible. That is not a controller-interaction or application-focus test. Successful kernel delivery also does not establish SteamVR hotplug discovery or Brave delivery. Test both Brave modes manually before enabling any stock replacement work.
 
 ## Packaging and rollback
 
@@ -55,3 +61,9 @@ rm -r ~/.local/share/framekeyboard
 ```
 
 Keep `~/.config/framekeyboard` to preserve custom profiles. Removing the application never requires deleting those files. No Steam assets or system services are modified by the installer.
+
+## Relaunch and placement regression tests
+
+`placement-instance-tests` is part of CTest. It covers consecutive launches, normal cleanup, stale-socket recovery after abrupt exit, leveling/recentering, translation/rotation/size bounds, and the panel's control dispatch.
+
+`vr-panel-probe` is an opt-in on-device check. It requires the exact PID of an input-disabled test instance and confirms overlay ownership before posting UI events. `--exercise PID` clicks only Move / align controls and checks the resulting overlay transform/width. After relaunching the keyboard, `--check-centered PID` verifies the same owner remains visible with level rotation. Do not run it on a user typing session or a different keyboard version.

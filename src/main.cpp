@@ -13,6 +13,7 @@ void help() {
               << "  --vr                      Manually launched native VR panel\n"
               << "  --render FILE.png         Render the keyboard without a window\n"
               << "  --render-settings FILE    Render the profile selector\n"
+              << "  --render-placement FILE   Render the move/align controls\n"
               << "  --check                   Validate and list available profiles\n"
               << "  --describe-layout         Describe the active key geometry\n"
               << "  --input uinput            Create a virtual device in VR mode\n"
@@ -57,7 +58,8 @@ int main(int argc, char** argv) {
                 mode("preview");
             } else if (argument == "--vr") {
                 mode("vr");
-            } else if (argument == "--render" || argument == "--render-settings") {
+            } else if (argument == "--render" || argument == "--render-settings" ||
+                       argument == "--render-placement") {
                 mode(argument.substr(2));
                 options.output = value();
             } else if (argument == "--check") {
@@ -94,6 +96,14 @@ int main(int argc, char** argv) {
             throw std::runtime_error(
                 "uinput requires --vr and --target-language; desktop preview never injects input");
         }
+        std::unique_ptr<fk::VrInstance> instance;
+        if (options.mode == "vr") {
+            instance = std::make_unique<fk::VrInstance>();
+            if (!instance->is_owner()) {
+                std::cout << "Recenter requested from the running keyboard.\n";
+                return 0;
+            }
+        }
         auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
         if (options.mode == "check" || options.mode == "describe") {
             const auto settings = fk::load_settings(options.config_dir, profiles.errors);
@@ -129,9 +139,13 @@ int main(int argc, char** argv) {
             sink = std::make_unique<fk::NullSink>();
         }
         fk::App app(options, *sink);
-        if (options.mode == "render" || options.mode == "render-settings") {
+        if (options.mode == "render" || options.mode == "render-settings" ||
+            options.mode == "render-placement") {
             if (options.mode == "render-settings") {
                 app.show_settings();
+            }
+            if (options.mode == "render-placement") {
+                app.show_placement();
             }
             app.paint(fk::monotonic_seconds());
             app.renderer.write_png(options.output);
@@ -139,7 +153,7 @@ int main(int argc, char** argv) {
         }
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
-        return options.mode == "vr" ? fk::run_vr(app, options.duration)
+        return options.mode == "vr" ? fk::run_vr(app, *instance, options.duration)
                                     : fk::run_preview(app, options.duration);
     } catch (const std::exception& error) {
         std::cerr << "FrameKeyboard: " << error.what() << '\n';

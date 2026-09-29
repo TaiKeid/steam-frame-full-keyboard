@@ -43,7 +43,9 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 ## Lifecycle and recovery
 
 - Existing system keyboard button opens/closes the replacement without loops.
-- Drag/reposition/scale follow the chosen panel behavior.
+- Move / align buttons change position, tilt/yaw/roll and size; Face me preserves position and levels the panel.
+- Launching repeatedly retains one owner, restores visibility and recenters it. Closing and reopening creates a fresh owner; abrupt exit leaves no permanent launch lock.
+- Recenter clears position/angle offsets while preserving the running panel width.
 - Stock keyboard stays blocked only while the replacement is healthy.
 - Cancelled pointer presses, tracking loss, focus loss and close release keys.
 - Native crash restores stock UI and releases keys without relying on native shutdown code.

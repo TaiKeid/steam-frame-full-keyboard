@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.2.0 follow-up
+
+Added per-user VR instance ownership and acknowledged relaunch-to-recenter requests before OpenVR initialization. Added Move / align controls for position, tilt/yaw/roll, size and Face me. Pure placement/IPC tests run in CTest; the opt-in VR probe checks actual overlay transforms. Recenter removes old position/angle offsets and preserves the running panel's width. Placement persistence remains future work.
+
 ## Version 0.1.0 implementation status
 
 Implemented: runtime profile loading and persistence, native preview and PNG export, full-size US/international layouts, English/German legends, two themes, profile controls, key state, uinput, and a manually launched Vulkan/OpenVR panel. Host and Frame core tests, isolated Frame kernel-input tests and a short visible-overlay smoke test passed. Live controller interaction, Brave focus/delivery and stock takeover remain pending. See README for the supported launch path and limits.

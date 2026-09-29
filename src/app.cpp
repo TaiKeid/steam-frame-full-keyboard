@@ -48,7 +48,25 @@ std::vector<Control> App::controls() const {
         {"release", "Release all", {160, 12, 155, 42}},
         {"input", gate_.enabled ? "Input on" : "Input off", {325, 12, 155, 42}, gate_.enabled},
         {"recenter", "Recenter", {490, 12, 125, 42}},
+        {"position", placement_open_ ? "Done" : "Move / align", {625, 12, 165, 42}},
         {"close", "Close", {1450, 12, 132, 42}}};
+    if (placement_open_) {
+        const std::vector<std::pair<std::string, std::string>> buttons = {
+            {"move-left", "Left"},         {"move-right", "Right"},    {"move-up", "Up"},
+            {"move-down", "Down"},         {"move-nearer", "Closer"},  {"move-farther", "Farther"},
+            {"tilt-up", "Tilt up"},        {"tilt-down", "Tilt down"}, {"turn-left", "Turn left"},
+            {"turn-right", "Turn right"},  {"roll-left", "Roll left"}, {"roll-right", "Roll right"},
+            {"size-smaller", "Smaller"},   {"size-larger", "Larger"},  {"face-me", "Face me"},
+            {"recenter", "Reset position"}};
+        for (std::size_t i = 0; i < buttons.size(); ++i) {
+            const auto& [id, label] = buttons[i];
+            result.push_back({id,
+                              label,
+                              {40.0 + static_cast<double>(i % 4) * 390,
+                               100.0 + static_cast<double>(i / 4) * 102, 350, 76}});
+        }
+        return result;
+    }
     if (!settings_open_) {
         return result;
     }
@@ -91,7 +109,10 @@ PanelView App::view() const {
     v.keyboard = &keyboard_;
     v.controls = controls();
     v.status = status_;
-    v.settings = settings_open_;
+    if (placement_open_ && v.status.empty()) {
+        v.status = "Position: 2.5 cm per tap. Rotation: 5 degrees. Size: 5 cm.";
+    }
+    v.settings = settings_open_ || placement_open_;
     for (const auto& [pointer, id] : hovered_) {
         (void)pointer;
         v.hovered.insert(id);
@@ -163,9 +184,32 @@ void App::paint(double now) {
 }
 void App::show_settings() {
     cancel();
+    placement_open_ = false;
     settings_open_ = true;
     pending_ = settings_.active;
     dirty = true;
+}
+void App::show_placement() {
+    cancel();
+    settings_open_ = false;
+    placement_open_ = true;
+    status_.clear();
+    dirty = true;
+}
+void App::summon() {
+    // Relaunching can change application focus. Release everything before moving
+    // the panel, and require the user to arm typing again at the new location.
+    cancel();
+    gate_.enabled = false;
+    placement_open_ = settings_open_ = false;
+    placement_actions_.clear();
+    recenter_ = true;
+    status_.clear();
+}
+std::vector<PlacementAction> App::take_placement_actions() {
+    std::vector<PlacementAction> result;
+    result.swap(placement_actions_);
+    return result;
 }
 void App::apply(Selection selection) {
     validate_selection(profiles_, selection);
@@ -202,7 +246,29 @@ void App::reload() {
     status_ = profiles_.errors.empty() ? "Profiles reloaded. Input off." : profiles_.errors.front();
 }
 void App::action(const std::string& id) {
-    if (id == "close") {
+    const std::map<std::string, PlacementAction> adjustments = {
+        {"move-left", PlacementAction::Left},       {"move-right", PlacementAction::Right},
+        {"move-up", PlacementAction::Up},           {"move-down", PlacementAction::Down},
+        {"move-nearer", PlacementAction::Nearer},   {"move-farther", PlacementAction::Farther},
+        {"tilt-up", PlacementAction::TiltUp},       {"tilt-down", PlacementAction::TiltDown},
+        {"turn-left", PlacementAction::TurnLeft},   {"turn-right", PlacementAction::TurnRight},
+        {"roll-left", PlacementAction::RollLeft},   {"roll-right", PlacementAction::RollRight},
+        {"size-smaller", PlacementAction::Smaller}, {"size-larger", PlacementAction::Larger},
+        {"face-me", PlacementAction::FaceMe}};
+    if (const auto adjustment = adjustments.find(id); adjustment != adjustments.end()) {
+        cancel();
+        placement_actions_.push_back(adjustment->second);
+        return;
+    }
+    if (id == "position") {
+        if (placement_open_) {
+            cancel();
+            placement_open_ = false;
+            status_.clear();
+        } else {
+            show_placement();
+        }
+    } else if (id == "close") {
         cancel();
         gate_.enabled = false;
         quit_ = true;
@@ -217,6 +283,7 @@ void App::action(const std::string& id) {
         }
     } else if (id == "recenter") {
         cancel();
+        placement_actions_.clear();
         recenter_ = true;
     } else if (id == "input") {
         cancel();

@@ -61,3 +61,9 @@ A persistent input device might need a service separate from the VR renderer so 
 ## Evidence boundary
 
 The parent research note `../notes/keyboard-replacement-research.md` relative to the repository root records the inspected Steam bundle, live API checks, upstream references, and unverified items. It belongs to shared SteamFrame records and is intentionally not copied into this repository as session memory.
+
+## Instance ownership and placement
+
+VR launches acquire `VrInstance` before touching OpenVR. A later launch connects to the owner's private local socket, sends only a recenter request, waits for acknowledgment, and exits. The render loop handles requests on its own thread; it releases keys, returns to the keyboard view, resets placement from the current headset heading, and shows its own overlay. This avoids duplicate overlay keys and avoids reassigning SteamVR's generated application PID through a second VR connection.
+
+`PanelPlacement` contains pure transform math with no VR calls. The UI queues bounded position/rotation/size actions. The VR loop consumes them, updates the transform/width, and checks compositor visibility independently of its cached state. Tracking loss clears held keys; a valid pose after loss triggers recentering. Absolute room-space positions are not persisted.

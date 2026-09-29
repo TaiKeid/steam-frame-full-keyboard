@@ -1,6 +1,8 @@
 #pragma once
 
+#include "instance.hpp"
 #include "panel.hpp"
+#include "placement.hpp"
 #include <csignal>
 
 namespace framekeyboard {
@@ -35,6 +37,9 @@ class App {
     bool tick(double now);
     void paint(double now);
     void show_settings();
+    void show_placement();
+    void summon();
+    std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
     void reload();
     bool quitting() const { return quit_; }
@@ -56,12 +61,13 @@ class App {
     KeyboardState keyboard_;
     std::map<unsigned, std::string> hovered_, pressed_controls_;
     std::string status_;
-    bool settings_open_{false}, quit_{false}, recenter_{false};
+    bool settings_open_{false}, placement_open_{false}, quit_{false}, recenter_{false};
+    std::vector<PlacementAction> placement_actions_;
     std::size_t favorite_index_{};
 };
 
 double monotonic_seconds();
 extern volatile std::sig_atomic_t interrupted;
 int run_preview(App& app, double duration);
-int run_vr(App& app, double duration);
+int run_vr(App& app, VrInstance& instance, double duration);
 } // namespace framekeyboard
