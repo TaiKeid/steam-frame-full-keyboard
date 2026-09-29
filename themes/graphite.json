@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "Graphite",
+  "surface": "#303235",
+  "surface_radius": 20,
+  "key_top": "#81858a",
+  "key_middle": "#707479",
+  "key_bottom": "#64686d",
+  "key_side_top": "#494c4f",
+  "key_side_bottom": "#35373a",
+  "legend": "#ffffff",
+  "key_radius": 8,
+  "key_depth": 3.5,
+  "key_press_travel": 3,
+  "press_duration_ms": 80,
+  "notes": "Fixed-size keycaps translate down. No upper side is exposed. Flat case, no decorative captions."
+}
