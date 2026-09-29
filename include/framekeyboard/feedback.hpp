@@ -17,7 +17,7 @@ constexpr HapticPulse key_pulse(KeyFeedback feedback) {
     case KeyFeedback::Press:
         return {.025f, 150.f, 1.f};
     case KeyFeedback::Release:
-        return {.012f, 150.f, 1.f};
+        return {.008f, 150.f, .35f};
     }
     return {};
 }
