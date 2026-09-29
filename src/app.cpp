@@ -151,7 +151,9 @@ PanelView App::view() const {
     v.keyboard = &keyboard_;
     v.controls = controls();
     v.status = dragging_ ? "Release grab to place keyboard" : status_;
-    if (v.status.empty() && !gate_.enabled) {
+    // Image exports show the layout without the interactive preview's input notice.
+    const bool image_export = options_.mode == "render" || options_.mode == "render-settings";
+    if (v.status.empty() && !gate_.enabled && !image_export) {
         v.status = options_.input == "none"
                        ? "Preview only: this launch cannot type."
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";

@@ -100,4 +100,4 @@ mkdir -p docs/images
 rmdir "$screenshot_config"
 ```
 
-This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
+Image exports omit the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
