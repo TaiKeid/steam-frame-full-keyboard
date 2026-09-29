@@ -17,7 +17,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Grab anywhere to move and rotate the keyboard, with thumbstick depth adjustment and size controls.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Editable layouts, languages, and themes, with a settings menu inside VR.
-- English, German, and Japanese options, including romaji, direct kana, and an external JIS IME mode.
+- English, German, French, Spanish, Italian, Brazilian Portuguese, Russian, Ukrainian, Japanese, Chinese and Korean options. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul.
 
 ## Where it works
 
@@ -76,9 +76,16 @@ Closing and reopening normally restores the last position, rotation, and size. M
 
 ## Languages and customization
 
-The normal launcher assumes the receiving session uses a **US English physical keymap**. Selecting different legends does not change the system keymap. German and external JIS need a matching session and launch option; [language setup](docs/runtime.md#language-and-input-routing) explains how.
+Select a language in Settings and **Apply and save**. The normal Frame launcher
+sends characters from that layout independently of the system keyboard layout,
+including Shift, Caps Lock, AltGr and dead-key accents. No matching SteamOS layout
+or relaunch is needed. A fresh install defaults to English; later launches use
+your saved selection. System locale and system layout switching do not change it.
+See [language setup and switching](docs/languages.md).
 
 For Japanese, choose a Japanese language or the JIS layout in Settings to reveal the **Romaji / Kana / JIS** presets. Romaji and Kana compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
+
+Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
 
 Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then choose **Reload profiles** in Settings:
 
@@ -92,9 +99,9 @@ Use a new profile `id` to add a choice, or the same `id` to override a bundled o
 
 ## How it works
 
-The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends key events to the Frame's local Gamescope compositor. Japanese composition uses a feature-checked Gamescope text-input protocol. It does not run a browser or need an internet connection.
+The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser or need an internet connection.
 
-Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save Japanese composition. Placement and profile preferences are stored locally.
+Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save composition history. Placement and profile preferences are stored locally.
 
 The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. Closing the keyboard exits the process. Battery impact has not been benchmarked.
 

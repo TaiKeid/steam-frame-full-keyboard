@@ -11,8 +11,10 @@
 // Opt-in live test. Emit only while our newly created disposable window owns
 // X keyboard focus; never inspect or record events from another application.
 int main(int argc, char** argv) {
-    if (argc != 1 && argc != 3) {
-        std::cerr << "usage: japanese-target-probe [EI_SOCKET TEXT_SOCKET]\n";
+    const bool multilingual = argc == 2 && std::string(argv[1]) == "--multilingual";
+    const std::string expected = multilingual ? "éñç中国中國한글йії" : "日本";
+    if (argc != 1 && argc != 3 && !multilingual) {
+        std::cerr << "usage: japanese-target-probe [--multilingual | EI_SOCKET TEXT_SOCKET]\n";
         return 2;
     }
     std::setlocale(LC_ALL, "C.UTF-8");
@@ -47,7 +49,7 @@ int main(int argc, char** argv) {
         }
         XSetICFocus(ic);
         if (!input.text_available()) {
-            throw std::runtime_error("Gamescope Japanese text protocol unavailable");
+            throw std::runtime_error("Gamescope Unicode text protocol unavailable");
         }
         Window focus{};
         int ignored{};
@@ -55,11 +57,11 @@ int main(int argc, char** argv) {
         if (focus != window) {
             throw std::runtime_error("Test window lost focus; no text sent");
         }
-        if (!input.commit_text("日本")) {
+        if (!input.commit_text(expected)) {
             throw std::runtime_error("Text commit rejected");
         }
         std::string received;
-        for (int attempt = 0; attempt < 100 && received != "日本"; ++attempt) {
+        for (int attempt = 0; attempt < 100 && received != expected; ++attempt) {
             while (XPending(display)) {
                 XEvent event{};
                 XNextEvent(display, &event);
@@ -81,10 +83,10 @@ int main(int argc, char** argv) {
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        if (received != "日本") {
-            throw std::runtime_error("Disposable receiver did not receive expected Japanese text");
+        if (received != expected) {
+            throw std::runtime_error("Disposable receiver did not receive expected Unicode text");
         }
-        std::cout << "Dedicated Xwayland text receiver passed Japanese UTF-8 delivery.\n";
+        std::cout << "Dedicated Xwayland text receiver passed UTF-8 delivery.\n";
         result = 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -3,6 +3,7 @@
 #include <poll.h>
 #include <stdexcept>
 #include <string_view>
+#include <unistd.h>
 
 namespace framekeyboard {
 fs::path gamescope_text_socket(const fs::path& input_socket, const fs::path& explicit_text) {
@@ -83,6 +84,12 @@ bool EiSink::pump() {
         case EI_EVENT_DEVICE_ADDED:
             if (!keyboard_ && ei_device_has_capability(device, EI_DEVICE_CAP_KEYBOARD)) {
                 keyboard_ = ei_device_ref(device);
+                read_keymap();
+            }
+            break;
+        case EI_EVENT_KEYBOARD_MODIFIERS:
+            if (device == keyboard_) {
+                group_ = ei_event_keyboard_get_xkb_group(event);
             }
             break;
         case EI_EVENT_DEVICE_RESUMED:
@@ -103,6 +110,8 @@ bool EiSink::pump() {
                 held_.clear();
                 if (ei_event_get_type(event) == EI_EVENT_DEVICE_REMOVED) {
                     keyboard_ = ei_device_unref(keyboard_);
+                    keymap_.reset();
+                    group_ = 0;
                 }
             }
             break;
@@ -118,6 +127,57 @@ bool EiSink::pump() {
         ei_event_unref(event);
     }
     return resumed_ && !disconnected_;
+}
+void EiSink::read_keymap() {
+    keymap_.reset();
+    group_ = 0;
+    auto* map = ei_device_keyboard_get_keymap(keyboard_);
+    if (!map || ei_keymap_get_type(map) != EI_KEYMAP_TYPE_XKB) {
+        return;
+    }
+    const auto size = ei_keymap_get_size(map);
+    if (!size || size > 4 * 1024 * 1024) {
+        return;
+    }
+    std::string text(size, '\0');
+    if (pread(ei_keymap_get_fd(map), text.data(), size, 0) != static_cast<ssize_t>(size)) {
+        return;
+    }
+    if (!xkb_) {
+        xkb_.reset(xkb_context_new(XKB_CONTEXT_NO_FLAGS));
+    }
+    if (!xkb_) {
+        return;
+    }
+    keymap_.reset(xkb_keymap_new_from_string(xkb_.get(), text.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1,
+                                             XKB_KEYMAP_COMPILE_NO_FLAGS));
+}
+int EiSink::shortcut_code(xkb_keysym_t symbol, int fallback) {
+    pump();
+    if (!keymap_) {
+        return fallback;
+    }
+    // Prefer the current target group. If it is non-Latin, applications usually
+    // use a Latin group's physical counterpart for Ctrl shortcuts. Never switch
+    // the compositor's group or alter its keyboard configuration here.
+    const auto groups = xkb_keymap_num_layouts(keymap_.get());
+    for (xkb_layout_index_t pass = 0; pass <= groups; ++pass) {
+        const auto group = pass == 0 ? group_ : pass - 1;
+        if (group >= groups || (pass && group == group_)) {
+            continue;
+        }
+        for (auto code = xkb_keymap_min_keycode(keymap_.get());
+             code <= xkb_keymap_max_keycode(keymap_.get()); ++code) {
+            const xkb_keysym_t* symbols = nullptr;
+            const int count = xkb_keymap_key_get_syms_by_level(keymap_.get(), code, group, 0, &symbols);
+            for (int i = 0; i < count; ++i) {
+                if (xkb_keysym_to_lower(symbols[i]) == symbol && code >= 8) {
+                    return static_cast<int>(code - 8);
+                }
+            }
+        }
+    }
+    return fallback;
 }
 bool EiSink::take_input_reset() {
     const bool reset = input_reset_;

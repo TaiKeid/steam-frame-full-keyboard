@@ -256,8 +256,10 @@ void app_tests() {
     require(has_japanese_presets(), "pending Japanese layout shows presets before Apply");
     click_control("layout-prev");
     require(!has_japanese_presets(), "leaving Japanese layout hides presets");
-    click_control("language-next");    // German -> English.
-    click_control("language-next");    // English -> Japanese JIS.
+    for (std::size_t i = 0; i < fk::load_profiles({}, {}).languages.size() && !has_japanese_presets();
+         ++i) {
+        click_control("language-next");
+    }
     click_control("preset-ja-romaji"); // Romaji uses the US layout.
     require(has_japanese_presets(), "Japanese language shows presets with a US layout");
     require(sink.events.empty(), "preview settings do not emit input");

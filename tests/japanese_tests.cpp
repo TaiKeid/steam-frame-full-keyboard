@@ -276,8 +276,8 @@ int main() {
         unavailable.apply({"en-us-full", "en-us", "graphite"});
         sink.keys.clear();
         click_key(unavailable, "KeyA");
-        require(sink.keys == std::vector<std::pair<int, int>>{{30, 1}, {30, 0}},
-                "English recovers without text transport");
+        require(sink.keys.empty(),
+                "Unicode English never falls back to a possibly mismatched physical keymap");
         if (anthy) {
             sink.available = true;
             sink.text.clear();

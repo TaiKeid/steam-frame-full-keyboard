@@ -25,6 +25,7 @@ struct Language {
     std::string id, name, locale, rules, model, keymap, variant, options, font;
     std::string input_method{"xkb"};
     std::map<std::string, std::string> kana, kana_shift;
+    std::map<std::string, std::string> composition_keys, composition_shift;
     std::map<std::string, std::string> overrides;
     std::vector<std::string> required_keys;
 };

@@ -20,7 +20,7 @@ void help() {
               << "  --ei-socket PATH          Override the Gamescope input socket\n"
               << "  --text-socket PATH        Override its Japanese Wayland text socket\n"
               << "  --start-enabled           Enable typing at startup with an explicit backend\n"
-              << "  --target-language ID      Confirm the target session's matching keymap\n"
+              << "  --target-language ID      Physical uinput/external-JIS target keymap\n"
               << "  --config-dir PATH         User profiles/settings directory\n"
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
@@ -103,9 +103,10 @@ int main(int argc, char** argv) {
         if (options.input != "none" && options.input != "uinput" && options.input != "ei") {
             throw std::runtime_error("input must be none, ei or uinput");
         }
-        if (options.input != "none" && (options.mode != "vr" || options.target_language.empty())) {
-            throw std::runtime_error(
-                "typing requires --vr and --target-language; desktop preview never injects input");
+        if (options.input != "none" &&
+            (options.mode != "vr" || (options.input == "uinput" && options.target_language.empty()))) {
+            throw std::runtime_error("typing requires --vr; uinput also requires --target-language; "
+                                     "desktop preview never injects input");
         }
         if (!options.text_socket.empty() && options.input != "ei") {
             throw std::runtime_error("--text-socket requires --input ei");

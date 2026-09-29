@@ -28,7 +28,9 @@ struct Server {
     eis_device* device{};
     std::vector<std::pair<unsigned, bool>> keys;
     fs::path directory, socket;
-    explicit Server(const std::string& socket_name = "input") {
+    std::string keyboard_layout;
+    explicit Server(const std::string& socket_name = "input", const std::string& layout = "us")
+        : keyboard_layout(layout) {
         std::string temporary = "/tmp/full-keyboard-eis-XXXXXX";
         require(mkdtemp(temporary.data()), "temporary directory");
         directory = temporary;
@@ -70,7 +72,9 @@ struct Server {
                 eis_device_configure_name(device, "isolated test keyboard");
                 eis_device_configure_capability(device, EIS_DEVICE_CAP_KEYBOARD);
                 auto* xkb = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-                auto* map = xkb_keymap_new_from_names(xkb, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+                xkb_rule_names names{};
+                names.layout = keyboard_layout.c_str();
+                auto* map = xkb_keymap_new_from_names(xkb, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
                 char* text = xkb_keymap_get_as_string(map, XKB_KEYMAP_FORMAT_TEXT_V1);
                 const auto size = std::strlen(text) + 1;
                 const int fd = memfd_create("test-keymap", MFD_CLOEXEC);
@@ -169,6 +173,16 @@ void socket_routing_tests() {
 int main() {
     try {
         socket_routing_tests();
+        for (const auto* layout : {"us", "fr"}) {
+            Server mapping("input", layout);
+            auto connecting =
+                std::async(std::launch::async, [&] { return std::make_unique<EiSink>(mapping.socket); });
+            mapping.until([&] { return connecting.wait_for(0ms) == std::future_status::ready; });
+            auto input = connecting.get();
+            require(input->shortcut_code('a', 999) == (std::string(layout) == "fr" ? 16 : 30),
+                    "Ctrl+A maps to actual target keymap");
+            require(input->shortcut_code('c', 999) == 46, "Copy maps to target C");
+        }
         Server server;
         auto connecting = std::async(
             std::launch::async, [&] { return std::make_unique<EiSink>(server.directory / "input"); });

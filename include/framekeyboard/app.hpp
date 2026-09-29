@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cjk.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
 #include "panel.hpp"
@@ -29,6 +30,9 @@ class InputGate : public KeySink {
     bool can_resume() const override { return target_.can_resume(); }
     bool text_available() override { return target_.text_available(); }
     bool commit_text(const std::string& text) override { return enabled && target_.commit_text(text); }
+    int shortcut_code(xkb_keysym_t symbol, int fallback) override {
+        return target_.shortcut_code(symbol, fallback);
+    }
     bool enabled{false};
 
   private:
@@ -72,6 +76,19 @@ class App {
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
     bool japanese() const;
+    bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
+    void commit_cjk();
+    void choose_cjk(int index);
+    bool unicode_mode() const;
+    bool text_key(const Key& key, const std::set<int>& mods) const;
+    int native_code(const Key& key, const std::set<int>& mods);
+    bool flush_text();
+    std::string pending_text_;
+    struct TextRepeat {
+        std::string text;
+        double next;
+    };
+    std::map<unsigned, TextRepeat> text_repeats_;
     Options options_;
     Profiles profiles_;
     Settings settings_;
@@ -82,6 +99,8 @@ class App {
     InputGate gate_;
     KeyboardState keyboard_;
     JapaneseComposer composition_;
+    std::unique_ptr<CjkComposer> cjk_;
+    bool cjk_latin_{};
     bool japanese_latin_{};
     bool text_ready_{};
     std::map<unsigned, std::string> hovered_, pressed_controls_;

@@ -20,10 +20,15 @@ class EiSink : public KeySink {
     bool can_resume() const override { return !disconnected_; }
     bool text_available() override;
     bool commit_text(const std::string& text) override;
+    int shortcut_code(xkb_keysym_t symbol, int fallback) override;
     EiSink(const EiSink&) = delete;
     EiSink& operator=(const EiSink&) = delete;
 
   private:
+    void read_keymap();
+    std::unique_ptr<xkb_context, decltype(&xkb_context_unref)> xkb_{nullptr, xkb_context_unref};
+    std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> keymap_{nullptr, xkb_keymap_unref};
+    xkb_layout_index_t group_{};
     fs::path text_socket_;
     std::unique_ptr<GamescopeText> text_;
     bool text_attempted_{};

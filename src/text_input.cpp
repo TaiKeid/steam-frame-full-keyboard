@@ -89,19 +89,19 @@ GamescopeText::GamescopeText(const std::string& socket) : state_(std::make_uniqu
     auto& s = *state_;
     s.display = wl_display_connect(socket.c_str());
     if (!s.display) {
-        throw std::runtime_error("Japanese text connection unavailable");
+        throw std::runtime_error("Unicode text connection unavailable");
     }
     s.registry = wl_display_get_registry(s.display);
     static const wl_registry_listener registry_listener{State::global, State::removed};
     wl_registry_add_listener(s.registry, &registry_listener, &s);
     if (!synchronize(s.display) || !s.manager || !s.seat) {
-        throw std::runtime_error("Gamescope does not expose Japanese text input");
+        throw std::runtime_error("Gamescope does not expose Unicode text input");
     }
     s.input = gamescope_input_method_manager_create_input_method(s.manager, s.seat);
     static const gamescope_input_method_listener input_listener{State::unavailable, State::done};
     gamescope_input_method_add_listener(s.input, &input_listener, &s);
     if (!synchronize(s.display) || !s.available) {
-        throw std::runtime_error("Gamescope rejected the Japanese text connection");
+        throw std::runtime_error("Gamescope rejected the Unicode text connection");
     }
 }
 GamescopeText::~GamescopeText() = default;

@@ -216,8 +216,12 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
             secondary.clear();
         }
     }
-    if (key.action.starts_with("Key") && !view.key_labels.contains(key.id)) {
-        // The main legend already reflects Shift/Caps; avoid a duplicate shifted letter.
+    if (!view.key_labels.contains(key.id) && g_utf8_strlen(text.c_str(), -1) == 1 &&
+        g_utf8_strlen(secondary.c_str(), -1) == 1 && g_unichar_isalpha(g_utf8_get_char(text.c_str())) &&
+        g_unichar_tolower(g_utf8_get_char(text.c_str())) ==
+            g_unichar_tolower(g_utf8_get_char(secondary.c_str()))) {
+        // Case belongs in the main legend, including letters on punctuation
+        // positions in Cyrillic/AZERTY layouts. Distinct shifted symbols stay visible.
         secondary.clear();
     }
     // F10-F12 must not shrink simply because their names have three characters.
@@ -376,10 +380,13 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_restore(cr);
     }
     if (view.composing && !view.settings) {
-        label(cr,
-              view.preedit.empty() ? "Type → Space: convert · Enter: commit · Esc: cancel"
-                                   : view.preedit,
-              {20, 94, 1560, 40}, 27, view.language->font, t.legend);
+        const auto& method = view.language->input_method;
+        const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
+                           : method.starts_with("chinese-")
+                               ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
+                               : "Type → Space: convert · Enter: commit · Esc: cancel";
+        label(cr, view.preedit.empty() ? hint : view.preedit, {20, 94, 1560, 40}, 27,
+              view.language->font, t.legend);
     }
     for (const auto& control : view.controls) {
         rounded(cr, control.bounds, t.radius);

@@ -12,7 +12,7 @@ Full Keyboard for Steam Frame is a native, manually launched overlay for dashboa
 | Key state | Pointer capture, key transitions, modifiers, repeat and cancellation | C++20, independent of renderer/backend |
 | Renderer | Draw key faces/sides/legends and animations | Cairo/Pango |
 | VR panel | Own overlay, pose, size, pointer events and texture submission | OpenVR + Vulkan |
-| Input backend | Translate physical actions into press/release events | Native Gamescope libei or Linux uinput; matching target-language declaration required |
+| Input backend | Translate physical actions into press/release events | Gamescope Unicode characters plus native libei controls; physical uinput remains available |
 
 ## Rendering choice
 
@@ -30,11 +30,11 @@ The HTML in `design/` is a design artifact only. It is not an embedded browser r
 
 [Configuration](configuration.md) defines independent layout, language and theme profiles. Native rendering consumes the selected model, not hardcoded US keys or graphite colors. The VR settings panel uses the same catalog and validation as the host preview. Prepare a complete candidate before activation, release keys using the old mapping, and atomically replace geometry and hit regions. Persist the selection only after successful activation.
 
-The language model validates required physical keys. The app uses the explicit `--target-language` declaration; automatic negotiation with the receiving session remains future work. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
+The language model validates required physical keys. The normal Frame path composes characters locally and sends Unicode. Only physical uinput and external JIS use an explicit `--target-language` declaration. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
 
 ## Input and focus
 
-The installed launcher uses libei through the running Gamescope socket. A keyboard seat is bound, output starts only after device resume, and a pause or removed device clears held state. Resuming or receiving a replacement keyboard can restore typing; a disconnected socket requires reopening. An interruption flag survives a pause/resume pair within one dispatch, and blocks backend output until the app clears its old UI holds. Connection state is tracked even while the dashboard disables typing. Existing evdev key mapping is shared with uinput; compositor repeat replaces synthetic EV_KEY repeat in the libei path. Development previews remain input-disabled. Apply/Reload releases held keys and restores typing only for a live backend, matching target language and an explicitly enabled launch; no pause/resume button is needed.
+The installed launcher uses libei through the running Gamescope socket. A keyboard seat is bound, output starts only after device resume, and a pause or removed device clears held state. Resuming or receiving a replacement keyboard can restore typing; a disconnected socket requires reopening. An interruption flag survives a pause/resume pair within one dispatch, and blocks backend output until the app clears its old UI holds. Connection state is tracked even while the dashboard disables typing. Existing evdev key mapping is shared with uinput; compositor repeat replaces synthetic EV_KEY repeat in the libei path. Development previews remain input-disabled. Apply/Reload releases held keys and restores typing only for a live backend, available text transport and an explicitly enabled launch. Physical-only modes additionally check their target declaration; no pause/resume button is needed.
 
 Use logical names such as `Enter`, `ControlLeft`, `KeyC`, and `NumpadEnter`. Every backend owns its mapping. Steam key-state values are not Linux evdev values. The native keyboard must not use Steam's contextual Enter callback for its dedicated Enter action.
 
@@ -80,7 +80,7 @@ When an app tab such as Brave is active, Steam's hidden main dashboard overlay r
 
 `GamescopeText` uses the pinned, generated version-1 input-method protocol. It feature-checks the manager/seat and handles unavailable connections. Connection handshakes have bounded waits; the running loop only flushes/dispatches readable events. `EiSink` creates this connection lazily, refuses text while native keys are held, and does not read target fields or clipboard data. Text and physical output share explicit launch gating. Commits are limited to 32 Unicode characters to stay below the compositor's temporary keymap capacity; local reading is limited to roughly 30 characters.
 
-The renderer reserves space for preedit/candidates only during Japanese composition. Kana/shift labels come from the selected language profile. Settings, profile changes, target-focus loss, hiding, dragging and recentering discard unfinished composition. Laser FocusLeave releases only the identified controller's keys and retains composition because it does not change application focus. Failed text submission keeps the preedit for recovery. The protocol reports submission availability, not application acceptance; application coverage needs separate tests.
+The renderer reserves space for preedit/candidates during Japanese, Chinese and Korean composition. Kana/shift labels come from the selected language profile. Settings, profile changes, target-focus loss, hiding, dragging and recentering discard unfinished composition. Laser FocusLeave releases only the identified controller's keys and retains composition because it does not change application focus. Failed text submission keeps the preedit for recovery. The protocol reports submission availability, not application acceptance; application coverage needs separate tests.
 
 ## Code map
 
@@ -98,3 +98,34 @@ The renderer reserves space for preedit/candidates only during Japanese composit
 | Grip model and haptic state | `src/grip.cpp`, `include/framekeyboard/feedback.hpp`, `include/framekeyboard/vr_haptics.hpp` |
 | OpenVR lifecycle and event loop | `src/vr.cpp` |
 | Tests and opt-in receiver probes | `tests/` |
+
+## Chinese and Korean composition
+
+`CjkComposer` keeps bounded Pinyin or two-set Hangul state. PyZy supplies Chinese
+candidates and script conversion; libhangul supplies Korean syllable assembly.
+The app releases physical holds and gates commits using the same transport rules
+as Japanese. Failed commits retain preedit. Space or a candidate selection commits
+a completed Pinyin reading; Hangul word boundaries commit before forwarding keys.
+Profile Apply prepares engines before changing the active model. Missing build
+support or dictionaries leaves the prior profile usable.
+
+PyZy's learning methods are not called. Candidate selection reads its conversion
+and remaining phonetic text, saves local undo state, and rebuilds the remaining
+reading. Its user-cache/config paths are non-directories, so the library cannot
+read or persist personal history. Korean Backspace rebuilds from the bounded key
+sequence, preserving jamo-level undo across resyllabification. Neither engine
+changes the system IBus selection. See [language setup](languages.md).
+
+## Independent Unicode character output
+
+`LanguageMap::symbol` resolves the selected XKB profile without legend overrides.
+Its compose state handles dead accents locally. `App` sends printable characters
+through the Gamescope text connection and retains a failed commit for retry.
+Local Caps/Num toggles share pointer ownership without changing compositor locks.
+Text repeat is bounded and canceled with its pointer; native controls keep the
+existing backend repeat path. Numpad navigation is sent as explicit Home/arrows/etc.
+
+`EiSink` reads the advertised keymap once per keyboard device and tracks group
+updates. Ctrl/Alt letter shortcuts and dedicated Copy/Paste search that map for
+the intended Latin symbol, with a conventional physical fallback where metadata
+is absent. This lookup neither changes the system keymap nor reads app text.

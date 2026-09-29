@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <chrono>
 #include <glib.h>
+#include <linux/input-event-codes.h>
 #include <stdexcept>
 #include <tuple>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace framekeyboard {
 volatile std::sig_atomic_t interrupted = 0;
@@ -15,6 +17,34 @@ namespace {
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
+}
+std::unique_ptr<CjkComposer> prepare_cjk(const Language& language) {
+    if (language.input_method == "korean-2set" || language.input_method.starts_with("chinese-")) {
+        return std::make_unique<CjkComposer>(language.input_method);
+    }
+    return {};
+}
+std::string compatible_layout(const Profiles& profiles, const Selection& selection) {
+    try {
+        validate_selection(profiles, selection);
+        return selection.layout;
+    } catch (const std::exception&) {
+        // Prefer the smallest complete geometry, not alphabetical catalog order.
+        const Layout* best = nullptr;
+        for (const auto& [id, layout] : profiles.layouts) {
+            try {
+                validate_selection(profiles, {id, selection.language, selection.theme});
+                if (!best || layout.keys.size() < best->keys.size()) {
+                    best = &layout;
+                }
+            } catch (const std::exception&) {
+            }
+        }
+        if (best) {
+            return best->id;
+        }
+    }
+    return selection.layout; // Apply reports the validation error if none fit.
 }
 template <class ProfilesMap> void cycle(const ProfilesMap& map, std::string& id, bool next) {
     auto it = map.find(id);
@@ -40,6 +70,7 @@ App::App(const Options& options, KeySink& sink)
       settings_(load_settings(options.config_dir, profiles_.errors)), gate_(sink), keyboard_(gate_) {
     try {
         validate_selection(profiles_, settings_.active);
+        cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
     } catch (const std::exception& error) {
         profiles_.errors.push_back(error.what());
         settings_.active = {};
@@ -94,6 +125,29 @@ std::vector<Control> App::controls() const {
                                       {1485, 148, 90, 42}});
                 } else {
                     result.push_back({"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
+                }
+            }
+        }
+        if (cjk_) {
+            result.push_back({"cjk-toggle",
+                              cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
+                              {610, 12, 150, 42}});
+            if (!cjk_latin_) {
+                result.push_back({"cjk-commit", "Commit", {995, 12, 180, 42}});
+                result.push_back({"cjk-cancel", "Cancel", {1185, 12, 110, 42}});
+                const auto candidates = cjk_->candidates();
+                if (!candidates.empty()) {
+                    const int page = cjk_->selected() / 5 * 5;
+                    result.push_back({"cjk-prev", "↑", {20, 148, 55, 42}});
+                    for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size()));
+                         ++i) {
+                        result.push_back({"cjk-candidate-" + std::to_string(i),
+                                          std::to_string(i - page + 1) + " " +
+                                              candidates[static_cast<std::size_t>(i)],
+                                          {85.0 + (i - page) * 240, 148, 230, 42},
+                                          i == cjk_->selected()});
+                    }
+                    result.push_back({"cjk-next", "↓", {1290, 148, 55, 42}});
                 }
             }
         }
@@ -176,12 +230,26 @@ PanelView App::view() const {
             }
         }
     }
+    if (cjk_ && !cjk_latin_) {
+        v.composing = true;
+        v.preedit = cjk_->preedit();
+        const auto mods = keyboard_.modifiers();
+        const bool shifted =
+            mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+        for (const auto& key : v.layout->keys) {
+            const auto& map = shifted && v.language->composition_shift.contains(key.action)
+                                  ? v.language->composition_shift
+                                  : v.language->composition_keys;
+            if (const auto it = map.find(key.action); it != map.end()) {
+                v.key_labels[key.id] = it->second;
+            }
+        }
+    }
     if (!backend_ready_) {
         v.status = backend_can_resume_ ? "Keyboard paused by compositor. Waiting to resume."
                                        : "Keyboard connection lost. Reopen the app to reconnect.";
-    } else if (japanese() && options_.input != "none" && !text_ready_) {
-        v.status =
-            "Japanese text delivery unavailable; conversion preview only. English remains available.";
+    } else if ((unicode_mode() || japanese() || cjk_) && options_.input != "none" && !text_ready_) {
+        v.status = "Text delivery unavailable. Reopen the app after the compositor connection recovers.";
     }
     for (const auto& [pointer, id] : hovered_) {
         (void)pointer;
@@ -229,28 +297,64 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         const auto modifiers = keyboard_.modifiers();
-        const bool local = japanese_key(*key, false, modifiers);
+        const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
+        const bool text_local = !ime_local && text_key(*key, modifiers);
+        const bool cancel_accent = unicode_mode() && keymap_->composing() &&
+                                   (key->action == "Escape" || key->action == "Backspace");
+        const bool retry_text = !pending_text_.empty() && key->action == "Enter";
+        const bool local = ime_local || text_local || cancel_accent || retry_text;
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
-        if (!local && !composition_.empty() &&
+        if (!pending_text_.empty() &&
+            (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)))) {
+            if (!flush_text()) {
+                dirty = true;
+                return false;
+            }
+        }
+        if (!local && (!composition_.empty() || (cjk_ && !cjk_->empty())) &&
             (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)))) {
             // Submit before key-down: Tab/shortcuts can move focus, and the text
             // transport refuses a commit while physical keys are held.
             try {
                 commit_japanese();
+                commit_cjk();
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
             dirty = true;
-            if (!composition_.empty()) {
+            if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
                 return false; // Failed commit must not lose text or change the target.
             }
         }
-        const bool accepted = keyboard_.down(pointer, *key, now, local);
-        if (accepted && local) {
+        // Capture the symbol before a tapped Shift/AltGr is consumed by down().
+        const auto symbol = text_local
+                                ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
+                                : XKB_KEY_NoSymbol;
+        const bool accepted =
+            keyboard_.down(pointer, *key, now, local, local ? 0 : native_code(*key, modifiers));
+        if (accepted) {
             try {
-                japanese_key(*key, true, modifiers);
+                if (ime_local) {
+                    japanese_key(*key, true, modifiers);
+                    cjk_key(*key, true, modifiers);
+                } else if (cancel_accent) {
+                    keymap_->cancel_compose();
+                    status_.clear();
+                } else if (text_local && key->action != "CapsLock" && key->action != "NumLock") {
+                    pending_text_ = keymap_->compose(symbol);
+                    const auto repeated = pending_text_;
+                    if (flush_text() && !repeated.empty()) {
+                        text_repeats_[pointer] = {repeated, now + .5};
+                    }
+                    if (keymap_->composing()) {
+                        status_ = "Accent pending";
+                    }
+                } else if (!local) {
+                    keymap_->cancel_compose();
+                    status_.clear();
+                }
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
@@ -265,6 +369,7 @@ bool App::up(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
         return false;
     }
+    text_repeats_.erase(pointer);
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
@@ -284,14 +389,23 @@ bool App::up(unsigned pointer, double x, double y) {
 }
 
 void App::cancel_pointer(unsigned pointer) {
+    text_repeats_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
     pressed_controls_.erase(pointer);
     hovered_.erase(pointer);
     dirty = true;
 }
 void App::cancel(bool discard_composition) {
+    text_repeats_.clear();
     if (discard_composition) {
+        pending_text_.clear();
+        if (keymap_) {
+            keymap_->cancel_compose();
+        }
         composition_.cancel();
+        if (cjk_) {
+            cjk_->cancel();
+        }
     }
     keyboard_.cancel_all();
     pressed_controls_.clear();
@@ -301,6 +415,17 @@ void App::cancel(bool discard_composition) {
 bool App::tick(double now) {
     refresh_typing();
     dirty |= keyboard_.tick(now);
+    for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
+        if (now >= it->second.next) {
+            if (options_.input != "none" && !gate_.commit_text(it->second.text)) {
+                // Stop a repeat after an interruption; never replay a backlog.
+                it = text_repeats_.erase(it);
+                continue;
+            }
+            it->second.next = now + .04;
+        }
+        ++it;
+    }
     return dirty || renderer.animating();
 }
 void App::paint(double now) {
@@ -355,8 +480,11 @@ std::vector<PlacementAction> App::take_placement_actions() {
 void App::apply(Selection selection) {
     validate_selection(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
+    auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
     cancel();
     japanese_latin_ = false;
+    cjk_latin_ = false;
+    cjk_ = std::move(cjk);
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
@@ -374,7 +502,9 @@ void App::reload() {
     validate_selection(candidate, settings_.active);
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
+    auto cjk = prepare_cjk(candidate.languages.at(settings_.active.language));
     cancel();
+    cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
     keymap_ = std::move(keymap);
     const auto updated_settings = load_settings(options_.config_dir, profiles_.errors);
@@ -400,14 +530,16 @@ void App::refresh_typing() {
     backend_ready_ = ready;
     backend_can_resume_ = can_resume;
     const auto& language = profiles_.languages.at(settings_.active.language);
-    text_ready_ = japanese() && gate_.text_available();
-    // Integrated IME consumes characters locally; raw shortcuts still require
-    // the declared physical keymap. External JIS uses the ordinary strict gate.
+    text_ready_ = (unicode_mode() || japanese() || cjk_) && gate_.text_available();
+    // Unicode mode owns character mapping. Only physical-only backends and
+    // external JIS still rely on a declared receiving-session keymap.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
-                          (japanese() || options_.target_language == settings_.active.language);
-    gate_.enabled = interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
-                    (options_.input == "ei" || options_.input == "uinput") && matching &&
-                    (!japanese() || text_ready_) && backend_ready_;
+                          (japanese() || cjk_ || options_.target_language == settings_.active.language);
+    gate_.enabled =
+        interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
+        (options_.input == "ei" || options_.input == "uinput") &&
+        (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
+        backend_ready_;
 }
 void App::commit_japanese() {
     const auto text = composition_.commit_text();
@@ -520,6 +652,180 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
     }
     return false;
 }
+bool App::unicode_mode() const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    // External JIS explicitly delegates conversion to a system IME.
+    const bool external_jis = language.input_method == "xkb" && language.keymap == "jp";
+    return options_.input != "uinput" && !external_jis;
+}
+bool App::text_key(const Key& key, const std::set<int>& mods) const {
+    if (!unicode_mode() || key.action_kind != ActionKind::Key) {
+        return false;
+    }
+    if (key.action == "CapsLock" || key.action == "NumLock") {
+        return true;
+    }
+    for (const auto* name : {"ControlLeft", "ControlRight", "AltLeft", "MetaLeft", "MetaRight"}) {
+        if (mods.contains(key_code(name))) {
+            return false;
+        }
+    }
+    if (mods.contains(key_code("AltRight"))) {
+        Key alt;
+        alt.action_kind = ActionKind::Key;
+        alt.action = "AltRight";
+        if (keymap_->symbol(alt, {}, false, false) != XKB_KEY_ISO_Level3_Shift) {
+            return false;
+        }
+    }
+    const auto symbol = keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num());
+    return symbol == XKB_KEY_KP_Begin || LanguageMap::printable(symbol);
+}
+bool App::flush_text() {
+    if (pending_text_.empty()) {
+        return true;
+    }
+    if (options_.input == "none" || gate_.commit_text(pending_text_)) {
+        pending_text_.clear();
+        status_.clear();
+        return true;
+    }
+    status_ = "Text not sent. Release other keys, then press Enter to retry.";
+    return false;
+}
+int App::native_code(const Key& key, const std::set<int>& mods) {
+    if (!unicode_mode()) {
+        return 0;
+    }
+    if (key.action_kind == ActionKind::Shortcut) {
+        return gate_.shortcut_code(key.action == "copy" ? XKB_KEY_c : XKB_KEY_v,
+                                   key_code(key.action == "copy" ? "KeyC" : "KeyV"));
+    }
+    if (key.action.starts_with("Numpad")) {
+        // Num Lock is local in Unicode mode. Send explicit navigation codes,
+        // so the receiving system's Num Lock cannot turn Home into '7'.
+        switch (keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num())) {
+        case XKB_KEY_KP_Home:
+            return KEY_HOME;
+        case XKB_KEY_KP_End:
+            return KEY_END;
+        case XKB_KEY_KP_Left:
+            return KEY_LEFT;
+        case XKB_KEY_KP_Right:
+            return KEY_RIGHT;
+        case XKB_KEY_KP_Up:
+            return KEY_UP;
+        case XKB_KEY_KP_Down:
+            return KEY_DOWN;
+        case XKB_KEY_KP_Prior:
+            return KEY_PAGEUP;
+        case XKB_KEY_KP_Next:
+            return KEY_PAGEDOWN;
+        case XKB_KEY_KP_Insert:
+            return KEY_INSERT;
+        case XKB_KEY_KP_Delete:
+            return KEY_DELETE;
+        default:
+            break;
+        }
+    }
+    auto shortcut_symbol = xkb_keysym_to_lower(keymap_->symbol(key, {}, false, false));
+    if (!mods.empty() && (key.action.starts_with("Key") ||
+                          (shortcut_symbol >= XKB_KEY_a && shortcut_symbol <= XKB_KEY_z))) {
+        auto symbol = shortcut_symbol;
+        // Cyrillic and IME shortcuts conventionally retain their Latin physical
+        // counterparts; Latin layouts use their displayed letter (AZERTY A, etc.).
+        if (symbol < XKB_KEY_a || symbol > XKB_KEY_z) {
+            symbol = static_cast<xkb_keysym_t>(g_ascii_tolower(key.action.back()));
+        }
+        const int fallback = key_code(
+            "Key" + std::string(1, static_cast<char>(g_ascii_toupper(static_cast<char>(symbol)))));
+        return gate_.shortcut_code(symbol, fallback);
+    }
+    return 0;
+}
+void App::choose_cjk(int index) {
+    if (!cjk_) {
+        return;
+    }
+    cjk_->choose(index);
+    if (!cjk_->has_reading()) {
+        commit_cjk();
+    }
+}
+void App::commit_cjk() {
+    if (!cjk_ || cjk_->empty()) {
+        return;
+    }
+    const auto text = cjk_->text();
+    if (!text.empty() && (options_.input == "none" || gate_.commit_text(text))) {
+        cjk_->cancel();
+        status_.clear();
+    } else {
+        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+    }
+}
+bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
+    if (!cjk_ || cjk_latin_ || key.action_kind != ActionKind::Key) {
+        return false;
+    }
+    for (const auto* name :
+         {"ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"}) {
+        if (mods.contains(key_code(name))) {
+            return false;
+        }
+    }
+    const auto& code = key.action;
+    const bool composing = !cjk_->empty();
+    if (cjk_->chinese() && composing && code.size() == 6 && code.starts_with("Digit") &&
+        code.back() >= '1' && code.back() <= '5' && !mods.contains(key_code("ShiftLeft")) &&
+        !mods.contains(key_code("ShiftRight")) && !cjk_->candidates().empty()) {
+        const int index = cjk_->selected() / 5 * 5 + code.back() - '1';
+        if (execute && index < static_cast<int>(cjk_->candidates().size())) {
+            choose_cjk(index);
+        }
+        return true;
+    }
+    if (composing &&
+        (code == "Enter" || code == "NumpadEnter" || code == "Escape" || code == "Backspace" ||
+         (cjk_->chinese() && (code == "Space" || code == "ArrowUp" || code == "ArrowDown")))) {
+        if (execute) {
+            if (code == "Backspace") {
+                cjk_->backspace();
+            } else if (code == "Escape") {
+                cjk_->cancel();
+            } else if (code == "ArrowUp" || code == "ArrowDown") {
+                cjk_->cycle(code == "ArrowUp" ? -1 : 1);
+            } else if (code == "Space" && !cjk_->candidates().empty()) {
+                choose_cjk(cjk_->selected());
+            } else {
+                commit_cjk();
+            }
+        }
+        return true;
+    }
+    // Use physical US letter positions for Pinyin and two-set Hangul. Caps Lock
+    // does not choose doubled Korean jamo; only Shift does.
+    if (code.starts_with("Key") && code.size() == 4) {
+        char ch = g_ascii_tolower(code.back());
+        if (!cjk_->chinese() &&
+            (mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight")))) {
+            ch = g_ascii_toupper(ch);
+        }
+        if (execute) {
+            cjk_->type(ch);
+        }
+        return true;
+    }
+    if (cjk_->chinese() && code == "Quote" && composing && !mods.contains(key_code("ShiftLeft")) &&
+        !mods.contains(key_code("ShiftRight"))) {
+        if (execute) {
+            cjk_->type('\'');
+        }
+        return true;
+    }
+    return false;
+}
 void App::action(const std::string& id) {
     const std::map<std::string, PlacementAction> adjustments = {
         {"size-smaller", PlacementAction::Smaller}, {"size-larger", PlacementAction::Larger}};
@@ -531,6 +837,26 @@ void App::action(const std::string& id) {
     if (id.starts_with("preset-ja-")) {
         pending_.language = id.substr(7);
         pending_.layout = pending_.language == "ja-romaji" ? "en-us-full" : "ja-jis-full";
+        return;
+    }
+    if (id.starts_with("cjk-") && cjk_) {
+        if (id == "cjk-toggle") {
+            if (!cjk_->empty()) {
+                commit_cjk();
+                if (!cjk_->empty()) {
+                    return;
+                }
+            }
+            cjk_latin_ = !cjk_latin_;
+        } else if (id == "cjk-commit") {
+            commit_cjk();
+        } else if (id == "cjk-cancel") {
+            cjk_->cancel();
+        } else if (id == "cjk-next" || id == "cjk-prev") {
+            cjk_->cycle(id == "cjk-next" ? 1 : -1);
+        } else if (id.starts_with("cjk-candidate-")) {
+            choose_cjk(std::stoi(id.substr(14)));
+        }
         return;
     }
     if (id.starts_with("ime-")) {
@@ -578,9 +904,7 @@ void App::action(const std::string& id) {
         cycle(profiles_.layouts, pending_.layout, id.ends_with("next"));
     } else if (id == "language-next" || id == "language-prev") {
         cycle(profiles_.languages, pending_.language, id.ends_with("next"));
-        if (pending_.language == "ja-kana" || pending_.language == "ja-jis") {
-            pending_.layout = "ja-jis-full";
-        }
+        pending_.layout = compatible_layout(profiles_, pending_);
     } else if (id == "theme-next" || id == "theme-prev") {
         cycle(profiles_.themes, pending_.theme, id.ends_with("next"));
     } else if ((id == "favorite-next" || id == "favorite-prev") && !settings_.favorites.empty()) {

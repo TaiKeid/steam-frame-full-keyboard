@@ -57,7 +57,10 @@ cat > "$launcher_tmp" <<'LAUNCHER'
 set -euo pipefail
 install_root="${FRAMEKEYBOARD_INSTALL_HOME:-$HOME}/.local/share/framekeyboard/current"
 if [[ $# == 0 || ( $# == 1 && $1 == --vr ) ]]; then
-    set -- --vr --input ei --target-language "${FRAMEKEYBOARD_TARGET_LANGUAGE:-en-us}" --start-enabled
+    set -- --vr --input ei --start-enabled
+    if [[ -n ${FRAMEKEYBOARD_TARGET_LANGUAGE:-} ]]; then
+        set -- "$@" --target-language "$FRAMEKEYBOARD_TARGET_LANGUAGE"
+    fi
 fi
 exec "$install_root/bin/framekeyboard" --data-dir "$install_root/share/framekeyboard" "$@"
 LAUNCHER

@@ -262,7 +262,9 @@ Language parse_language(const std::string& json) {
     l.locale = text(o, "locale");
     l.input_method = text(o, "input_method", "xkb", true);
     if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&
-        l.input_method != "japanese-kana") {
+        l.input_method != "japanese-kana" && l.input_method != "korean-2set" &&
+        l.input_method != "chinese-pinyin-simplified" &&
+        l.input_method != "chinese-pinyin-traditional") {
         throw std::runtime_error("unsupported input method");
     }
     auto read_kana = [&](const char* field_name, auto& map) {
@@ -279,6 +281,8 @@ Language parse_language(const std::string& json) {
     };
     read_kana("kana", l.kana);
     read_kana("kana_shift", l.kana_shift);
+    read_kana("composition_keys", l.composition_keys);
+    read_kana("composition_shift", l.composition_shift);
     if (l.input_method == "japanese-kana" && l.kana.empty()) {
         throw std::runtime_error("direct Kana needs a kana mapping");
     }

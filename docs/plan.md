@@ -6,7 +6,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 
 - Native ARM64 overlay, libei key delivery, desktop preview, and image export.
 - Full-size US, international, and Japanese layouts with editable JSON profiles.
-- English/German legends, integrated Japanese romaji/kana composition, and external JIS mode.
+- European/Cyrillic XKB profiles, Brazilian ABNT2 geometry, integrated Japanese, Simplified/Traditional Pinyin and Korean two-set composition, plus external JIS mode.
 - In-VR settings, theme selection, favorites, reload, and persistent configuration.
 - Grip movement, same-hand stick depth, resize icons, and release-only horizon alignment.
 - Dashboard position/rotation following and dashboard-only visibility/input.
@@ -25,7 +25,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 
 - Broader local-app, nested-desktop, and language testing.
 - Fluent Japanese-user feedback on composition and candidate controls.
-- Automatic target-keymap and Caps/Num Lock synchronization.
+- Broader application testing for Unicode delivery and native shortcuts across system keymaps.
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
 

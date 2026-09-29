@@ -69,6 +69,7 @@ const std::map<std::string, int> key_codes = {{"Escape", KEY_ESC},
                                               {"IntlBackslash", KEY_102ND},
                                               {"IntlYen", KEY_YEN},
                                               {"IntlRo", KEY_RO},
+                                              {"NumpadComma", KEY_KPCOMMA},
                                               {"Convert", KEY_HENKAN},
                                               {"NonConvert", KEY_MUHENKAN},
                                               {"KanaMode", KEY_KATAKANAHIRAGANA},
@@ -243,6 +244,9 @@ LanguageMap::LanguageMap(const Language& language) : language_(language) {
     }
 }
 LanguageMap::~LanguageMap() {
+    if (compose_) {
+        xkb_compose_state_unref(compose_);
+    }
     if (keymap_) {
         xkb_keymap_unref(keymap_);
     }
@@ -250,19 +254,13 @@ LanguageMap::~LanguageMap() {
         xkb_context_unref(context_);
     }
 }
-std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, bool caps,
-                                bool num) const {
-    if (const auto it = language_.overrides.find(key.id); it != language_.overrides.end()) {
-        return it->second;
-    }
-    if (key.action_kind != ActionKind::Key || key.action == "Space") {
-        return key.label;
-    }
+xkb_keysym_t LanguageMap::symbol(const Key& key, const std::set<int>& modifiers, bool caps,
+                                 bool num) const {
     const int code = key_code(key.action);
     // XKB's evdev rules reserve keycodes 0..7. This offset is unrelated to Steam codes.
     auto* state = xkb_state_new(keymap_);
     if (!state) {
-        return key.label;
+        return XKB_KEY_NoSymbol;
     }
     for (int modifier : modifiers) {
         xkb_state_update_key(state, static_cast<xkb_keycode_t>(modifier + 8), XKB_KEY_DOWN);
@@ -275,11 +273,63 @@ std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, 
         xkb_state_update_key(state, KEY_NUMLOCK + 8, XKB_KEY_DOWN);
         xkb_state_update_key(state, KEY_NUMLOCK + 8, XKB_KEY_UP);
     }
-    char buffer[64]{};
-    const int size =
-        xkb_state_key_get_utf8(state, static_cast<xkb_keycode_t>(code + 8), buffer, sizeof(buffer));
     const auto symbol = xkb_state_key_get_one_sym(state, static_cast<xkb_keycode_t>(code + 8));
     xkb_state_unref(state);
+    return symbol;
+}
+bool LanguageMap::printable(xkb_keysym_t symbol) {
+    const auto ch = xkb_keysym_to_utf32(symbol);
+    return (ch >= 32 && ch != 127) || (symbol >= XKB_KEY_dead_grave && symbol <= XKB_KEY_dead_greek);
+}
+std::string LanguageMap::compose(xkb_keysym_t symbol) {
+    if (!compose_) {
+        auto* table =
+            xkb_compose_table_new_from_locale(context_, "C.UTF-8", XKB_COMPOSE_COMPILE_NO_FLAGS);
+        if (!table) {
+            throw std::runtime_error("Unicode accent composition table unavailable");
+        }
+        compose_ = xkb_compose_state_new(table, XKB_COMPOSE_STATE_NO_FLAGS);
+        xkb_compose_table_unref(table);
+        if (!compose_) {
+            throw std::runtime_error("Cannot initialize accent composition");
+        }
+    }
+    xkb_compose_state_feed(compose_, symbol);
+    char buffer[128]{};
+    switch (xkb_compose_state_get_status(compose_)) {
+    case XKB_COMPOSE_COMPOSING:
+        return {};
+    case XKB_COMPOSE_COMPOSED:
+        xkb_compose_state_get_utf8(compose_, buffer, sizeof(buffer));
+        xkb_compose_state_reset(compose_);
+        return buffer;
+    case XKB_COMPOSE_CANCELLED:
+        xkb_compose_state_reset(compose_);
+        throw std::runtime_error("This accent combination is unavailable; try again");
+    default:
+        xkb_keysym_to_utf8(symbol, buffer, sizeof(buffer));
+        return buffer;
+    }
+}
+bool LanguageMap::composing() const {
+    return compose_ && xkb_compose_state_get_status(compose_) == XKB_COMPOSE_COMPOSING;
+}
+void LanguageMap::cancel_compose() {
+    if (compose_) {
+        xkb_compose_state_reset(compose_);
+    }
+}
+std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, bool caps,
+                                bool num) const {
+    if (const auto it = language_.overrides.find(key.id); it != language_.overrides.end()) {
+        return it->second;
+    }
+    if (key.action_kind != ActionKind::Key || key.action == "Space") {
+        return key.label;
+    }
+    const auto symbol = this->symbol(key, modifiers, caps, num);
+    char buffer[64]{};
+    const int size = xkb_keysym_to_utf8(symbol, buffer, sizeof(buffer));
     // Dead keys have no standalone UTF-8 output. Show the accent the target
     // keymap will compose, instead of falling back to a misleading US legend.
     switch (symbol) {
@@ -335,7 +385,7 @@ void KeyboardState::release(int code) {
         references_.erase(found);
     }
 }
-bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool local) {
+bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool local, int native_code) {
     if (presses_.contains(pointer)) {
         return false;
     }
@@ -345,7 +395,8 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     }
     Press press;
     press.id = key.id;
-    const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
+    const int code =
+        key.action_kind == ActionKind::Key ? (native_code ? native_code : key_code(key.action)) : 0;
     if (is_modifier(code)) {
         press.modifier = code;
         press.used = references_.contains(code);
@@ -361,10 +412,24 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     for (int modifier : modifiers_used) {
         press.codes.push_back(modifier);
     }
-    const int action_code =
-        key.action_kind == ActionKind::Shortcut ? (key.action == "copy" ? KEY_C : KEY_V) : code;
+    const int action_code = key.action_kind == ActionKind::Shortcut
+                                ? (native_code ? native_code : (key.action == "copy" ? KEY_C : KEY_V))
+                                : code;
     press.codes.push_back(action_code);
     if (local) {
+        if (code == KEY_CAPSLOCK || code == KEY_NUMLOCK) {
+            const bool already_held =
+                std::any_of(presses_.begin(), presses_.end(),
+                            [code](const auto& item) { return item.second.local_lock == code; });
+            press.local_lock = code;
+            if (!already_held) {
+                if (code == KEY_CAPSLOCK) {
+                    caps_ = !caps_;
+                } else {
+                    num_ = !num_;
+                }
+            }
+        }
         press.codes.clear(); // Local IME keeps visuals/holds but emits no physical keys.
     }
     if (!local && key.action_kind == ActionKind::Key && code != KEY_CAPSLOCK && code != KEY_NUMLOCK &&

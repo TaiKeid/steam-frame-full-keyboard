@@ -5,6 +5,7 @@
 #include <memory>
 #include <set>
 #include <vector>
+#include <xkbcommon/xkbcommon-compose.h>
 #include <xkbcommon/xkbcommon.h>
 
 namespace framekeyboard {
@@ -22,6 +23,7 @@ class KeySink {
     virtual bool can_resume() const { return false; }
     virtual bool text_available() { return false; }
     virtual bool commit_text(const std::string&) { return false; }
+    virtual int shortcut_code(xkb_keysym_t, int fallback) { return fallback; }
 };
 class NullSink : public KeySink {
   public:
@@ -48,18 +50,24 @@ class LanguageMap {
     LanguageMap(const LanguageMap&) = delete;
     LanguageMap& operator=(const LanguageMap&) = delete;
     std::string legend(const Key& key, const std::set<int>& modifiers, bool caps, bool num) const;
+    xkb_keysym_t symbol(const Key& key, const std::set<int>& modifiers, bool caps, bool num) const;
+    static bool printable(xkb_keysym_t symbol);
+    std::string compose(xkb_keysym_t symbol);
+    bool composing() const;
+    void cancel_compose();
 
   private:
     Language language_;
     xkb_context* context_{};
     xkb_keymap* keymap_{};
+    xkb_compose_state* compose_{};
 };
 
 class KeyboardState {
   public:
     explicit KeyboardState(KeySink& sink) : sink_(sink) {}
     ~KeyboardState();
-    bool down(unsigned pointer, const Key& key, double now, bool local = false);
+    bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0);
     bool up(unsigned pointer);
     bool pointer_pressed(unsigned pointer) const { return presses_.contains(pointer); }
     void cancel_pointer(unsigned pointer);
@@ -74,7 +82,7 @@ class KeyboardState {
   private:
     struct Press {
         std::string id;
-        int modifier{};
+        int modifier{}, local_lock{};
         bool used{};
         std::vector<int> codes;
         int repeat_code{};

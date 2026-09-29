@@ -4,7 +4,7 @@ Most users should install the ARM64 archive described in the [README](../README.
 
 ## Dependencies
 
-Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, libei, Wayland, SDL2, and Vulkan. The build uses the host `wayland-scanner`. Tests also need X11 development files. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
+Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, libei, Wayland, SDL2, and Vulkan. The build uses the host `wayland-scanner`. Tests also need X11 development files. Chinese/Korean release builds also need PyZy development headers/library and libhangul. Frame supplies both and the PyZy system dictionary; include their libraries in a curated sysroot. Host builds may omit these engines, but then cannot activate their composition profiles. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
 
 The OpenVR header is vendored, but `libopenvr_api.so` comes from an installed SteamVR runtime or a separately supplied SDK library. The build searches common Linux Steam paths. Override discovery with `-DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so` when configuring CMake.
 
@@ -72,7 +72,7 @@ Host and ARM64 build directories are separate. If switching sysroots or toolchai
 
 ## Tests
 
-CTest includes `keyboard-core`, `placement-instance`, `japanese-input`, and `rendering`. The rendering suite compares incremental and forced full images pixel-by-pixel across all bundled languages, controller overlaps, animation reversal, modifiers, composition, settings, and profile changes. Host builds also run installer validation/failure/retry tests. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume, disconnect, and text-socket selection using an isolated compositor and dummy Wayland listeners that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
+CTest includes `languages`, `keyboard-core`, `placement-instance`, `japanese-input`, and `rendering`. The rendering suite compares incremental and forced full images pixel-by-pixel across all bundled languages, controller overlaps, animation reversal, modifiers, composition, settings, and profile changes. Host builds also run installer validation/failure/retry tests. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume, disconnect, and text-socket selection using an isolated compositor and dummy Wayland listeners that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
 
 Anthy integration is optional in normal test runs. To require the real conversion test when the library and dictionary are installed:
 
@@ -123,3 +123,7 @@ rmdir "$screenshot_config"
 ```
 
 Image exports omit the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
+
+The `languages` suite checks all added XKB profiles and, when compiled in, real Pinyin/Hangul engines plus app commit ordering. Set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1` to make missing engines a test failure. Run this on Frame for release verification. `japanese-target-probe --multilingual` checks a fixed mixed-script phrase in its own focus-checked receiver.
+
+`unicode-target-probe` exercises the production App with German, French, Russian, Ukrainian, Brazilian, Korean and both Chinese profiles, without a target-language declaration. It creates temporary settings, re-focuses only its own disposable Xwayland window before each press, verifies focus before delivery, and checks exact output. It restores previous focus and deletes its temporary settings. Never run it against a user field.

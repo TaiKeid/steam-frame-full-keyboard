@@ -15,3 +15,12 @@ The SDK library is supplied by the installed SteamVR runtime, not redistributed.
 `gamescope/gamescope-input-method.xml` comes from ValveSoftware/gamescope commit `6867f509874f9bc52e12d6f4c4596cdf0d5be6b4`, under the MIT license included in the XML. Wayland client stubs are generated at build time. Only version 1 text submission is used, feature-checked at runtime.
 
 Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary.
+
+Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.
+Korean composition links the installed libhangul public C API, under LGPL-2.1-or-later.
+Neither library nor dictionary is redistributed. PyZy engine interaction was checked
+against https://github.com/pyzy/pyzy commit `6d9c3cdff364e0da75e1c26222240f26370ebf73` and the installed
+Frame headers. No commit/selectCandidate learning APIs are called. The user-cache
+path is `/dev/null`, forcing the library's in-memory fallback and preventing history
+writes. Candidate selection reads conversion/rest text and rebuilds the remaining
+reading. libhangul API reference: https://libhangul.github.io/libhangul-doc/git/group__hangulic.html.

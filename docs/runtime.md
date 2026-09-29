@@ -5,7 +5,7 @@
 The installed **Full Keyboard** launcher uses:
 
 ```sh
-framekeyboard --vr --input ei --target-language en-us --start-enabled
+framekeyboard --vr --input ei --start-enabled
 ```
 
 It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR, replace the stock keyboard, or register autostart. It is visible and accepts input only while the dashboard is open. Hiding cancels keys, unfinished composition, and grabs.
@@ -32,28 +32,28 @@ Press feedback uses 25 ms at full strength; release uses 8 ms at 35%, both at 15
 
 ## Language and input routing
 
-The target-language option declares the receiving session's existing keymap. It does not set that keymap. The normal launcher assumes US English. Integrated Japanese Romaji/Kana also use this physical map for shortcuts, with composed text sent separately.
+Choose a language in Settings and Apply and save. The normal `--input ei` path
+sends locally resolved Unicode characters, so system layouts and launch-time
+language declarations do not control typing. Native Enter, arrows and shortcuts
+remain available. See [language selection](languages.md).
 
-For a session already configured for German, close the keyboard and run:
+Only the developer uinput backend and external Japanese JIS mode require a
+matching target declaration. For an existing Japanese system keymap and IME,
+select the JIS preset and launch with `--target-language ja-jis`. The optional
+`FRAMEKEYBOARD_TARGET_LANGUAGE` launcher variable exists for that physical mode.
+
+Unicode text follows the matching Wayland socket: for example, `/run/user/1000/gamescope-2-ei` pairs with `/run/user/1000/gamescope-2`. Relative names resolve under `$XDG_RUNTIME_DIR` in both backends. For nonstandard names, add `--text-socket PATH` explicitly; otherwise Unicode text is unavailable rather than being sent to the default compositor. `--text-socket` requires `--input ei`. Close the running keyboard before changing launch options, since launching a second instance only recenters the first.
+
+For example, to address a different running compositor:
 
 ```sh
-~/.local/bin/framekeyboard --vr --input ei --target-language de-de --start-enabled
-```
-
-Choose the German language and international layout in Settings, then Apply and save. For an existing Japanese keymap and system IME, use `--target-language ja-jis` instead and select the JIS preset. A selected profile that does not match the declared target disables typing while keeping Settings accessible. The launcher also accepts `FRAMEKEYBOARD_TARGET_LANGUAGE` for a different default.
-
-`--ei-socket PATH` overrides the compositor key-input socket. Japanese text follows the matching Wayland socket: for example, `/run/user/1000/gamescope-2-ei` pairs with `/run/user/1000/gamescope-2`. Relative names resolve under `$XDG_RUNTIME_DIR` in both backends. For nonstandard names, add `--text-socket PATH` explicitly; otherwise Japanese text is unavailable rather than being sent to the default compositor. `--text-socket` requires `--input ei`. Close the running keyboard before changing launch options, since launching a second instance only recenters the first.
-
-For example, with the chosen compositor already using the US physical keymap:
-
-```sh
-~/.local/bin/framekeyboard --vr --input ei --target-language en-us --start-enabled \
+~/.local/bin/framekeyboard --vr --input ei --start-enabled \
   --ei-socket gamescope-2-ei
 ```
 
 The optional `--input uinput` developer backend requires access to `/dev/uinput`; newly created devices were not discovered by the tested outer VR session. The installed launcher uses libei and does not need this backend.
 
-Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessions, implement terminal Ctrl+Shift shortcuts, or read clipboard data. Lock indicators follow presses in this panel and are not synchronized with physical keyboards or an already enabled session lock.
+Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessions, implement terminal Ctrl+Shift shortcuts, or read clipboard data. In Unicode mode Caps/Num Lock are local to this panel and do not change the system locks. Native modifier shortcuts remain subject to receiving-app behavior.
 
 ## Troubleshooting
 
@@ -62,10 +62,10 @@ Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessio
 | Keyboard is missing | Open the dashboard, wake the headset, then launch Full Keyboard again to recenter |
 | Keyboard is offscreen | Relaunch while it is running, or use the recenter icon |
 | App exits immediately | Run `~/.local/bin/framekeyboard` in a terminal and read the error; check that the VR session is running |
-| Keys do not reach a local app | Focus a harmless text field first; check the language profile and launch declaration |
+| Keys do not reach a local app | Focus a harmless text field first; check the Unicode text connection and chosen profile |
 | Keyboard paused by compositor | Wait for the device to resume; old holds are cleared |
 | Input connection was lost | Close and reopen the keyboard to reconnect |
-| Wrong characters | Match the session's physical keymap to the selected profile and `--target-language`; legends alone do not change output |
+| Wrong characters | Check the selected app language and custom XKB profile; physical uinput/external-JIS modes additionally need a matching target keymap |
 | Copy/Paste fail in a terminal | This version sends Ctrl+C/Ctrl+V, not terminal Ctrl+Shift shortcuts |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
@@ -108,3 +108,5 @@ Desktop preview and PNG export never inject input. A direct `--vr` binary launch
 ```
 
 A second launch only recenters the first instance; it cannot turn an active typing session into a safe test session. Core CTest suites use fake sinks. Input probes are opt-in and require a dedicated receiver or their own exclusively grabbed device. See [building and tests](building.md).
+
+See [languages and system keyboard settings](languages.md) for all profile IDs, Chinese/Korean controls, and the explicit limitations when multiple system layouts are configured.

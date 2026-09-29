@@ -58,6 +58,15 @@ void exercise(Layout layout, Theme theme, Language language) {
     view.keymap = &keymap;
     view.keyboard = &keyboard;
     view.controls = {{"settings", "Settings", {18, 12, 60, 42}, false, Icon::Settings}};
+    if (!language.composition_keys.empty()) {
+        view.composing = true;
+        for (const auto& key : layout.keys) {
+            if (auto it = language.composition_keys.find(key.action);
+                it != language.composition_keys.end()) {
+                view.key_labels[key.id] = it->second;
+            }
+        }
+    }
     Comparison compare;
     compare.frame(view, "initial");
     const auto a = find_key(layout, "KeyA"), b = find_key(layout, "KeyB");
@@ -146,9 +155,11 @@ int main() {
     try {
         const auto profiles = load_profiles({}, {});
         for (const auto& [id, language] : profiles.languages) {
-            const auto layout = language.keymap == "jp"   ? "ja-jis-full"
-                                : language.keymap == "de" ? "international-full"
-                                                          : "en-us-full";
+            const auto layout = (language.keymap == "jp" || id == "ja-kana") ? "ja-jis-full"
+                                : language.keymap == "br"                    ? "br-abnt2-full"
+                                : !language.required_keys.empty()            ? "international-full"
+                                                                             : "en-us-full";
+            validate_selection(profiles, {layout, id, "graphite"});
             exercise(profiles.layouts.at(layout), profiles.themes.at("graphite"), language);
         }
         return 0;
