@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.4.1 follow-up
+
+Reduce initial width from 115 cm to 95 cm and use a 70-degree backward tilt from upright for initial placement/recenter. Preserve saved poses on reopen, chosen width on recenter, and existing grip/horizon behavior.
+
 ## Version 0.4.0 follow-up
 
 Add selectable Japanese romaji and direct-kana composition, native Anthy conversion and in-panel candidate/segment controls. Add a JIS layout/profile for existing system IMEs. Deliver composed UTF-8 through the feature-checked Gamescope input-method protocol while keeping physical shortcuts on libei. Preserve explicit launch opt-in, lazy engine loading and adaptive idle polling. Verify composition with fake sinks and native text with a dedicated receiver; real application coverage remains an acceptance task.

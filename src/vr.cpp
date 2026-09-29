@@ -238,7 +238,8 @@ class VrPanel {
         auto* overlay = vr::VROverlay();
         check(overlay->CreateOverlay("org.framekeyboard.panel", "FrameKeyboard", &handle_),
               "CreateOverlay");
-        check(overlay->SetOverlayWidthInMeters(handle_, 1.15f), "SetOverlayWidthInMeters");
+        check(overlay->SetOverlayWidthInMeters(handle_, static_cast<float>(PanelPlacement{}.width())),
+              "SetOverlayWidthInMeters");
         check(overlay->SetOverlayInputMethod(handle_, vr::VROverlayInputMethod_Mouse),
               "SetOverlayInputMethod");
         vr::HmdVector2_t scale{{panel_width, panel_height}};

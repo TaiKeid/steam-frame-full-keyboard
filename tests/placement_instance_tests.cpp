@@ -45,7 +45,12 @@ fk::Transform head() {
 void placement_tests() {
     fk::PanelPlacement panel;
     panel.recenter(head());
+    near(panel.width(), .95, "default width is four 5 cm steps below 1.15 m");
     auto pose = panel.transform();
+    near(pose[1][1], std::cos(70 * std::numbers::pi / 180),
+         "default surface is tilted 70 degrees from upright");
+    near(pose[1][2], std::sin(70 * std::numbers::pi / 180), "typing surface faces upward");
+    require(pose[2][1] < 0, "top edge slopes away from the viewer");
     near(pose[0][3], 1, "centered horizontally");
     near(pose[1][3], 1.45, "below eye level");
     near(pose[2][3], 1.15, "in front of headset");
@@ -87,11 +92,11 @@ void placement_tests() {
         panel.adjust(fk::PlacementAction::Larger);
     }
     near(panel.width(), 2, "maximum width");
-    // A straight-down headset must still produce an upright, usable recenter pose.
+    // A straight-down headset must retain the default desk tilt, not add head pitch.
     const fk::Transform looking_down{{{1, 0, 0, 0}, {0, 0, 1, 1.7}, {0, -1, 0, 0}}};
     panel.recenter(looking_down);
     pose = panel.transform();
-    near(pose[1][1], 1, "recenter removes head pitch");
+    near(pose[1][1], std::cos(70 * std::numbers::pi / 180), "recenter ignores head pitch");
     near(pose[2][3], -.85, "vertical gaze uses stable horizontal heading");
     near(panel.width(), 2, "recenter preserves chosen size");
     const fk::Transform turned{{{0, 0, 1, 3}, {0, 1, 0, 1.7}, {-1, 0, 0, 4}}};
@@ -120,7 +125,7 @@ void drag_tests() {
     panel.set_transform(drag.update(moved));
     near(panel.transform()[0][3], original[0][3] + .2, "controller translation moves panel");
     near(panel.transform()[2][3], original[2][3] - .3, "controller depth moves panel");
-    near(panel.width(), 1.2, "drag retains size");
+    near(panel.width(), 1.0, "drag retains size");
     // A 90-degree controller turn rotates the original offset around that hand.
     moved = {{{0, 0, 1, 1}, {0, 1, 0, 1.7}, {-1, 0, 0, 2}}};
     const auto turned = drag.update(moved);
@@ -129,7 +134,8 @@ void drag_tests() {
     panel.set_transform(turned);
     panel.recenter(head());
     near(panel.transform()[0][3], 1, "recenter resets dragged position");
-    near(panel.transform()[1][1], 1, "recenter levels dragged rotation");
+    near(panel.transform()[1][1], std::cos(70 * std::numbers::pi / 180),
+         "recenter restores desk tilt after dragging");
 }
 void horizon_tests() {
     fk::PanelPlacement panel;
@@ -270,7 +276,8 @@ void persistence_tests() {
     }
     near(reopened.width(), original.width(), "reopen preserves width");
     reopened.recenter(head());
-    near(reopened.transform()[1][1], 1, "explicit relaunch can recenter restored pose");
+    near(reopened.transform()[1][1], std::cos(70 * std::numbers::pi / 180),
+         "explicit relaunch restores default desk tilt");
     near(reopened.width(), original.width(), "recenter retains saved size");
     auto invalid = *saved;
     invalid.transform[0][0] *= 2;

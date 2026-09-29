@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.4.0 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.4.1 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -40,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.4.0-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.4.1-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -48,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.4.0-aarch64.tar.gz
-./framekeyboard-0.4.0-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.4.1-aarch64.tar.gz
+./framekeyboard-0.4.1-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English.  It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -77,6 +77,8 @@ Romaji and direct Kana use the Frame's installed Anthy dictionary and an in-pane
 See [Japanese controls and requirements](docs/japanese.md). The native UTF-8 path passed a dedicated Frame Xwayland receiver test; interaction in the user's Brave windows remains to be checked.
 
 ## Move, align and recover the keyboard
+
+The default width is **95 cm**, four 5 cm steps smaller than the original 115 cm. Initial placement and Recenter tilt the keyboard back **70° from upright** (20° above horizontal), with its top edge farther from you. Recenter keeps any width you have chosen; close/reopen restores your saved pose and size.
 
 To move the keyboard, point the controller laser anywhere on it and hold the **grab/grip** button. Move or rotate your hand, then release grab to place it. The trigger keeps typing normally; there is no move button. The grab offset is preserved so the panel does not jump. Losing tracking/input, hiding, recentering, or holding longer than 30 seconds cancels capture. Only the grabbing controller moves it, and typing is suppressed during a grab. Release the grip first if you launched or reconnected while squeezing it. Native Frame controller models are supported; the app leaves SteamVR input settings unchanged.
 

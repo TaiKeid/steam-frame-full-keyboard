@@ -47,7 +47,7 @@ class PanelPlacement {
   private:
     Transform anchor_{};
     double x_{}, y_{}, z_{}, pitch_{}, yaw_{}, roll_{};
-    double width_{1.15};
+    double width_{.95};
     bool ready_{};
 };
 // Store the initial controller-to-panel transform, so grabbing never snaps the

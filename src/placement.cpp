@@ -137,7 +137,10 @@ void PanelPlacement::recenter(const Transform& head) {
         }
         anchor_[row][3] = head[row][3] - rotation[row][2] * .85 - rotation[row][1] * .25;
     }
-    x_ = y_ = z_ = pitch_ = yaw_ = roll_ = 0;
+    x_ = y_ = z_ = yaw_ = roll_ = 0;
+    // Tilt the top edge away from the viewer: 70 degrees from upright,
+    // leaving the typing surface 20 degrees above a horizontal desk.
+    pitch_ = -70 * radians;
     ready_ = true;
 }
 void PanelPlacement::adjust(PlacementAction action) {
