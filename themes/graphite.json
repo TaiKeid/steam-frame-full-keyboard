@@ -13,5 +13,6 @@
   "key_depth": 3.5,
   "key_press_travel": 3,
   "press_duration_ms": 80,
-  "notes": "Fixed-size keycaps translate down. No upper side is exposed. Flat case, no decorative captions."
+  "notes": "Fixed-size keycaps translate down. No upper side is exposed. Flat case, no decorative captions.",
+  "id": "graphite"
 }

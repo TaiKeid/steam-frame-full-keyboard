@@ -8,6 +8,7 @@ This repository contains the project foundation, the approved HTML visual refere
 
 - [Implementation plan](docs/plan.md)
 - [Architecture and unresolved integration questions](docs/architecture.md)
+- [Configuration and VR profile switching](docs/configuration.md)
 - [Acceptance checks](docs/acceptance.md)
 - [Visual reference](design/index.html)
 
@@ -40,7 +41,7 @@ Open `http://127.0.0.1:8767/`. A different port may be supplied as the first arg
 
 The approved appearance has a flat charcoal surface, grey gradient keycaps, white legends, rounded corners, and shallow raised sides. Keycaps move down at a fixed size when pressed. Preserve the 3.5px side depth and 3px press travel unless the design changes.
 
-## Layout and theme
+## Layouts, languages and themes
 
 `layouts/en-us.json` defines the native layout in unscaled design pixels, excluding outer case padding. It has 104 standard keys plus Copy and Paste. IDs distinguish left/right modifiers and main/numpad Enter. Actions use logical names rather than OS scan codes. Backends must explicitly map those names to their own codes.
 
@@ -48,7 +49,9 @@ The approved appearance has a flat charcoal surface, grey gradient keycaps, whit
 python3 tools/compile_layout.py layouts/en-us.json
 ```
 
-The validator checks text fields, unique IDs, finite positive dimensions, canvas bounds and non-overlapping hit regions. Building embeds the validated layout. Runtime loading of user layouts is planned later. `themes/graphite.json` records the renderer's visual targets and is not consumed by the bootstrap yet.
+The validator checks text fields, unique IDs, finite positive dimensions, canvas bounds and non-overlapping hit regions. Building embeds the validated layout. Runtime configuration is a core requirement of the next milestone. `themes/graphite.json` records the renderer's visual targets. `languages/` contains proposed English and German profiles, and `config/default.json` demonstrates active selection and favorites. These settings, languages and themes are not consumed by the bootstrap yet.
+
+Users will add JSON profiles under `~/.config/framekeyboard/` and select layouts, languages and themes in VR, with reload and persistent selection. Language support must include correct input mapping as well as translated key legends. See [the configuration contract](docs/configuration.md).
 
 `design/index.html` is a visual reference snapshot, not generated from the JSON. During native renderer work, compare geometry and behavior against it and document intentional differences.
 

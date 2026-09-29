@@ -4,7 +4,9 @@
 
 A native ARM64 keyboard for Steam Frame that appears through the existing system keyboard control, displays our custom layout, and delivers real key events to local desktop and floating applications. Enter remains Enter on our panel. The receiving application still decides whether Enter submits, searches, or inserts a newline.
 
-The first supported layout is full-size US English, including a function row, navigation cluster, arrows and numpad, with Copy and Paste at the far left. The visual reference is `design/index.html`. Speech, swipe typing, predictive text, PC-streamed VR input, and cross-session clipboard synchronization are outside the first release.
+The baseline geometry is full-size ANSI, including a function row, navigation cluster, arrows and numpad, with Copy and Paste at the far left. The visual reference is `design/index.html`. Speech, swipe typing, predictive text, PC-streamed VR input, and cross-session clipboard synchronization are outside the first release.
+
+Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
 ## Milestones
 
@@ -16,7 +18,18 @@ The first supported layout is full-size US English, including a function row, na
 - [x] Validate layout bounds, IDs and non-overlapping hit areas during build.
 - [x] Verify host executable and ARM64 cross-build; record the result in parent project notes.
 
-### 1. Native rendering reference
+### 1. Configuration foundation
+
+- [ ] Implement versioned runtime JSON loading for settings, layouts, languages and themes.
+- [ ] Discover bundled and user profiles, with stable IDs and validated overrides.
+- [ ] Provide a profile catalog and selection model shared by preview and VR UI.
+- [ ] Keep geometry, language mapping and appearance independent; no fixed key count.
+- [ ] Prepare transactional switching, release-all handling and atomic persistence.
+- [ ] Retain the working configuration on invalid files and provide a built-in fallback.
+
+Exit condition: host checks load an added layout, language and theme without rebuilding, reject invalid profiles, and preserve selection across restart. No input injection is needed for this milestone.
+
+### 2. Native rendering reference
 
 - [ ] Implement layout-to-canvas geometry and hit testing using the same coordinates.
 - [ ] Render the full keyboard to an image using Cairo and a bundled or verified target font.
@@ -27,7 +40,7 @@ The first supported layout is full-size US English, including a function row, na
 
 Exit condition: the native renderer matches the approved design and key hit regions match the visible caps. Redraw only on state changes and while animations are active.
 
-### 2. Manual VR panel and input proof
+### 3. Manual VR panel and input proof
 
 This is the first device milestone. Prove routing with a small set of keys before implementing the full keyboard behavior.
 
@@ -41,7 +54,7 @@ This is the first device milestone. Prove routing with a small set of keys befor
 
 Exit condition: both target modes receive the intended press/release sequences through a selected backend. If this fails, resolve it before takeover and full-layout behavior.
 
-### 3. Existing system button and stock takeover
+### 4. Existing system button and stock takeover
 
 - [ ] Observe keyboard open/close requests and target changes without inspecting text.
 - [ ] Establish whether OpenVR global keyboard events cover Frame's current keyboard.
@@ -54,19 +67,22 @@ Exit condition: both target modes receive the intended press/release sequences t
 
 Exit condition: the normal system keyboard control opens ours in both target modes, with verified stock input blocking and recovery. No promise of replacement is made before this passes.
 
-### 4. Complete interaction behavior
+### 5. Complete interaction behavior
 
 - [ ] Implement all US layout mappings, Shift/Caps/Num Lock, navigation, numpad and repeat.
 - [ ] One-shot Ctrl/Alt/Shift, visible state, deliberate lock behavior and a release-all action.
 - [ ] Send modifiers and their modified key through the same backend.
 - [ ] Handle multiple controller pointers without duplicate presses or lost releases.
 - [ ] Add size/placement settings and decide the location of close/settings controls with the user.
-- [ ] Load validated user layout/theme files at runtime with a built-in fallback.
-- [ ] Decide Unicode/composition support explicitly; first-release US key events are not universal text insertion.
+- [ ] Add VR selectors for layout, language and theme, favorites, preview and Reload profiles.
+- [ ] Switch and persist profiles without restart; release held keys before mapping changes.
+- [ ] Prove English and German output, Shift/AltGr legends and target keymap agreement in both Brave modes.
+- [ ] Support font fallback and shaped legends; identify unsupported language/input-method capabilities in VR.
+- [ ] Define and test dead-key, Compose, Unicode and IME support explicitly before advertising dependent languages.
 
 Exit condition: interaction matrix passes, including long press, cancellation, window switching and all modifier release paths.
 
-### 5. User-local packaging and recovery
+### 6. User-local packaging and recovery
 
 - [ ] Versioned ARM64 artifact, dependency/architecture verification and local staging.
 - [ ] Reversible installer/uninstaller with backups and settings preservation.
@@ -89,4 +105,4 @@ Exit condition: the user can install, disable, update and remove the keyboard wi
 | Will keyboard events identify the right overlay? | OpenVR header defines target-bearing events | Observe current Frame runtime behavior |
 | How are stuck keys and a hidden stock keyboard recovered after a crash? | No implementation yet | Independent recovery and crash tests |
 
-The critical path is rendering a small native panel, proving input/focus, then proving takeover. A completed visual layout does not establish any of those integration results.
+The critical path is establishing configurable profiles, rendering a small native panel, proving input/focus, then proving takeover. A completed visual layout does not establish any of those integration results.

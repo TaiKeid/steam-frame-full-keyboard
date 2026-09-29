@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "active": {
+    "layout": "en-us-full",
+    "language": "en-us",
+    "theme": "graphite"
+  },
+  "favorites": [
+    {
+      "id": "english",
+      "name": "English",
+      "layout": "en-us-full",
+      "language": "en-us",
+      "theme": "graphite"
+    },
+    {
+      "id": "german",
+      "name": "Deutsch",
+      "layout": "en-us-full",
+      "language": "de-de",
+      "theme": "graphite"
+    }
+  ]
+}

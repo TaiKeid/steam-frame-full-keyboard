@@ -5,6 +5,7 @@ Follow the parent SteamFrame instructions. This file describes project engineeri
 - Read `README.md`, `docs/plan.md`, and the relevant architecture section before implementation. Mark milestone checkboxes only after their acceptance conditions pass.
 - The approved appearance is `design/index.html`. Native key geometry is `layouts/en-us.json`; visual constants are `themes/graphite.json`. Keep fixed-size press movement, the flat case, shallow key sides, and left Copy/Paste keys.
 - Build source on CachyOS. Keep host and ARM64 output separate. Do not maintain a source checkout on Frame or run an ARM64 artifact on the host.
+- Treat file-based layouts, languages and themes with in-VR selection as core requirements. Read `docs/configuration.md`; keep key geometry, input mapping and styles independent. Do not equate relabeled keys with working language support.
 - Keep rendering, key state, input backend, and Steam takeover separate. No actual input delivery from UI rendering code.
 - Default development behavior must not send keys to the user's focused application. Test input with a dedicated receiver before application validation.
 - Do not log typed text, credentials, clipboard contents, or browser field values. Do not add clipboard reads for debugging.

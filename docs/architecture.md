@@ -6,7 +6,9 @@ Only the layout model and bootstrap executable exist today. The runtime componen
 
 | Component | Responsibility | Planned technology |
 | --- | --- | --- |
-| Layout model | Logical key IDs, bounds, labels and actions | JSON compiled to C++ initially; runtime loading later |
+| Configuration | Profile discovery, validation, selection, reload and persistence | Runtime JSON catalog with compiled fallback |
+| Layout model | Physical key IDs, bounds, fallback labels and actions | File-defined geometry |
+| Language model | Keymap, modifier-level legends, shaping and backend compatibility | Language profiles; XKB mapping candidate |
 | Key state | Pointer capture, key transitions, modifiers, repeat and cancellation | C++20, independent of renderer/backend |
 | Renderer | Draw key faces/sides/legends and animations | Cairo + font handling |
 | VR panel | Own overlay, pose, size, pointer events and texture submission | OpenVR + Vulkan |
@@ -21,6 +23,12 @@ Earlier discussion suggested OpenGL. The existing Frame performance overlay inst
 The renderer draws an image, then updates the GPU texture. The compositor reuses the submitted texture between updates. Short press animations need a bounded redraw loop; idle keys do not require a continuous CPU paint loop. Target measurements must determine the final render resolution and animation cadence.
 
 The HTML in `design/` is a design artifact only. It is not an embedded browser requirement for the native app.
+
+## Configuration and selection
+
+[Configuration](configuration.md) defines independent layout, language and theme profiles. Native rendering consumes the selected model, not hardcoded US keys or graphite colors. The VR settings panel uses the same catalog and validation as the host preview. Prepare a complete candidate before activation, release keys using the old mapping, and atomically replace geometry and hit regions. Persist the selection only after successful activation.
+
+The language model must negotiate with the input backend and receiving session. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
 
 ## Input and focus
 
