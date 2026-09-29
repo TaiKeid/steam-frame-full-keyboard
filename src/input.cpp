@@ -67,6 +67,12 @@ const std::map<std::string, int> key_codes = {{"Escape", KEY_ESC},
                                               {"Slash", KEY_SLASH},
                                               {"Space", KEY_SPACE},
                                               {"IntlBackslash", KEY_102ND},
+                                              {"IntlYen", KEY_YEN},
+                                              {"IntlRo", KEY_RO},
+                                              {"Convert", KEY_HENKAN},
+                                              {"NonConvert", KEY_MUHENKAN},
+                                              {"KanaMode", KEY_KATAKANAHIRAGANA},
+                                              {"ZenkakuHankaku", KEY_ZENKAKUHANKAKU},
                                               {"ControlLeft", KEY_LEFTCTRL},
                                               {"ControlRight", KEY_RIGHTCTRL},
                                               {"ShiftLeft", KEY_LEFTSHIFT},
@@ -321,7 +327,7 @@ void KeyboardState::release(int code) {
         references_.erase(found);
     }
 }
-bool KeyboardState::down(unsigned pointer, const Key& key, double now) {
+bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool local) {
     if (presses_.contains(pointer)) {
         return false;
     }
@@ -351,7 +357,10 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now) {
     const int action_code =
         key.action_kind == ActionKind::Shortcut ? (key.action == "copy" ? KEY_C : KEY_V) : code;
     press.codes.push_back(action_code);
-    if (key.action_kind == ActionKind::Key && code != KEY_CAPSLOCK && code != KEY_NUMLOCK &&
+    if (local) {
+        press.codes.clear(); // Local IME keeps visuals/holds but emits no physical keys.
+    }
+    if (!local && key.action_kind == ActionKind::Key && code != KEY_CAPSLOCK && code != KEY_NUMLOCK &&
         code != KEY_SCROLLLOCK && code != KEY_PAUSE && code != KEY_SYSRQ) {
         press.repeat_code = code;
         press.repeat_at = now + .5;

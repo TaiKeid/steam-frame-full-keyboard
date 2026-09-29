@@ -1,6 +1,7 @@
 #pragma once
 
 #include "instance.hpp"
+#include "japanese.hpp"
 #include "panel.hpp"
 #include "placement.hpp"
 #include <csignal>
@@ -24,6 +25,8 @@ class InputGate : public KeySink {
         }
     }
     bool pump() override { return target_.pump(); }
+    bool text_available() override { return target_.text_available(); }
+    bool commit_text(const std::string& text) override { return enabled && target_.commit_text(text); }
     bool enabled{false};
 
   private:
@@ -39,7 +42,7 @@ class App {
     bool move(unsigned pointer, double x, double y);
     // True when this pointer releases a captured keyboard key, even outside it.
     bool up(unsigned pointer, double x, double y);
-    void cancel();
+    void cancel(bool discard_composition = true);
     bool tick(double now);
     void paint(double now);
     void show_settings();
@@ -61,6 +64,9 @@ class App {
     std::vector<Control> controls() const;
     void action(const std::string& id);
     void refresh_typing();
+    bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
+    void commit_japanese();
+    bool japanese() const;
     Options options_;
     Profiles profiles_;
     Settings settings_;
@@ -70,6 +76,9 @@ class App {
     std::optional<Language> target_language_;
     InputGate gate_;
     KeyboardState keyboard_;
+    JapaneseComposer composition_;
+    bool japanese_latin_{};
+    bool text_ready_{};
     std::map<unsigned, std::string> hovered_, pressed_controls_;
     std::string status_;
     bool settings_open_{false}, quit_{false}, recenter_{false};

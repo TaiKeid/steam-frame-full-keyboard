@@ -7,12 +7,13 @@
 
 namespace framekeyboard {
 namespace {
-constexpr double toolbar_height = 96;
+constexpr double normal_toolbar_height = 96;
 struct Placement {
     double scale, x, y;
 };
 Placement placement(const PanelView& view) {
     const double margin = view.theme->padding;
+    const double toolbar_height = view.composing ? 208 : normal_toolbar_height;
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
@@ -157,8 +158,16 @@ void PanelRenderer::paint(const PanelView& view, double now) {
             }
             auto text =
                 view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
+            if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
+                text = custom->second;
+            }
             std::string secondary;
-            if (key.action_kind == ActionKind::Key && key.action.starts_with("Numpad")) {
+            if (view.key_labels.contains(key.id)) {
+                const auto small = view.language->kana_shift.find(key.action);
+                if (small != view.language->kana_shift.end() && small->second != text) {
+                    secondary = small->second;
+                }
+            } else if (key.action_kind == ActionKind::Key && key.action.starts_with("Numpad")) {
                 secondary = key.secondary_label;
             } else if (key.action_kind == ActionKind::Key && !text.empty() && text != key.label &&
                        text.size() < 5) {
@@ -182,9 +191,11 @@ void PanelRenderer::paint(const PanelView& view, double now) {
                 auto* upper = g_utf8_strup(text.c_str(), -1);
                 text = upper;
                 g_free(upper);
-                secondary.clear();
+                if (!view.key_labels.contains(key.id)) {
+                    secondary.clear();
+                }
             }
-            const bool utility = text.size() > 2 && !key.action.starts_with("Key");
+            const bool utility = g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key");
             if (!secondary.empty()) {
                 label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40},
                       t.small_font_size, view.language->font, t.legend, true);
@@ -196,6 +207,12 @@ void PanelRenderer::paint(const PanelView& view, double now) {
             }
         }
         cairo_restore(cr);
+    }
+    if (view.composing && !view.settings) {
+        label(cr,
+              view.preedit.empty() ? "Type → Space: convert · Enter: commit · Esc: cancel"
+                                   : view.preedit,
+              {20, 94, 1560, 40}, 27, view.language->font, t.legend);
     }
     for (const auto& control : view.controls) {
         rounded(cr, control.bounds, t.radius);

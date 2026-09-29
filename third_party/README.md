@@ -9,3 +9,9 @@ in comments and Git history. Application behavior lives in our own `src/` files.
 `openvr/openvr.h` is the Valve OpenVR 2.15.6 header from that same pinned tree.
 The adjacent BSD license was retrieved from Valve's OpenVR repository.
 The SDK library is supplied by the installed SteamVR runtime, not redistributed.
+
+## Gamescope input-method protocol
+
+`gamescope/gamescope-input-method.xml` comes from ValveSoftware/gamescope commit `6867f509874f9bc52e12d6f4c4596cdf0d5be6b4`, under the MIT license included in the XML. Wayland client stubs are generated at build time. Only version 1 text submission is used, feature-checked at runtime.
+
+Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary.

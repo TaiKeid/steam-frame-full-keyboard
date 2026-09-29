@@ -5,6 +5,7 @@
 
 namespace framekeyboard {
 EiSink::EiSink(const fs::path& socket) {
+    text_socket_ = socket.parent_path() / "gamescope-0";
     context_ = ei_new_sender(nullptr);
     if (!context_) {
         throw std::runtime_error("Cannot allocate compositor input connection");
@@ -30,9 +31,26 @@ EiSink::EiSink(const fs::path& socket) {
         throw;
     }
 }
+bool EiSink::text_available() {
+    if (!text_attempted_) {
+        text_attempted_ = true;
+        try {
+            text_ = std::make_unique<GamescopeText>(text_socket_.string());
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    return text_ && text_->ready();
+}
+bool EiSink::commit_text(const std::string& text) {
+    return held_.empty() && pump() && text_available() && text_->commit(text);
+}
 bool EiSink::pump() {
     if (disconnected_) {
         return false;
+    }
+    if (text_) {
+        text_->ready(); // Flush/dispatch only; no extra thread or blocking roundtrip.
     }
     ei_dispatch(context_);
     while (auto* event = ei_get_event(context_)) {

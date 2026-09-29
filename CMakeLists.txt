@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.3.8 LANGUAGES CXX)
+project(framekeyboard VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,7 +8,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo xkbcommon json-c)
-pkg_check_modules(EI REQUIRED IMPORTED_TARGET libei-1.0)
+pkg_check_modules(EI REQUIRED IMPORTED_TARGET libei-1.0 wayland-client)
+find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
+set(IME_XML "${CMAKE_CURRENT_SOURCE_DIR}/third_party/gamescope/gamescope-input-method.xml")
+set(IME_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/gamescope-input-method-client.h")
+set(IME_CODE "${CMAKE_CURRENT_BINARY_DIR}/generated/gamescope-input-method-protocol.cpp")
+add_custom_command(OUTPUT "${IME_HEADER}" "${IME_CODE}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    COMMAND "${WAYLAND_SCANNER}" client-header "${IME_XML}" "${IME_HEADER}"
+    COMMAND "${WAYLAND_SCANNER}" private-code "${IME_XML}" "${IME_CODE}"
+    DEPENDS "${IME_XML}" VERBATIM)
 pkg_check_modules(SDL REQUIRED IMPORTED_TARGET sdl2)
 pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
 
@@ -22,9 +31,10 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp "${PROFILE_HEADER}")
+set_source_files_properties("${IME_CODE}" PROPERTIES COMPILE_OPTIONS "-include;${IME_HEADER}")
+add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/text_input.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI)
+target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI ${CMAKE_DL_LIBS})
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
 # Link the matching architecture from the sysroot; embed only the device runtime path.
@@ -49,6 +59,9 @@ set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INS
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(japanese-tests tests/japanese_tests.cpp)
+    target_link_libraries(japanese-tests PRIVATE keyboard_core)
+    add_test(NAME japanese-input COMMAND japanese-tests)
     add_executable(keyboard-tests tests/keyboard_tests.cpp)
     target_link_libraries(keyboard-tests PRIVATE keyboard_core)
     target_compile_options(keyboard-tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -60,6 +73,8 @@ if(BUILD_TESTING)
     add_test(NAME placement-instance COMMAND placement-instance-tests)
     # Opt-in only: maps a disposable window and verifies focus before each key.
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
+    add_executable(japanese-target-probe tests/japanese_target_probe.cpp)
+    target_link_libraries(japanese-target-probe PRIVATE keyboard_core PkgConfig::X11)
     add_executable(ei-target-probe tests/ei_target_probe.cpp)
     target_link_libraries(ei-target-probe PRIVATE keyboard_core PkgConfig::X11)
     # Opt-in read-only validation against the installed Frame controller models.
@@ -78,7 +93,10 @@ if(BUILD_TESTING)
     target_link_libraries(uinput-smoke-test PRIVATE keyboard_core)
 endif()
 install(TARGETS framekeyboard RUNTIME DESTINATION bin)
+install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
 install(FILES third_party/README.md DESTINATION share/framekeyboard/licenses)
 install(FILES third_party/openvr/LICENSE DESTINATION share/framekeyboard/licenses RENAME OpenVR-LICENSE)
 install(FILES third_party/overlay_texture/LICENSE DESTINATION share/framekeyboard/licenses RENAME overlay-texture-LICENSE)
+
+install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION share/framekeyboard/licenses)

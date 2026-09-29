@@ -451,7 +451,8 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
                 if (!drag.active()) {
                     feedback.cancel();
-                    app.cancel();
+                    // Laser leave is not a change of the application's input target.
+                    app.cancel(false);
                 }
                 break;
             case vr::VREvent_OverlayHidden:

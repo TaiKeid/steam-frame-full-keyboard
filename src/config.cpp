@@ -252,8 +252,27 @@ Language parse_language(const std::string& json) {
     l.id = identifier(o, "id");
     l.name = text(o, "name");
     l.locale = text(o, "locale");
-    if (text(o, "input_method", "xkb", true) != "xkb") {
-        throw std::runtime_error("this version supports XKB keymaps, not IME composition");
+    l.input_method = text(o, "input_method", "xkb", true);
+    if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&
+        l.input_method != "japanese-kana") {
+        throw std::runtime_error("unsupported input method");
+    }
+    auto read_kana = [&](const char* field_name, auto& map) {
+        if (auto* entries = field(o, field_name, json_type_object, true)) {
+            json_object_object_foreach(entries, key, value) {
+                (void)value;
+                const auto kana = text(entries, key);
+                if (kana.empty() || kana.size() > 12) {
+                    throw std::runtime_error("invalid kana mapping");
+                }
+                map[key] = kana;
+            }
+        }
+    };
+    read_kana("kana", l.kana);
+    read_kana("kana_shift", l.kana_shift);
+    if (l.input_method == "japanese-kana" && l.kana.empty()) {
+        throw std::runtime_error("direct Kana needs a kana mapping");
     }
     auto* map = field(o, "keymap", json_type_object);
     l.rules = text(map, "rules");

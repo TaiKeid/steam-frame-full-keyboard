@@ -1,6 +1,6 @@
 # FrameKeyboard
 
-A native C++20 virtual keyboard for Steam Frame. Version 0.3.8 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
+A native C++20 virtual keyboard for Steam Frame. Version 0.4.0 provides a manually launched VR panel, a desktop preview, configurable layouts/languages/themes, and native Gamescope input through libei, plus an optional Linux uinput backend. It uses Cairo/Pango for drawing and Vulkan/OpenVR for the VR panel. It does not embed a browser.
 
 The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. Keycaps have shallow raised sides and move down without stretching. The original approved HTML remains in `design/index.html` as a design reference.
 
@@ -10,7 +10,7 @@ The full-size default includes real Enter, Ctrl/Alt, and left-side Copy/Paste. K
 - Close and reopen to restore position, rotation and size. Launch while running to recenter the existing panel. One VR process owns the keyboard.
 - Grip-to-move anywhere on the keyboard: point the laser at it, hold grab, move/turn your hand, then release.
 - Main-view smaller/larger icons, with controller grabbing for positioning.
-- US and international full-size layouts, English/German XKB legends, Graphite/Midnight themes.
+- US, international and Japanese JIS layouts; English/German XKB legends; Japanese romaji/kana composition and kanji candidates; Graphite/Midnight themes.
 - VR settings for layout, language and theme selection, favorites, reload and persistent selection.
 - One-shot modifier taps, held chords, repeat, release-all, cancellation and a ten-second missing-release timeout.
 - Firm haptic clicks on key press/release, with lighter feedback when entering a key.
@@ -21,7 +21,7 @@ The ARM64 core tests, offscreen rendering, isolated kernel-input test and VR ove
 
 ## Run on the development host
 
-Build dependencies: CMake 3.24+, Ninja, Python 3, a C++20 compiler, pkg-config, libei, Cairo, Pango, libxkbcommon, json-c, SDL2, Vulkan and the SteamVR OpenVR library. Python is used only during the build. Pass `-DOPENVR_LIBRARY=/path/to/libopenvr_api.so` if SteamVR is installed elsewhere.
+Build dependencies: CMake 3.24+, Ninja, Python 3, a C++20 compiler, pkg-config, libei, Cairo, Pango, libxkbcommon, json-c, SDL2, Vulkan and the SteamVR OpenVR library. Python and wayland-scanner are used only during the build. Japanese conversion loads the optional system Anthy library and dictionary on first use; Noto Sans CJK JP is recommended for Japanese text. Pass `-DOPENVR_LIBRARY=/path/to/libopenvr_api.so` if SteamVR is installed elsewhere.
 
 ```sh
 ./scripts/build.sh host
@@ -40,7 +40,7 @@ Build on CachyOS with the shared sibling ARM64 sysroot:
 
 ```sh
 ./scripts/package.sh
-scp out/framekeyboard-0.3.8-aarch64.tar.gz steamos@steam-frame:/tmp/
+scp out/framekeyboard-0.4.0-aarch64.tar.gz steamos@steam-frame:/tmp/
 ```
 
 On Frame, extract the package into a temporary directory and run its installer:
@@ -48,8 +48,8 @@ On Frame, extract the package into a temporary directory and run its installer:
 ```sh
 mkdir -p /tmp/framekeyboard-install
 cd /tmp/framekeyboard-install
-tar -xzf /tmp/framekeyboard-0.3.8-aarch64.tar.gz
-./framekeyboard-0.3.8-aarch64/install.sh
+tar -xzf /tmp/framekeyboard-0.4.0-aarch64.tar.gz
+./framekeyboard-0.4.0-aarch64/install.sh
 ```
 
 The installer keeps releases under `~/.local/share/framekeyboard/releases`, provides `~/.local/bin/framekeyboard`, and adds a desktop menu entry. The menu entry opens the keyboard with native compositor input enabled, assuming the receiving session uses US English.  It preserves user profiles and does not enable autostart. See [runtime and removal](docs/runtime.md).
@@ -66,7 +66,15 @@ Focus a disposable text field in the receiving app, then type on the panel. The 
 
 `--target-language` is an explicit statement about the target session's existing keymap. The program does not detect or change that session's language. For German, the target must already use German; launch explicitly with `--vr --input ei --target-language de-de`, then choose the Deutsch favorite in Settings. That favorite includes the extra physical language key.
 
-The selected profile must match the declared target language and its XKB definition captured at launch before input can be enabled. A saved mismatch opens with typing disabled so Settings remains accessible; choose a matching profile to recover. Reload cannot silently redefine the declared target keymap. Applying or reloading profiles releases held keys and enables typing only for an explicitly enabled launch with a matching target language and a live backend. IME composition, automatic target-keymap synchronization, lock-state synchronization with other keyboards and stock takeover are not implemented. The compositor backend connects to `/run/user/<uid>/gamescope-0-ei`; `--ei-socket` overrides that path. It works without restarting SteamVR. The optional uinput backend remains available, but the current outer VR session did not discover a newly created device. Development `--preview` and direct binary `--vr` remain input-disabled. For an installed VR preview, pass `--vr --input none`.
+The selected profile must match the declared target language and its XKB definition captured at launch before input can be enabled. A saved mismatch opens with typing disabled so Settings remains accessible; choose a matching profile to recover. Reload cannot silently redefine the declared target keymap. Applying or reloading profiles releases held keys and enables typing only for an explicitly enabled launch with a matching target language and a live backend. Automatic target-keymap synchronization, lock-state synchronization with other keyboards and stock takeover are not implemented. The compositor backend connects to `/run/user/<uid>/gamescope-0-ei`; `--ei-socket` overrides that path. It works without restarting SteamVR. The optional uinput backend remains available, but the current outer VR session did not discover a newly created device. Development `--preview` and direct binary `--vr` remain input-disabled. For an installed VR preview, pass `--vr --input none`.
+
+## Japanese input
+
+Open **Settings**, select **日本語 Romaji**, **日本語 Kana**, or **JIS (system IME)**, then **Apply and save**. The preset picks the matching geometry and preserves your theme. Romaji is the starting choice if you are unsure: type `nihon`, press Space, choose 日本, then Enter to commit. Enter only submits when there is no active composition.
+
+Romaji and direct Kana use the Frame's installed Anthy dictionary and an in-panel candidate strip. **あ / A** switches between Japanese composition and ordinary Latin keys. Hiragana/Katakana buttons (or F6/F7) change the composed script. The JIS system-IME option instead sends physical JIS keys to an IME already configured in the receiving session. It does not install or select that IME.
+
+See [Japanese controls and requirements](docs/japanese.md). The native UTF-8 path passed a dedicated Frame Xwayland receiver test; interaction in the user's Brave windows remains to be checked.
 
 ## Move, align and recover the keyboard
 

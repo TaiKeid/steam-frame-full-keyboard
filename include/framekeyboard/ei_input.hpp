@@ -1,5 +1,6 @@
 #pragma once
 #include "input.hpp"
+#include "text_input.hpp"
 #include <libei.h>
 
 namespace framekeyboard {
@@ -11,10 +12,15 @@ class EiSink : public KeySink {
     ~EiSink() override;
     void send(int code, int value) override;
     bool pump() override;
+    bool text_available() override;
+    bool commit_text(const std::string& text) override;
     EiSink(const EiSink&) = delete;
     EiSink& operator=(const EiSink&) = delete;
 
   private:
+    fs::path text_socket_;
+    std::unique_ptr<GamescopeText> text_;
+    bool text_attempted_{};
     ei* context_{};
     ei_device* keyboard_{};
     bool resumed_{}, disconnected_{};

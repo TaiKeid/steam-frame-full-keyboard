@@ -18,6 +18,8 @@ class KeySink {
     virtual ~KeySink() = default;
     virtual void send(int code, int value) = 0;
     virtual bool pump() { return true; }
+    virtual bool text_available() { return false; }
+    virtual bool commit_text(const std::string&) { return false; }
 };
 class NullSink : public KeySink {
   public:
@@ -55,7 +57,7 @@ class KeyboardState {
   public:
     explicit KeyboardState(KeySink& sink) : sink_(sink) {}
     ~KeyboardState();
-    bool down(unsigned pointer, const Key& key, double now);
+    bool down(unsigned pointer, const Key& key, double now, bool local = false);
     bool up(unsigned pointer);
     bool pointer_pressed(unsigned pointer) const { return presses_.contains(pointer); }
     void cancel_all();

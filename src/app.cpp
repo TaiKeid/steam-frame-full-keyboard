@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <glib.h>
 #include <stdexcept>
 #include <tuple>
 
@@ -62,8 +63,42 @@ std::vector<Control> App::controls() const {
         {"size-larger", "Larger keyboard", {530, 12, 60, 42}, false, ControlIcon::ScaleUp},
         {"close", "Close", {1450, 12, 132, 42}}};
     if (!settings_open_) {
+        if (japanese()) {
+            result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
+            if (!japanese_latin_) {
+                result.push_back({"ime-hiragana", "ひらがな", {735, 12, 120, 42}});
+                result.push_back({"ime-katakana", "カタカナ", {865, 12, 120, 42}});
+                result.push_back({"ime-commit", "確定 / Commit", {995, 12, 180, 42}});
+                result.push_back({"ime-cancel", "Cancel", {1185, 12, 110, 42}});
+                const auto candidates = composition_.candidates();
+                if (!candidates.empty()) {
+                    result.push_back({"ime-prev", "↑", {20, 148, 55, 42}});
+                    const int page = composition_.selected() / 5 * 5;
+                    for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size()));
+                         ++i) {
+                        result.push_back(
+                            {"ime-candidate-" + std::to_string(i),
+                             std::to_string(i + 1) + " " + candidates[static_cast<std::size_t>(i)],
+                             {85.0 + (i - page) * 240, 148, 230, 42},
+                             i == composition_.selected()});
+                    }
+                    result.push_back({"ime-next", "↓", {1290, 148, 55, 42}});
+                    result.push_back({"ime-segment-prev", "←", {1355, 148, 55, 42}});
+                    result.push_back({"ime-segment-next", "→", {1420, 148, 55, 42}});
+                    result.push_back({"ime-segment-label",
+                                      std::to_string(composition_.active_segment() + 1) + "/" +
+                                          std::to_string(composition_.segment_count()),
+                                      {1485, 148, 90, 42}});
+                } else {
+                    result.push_back({"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
+                }
+            }
+        }
         return result;
     }
+    result.push_back({"preset-ja-romaji", "日本語 Romaji", {610, 12, 230, 42}});
+    result.push_back({"preset-ja-kana", "日本語 Kana", {850, 12, 230, 42}});
+    result.push_back({"preset-ja-jis", "JIS (system IME)", {1090, 12, 250, 42}});
     auto row = [&](const std::string& kind, const std::string& name, double y) {
         result.push_back({kind + "-prev", "<", {40, y, 65, 64}});
         result.push_back({kind + "-label", name, {115, y, 1370, 64}});
@@ -109,6 +144,27 @@ PanelView App::view() const {
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
     v.settings = settings_open_;
+    v.composing = japanese() && !japanese_latin_;
+    if (v.composing) {
+        v.preedit = composition_.preedit(true);
+        if (v.language->input_method == "japanese-kana") {
+            const auto mods = keyboard_.modifiers();
+            const bool shifted =
+                mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+            for (const auto& key : v.layout->keys) {
+                const auto& map = shifted && v.language->kana_shift.contains(key.action)
+                                      ? v.language->kana_shift
+                                      : v.language->kana;
+                if (auto it = map.find(key.action); it != map.end()) {
+                    v.key_labels[key.id] = it->second;
+                }
+            }
+        }
+    }
+    if (japanese() && options_.input != "none" && !text_ready_) {
+        v.status =
+            "Japanese text delivery unavailable; conversion preview only. English remains available.";
+    }
     for (const auto& [pointer, id] : hovered_) {
         (void)pointer;
         v.hovered.insert(id);
@@ -151,7 +207,23 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
-        const bool accepted = keyboard_.down(pointer, *key, now);
+        const auto modifiers = keyboard_.modifiers();
+        const bool local = japanese_key(*key, false, modifiers);
+        const bool accepted = keyboard_.down(pointer, *key, now, local);
+        if (accepted && !local && key->action_kind == ActionKind::Shortcut) {
+            composition_.cancel();
+        }
+        if (accepted && !local && key->action_kind == ActionKind::Key &&
+            !is_modifier(key_code(key->action)) && !composition_.empty()) {
+            composition_.cancel();
+        }
+        if (accepted && local) {
+            try {
+                japanese_key(*key, true, modifiers);
+            } catch (const std::exception& error) {
+                status_ = error.what();
+            }
+        }
         dirty |= accepted;
         return accepted;
     }
@@ -177,7 +249,10 @@ bool App::up(unsigned pointer, double x, double y) {
     return key_released;
 }
 
-void App::cancel() {
+void App::cancel(bool discard_composition) {
+    if (discard_composition) {
+        composition_.cancel();
+    }
     keyboard_.cancel_all();
     pressed_controls_.clear();
     hovered_.clear();
@@ -198,6 +273,7 @@ void App::paint(double now) {
 }
 void App::set_dragging(bool dragging) {
     cancel();
+    composition_.cancel();
     dragging_ = dragging;
     status_.clear();
 }
@@ -207,6 +283,7 @@ void App::report_status(const std::string& message) {
 }
 void App::show_settings() {
     cancel();
+    composition_.cancel();
     settings_open_ = true;
     pending_ = settings_.active;
     dirty = true;
@@ -214,6 +291,7 @@ void App::show_settings() {
 void App::summon() {
     // Release held keys before moving; keep the input connection unchanged.
     cancel();
+    composition_.cancel();
     settings_open_ = false;
     placement_actions_.clear();
     recenter_ = true;
@@ -228,6 +306,8 @@ void App::apply(Selection selection) {
     validate_selection(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     cancel();
+    composition_.cancel();
+    japanese_latin_ = false;
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
@@ -246,6 +326,7 @@ void App::reload() {
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
     cancel();
+    composition_.cancel();
     profiles_ = std::move(candidate);
     keymap_ = std::move(keymap);
     const auto updated_settings = load_settings(options_.config_dir, profiles_.errors);
@@ -255,14 +336,130 @@ void App::reload() {
     refresh_typing();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
 }
+bool App::japanese() const {
+    return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
+}
 void App::refresh_typing() {
-    // A profile change releases keys first. Resume only an explicitly enabled
-    // launch with a live backend and a keymap matching the receiving session.
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    text_ready_ = japanese() && gate_.text_available();
+    // Integrated IME consumes characters locally; raw shortcuts still require
+    // the declared physical keymap. External JIS uses the ordinary strict gate.
+    const bool matching = target_language_ && same_keymap(*target_language_, language) &&
+                          (japanese() || options_.target_language == settings_.active.language);
     gate_.enabled = options_.start_enabled && options_.mode == "vr" &&
-                    (options_.input == "ei" || options_.input == "uinput") && target_language_ &&
-                    options_.target_language == settings_.active.language &&
-                    same_keymap(*target_language_, profiles_.languages.at(settings_.active.language)) &&
-                    gate_.pump();
+                    (options_.input == "ei" || options_.input == "uinput") && matching &&
+                    (!japanese() || text_ready_) && gate_.pump();
+}
+void App::commit_japanese() {
+    const auto text = composition_.commit_text();
+    if (text.empty()) {
+        return;
+    }
+    if (options_.input == "none") {
+        composition_.cancel();
+        status_ = "Preview: composition committed locally.";
+    } else if (gate_.commit_text(text)) {
+        composition_.cancel();
+        status_.clear();
+    } else {
+        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+    }
+}
+bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) {
+    if (!japanese() || key.action_kind != ActionKind::Key) {
+        return false;
+    }
+    const auto& code = key.action;
+    if (code == "ZenkakuHankaku" || code == "KanaMode") {
+        if (execute) {
+            composition_.cancel();
+            japanese_latin_ = !japanese_latin_;
+        }
+        return true;
+    }
+    if (japanese_latin_) {
+        return false;
+    }
+    for (const char* modifier :
+         {"ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"}) {
+        if (mods.contains(key_code(modifier))) {
+            return false;
+        }
+    }
+    const bool shift = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    const bool composing = !composition_.empty();
+    if (code == "Convert" || (code == "Space" && composing)) {
+        if (execute) {
+            if (shift && composition_.converting()) {
+                composition_.cycle(-1);
+            } else {
+                composition_.convert();
+            }
+        }
+        return true;
+    }
+    if (code == "NonConvert" || (composing && (code == "F6" || code == "F7"))) {
+        if (execute) {
+            composition_.script(code == "F7");
+        }
+        return true;
+    }
+    if (composing &&
+        (code == "Enter" || code == "NumpadEnter" || code == "Backspace" || code == "Escape" ||
+         code == "ArrowLeft" || code == "ArrowRight" || code == "ArrowUp" || code == "ArrowDown")) {
+        if (execute) {
+            if (code == "Enter" || code == "NumpadEnter") {
+                commit_japanese();
+            } else if (code == "Backspace") {
+                composition_.backspace();
+            } else if (code == "Escape") {
+                if (composition_.converting()) {
+                    composition_.unconvert();
+                } else {
+                    composition_.cancel();
+                }
+            } else if (code == "ArrowLeft" || code == "ArrowRight") {
+                composition_.segment(code == "ArrowLeft" ? -1 : 1);
+            } else {
+                composition_.cycle(code == "ArrowUp" ? -1 : 1);
+            }
+        }
+        return true;
+    }
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    if (language.input_method == "japanese-kana") {
+        const auto& map =
+            shift && language.kana_shift.contains(code) ? language.kana_shift : language.kana;
+        if (auto it = map.find(code); it != map.end()) {
+            if (execute) {
+                if (composition_.converting()) {
+                    commit_japanese();
+                    if (!composition_.empty()) {
+                        return true;
+                    }
+                }
+                composition_.kana(it->second == "゛"   ? "\u3099"
+                                  : it->second == "゜" ? "\u309a"
+                                                       : it->second);
+            }
+            return true;
+        }
+        return false;
+    }
+    const auto legend = keymap_->legend(key, mods, keyboard_.caps(), keyboard_.num());
+    if (legend.size() == 1 && g_ascii_isprint(legend[0]) && !is_modifier(key_code(code))) {
+        if (execute) {
+            if (composition_.converting()) {
+                commit_japanese();
+                if (!composition_.empty()) {
+                    return true;
+                }
+            }
+            composition_.roman(legend[0]);
+        }
+        return true;
+    }
+    return false;
 }
 void App::action(const std::string& id) {
     const std::map<std::string, PlacementAction> adjustments = {
@@ -272,12 +469,39 @@ void App::action(const std::string& id) {
         placement_actions_.push_back(adjustment->second);
         return;
     }
+    if (id.starts_with("preset-ja-")) {
+        pending_.language = id.substr(7);
+        pending_.layout = pending_.language == "ja-romaji" ? "en-us-full" : "ja-jis-full";
+        return;
+    }
+    if (id.starts_with("ime-")) {
+        if (id == "ime-toggle") {
+            composition_.cancel();
+            japanese_latin_ = !japanese_latin_;
+        } else if (id == "ime-convert") {
+            composition_.convert();
+        } else if (id == "ime-commit") {
+            commit_japanese();
+        } else if (id == "ime-cancel") {
+            composition_.cancel();
+        } else if (id == "ime-hiragana" || id == "ime-katakana") {
+            composition_.script(id == "ime-katakana");
+        } else if (id == "ime-next" || id == "ime-prev") {
+            composition_.cycle(id == "ime-next" ? 1 : -1);
+        } else if (id == "ime-segment-next" || id == "ime-segment-prev") {
+            composition_.segment(id == "ime-segment-next" ? 1 : -1);
+        } else if (id.starts_with("ime-candidate-")) {
+            composition_.choose(std::stoi(id.substr(14)));
+        }
+        return;
+    }
     if (id == "close") {
         cancel();
         gate_.enabled = false;
         quit_ = true;
     } else if (id == "release") {
         cancel();
+        composition_.cancel();
     } else if (id == "settings") {
         if (settings_open_) {
             cancel();
@@ -287,6 +511,7 @@ void App::action(const std::string& id) {
         }
     } else if (id == "recenter") {
         cancel();
+        composition_.cancel();
         placement_actions_.clear();
         recenter_ = true;
     } else if (id == "apply") {
@@ -298,6 +523,9 @@ void App::action(const std::string& id) {
         cycle(profiles_.layouts, pending_.layout, id.ends_with("next"));
     } else if (id == "language-next" || id == "language-prev") {
         cycle(profiles_.languages, pending_.language, id.ends_with("next"));
+        if (pending_.language == "ja-kana" || pending_.language == "ja-jis") {
+            pending_.layout = "ja-jis-full";
+        }
     } else if (id == "theme-next" || id == "theme-prev") {
         cycle(profiles_.themes, pending_.theme, id.ends_with("next"));
     } else if ((id == "favorite-next" || id == "favorite-prev") && !settings_.favorites.empty()) {
