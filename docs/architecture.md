@@ -20,7 +20,7 @@ Version 0.1.0 implements the configuration catalog, key-state engine, native ren
 
 Earlier discussion suggested OpenGL. The existing Frame performance overlay instead uses Cairo plus persistent Vulkan textures submitted through OpenVR. Its source documents flicker from replacing raw overlay images. Use its rendering strategy as a reference, while keeping this project independent. Confirm any reused code's license and pin its revision before copying it.
 
-The renderer draws an image, then updates the GPU texture. The compositor reuses the submitted texture between updates. Short press animations need a bounded redraw loop; idle keys do not require a continuous CPU paint loop. Target measurements must determine the final render resolution and animation cadence.
+The renderer draws an image, then updates the GPU texture. The compositor reuses the submitted texture between updates. Short press animations need a bounded redraw loop; idle keys do not require a continuous CPU paint loop. The VR event loop sleeps 16 ms during laser interaction, dragging or animation, 50 ms while visible and idle, and 250 ms while hidden for invalid headset tracking. Hidden panels skip native controller-component queries. Stationary, fully aligned panels skip transform updates. These intervals control polling, not compositor presentation; SteamVR presents the existing texture independently.
 
 The HTML in `design/` is a design artifact only. It is not an embedded browser requirement for the native app.
 

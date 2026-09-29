@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
+#include <tuple>
 
 namespace framekeyboard {
 volatile std::sig_atomic_t interrupted = 0;
@@ -10,6 +11,10 @@ double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 namespace {
+bool same_keymap(const Language& a, const Language& b) {
+    return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
+           std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
+}
 template <class ProfilesMap> void cycle(const ProfilesMap& map, std::string& id, bool next) {
     auto it = map.find(id);
     if (it == map.end()) {
@@ -41,14 +46,12 @@ App::App(const Options& options, KeySink& sink)
     keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
     pending_ = settings_.active;
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
-    if (options_.start_enabled) {
-        if ((options_.input != "uinput" && options_.input != "ei") || options_.mode != "vr" ||
-            options_.target_language != settings_.active.language) {
-            throw std::runtime_error(
-                "Typing startup requires a matching target language and VR input backend");
-        }
-        gate_.enabled = true;
+    if (const auto target = profiles_.languages.find(options_.target_language);
+        target != profiles_.languages.end()) {
+        target_language_ = target->second;
     }
+    // A saved language mismatch must leave Settings reachable, not abort launch.
+    refresh_typing();
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result = {
@@ -101,10 +104,9 @@ PanelView App::view() const {
     v.controls = controls();
     v.status = dragging_ ? "Release grab to place keyboard" : status_;
     if (v.status.empty() && !gate_.enabled) {
-        v.status =
-            options_.input == "none"
-                ? "Preview only: this launch cannot type."
-                : "Typing unavailable. Reopen with a matching target language and --start-enabled.";
+        v.status = options_.input == "none"
+                       ? "Preview only: this launch cannot type."
+                       : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
     v.settings = settings_open_;
     for (const auto& [pointer, id] : hovered_) {
@@ -257,8 +259,10 @@ void App::refresh_typing() {
     // A profile change releases keys first. Resume only an explicitly enabled
     // launch with a live backend and a keymap matching the receiving session.
     gate_.enabled = options_.start_enabled && options_.mode == "vr" &&
-                    (options_.input == "ei" || options_.input == "uinput") &&
-                    options_.target_language == settings_.active.language && gate_.pump();
+                    (options_.input == "ei" || options_.input == "uinput") && target_language_ &&
+                    options_.target_language == settings_.active.language &&
+                    same_keymap(*target_language_, profiles_.languages.at(settings_.active.language)) &&
+                    gate_.pump();
 }
 void App::action(const std::string& id) {
     const std::map<std::string, PlacementAction> adjustments = {

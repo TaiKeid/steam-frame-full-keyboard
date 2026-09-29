@@ -335,6 +335,7 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now) {
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
     if (is_modifier(code)) {
         press.modifier = code;
+        press.used = references_.contains(code);
         presses_.emplace(pointer, std::move(press));
         return true;
     }
@@ -382,6 +383,23 @@ bool KeyboardState::up(unsigned pointer) {
         return false;
     }
     auto& press = found->second;
+    if (press.modifier && press.used) {
+        const bool another_hold = std::any_of(presses_.begin(), presses_.end(), [&](const auto& item) {
+            return item.first != pointer && item.second.modifier == press.modifier;
+        });
+        if (!another_hold) {
+            // Chords borrow held modifiers. Releasing the modifier must remove
+            // those borrowed references now, even if the ordinary key stays down.
+            for (auto& [id, held] : presses_) {
+                (void)id;
+                const auto code = std::find(held.codes.begin(), held.codes.end(), press.modifier);
+                if (code != held.codes.end()) {
+                    release(*code);
+                    held.codes.erase(code);
+                }
+            }
+        }
+    }
     if (press.modifier && !press.used) {
         if (!latched_.erase(press.modifier)) {
             latched_.insert(press.modifier);

@@ -55,6 +55,11 @@ struct GrabSample {
 };
 class GrabInput {
   public:
+    void reset() {
+        for (auto& latch : latches_) {
+            latch.reset();
+        }
+    }
     bool connect() {
         auto* input = vr::VRInput();
         if (!input || !vr::VRRenderModels()) {
@@ -372,7 +377,12 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             app.summon();
             show_pending = true;
         }
-        const auto grips = grip_input.poll();
+        // Hidden panels cannot be grabbed. Do not query both render models in
+        // standby; require a released grip sample again when the panel returns.
+        if (!visible) {
+            grip_input.reset();
+        }
+        const auto grips = visible ? grip_input.poll() : std::array<GrabSample, 2>{};
         vr::VREvent_t event{};
         while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
             if (event.eventType == vr::VREvent_Quit) {
@@ -577,19 +587,24 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     std::cout << "FrameKeyboard overlay visible.\n" << std::flush;
                 }
             }
-            next_tracking_check = now + .1;
+            next_tracking_check = now + (visible ? .1 : .25);
         }
-        if (visible && placement.ready()) {
+        if (visible && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
         }
-        if (visible && app.tick(now)) {
+        const bool repaint = app.tick(now);
+        if (visible && repaint) {
             app.paint(now);
             panel.submit(app.renderer);
-        } else {
-            app.tick(now);
         }
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds((drag.active() || app.renderer.animating()) ? 16 : 20));
+        const bool pointing = std::any_of(hovered_devices.begin(), hovered_devices.end(),
+                                          [](bool hovered) { return hovered; });
+        const bool interactive =
+            pointing || drag.active() || horizon.animating() || app.renderer.animating();
+        // Redrawing is still event-driven. These intervals only govern input
+        // polling; SteamVR continues presenting the existing texture itself.
+        const int wait_ms = !visible ? 250 : (interactive ? 16 : 50);
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
     }
     app.cancel();
     if (displayed.ready()) {

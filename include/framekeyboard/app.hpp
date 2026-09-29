@@ -4,6 +4,7 @@
 #include "panel.hpp"
 #include "placement.hpp"
 #include <csignal>
+#include <optional>
 
 namespace framekeyboard {
 struct Options {
@@ -65,6 +66,8 @@ class App {
     Settings settings_;
     Selection pending_;
     std::unique_ptr<LanguageMap> keymap_;
+    // The launch declaration is frozen; Reload cannot redefine the target.
+    std::optional<Language> target_language_;
     InputGate gate_;
     KeyboardState keyboard_;
     std::map<unsigned, std::string> hovered_, pressed_controls_;

@@ -156,8 +156,10 @@ void horizon_tests() {
         const auto raw = rolled(degrees);
         near(roll_degrees(horizon.update(raw, 10)), degrees, "alignment starts without a jump");
         near(roll_degrees(horizon.update(raw, 10.125)), degrees * .84375, "500 ms smoothstep eases in");
+        require(horizon.animating(), "horizon requests fast updates during easing");
         near(roll_degrees(horizon.update(raw, 10.25)), degrees * .5, "halfway roll");
         const auto aligned = horizon.update(raw, 10.5);
+        require(!horizon.animating(), "completed easing permits idle polling");
         for (int r = 0; r < 3; ++r) {
             for (int c = 0; c < 4; ++c) {
                 near(aligned[r][c], level[r][c], "alignment preserves heading, pitch and position");
@@ -441,6 +443,21 @@ struct RecordingSink : fk::KeySink {
     void send(int code, int value) override { events.emplace_back(code, value); }
     bool pump() override { return ready; }
 };
+void type_a(fk::App& app) {
+    // Find a real rendered key hit region, not a hardcoded toolbar coordinate.
+    const auto view = app.view();
+    for (int y = 96; y < fk::panel_height; y += 2) {
+        for (int x = 0; x < fk::panel_width; x += 2) {
+            auto* key = app.renderer.hit_key(view, x, y);
+            if (key && key->id == "KeyA") {
+                app.down(0, x, y, 1);
+                app.up(0, x, y);
+                return;
+            }
+        }
+    }
+    throw std::runtime_error("A key hit region missing");
+}
 void typing_tests() {
     TemporaryDirectory temp;
     fk::Options options;
@@ -451,21 +468,7 @@ void typing_tests() {
     options.start_enabled = true;
     RecordingSink sink;
     fk::App app(options, sink);
-    auto type_key = [&] {
-        // Find a real rendered key hit region, not a hardcoded toolbar coordinate.
-        const auto view = app.view();
-        for (int y = 96; y < fk::panel_height; y += 2) {
-            for (int x = 0; x < fk::panel_width; x += 2) {
-                auto* key = app.renderer.hit_key(view, x, y);
-                if (key && key->id == "KeyA") {
-                    app.down(0, x, y, 1);
-                    app.up(0, x, y);
-                    return;
-                }
-            }
-        }
-        throw std::runtime_error("A key hit region missing");
-    };
+    auto type_key = [&] { type_a(app); };
     type_key();
     require(sink.events == std::vector<std::pair<int, int>>{{30, 1}, {30, 0}},
             "typing launcher delivers key events");
@@ -490,6 +493,81 @@ void typing_tests() {
     type_key();
     require(sink.events.size() == 8, "lost backend disables typing");
     require(app.view().status.find("connection lost") != std::string::npos, "lost backend is visible");
+}
+void language_recovery_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    options.mode = "vr";
+    options.input = "ei";
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    RecordingSink sink;
+    {
+        fk::App first(options, sink);
+        first.apply({"international-full", "de-de", "graphite"});
+    }
+    fk::App reopened(options, sink);
+    type_a(reopened);
+    require(sink.events.empty(), "saved mismatch opens without emitting input");
+    reopened.show_settings();
+    require(reopened.view().settings, "mismatched saved language leaves Settings reachable");
+    reopened.apply({"en-us-full", "en-us", "graphite"});
+    reopened.summon();
+    type_a(reopened);
+    require(sink.events.size() == 2, "matching selection recovers after reopening");
+
+    const std::string original = R"PROFILE({
+  "schema_version": 1,
+  "id": "en-us",
+  "name": "English (US)",
+  "locale": "en-US",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ]
+}
+)PROFILE";
+    auto changed = original;
+    const auto offset = changed.find("\"layout\": \"us\"");
+    require(offset != std::string::npos, "language fixture has a US keymap");
+    changed.replace(offset, std::string("\"layout\": \"us\"").size(), "\"layout\": \"de\"");
+    fk::fs::create_directories(temp.path / "languages");
+    const auto path = temp.path / "languages/en-us.json";
+    {
+        std::ofstream file(path);
+        file << changed;
+    }
+    reopened.reload();
+    require(reopened.view().language->keymap == "de", "same-ID edit loads for preview");
+    type_a(reopened);
+    reopened.apply({"en-us-full", "en-us", "midnight"});
+    type_a(reopened);
+    require(sink.events.size() == 2, "Reload and Apply cannot redefine the launch target keymap");
+    {
+        std::ofstream file(path);
+        file << original;
+    }
+    reopened.reload();
+    type_a(reopened);
+    require(sink.events.size() == 4, "restoring the declared keymap restores typing");
+
+    options.start_enabled = false;
+    fk::App preview(options, sink);
+    preview.reload();
+    type_a(preview);
+    require(sink.events.size() == 4, "recovery never enables a launch without explicit opt-in");
 }
 void ui_tests() {
     TemporaryDirectory temp;
@@ -538,6 +616,7 @@ int main() {
         instance_tests();
         ui_tests();
         typing_tests();
+        language_recovery_tests();
         std::cout << "Placement, repeated-launch IPC, stale-owner recovery and placement UI passed.\n";
         return 0;
     } catch (const std::exception& error) {

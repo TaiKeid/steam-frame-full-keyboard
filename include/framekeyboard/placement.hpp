@@ -10,10 +10,11 @@ class HorizonAlignment {
   public:
     Transform update(const Transform& raw, double now);
     void reset() { *this = {}; }
+    bool animating() const { return animating_; }
 
   private:
     double started_{}, from_correction_{}, correction_{};
-    bool within_threshold_{};
+    bool within_threshold_{}, animating_{};
 };
 enum class PlacementAction {
     Left,

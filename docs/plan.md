@@ -8,6 +8,10 @@ The baseline geometry is full-size ANSI, including a function row, navigation cl
 
 Layouts, languages and themes must load from user-editable config files. Provide profile selection, reload and favorite combinations inside VR, with persistent selection. US English and German are the first language validation targets; additional languages must not require renderer changes. See [the configuration contract](configuration.md).
 
+## Version 0.3.8 follow-up
+
+Keep Settings accessible when a saved language mismatches the launch target. Freeze the target XKB definition across profile reloads. Release physically held modifiers immediately even when a chord key remains down. Reduce idle and hidden VR polling while retaining the interaction cadence and event-driven rendering.
+
 ## Version 0.3.7 follow-up
 
 Remove Move / align and Pause typing from the toolbar. Add native minus/plus zoom icons for 5 cm width adjustments in the main view. Preserve explicit typing opt-in and target-language checks when applying or reloading profiles.

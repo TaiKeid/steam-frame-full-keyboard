@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <linux/input-event-codes.h>
@@ -85,6 +86,32 @@ void state_tests(const fk::Layout& layout) {
     state.up(0);
     state.up(1);
     require(state.modifiers().empty(), "a modifier used while held must not latch on release");
+    for (const auto* modifier : {"ControlLeft", "ShiftLeft", "AltLeft"}) {
+        sink.events.clear();
+        const int code = fk::key_code(modifier);
+        state.down(0, key(layout, modifier), 4);
+        state.down(1, key(layout, "KeyA"), 4.1);
+        state.up(0);
+        require(sink.events.back() == std::pair<int, int>{code, 0},
+                "releasing held modifier reaches backend before ordinary key release");
+        require(!state.modifiers().contains(code), "released modifier does not affect next key");
+        state.down(0, key(layout, "KeyB"), 4.2);
+        state.up(0);
+        state.up(1);
+        require(std::count(sink.events.begin(), sink.events.end(), std::pair<int, int>{code, 1}) == 1 &&
+                    std::count(sink.events.begin(), sink.events.end(), std::pair<int, int>{code, 0}) ==
+                        1,
+                "next key neither reacquires nor double-releases the old modifier");
+    }
+    sink.events.clear();
+    state.down(0, key(layout, "ControlLeft"), 4);
+    state.down(1, key(layout, "KeyA"), 4.1);
+    state.down(2, key(layout, "ControlLeft"), 4.2);
+    state.up(0);
+    require(state.modifiers().contains(KEY_LEFTCTRL), "another hold retains the same modifier");
+    state.up(2);
+    require(!state.modifiers().contains(KEY_LEFTCTRL), "last modifier hold releases without latching");
+    state.up(1);
     sink.events.clear();
     state.down(0, key(layout, "Backspace"), 5);
     state.tick(5.49);
