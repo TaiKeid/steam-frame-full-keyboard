@@ -101,7 +101,7 @@ Keep `~/.config/framekeyboard` if you want to preserve themes, layouts, and plac
 
 ## Developer diagnostics
 
-Desktop preview and PNG export never inject input. A direct `--vr` binary launch also starts input-disabled unless a backend, target language, and `--start-enabled` are supplied. For an input-disabled installed VR check, close any running instance first, then use:
+Desktop preview and PNG export never inject input. A direct `--vr` binary launch also starts input-disabled unless a backend and `--start-enabled` are supplied. Normal compositor input does not require `--target-language`; physical uinput and external Japanese JIS mode still require a matching target declaration. For an input-disabled installed VR check, close any running instance first, then use:
 
 ```sh
 ~/.local/bin/framekeyboard --vr --input none --duration 4 --config-dir /tmp/full-keyboard-smoke
