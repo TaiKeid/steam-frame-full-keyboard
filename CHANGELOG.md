@@ -1,9 +1,11 @@
 # Changelog
 
-## 0.4.13: First release
+## 0.5.0: First release
 
 Full Keyboard for Steam Frame is a separately launched alternative keyboard for the Frame dashboard and local apps. It does not replace the stock keyboard or send input to streamed VR applications.
 
+- Composition commits before ordinary spaces, digits and punctuation, with failed-delivery protection.
+- Chinese/Korean engines load on demand; missing libraries leave the rest of the keyboard usable.
 - Added French, Spanish, Italian, Brazilian ABNT2, Russian and Ukrainian profiles, Simplified/Traditional Pinyin candidates, and Korean two-set Hangul composition. Language settings and system-layout limitations are documented.
 - Sticky left Super and momentary native right Super, with monochrome Frame and SteamOS icons.
 - Full-size keyboard with F1–F12, arrow and navigation keys, numpad, Ctrl/Alt/Shift, and dedicated Copy/Paste buttons.

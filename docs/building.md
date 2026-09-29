@@ -4,7 +4,7 @@ Most users should install the ARM64 archive described in the [README](../README.
 
 ## Dependencies
 
-Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, libei, Wayland, SDL2, and Vulkan. The build uses the host `wayland-scanner`. Tests also need X11 development files. Chinese/Korean release builds also need PyZy development headers/library and libhangul. Frame supplies both and the PyZy system dictionary; include their libraries in a curated sysroot. Host builds may omit these engines, but then cannot activate their composition profiles. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
+Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, libei, Wayland, SDL2, and Vulkan. The build uses the host `wayland-scanner`. Tests also need X11 development files. Chinese/Korean release builds also need PyZy development headers/library and libhangul. Frame supplies both and the PyZy system dictionary; include their libraries in a curated sysroot. Host builds may omit these engines, but then cannot activate their composition profiles. Runtime adapters are loaded on demand from the release's `lib/framekeyboard/` directory; they are built alongside development executables in `engines/`. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
 
 The OpenVR header is vendored, but `libopenvr_api.so` comes from an installed SteamVR runtime or a separately supplied SDK library. The build searches common Linux Steam paths. Override discovery with `-DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so` when configuring CMake.
 
@@ -22,6 +22,8 @@ With a custom OpenVR path, configure before running the build script:
 ```sh
 cmake --preset host -DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so
 ```
+
+CTest reports unavailable `korean-input` and `chinese-input` suites as **Skipped**, not passed. For release validation on Frame, set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1`; unavailable engines then fail. Copy `engines/` beside transferred test executables. Run `python3 tests/engine_loading_tests.py build/host/language-tests` to check missing-module recovery in isolated copies.
 
 The preview uses the same renderer, key state, and settings as VR but never injects OS input. `scripts/preview.sh` serves the older HTML layout study, not the application.
 

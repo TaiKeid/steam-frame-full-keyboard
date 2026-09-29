@@ -101,7 +101,14 @@ The renderer reserves space for preedit/candidates during Japanese, Chinese and 
 
 ## Chinese and Korean composition
 
-`CjkComposer` keeps bounded Pinyin or two-set Hangul state. PyZy supplies Chinese
+`CjkComposer` loads a bundled engine adapter on demand with `dlopen`. The
+main executable has no PyZy/libhangul startup dependency. Each adapter links its
+own system library and exposes a versioned factory through a private interface.
+Adapters and host are built together; engine objects are destroyed before their
+module is unloaded. A missing engine rejects Apply, or falls back to English at
+startup without overwriting the saved profile.
+
+The engine keeps bounded Pinyin or two-set Hangul state. PyZy supplies Chinese
 candidates and script conversion; libhangul supplies Korean syllable assembly.
 The app releases physical holds and gates commits using the same transport rules
 as Japanese. Failed commits retain preedit. Space or a candidate selection commits

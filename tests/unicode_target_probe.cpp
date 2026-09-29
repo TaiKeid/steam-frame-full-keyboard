@@ -140,6 +140,16 @@ int main() {
             click(code);
         }
         await_text("한글");
+        for (const auto* code : {"KeyG", "KeyK", "KeyS", "Space"}) {
+            click(code);
+        }
+        await_text("한 ");
+        click("KeyR");
+        click("Digit1");
+        await_text("ㄱ1");
+        click("KeyM");
+        click("Comma");
+        await_text("ㅡ,");
         for (const auto* profile : {"zh-cn-pinyin", "zh-tw-pinyin"}) {
             app.apply({"en-us-full", profile, "graphite"});
             for (const auto* code :
@@ -147,6 +157,10 @@ int main() {
                 click(code);
             }
             await_text(std::string(profile) == "zh-cn-pinyin" ? "中国" : "中國");
+            for (const auto* code : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO", "Comma"}) {
+                click(code);
+            }
+            await_text("你好,");
         }
         std::cout << "Production App language switching, accents and CJK delivery passed in isolated "
                      "receiver.\n";

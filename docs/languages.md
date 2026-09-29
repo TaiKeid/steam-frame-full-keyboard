@@ -94,6 +94,8 @@ recentring, changing profiles, and closing discard unfinished preedit, as with
 Japanese. Automatic character repeat is not implemented for local composition.
 
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.
+Both are loaded only when their language is selected. Missing libraries disable
+that composition profile, not the whole keyboard.
 No IBus daemon configuration, system language setting, clipboard access, network
 service, or persistent typing history is used. PyZy's conversion/selection
 learning APIs are deliberately avoided, and its user database has no writable

@@ -314,9 +314,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 return false;
             }
         }
-        if (!local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
-            // Submit before key-down: Tab/shortcuts can move focus, and the text
-            // transport refuses a commit while physical keys are held.
+        if (!ime_local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
+            // Commit before either native events or ordinary Unicode text. Spaces,
+            // digits and punctuation must not overtake the unfinished IME word.
             try {
                 commit_japanese();
                 commit_cjk();

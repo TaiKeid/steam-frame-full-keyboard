@@ -12,7 +12,9 @@ Use this checklist for a release candidate. Automated core tests and earlier hea
 
 ## Input matrix
 
-Run against harmless test content, first in a dedicated receiver, then in Brave.
+Run against harmless test content, first in a dedicated receiver, then in Brave. Open the bundled [input check page](input-check.html) in each Brave mode. Its checklist exercises native controls and focus without logging typed characters or reading the clipboard.
+
+Version 0.5.0: automated ARM64 engine tests cover Korean spaces/digits/punctuation and Chinese punctuation/digits, including failed commits. Missing-module/dependency recovery is tested separately. These checks do not mark the manual application rows below as passed.
 
 | Check | KDE Brave | Standalone floating Brave |
 | --- | --- | --- |

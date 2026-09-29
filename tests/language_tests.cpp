@@ -153,58 +153,63 @@ void unicode_input() {
     click(app, "KeyQ", false);
     require(sink.events.size() == 3, "hidden keyboard blocks Unicode");
 }
-void engines() {
-    if (CjkComposer::supported("korean-2set")) {
-        CjkComposer korean("korean-2set");
-        type(korean, "gksrmf");
-        require(korean.text() == "한글", "two-set Korean syllables");
-        korean.backspace();
-        require(korean.text() == "한그", "Korean final-consonant backspace");
-        korean.cancel();
-        type(korean, "rkrk");
-        require(korean.text() == "가가", "Korean trailing consonant moves to next syllable");
-        korean.backspace();
-        require(korean.text() == "각", "Korean undo preserves resyllabification");
-        korean.cancel();
-        type(korean, "Rk");
-        require(korean.text() == "까", "Korean Shift doubles consonant");
-    } else {
-        require(!std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED"), "Korean engine required");
-        std::cout << "Korean integration skipped: build lacks libhangul\n";
-    }
-    if (CjkComposer::supported("chinese-pinyin-simplified")) {
-        for (const auto& method : {"chinese-pinyin-simplified", "chinese-pinyin-traditional"}) {
-            CjkComposer chinese(method);
-            type(chinese, "nihao");
-            require(chinese.text() == "你好", "Pinyin phrase conversion");
-            require(!chinese.candidates().empty(), "Chinese candidates");
-            const auto candidates = chinese.candidates();
-            const auto partial = std::find(candidates.begin(), candidates.end(), "你");
-            require(partial != candidates.end(), "partial Pinyin candidate available");
-            chinese.choose(static_cast<int>(partial - candidates.begin()));
-            require(chinese.has_reading() && chinese.text() == "你好",
-                    "partial selection keeps remaining syllables");
-            chinese.cancel();
-            type(chinese, "nihao");
-            chinese.choose(0);
-            require(chinese.text() == "你好", "selected phrase retained without engine learning");
-            chinese.backspace();
-            require(chinese.preedit() == "nihao", "undo chosen Pinyin segment");
-            chinese.cancel();
-            type(chinese, "zhongguo");
-            const std::string expected = std::string(method).ends_with("simplified") ? "中国" : "中國";
-            require(chinese.text() == expected, "Simplified/Traditional conversion");
-            chinese.cycle(1);
-            require(chinese.selected() == 1, "candidate navigation");
-            chinese.cycle(-1);
-            require(chinese.text() == expected, "candidate restoration");
+void engines(const std::string& group = "") {
+    if (group != "--chinese") {
+        if (CjkComposer::supported("korean-2set")) {
+            CjkComposer korean("korean-2set");
+            type(korean, "gksrmf");
+            require(korean.text() == "한글", "two-set Korean syllables");
+            korean.backspace();
+            require(korean.text() == "한그", "Korean final-consonant backspace");
+            korean.cancel();
+            type(korean, "rkrk");
+            require(korean.text() == "가가", "Korean trailing consonant moves to next syllable");
+            korean.backspace();
+            require(korean.text() == "각", "Korean undo preserves resyllabification");
+            korean.cancel();
+            type(korean, "Rk");
+            require(korean.text() == "까", "Korean Shift doubles consonant");
+        } else {
+            require(!std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED"), "Korean engine required");
+            std::cout << "Korean integration skipped: build lacks libhangul\n";
         }
-    } else {
-        require(!std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED"), "Chinese engine required");
-        std::cout << "Chinese integration skipped: build lacks PyZy\n";
+    }
+    if (group != "--korean") {
+        if (CjkComposer::supported("chinese-pinyin-simplified")) {
+            for (const auto& method : {"chinese-pinyin-simplified", "chinese-pinyin-traditional"}) {
+                CjkComposer chinese(method);
+                type(chinese, "nihao");
+                require(chinese.text() == "你好", "Pinyin phrase conversion");
+                require(!chinese.candidates().empty(), "Chinese candidates");
+                const auto candidates = chinese.candidates();
+                const auto partial = std::find(candidates.begin(), candidates.end(), "你");
+                require(partial != candidates.end(), "partial Pinyin candidate available");
+                chinese.choose(static_cast<int>(partial - candidates.begin()));
+                require(chinese.has_reading() && chinese.text() == "你好",
+                        "partial selection keeps remaining syllables");
+                chinese.cancel();
+                type(chinese, "nihao");
+                chinese.choose(0);
+                require(chinese.text() == "你好", "selected phrase retained without engine learning");
+                chinese.backspace();
+                require(chinese.preedit() == "nihao", "undo chosen Pinyin segment");
+                chinese.cancel();
+                type(chinese, "zhongguo");
+                const std::string expected =
+                    std::string(method).ends_with("simplified") ? "中国" : "中國";
+                require(chinese.text() == expected, "Simplified/Traditional conversion");
+                chinese.cycle(1);
+                require(chinese.selected() == 1, "candidate navigation");
+                chinese.cycle(-1);
+                require(chinese.text() == expected, "candidate restoration");
+            }
+        } else {
+            require(!std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED"), "Chinese engine required");
+            std::cout << "Chinese integration skipped: build lacks PyZy\n";
+        }
     }
 }
-void app_composition(const Profiles& profiles) {
+void app_composition(const Profiles& profiles, const std::string& group = "") {
     auto path = fs::temp_directory_path() / ("framekeyboard-language-test-" + std::to_string(getpid()));
     fs::create_directories(path);
     struct Cleanup {
@@ -218,6 +223,10 @@ void app_composition(const Profiles& profiles) {
     options.target_language = "en-us";
     options.start_enabled = true;
     for (const auto* id : {"zh-cn-pinyin", "zh-tw-pinyin", "ko-kr"}) {
+        if ((group == "--korean" && std::string(id) != "ko-kr") ||
+            (group == "--chinese" && std::string(id) == "ko-kr")) {
+            continue;
+        }
         if (!CjkComposer::supported(profiles.languages.at(id).input_method)) {
             Sink sink;
             App app(options, sink);
@@ -229,6 +238,18 @@ void app_composition(const Profiles& profiles) {
             }
             require(rejected && app.selection().language == "en-us",
                     "unavailable engine preserves working selection");
+            save_selection(path, {"en-us-full", id, "graphite"});
+            App restored(options, sink);
+            require(restored.selection().language == "en-us",
+                    "missing saved engine falls back to English at startup");
+            std::vector<std::string> errors;
+            require(load_settings(path, errors).active.language == id,
+                    "startup fallback preserves the user's saved language");
+            sink.events.clear();
+            click(restored, "KeyA");
+            require(sink.events == std::vector<std::string>{"a"},
+                    "startup fallback can still type English");
+            fs::remove(path / "config.json");
             continue;
         }
         Sink sink;
@@ -254,6 +275,39 @@ void app_composition(const Profiles& profiles) {
             require(sink.events == std::vector<std::string>{"你好"},
                     "candidate number commits text without a native digit");
         }
+        // Ordinary Unicode characters must not overtake an unfinished IME word.
+        sink.events.clear();
+        if (std::string(id) == "ko-kr") {
+            for (const auto* action :
+                 {"KeyG", "KeyK", "KeyS", "Space", "KeyR", "Digit1", "KeyM", "Comma", "Enter"}) {
+                click(app, action);
+            }
+            require(sink.events ==
+                        std::vector<std::string>{"한", " ", "ㄱ", "1", "ㅡ", ",", "28:1", "28:0"},
+                    "Korean composition precedes space, digit, punctuation and Enter");
+        } else {
+            for (const auto* action :
+                 {"Comma", "Period", "Digit0", "Digit6", "Digit7", "Digit8", "Digit9"}) {
+                sink.events.clear();
+                for (const auto* letter : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
+                    click(app, letter);
+                }
+                click(app, action);
+                require(sink.events.size() == 2 && sink.events.front() == "你好" &&
+                            app.view().preedit.empty(),
+                        "Pinyin composition precedes ordinary punctuation and digits");
+            }
+        }
+        sink.events.clear();
+        click(app, "KeyR");
+        sink.accept = false;
+        click(app, "Comma", false);
+        require(sink.events.empty() && !app.view().preedit.empty(),
+                "failed composition commit blocks following Unicode character");
+        sink.accept = true;
+        click(app, "Comma");
+        require(sink.events.size() == 2 && sink.events.back() == "," && app.view().preedit.empty(),
+                "retry commits composition before punctuation exactly once");
         click(app, "KeyR");
         app.set_interaction_active(false);
         require(app.view().preedit.empty(), "hiding clears composition");
@@ -263,9 +317,32 @@ void app_composition(const Profiles& profiles) {
     }
 }
 } // namespace
-int main() {
+int main(int argc, char** argv) {
     try {
         const auto profiles = load_profiles({}, {});
+        const std::string group = argc > 1 ? argv[1] : "";
+        if (group == "--korean" || group == "--chinese") {
+            const auto method = group == "--korean" ? "korean-2set" : "chinese-pinyin-simplified";
+            if (!CjkComposer::supported(method)) {
+                std::cout << method << ": engine unavailable; integration not run\n";
+                return std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED") ? 1 : 77;
+            }
+            engines(group);
+            app_composition(profiles, group);
+            std::cout << method << ": engine and delivery ordering passed\n";
+            return 0;
+        }
+        if (group == "--without-engines") {
+            require(!CjkComposer::supported("korean-2set") &&
+                        !CjkComposer::supported("chinese-pinyin-simplified"),
+                    "isolated test must have no usable optional engines");
+            unicode_input();
+            app_composition(profiles);
+            std::cout
+                << "English/Unicode works without optional engines; failed Apply preserves selection\n";
+            return 0;
+        }
+        require(group.empty() || group == "--core", "unknown test group");
         struct Case {
             const char* id;
             const char* layout;
@@ -292,8 +369,10 @@ int main() {
                 "ABNT2 extra slash");
         require(key_code("NumpadComma") == KEY_KPCOMMA, "ABNT2 keypad separator evdev code");
         unicode_input();
-        engines();
-        app_composition(profiles);
+        if (group.empty()) {
+            engines();
+            app_composition(profiles);
+        }
         std::cout << "Language profiles, CJK composition and input ordering passed.\n";
         return 0;
     } catch (const std::exception& error) {
