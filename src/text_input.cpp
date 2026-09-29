@@ -136,6 +136,13 @@ bool GamescopeText::commit(const std::string& text) {
     auto& s = *state_;
     gamescope_input_method_set_string(s.input, text.c_str());
     gamescope_input_method_commit(s.input, s.serial);
-    return wl_display_flush(s.display) >= 0 || errno == EAGAIN;
+    // Key events use a different socket. Wait until Gamescope processes this
+    // commit before the caller forwards Tab, Delete or a Ctrl shortcut over libei.
+    // This bounded roundtrip occurs only on commit, never during idle polling.
+    if (!synchronize(s.display)) {
+        s.available = false;
+        return false;
+    }
+    return s.available;
 }
 } // namespace framekeyboard

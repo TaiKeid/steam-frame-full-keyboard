@@ -35,6 +35,12 @@ class KeyHaptics {
             owners_.erase(owner);
         }
     }
+    void cancel_pointer(unsigned pointer) {
+        if (const auto owner = owners_.find(pointer); owner != owners_.end()) {
+            pending_.erase(owner->second);
+            owners_.erase(owner);
+        }
+    }
     void cancel() {
         owners_.clear();
         pending_.clear();

@@ -143,8 +143,24 @@ void state_tests(const fk::Layout& layout) {
     state.tick(5.51);
     require(sink.events.back() == std::pair<int, int>{KEY_BACKSPACE, 2}, "repeat event");
     state.tick(40);
-    require(!state.active() && sink.events.back().second == 0,
-            "expired hold released without repeat backlog");
+    require(state.active() && sink.events.back() == std::pair<int, int>{KEY_BACKSPACE, 2},
+            "long hold keeps repeating without replaying a backlog");
+    state.up(0);
+    state.down(0, key(layout, "ShiftLeft"), 41);
+    state.down(1, key(layout, "ArrowLeft"), 41);
+    state.tick(80);
+    require(state.modifiers().contains(KEY_LEFTSHIFT), "modifier survives a long two-hand chord");
+    state.cancel_pointer(1);
+    require(state.pointer_pressed(0) && state.modifiers().contains(KEY_LEFTSHIFT),
+            "leaving with the other pointer does not release the held modifier");
+    state.down(1, key(layout, "ArrowRight"), 81);
+    state.cancel_pointer(0);
+    require(!state.modifiers().contains(KEY_LEFTSHIFT) && state.pointer_pressed(1),
+            "canceling a modifier releases borrowed references without canceling the other key");
+    state.up(1);
+    state.down(0, key(layout, "ControlLeft"), 82);
+    state.cancel_pointer(0);
+    require(state.modifiers().empty(), "canceled modifier tap must not latch");
     sink.events.clear();
     state.down(0, key(layout, "Enter"), 41);
     state.cancel_all();

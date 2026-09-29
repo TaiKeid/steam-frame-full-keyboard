@@ -14,24 +14,30 @@ void require(bool value, const char* message) {
 struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
     std::vector<std::string> text;
+    std::vector<std::string> delivery;
     bool available = true, accept = true;
-    void send(int code, int value) override { keys.emplace_back(code, value); }
+    void send(int code, int value) override {
+        keys.emplace_back(code, value);
+        delivery.push_back("key");
+    }
     bool text_available() override { return available; }
     bool commit_text(const std::string& value) override {
         if (!accept) {
             return false;
         }
+        delivery.push_back("commit");
         text.push_back(value);
         return true;
     }
 };
-void click_key(App& app, const std::string& id, unsigned pointer = 0, bool release = true) {
+void click_key(App& app, const std::string& id, unsigned pointer = 0, bool release = true,
+               bool expect_accepted = true) {
     const auto view = app.view();
     for (int y = 96; y < panel_height; y += 2) {
         for (int x = 0; x < panel_width; x += 2) {
             auto* key = app.renderer.hit_key(view, x, y);
             if (key && key->id == id) {
-                require(app.down(pointer, x, y, 1), "key accepted");
+                require(app.down(pointer, x, y, 1) == expect_accepted, "key acceptance");
                 if (release) {
                     app.up(pointer, x, y);
                 }
@@ -167,6 +173,41 @@ int main() {
         app.set_interaction_active(true);
         control(app, "ime-commit");
         require(sink.text.size() == sent_before_hide, "no hidden or stale Japanese commit");
+        for (const auto* forwarding_key : {"Tab", "Delete", "Home", "End", "Paste"}) {
+            click_key(app, "KeyA");
+            sink.delivery.clear();
+            const auto text_count = sink.text.size();
+            click_key(app, forwarding_key);
+            require(sink.text.size() == text_count + 1 && sink.text.back() == "あ",
+                    "navigation and shortcuts preserve unfinished Japanese text");
+            require(sink.delivery.size() >= 3 && sink.delivery.front() == "commit" &&
+                        sink.delivery[1] == "key" && app.view().preedit.empty(),
+                    "Japanese commit precedes every forwarded key-down");
+        }
+        click_key(app, "KeyA");
+        click_key(app, "ControlLeft", 1, false);
+        sink.delivery.clear();
+        click_key(app, "KeyA", 2);
+        app.up(1, 0, 0);
+        require(sink.delivery.front() == "commit" && sink.delivery[1] == "key",
+                "commit precedes the modifier as well as the shortcut key");
+        for (const auto* forwarding_key : {"Tab", "Delete", "Paste"}) {
+            click_key(app, "KeyA");
+            sink.accept = false;
+            sink.delivery.clear();
+            click_key(app, forwarding_key, 0, true, false);
+            require(app.view().preedit == "あ" && sink.delivery.empty(),
+                    "failed commit retains preedit and blocks focus-changing key");
+            sink.accept = true;
+            click_key(app, forwarding_key);
+            require(app.view().preedit.empty() && sink.delivery.front() == "commit",
+                    "retry commits retained text before forwarding");
+        }
+        click_key(app, "KeyA");
+        sink.delivery.clear();
+        click_key(app, "Escape");
+        require(app.view().preedit.empty() && sink.delivery.empty(),
+                "Escape deliberately cancels without committing");
         app.show_settings();
         control(app, "preset-ja-kana");
         control(app, "apply");

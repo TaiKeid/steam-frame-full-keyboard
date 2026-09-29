@@ -506,6 +506,13 @@ void haptic_routing_tests() {
             "release belongs to original press hand while other hand presses");
     feedback.release(0);
     require(feedback.take(3).empty(), "duplicate release cannot vibrate");
+    feedback.press(0, 1);
+    feedback.press(1, 2);
+    feedback.cancel_pointer(0);
+    require(feedback.take(3.5) == std::vector<Pulse>{{2, fk::KeyFeedback::Press}},
+            "one controller leaving preserves the other controller's feedback");
+    feedback.release(0);
+    require(feedback.take(3.6).empty(), "canceled controller cannot emit a release pulse");
     feedback.cancel();
     feedback.release(1);
     require(feedback.take(4).empty(), "canceled key has no release pulse");
@@ -589,7 +596,9 @@ void instance_tests() {
 }
 struct RecordingSink : fk::KeySink {
     std::vector<std::pair<int, int>> events;
-    bool ready{true};
+    bool ready{true}, recoverable{}, reset{};
+    bool can_resume() const override { return recoverable; }
+    bool take_input_reset() override { return std::exchange(reset, false); }
     void send(int code, int value) override { events.emplace_back(code, value); }
     bool pump() override { return ready; }
 };
@@ -657,6 +666,51 @@ void typing_tests() {
     type_key();
     require(sink.events.size() == 12, "lost backend disables typing");
     require(app.view().status.find("connection lost") != std::string::npos, "lost backend is visible");
+}
+void connection_recovery_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    options.mode = "vr";
+    options.input = "ei";
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    RecordingSink sink;
+    fk::App app(options, sink);
+    app.set_interaction_active(false);
+    sink.ready = false;
+    app.tick(1);
+    app.set_interaction_active(true);
+    require(app.view().status.find("connection lost") != std::string::npos,
+            "disconnect while hidden reports connection loss instead of keymap mismatch");
+    sink.recoverable = true;
+    app.tick(2);
+    require(app.view().status.find("Waiting to resume") != std::string::npos,
+            "temporary pause has a distinct status");
+    sink.ready = true;
+    sink.reset = true;
+    app.tick(3);
+    require(app.view().status.empty(), "resume clears the pause status");
+    type_a(app, false);
+    require(sink.events.size() == 1, "fresh press works after resume");
+    // A pause and resume delivered together must still discard the old UI hold.
+    sink.reset = true;
+    app.tick(4);
+    require(!app.pointer_pressed(0) && sink.events.size() == 2,
+            "same-batch interruption clears stale key state");
+    app.tick(100);
+    require(sink.events.size() == 2, "resuming cannot replay a stale repeat");
+    app.set_interaction_active(false);
+    sink.ready = false;
+    app.tick(101);
+    sink.ready = true;
+    sink.reset = true;
+    app.tick(102);
+    type_a(app);
+    require(sink.events.size() == 2, "resume while hidden cannot enable typing");
+    app.set_interaction_active(true);
+    type_a(app);
+    require(sink.events.size() == 4, "visible typing recovers after a hidden pause");
 }
 void hidden_input_tests() {
     TemporaryDirectory temp;
@@ -819,6 +873,7 @@ int main() {
         ui_tests();
         typing_tests();
         hidden_input_tests();
+        connection_recovery_tests();
         language_recovery_tests();
         std::cout << "Placement, repeated-launch IPC, stale-owner recovery and placement UI passed.\n";
         return 0;

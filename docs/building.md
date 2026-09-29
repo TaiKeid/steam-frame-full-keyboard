@@ -68,7 +68,7 @@ Host and ARM64 build directories are separate. If switching sysroots or toolchai
 
 ## Tests
 
-CTest includes `keyboard-core`, `placement-instance`, and `japanese-input`. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
+CTest includes `keyboard-core`, `placement-instance`, and `japanese-input`. Host builds also run installer validation/failure/retry tests. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume and disconnect using an isolated compositor that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
 
 Anthy integration is optional in normal test runs. To require the real conversion test when the library and dictionary are installed:
 

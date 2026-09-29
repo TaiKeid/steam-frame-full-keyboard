@@ -343,6 +343,18 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
     }
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
+    std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
+    auto cancel_device = [&](vr::TrackedDeviceIndex_t device) {
+        for (auto it = pointer_devices.begin(); it != pointer_devices.end();) {
+            if (it->second == device) {
+                app.cancel_pointer(it->first);
+                feedback.cancel_pointer(it->first);
+                it = pointer_devices.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
     struct ReleaseBeforeVrShutdown {
         App& app;
         ~ReleaseBeforeVrShutdown() {
@@ -399,6 +411,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         app.set_interaction_active(false);
         stop_drag();
         hovered_devices.fill(false);
+        pointer_devices.clear();
         grip_input.reset();
         if (visible) {
             check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
@@ -477,6 +490,11 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             const bool controller =
                 device < vr::k_unMaxTrackedDeviceCount &&
                 vr::VRSystem()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller;
+            if (controller && (event.eventType == vr::VREvent_MouseMove ||
+                               event.eventType == vr::VREvent_MouseButtonDown ||
+                               event.eventType == vr::VREvent_MouseButtonUp)) {
+                pointer_devices[pointer] = device;
+            }
             switch (event.eventType) {
             case vr::VREvent_MouseMove: {
                 if (event.trackedDeviceIndex < hovered_devices.size()) {
@@ -518,9 +536,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     hovered_devices.fill(false);
                 }
                 if (!drag.active()) {
-                    feedback.cancel();
-                    // Laser leave is not a change of the application's input target.
-                    app.cancel(false);
+                    // Focus events do not contain mouse cursorIndex. Use the
+                    // controller-to-pointer association from actual mouse events.
+                    // An unidentified laser leave must not release the other hand.
+                    cancel_device(device);
                 }
                 break;
             case vr::VREvent_OverlayHidden:
@@ -538,6 +557,17 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         }
         if (done || app.quitting()) {
             break;
+        }
+        // No arbitrary hold deadline: a tracked controller may legitimately hold
+        // Shift or Backspace for minutes. A lost controller releases only its keys.
+        std::set<vr::TrackedDeviceIndex_t> lost_devices;
+        for (const auto& [pointer, device] : pointer_devices) {
+            if (app.pointer_pressed(pointer) && !read_controller(device)) {
+                lost_devices.insert(device);
+            }
+        }
+        for (const auto device : lost_devices) {
+            cancel_device(device);
         }
         if (drag.active()) {
             const bool held = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {

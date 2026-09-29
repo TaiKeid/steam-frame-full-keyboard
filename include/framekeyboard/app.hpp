@@ -25,6 +25,8 @@ class InputGate : public KeySink {
         }
     }
     bool pump() override { return target_.pump(); }
+    bool take_input_reset() override { return target_.take_input_reset(); }
+    bool can_resume() const override { return target_.can_resume(); }
     bool text_available() override { return target_.text_available(); }
     bool commit_text(const std::string& text) override { return enabled && target_.commit_text(text); }
     bool enabled{false};
@@ -42,6 +44,8 @@ class App {
     bool move(unsigned pointer, double x, double y);
     // True when this pointer releases a captured keyboard key, even outside it.
     bool up(unsigned pointer, double x, double y);
+    bool pointer_pressed(unsigned pointer) const { return keyboard_.pointer_pressed(pointer); }
+    void cancel_pointer(unsigned pointer);
     void cancel(bool discard_composition = true);
     bool tick(double now);
     void paint(double now);
@@ -87,6 +91,7 @@ class App {
     std::size_t favorite_index_{};
     bool dragging_{};
     bool interaction_active_{true};
+    bool backend_ready_{true}, backend_can_resume_{};
 };
 
 double monotonic_seconds();

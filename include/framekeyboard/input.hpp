@@ -17,6 +17,9 @@ class KeySink {
     virtual ~KeySink() = default;
     virtual void send(int code, int value) = 0;
     virtual bool pump() { return true; }
+    // A pause/resume can happen within one pump. The app must still discard old holds.
+    virtual bool take_input_reset() { return false; }
+    virtual bool can_resume() const { return false; }
     virtual bool text_available() { return false; }
     virtual bool commit_text(const std::string&) { return false; }
 };
@@ -59,6 +62,7 @@ class KeyboardState {
     bool down(unsigned pointer, const Key& key, double now, bool local = false);
     bool up(unsigned pointer);
     bool pointer_pressed(unsigned pointer) const { return presses_.contains(pointer); }
+    void cancel_pointer(unsigned pointer);
     void cancel_all();
     bool tick(double now);
     bool pressed(const std::string& id) const;
@@ -74,7 +78,7 @@ class KeyboardState {
         bool used{};
         std::vector<int> codes;
         int repeat_code{};
-        double repeat_at{}, expires_at{};
+        double repeat_at{};
     };
     void acquire(int code);
     void release(int code);

@@ -71,6 +71,17 @@ if(BUILD_TESTING)
     target_link_libraries(placement-instance-tests PRIVATE keyboard_core Threads::Threads)
     target_compile_options(placement-instance-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME placement-instance COMMAND placement-instance-tests)
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:framekeyboard>")
+        pkg_check_modules(EIS QUIET IMPORTED_TARGET libeis-1.0>=1.6)
+        if(EIS_FOUND)
+            add_executable(ei-recovery-tests tests/ei_recovery_tests.cpp)
+            target_link_libraries(ei-recovery-tests PRIVATE keyboard_core PkgConfig::EIS Threads::Threads)
+            add_test(NAME ei-recovery COMMAND ei-recovery-tests)
+        endif()
+    endif()
     # Opt-in only: maps a disposable window and verifies focus before each key.
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
     add_executable(japanese-target-probe tests/japanese_target_probe.cpp)

@@ -345,7 +345,6 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     }
     Press press;
     press.id = key.id;
-    press.expires_at = now + 10;
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
     if (is_modifier(code)) {
         press.modifier = code;
@@ -424,6 +423,13 @@ bool KeyboardState::up(unsigned pointer) {
     return true;
 }
 
+void KeyboardState::cancel_pointer(unsigned pointer) {
+    if (auto found = presses_.find(pointer); found != presses_.end()) {
+        // An interrupted modifier is not a tap and must never become latched.
+        found->second.used = true;
+        up(pointer);
+    }
+}
 void KeyboardState::cancel_all() {
     std::exception_ptr failure;
     // Release non-modifiers first; try every release even if one backend call fails.
@@ -448,13 +454,6 @@ void KeyboardState::cancel_all() {
     }
 }
 bool KeyboardState::tick(double now) {
-    for (const auto& [pointer, press] : presses_) {
-        (void)pointer;
-        if (now >= press.expires_at) {
-            cancel_all();
-            return true;
-        }
-    }
     std::set<int> repeated;
     for (auto& [pointer, press] : presses_) {
         (void)pointer;

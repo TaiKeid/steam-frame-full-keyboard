@@ -12,6 +12,8 @@ class EiSink : public KeySink {
     ~EiSink() override;
     void send(int code, int value) override;
     bool pump() override;
+    bool take_input_reset() override;
+    bool can_resume() const override { return !disconnected_; }
     bool text_available() override;
     bool commit_text(const std::string& text) override;
     EiSink(const EiSink&) = delete;
@@ -23,7 +25,7 @@ class EiSink : public KeySink {
     bool text_attempted_{};
     ei* context_{};
     ei_device* keyboard_{};
-    bool resumed_{}, disconnected_{};
+    bool resumed_{}, disconnected_{}, input_reset_{};
     std::uint32_t sequence_{};
     std::set<int> held_;
 };

@@ -43,7 +43,7 @@ bool EiSink::text_available() {
     return text_ && text_->ready();
 }
 bool EiSink::commit_text(const std::string& text) {
-    return held_.empty() && pump() && text_available() && text_->commit(text);
+    return pump() && !input_reset_ && held_.empty() && text_available() && text_->commit(text);
 }
 bool EiSink::pump() {
     if (disconnected_) {
@@ -76,9 +76,9 @@ bool EiSink::pump() {
                 // EIS releases keys when pausing/removing a device. Forget our
                 // local holds too, so reconnecting cannot replay a stale chord.
                 resumed_ = false;
-                // Latch failure until the app is reopened. A pause and resume
-                // in the same dispatch must not silently revive stale UI holds.
-                disconnected_ = true;
+                // Remember interruption even if RESUMED is in this same batch.
+                // No new output is allowed until the app acknowledges and clears its holds.
+                input_reset_ = true;
                 held_.clear();
                 if (ei_event_get_type(event) == EI_EVENT_DEVICE_REMOVED) {
                     keyboard_ = ei_device_unref(keyboard_);
@@ -86,6 +86,7 @@ bool EiSink::pump() {
             }
             break;
         case EI_EVENT_DISCONNECT:
+            input_reset_ = true;
             disconnected_ = true;
             resumed_ = false;
             held_.clear();
@@ -97,9 +98,14 @@ bool EiSink::pump() {
     }
     return resumed_ && !disconnected_;
 }
+bool EiSink::take_input_reset() {
+    const bool reset = input_reset_;
+    input_reset_ = false;
+    return reset;
+}
 void EiSink::send(int code, int value) {
     // EIS carries physical down/up transitions; the compositor owns repeat.
-    if (!pump() || value == 2) {
+    if (!pump() || input_reset_ || value == 2) {
         return;
     }
     if (value == 1) {

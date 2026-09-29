@@ -14,7 +14,11 @@ First launch starts at 95 cm wide, tilted back 50° from upright, just beneath t
 
 Closing saves the pose, size, and dashboard reference. Reopening restores them. Launching an already running instance recenters it and preserves size; it also returns from Settings to the keys. A launch while the dashboard is hidden queues recentering for its next opening. Later launch flags do not change the running instance's backend or language. Close it before changing those options.
 
+A temporary compositor pause releases held keys and resumes typing when its keyboard device returns, without replaying old holds. A disconnected compositor socket still requires closing and reopening the app. Connection status remains visible even if the interruption happened while the dashboard was closed.
+
 Tracking loss hides the keyboard and releases input. When tracking returns, the panel returns to its pose. A tracking-origin reset or a known saved tracking-space mismatch recenters it while retaining size. Corrupt saved placement is ignored. Forced termination cannot save the latest movement.
+
+Keys have no fixed hold deadline: holding Shift with one hand or repeating Backspace can continue beyond ten seconds. A known controller losing tracking or leaving the panel cancels only its pointer; hiding, application-focus loss, and shutdown release all keys.
 
 ## Movement and feedback
 
@@ -50,6 +54,7 @@ Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessio
 | Keyboard is offscreen | Relaunch while it is running, or use the recenter icon |
 | App exits immediately | Run `~/.local/bin/framekeyboard` in a terminal and read the error; check that the VR session is running |
 | Keys do not reach a local app | Focus a harmless text field first; check the language profile and launch declaration |
+| Keyboard paused by compositor | Wait for the device to resume; old holds are cleared |
 | Input connection was lost | Close and reopen the keyboard to reconnect |
 | Wrong characters | Match the session's physical keymap to the selected profile and `--target-language`; legends alone do not change output |
 | Copy/Paste fail in a terminal | This version sends Ctrl+C/Ctrl+V, not terminal Ctrl+Shift shortcuts |
@@ -62,7 +67,7 @@ No input is sent outside the dashboard. Streamed VR applications, including VRCh
 
 ## Update, rollback, and removal
 
-Close the keyboard before installing a new version. The installer validates the ARM64 binary and profiles before switching `current`, retains the old target in `previous`, and preserves `~/.config/framekeyboard`.
+Close the keyboard before installing a new version. The installer validates the copied ARM64 binary and profile files in a temporary staging directory before switching `current`, retains the old target in `previous`, and preserves `~/.config/framekeyboard`. A failed copy, validation, or activation removes the incomplete new release so the same version can be retried. Completed releases remain protected from overwrite.
 
 To roll back, close the keyboard and run on Frame:
 

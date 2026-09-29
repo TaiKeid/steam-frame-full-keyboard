@@ -18,7 +18,7 @@ Romaji is the default Japanese choice for someone unfamiliar with Japanese keybo
 - ひらがな/F6 and カタカナ/F7 change the reading's script. 無変換 restores the hiragana reading.
 - Backspace removes a kana/pending roman letter; during candidate selection it first returns to the reading. Escape first cancels conversion, then clears the reading. Cancel clears it immediately.
 - あ / A toggles local composition and Latin keys. The JIS 半/全 and かな keys also toggle composition in the integrated modes.
-- Starting another word while candidates are active commits the chosen phrase first. Ctrl/Alt/Meta shortcuts and Copy/Paste remain physical shortcuts and discard an unfinished composition.
+- Starting another word while candidates are active commits the chosen phrase first. Tab, Delete, Home/End, Copy/Paste, and Ctrl/Alt/Meta shortcuts first commit unfinished composition, then send their physical key events. If committing fails, the text remains and the key or shortcut is not sent. Escape and the Cancel control still cancel deliberately.
 
 The preedit stays in the keyboard until committed. Moving the laser off the keyboard keeps it. Opening Settings, dragging, hiding, recentering, changing profiles or losing input focus discards it. This avoids committing an old phrase after a focus transition. Input routing follows compositor focus, just like the ordinary keyboard.
 

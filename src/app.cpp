@@ -176,7 +176,10 @@ PanelView App::view() const {
             }
         }
     }
-    if (japanese() && options_.input != "none" && !text_ready_) {
+    if (!backend_ready_) {
+        v.status = backend_can_resume_ ? "Keyboard paused by compositor. Waiting to resume."
+                                       : "Keyboard connection lost. Reopen the app to reconnect.";
+    } else if (japanese() && options_.input != "none" && !text_ready_) {
         v.status =
             "Japanese text delivery unavailable; conversion preview only. English remains available.";
     }
@@ -227,14 +230,24 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (const auto* key = renderer.hit_key(v, x, y)) {
         const auto modifiers = keyboard_.modifiers();
         const bool local = japanese_key(*key, false, modifiers);
+        if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
+            return false;
+        }
+        if (!local && !composition_.empty() &&
+            (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)))) {
+            // Submit before key-down: Tab/shortcuts can move focus, and the text
+            // transport refuses a commit while physical keys are held.
+            try {
+                commit_japanese();
+            } catch (const std::exception& error) {
+                status_ = error.what();
+            }
+            dirty = true;
+            if (!composition_.empty()) {
+                return false; // Failed commit must not lose text or change the target.
+            }
+        }
         const bool accepted = keyboard_.down(pointer, *key, now, local);
-        if (accepted && !local && key->action_kind == ActionKind::Shortcut) {
-            composition_.cancel();
-        }
-        if (accepted && !local && key->action_kind == ActionKind::Key &&
-            !is_modifier(key_code(key->action)) && !composition_.empty()) {
-            composition_.cancel();
-        }
         if (accepted && local) {
             try {
                 japanese_key(*key, true, modifiers);
@@ -270,6 +283,12 @@ bool App::up(unsigned pointer, double x, double y) {
     return key_released;
 }
 
+void App::cancel_pointer(unsigned pointer) {
+    keyboard_.cancel_pointer(pointer);
+    pressed_controls_.erase(pointer);
+    hovered_.erase(pointer);
+    dirty = true;
+}
 void App::cancel(bool discard_composition) {
     if (discard_composition) {
         composition_.cancel();
@@ -280,11 +299,7 @@ void App::cancel(bool discard_composition) {
     dirty = true;
 }
 bool App::tick(double now) {
-    if (!gate_.pump() && gate_.enabled) {
-        cancel();
-        gate_.enabled = false;
-        status_ = "Keyboard connection lost. Reopen the app to reconnect.";
-    }
+    refresh_typing();
     dirty |= keyboard_.tick(now);
     return dirty || renderer.animating();
 }
@@ -373,6 +388,17 @@ bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
 }
 void App::refresh_typing() {
+    const bool ready = gate_.pump();
+    const bool reset = gate_.take_input_reset();
+    const bool can_resume = gate_.can_resume();
+    if (reset || (backend_ready_ && !ready)) {
+        // Clear UI holds even if input was already disabled by a hidden dashboard.
+        // The backend has released its keys; never replay those holds on resume.
+        cancel();
+    }
+    dirty |= ready != backend_ready_ || can_resume != backend_can_resume_;
+    backend_ready_ = ready;
+    backend_can_resume_ = can_resume;
     const auto& language = profiles_.languages.at(settings_.active.language);
     text_ready_ = japanese() && gate_.text_available();
     // Integrated IME consumes characters locally; raw shortcuts still require
@@ -381,7 +407,7 @@ void App::refresh_typing() {
                           (japanese() || options_.target_language == settings_.active.language);
     gate_.enabled = interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
                     (options_.input == "ei" || options_.input == "uinput") && matching &&
-                    (!japanese() || text_ready_) && gate_.pump();
+                    (!japanese() || text_ready_) && backend_ready_;
 }
 void App::commit_japanese() {
     const auto text = composition_.commit_text();
