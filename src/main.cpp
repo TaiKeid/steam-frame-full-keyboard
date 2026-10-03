@@ -23,6 +23,7 @@ void help() {
               << "  --target-language ID      Physical uinput/external-JIS target keymap\n"
               << "  --config-dir PATH         User profiles/settings directory\n"
               << "  --data-dir PATH           Extra bundled profile directory\n"
+              << "  --speech-model PATH       Override speech-to-text GGML model path\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
               << "Typing stays disabled unless --start-enabled is supplied.\n"
               << "Separate dashboard keyboard. Stock keyboard and autostart are unchanged.\n";
@@ -72,6 +73,8 @@ int main(int argc, char** argv) {
                 options.config_dir = value();
             } else if (argument == "--data-dir") {
                 options.data_dir = value();
+            } else if (argument == "--speech-model") {
+                options.speech_model = value();
             } else if (argument == "--ei-socket") {
                 options.ei_socket = value();
             } else if (argument == "--text-socket") {

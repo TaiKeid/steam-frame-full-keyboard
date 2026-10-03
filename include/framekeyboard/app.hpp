@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cjk.hpp"
+#include "dictation.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
 #include "panel.hpp"
@@ -10,7 +11,7 @@
 
 namespace framekeyboard {
 struct Options {
-    fs::path data_dir, config_dir, ei_socket, text_socket;
+    fs::path data_dir, config_dir, ei_socket, text_socket, speech_model;
     std::string mode{"help"}, output, input{"none"}, target_language;
     double duration{};
     bool start_enabled{false};
@@ -83,6 +84,7 @@ class App {
     bool text_key(const Key& key, const std::set<int>& mods) const;
     int native_code(const Key& key, const std::set<int>& mods);
     bool flush_text();
+    void type_dictation(const std::string& text);
     std::string pending_text_;
     struct TextRepeat {
         std::string text;
@@ -100,6 +102,7 @@ class App {
     KeyboardState keyboard_;
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;
+    std::unique_ptr<Dictation> dictation_;
     bool cjk_latin_{};
     bool japanese_latin_{};
     bool text_ready_{};

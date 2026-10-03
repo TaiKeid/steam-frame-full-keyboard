@@ -305,6 +305,36 @@ void app_tests() {
     rejects([&] { app.apply({"missing", "en-us", "graphite"}); }, "invalid selection rejected");
     require(app.selection().theme == "midnight", "failed apply retains prior selection");
 }
+void dictation_tests() {
+    require(fk::clean_transcript("[BLANK_AUDIO]").empty(), "blank audio stripped");
+    require(fk::clean_transcript("  Hello world! [music]  ") == "Hello world!", "music tags stripped");
+    require(fk::clean_transcript("(laughter) That's great! *applause*") == "That's great!",
+            "laughter and applause stripped");
+    require(fk::clean_transcript("It’s “working” — perfectly…") == "It's \"working\" - perfectly...",
+            "curly quotes and dashes normalized to ascii");
+    require(fk::clean_transcript("♪♪").empty(), "musical notes stripped");
+    require(fk::clean_transcript("1234567890-=qwertyuiop").empty(),
+            "keyboard smash hallucination stripped");
+
+    const auto chunks = fk::split_utf8("日本語テスト", 2);
+    require(chunks.size() == 3, "split_utf8 chunk count");
+    require(chunks[0] == "日本", "split_utf8 chunk 0");
+    require(chunks[1] == "語テ", "split_utf8 chunk 1");
+    require(chunks[2] == "スト", "split_utf8 chunk 2");
+
+    fk::Options options;
+    options.mode = "preview";
+    Capture sink;
+    fk::App app(options, sink);
+    bool found_dictate = false;
+    for (const auto& c : app.view().controls) {
+        if (c.id == "dictate" && c.icon == fk::Icon::Dictate) {
+            found_dictate = true;
+            break;
+        }
+    }
+    require(found_dictate, "dictate button present in controls with Dictate icon");
+}
 } // namespace
 int main() {
     try {
@@ -314,8 +344,9 @@ int main() {
         state_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         app_tests();
-        std::cout << "Key sequences, cancellation, repeat, profiles, persistence, language legends and "
-                     "rendering passed.\n";
+        dictation_tests();
+        std::cout << "Key sequences, cancellation, repeat, profiles, persistence, language legends, "
+                     "dictation and rendering passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

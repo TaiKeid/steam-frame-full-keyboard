@@ -12,6 +12,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 - Full-size layout with F1–F12, navigation keys, arrow keys, numpad, Ctrl, Alt, and Shift.
 - Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
+- Dedicated speech-to-text dictation button for fully offline, on-device voice typing.
 - Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
 - Controller laser typing, press/release haptic clicks, and subtle hover feedback.
 - Grab anywhere to move and rotate the keyboard, with thumbstick depth adjustment and size controls.
@@ -70,6 +71,7 @@ To update, **close the keyboard**, download the new release assets, and repeat t
 | Change size | Use the smaller / larger icons in the toolbar |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
+| Voice typing (Dictate) | Tap the microphone icon in the toolbar, speak, and tap it again when done |
 | Close | Use the × icon |
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.

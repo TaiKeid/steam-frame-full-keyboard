@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0: Offline Speech-to-Text Dictation
+
+- Integrated on-device speech-to-text dictation button in the top toolbar with a dedicated microphone icon.
+- Fully offline inference using whisper.cpp with ARM64 NEON/SVE hardware acceleration.
+- Audio recording directly from the native PipeWire subsystem (`pw-record`) with an ALSA fallback (`arecord`).
+- Isolated helper architecture (`framekeyboard-dictate`): microphone capture and model evaluation run in an independent child process.
+- Cancellation safety: closing the dashboard, moving/grabbing the keyboard, switching windows, or pressing any key immediately stops recording and frees the microphone.
+- Privacy guarantee: audio is streamed directly in memory and never written to disk; speech transcripts are never logged.
+- Gamescope Unicode text delivery: recognized sentences are cleanly committed into any focused local application or desktop window.
+
 ## 0.5.0: First release
 
 Full Keyboard for Steam Frame is a separately launched alternative keyboard for the Frame dashboard and local apps. It does not replace the stock keyboard or send input to streamed VR applications.

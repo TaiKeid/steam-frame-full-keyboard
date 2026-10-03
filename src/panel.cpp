@@ -180,6 +180,13 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             line(-3, -7, -3, 1);
         }
         break;
+    case Icon::Dictate:
+        rounded(cr, {-3.5, -8, 7, 11}, 3.5);
+        cairo_stroke(cr);
+        cairo_arc(cr, 0, -1, 6.5, 0.15 * pi, 0.85 * pi);
+        line(0, 5.5, 0, 9);
+        line(-4.5, 9, 4.5, 9);
+        break;
     case Icon::None:
         break;
     }

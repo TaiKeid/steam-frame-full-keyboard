@@ -8,3 +8,5 @@ CMakeUserPresets.json
 compile_commands.json
 .env
 .env.*
+/speech/
+*.bin

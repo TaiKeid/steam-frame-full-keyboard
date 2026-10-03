@@ -4,7 +4,9 @@
 #include <chrono>
 #include <glib.h>
 #include <linux/input-event-codes.h>
+#include <optional>
 #include <stdexcept>
+#include <thread>
 #include <tuple>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -64,6 +66,139 @@ template <class ProfilesMap> void cycle(const ProfilesMap& map, std::string& id,
     }
     id = it->first;
 }
+struct Keystroke {
+    int code;
+    bool shift;
+};
+
+std::optional<Keystroke> ascii_to_keystroke(char c) {
+    if (c >= 'a' && c <= 'z') {
+        static constexpr int letters[26] = {
+            KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M,
+            KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z};
+        return Keystroke{letters[c - 'a'], false};
+    }
+    if (c >= 'A' && c <= 'Z') {
+        static constexpr int letters[26] = {
+            KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M,
+            KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z};
+        return Keystroke{letters[c - 'A'], true};
+    }
+    if (c >= '1' && c <= '9') {
+        return Keystroke{KEY_1 + (c - '1'), false};
+    }
+    if (c == '0') {
+        return Keystroke{KEY_0, false};
+    }
+    if (c == ' ') {
+        return Keystroke{KEY_SPACE, false};
+    }
+    if (c == '\n') {
+        return Keystroke{KEY_ENTER, false};
+    }
+    if (c == '\t') {
+        return Keystroke{KEY_TAB, false};
+    }
+    if (c == '.') {
+        return Keystroke{KEY_DOT, false};
+    }
+    if (c == ',') {
+        return Keystroke{KEY_COMMA, false};
+    }
+    if (c == '-') {
+        return Keystroke{KEY_MINUS, false};
+    }
+    if (c == '=') {
+        return Keystroke{KEY_EQUAL, false};
+    }
+    if (c == '/') {
+        return Keystroke{KEY_SLASH, false};
+    }
+    if (c == ';') {
+        return Keystroke{KEY_SEMICOLON, false};
+    }
+    if (c == '\'') {
+        return Keystroke{KEY_APOSTROPHE, false};
+    }
+    if (c == '`') {
+        return Keystroke{KEY_GRAVE, false};
+    }
+    if (c == '[') {
+        return Keystroke{KEY_LEFTBRACE, false};
+    }
+    if (c == ']') {
+        return Keystroke{KEY_RIGHTBRACE, false};
+    }
+    if (c == '\\') {
+        return Keystroke{KEY_BACKSLASH, false};
+    }
+
+    if (c == '!') {
+        return Keystroke{KEY_1, true};
+    }
+    if (c == '@') {
+        return Keystroke{KEY_2, true};
+    }
+    if (c == '#') {
+        return Keystroke{KEY_3, true};
+    }
+    if (c == '$') {
+        return Keystroke{KEY_4, true};
+    }
+    if (c == '%') {
+        return Keystroke{KEY_5, true};
+    }
+    if (c == '^') {
+        return Keystroke{KEY_6, true};
+    }
+    if (c == '&') {
+        return Keystroke{KEY_7, true};
+    }
+    if (c == '*') {
+        return Keystroke{KEY_8, true};
+    }
+    if (c == '(') {
+        return Keystroke{KEY_9, true};
+    }
+    if (c == ')') {
+        return Keystroke{KEY_0, true};
+    }
+    if (c == '_') {
+        return Keystroke{KEY_MINUS, true};
+    }
+    if (c == '+') {
+        return Keystroke{KEY_EQUAL, true};
+    }
+    if (c == '?') {
+        return Keystroke{KEY_SLASH, true};
+    }
+    if (c == ':') {
+        return Keystroke{KEY_SEMICOLON, true};
+    }
+    if (c == '"') {
+        return Keystroke{KEY_APOSTROPHE, true};
+    }
+    if (c == '~') {
+        return Keystroke{KEY_GRAVE, true};
+    }
+    if (c == '{') {
+        return Keystroke{KEY_LEFTBRACE, true};
+    }
+    if (c == '}') {
+        return Keystroke{KEY_RIGHTBRACE, true};
+    }
+    if (c == '|') {
+        return Keystroke{KEY_BACKSLASH, true};
+    }
+    if (c == '<') {
+        return Keystroke{KEY_COMMA, true};
+    }
+    if (c == '>') {
+        return Keystroke{KEY_DOT, true};
+    }
+
+    return std::nullopt;
+}
 } // namespace
 App::App(const Options& options, KeySink& sink)
     : options_(options), profiles_(load_profiles(options.data_dir, options.config_dir)),
@@ -82,6 +217,9 @@ App::App(const Options& options, KeySink& sink)
         target != profiles_.languages.end()) {
         target_language_ = target->second;
     }
+    auto helper = find_speech_helper();
+    auto model = find_speech_model(options_.speech_model, options_.config_dir, options_.data_dir);
+    dictation_ = std::make_unique<Dictation>(std::move(helper), std::move(model));
     // A saved language mismatch must leave Settings reachable, not abort launch.
     refresh_typing();
 }
@@ -97,6 +235,8 @@ std::vector<Control> App::controls() const {
         {"size-larger", "Larger keyboard", {228, 12, 60, 42}, false, Icon::ScaleUp},
         {"close", "Close", {1522, 12, 60, 42}, false, Icon::Close}};
     if (!settings_open_) {
+        const bool dictating = dictation_ && dictation_->active();
+        result.push_back({"dictate", "Dictate", {298, 12, 60, 42}, dictating, Icon::Dictate});
         if (japanese()) {
             result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
             if (!japanese_latin_) {
@@ -397,6 +537,9 @@ void App::cancel_pointer(unsigned pointer) {
 }
 void App::cancel(bool discard_composition) {
     text_repeats_.clear();
+    if (dictation_) {
+        dictation_->cancel();
+    }
     if (discard_composition) {
         pending_text_.clear();
         if (keymap_) {
@@ -415,6 +558,39 @@ void App::cancel(bool discard_composition) {
 bool App::tick(double now) {
     refresh_typing();
     dirty |= keyboard_.tick(now);
+    if (dictation_ && dictation_->active()) {
+        for (const auto& ev : dictation_->poll(now)) {
+            switch (ev.kind) {
+            case Dictation::Event::Kind::Listening:
+                status_ = "Listening... speak now, tap microphone when done";
+                dirty = true;
+                break;
+            case Dictation::Event::Kind::Hearing:
+                status_ = "Hearing speech... tap microphone when done";
+                dirty = true;
+                break;
+            case Dictation::Event::Kind::Transcribing:
+                status_ = "Transcribing speech...";
+                dirty = true;
+                break;
+            case Dictation::Event::Kind::Text: {
+                std::string cleaned = clean_transcript(ev.payload);
+                if (!cleaned.empty()) {
+                    status_ = "Recognized: " + cleaned;
+                    type_dictation(cleaned + " ");
+                } else {
+                    status_ = "No speech detected";
+                }
+                dirty = true;
+                break;
+            }
+            case Dictation::Event::Kind::Error:
+                status_ = ev.payload;
+                dirty = true;
+                break;
+            }
+        }
+    }
     for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
         if (now >= it->second.next) {
             if (options_.input != "none" && !gate_.commit_text(it->second.text)) {
@@ -693,6 +869,38 @@ bool App::flush_text() {
     status_ = "Text not sent. Release other keys, then press Enter to retry.";
     return false;
 }
+void App::type_dictation(const std::string& text) {
+    if (options_.input == "none" || !gate_.enabled) {
+        return;
+    }
+    for (std::size_t i = 0; i < text.size();) {
+        unsigned char b = static_cast<unsigned char>(text[i]);
+        if (b < 0x80) {
+            char c = text[i];
+            if (auto stroke = ascii_to_keystroke(c)) {
+                if (stroke->shift) {
+                    gate_.send(KEY_LEFTSHIFT, 1);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                gate_.send(stroke->code, 1);
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                gate_.send(stroke->code, 0);
+                if (stroke->shift) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    gate_.send(KEY_LEFTSHIFT, 0);
+                }
+            }
+            ++i;
+        } else {
+            const char* p = text.c_str() + i;
+            const char* next = g_utf8_next_char(p);
+            std::size_t len = static_cast<std::size_t>(next - p);
+            gate_.commit_text(text.substr(i, len));
+            i += len;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
 int App::native_code(const Key& key, const std::set<int>& mods) {
     if (!unicode_mode()) {
         return 0;
@@ -832,6 +1040,30 @@ void App::action(const std::string& id) {
     if (const auto adjustment = adjustments.find(id); adjustment != adjustments.end()) {
         cancel();
         placement_actions_.push_back(adjustment->second);
+        return;
+    }
+    if (id == "dictate") {
+        if (!dictation_) {
+            status_ = "Speech helper not available";
+            dirty = true;
+            return;
+        }
+        if (dictation_->state() == Dictation::State::Listening) {
+            dictation_->finish();
+            status_ = "Transcribing speech...";
+            dirty = true;
+        } else if (dictation_->state() == Dictation::State::Transcribing) {
+            // Already transcribing
+        } else {
+            try {
+                dictation_->start();
+                status_ = "Listening... tap microphone when finished";
+                dirty = true;
+            } catch (const std::exception& error) {
+                status_ = error.what();
+                dirty = true;
+            }
+        }
         return;
     }
     if (id.starts_with("preset-ja-")) {

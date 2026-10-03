@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(framekeyboard VERSION 0.5.0 LANGUAGES C CXX)
+project(framekeyboard VERSION 0.6.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,7 +40,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/text_input.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/config.cpp src/input.cpp src/panel.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/text_input.cpp src/dictation.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI ${CMAKE_DL_LIBS})
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -82,6 +82,7 @@ if(CMAKE_CROSSCOMPILING)
     set(OPENVR_RUNTIME_PATH "/opt/steamvr/bin/linuxarm64")
 else()
     find_library(OPENVR_LIBRARY openvr_api HINTS
+        "/opt/steamvr/bin/linuxarm64"
         "$ENV{HOME}/.local/share/Steam/steamapps/common/SteamVR/bin/linux64"
         "$ENV{HOME}/.local/share/Steam/ubuntu12_64" REQUIRED)
     get_filename_component(OPENVR_RUNTIME_PATH "${OPENVR_LIBRARY}" DIRECTORY)
@@ -100,6 +101,24 @@ foreach(manifest actions.json frame-controller.json)
     configure_file("vr/${manifest}" "vr/${manifest}" COPYONLY)
 endforeach()
 set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+
+find_package(Threads REQUIRED)
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/whisper EXCLUDE_FROM_ALL)
+target_compile_options(whisper PRIVATE -O3)
+target_compile_options(ggml PRIVATE -O3)
+target_compile_options(ggml-cpu PRIVATE -O3)
+target_compile_options(ggml-base PRIVATE -O3)
+
+add_executable(framekeyboard-dictate src/dictation_main.cpp)
+target_link_libraries(framekeyboard-dictate PRIVATE whisper Threads::Threads)
+target_compile_options(framekeyboard-dictate PRIVATE -O3 -Wall -Wextra -Wpedantic)
+if(CMAKE_CROSSCOMPILING)
+    target_link_options(framekeyboard-dictate PRIVATE -fuse-ld=lld)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
@@ -169,12 +188,13 @@ if(BUILD_TESTING)
     add_executable(uinput-smoke-test tests/uinput_smoke.cpp)
     target_link_libraries(uinput-smoke-test PRIVATE keyboard_core)
 endif()
-install(TARGETS framekeyboard RUNTIME DESTINATION bin)
+install(TARGETS framekeyboard framekeyboard-dictate RUNTIME DESTINATION bin)
 install(DIRECTORY docs DESTINATION .)
-install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
+install(DIRECTORY layouts languages themes config vr speech DESTINATION share/framekeyboard)
 install(FILES third_party/README.md DESTINATION third_party)
 install(FILES third_party/openvr/LICENSE DESTINATION third_party/openvr)
 install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overlay_texture)
+install(FILES third_party/whisper/LICENSE DESTINATION third_party/whisper)
 
 install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
 
