@@ -291,7 +291,15 @@ class VrPanel {
         return dashboard_anchor(from_vr(world));
     }
     void place(const PanelPlacement& placement) {
-        const auto world = placement.transform();
+        auto world = placement.transform();
+        // A compact panel draws only the left visible_width_ pixels and leaves
+        // the rest transparent. The overlay keeps its full size and pointer
+        // mapping, so shift it right along its own x axis by half the unused
+        // width to keep the visible part centered on the placement.
+        const double shift = (panel_width - visible_width_) / 2 * placement.width() / panel_width;
+        for (std::size_t row = 0; row < 3; ++row) {
+            world[row][3] += world[row][0] * shift;
+        }
         vr::HmdMatrix34_t transform{};
         for (std::size_t row = 0; row < 3; ++row) {
             for (std::size_t col = 0; col < 4; ++col) {
@@ -301,23 +309,12 @@ class VrPanel {
         check(vr::VROverlay()->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding,
                                                            &transform),
               "Place keyboard");
-        // placement.width() is the full panel's width; a compact panel shows
-        // only its left part at the same scale.
-        const double shown = placement.width() * visible_width_ / panel_width;
-        check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(shown)),
+        check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
               "Resize keyboard");
     }
     double visible_width() const { return visible_width_; }
-    // Crops the texture and pointer coordinates to the visible part. The caller
-    // must place the panel again so its width in meters matches.
-    void set_visible_width(double width) {
-        auto* overlay = vr::VROverlay();
-        vr::VRTextureBounds_t bounds{0, 0, static_cast<float>(width / panel_width), 1};
-        check(overlay->SetOverlayTextureBounds(handle_, &bounds), "SetOverlayTextureBounds");
-        vr::HmdVector2_t scale{{static_cast<float>(width), panel_height}};
-        check(overlay->SetOverlayMouseScale(handle_, &scale), "SetOverlayMouseScale");
-        visible_width_ = width;
-    }
+    // The caller must place the panel again so the centering shift updates.
+    void set_visible_width(double width) { visible_width_ = width; }
     std::uint64_t universe() const {
         vr::ETrackedPropertyError error{};
         const auto id = vr::VRSystem()->GetUint64TrackedDeviceProperty(
