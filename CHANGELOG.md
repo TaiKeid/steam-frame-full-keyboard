@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2: Fix repeated dictation
+
+- Dictation no longer types the last sentence twice. Each recording is transcribed in one pass without timestamps, so Whisper can't decode the end of the audio a second time.
+
 ## 0.6.1: Dictation safety and speed
 
 - Dictated text is typed a few characters per frame instead of in one blocking loop. Closing the dashboard or changing focus stops the remaining text.

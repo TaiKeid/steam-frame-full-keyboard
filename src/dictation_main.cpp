@@ -214,7 +214,11 @@ int main(int argc, char** argv) {
         wparams.language = "en";
         wparams.translate = false;
         wparams.no_context = true;
-        wparams.single_segment = false;
+        // One pass per 30 s window, without timestamps. With a short audio_ctx
+        // the timestamp-driven seek can stop early and decode the tail again,
+        // which typed the last sentence twice.
+        wparams.single_segment = true;
+        wparams.no_timestamps = true;
         wparams.suppress_blank = true;
         wparams.suppress_nst = true;
         wparams.temperature_inc = 0.0f;
