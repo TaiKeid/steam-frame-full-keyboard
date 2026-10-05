@@ -221,7 +221,9 @@ int main(int argc, char** argv) {
         wparams.no_timestamps = true;
         wparams.suppress_blank = true;
         wparams.suppress_nst = true;
-        wparams.temperature_inc = 0.0f;
+        // Keep whisper.cpp's fallback: a low-entropy (repetitive) result is
+        // decoded again at a higher temperature. It only costs time on failure.
+        wparams.temperature_inc = 0.2f;
         wparams.no_speech_thold = 0.6f;
         wparams.print_progress = false;
         wparams.print_special = false;

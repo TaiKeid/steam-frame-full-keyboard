@@ -1,5 +1,7 @@
 #include "framekeyboard/dictation.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -220,6 +222,57 @@ fs::path find_speech_helper() {
     return dir.empty() ? fs::path{} : dir / "framekeyboard-dictate";
 }
 
+namespace {
+// Lowercase without trailing punctuation, so "keys." and "Keys" compare equal.
+std::string normalized_word(const std::string& word) {
+    std::string result;
+    for (const unsigned char c : word) {
+        result += static_cast<char>(std::tolower(c));
+    }
+    while (!result.empty() && std::ispunct(static_cast<unsigned char>(result.back()))) {
+        result.pop_back();
+    }
+    return result;
+}
+} // namespace
+std::string collapse_repeats(const std::string& text) {
+    // Whisper can loop on one phrase. Speech rarely repeats four or more words
+    // back to back, so keep one copy of any such run. Longest blocks win.
+    constexpr std::size_t min_block = 4;
+    std::vector<std::string> words, keys;
+    for (std::size_t start = 0; start < text.size();) {
+        const auto end = std::min(text.find(' ', start), text.size());
+        if (end > start) {
+            words.push_back(text.substr(start, end - start));
+            keys.push_back(normalized_word(words.back()));
+        }
+        start = end + 1;
+    }
+    const auto same = [&](std::size_t a, std::size_t b, std::size_t length) {
+        return std::equal(keys.begin() + static_cast<std::ptrdiff_t>(a),
+                          keys.begin() + static_cast<std::ptrdiff_t>(a + length),
+                          keys.begin() + static_cast<std::ptrdiff_t>(b));
+    };
+    std::string result;
+    for (std::size_t i = 0; i < words.size();) {
+        std::size_t length = 0, copies = 1;
+        for (std::size_t block = (words.size() - i) / 2; block >= min_block && !length; --block) {
+            if (same(i, i + block, block)) {
+                length = block;
+                copies = 2;
+                while (i + (copies + 1) * block <= words.size() && same(i, i + copies * block, block)) {
+                    ++copies;
+                }
+            }
+        }
+        const std::size_t kept = length ? length : 1;
+        for (std::size_t k = 0; k < kept; ++k) {
+            result += (result.empty() ? "" : " ") + words[i + k];
+        }
+        i += length ? length * copies : 1;
+    }
+    return result;
+}
 std::string clean_transcript(const std::string& text) {
     if (!g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr)) {
         return {};
@@ -278,6 +331,7 @@ std::string clean_transcript(const std::string& text) {
         meaningful |= g_unichar_isalnum(ch) != 0;
         result.append(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
     }
+    result = collapse_repeats(result);
     if (result.find("1234567890") != std::string::npos ||
         result.find("qwertyuiop") != std::string::npos ||
         result.find("asdfghjkl") != std::string::npos) {

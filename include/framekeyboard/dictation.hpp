@@ -70,6 +70,8 @@ fs::path find_speech_helper();
 // annotations such as "[BLANK_AUDIO]" or "(music)", collapses whitespace and
 // trims. Returns an empty string when nothing speech-like remains.
 std::string clean_transcript(const std::string& text);
+// Keeps one copy of any run of four or more words repeated back to back.
+std::string collapse_repeats(const std::string& text);
 // Splits valid UTF-8 into chunks of at most `limit` code points without
 // breaking a multi-byte sequence. Gamescope commits are limited to 32.
 std::vector<std::string> split_utf8(const std::string& text, std::size_t limit);

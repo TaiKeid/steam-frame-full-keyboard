@@ -344,6 +344,17 @@ void dictation_tests() {
             "unmatched parenthesis keeps the rest of the sentence");
     require(fk::clean_transcript("Yes (laughs) and [music] no") == "Yes and no",
             "closed annotations are still removed");
+    require(fk::clean_transcript("Testing out the right side keys. Testing out the right side keys. "
+                                 "Testing out the right side keys.") ==
+                "Testing out the right side keys.",
+            "collapse a repetition loop to one sentence");
+    require(fk::clean_transcript("Well, maybe not that time. Well, maybe not that time.") ==
+                "Well, maybe not that time.",
+            "collapse a doubled sentence");
+    require(fk::clean_transcript("a b c d a b c d then more") == "a b c d then more",
+            "collapse a repeated phrase before new words");
+    require(fk::clean_transcript("No, no, no. Very very good.") == "No, no, no. Very very good.",
+            "keep short natural repeats");
     require(fk::clean_transcript("1234567890-=qwertyuiop").empty(),
             "keyboard smash hallucination stripped");
 
