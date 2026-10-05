@@ -107,6 +107,14 @@ set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    # Without an explicit target ggml falls back to baseline ARMv8 and skips the
+    # Frame's dot-product and FP16 instructions, which made dictation about 3x
+    # slower. -march=native is also slower: it enables SVE, which loses to NEON
+    # on the Frame. Every Frame has the same SoC, so a fixed target is safe.
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    set(GGML_CPU_ARM_ARCH "armv8.6-a+dotprod+fp16+i8mm" CACHE STRING "" FORCE)
+endif()
 add_subdirectory(third_party/whisper EXCLUDE_FROM_ALL)
 target_compile_options(whisper PRIVATE -O3)
 target_compile_options(ggml PRIVATE -O3)
