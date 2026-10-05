@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1: Dictation safety and speed
+
+- Dictated text is typed a few characters per frame instead of in one blocking loop. Closing the dashboard or changing focus stops the remaining text.
+- Dictation waits while any key is held, so a held Ctrl or Super can no longer turn dictated letters into shortcuts.
+- Pressing a keyboard key cancels active dictation.
+- Held keys are released before typing is disabled. Previously a key could stay down if Gamescope text input became unavailable.
+- Transcripts keep text after an unmatched "(", "[" or "*". Only closed annotations such as "[music]" are removed.
+- Language profiles accept only plain XKB names, so a profile can't make the keymap library read other files.
+- Dictation is much faster: the speech engine is built for the Frame's CPU features, and short recordings no longer pay for a full 30-second window. A 3-second clip with small.en now transcribes in under a second (was 17 s).
+
 ## 0.6.0: Offline Speech-to-Text Dictation
 
 - Integrated on-device speech-to-text dictation button in the top toolbar with a dedicated microphone icon.
