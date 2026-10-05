@@ -43,7 +43,7 @@ class App {
   public:
     App(const Options& options, KeySink& sink);
     PanelView view() const;
-    // Visible panel width; VR narrows the overlay to match.
+    // Visible panel width. VR keeps the overlay full size and centers this part.
     double visible_width() const { return visible_width_; }
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);
@@ -110,9 +110,10 @@ class App {
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;
     std::unique_ptr<Dictation> dictation_;
-    // The active layout without its number pad, used when the setting hides it.
-    void update_compact();
-    std::optional<Layout> compact_layout_;
+    // The active layout after the number pad and side-key settings, if they
+    // change it. Rebuilt whenever the selection or profiles change.
+    void update_layout();
+    std::optional<Layout> arranged_layout_;
     double visible_width_{panel_width};
     // Recognised text still to be typed. Cleared by every cancellation path.
     std::string dictation_queue_;

@@ -220,13 +220,13 @@ App::App(const Options& options, KeySink& sink)
     auto helper = find_speech_helper();
     auto model = find_speech_model(options_.speech_model, options_.config_dir, options_.data_dir);
     dictation_ = std::make_unique<Dictation>(std::move(helper), std::move(model));
-    update_compact();
+    update_layout();
     // A saved language mismatch must leave Settings reachable, not abort launch.
     refresh_typing();
 }
 std::string App::app_action(const std::string& id) const {
     const auto& layout =
-        compact_layout_ ? *compact_layout_ : profiles_.layouts.at(settings_.active.layout);
+        arranged_layout_ ? *arranged_layout_ : profiles_.layouts.at(settings_.active.layout);
     for (const auto& key : layout.keys) {
         if (key.id == id && key.action_kind == ActionKind::App) {
             return key.action;
@@ -234,28 +234,22 @@ std::string App::app_action(const std::string& id) const {
     }
     return id;
 }
-void App::update_compact() {
-    compact_layout_.reset();
+void App::update_layout() {
+    arranged_layout_.reset();
     visible_width_ = panel_width;
-    // IME candidate bars and toolbars are laid out for the full width.
-    if (settings_.active.numpad || japanese() || cjk_) {
-        return;
-    }
     const auto& full = profiles_.layouts.at(settings_.active.layout);
-    Layout visible = full;
-    std::erase_if(visible.keys, [](const Key& key) {
-        return key.action_kind == ActionKind::Key &&
-               (key.action.starts_with("Numpad") || key.action == "NumLock");
-    });
-    if (visible.keys.size() == full.keys.size() || visible.keys.empty()) {
+    // IME candidate bars and toolbars are laid out for the full width, so IME
+    // languages keep the number pad and the full panel.
+    const bool ime = japanese() || cjk_;
+    auto arranged = arrange_layout(full, settings_.active.numpad || ime, settings_.active.side_keys);
+    if (arranged == full) {
         return;
     }
-    visible.width = 0;
-    for (const auto& key : visible.keys) {
-        visible.width = std::max(visible.width, key.bounds.x + key.bounds.width);
+    if (!ime) {
+        visible_width_ =
+            compact_panel_width(full, arranged, profiles_.themes.at(settings_.active.theme));
     }
-    visible_width_ = compact_panel_width(full, visible, profiles_.themes.at(settings_.active.theme));
-    compact_layout_ = std::move(visible);
+    arranged_layout_ = std::move(arranged);
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result = {
@@ -362,19 +356,21 @@ std::vector<Control> App::controls() const {
     if (!settings_.favorites.empty()) {
         row("favorite", "Favorite: " + settings_.favorites.at(favorite_index_).name, 354);
     }
+    // Five 230 px buttons fit the narrowest (compact) panel.
     result.push_back({"numpad-toggle",
                       pending_.numpad ? "Number pad: shown" : "Number pad: hidden",
-                      {40, 446, 280, 60}});
-    result.push_back({"apply", "Apply and save", {350, 446, 280, 60}});
-    result.push_back({"reload", "Reload profiles", {650, 446, 280, 60}});
+                      {40, 446, 230, 60}});
+    result.push_back({"side-keys", "Side keys: " + pending_.side_keys, {290, 446, 230, 60}});
+    result.push_back({"apply", "Apply and save", {540, 446, 230, 60}});
+    result.push_back({"reload", "Reload profiles", {790, 446, 230, 60}});
     if (!settings_.favorites.empty()) {
-        result.push_back({"favorite-use", "Use favorite", {950, 446, 280, 60}});
+        result.push_back({"favorite-use", "Use favorite", {1040, 446, 230, 60}});
     }
     return result;
 }
 PanelView App::view() const {
     PanelView v;
-    v.layout = compact_layout_ ? &*compact_layout_ : &profiles_.layouts.at(settings_.active.layout);
+    v.layout = arranged_layout_ ? &*arranged_layout_ : &profiles_.layouts.at(settings_.active.layout);
     v.width = visible_width_;
     v.theme = &profiles_.themes.at(settings_.active.theme);
     v.language = &profiles_.languages.at(settings_.active.language);
@@ -721,7 +717,7 @@ void App::apply(Selection selection) {
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
-    update_compact();
+    update_layout();
     refresh_typing();
     status_.clear();
     try {
@@ -745,7 +741,7 @@ void App::reload() {
     settings_.favorites = updated_settings.favorites;
     favorite_index_ = 0;
     pending_ = settings_.active;
-    update_compact();
+    update_layout();
     refresh_typing();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
 }
@@ -1246,11 +1242,16 @@ void App::action(const std::string& id) {
     } else if (id == "favorite-use") {
         auto candidate = settings_.favorites.at(favorite_index_).selection;
         validate_selection(profiles_, candidate);
-        // Favorites choose profiles; the number pad stays as the user set it.
+        // Favorites choose profiles; arrangement stays as the user set it.
         candidate.numpad = pending_.numpad;
+        candidate.side_keys = pending_.side_keys;
         pending_ = candidate;
     } else if (id == "numpad-toggle") {
         pending_.numpad = !pending_.numpad;
+    } else if (id == "side-keys") {
+        pending_.side_keys = pending_.side_keys == "left"    ? "right"
+                             : pending_.side_keys == "right" ? "both"
+                                                             : "left";
     }
 }
 bool App::take_recenter() {

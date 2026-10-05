@@ -230,12 +230,20 @@ void profile_tests(const fk::Profiles& defaults) {
             "settings preserve selection and favorites");
     require(saved.active.numpad && saved.favorites.front().selection.numpad,
             "number pad defaults to shown");
-    fk::save_selection(directory.path, {"en-us-full", "de-de", "midnight", false});
-    require(!fk::load_settings(directory.path, errors).active.numpad && errors.empty(),
-            "hidden number pad persists");
+    require(saved.active.side_keys == "left", "side keys default to the left");
+    fk::save_selection(directory.path, {"en-us-full", "de-de", "midnight", false, "both"});
+    const auto arranged = fk::load_settings(directory.path, errors).active;
+    require(!arranged.numpad && arranged.side_keys == "both" && errors.empty(),
+            "hidden number pad and side keys persist");
     std::ifstream file(directory.path / "config.json");
     const std::string content((std::istreambuf_iterator<char>(file)), {});
     require(content.find("custom") != std::string::npos, "preserve unrelated settings");
+    write(
+        directory.path / "config.json",
+        R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite","side_keys":"top"}})");
+    fk::load_settings(directory.path, errors);
+    require(!errors.empty(), "reject unknown side_keys value");
+    errors.clear();
     write(directory.path / "config.json", "{broken");
     rejects([&] { fk::save_selection(directory.path, {}); }, "do not overwrite malformed settings");
     rejects([] { fk::parse_layout(R"({"schema_version":2})"); }, "reject future schema");
@@ -381,6 +389,36 @@ void dictation_tests() {
     require(app.view().status.find("Speech") != std::string::npos,
             "dictate key runs the dictation action");
 }
+void arrange_tests(const fk::Layout& full) {
+    const auto right = fk::arrange_layout(full, true, "right");
+    require(right.keys.size() == full.keys.size() && right.width == full.width,
+            "right side keeps every key and the width");
+    const auto find = [](const fk::Layout& layout, const std::string& id) {
+        for (const auto& key : layout.keys) {
+            if (key.id == id) {
+                return key;
+            }
+        }
+        throw std::runtime_error("missing key " + id);
+    };
+    double rightmost_main = 0;
+    for (const auto& key : right.keys) {
+        if (key.action_kind == fk::ActionKind::Key) {
+            rightmost_main = std::max(rightmost_main, key.bounds.x + key.bounds.width);
+        }
+    }
+    require(find(right, "Copy").bounds.x > rightmost_main && find(right, "Escape").bounds.x == 0,
+            "right side moves the column past the main block");
+    const auto both = fk::arrange_layout(full, false, "both");
+    require(find(both, "Copy").bounds.x == 0 && find(both, "DictateRight").bounds.x > 1000 &&
+                find(both, "DictateRight").action == "dictate",
+            "both sides mirror the column with distinct IDs");
+    std::set<std::string> ids;
+    for (const auto& key : both.keys) {
+        require(ids.insert(key.id).second, "arranged key IDs stay unique");
+    }
+    require(fk::arrange_layout(full, true, "left") == full, "default arrangement is unchanged");
+}
 void numpad_tests() {
     TemporaryDirectory directory;
     fk::Options options;
@@ -411,6 +449,23 @@ void numpad_tests() {
         require(control.bounds.x + control.bounds.width <= app.visible_width(),
                 "settings fit the compact panel");
     }
+    // Every arrangement keeps the toolbar and settings inside the visible panel.
+    for (const bool numpad : {true, false}) {
+        for (const std::string side : {"left", "right", "both"}) {
+            app.apply({"en-us-full", "en-us", "graphite", numpad, side});
+            for (const bool settings : {false, true}) {
+                if (settings) {
+                    app.show_settings();
+                } else {
+                    app.summon(); // Also closes settings.
+                }
+                for (const auto& control : app.view().controls) {
+                    require(control.bounds.x + control.bounds.width <= app.visible_width(),
+                            "controls fit every arrangement");
+                }
+            }
+        }
+    }
     app.apply({"en-us-full", "ja-romaji", "graphite", false});
     require(app.visible_width() == fk::panel_width, "IME languages keep the full width");
     app.apply({"en-us-full", "en-us", "graphite", true});
@@ -428,6 +483,7 @@ int main() {
         app_tests();
         dictation_tests();
         numpad_tests();
+        arrange_tests(defaults.layouts.at("en-us-full"));
         std::cout << "Key sequences, cancellation, repeat, profiles, persistence, language legends, "
                      "dictation and rendering passed.\n";
         return 0;

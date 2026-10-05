@@ -127,6 +127,10 @@ Selection selection(json_object* object) {
     if (auto* numpad = field(object, "numpad", json_type_boolean, true)) {
         result.numpad = json_object_get_boolean(numpad) != 0;
     }
+    result.side_keys = text(object, "side_keys", "left", true);
+    if (result.side_keys != "left" && result.side_keys != "right" && result.side_keys != "both") {
+        throw std::runtime_error("side_keys must be left, right or both");
+    }
     return result;
 }
 
@@ -239,6 +243,66 @@ Layout parse_layout(const std::string& json) {
             }
         }
         result.keys.push_back(std::move(key));
+    }
+    return result;
+}
+Layout arrange_layout(const Layout& layout, bool numpad, const std::string& side_keys) {
+    Layout result = layout;
+    bool changed = false;
+    if (!numpad) {
+        changed = std::erase_if(result.keys, [](const Key& key) {
+                      return key.action_kind == ActionKind::Key &&
+                             (key.action.starts_with("Numpad") || key.action == "NumLock");
+                  }) > 0;
+    }
+    if (side_keys != "left") {
+        const auto side = [](const Key& key) {
+            return key.action_kind == ActionKind::Shortcut || key.action_kind == ActionKind::App;
+        };
+        double column_left = result.width, column_right = 0, main_left = result.width;
+        for (const auto& key : result.keys) {
+            if (side(key)) {
+                column_left = std::min(column_left, key.bounds.x);
+                column_right = std::max(column_right, key.bounds.x + key.bounds.width);
+            } else {
+                main_left = std::min(main_left, key.bounds.x);
+            }
+        }
+        // Only a column fully left of the main block can move or mirror.
+        if (column_right > 0 && column_right <= main_left) {
+            const double gap = main_left - column_right;
+            std::vector<Key> column, main;
+            for (const auto& key : result.keys) {
+                (side(key) ? column : main).push_back(key);
+            }
+            if (side_keys == "right") {
+                for (auto& key : main) {
+                    key.bounds.x -= main_left - column_left;
+                }
+            }
+            double main_right = 0;
+            for (const auto& key : main) {
+                main_right = std::max(main_right, key.bounds.x + key.bounds.width);
+            }
+            std::vector<Key> keys = side_keys == "both" ? result.keys : main;
+            for (auto key : column) {
+                key.bounds.x += main_right + gap - column_left;
+                if (side_keys == "both") {
+                    key.id += "Right";
+                }
+                keys.push_back(std::move(key));
+            }
+            result.keys = std::move(keys);
+            changed = true;
+        }
+    }
+    // Keep the profile's own width, including any margin, when nothing moved.
+    if (!changed) {
+        return result;
+    }
+    result.width = 0;
+    for (const auto& key : result.keys) {
+        result.width = std::max(result.width, key.bounds.x + key.bounds.width);
     }
     return result;
 }
@@ -493,6 +557,7 @@ void save_selection(const fs::path& user_dir, const Selection& s) {
     json_object_object_add(active, "language", json_object_new_string(s.language.c_str()));
     json_object_object_add(active, "theme", json_object_new_string(s.theme.c_str()));
     json_object_object_add(active, "numpad", json_object_new_boolean(s.numpad));
+    json_object_object_add(active, "side_keys", json_object_new_string(s.side_keys.c_str()));
     json_object_object_add(document.get(), "active", active);
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

@@ -33,6 +33,8 @@ struct Selection {
     std::string layout{"en-us-full"}, language{"en-us"}, theme{"graphite"};
     // Hiding the number pad also narrows the panel, except for IME languages.
     bool numpad{true};
+    // Where the Copy/Paste/Dictate column goes: "left", "right" or "both".
+    std::string side_keys{"left"};
 };
 struct Favorite {
     std::string id, name;
@@ -58,6 +60,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
 void save_selection(const fs::path& user_dir, const Selection& selection);
 void validate_selection(const Profiles& profiles, const Selection& selection);
 Layout parse_layout(const std::string& json);
+// Applies the number pad and side-key settings to a layout. Side keys are the
+// shortcut and app keys left of every other key; other layouts pass through.
+Layout arrange_layout(const Layout& layout, bool numpad, const std::string& side_keys);
 Theme parse_theme(const std::string& json);
 Language parse_language(const std::string& json);
 
