@@ -227,19 +227,16 @@ std::string clean_transcript(const std::string& text) {
     std::string stripped;
     stripped.reserve(text.size());
     // Whisper marks non-speech as [BLANK_AUDIO], (music), *laughs* or ♪ notes.
-    char closing = 0;
+    // Only a closed annotation is removed; an unmatched "(" or "*" is spoken text.
     for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
         const gunichar ch = g_utf8_get_char(p);
-        if (closing) {
-            if (ch == static_cast<gunichar>(closing)) {
-                closing = 0;
-                stripped += ' ';
-            }
-            continue;
-        }
         if (ch == '[' || ch == '(' || ch == '*') {
-            closing = ch == '[' ? ']' : ch == '(' ? ')' : '*';
-            continue;
+            const char closing = ch == '[' ? ']' : ch == '(' ? ')' : '*';
+            if (const char* end = std::strchr(p + 1, closing)) {
+                stripped += ' ';
+                p = end;
+                continue;
+            }
         }
         if (ch == 0x266A || ch == 0x266B) {
             continue;
