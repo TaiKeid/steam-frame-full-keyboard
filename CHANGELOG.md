@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0: Microphone key and compact layout
+
+- The dictation button is now a large microphone key below Copy and Paste, which were shortened slightly to fit. It highlights while recording or transcribing.
+- Settings has a Number pad toggle. Hiding it narrows the keyboard to fit the remaining keys at the same key size. Japanese, Chinese and Korean keep the full width for their candidate bars.
+- Layouts support an `app` action kind for in-keyboard actions; `dictate` is the only one.
+
 ## 0.6.2: Fix repeated dictation
 
 - Dictation no longer types the last sentence twice. Each recording is transcribed in one pass without timestamps, so Whisper can't decode the end of the audio a second time.
