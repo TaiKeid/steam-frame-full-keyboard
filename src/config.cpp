@@ -3,6 +3,7 @@
 #include "framekeyboard/input.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -294,10 +295,21 @@ Language parse_language(const std::string& json) {
         throw std::runtime_error("direct Kana needs a kana mapping");
     }
     auto* map = field(o, "keymap", json_type_object);
-    l.rules = text(map, "rules");
-    l.model = text(map, "model");
-    l.keymap = text(map, "layout");
-    l.variant = text(map, "variant");
+    // libxkbcommon resolves these as file names and include statements, so a
+    // "/", "." or quote could read files outside the XKB data directory.
+    const auto xkb_name = [&](const char* name) {
+        auto value = text(map, name);
+        if (value.size() > 64 || !std::all_of(value.begin(), value.end(), [](unsigned char c) {
+                return std::isalnum(c) || c == '_' || c == '-';
+            })) {
+            throw std::runtime_error(std::string("invalid XKB name: ") + name);
+        }
+        return value;
+    };
+    l.rules = xkb_name("rules");
+    l.model = xkb_name("model");
+    l.keymap = xkb_name("layout");
+    l.variant = xkb_name("variant");
     // v1 has one active XKB group. Multi-group/IME profiles need a separate backend.
     if (l.keymap.empty() || l.keymap.find(',') != std::string::npos) {
         throw std::runtime_error("expected a single XKB layout");

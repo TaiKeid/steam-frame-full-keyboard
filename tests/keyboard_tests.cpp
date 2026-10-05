@@ -234,6 +234,18 @@ void profile_tests(const fk::Profiles& defaults) {
     write(directory.path / "config.json", "{broken");
     rejects([&] { fk::save_selection(directory.path, {}); }, "do not overwrite malformed settings");
     rejects([] { fk::parse_layout(R"({"schema_version":2})"); }, "reject future schema");
+    const auto language = [](const std::string& layout, const std::string& variant) {
+        return R"({"schema_version":1,"id":"xkb-test","name":"XKB test","locale":"en-US",)"
+               R"("keymap":{"rules":"evdev","model":"pc105","layout":")" +
+               layout + R"(","variant":")" + variant +
+               R"(","options":[]},"legends":{"source":"keymap","overrides":{}},)"
+               R"("font_families":["sans-serif"]})";
+    };
+    require(fk::parse_language(language("us", "dvorak-intl")).keymap == "us", "accept plain XKB names");
+    rejects([&] { fk::parse_language(language("../../../tmp/evil", "")); },
+            "reject path traversal in XKB layout");
+    rejects([&] { fk::parse_language(language("us", R"(x"};include "evil)")); },
+            "reject include injection in XKB variant");
     rejects(
         [] {
             fk::parse_layout(
@@ -313,6 +325,12 @@ void dictation_tests() {
     require(fk::clean_transcript("It’s “working” — perfectly…") == "It's \"working\" - perfectly...",
             "curly quotes and dashes normalized to ascii");
     require(fk::clean_transcript("♪♪").empty(), "musical notes stripped");
+    require(fk::clean_transcript("Five * three is fifteen") == "Five * three is fifteen",
+            "unmatched asterisk keeps the rest of the sentence");
+    require(fk::clean_transcript("Open it (carefully") == "Open it (carefully",
+            "unmatched parenthesis keeps the rest of the sentence");
+    require(fk::clean_transcript("Yes (laughs) and [music] no") == "Yes and no",
+            "closed annotations are still removed");
     require(fk::clean_transcript("1234567890-=qwertyuiop").empty(),
             "keyboard smash hallucination stripped");
 
