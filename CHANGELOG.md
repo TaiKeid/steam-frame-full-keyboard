@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0: Side key placement
+
+- Settings has a Side keys button that puts Copy, Paste and the microphone on the left, the right, or both sides. It works with the number pad shown or hidden, and favorites keep the current choice.
+
 ## 0.7.1: Fix pointer offset with the number pad hidden
 
 - With the number pad hidden, the laser highlighted keys left of and below where it pointed. The compact panel now keeps the full-size overlay with the unused part transparent, so the pointer maps exactly as it does with the number pad shown.
