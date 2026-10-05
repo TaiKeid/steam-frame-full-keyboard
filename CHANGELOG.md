@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1: Stop dictation repetition loops
+
+- Whisper could get stuck repeating one phrase dozens of times. Its temperature fallback, which re-decodes repetitive results, is enabled again; it costs nothing when the first pass is fine.
+- As a safety net, a run of four or more words repeated back to back is typed only once.
+
 ## 0.8.0: Side key placement
 
 - Settings has a Side keys button that puts Copy, Paste and the microphone on the left, the right, or both sides. It works with the number pad shown or hidden, and favorites keep the current choice.
