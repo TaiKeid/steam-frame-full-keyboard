@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1: Fix pointer offset with the number pad hidden
+
+- With the number pad hidden, the laser highlighted keys left of and below where it pointed. The compact panel now keeps the full-size overlay with the unused part transparent, so the pointer maps exactly as it does with the number pad shown.
+
 ## 0.7.0: Microphone key and compact layout
 
 - The dictation button is now a large microphone key below Copy and Paste, which were shortened slightly to fit. It highlights while recording or transcribing.
