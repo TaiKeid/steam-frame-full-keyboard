@@ -43,6 +43,8 @@ class App {
   public:
     App(const Options& options, KeySink& sink);
     PanelView view() const;
+    // Visible panel width; VR narrows the overlay to match.
+    double visible_width() const { return visible_width_; }
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);
     // True when an unpressed pointer enters a different keyboard key.
@@ -73,6 +75,8 @@ class App {
   private:
     std::vector<Control> controls() const;
     void action(const std::string& id);
+    // Maps a pressed App key's ID to its action; other IDs pass through.
+    std::string app_action(const std::string& id) const;
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
@@ -106,6 +110,10 @@ class App {
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;
     std::unique_ptr<Dictation> dictation_;
+    // The active layout without its number pad, used when the setting hides it.
+    void update_compact();
+    std::optional<Layout> compact_layout_;
+    double visible_width_{panel_width};
     // Recognised text still to be typed. Cleared by every cancellation path.
     std::string dictation_queue_;
     std::size_t dictation_pos_{};

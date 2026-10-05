@@ -12,7 +12,7 @@
       "x": 0,
       "y": 56,
       "width": 79,
-      "height": 116,
+      "height": 110,
       "action": {
         "kind": "shortcut",
         "value": "copy"
@@ -24,14 +24,28 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 187,
+      "y": 181,
       "width": 79,
-      "height": 116,
+      "height": 110,
       "action": {
         "kind": "shortcut",
         "value": "paste"
       },
       "icon": "paste"
+    },
+    {
+      "id": "Dictate",
+      "label": "Dictate",
+      "secondary_label": "",
+      "x": 0,
+      "y": 306,
+      "width": 79,
+      "height": 110,
+      "action": {
+        "kind": "app",
+        "value": "dictate"
+      },
+      "icon": "microphone"
     },
     {
       "id": "Escape",

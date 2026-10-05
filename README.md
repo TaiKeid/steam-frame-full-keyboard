@@ -70,8 +70,9 @@ To update, **close the keyboard**, download the new release assets, and repeat t
 | Move farther / closer | While grabbing, push that same controller's thumbstick up / down |
 | Change size | Use the smaller / larger icons in the toolbar |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
+| Hide the number pad | Open the gear icon, tap **Number pad**, then **Apply and save**. The keyboard gets narrower |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
-| Voice typing (Dictate) | Tap the microphone icon in the toolbar, speak, and tap it again when done |
+| Voice typing (Dictate) | Tap the microphone key below Paste, speak, and tap it again when done |
 | Close | Use the × icon |
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.

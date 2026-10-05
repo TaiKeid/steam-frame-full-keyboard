@@ -27,7 +27,14 @@ struct PanelView {
     std::string preedit;
     std::map<std::string, std::string> key_labels;
     std::set<std::string> hovered;
+    // Keys drawn in the latched color because an app action is running.
+    std::set<std::string> active_keys;
+    // Visible panel width in pixels. The image stays panel_width wide; VR shows
+    // only the left part, so a compact layout makes the overlay narrower.
+    double width{panel_width};
 };
+// Width that shows `visible` at the same key scale as `full`, plus margins.
+double compact_panel_width(const Layout& full, const Layout& visible, const Theme& theme);
 
 class PanelRenderer {
   public:

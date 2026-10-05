@@ -228,6 +228,11 @@ void profile_tests(const fk::Profiles& defaults) {
     auto saved = fk::load_settings(directory.path, errors);
     require(saved.active.language == "de-de" && saved.favorites.size() == 1 && errors.empty(),
             "settings preserve selection and favorites");
+    require(saved.active.numpad && saved.favorites.front().selection.numpad,
+            "number pad defaults to shown");
+    fk::save_selection(directory.path, {"en-us-full", "de-de", "midnight", false});
+    require(!fk::load_settings(directory.path, errors).active.numpad && errors.empty(),
+            "hidden number pad persists");
     std::ifstream file(directory.path / "config.json");
     const std::string content((std::istreambuf_iterator<char>(file)), {});
     require(content.find("custom") != std::string::npos, "preserve unrelated settings");
@@ -340,29 +345,89 @@ void dictation_tests() {
     require(chunks[1] == "語テ", "split_utf8 chunk 1");
     require(chunks[2] == "スト", "split_utf8 chunk 2");
 
+    TemporaryDirectory directory;
     fk::Options options;
     options.mode = "preview";
+    options.config_dir = directory.path;
     Capture sink;
     fk::App app(options, sink);
-    bool found_dictate = false;
-    for (const auto& c : app.view().controls) {
-        if (c.id == "dictate" && c.icon == fk::Icon::Dictate) {
-            found_dictate = true;
-            break;
+    const auto view = app.view();
+    require(std::none_of(view.controls.begin(), view.controls.end(),
+                         [](const fk::Control& c) { return c.id == "dictate"; }),
+            "dictation is a layout key, not a toolbar control");
+    const fk::Key* dictate = nullptr;
+    for (const auto& key : view.layout->keys) {
+        if (key.id == "Dictate") {
+            dictate = &key;
         }
     }
-    require(found_dictate, "dictate button present in controls with Dictate icon");
+    require(dictate && dictate->action_kind == fk::ActionKind::App && dictate->action == "dictate" &&
+                dictate->icon == fk::Icon::Dictate,
+            "dictate key uses the app action and microphone icon");
+    // Locate the key on the panel through the renderer's own hit test.
+    bool pressed = false;
+    for (double x = 0; x < fk::panel_width && !pressed; x += 4) {
+        for (double y = 96; y < fk::panel_height && !pressed; y += 4) {
+            if (const auto* hit = app.renderer.hit_key(view, x, y); hit && hit->id == "Dictate") {
+                app.down(0, x, y, 1);
+                app.up(0, x, y);
+                pressed = true;
+            }
+        }
+    }
+    require(pressed, "dictate key is hittable");
+    require(sink.events.empty(), "dictate key never sends key events");
+    // No model exists in the temporary config, so the action reports that.
+    require(app.view().status.find("Speech") != std::string::npos,
+            "dictate key runs the dictation action");
+}
+void numpad_tests() {
+    TemporaryDirectory directory;
+    fk::Options options;
+    options.mode = "preview";
+    options.config_dir = directory.path;
+    Capture sink;
+    fk::App app(options, sink);
+    require(app.visible_width() == fk::panel_width, "full width by default");
+    const auto full_keys = app.view().layout->keys.size();
+    app.apply({"en-us-full", "en-us", "graphite", false});
+    const auto compact = app.view();
+    require(app.visible_width() < fk::panel_width && compact.width == app.visible_width(),
+            "hidden number pad narrows the panel");
+    require(std::none_of(compact.layout->keys.begin(), compact.layout->keys.end(),
+                         [](const fk::Key& key) {
+                             return key.action.starts_with("Numpad") || key.action == "NumLock";
+                         }) &&
+                compact.layout->keys.size() + 17 == full_keys,
+            "compact layout drops exactly the number pad");
+    require(app.renderer.hit_key(compact, app.visible_width() + 50, 300) == nullptr,
+            "nothing is hittable beyond the visible width");
+    for (const auto& control : compact.controls) {
+        require(control.bounds.x + control.bounds.width <= app.visible_width(),
+                "toolbar fits the compact panel");
+    }
+    app.show_settings();
+    for (const auto& control : app.view().controls) {
+        require(control.bounds.x + control.bounds.width <= app.visible_width(),
+                "settings fit the compact panel");
+    }
+    app.apply({"en-us-full", "ja-romaji", "graphite", false});
+    require(app.visible_width() == fk::panel_width, "IME languages keep the full width");
+    app.apply({"en-us-full", "en-us", "graphite", true});
+    require(app.visible_width() == fk::panel_width && app.view().layout->keys.size() == full_keys,
+            "showing the number pad restores the full panel");
 }
 } // namespace
 int main() {
     try {
         const auto defaults = fk::load_profiles({}, {});
         require(defaults.errors.empty(), "bundled profiles valid");
-        require(defaults.layouts.at("en-us-full").keys.size() == 106, "106 baseline keys");
+        require(defaults.layouts.at("en-us-full").keys.size() == 107, "107 baseline keys");
         state_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         app_tests();
         dictation_tests();
+        numpad_tests();
         std::cout << "Key sequences, cancellation, repeat, profiles, persistence, language legends, "
                      "dictation and rendering passed.\n";
         return 0;

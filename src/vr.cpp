@@ -301,8 +301,22 @@ class VrPanel {
         check(vr::VROverlay()->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding,
                                                            &transform),
               "Place keyboard");
-        check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
+        // placement.width() is the full panel's width; a compact panel shows
+        // only its left part at the same scale.
+        const double shown = placement.width() * visible_width_ / panel_width;
+        check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(shown)),
               "Resize keyboard");
+    }
+    double visible_width() const { return visible_width_; }
+    // Crops the texture and pointer coordinates to the visible part. The caller
+    // must place the panel again so its width in meters matches.
+    void set_visible_width(double width) {
+        auto* overlay = vr::VROverlay();
+        vr::VRTextureBounds_t bounds{0, 0, static_cast<float>(width / panel_width), 1};
+        check(overlay->SetOverlayTextureBounds(handle_, &bounds), "SetOverlayTextureBounds");
+        vr::HmdVector2_t scale{{static_cast<float>(width), panel_height}};
+        check(overlay->SetOverlayMouseScale(handle_, &scale), "SetOverlayMouseScale");
+        visible_width_ = width;
     }
     std::uint64_t universe() const {
         vr::ETrackedPropertyError error{};
@@ -331,6 +345,7 @@ class VrPanel {
     VulkanContext vulkan_;
     PanelTexture texture_;
     std::optional<bool> reported_native_;
+    double visible_width_{panel_width};
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, double duration) {
@@ -438,6 +453,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     double next_tracking_check = 0;
     while (!done && !app.quitting() && !interrupted) {
         const auto frame_started = std::chrono::steady_clock::now();
+        if (panel.visible_width() != app.visible_width()) {
+            panel.set_visible_width(app.visible_width());
+            transform_dirty = true;
+        }
         const double now = monotonic_seconds();
         if (duration > 0 && now - start >= duration) {
             break;
@@ -506,7 +525,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             case vr::VREvent_MouseMove: {
                 if (event.trackedDeviceIndex < hovered_devices.size()) {
                     hovered_devices[event.trackedDeviceIndex] =
-                        x >= 0 && x < panel_width && y >= 0 && y < panel_height;
+                        x >= 0 && x < panel.visible_width() && y >= 0 && y < panel_height;
                 }
                 if (!drag.active()) {
                     if (app.move(pointer, x, y) && controller) {

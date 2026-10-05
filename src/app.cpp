@@ -220,8 +220,42 @@ App::App(const Options& options, KeySink& sink)
     auto helper = find_speech_helper();
     auto model = find_speech_model(options_.speech_model, options_.config_dir, options_.data_dir);
     dictation_ = std::make_unique<Dictation>(std::move(helper), std::move(model));
+    update_compact();
     // A saved language mismatch must leave Settings reachable, not abort launch.
     refresh_typing();
+}
+std::string App::app_action(const std::string& id) const {
+    const auto& layout =
+        compact_layout_ ? *compact_layout_ : profiles_.layouts.at(settings_.active.layout);
+    for (const auto& key : layout.keys) {
+        if (key.id == id && key.action_kind == ActionKind::App) {
+            return key.action;
+        }
+    }
+    return id;
+}
+void App::update_compact() {
+    compact_layout_.reset();
+    visible_width_ = panel_width;
+    // IME candidate bars and toolbars are laid out for the full width.
+    if (settings_.active.numpad || japanese() || cjk_) {
+        return;
+    }
+    const auto& full = profiles_.layouts.at(settings_.active.layout);
+    Layout visible = full;
+    std::erase_if(visible.keys, [](const Key& key) {
+        return key.action_kind == ActionKind::Key &&
+               (key.action.starts_with("Numpad") || key.action == "NumLock");
+    });
+    if (visible.keys.size() == full.keys.size() || visible.keys.empty()) {
+        return;
+    }
+    visible.width = 0;
+    for (const auto& key : visible.keys) {
+        visible.width = std::max(visible.width, key.bounds.x + key.bounds.width);
+    }
+    visible_width_ = compact_panel_width(full, visible, profiles_.themes.at(settings_.active.theme));
+    compact_layout_ = std::move(visible);
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result = {
@@ -233,10 +267,8 @@ std::vector<Control> App::controls() const {
         {"recenter", "Recenter", {88, 12, 60, 42}, false, Icon::Recenter},
         {"size-smaller", "Smaller keyboard", {158, 12, 60, 42}, false, Icon::ScaleDown},
         {"size-larger", "Larger keyboard", {228, 12, 60, 42}, false, Icon::ScaleUp},
-        {"close", "Close", {1522, 12, 60, 42}, false, Icon::Close}};
+        {"close", "Close", {visible_width_ - 78, 12, 60, 42}, false, Icon::Close}};
     if (!settings_open_) {
-        const bool dictating = dictation_ && dictation_->active();
-        result.push_back({"dictate", "Dictate", {298, 12, 60, 42}, dictating, Icon::Dictate});
         if (japanese()) {
             result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
             if (!japanese_latin_) {
@@ -302,14 +334,15 @@ std::vector<Control> App::controls() const {
     if (japanese_layout || language.locale == "ja" || language.locale.starts_with("ja-") ||
         language.locale.starts_with("ja_") || language.keymap == "jp" ||
         language.input_method.starts_with("japanese-")) {
-        result.push_back({"preset-ja-romaji", "日本語 Romaji", {610, 12, 230, 42}});
-        result.push_back({"preset-ja-kana", "日本語 Kana", {850, 12, 230, 42}});
-        result.push_back({"preset-ja-jis", "JIS (system IME)", {1090, 12, 250, 42}});
+        // Starts left of center so the presets fit the compact panel too.
+        result.push_back({"preset-ja-romaji", "日本語 Romaji", {360, 12, 230, 42}});
+        result.push_back({"preset-ja-kana", "日本語 Kana", {600, 12, 230, 42}});
+        result.push_back({"preset-ja-jis", "JIS (system IME)", {840, 12, 250, 42}});
     }
     auto row = [&](const std::string& kind, const std::string& name, double y) {
         result.push_back({kind + "-prev", "<", {40, y, 65, 64}});
-        result.push_back({kind + "-label", name, {115, y, 1370, 64}});
-        result.push_back({kind + "-next", ">", {1495, y, 65, 64}});
+        result.push_back({kind + "-label", name, {115, y, visible_width_ - 230, 64}});
+        result.push_back({kind + "-next", ">", {visible_width_ - 105, y, 65, 64}});
     };
     auto source = [&](const std::string& kind, const std::string& id) {
         const auto found = profiles_.sources.find(kind + "/" + id);
@@ -329,6 +362,9 @@ std::vector<Control> App::controls() const {
     if (!settings_.favorites.empty()) {
         row("favorite", "Favorite: " + settings_.favorites.at(favorite_index_).name, 354);
     }
+    result.push_back({"numpad-toggle",
+                      pending_.numpad ? "Number pad: shown" : "Number pad: hidden",
+                      {40, 446, 280, 60}});
     result.push_back({"apply", "Apply and save", {350, 446, 280, 60}});
     result.push_back({"reload", "Reload profiles", {650, 446, 280, 60}});
     if (!settings_.favorites.empty()) {
@@ -338,7 +374,8 @@ std::vector<Control> App::controls() const {
 }
 PanelView App::view() const {
     PanelView v;
-    v.layout = &profiles_.layouts.at(settings_.active.layout);
+    v.layout = compact_layout_ ? &*compact_layout_ : &profiles_.layouts.at(settings_.active.layout);
+    v.width = visible_width_;
     v.theme = &profiles_.themes.at(settings_.active.theme);
     v.language = &profiles_.languages.at(settings_.active.language);
     v.keymap = keymap_.get();
@@ -353,6 +390,13 @@ PanelView App::view() const {
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
     v.settings = settings_open_;
+    if (dictation_ && dictation_->active()) {
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::App && key.action == "dictate") {
+                v.active_keys.insert(key.id);
+            }
+        }
+    }
     v.composing = japanese() && !japanese_latin_;
     if (v.composing) {
         v.preedit = composition_.preedit(true);
@@ -436,6 +480,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
+        if (key->action_kind == ActionKind::App) {
+            // Runs on release like a toolbar control; never reaches KeyboardState.
+            pressed_controls_[pointer] = key->id;
+            return true;
+        }
         if ((dictation_ && dictation_->active()) || !dictation_queue_.empty()) {
             // Typing by hand takes over from dictation; never interleave the two.
             stop_dictation();
@@ -524,7 +573,7 @@ bool App::up(unsigned pointer, double x, double y) {
         pressed_controls_.erase(it);
         if (hovered_[pointer] == id) {
             try {
-                action(id);
+                action(app_action(id));
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
@@ -672,6 +721,7 @@ void App::apply(Selection selection) {
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
+    update_compact();
     refresh_typing();
     status_.clear();
     try {
@@ -695,6 +745,7 @@ void App::reload() {
     settings_.favorites = updated_settings.favorites;
     favorite_index_ = 0;
     pending_ = settings_.active;
+    update_compact();
     refresh_typing();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
 }
@@ -1193,9 +1244,13 @@ void App::action(const std::string& id) {
         const auto count = settings_.favorites.size();
         favorite_index_ = (favorite_index_ + (id.ends_with("next") ? 1 : count - 1)) % count;
     } else if (id == "favorite-use") {
-        const auto& candidate = settings_.favorites.at(favorite_index_).selection;
+        auto candidate = settings_.favorites.at(favorite_index_).selection;
         validate_selection(profiles_, candidate);
+        // Favorites choose profiles; the number pad stays as the user set it.
+        candidate.numpad = pending_.numpad;
         pending_ = candidate;
+    } else if (id == "numpad-toggle") {
+        pending_.numpad = !pending_.numpad;
     }
 }
 bool App::take_recenter() {

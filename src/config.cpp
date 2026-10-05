@@ -122,7 +122,12 @@ Color color(json_object* object, const char* name, const std::string& fallback =
             static_cast<double>((packed >> 8) & 255) / 255, static_cast<double>(packed & 255) / 255};
 }
 Selection selection(json_object* object) {
-    return {identifier(object, "layout"), identifier(object, "language"), identifier(object, "theme")};
+    Selection result{identifier(object, "layout"), identifier(object, "language"),
+                     identifier(object, "theme")};
+    if (auto* numpad = field(object, "numpad", json_type_boolean, true)) {
+        result.numpad = json_object_get_boolean(numpad) != 0;
+    }
+    return result;
 }
 
 // Scan a directory as a transaction. Duplicate IDs never win by directory order.
@@ -196,6 +201,8 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::SteamFrame;
         } else if (icon == "steam-os") {
             key.icon = Icon::SteamOS;
+        } else if (icon == "microphone") {
+            key.icon = Icon::Dictate;
         } else if (!icon.empty()) {
             throw std::runtime_error("unknown key icon");
         }
@@ -209,6 +216,8 @@ Layout parse_layout(const std::string& json) {
             key.action_kind = ActionKind::Key;
         } else if (kind == "shortcut" && (key.action == "copy" || key.action == "paste")) {
             key.action_kind = ActionKind::Shortcut;
+        } else if (kind == "app" && key.action == "dictate") {
+            key.action_kind = ActionKind::App;
         } else {
             throw std::runtime_error("unknown key action");
         }
@@ -483,6 +492,7 @@ void save_selection(const fs::path& user_dir, const Selection& s) {
     json_object_object_add(active, "layout", json_object_new_string(s.layout.c_str()));
     json_object_object_add(active, "language", json_object_new_string(s.language.c_str()));
     json_object_object_add(active, "theme", json_object_new_string(s.theme.c_str()));
+    json_object_object_add(active, "numpad", json_object_new_boolean(s.numpad));
     json_object_object_add(document.get(), "active", active);
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

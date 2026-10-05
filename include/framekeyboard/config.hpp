@@ -31,6 +31,8 @@ struct Language {
 };
 struct Selection {
     std::string layout{"en-us-full"}, language{"en-us"}, theme{"graphite"};
+    // Hiding the number pad also narrows the panel, except for IME languages.
+    bool numpad{true};
 };
 struct Favorite {
     std::string id, name;

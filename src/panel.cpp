@@ -11,13 +11,15 @@ constexpr double normal_toolbar_height = 96;
 struct Placement {
     double scale, x, y;
 };
+double fit_scale(const Layout& layout, const Theme& theme, double width, double toolbar_height) {
+    const double margin = theme.padding;
+    return std::min((width - 2 * margin) / layout.width,
+                    (panel_height - toolbar_height - 2 * margin - theme.depth) / layout.height);
+}
 Placement placement(const PanelView& view) {
-    const double margin = view.theme->padding;
     const double toolbar_height = view.composing ? 208 : normal_toolbar_height;
-    const double scale =
-        std::min((panel_width - 2 * margin) / view.layout->width,
-                 (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
-    return {scale, (panel_width - view.layout->width * scale) / 2,
+    const double scale = fit_scale(*view.layout, *view.theme, view.width, toolbar_height);
+    return {scale, (view.width - view.layout->width * scale) / 2,
             toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2};
 }
 void source(cairo_t* cr, Color color) {
@@ -211,7 +213,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
     Rect face{r.x, r.y + amount * t.travel, r.width, r.height};
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
-    const bool latched = modifiers.contains(code) ||
+    const bool latched = view.active_keys.contains(key.id) || modifiers.contains(code) ||
                          (key.action == "CapsLock" && view.keyboard->caps()) ||
                          (key.action == "NumLock" && view.keyboard->num());
     rounded(cr, face, t.radius);
@@ -281,6 +283,10 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     }
 }
 } // namespace
+double compact_panel_width(const Layout& full, const Layout& visible, const Theme& theme) {
+    const double scale = fit_scale(full, theme, panel_width, normal_toolbar_height);
+    return std::min<double>(panel_width, std::ceil(visible.width * scale + 2 * theme.padding));
+}
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -315,7 +321,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->view.controls != view.controls || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
-        previous_->view.preedit != view.preedit || previous_->view.key_labels != view.key_labels;
+        previous_->view.preedit != view.preedit || previous_->view.key_labels != view.key_labels ||
+        previous_->view.active_keys != view.active_keys || previous_->view.width != view.width;
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
@@ -398,7 +405,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    rounded(cr, {0, 0, panel_width, panel_height}, t.surface_radius);
+    rounded(cr, {0, 0, view.width, panel_height}, t.surface_radius);
     source(cr, t.surface);
     cairo_fill(cr);
     if (!view.settings) {
@@ -425,7 +432,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                            : method.starts_with("chinese-")
                                ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
                                : "Type → Space: convert · Enter: commit · Esc: cancel";
-        label(cr, view.preedit.empty() ? hint : view.preedit, {20, 94, 1560, 40}, 27,
+        label(cr, view.preedit.empty() ? hint : view.preedit, {20, 94, view.width - 40, 40}, 27,
               view.language->font, t.legend);
     }
     for (const auto& control : view.controls) {
@@ -440,7 +447,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
     }
     if (!view.status.empty()) {
-        label(cr, view.status, view.settings ? Rect{30, 526, 1540, 54} : Rect{18, 60, 1564, 28}, 17,
+        label(cr, view.status,
+              view.settings ? Rect{30, 526, view.width - 60, 54} : Rect{18, 60, view.width - 36, 28}, 17,
               view.language->font, t.legend);
     }
     cairo_destroy(cr);
