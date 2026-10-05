@@ -223,6 +223,10 @@ int main(int argc, char** argv) {
         wparams.print_special = false;
         wparams.print_realtime = false;
         wparams.print_timestamps = false;
+        // The encoder otherwise always processes a padded 30 s window. Sizing it
+        // to the recording (50 frames per second, plus margin) makes short
+        // dictation several times faster.
+        wparams.audio_ctx = std::min(1500, static_cast<int>(pcmf32.size() / 320) + 128);
 
         int ret = whisper_full(ctx, wparams, pcmf32.data(), static_cast<int>(pcmf32.size()));
         if (ret == 0) {
