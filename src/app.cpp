@@ -719,11 +719,22 @@ void App::refresh_typing() {
     // external JIS still rely on a declared receiving-session keymap.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
                           (japanese() || cjk_ || options_.target_language == settings_.active.language);
-    gate_.enabled =
+    const bool enabled =
         interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
         (options_.input == "ei" || options_.input == "uinput") &&
         (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
         backend_ready_;
+    if (gate_.enabled && !enabled) {
+        // Release held keys while the gate is still open. A closed gate drops
+        // key-ups, which would leave a key stuck down in the compositor.
+        try {
+            cancel();
+        } catch (...) {
+            gate_.enabled = false;
+            throw;
+        }
+    }
+    gate_.enabled = enabled;
 }
 void App::commit_japanese() {
     const auto text = composition_.commit_text();
