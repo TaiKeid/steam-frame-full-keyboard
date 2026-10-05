@@ -84,7 +84,10 @@ class App {
     bool text_key(const Key& key, const std::set<int>& mods) const;
     int native_code(const Key& key, const std::set<int>& mods);
     bool flush_text();
-    void type_dictation(const std::string& text);
+    // Types a bounded slice of queued dictation per frame. Waits while any key
+    // is held so dictated letters never combine with a held modifier.
+    bool pump_dictation();
+    void stop_dictation();
     std::string pending_text_;
     struct TextRepeat {
         std::string text;
@@ -103,6 +106,9 @@ class App {
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;
     std::unique_ptr<Dictation> dictation_;
+    // Recognised text still to be typed. Cleared by every cancellation path.
+    std::string dictation_queue_;
+    std::size_t dictation_pos_{};
     bool cjk_latin_{};
     bool japanese_latin_{};
     bool text_ready_{};

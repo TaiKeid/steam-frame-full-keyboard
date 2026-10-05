@@ -436,6 +436,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
+        if ((dictation_ && dictation_->active()) || !dictation_queue_.empty()) {
+            // Typing by hand takes over from dictation; never interleave the two.
+            stop_dictation();
+            status_ = "Dictation cancelled";
+            dirty = true;
+        }
         const auto modifiers = keyboard_.modifiers();
         const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
         const bool text_local = !ime_local && text_key(*key, modifiers);
@@ -537,9 +543,7 @@ void App::cancel_pointer(unsigned pointer) {
 }
 void App::cancel(bool discard_composition) {
     text_repeats_.clear();
-    if (dictation_) {
-        dictation_->cancel();
-    }
+    stop_dictation();
     if (discard_composition) {
         pending_text_.clear();
         if (keymap_) {
@@ -575,11 +579,14 @@ bool App::tick(double now) {
                 break;
             case Dictation::Event::Kind::Text: {
                 std::string cleaned = clean_transcript(ev.payload);
-                if (!cleaned.empty()) {
-                    status_ = "Recognized: " + cleaned;
-                    type_dictation(cleaned + " ");
-                } else {
+                if (cleaned.empty()) {
                     status_ = "No speech detected";
+                } else if (options_.input == "none" || !gate_.enabled) {
+                    status_ = "Dictation not typed: typing is unavailable";
+                } else {
+                    status_ = "Recognized: " + cleaned;
+                    dictation_queue_ = cleaned + " ";
+                    dictation_pos_ = 0;
                 }
                 dirty = true;
                 break;
@@ -591,6 +598,7 @@ bool App::tick(double now) {
             }
         }
     }
+    dirty |= pump_dictation();
     for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
         if (now >= it->second.next) {
             if (options_.input != "none" && !gate_.commit_text(it->second.text)) {
@@ -869,15 +877,35 @@ bool App::flush_text() {
     status_ = "Text not sent. Release other keys, then press Enter to retry.";
     return false;
 }
-void App::type_dictation(const std::string& text) {
-    if (options_.input == "none" || !gate_.enabled) {
-        return;
+bool App::pump_dictation() {
+    if (dictation_pos_ >= dictation_queue_.size()) {
+        return false;
     }
-    for (std::size_t i = 0; i < text.size();) {
-        unsigned char b = static_cast<unsigned char>(text[i]);
+    if (!gate_.enabled) {
+        // Typing was disabled after the transcript arrived. Drop it rather than
+        // replay it later into whatever has focus by then.
+        dictation_queue_.clear();
+        dictation_pos_ = 0;
+        status_ = "Dictation stopped: typing became unavailable";
+        return true;
+    }
+    if (keyboard_.active()) {
+        // A held key or modifier would turn dictated letters into shortcuts.
+        static constexpr const char* waiting = "Release keys to insert dictation";
+        if (status_ == waiting) {
+            return false;
+        }
+        status_ = waiting;
+        return true;
+    }
+    // A small per-frame budget keeps the VR loop responsive, so hiding the
+    // dashboard or a focus change can still cancel the remaining text.
+    constexpr int chars_per_frame = 2;
+    for (int typed = 0; typed < chars_per_frame && dictation_pos_ < dictation_queue_.size(); ++typed) {
+        const std::size_t i = dictation_pos_;
+        const auto b = static_cast<unsigned char>(dictation_queue_[i]);
         if (b < 0x80) {
-            char c = text[i];
-            if (auto stroke = ascii_to_keystroke(c)) {
+            if (auto stroke = ascii_to_keystroke(dictation_queue_[i])) {
                 if (stroke->shift) {
                     gate_.send(KEY_LEFTSHIFT, 1);
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -890,16 +918,27 @@ void App::type_dictation(const std::string& text) {
                     gate_.send(KEY_LEFTSHIFT, 0);
                 }
             }
-            ++i;
+            dictation_pos_ = i + 1;
         } else {
-            const char* p = text.c_str() + i;
-            const char* next = g_utf8_next_char(p);
-            std::size_t len = static_cast<std::size_t>(next - p);
-            gate_.commit_text(text.substr(i, len));
-            i += len;
+            const char* p = dictation_queue_.c_str() + i;
+            const auto len = static_cast<std::size_t>(g_utf8_next_char(p) - p);
+            gate_.commit_text(dictation_queue_.substr(i, len));
+            dictation_pos_ = i + len;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
+    if (dictation_pos_ >= dictation_queue_.size()) {
+        dictation_queue_.clear();
+        dictation_pos_ = 0;
+    }
+    return false;
+}
+void App::stop_dictation() {
+    if (dictation_) {
+        dictation_->cancel();
+    }
+    dictation_queue_.clear();
+    dictation_pos_ = 0;
 }
 int App::native_code(const Key& key, const std::set<int>& mods) {
     if (!unicode_mode()) {
