@@ -25,16 +25,18 @@ enum class Icon {
     Copy,
     Paste,
     SteamFrame,
-    SteamOS
+    SteamOS,
+    Dictate
 };
 
-enum class ActionKind { Key, Shortcut };
+// App actions run inside the keyboard (e.g. dictation) and never send input.
+enum class ActionKind { Key, Shortcut, App };
 struct Key {
     bool operator==(const Key&) const = default;
     std::string id, label, secondary_label;
     Rect bounds;
     ActionKind action_kind{};
-    // Physical key name or shortcut name; never a Steam numeric key code.
+    // Physical key, shortcut or app action name; never a Steam numeric key code.
     std::string action;
     Icon icon{Icon::None};
     // Modifiers normally latch on a tap. False sends a physical hold instead.

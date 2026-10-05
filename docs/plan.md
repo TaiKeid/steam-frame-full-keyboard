@@ -12,6 +12,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Dashboard position/rotation following and dashboard-only visibility/input.
 - Saved placement, single-instance launches, and relaunch-to-recenter.
 - Per-controller haptics, cancellation paths, host tests, and ARM64 release packaging.
+- On-device offline speech-to-text dictation with whisper.cpp and PipeWire audio capture.
 
 ## Before the first public release
 
@@ -29,4 +30,4 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
 
-No stock keyboard takeover, streamed PC input, speech recognition, swipe typing, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+No stock keyboard takeover, streamed PC input, swipe typing, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

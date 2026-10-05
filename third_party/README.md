@@ -24,3 +24,13 @@ Frame headers. No commit/selectCandidate learning APIs are called. The user-cach
 path is `/dev/null`, forcing the library's in-memory fallback and preventing history
 writes. Candidate selection reads conversion/rest text and rebuilds the remaining
 reading. libhangul API reference: https://libhangul.github.io/libhangul-doc/git/group__hangulic.html.
+
+## Speech recognition
+
+`whisper/` comes from https://github.com/ggml-org/whisper.cpp at commit
+`7d75b14994ae7f59623e2471445e2355fe506ed2` (v1.9.4), under the MIT license
+included in `third_party/whisper/LICENSE`. It provides on-device offline
+speech-to-text inference with ARM NEON/SVE acceleration. Audio capture uses
+the device's native PipeWire recorder (`pw-record`) or ALSA (`arecord`).
+Transcripts and audio are never written to disk or logged.
+

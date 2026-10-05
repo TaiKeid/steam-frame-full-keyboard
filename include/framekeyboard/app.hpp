@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cjk.hpp"
+#include "dictation.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
 #include "panel.hpp"
@@ -10,7 +11,7 @@
 
 namespace framekeyboard {
 struct Options {
-    fs::path data_dir, config_dir, ei_socket, text_socket;
+    fs::path data_dir, config_dir, ei_socket, text_socket, speech_model;
     std::string mode{"help"}, output, input{"none"}, target_language;
     double duration{};
     bool start_enabled{false};
@@ -42,6 +43,8 @@ class App {
   public:
     App(const Options& options, KeySink& sink);
     PanelView view() const;
+    // Visible panel width. VR keeps the overlay full size and centers this part.
+    double visible_width() const { return visible_width_; }
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);
     // True when an unpressed pointer enters a different keyboard key.
@@ -72,6 +75,8 @@ class App {
   private:
     std::vector<Control> controls() const;
     void action(const std::string& id);
+    // Maps a pressed App key's ID to its action; other IDs pass through.
+    std::string app_action(const std::string& id) const;
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
@@ -83,6 +88,10 @@ class App {
     bool text_key(const Key& key, const std::set<int>& mods) const;
     int native_code(const Key& key, const std::set<int>& mods);
     bool flush_text();
+    // Types a bounded slice of queued dictation per frame. Waits while any key
+    // is held so dictated letters never combine with a held modifier.
+    bool pump_dictation();
+    void stop_dictation();
     std::string pending_text_;
     struct TextRepeat {
         std::string text;
@@ -100,6 +109,15 @@ class App {
     KeyboardState keyboard_;
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;
+    std::unique_ptr<Dictation> dictation_;
+    // The active layout after the number pad and side-key settings, if they
+    // change it. Rebuilt whenever the selection or profiles change.
+    void update_layout();
+    std::optional<Layout> arranged_layout_;
+    double visible_width_{panel_width};
+    // Recognised text still to be typed. Cleared by every cancellation path.
+    std::string dictation_queue_;
+    std::size_t dictation_pos_{};
     bool cjk_latin_{};
     bool japanese_latin_{};
     bool text_ready_{};

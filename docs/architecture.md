@@ -97,7 +97,25 @@ The renderer reserves space for preedit/candidates during Japanese, Chinese and 
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |
 | Grip model and haptic state | `src/grip.cpp`, `include/framekeyboard/feedback.hpp`, `include/framekeyboard/vr_haptics.hpp` |
 | OpenVR lifecycle and event loop | `src/vr.cpp` |
+| Offline speech recognition | `src/dictation.cpp`, `src/dictation_main.cpp`, `include/framekeyboard/dictation.hpp` |
 | Tests and opt-in receiver probes | `tests/` |
+
+## Offline speech-to-text dictation
+
+`Dictation` supervises an independent helper executable (`framekeyboard-dictate`).
+The helper links the vendored `whisper.cpp` engine with ARM NEON/SVE vectorization
+and loads the bundled English `small.en` GGML model. Microphone audio is recorded
+over PipeWire (`pw-record`) or ALSA (`arecord`) in raw 16 kHz 16-bit mono.
+
+Communication uses an anonymous Unix domain socket pair. The parent sends
+`stop\n` when dictation finishes; the child streams state events (`listening`,
+`hearing`, `transcribing`, `text <result>`, `error <reason>`). When any cancellation
+occurs (closing the dashboard, grabbing/dragging, switching windows, or pressing
+another key), `Dictation::cancel` terminates the child and immediately releases
+the recording device. Audio is streamed in memory and never written to disk; speech
+transcripts and field values are never logged. Recognized text is delivered directly
+as physical keystrokes with Shift management to bypass XWayland keymap synchronization races,
+with multi-byte characters falling back to `GamescopeText`.
 
 ## Chinese and Korean composition
 

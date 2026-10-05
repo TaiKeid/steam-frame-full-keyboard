@@ -4,7 +4,9 @@
 #include <chrono>
 #include <glib.h>
 #include <linux/input-event-codes.h>
+#include <optional>
 #include <stdexcept>
+#include <thread>
 #include <tuple>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -64,6 +66,139 @@ template <class ProfilesMap> void cycle(const ProfilesMap& map, std::string& id,
     }
     id = it->first;
 }
+struct Keystroke {
+    int code;
+    bool shift;
+};
+
+std::optional<Keystroke> ascii_to_keystroke(char c) {
+    if (c >= 'a' && c <= 'z') {
+        static constexpr int letters[26] = {
+            KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M,
+            KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z};
+        return Keystroke{letters[c - 'a'], false};
+    }
+    if (c >= 'A' && c <= 'Z') {
+        static constexpr int letters[26] = {
+            KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M,
+            KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z};
+        return Keystroke{letters[c - 'A'], true};
+    }
+    if (c >= '1' && c <= '9') {
+        return Keystroke{KEY_1 + (c - '1'), false};
+    }
+    if (c == '0') {
+        return Keystroke{KEY_0, false};
+    }
+    if (c == ' ') {
+        return Keystroke{KEY_SPACE, false};
+    }
+    if (c == '\n') {
+        return Keystroke{KEY_ENTER, false};
+    }
+    if (c == '\t') {
+        return Keystroke{KEY_TAB, false};
+    }
+    if (c == '.') {
+        return Keystroke{KEY_DOT, false};
+    }
+    if (c == ',') {
+        return Keystroke{KEY_COMMA, false};
+    }
+    if (c == '-') {
+        return Keystroke{KEY_MINUS, false};
+    }
+    if (c == '=') {
+        return Keystroke{KEY_EQUAL, false};
+    }
+    if (c == '/') {
+        return Keystroke{KEY_SLASH, false};
+    }
+    if (c == ';') {
+        return Keystroke{KEY_SEMICOLON, false};
+    }
+    if (c == '\'') {
+        return Keystroke{KEY_APOSTROPHE, false};
+    }
+    if (c == '`') {
+        return Keystroke{KEY_GRAVE, false};
+    }
+    if (c == '[') {
+        return Keystroke{KEY_LEFTBRACE, false};
+    }
+    if (c == ']') {
+        return Keystroke{KEY_RIGHTBRACE, false};
+    }
+    if (c == '\\') {
+        return Keystroke{KEY_BACKSLASH, false};
+    }
+
+    if (c == '!') {
+        return Keystroke{KEY_1, true};
+    }
+    if (c == '@') {
+        return Keystroke{KEY_2, true};
+    }
+    if (c == '#') {
+        return Keystroke{KEY_3, true};
+    }
+    if (c == '$') {
+        return Keystroke{KEY_4, true};
+    }
+    if (c == '%') {
+        return Keystroke{KEY_5, true};
+    }
+    if (c == '^') {
+        return Keystroke{KEY_6, true};
+    }
+    if (c == '&') {
+        return Keystroke{KEY_7, true};
+    }
+    if (c == '*') {
+        return Keystroke{KEY_8, true};
+    }
+    if (c == '(') {
+        return Keystroke{KEY_9, true};
+    }
+    if (c == ')') {
+        return Keystroke{KEY_0, true};
+    }
+    if (c == '_') {
+        return Keystroke{KEY_MINUS, true};
+    }
+    if (c == '+') {
+        return Keystroke{KEY_EQUAL, true};
+    }
+    if (c == '?') {
+        return Keystroke{KEY_SLASH, true};
+    }
+    if (c == ':') {
+        return Keystroke{KEY_SEMICOLON, true};
+    }
+    if (c == '"') {
+        return Keystroke{KEY_APOSTROPHE, true};
+    }
+    if (c == '~') {
+        return Keystroke{KEY_GRAVE, true};
+    }
+    if (c == '{') {
+        return Keystroke{KEY_LEFTBRACE, true};
+    }
+    if (c == '}') {
+        return Keystroke{KEY_RIGHTBRACE, true};
+    }
+    if (c == '|') {
+        return Keystroke{KEY_BACKSLASH, true};
+    }
+    if (c == '<') {
+        return Keystroke{KEY_COMMA, true};
+    }
+    if (c == '>') {
+        return Keystroke{KEY_DOT, true};
+    }
+
+    return std::nullopt;
+}
 } // namespace
 App::App(const Options& options, KeySink& sink)
     : options_(options), profiles_(load_profiles(options.data_dir, options.config_dir)),
@@ -82,8 +217,39 @@ App::App(const Options& options, KeySink& sink)
         target != profiles_.languages.end()) {
         target_language_ = target->second;
     }
+    auto helper = find_speech_helper();
+    auto model = find_speech_model(options_.speech_model, options_.config_dir, options_.data_dir);
+    dictation_ = std::make_unique<Dictation>(std::move(helper), std::move(model));
+    update_layout();
     // A saved language mismatch must leave Settings reachable, not abort launch.
     refresh_typing();
+}
+std::string App::app_action(const std::string& id) const {
+    const auto& layout =
+        arranged_layout_ ? *arranged_layout_ : profiles_.layouts.at(settings_.active.layout);
+    for (const auto& key : layout.keys) {
+        if (key.id == id && key.action_kind == ActionKind::App) {
+            return key.action;
+        }
+    }
+    return id;
+}
+void App::update_layout() {
+    arranged_layout_.reset();
+    visible_width_ = panel_width;
+    const auto& full = profiles_.layouts.at(settings_.active.layout);
+    // IME candidate bars and toolbars are laid out for the full width, so IME
+    // languages keep the number pad and the full panel.
+    const bool ime = japanese() || cjk_;
+    auto arranged = arrange_layout(full, settings_.active.numpad || ime, settings_.active.side_keys);
+    if (arranged == full) {
+        return;
+    }
+    if (!ime) {
+        visible_width_ =
+            compact_panel_width(full, arranged, profiles_.themes.at(settings_.active.theme));
+    }
+    arranged_layout_ = std::move(arranged);
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result = {
@@ -95,7 +261,7 @@ std::vector<Control> App::controls() const {
         {"recenter", "Recenter", {88, 12, 60, 42}, false, Icon::Recenter},
         {"size-smaller", "Smaller keyboard", {158, 12, 60, 42}, false, Icon::ScaleDown},
         {"size-larger", "Larger keyboard", {228, 12, 60, 42}, false, Icon::ScaleUp},
-        {"close", "Close", {1522, 12, 60, 42}, false, Icon::Close}};
+        {"close", "Close", {visible_width_ - 78, 12, 60, 42}, false, Icon::Close}};
     if (!settings_open_) {
         if (japanese()) {
             result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
@@ -162,14 +328,15 @@ std::vector<Control> App::controls() const {
     if (japanese_layout || language.locale == "ja" || language.locale.starts_with("ja-") ||
         language.locale.starts_with("ja_") || language.keymap == "jp" ||
         language.input_method.starts_with("japanese-")) {
-        result.push_back({"preset-ja-romaji", "日本語 Romaji", {610, 12, 230, 42}});
-        result.push_back({"preset-ja-kana", "日本語 Kana", {850, 12, 230, 42}});
-        result.push_back({"preset-ja-jis", "JIS (system IME)", {1090, 12, 250, 42}});
+        // Starts left of center so the presets fit the compact panel too.
+        result.push_back({"preset-ja-romaji", "日本語 Romaji", {360, 12, 230, 42}});
+        result.push_back({"preset-ja-kana", "日本語 Kana", {600, 12, 230, 42}});
+        result.push_back({"preset-ja-jis", "JIS (system IME)", {840, 12, 250, 42}});
     }
     auto row = [&](const std::string& kind, const std::string& name, double y) {
         result.push_back({kind + "-prev", "<", {40, y, 65, 64}});
-        result.push_back({kind + "-label", name, {115, y, 1370, 64}});
-        result.push_back({kind + "-next", ">", {1495, y, 65, 64}});
+        result.push_back({kind + "-label", name, {115, y, visible_width_ - 230, 64}});
+        result.push_back({kind + "-next", ">", {visible_width_ - 105, y, 65, 64}});
     };
     auto source = [&](const std::string& kind, const std::string& id) {
         const auto found = profiles_.sources.find(kind + "/" + id);
@@ -189,16 +356,22 @@ std::vector<Control> App::controls() const {
     if (!settings_.favorites.empty()) {
         row("favorite", "Favorite: " + settings_.favorites.at(favorite_index_).name, 354);
     }
-    result.push_back({"apply", "Apply and save", {350, 446, 280, 60}});
-    result.push_back({"reload", "Reload profiles", {650, 446, 280, 60}});
+    // Five 230 px buttons fit the narrowest (compact) panel.
+    result.push_back({"numpad-toggle",
+                      pending_.numpad ? "Number pad: shown" : "Number pad: hidden",
+                      {40, 446, 230, 60}});
+    result.push_back({"side-keys", "Side keys: " + pending_.side_keys, {290, 446, 230, 60}});
+    result.push_back({"apply", "Apply and save", {540, 446, 230, 60}});
+    result.push_back({"reload", "Reload profiles", {790, 446, 230, 60}});
     if (!settings_.favorites.empty()) {
-        result.push_back({"favorite-use", "Use favorite", {950, 446, 280, 60}});
+        result.push_back({"favorite-use", "Use favorite", {1040, 446, 230, 60}});
     }
     return result;
 }
 PanelView App::view() const {
     PanelView v;
-    v.layout = &profiles_.layouts.at(settings_.active.layout);
+    v.layout = arranged_layout_ ? &*arranged_layout_ : &profiles_.layouts.at(settings_.active.layout);
+    v.width = visible_width_;
     v.theme = &profiles_.themes.at(settings_.active.theme);
     v.language = &profiles_.languages.at(settings_.active.language);
     v.keymap = keymap_.get();
@@ -213,6 +386,13 @@ PanelView App::view() const {
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
     v.settings = settings_open_;
+    if (dictation_ && dictation_->active()) {
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::App && key.action == "dictate") {
+                v.active_keys.insert(key.id);
+            }
+        }
+    }
     v.composing = japanese() && !japanese_latin_;
     if (v.composing) {
         v.preedit = composition_.preedit(true);
@@ -296,6 +476,17 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
+        if (key->action_kind == ActionKind::App) {
+            // Runs on release like a toolbar control; never reaches KeyboardState.
+            pressed_controls_[pointer] = key->id;
+            return true;
+        }
+        if ((dictation_ && dictation_->active()) || !dictation_queue_.empty()) {
+            // Typing by hand takes over from dictation; never interleave the two.
+            stop_dictation();
+            status_ = "Dictation cancelled";
+            dirty = true;
+        }
         const auto modifiers = keyboard_.modifiers();
         const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
         const bool text_local = !ime_local && text_key(*key, modifiers);
@@ -378,7 +569,7 @@ bool App::up(unsigned pointer, double x, double y) {
         pressed_controls_.erase(it);
         if (hovered_[pointer] == id) {
             try {
-                action(id);
+                action(app_action(id));
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
@@ -397,6 +588,7 @@ void App::cancel_pointer(unsigned pointer) {
 }
 void App::cancel(bool discard_composition) {
     text_repeats_.clear();
+    stop_dictation();
     if (discard_composition) {
         pending_text_.clear();
         if (keymap_) {
@@ -415,6 +607,43 @@ void App::cancel(bool discard_composition) {
 bool App::tick(double now) {
     refresh_typing();
     dirty |= keyboard_.tick(now);
+    if (dictation_ && dictation_->active()) {
+        for (const auto& ev : dictation_->poll(now)) {
+            switch (ev.kind) {
+            case Dictation::Event::Kind::Listening:
+                status_ = "Listening... speak now, tap microphone when done";
+                dirty = true;
+                break;
+            case Dictation::Event::Kind::Hearing:
+                status_ = "Hearing speech... tap microphone when done";
+                dirty = true;
+                break;
+            case Dictation::Event::Kind::Transcribing:
+                status_ = "Transcribing speech...";
+                dirty = true;
+                break;
+            case Dictation::Event::Kind::Text: {
+                std::string cleaned = clean_transcript(ev.payload);
+                if (cleaned.empty()) {
+                    status_ = "No speech detected";
+                } else if (options_.input == "none" || !gate_.enabled) {
+                    status_ = "Dictation not typed: typing is unavailable";
+                } else {
+                    status_ = "Recognized: " + cleaned;
+                    dictation_queue_ = cleaned + " ";
+                    dictation_pos_ = 0;
+                }
+                dirty = true;
+                break;
+            }
+            case Dictation::Event::Kind::Error:
+                status_ = ev.payload;
+                dirty = true;
+                break;
+            }
+        }
+    }
+    dirty |= pump_dictation();
     for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
         if (now >= it->second.next) {
             if (options_.input != "none" && !gate_.commit_text(it->second.text)) {
@@ -488,6 +717,7 @@ void App::apply(Selection selection) {
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
+    update_layout();
     refresh_typing();
     status_.clear();
     try {
@@ -511,6 +741,7 @@ void App::reload() {
     settings_.favorites = updated_settings.favorites;
     favorite_index_ = 0;
     pending_ = settings_.active;
+    update_layout();
     refresh_typing();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
 }
@@ -535,11 +766,22 @@ void App::refresh_typing() {
     // external JIS still rely on a declared receiving-session keymap.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
                           (japanese() || cjk_ || options_.target_language == settings_.active.language);
-    gate_.enabled =
+    const bool enabled =
         interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
         (options_.input == "ei" || options_.input == "uinput") &&
         (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
         backend_ready_;
+    if (gate_.enabled && !enabled) {
+        // Release held keys while the gate is still open. A closed gate drops
+        // key-ups, which would leave a key stuck down in the compositor.
+        try {
+            cancel();
+        } catch (...) {
+            gate_.enabled = false;
+            throw;
+        }
+    }
+    gate_.enabled = enabled;
 }
 void App::commit_japanese() {
     const auto text = composition_.commit_text();
@@ -693,6 +935,69 @@ bool App::flush_text() {
     status_ = "Text not sent. Release other keys, then press Enter to retry.";
     return false;
 }
+bool App::pump_dictation() {
+    if (dictation_pos_ >= dictation_queue_.size()) {
+        return false;
+    }
+    if (!gate_.enabled) {
+        // Typing was disabled after the transcript arrived. Drop it rather than
+        // replay it later into whatever has focus by then.
+        dictation_queue_.clear();
+        dictation_pos_ = 0;
+        status_ = "Dictation stopped: typing became unavailable";
+        return true;
+    }
+    if (keyboard_.active()) {
+        // A held key or modifier would turn dictated letters into shortcuts.
+        static constexpr const char* waiting = "Release keys to insert dictation";
+        if (status_ == waiting) {
+            return false;
+        }
+        status_ = waiting;
+        return true;
+    }
+    // A small per-frame budget keeps the VR loop responsive, so hiding the
+    // dashboard or a focus change can still cancel the remaining text.
+    constexpr int chars_per_frame = 2;
+    for (int typed = 0; typed < chars_per_frame && dictation_pos_ < dictation_queue_.size(); ++typed) {
+        const std::size_t i = dictation_pos_;
+        const auto b = static_cast<unsigned char>(dictation_queue_[i]);
+        if (b < 0x80) {
+            if (auto stroke = ascii_to_keystroke(dictation_queue_[i])) {
+                if (stroke->shift) {
+                    gate_.send(KEY_LEFTSHIFT, 1);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                gate_.send(stroke->code, 1);
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                gate_.send(stroke->code, 0);
+                if (stroke->shift) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    gate_.send(KEY_LEFTSHIFT, 0);
+                }
+            }
+            dictation_pos_ = i + 1;
+        } else {
+            const char* p = dictation_queue_.c_str() + i;
+            const auto len = static_cast<std::size_t>(g_utf8_next_char(p) - p);
+            gate_.commit_text(dictation_queue_.substr(i, len));
+            dictation_pos_ = i + len;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    if (dictation_pos_ >= dictation_queue_.size()) {
+        dictation_queue_.clear();
+        dictation_pos_ = 0;
+    }
+    return false;
+}
+void App::stop_dictation() {
+    if (dictation_) {
+        dictation_->cancel();
+    }
+    dictation_queue_.clear();
+    dictation_pos_ = 0;
+}
 int App::native_code(const Key& key, const std::set<int>& mods) {
     if (!unicode_mode()) {
         return 0;
@@ -834,6 +1139,30 @@ void App::action(const std::string& id) {
         placement_actions_.push_back(adjustment->second);
         return;
     }
+    if (id == "dictate") {
+        if (!dictation_) {
+            status_ = "Speech helper not available";
+            dirty = true;
+            return;
+        }
+        if (dictation_->state() == Dictation::State::Listening) {
+            dictation_->finish();
+            status_ = "Transcribing speech...";
+            dirty = true;
+        } else if (dictation_->state() == Dictation::State::Transcribing) {
+            // Already transcribing
+        } else {
+            try {
+                dictation_->start();
+                status_ = "Listening... tap microphone when finished";
+                dirty = true;
+            } catch (const std::exception& error) {
+                status_ = error.what();
+                dirty = true;
+            }
+        }
+        return;
+    }
     if (id.starts_with("preset-ja-")) {
         pending_.language = id.substr(7);
         pending_.layout = pending_.language == "ja-romaji" ? "en-us-full" : "ja-jis-full";
@@ -911,9 +1240,18 @@ void App::action(const std::string& id) {
         const auto count = settings_.favorites.size();
         favorite_index_ = (favorite_index_ + (id.ends_with("next") ? 1 : count - 1)) % count;
     } else if (id == "favorite-use") {
-        const auto& candidate = settings_.favorites.at(favorite_index_).selection;
+        auto candidate = settings_.favorites.at(favorite_index_).selection;
         validate_selection(profiles_, candidate);
+        // Favorites choose profiles; arrangement stays as the user set it.
+        candidate.numpad = pending_.numpad;
+        candidate.side_keys = pending_.side_keys;
         pending_ = candidate;
+    } else if (id == "numpad-toggle") {
+        pending_.numpad = !pending_.numpad;
+    } else if (id == "side-keys") {
+        pending_.side_keys = pending_.side_keys == "left"    ? "right"
+                             : pending_.side_keys == "right" ? "both"
+                                                             : "left";
     }
 }
 bool App::take_recenter() {
