@@ -26,13 +26,17 @@ Express capability-dependent controls declaratively in profile data. Account for
 
 These are contribution requirements, not a claim that every interface or profile condition already exists. Include parsing, validation, documentation, and tests when introducing a new contract or schema field.
 
+## Version ownership
+
+Only the project owner, TaiKeid, may bump the project version. Contributors must not change the version in `CMakeLists.txt` or update release-version references as part of their contributions. The owner handles these changes during release preparation.
+
 ## Change the code
 
 Read [building](docs/building.md), [architecture](docs/architecture.md), and [configuration](docs/configuration.md). Keep renderer, key state, backend, and profile data separate. Use `.clang-format` for project C++; preserve vendored code's style and attribution.
 
 Run the core test suites for behavior changes. Test input with fake sinks or a dedicated receiver, never an arbitrary focused app. Cover lost releases, tracking loss, disconnects, hiding, and shutdown when changing interaction ownership. Add comments where state lifetime, coordinate transforms, or event ordering are not obvious.
 
-Submit focused PRs and describe the behavior, validation, and remaining limits. Separate unrelated fixes, features, UI changes, and refactoring when they can be reviewed independently. Do not include sysroots, builds, device logs, personal paths, credentials, or user settings. Do not mix release version bumps or publication changes into unrelated PRs.
+Submit focused PRs and describe the behavior, validation, and remaining limits. Separate unrelated fixes, features, UI changes, and refactoring when they can be reviewed independently. Do not include sysroots, builds, device logs, personal paths, credentials, or user settings. Do not mix publication changes into unrelated PRs.
 
 Every owned resource and subprocess needs a cleanup path for cancellation, hide, disconnect, and shutdown. Invalidate late asynchronous results and guard delayed input against destination changes. Do not terminate shared external services. Bound buffers and waits, and keep blocking work off the VR loop. Deliver text through the existing Unicode transport and retain unsent text when delivery fails. Do not log or persist user input.
 

@@ -5,7 +5,7 @@ The public name is **Full Keyboard for Steam Frame**; the launcher label is **Fu
 ## Prepare
 
 - Resolve independent-review findings and update the changelog.
-- Set the version in `CMakeLists.txt`; update README archive examples.
+- The project owner sets the version in `CMakeLists.txt` and updates README archive examples. Contributors must leave release versions unchanged; see [version ownership](../CONTRIBUTING.md#version-ownership).
 - Run host tests and build the ARM64 package from a matching Frame sysroot.
 - Run the safe ARM64 core tests on Frame and record the manual checks in [acceptance](acceptance.md). Do not turn untested items into claims.
 - Regenerate the [README image](building.md#refresh-the-readme-image) if the default appearance changed.

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0: Settings and keyboard preferences
+
+- Rebuilt Settings as separate cards for languages/layouts and appearance, with horizontal card scrolling and independent vertical scrolling within each card.
+- Added Layout, Language, and Theme dropdowns with five visible choices and scrolling. Menus can extend beyond the keyboard case and dismiss when clicked outside.
+- Moved Back, Apply and save, and Reload config into the Settings toolbar.
+- Added a Favorite checkbox for layout/language pairs. When favorites exist, a main-toolbar language button cycles the saved default and unique favorites while retaining the active theme and saved default.
+- Added a persistent pin button after the zoom controls to prevent accidental grip movement while retaining dashboard following, resizing, and recentering.
+- Added global Num Lock persistence across restarts and profile changes, plus a Hide numpad preference that narrows the case while keeping the remaining key sizes.
+- Fixed native keypad output disagreeing with restored Num Lock in physical uinput and external JIS modes. Digits and decimal wait for confirmed target lock state; keypad Enter and operators remain usable without lock feedback.
+- Fixed toolbar buttons overlapping Close when hiding the numpad in custom layouts.
+- Made favorite cycling faster and moved preference writes off the input thread, with ordered saves, shutdown flushing, and save-error reporting.
+- Fixed fractional dropdown scrolling and preserved precise wheel input in the desktop preview.
+- Added a British English layout and language profile, contributed by [Cr0ss0vr](https://github.com/cr0ss0vr).
+
 ## 0.5.0: First release
 
 Full Keyboard for Steam Frame is a separately launched alternative keyboard for the Frame dashboard and local apps. It does not replace the stock keyboard or send input to streamed VR applications.
