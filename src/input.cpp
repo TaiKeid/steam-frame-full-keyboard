@@ -156,12 +156,14 @@ bool is_modifier(int code) {
            code == KEY_LEFTMETA || code == KEY_RIGHTMETA;
 }
 UInputSink::UInputSink() {
-    fd_ = open("/dev/uinput", O_WRONLY | O_CLOEXEC | O_NONBLOCK);
+    fd_ = open("/dev/uinput", O_RDWR | O_CLOEXEC | O_NONBLOCK);
     if (fd_ < 0) {
         throw std::system_error(errno, std::generic_category(), "open /dev/uinput");
     }
     try {
         checked_ioctl(fd_, UI_SET_EVBIT, EV_KEY);
+        checked_ioctl(fd_, UI_SET_EVBIT, EV_LED);
+        checked_ioctl(fd_, UI_SET_LEDBIT, LED_NUML);
         for (const auto& [name, code] : key_codes) {
             (void)name;
             checked_ioctl(fd_, UI_SET_KEYBIT, code);
@@ -195,6 +197,9 @@ UInputSink::~UInputSink() {
     } catch (...) {
     }
     ioctl(fd_, UI_DEV_DESTROY);
+    if (led_fd_ >= 0) {
+        close(led_fd_);
+    }
     close(fd_);
 }
 fs::path UInputSink::event_node() const {
@@ -227,6 +232,27 @@ void UInputSink::send(int code, int value) {
     if (value == 0) {
         held_.erase(code);
     }
+}
+bool UInputSink::pump() {
+    // LED changes are delivered through uinput. Query only our own event node
+    // as well, since Linux suppresses an initial LED-off event.
+    if (led_fd_ < 0) {
+        const auto path = event_node();
+        if (!path.empty()) {
+            led_fd_ = open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        }
+    }
+    unsigned long leds{};
+    if (led_fd_ >= 0 && ioctl(led_fd_, EVIOCGLED(sizeof(leds)), &leds) >= 0) {
+        num_lock_ = (leds & (1ul << LED_NUML)) != 0;
+    }
+    input_event event{};
+    while (read(fd_, &event, sizeof(event)) == sizeof(event)) {
+        if (event.type == EV_LED && event.code == LED_NUML) {
+            num_lock_ = event.value != 0;
+        }
+    }
+    return true;
 }
 
 LanguageMap::LanguageMap(const Language& language) : language_(language) {

@@ -355,6 +355,24 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
+        if (!unicode_mode() && key->action.starts_with("Numpad") && gate_.enabled) {
+            // Never guess a native target's lock state or blindly toggle it at
+            // launch. Wait for feedback before forwarding a lock-dependent key.
+            const auto target_num = gate_.num_lock_state();
+            if (target_num && native_num_requested_ == target_num) {
+                native_num_requested_.reset();
+            }
+            if (native_num_requested_ || !target_num || *target_num != keyboard_.num()) {
+                if (target_num && !native_num_requested_) {
+                    gate_.send(KEY_NUMLOCK, 1);
+                    gate_.send(KEY_NUMLOCK, 0);
+                    native_num_requested_ = !*target_num;
+                }
+                status_ = "Waiting for target Num Lock. Press the keypad key again.";
+                dirty = true;
+                return false;
+            }
+        }
         const bool sends_action = key->action_kind == ActionKind::Shortcut ||
                                   !is_modifier(key_code(key->action)) || !key->sticky;
         if (!pending_text_.empty() && sends_action) {
@@ -642,6 +660,7 @@ void App::refresh_typing() {
     const bool reset = gate_.take_input_reset();
     const bool can_resume = gate_.can_resume();
     if (reset || (backend_ready_ && !ready)) {
+        native_num_requested_.reset();
         // Clear UI holds even if input was already disabled by a hidden dashboard.
         // The backend has released its keys; never replay those holds on resume.
         cancel();
@@ -779,6 +798,9 @@ bool App::unicode_mode() const {
     return options_.input != "uinput" && !external_jis;
 }
 bool App::text_key(const Key& key, const std::set<int>& mods) const {
+    if (key.action_kind == ActionKind::Key && key.action == "NumLock") {
+        return true; // Remember one local preference in every input mode.
+    }
     if (!unicode_mode() || key.action_kind != ActionKind::Key) {
         return false;
     }

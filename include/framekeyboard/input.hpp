@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <vector>
 #include <xkbcommon/xkbcommon-compose.h>
@@ -24,6 +25,8 @@ class KeySink {
     virtual bool text_available() { return false; }
     virtual bool commit_text(const std::string&) { return false; }
     virtual int shortcut_code(xkb_keysym_t, int fallback) { return fallback; }
+    // Unknown until the receiving system reports its lock state.
+    virtual std::optional<bool> num_lock_state() { return {}; }
 };
 class NullSink : public KeySink {
   public:
@@ -36,11 +39,15 @@ class UInputSink : public KeySink {
     UInputSink(const UInputSink&) = delete;
     UInputSink& operator=(const UInputSink&) = delete;
     void send(int code, int value) override;
+    bool pump() override;
+    std::optional<bool> num_lock_state() override { return num_lock_; }
     fs::path event_node() const;
 
   private:
     int fd_{-1};
+    int led_fd_{-1};
     std::set<int> held_;
+    std::optional<bool> num_lock_;
 };
 
 class LanguageMap {

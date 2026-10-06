@@ -34,6 +34,7 @@ class InputGate : public KeySink {
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
         return target_.shortcut_code(symbol, fallback);
     }
+    std::optional<bool> num_lock_state() override { return target_.num_lock_state(); }
     bool enabled{false};
 
   private:
@@ -125,6 +126,7 @@ class App {
     bool dragging_{};
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
+    std::optional<bool> native_num_requested_;
 };
 
 double monotonic_seconds();

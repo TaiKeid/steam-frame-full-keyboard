@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <linux/input-event-codes.h>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -77,6 +78,64 @@ std::pair<double, double> key_point(App& app, const std::string& action) {
         }
     }
     throw std::runtime_error("missing visible key " + action);
+}
+void native_num_restore() {
+    struct NativeSink : CaptureSink {
+        std::optional<bool> lock;
+        bool toggle_pending{};
+        std::optional<bool> num_lock_state() override { return lock; }
+        void send(int code, int value) override {
+            CaptureSink::send(code, value);
+            if (code == KEY_NUMLOCK && value == 1) {
+                toggle_pending = true; // Feedback can arrive after multiple UI frames.
+            }
+        }
+    };
+    for (const auto* input : {"uinput", "ei"}) {
+        for (bool saved_num : {false, true}) {
+            for (bool target_num : {false, true}) {
+                TemporaryDirectory directory;
+                Settings settings;
+                settings.num_lock = saved_num;
+                if (std::string(input) == "ei") {
+                    settings.active = {"ja-jis-full", "ja-jis", "graphite"};
+                }
+                save_settings(directory.path, settings);
+                Options options;
+                options.config_dir = directory.path;
+                options.mode = "vr";
+                options.input = input;
+                options.target_language = settings.active.language;
+                options.start_enabled = true;
+                NativeSink sink;
+                sink.lock = target_num;
+                App app(options, sink);
+                require(sink.events.empty(), "restoring native Num Lock sends no startup input");
+                const auto [x, y] = key_point(app, "Numpad1");
+                if (target_num != saved_num) {
+                    require(!app.down(0, x, y, 1), "mismatched keypad waits for lock feedback");
+                    require(!app.down(0, x, y, 1), "repeated press cannot undo pending lock toggle");
+                    require(sink.events ==
+                                std::vector<std::pair<int, int>>{{KEY_NUMLOCK, 1}, {KEY_NUMLOCK, 0}},
+                            "native lock is reconciled exactly once");
+                    sink.lock = saved_num;
+                }
+                sink.events.clear();
+                require(app.down(0, x, y, 2), "keypad accepted once local and target locks agree");
+                app.up(0, x, y);
+                require(sink.events == std::vector<std::pair<int, int>>{{KEY_KP1, 1}, {KEY_KP1, 0}},
+                        "native keypad preserves its physical code with matching Num Lock");
+                sink.events.clear();
+                sink.lock.reset();
+                require(!app.down(0, x, y, 3) && sink.events.empty(),
+                        "unknown target lock never sends a guessed keypad or toggle");
+                app.set_interaction_active(false);
+                sink.lock = !saved_num;
+                require(!app.down(0, x, y, 4) && sink.events.empty(),
+                        "hidden input cannot synchronize target locks");
+            }
+        }
+    }
 }
 void numpad_settings() {
     TemporaryDirectory directory;
@@ -463,6 +522,7 @@ void scroll_cards() {
 } // namespace
 int main() {
     try {
+        native_num_restore();
         numpad_settings();
         app_settings();
         favorite_schema();

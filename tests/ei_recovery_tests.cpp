@@ -182,6 +182,16 @@ int main() {
             require(input->shortcut_code('a', 999) == (std::string(layout) == "fr" ? 16 : 30),
                     "Ctrl+A maps to actual target keymap");
             require(input->shortcut_code('c', 999) == 46, "Copy maps to target C");
+            eis_device_keyboard_send_xkb_modifiers(mapping.device, 0, 0, 1u << 4, 0);
+            mapping.until([&] {
+                input->pump();
+                return input->num_lock_state() == std::optional<bool>(true);
+            });
+            eis_device_keyboard_send_xkb_modifiers(mapping.device, 0, 0, 0, 0);
+            mapping.until([&] {
+                input->pump();
+                return input->num_lock_state() == std::optional<bool>(false);
+            });
         }
         Server server;
         auto connecting = std::async(

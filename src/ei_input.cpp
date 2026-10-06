@@ -90,6 +90,12 @@ bool EiSink::pump() {
         case EI_EVENT_KEYBOARD_MODIFIERS:
             if (device == keyboard_) {
                 group_ = ei_event_keyboard_get_xkb_group(event);
+                if (keymap_) {
+                    const auto index = xkb_keymap_mod_get_index(keymap_.get(), XKB_MOD_NAME_NUM);
+                    if (index != XKB_MOD_INVALID && index < 32) {
+                        num_lock_ = (ei_event_keyboard_get_xkb_mods_locked(event) & (1u << index)) != 0;
+                    }
+                }
             }
             break;
         case EI_EVENT_DEVICE_RESUMED:
@@ -108,6 +114,7 @@ bool EiSink::pump() {
                 // No new output is allowed until the app acknowledges and clears its holds.
                 input_reset_ = true;
                 held_.clear();
+                num_lock_.reset();
                 if (ei_event_get_type(event) == EI_EVENT_DEVICE_REMOVED) {
                     keyboard_ = ei_device_unref(keyboard_);
                     keymap_.reset();
@@ -120,6 +127,7 @@ bool EiSink::pump() {
             disconnected_ = true;
             resumed_ = false;
             held_.clear();
+            num_lock_.reset();
             break;
         default:
             break;
@@ -131,6 +139,7 @@ bool EiSink::pump() {
 void EiSink::read_keymap() {
     keymap_.reset();
     group_ = 0;
+    num_lock_.reset();
     auto* map = ei_device_keyboard_get_keymap(keyboard_);
     if (!map || ei_keymap_get_type(map) != EI_KEYMAP_TYPE_XKB) {
         return;
