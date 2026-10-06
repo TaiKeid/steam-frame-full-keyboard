@@ -326,7 +326,13 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
 } // namespace
 Rect panel_case_bounds(const PanelView& view) {
     const auto p = placement(view, true);
-    const double width = panel_width - (view.layout->width - visible_layout_width(view)) * p.scale;
+    // Custom geometry can leave only a few pixels after hiding its numpad.
+    // Reserve the fixed main toolbar, and room for the scaled IME toolbar when
+    // present. This same case is used by painting, controls and the VR mask.
+    const bool ime = view.language && view.language->input_method != "xkb";
+    const double minimum = ime ? 1300 : 560;
+    const double width =
+        std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale);
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
 PanelRenderer::PanelRenderer() {

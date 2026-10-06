@@ -137,6 +137,43 @@ void native_num_restore() {
         }
     }
 }
+void compact_toolbar() {
+    for (bool favorites : {false, true}) {
+        TemporaryDirectory directory;
+        fs::create_directories(directory.path / "layouts");
+        std::ofstream(directory.path / "layouts/compact.json")
+            << R"({"schema_version":1,"id":"compact","name":"Compact regression","width":4096,"height":100,"keys":[{"id":"a","label":"A","x":0,"y":0,"width":80,"height":80,"action":{"kind":"key","value":"KeyA"}},{"id":"num1","label":"1","x":196,"y":0,"width":3900,"height":80,"action":{"kind":"key","value":"Numpad1"}}]})";
+        Settings settings;
+        settings.active.layout = "compact";
+        settings.hide_numpad = true;
+        if (favorites) {
+            settings.favorites = {{"en", "English", {}}};
+        }
+        save_settings(directory.path, settings);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = "render";
+        CaptureSink sink;
+        App app(options, sink);
+        const auto view = app.view();
+        const auto body = panel_case_bounds(view);
+        for (std::size_t i = 0; i < view.controls.size(); ++i) {
+            const auto& a = view.controls[i].bounds;
+            require(body.contains(a.x, a.y) && body.contains(a.x + a.width - 1, a.y + a.height - 1),
+                    "compact case contains every toolbar control");
+            for (std::size_t j = i + 1; j < view.controls.size(); ++j) {
+                const auto& b = view.controls[j].bounds;
+                require(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y ||
+                            b.y + b.height <= a.y,
+                        "compact toolbar controls cannot overlap");
+            }
+        }
+        click(app, favorites ? "language-cycle" : "settings");
+        require(!app.quitting(), "compact Settings and language cycle cannot hit Close");
+        require(favorites ? app.selection().layout == "en-us-full" : app.view().settings,
+                "compact toolbar action reaches its intended destination");
+    }
+}
 void numpad_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -523,6 +560,7 @@ void scroll_cards() {
 int main() {
     try {
         native_num_restore();
+        compact_toolbar();
         numpad_settings();
         app_settings();
         favorite_schema();

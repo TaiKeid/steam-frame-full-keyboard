@@ -92,6 +92,7 @@ std::vector<Control> App::controls() const {
     PanelView geometry;
     geometry.layout = &profiles_.layouts.at(settings_.active.layout);
     geometry.theme = &profiles_.themes.at(settings_.active.theme);
+    geometry.language = &profiles_.languages.at(settings_.active.language);
     geometry.hide_numpad = settings_.hide_numpad;
     const auto body = panel_case_bounds(geometry);
     const double x = body.x + 18;
