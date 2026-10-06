@@ -448,7 +448,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
     }
     return settings;
 }
-void validate_selection(const Profiles& profiles, const Selection& s) {
+void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
     if (!profiles.layouts.contains(s.layout) || !profiles.languages.contains(s.language) ||
         !profiles.themes.contains(s.theme)) {
         throw std::runtime_error("selected profile is unavailable");
@@ -464,7 +464,10 @@ void validate_selection(const Profiles& profiles, const Selection& s) {
                                      ". Choose another layout.");
         }
     }
-    LanguageMap check(language);
+}
+void validate_selection(const Profiles& profiles, const Selection& s) {
+    validate_selection_profiles(profiles, s);
+    LanguageMap check(profiles.languages.at(s.language));
 }
 namespace {
 void write_settings(const fs::path& user_dir, const Selection& s, const Settings* settings) {

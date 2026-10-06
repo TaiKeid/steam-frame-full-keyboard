@@ -60,6 +60,8 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
 void save_selection(const fs::path& user_dir, const Selection& selection);
 void save_settings(const fs::path& user_dir, const Settings& settings);
 void validate_selection(const Profiles& profiles, const Selection& selection);
+// Geometry/profile checks for callers that prepare the XKB map themselves.
+void validate_selection_profiles(const Profiles& profiles, const Selection& selection);
 Layout parse_layout(const std::string& json);
 Theme parse_theme(const std::string& json);
 Language parse_language(const std::string& json);

@@ -71,6 +71,7 @@ App::App(const Options& options, KeySink& sink)
     keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
     keyboard_.set_num(settings_.num_lock);
     pending_ = default_ = settings_.active;
+    rebuild_cycle_entries();
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
     update_settings_ui();
@@ -578,7 +579,7 @@ std::vector<PlacementAction> App::take_placement_actions() {
     return result;
 }
 void App::activate(Selection selection) {
-    validate_selection(profiles_, selection);
+    validate_selection_profiles(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
     cancel();
@@ -605,29 +606,44 @@ void App::save() {
 void App::apply(Selection selection) {
     activate(std::move(selection));
     default_ = settings_.active;
+    rebuild_cycle_entries();
     save();
 }
-std::vector<Selection> App::cycle_entries() const {
-    std::vector<Selection> entries{default_};
-    for (const auto& favorite : settings_.favorites) {
-        auto candidate = favorite.selection;
+void App::rebuild_cycle_entries() {
+    std::vector<Selection> entries;
+    std::map<std::string, bool> languages;
+    auto append = [&](Selection candidate) {
         candidate.theme = settings_.active.theme;
         if (std::any_of(entries.begin(), entries.end(),
                         [&](const Selection& entry) { return same_pair(entry, candidate); })) {
-            continue;
+            return;
         }
         try {
-            validate_selection(profiles_, candidate);
+            validate_selection_profiles(profiles_, candidate);
+            if (!languages.contains(candidate.language)) {
+                // Compile each language once during cache rebuilding, never
+                // compile the entire favorites list in a cycle click handler.
+                languages[candidate.language] = false;
+                LanguageMap check(profiles_.languages.at(candidate.language));
+                languages[candidate.language] = true;
+            }
+            if (!languages.at(candidate.language)) {
+                return;
+            }
             entries.push_back(std::move(candidate));
         } catch (const std::exception&) {
             // A removed/incompatible favorite must not prevent cycling the rest.
         }
+    };
+    append(default_);
+    for (const auto& favorite : settings_.favorites) {
+        append(favorite.selection);
     }
-    return entries;
+    cycle_entries_ = std::move(entries);
 }
 void App::reload() {
     auto candidate = load_profiles(options_.data_dir, options_.config_dir, &profiles_);
-    validate_selection(candidate, settings_.active);
+    validate_selection_profiles(candidate, settings_.active);
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
     auto cjk = prepare_cjk(candidate.languages.at(settings_.active.language));
@@ -648,6 +664,7 @@ void App::reload() {
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    rebuild_cycle_entries();
     update_settings_ui();
     settings_ui_.reset();
     refresh_typing();
@@ -1028,7 +1045,7 @@ void App::action(const std::string& id) {
         status_.clear();
         save();
     } else if (id == "language-cycle") {
-        const auto entries = cycle_entries();
+        const auto& entries = cycle_entries_;
         if (entries.size() > 1) {
             const auto current =
                 std::find_if(entries.begin(), entries.end(),
@@ -1068,6 +1085,7 @@ void App::action(const std::string& id) {
         settings_.favorites = pending_favorites_;
         settings_.hide_numpad = pending_hide_numpad_;
         default_ = settings_.active;
+        rebuild_cycle_entries();
         save();
         settings_open_ = false;
     } else if (id == "reload") {

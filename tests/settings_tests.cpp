@@ -174,6 +174,32 @@ void compact_toolbar() {
                 "compact toolbar action reaches its intended destination");
     }
 }
+void favorite_cache_reload() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.favorites = {{"later", "Added later", {"later", "en-us", "graphite"}},
+                          {"de", "German", {"international-full", "de-de", "graphite"}}};
+    save_settings(directory.path, settings);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = "render";
+    CaptureSink sink;
+    App app(options, sink);
+    click(app, "language-cycle");
+    require(app.selection().language == "de-de", "cache skips absent favorite profile");
+    click(app, "language-cycle");
+    fs::create_directories(directory.path / "layouts");
+    std::ofstream(directory.path / "layouts/later.json")
+        << R"({"schema_version":1,"id":"later","name":"Added later","width":100,"height":100,"keys":[{"id":"a","label":"A","x":0,"y":0,"width":80,"height":80,"action":{"kind":"key","value":"KeyA"}}]})";
+    app.reload();
+    click(app, "language-cycle");
+    require(app.selection().layout == "later", "reload adds newly valid cached favorite");
+    app.apply({});
+    fs::remove(directory.path / "layouts/later.json");
+    app.reload();
+    click(app, "language-cycle");
+    require(app.selection().language == "de-de", "reload removes deleted cached favorite");
+}
 void numpad_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -561,6 +587,7 @@ int main() {
     try {
         native_num_restore();
         compact_toolbar();
+        favorite_cache_reload();
         numpad_settings();
         app_settings();
         favorite_schema();

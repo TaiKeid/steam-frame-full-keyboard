@@ -82,7 +82,7 @@ class App {
     void update_settings_ui();
     void activate(Selection selection);
     void save();
-    std::vector<Selection> cycle_entries() const;
+    void rebuild_cycle_entries();
     void action(const std::string& id);
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
@@ -105,6 +105,7 @@ class App {
     Profiles profiles_;
     Settings settings_;
     Selection pending_, default_;
+    std::vector<Selection> cycle_entries_;
     std::vector<Favorite> pending_favorites_;
     bool pending_hide_numpad_{};
     SettingsUi settings_ui_;
