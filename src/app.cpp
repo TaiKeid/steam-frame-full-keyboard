@@ -58,9 +58,10 @@ std::string language_short_name(const Language& language) {
     return name;
 }
 } // namespace
-App::App(const Options& options, KeySink& sink)
+App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences)
     : options_(options), profiles_(load_profiles(options.data_dir, options.config_dir)),
-      settings_(load_settings(options.config_dir, profiles_.errors)), gate_(sink), keyboard_(gate_) {
+      settings_(load_settings(options.config_dir, profiles_.errors)),
+      settings_writer_(options.config_dir, std::move(write_preferences)), gate_(sink), keyboard_(gate_) {
     try {
         validate_selection(profiles_, settings_.active);
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
@@ -496,6 +497,7 @@ void App::cancel(bool discard_composition) {
     dirty = true;
 }
 bool App::tick(double now) {
+    update_save_status();
     refresh_typing();
     dirty |= keyboard_.tick(now);
     for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
@@ -598,10 +600,28 @@ void App::save() {
     try {
         auto saved = settings_;
         saved.active = default_;
-        save_settings(options_.config_dir, saved);
+        settings_writer_.enqueue(std::move(saved));
     } catch (const std::exception& error) {
         status_ = "Applied, but not saved: " + std::string(error.what());
     }
+}
+void App::update_save_status() {
+    if (const auto result = settings_writer_.take_result()) {
+        if (result->error.empty()) {
+            if (status_ == save_status_) {
+                status_.clear();
+            }
+            save_status_.clear();
+        } else {
+            save_status_ = "Applied, but not saved: " + result->error;
+            status_ = save_status_;
+        }
+        dirty = true;
+    }
+}
+void App::flush_settings() {
+    settings_writer_.flush();
+    update_save_status();
 }
 void App::apply(Selection selection) {
     activate(std::move(selection));
@@ -642,6 +662,9 @@ void App::rebuild_cycle_entries() {
     cycle_entries_ = std::move(entries);
 }
 void App::reload() {
+    // A pending preference write must finish before reading an edited config;
+    // otherwise an older snapshot could overwrite it after Reload returns.
+    flush_settings();
     auto candidate = load_profiles(options_.data_dir, options_.config_dir, &profiles_);
     validate_selection_profiles(candidate, settings_.active);
     // Preparing a keymap can fail. Finish that work before releasing the old model.

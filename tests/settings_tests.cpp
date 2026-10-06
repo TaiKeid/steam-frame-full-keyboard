@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
@@ -67,6 +68,10 @@ Settings saved(const fs::path& dir) {
     auto value = load_settings(dir, errors);
     require(errors.empty(), "saved config parses");
     return value;
+}
+Settings saved(App& app) {
+    app.flush_settings();
+    return saved(app.config_dir());
 }
 std::pair<double, double> key_point(App& app, const std::string& action) {
     const auto view = app.view();
@@ -200,6 +205,99 @@ void favorite_cache_reload() {
     click(app, "language-cycle");
     require(app.selection().language == "de-de", "reload removes deleted cached favorite");
 }
+void background_preferences() {
+    using namespace std::chrono_literals;
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = "render";
+    CaptureSink sink;
+    std::promise<void> entered, release;
+    auto started = entered.get_future();
+    auto unblock = release.get_future();
+    std::vector<Settings> writes;
+    auto app = std::make_unique<App>(options, sink, [&](const Settings& settings) {
+        if (writes.empty()) {
+            entered.set_value();
+            unblock.wait(); // Model a stalled fsync without timing-dependent sleeps.
+        }
+        writes.push_back(settings);
+        save_settings(directory.path, settings);
+    });
+    click(*app, "pin");
+    if (started.wait_for(2s) != std::future_status::ready) {
+        release.set_value();
+        throw std::runtime_error("background save did not start");
+    }
+    auto input = std::async(std::launch::async, [&] {
+        const auto [x, y] = key_point(*app, "NumLock");
+        require(app->down(0, x, y, 1), "Num Lock accepts input during stalled save");
+        app->up(0, x, y);
+        click(*app, "pin");
+        app->tick(1);
+    });
+    const bool responsive = input.wait_for(2s) == std::future_status::ready;
+    release.set_value(); // Always unblock cleanup, even when the assertion fails.
+    input.get();
+    require(responsive, "input does not wait for blocked preference storage");
+    app.reset(); // Destruction must drain the last pending snapshot.
+    require(writes.size() == 2 && writes.front().pinned && !writes.back().pinned &&
+                writes.back().num_lock,
+            "ordered writes coalesce pending snapshots and shutdown saves the newest state");
+    require(saved(directory.path).num_lock && !saved(directory.path).pinned,
+            "shutdown makes the final preferences durable");
+
+    // Failures reach App on its own thread; a later successful save clears them.
+    bool fail = true;
+    App errors(options, sink, [&](const Settings& settings) {
+        if (fail) {
+            throw std::runtime_error("test storage failure");
+        }
+        save_settings(directory.path, settings);
+    });
+    click(errors, "pin");
+    errors.flush_settings();
+    require(errors.view().status.find("Applied, but not saved: test storage failure") !=
+                std::string::npos,
+            "background failure reports unsaved runtime state");
+    fail = false;
+    click(errors, "pin");
+    errors.flush_settings();
+    require(errors.view().status.empty(), "a successful retry clears the prior save error");
+    std::ofstream(directory.path / "config.json") << "{broken";
+    click(errors, "pin");
+    errors.flush_settings();
+    require(errors.view().status.find("Applied, but not saved:") != std::string::npos,
+            "atomic background save refuses malformed config");
+    std::ifstream broken(directory.path / "config.json");
+    require(std::string((std::istreambuf_iterator<char>(broken)), {}) == "{broken",
+            "failed background save preserves malformed config bytes");
+
+    std::promise<void> failing, retry;
+    auto failure_started = failing.get_future();
+    auto retry_ready = retry.get_future();
+    int attempts = 0;
+    SettingsWriter writer({}, [&](const Settings&) {
+        if (++attempts == 1) {
+            failing.set_value();
+            retry_ready.wait();
+            throw std::runtime_error("obsolete failure");
+        }
+    });
+    writer.enqueue({});
+    if (failure_started.wait_for(2s) != std::future_status::ready) {
+        retry.set_value();
+        throw std::runtime_error("failure test writer did not start");
+    }
+    writer.enqueue({});
+    const bool suppressed = !writer.take_result();
+    retry.set_value();
+    writer.flush();
+    require(suppressed, "pending retry suppresses obsolete completion errors");
+    const auto result = writer.take_result();
+    require(attempts == 2 && result && result->error.empty(),
+            "newest successful snapshot supersedes an older failed write");
+}
 void numpad_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -212,7 +310,7 @@ void numpad_settings() {
     const auto [x, y] = key_point(app, "NumLock");
     require(app.down(0, x, y, 1), "Num Lock accepted");
     require(app.down(1, x, y, 1), "second Num Lock pointer accepted");
-    require(app.view().keyboard->num() && saved(directory.path).num_lock,
+    require(app.view().keyboard->num() && saved(app).num_lock,
             "Num Lock saves once during simultaneous controller holds");
     app.up(0, x, y);
     app.up(1, x, y);
@@ -222,15 +320,14 @@ void numpad_settings() {
     }
     app.show_settings();
     click(app, "hide-numpad");
-    require(control(app.view(), "hide-numpad").selected && !saved(directory.path).hide_numpad,
+    require(control(app.view(), "hide-numpad").selected && !saved(app).hide_numpad,
             "Hide numpad stays pending until Apply");
     app.back();
     app.show_settings();
     require(!control(app.view(), "hide-numpad").selected, "Back discards Hide numpad edits");
     click(app, "hide-numpad");
     click(app, "apply");
-    require(saved(directory.path).hide_numpad && app.view().hide_numpad,
-            "Apply saves global numpad visibility");
+    require(saved(app).hide_numpad && app.view().hide_numpad, "Apply saves global numpad visibility");
     const auto narrow = panel_case_bounds(app.view());
     require(narrow.width < full_body.width && narrow.x > 0, "hidden numpad narrows centered case");
     app.paint(2);
@@ -260,7 +357,7 @@ void numpad_settings() {
                 "global visibility and Num Lock survive every bundled layout change");
     }
     app.apply({"en-us-full", "en-us", "graphite"});
-    auto settings = saved(directory.path);
+    auto settings = saved(app);
     settings.favorites = {{"de", "German", {"international-full", "de-de", "graphite"}}};
     save_settings(directory.path, settings);
     app.reload();
@@ -280,7 +377,7 @@ void numpad_settings() {
     const auto [nx, ny] = key_point(app, "NumLock");
     app.down(0, nx, ny, 3);
     app.up(0, nx, ny);
-    require(!saved(directory.path).num_lock, "Num Lock off is persisted too");
+    require(!saved(app).num_lock, "Num Lock off is persisted too");
     require(sink.events.empty(), "numpad settings tests deliver no desktop input");
     app.paint(3);
     app.renderer.write_png("/tmp/framekeyboard-numpad-visible.png");
@@ -305,7 +402,7 @@ void app_settings() {
             "pin follows zoom buttons");
     const auto unpinned_icon = control(app.view(), "pin").icon;
     click(app, "pin");
-    require(app.pinned() && saved(directory.path).pinned, "pin is immediately persisted");
+    require(app.pinned() && saved(app).pinned, "pin queues persistent state immediately");
     require(!control(app.view(), "pin").selected, "pin active state changes icon without background");
     require(control(app.view(), "pin").icon != unpinned_icon, "pin has distinct on/off icons");
     app.set_dragging(true);
@@ -351,7 +448,7 @@ void app_settings() {
     click(app, "favorite");
     require(control(app.view(), "favorite").selected, "favorite checkbox reflects pending pair");
     app.back();
-    require(saved(directory.path).favorites.empty(), "Back discards unsaved favorite edits");
+    require(saved(app).favorites.empty(), "Back discards unsaved favorite edits");
     app.show_settings();
     select(app, "language", "de-de");
     select(app, "layout", "international-full");
@@ -361,7 +458,7 @@ void app_settings() {
     select(app, "language", "en-us");
     select(app, "layout", "en-us-full");
     click(app, "apply");
-    auto settings = saved(directory.path);
+    auto settings = saved(app);
     require(settings.favorites.size() == 1 && settings.active.language == "en-us" &&
                 settings.active.theme == "midnight",
             "Apply persists default, theme and favorite changes together");
@@ -371,14 +468,12 @@ void app_settings() {
     click(app, "language-cycle");
     require(app.selection().language == "de-de" && app.selection().theme == "midnight",
             "cycle activates favorite pair while retaining current theme");
-    require(saved(directory.path).active.language == "en-us",
-            "cycling does not overwrite saved default");
+    require(saved(app).active.language == "en-us", "cycling does not overwrite saved default");
     click(app, "pin");
-    require(saved(directory.path).active.language == "en-us",
-            "pin save preserves default during favorite cycle");
+    require(saved(app).active.language == "en-us", "pin save preserves default during favorite cycle");
     click(app, "language-cycle");
     require(app.selection().language == "en-us", "cycle returns to saved default");
-    settings = saved(directory.path);
+    settings = saved(app);
     settings.favorites.insert(settings.favorites.begin(),
                               {"absent", "Removed profile", {"missing", "missing", "graphite"}});
     settings.favorites.insert(settings.favorites.begin(),
@@ -398,7 +493,7 @@ void app_settings() {
     select(app, "language", "de-de");
     select(app, "layout", "international-full");
     click(app, "apply");
-    settings = saved(directory.path);
+    settings = saved(app);
     settings.favorites.push_back(
         {"duplicate", "duplicate", {"international-full", "de-de", "graphite"}});
     save_settings(directory.path, settings);
@@ -411,7 +506,7 @@ void app_settings() {
             "legacy favorites recognized by layout/language pair");
     click(app, "favorite");
     click(app, "apply");
-    require(saved(directory.path).favorites.empty() && !has(app.view(), "language-cycle"),
+    require(saved(app).favorites.empty() && !has(app.view(), "language-cycle"),
             "uncheck removes all duplicates and hides main cycle");
 
     // Reload closes a menu, cancels a pressed choice, and discards staged edits.
@@ -455,12 +550,15 @@ void app_settings() {
     data.insert(data.find('{') + 1, "\"custom_setting\":42,");
     std::ofstream(directory.path / "config.json") << data;
     save_settings(directory.path, settings);
+    click(app, "settings"); // Back to main.
+    click(app, "pin");
+    app.flush_settings();
     std::ifstream updated(directory.path / "config.json");
     data.assign(std::istreambuf_iterator<char>(updated), {});
     require(data.find("custom_setting") != std::string::npos, "settings save preserves unknown fields");
     std::ofstream(directory.path / "config.json") << "{broken";
-    click(app, "settings"); // Back to main.
     click(app, "pin");
+    app.flush_settings();
     require(app.view().status.find("not saved") != std::string::npos, "pin reports failed persistence");
     std::ifstream malformed(directory.path / "config.json");
     data.assign(std::istreambuf_iterator<char>(malformed), {});
@@ -588,6 +686,7 @@ int main() {
         native_num_restore();
         compact_toolbar();
         favorite_cache_reload();
+        background_preferences();
         numpad_settings();
         app_settings();
         favorite_schema();

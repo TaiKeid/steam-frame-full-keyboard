@@ -6,6 +6,7 @@
 #include "panel.hpp"
 #include "placement.hpp"
 #include "settings_ui.hpp"
+#include "settings_writer.hpp"
 #include <csignal>
 #include <optional>
 
@@ -42,7 +43,7 @@ class InputGate : public KeySink {
 };
 class App {
   public:
-    App(const Options& options, KeySink& sink);
+    App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {});
     PanelView view() const;
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);
@@ -70,6 +71,7 @@ class App {
     std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
     void reload();
+    void flush_settings();
     const fs::path& config_dir() const { return options_.config_dir; }
     bool quitting() const { return quit_; }
     bool take_recenter();
@@ -82,6 +84,7 @@ class App {
     void update_settings_ui();
     void activate(Selection selection);
     void save();
+    void update_save_status();
     void rebuild_cycle_entries();
     void action(const std::string& id);
     void refresh_typing();
@@ -104,6 +107,8 @@ class App {
     Options options_;
     Profiles profiles_;
     Settings settings_;
+    SettingsWriter settings_writer_;
+    std::string save_status_;
     Selection pending_, default_;
     std::vector<Selection> cycle_entries_;
     std::vector<Favorite> pending_favorites_;
