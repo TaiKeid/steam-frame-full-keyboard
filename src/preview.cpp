@@ -55,7 +55,12 @@ int run_preview(App& app, double duration) {
                 }
                 if (event.type == SDL_MOUSEWHEEL) {
                     const double direction = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+                    double dx = -event.wheel.preciseX * direction;
+                    double dy = -event.wheel.preciseY * direction;
+#else
                     double dx = -event.wheel.x * direction, dy = -event.wheel.y * direction;
+#endif
                     if (SDL_GetModState() & KMOD_SHIFT) {
                         dx = dy;
                         dy = 0;

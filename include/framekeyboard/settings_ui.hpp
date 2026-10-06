@@ -58,6 +58,7 @@ class SettingsUi {
     double horizontal_{};
     std::string open_field_;
     int first_choice_{};
+    double choice_remainder_{};
     struct Capture {
         unsigned pointer;
         Scrollbar bar;

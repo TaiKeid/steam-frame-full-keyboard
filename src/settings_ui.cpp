@@ -12,6 +12,7 @@ bool intersects(Rect a, Rect b) {
 }
 } // namespace
 void SettingsUi::set_cards(std::vector<SettingsCard> cards) {
+    choice_remainder_ = 0;
     capture_.reset();
     cards_ = std::move(cards);
     horizontal_ = std::clamp(horizontal_, 0.0, horizontal_limit());
@@ -191,6 +192,7 @@ void SettingsUi::close_popup() {
     }
     open_field_.clear();
     first_choice_ = 0;
+    choice_remainder_ = 0;
 }
 void SettingsUi::reset() {
     cancel();
@@ -237,10 +239,17 @@ bool SettingsUi::scroll(double x, double y, double dx, double dy) {
             const auto* field = open_field();
             const int limit = std::max(0, static_cast<int>(field->choices.size()) - visible_choices);
             const int old = first_choice_;
-            first_choice_ = std::clamp(
-                first_choice_ + static_cast<int>(std::round(std::clamp(dy, -static_cast<double>(limit),
-                                                                       static_cast<double>(limit)))),
-                0, limit);
+            choice_remainder_ += std::clamp(dy, -static_cast<double>(limit), static_cast<double>(limit));
+            // Keep sub-row motion instead of rounding every event separately.
+            // The tolerance handles sums such as ten binary floating-point .1s.
+            const int steps =
+                static_cast<int>(std::trunc(choice_remainder_ + std::copysign(1e-9, choice_remainder_)));
+            first_choice_ = std::clamp(first_choice_ + steps, 0, limit);
+            choice_remainder_ -= steps;
+            if (std::abs(choice_remainder_) < 1e-9 || (first_choice_ == 0 && choice_remainder_ < 0) ||
+                (first_choice_ == limit && choice_remainder_ > 0)) {
+                choice_remainder_ = 0; // Discard overscroll so reversing responds immediately.
+            }
             return first_choice_ != old;
         }
         return false; // A popup owns scrolling until selection or dismissal.
@@ -267,6 +276,9 @@ bool SettingsUi::down(unsigned pointer, double x, double y) {
     for (const auto& bar : scrollbars()) {
         if ((!popup_open() || bar.id == "scroll-menu") && bar.track.contains(x, y)) {
             if (!capture_) {
+                if (bar.id == "scroll-menu") {
+                    choice_remainder_ = 0;
+                }
                 capture_ = Capture{pointer, bar, bar.horizontal ? x : y, bar.offset};
                 if (!bar.thumb.contains(x, y)) {
                     // Clicking the track centers the thumb at the laser/mouse.
@@ -291,6 +303,7 @@ bool SettingsUi::move(unsigned pointer, double x, double y) {
         std::clamp(capture_->offset + ((bar.horizontal ? x : y) - capture_->start) * bar.limit / travel,
                    0.0, bar.limit);
     if (bar.id == "scroll-menu") {
+        choice_remainder_ = 0;
         first_choice_ = static_cast<int>(std::round(offset));
     } else if (bar.horizontal) {
         horizontal_ = offset;

@@ -4,6 +4,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
 #include <unistd.h>
@@ -572,6 +573,58 @@ void favorite_schema() {
     require(config.favorites.size() == 1 && config.favorites.front().selection.language == "de-de",
             "favorite pair does not require a legacy theme field");
 }
+void fractional_dropdown_scroll() {
+    SettingsUi ui;
+    SettingField field{"field", "Field", "c0"};
+    for (int i = 0; i < 20; ++i) {
+        field.choices.push_back({"c" + std::to_string(i), "Choice " + std::to_string(i)});
+    }
+    const std::vector<SettingsCard> cards{{"card", "Card", {field}}};
+    ui.set_cards(cards);
+    auto snapshot = [&] {
+        PanelView view;
+        ui.append(view);
+        return view;
+    };
+    ui.toggle("field");
+    const auto popup = *snapshot().popup;
+    auto scroll = [&](double dy) { return ui.scroll(popup.x + 5, popup.y + 5, 0, dy); };
+    for (int i = 0; i < 100; ++i) {
+        scroll(.1);
+    }
+    require(has(snapshot(), "choose:field:c10") && !has(snapshot(), "choose:field:c9"),
+            "one hundred fractional events move ten rows");
+    for (int i = 0; i < 100; ++i) {
+        scroll(-.1);
+    }
+    require(has(snapshot(), "choose:field:c0"), "negative fractional input returns to first row");
+    scroll(1e300);
+    scroll(.9); // Overscroll must not delay reversing direction.
+    require(scroll(-1) && has(snapshot(), "choose:field:c14"), "reverse responds at bottom limit");
+    scroll(-1e300);
+    scroll(-.9);
+    require(scroll(1) && !has(snapshot(), "choose:field:c0"), "reverse responds at top limit");
+    require(!scroll(std::numeric_limits<double>::quiet_NaN()) &&
+                !scroll(std::numeric_limits<double>::infinity()),
+            "nonfinite fractional input is ignored");
+    ui.close_popup();
+    ui.toggle("field");
+    scroll(.6);
+    ui.close_popup();
+    ui.toggle("field");
+    require(!scroll(.5) && has(snapshot(), "choose:field:c0"), "new menu discards old remainder");
+    require(scroll(.5), "new menu accumulates its own fractional motion");
+    scroll(.6);
+    ui.set_cards(cards);
+    require(!scroll(.5), "profile changes discard fractional remainder");
+    ui.close_popup();
+    ui.toggle("field");
+    scroll(.6);
+    const auto bar = control(snapshot(), "scroll-menu");
+    require(ui.down(0, bar.bounds.x + 2, bar.bounds.y + 2), "menu scrollbar captures pointer");
+    ui.up(0);
+    require(!scroll(.5), "scrollbar capture discards wheel remainder");
+}
 void scroll_cards() {
     SettingsUi ui;
     std::vector<SettingsCard> cards;
@@ -690,6 +743,7 @@ int main() {
         numpad_settings();
         app_settings();
         favorite_schema();
+        fractional_dropdown_scroll();
         scroll_cards();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
