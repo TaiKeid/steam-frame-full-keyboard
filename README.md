@@ -65,16 +65,19 @@ To update, **close the keyboard**, download the new release assets, and repeat t
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
 | Copy / paste | Use the two icons on the left; select text first when copying |
-| Move / rotate | Point anywhere on the keyboard, hold grab/grip, move your hand, then release |
+| Move / rotate | Unpin, point anywhere on the keyboard, hold grab/grip, move your hand, then release |
+| Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
+| Cycle favorite layouts and languages | Press the language abbreviation beside the pin icon |
 | Move farther / closer | While grabbing, push that same controller's thumbstick up / down |
 | Change size | Use the smaller / larger icons in the toolbar |
+| Hide the numpad | In Settings, check Appearance → Hide numpad and Apply and save |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
 | Close | Use the × icon |
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
-Closing and reopening normally restores the last position, rotation, and size. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. After releasing a grab, a sideways lean within 5° eases level over 500 ms. This preserves the desk-like forward tilt and never fights your hand during a grab.
+Closing and reopening normally restores the last position, rotation, size and Num Lock state. Numpad visibility is saved globally across all layouts. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. After releasing a grab, a sideways lean within 5° eases level over 500 ms. This preserves the desk-like forward tilt and never fights your hand during a grab.
 
 ## Languages and customization
 
@@ -85,11 +88,11 @@ or relaunch is needed. A fresh install defaults to English; later launches use
 your saved selection. System locale and system layout switching do not change it.
 See [language setup and switching](docs/languages.md).
 
-For Japanese, choose a Japanese language or the JIS layout in Settings to reveal the **Romaji / Kana / JIS** presets. Romaji and Kana compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
+For Japanese, pick **Romaji**, **Kana**, or **JIS** from the Language dropdown in Settings. Romaji and Kana compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
 
 Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
 
-Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then choose **Reload profiles** in Settings:
+Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then use the **Reload config** icon in Settings:
 
 ```text
 ~/.config/framekeyboard/layouts/

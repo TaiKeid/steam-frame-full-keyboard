@@ -5,20 +5,8 @@
     "language": "en-us",
     "theme": "graphite"
   },
-  "favorites": [
-    {
-      "id": "english",
-      "name": "English",
-      "layout": "en-us-full",
-      "language": "en-us",
-      "theme": "graphite"
-    },
-    {
-      "id": "german",
-      "name": "Deutsch",
-      "layout": "international-full",
-      "language": "de-de",
-      "theme": "graphite"
-    }
-  ]
+  "favorites": [],
+  "pinned": false,
+  "num_lock": false,
+  "hide_numpad": false
 }

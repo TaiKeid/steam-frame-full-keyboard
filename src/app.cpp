@@ -46,23 +46,16 @@ std::string compatible_layout(const Profiles& profiles, const Selection& selecti
     }
     return selection.layout; // Apply reports the validation error if none fit.
 }
-template <class ProfilesMap> void cycle(const ProfilesMap& map, std::string& id, bool next) {
-    auto it = map.find(id);
-    if (it == map.end()) {
-        id = map.begin()->first;
-        return;
-    }
-    if (next) {
-        if (++it == map.end()) {
-            it = map.begin();
-        }
-    } else {
-        if (it == map.begin()) {
-            it = map.end();
-        }
-        --it;
-    }
-    id = it->first;
+bool same_pair(const Selection& a, const Selection& b) {
+    return a.layout == b.layout && a.language == b.language;
+}
+std::string language_short_name(const Language& language) {
+    // Locale preserves distinctions such as US/UK English and Chinese script.
+    auto name = language.locale.empty() ? language.id : language.locale;
+    std::replace(name.begin(), name.end(), '_', '-');
+    std::transform(name.begin(), name.end(), name.begin(),
+                   [](unsigned char c) { return g_ascii_toupper(c); });
+    return name;
 }
 } // namespace
 App::App(const Options& options, KeySink& sink)
@@ -76,7 +69,11 @@ App::App(const Options& options, KeySink& sink)
         settings_.active = {};
     }
     keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
-    pending_ = settings_.active;
+    keyboard_.set_num(settings_.num_lock);
+    pending_ = default_ = settings_.active;
+    pending_favorites_ = settings_.favorites;
+    pending_hide_numpad_ = settings_.hide_numpad;
+    update_settings_ui();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
     if (const auto target = profiles_.languages.find(options_.target_language);
         target != profiles_.languages.end()) {
@@ -86,115 +83,124 @@ App::App(const Options& options, KeySink& sink)
     refresh_typing();
 }
 std::vector<Control> App::controls() const {
-    std::vector<Control> result = {
-        {"settings",
-         settings_open_ ? "Back" : "Settings",
-         {18, 12, 60, 42},
-         false,
-         settings_open_ ? Icon::Back : Icon::Settings},
-        {"recenter", "Recenter", {88, 12, 60, 42}, false, Icon::Recenter},
-        {"size-smaller", "Smaller keyboard", {158, 12, 60, 42}, false, Icon::ScaleDown},
-        {"size-larger", "Larger keyboard", {228, 12, 60, 42}, false, Icon::ScaleUp},
-        {"close", "Close", {1522, 12, 60, 42}, false, Icon::Close}};
-    if (!settings_open_) {
-        if (japanese()) {
-            result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
-            if (!japanese_latin_) {
-                result.push_back({"ime-hiragana", "ひらがな", {735, 12, 120, 42}});
-                result.push_back({"ime-katakana", "カタカナ", {865, 12, 120, 42}});
-                result.push_back({"ime-commit", "確定 / Commit", {995, 12, 180, 42}});
-                result.push_back({"ime-cancel", "Cancel", {1185, 12, 110, 42}});
-                const auto candidates = composition_.candidates();
-                if (!candidates.empty()) {
-                    result.push_back({"ime-prev", "↑", {20, 148, 55, 42}});
-                    const int page = composition_.selected() / 5 * 5;
-                    for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size()));
-                         ++i) {
-                        result.push_back(
-                            {"ime-candidate-" + std::to_string(i),
-                             std::to_string(i + 1) + " " + candidates[static_cast<std::size_t>(i)],
-                             {85.0 + (i - page) * 240, 148, 230, 42},
-                             i == composition_.selected()});
-                    }
-                    result.push_back({"ime-next", "↓", {1290, 148, 55, 42}});
-                    result.push_back({"ime-segment-prev", "←", {1355, 148, 55, 42}});
-                    result.push_back({"ime-segment-next", "→", {1420, 148, 55, 42}});
-                    result.push_back({"ime-segment-label",
-                                      std::to_string(composition_.active_segment() + 1) + "/" +
-                                          std::to_string(composition_.segment_count()),
-                                      {1485, 148, 90, 42}});
-                } else {
-                    result.push_back({"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
+    std::vector<Control> result;
+    if (settings_open_) {
+        return {{"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back},
+                {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply},
+                {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload}};
+    }
+    PanelView geometry;
+    geometry.layout = &profiles_.layouts.at(settings_.active.layout);
+    geometry.theme = &profiles_.themes.at(settings_.active.theme);
+    geometry.hide_numpad = settings_.hide_numpad;
+    const auto body = panel_case_bounds(geometry);
+    const double x = body.x + 18;
+    result.push_back({"settings", "Settings", {x, 12, 60, 42}, false, Icon::Settings});
+    result.push_back({"recenter", "Recenter", {x + 70, 12, 60, 42}, false, Icon::Recenter});
+    result.push_back(
+        {"size-smaller", "Smaller keyboard", {x + 140, 12, 60, 42}, false, Icon::ScaleDown});
+    result.push_back({"size-larger", "Larger keyboard", {x + 210, 12, 60, 42}, false, Icon::ScaleUp});
+    result.push_back({"pin",
+                      settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
+                      {x + 280, 12, 60, 42},
+                      false,
+                      settings_.pinned ? Icon::PinOn : Icon::PinOff});
+    if (!settings_.favorites.empty()) {
+        result.push_back({"language-cycle",
+                          language_short_name(profiles_.languages.at(settings_.active.language)),
+                          {x + 350, 12, 100, 42}});
+    }
+    result.push_back({"close", "Close", {body.x + body.width - 78, 12, 60, 42}, false, Icon::Close});
+    const auto ime_start = result.size();
+    if (japanese()) {
+        result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
+        if (!japanese_latin_) {
+            result.push_back({"ime-hiragana", "ひらがな", {735, 12, 120, 42}});
+            result.push_back({"ime-katakana", "カタカナ", {865, 12, 120, 42}});
+            result.push_back({"ime-commit", "確定 / Commit", {995, 12, 180, 42}});
+            result.push_back({"ime-cancel", "Cancel", {1185, 12, 110, 42}});
+            const auto candidates = composition_.candidates();
+            if (!candidates.empty()) {
+                result.push_back({"ime-prev", "↑", {20, 148, 55, 42}});
+                const int page = composition_.selected() / 5 * 5;
+                for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
+                    result.push_back(
+                        {"ime-candidate-" + std::to_string(i),
+                         std::to_string(i + 1) + " " + candidates[static_cast<std::size_t>(i)],
+                         {85.0 + (i - page) * 240, 148, 230, 42},
+                         i == composition_.selected()});
                 }
+                result.push_back({"ime-next", "↓", {1290, 148, 55, 42}});
+                result.push_back({"ime-segment-prev", "←", {1355, 148, 55, 42}});
+                result.push_back({"ime-segment-next", "→", {1420, 148, 55, 42}});
+                result.push_back({"ime-segment-label",
+                                  std::to_string(composition_.active_segment() + 1) + "/" +
+                                      std::to_string(composition_.segment_count()),
+                                  {1485, 148, 90, 42}});
+            } else {
+                result.push_back({"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
             }
         }
-        if (cjk_) {
-            result.push_back({"cjk-toggle",
-                              cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
-                              {610, 12, 150, 42}});
-            if (!cjk_latin_) {
-                result.push_back({"cjk-commit", "Commit", {995, 12, 180, 42}});
-                result.push_back({"cjk-cancel", "Cancel", {1185, 12, 110, 42}});
-                const auto candidates = cjk_->candidates();
-                if (!candidates.empty()) {
-                    const int page = cjk_->selected() / 5 * 5;
-                    result.push_back({"cjk-prev", "↑", {20, 148, 55, 42}});
-                    for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size()));
-                         ++i) {
-                        result.push_back({"cjk-candidate-" + std::to_string(i),
-                                          std::to_string(i - page + 1) + " " +
-                                              candidates[static_cast<std::size_t>(i)],
-                                          {85.0 + (i - page) * 240, 148, 230, 42},
-                                          i == cjk_->selected()});
-                    }
-                    result.push_back({"cjk-next", "↓", {1290, 148, 55, 42}});
+    }
+    if (cjk_) {
+        result.push_back({"cjk-toggle",
+                          cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
+                          {610, 12, 150, 42}});
+        if (!cjk_latin_) {
+            result.push_back({"cjk-commit", "Commit", {995, 12, 180, 42}});
+            result.push_back({"cjk-cancel", "Cancel", {1185, 12, 110, 42}});
+            const auto candidates = cjk_->candidates();
+            if (!candidates.empty()) {
+                const int page = cjk_->selected() / 5 * 5;
+                result.push_back({"cjk-prev", "↑", {20, 148, 55, 42}});
+                for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
+                    result.push_back(
+                        {"cjk-candidate-" + std::to_string(i),
+                         std::to_string(i - page + 1) + " " + candidates[static_cast<std::size_t>(i)],
+                         {85.0 + (i - page) * 240, 148, 230, 42},
+                         i == cjk_->selected()});
                 }
+                result.push_back({"cjk-next", "↓", {1290, 148, 55, 42}});
             }
         }
-        return result;
     }
-    const auto& language = profiles_.languages.at(pending_.language);
-    const auto& layout = profiles_.layouts.at(pending_.layout);
-    const bool japanese_layout = std::any_of(layout.keys.begin(), layout.keys.end(), [](const Key& key) {
-        return key.action_kind == ActionKind::Key && key.action == "KanaMode";
-    });
-    // Use the pending selection so the options follow changes before Apply.
-    if (japanese_layout || language.locale == "ja" || language.locale.starts_with("ja-") ||
-        language.locale.starts_with("ja_") || language.keymap == "jp" ||
-        language.input_method.starts_with("japanese-")) {
-        result.push_back({"preset-ja-romaji", "日本語 Romaji", {610, 12, 230, 42}});
-        result.push_back({"preset-ja-kana", "日本語 Kana", {850, 12, 230, 42}});
-        result.push_back({"preset-ja-jis", "JIS (system IME)", {1090, 12, 250, 42}});
-    }
-    auto row = [&](const std::string& kind, const std::string& name, double y) {
-        result.push_back({kind + "-prev", "<", {40, y, 65, 64}});
-        result.push_back({kind + "-label", name, {115, y, 1370, 64}});
-        result.push_back({kind + "-next", ">", {1495, y, 65, 64}});
-    };
-    auto source = [&](const std::string& kind, const std::string& id) {
-        const auto found = profiles_.sources.find(kind + "/" + id);
-        return found == profiles_.sources.end()
-                   ? " [built-in]"
-                   : " [" + fs::path(found->second).filename().string() + "]";
-    };
-    row("layout",
-        "Layout: " + profiles_.layouts.at(pending_.layout).name + source("layouts", pending_.layout),
-        96);
-    row("language",
-        "Language: " + profiles_.languages.at(pending_.language).name +
-            source("languages", pending_.language),
-        182);
-    row("theme", "Theme: " + profiles_.themes.at(pending_.theme).name + source("themes", pending_.theme),
-        268);
-    if (!settings_.favorites.empty()) {
-        row("favorite", "Favorite: " + settings_.favorites.at(favorite_index_).name, 354);
-    }
-    result.push_back({"apply", "Apply and save", {350, 446, 280, 60}});
-    result.push_back({"reload", "Reload profiles", {650, 446, 280, 60}});
-    if (!settings_.favorites.empty()) {
-        result.push_back({"favorite-use", "Use favorite", {950, 446, 280, 60}});
+    // Composition controls use the available case width; the main toolbar keeps
+    // its button sizes and order when the numpad is hidden.
+    for (std::size_t i = ime_start; i < result.size(); ++i) {
+        result[i].bounds.x = body.x + result[i].bounds.x * body.width / panel_width;
+        result[i].bounds.width *= body.width / panel_width;
     }
     return result;
+}
+void App::update_settings_ui() {
+    auto choices = [](const auto& profiles) {
+        std::vector<SettingChoice> result;
+        for (const auto& [id, profile] : profiles) {
+            result.push_back({id, profile.name});
+        }
+        return result;
+    };
+    const bool favorite =
+        std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
+                    [&](const Favorite& f) { return same_pair(f.selection, pending_); });
+    settings_ui_.set_cards(
+        {{"languages",
+          "Languages and Layouts",
+          {{"layout", "Layout:", pending_.layout, ControlStyle::Dropdown, false,
+            choices(profiles_.layouts)},
+           {"language", "Language:", pending_.language, ControlStyle::Dropdown, false,
+            choices(profiles_.languages)},
+           {"favorite", "Favorite:", "", ControlStyle::Checkbox, favorite, {}}}},
+         {"appearance",
+          "Appearance",
+          {{"theme", "Theme:", pending_.theme, ControlStyle::Dropdown, false, choices(profiles_.themes)},
+           {"hide-numpad",
+            "Hide numpad",
+            "",
+            ControlStyle::Checkbox,
+            pending_hide_numpad_,
+            {},
+            true}}}});
 }
 PanelView App::view() const {
     PanelView v;
@@ -203,7 +209,11 @@ PanelView App::view() const {
     v.language = &profiles_.languages.at(settings_.active.language);
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
+    v.hide_numpad = settings_.hide_numpad;
     v.controls = controls();
+    if (settings_open_) {
+        settings_ui_.append(v);
+    }
     v.status = dragging_ ? "Release grab to place keyboard" : status_;
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == "render" || options_.mode == "render-settings";
@@ -257,16 +267,41 @@ PanelView App::view() const {
     }
     return v;
 }
+bool App::scroll(unsigned pointer, double dx, double dy) {
+    if (!settings_open_ || !interaction_active_ || dragging_ || !pointer_positions_.contains(pointer)) {
+        return false;
+    }
+    const auto [x, y] = pointer_positions_.at(pointer);
+    if (!settings_ui_.scroll(x, y, dx, dy)) {
+        return false;
+    }
+    // A scroll must never put a different action under a held trigger.
+    pressed_controls_.clear();
+    hovered_.clear();
+    dirty = true;
+    return true;
+}
 bool App::move(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
+        return false;
+    }
+    pointer_positions_[pointer] = {x, y};
+    if (settings_open_ && settings_ui_.move(pointer, x, y)) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        dirty = true;
         return false;
     }
     const auto v = view();
     std::string id;
     bool keyboard_key = false;
-    for (const auto& control : v.controls) {
-        if (control.bounds.contains(x, y)) {
-            id = control.id;
+    for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
+        if (v.popup && !it->id.starts_with("choose:") && it->id != "scroll-menu") {
+            continue;
+        }
+        if (it->hit(x, y)) {
+            id = it->id;
+            break;
         }
     }
     if (id.empty()) {
@@ -289,10 +324,24 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = view();
-    for (const auto& control : v.controls) {
-        if (control.bounds.contains(x, y)) {
-            pressed_controls_[pointer] = control.id;
-            return false;
+    if (settings_open_ && settings_ui_.down(pointer, x, y)) {
+        pressed_controls_.clear();
+        dirty = true;
+        return false;
+    }
+    if (v.popup && !v.popup->contains(x, y)) {
+        settings_ui_.close_popup();
+        pressed_controls_.clear();
+        hovered_.clear();
+        dirty = true;
+        return false; // Dismissal consumes the click instead of hitting through.
+    }
+    if (!hovered_[pointer].empty()) {
+        for (const auto& control : v.controls) {
+            if (control.id == hovered_[pointer]) {
+                pressed_controls_[pointer] = control.id;
+                return false;
+            }
         }
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
@@ -332,6 +381,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         const auto symbol = text_local
                                 ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
                                 : XKB_KEY_NoSymbol;
+        const bool old_num = keyboard_.num();
         const bool accepted =
             keyboard_.down(pointer, *key, now, local, local ? 0 : native_code(*key, modifiers));
         if (accepted) {
@@ -358,6 +408,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
+            if (keyboard_.num() != old_num) {
+                settings_.num_lock = keyboard_.num();
+                save();
+            }
         }
         dirty |= accepted;
         return accepted;
@@ -367,6 +421,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 
 bool App::up(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
+        return false;
+    }
+    if (settings_open_ && settings_ui_.up(pointer)) {
+        pressed_controls_.erase(pointer);
+        dirty = true;
         return false;
     }
     text_repeats_.erase(pointer);
@@ -389,6 +448,8 @@ bool App::up(unsigned pointer, double x, double y) {
 }
 
 void App::cancel_pointer(unsigned pointer) {
+    settings_ui_.cancel_pointer(pointer);
+    pointer_positions_.erase(pointer);
     text_repeats_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
     pressed_controls_.erase(pointer);
@@ -396,6 +457,8 @@ void App::cancel_pointer(unsigned pointer) {
     dirty = true;
 }
 void App::cancel(bool discard_composition) {
+    settings_ui_.cancel();
+    pointer_positions_.clear();
     text_repeats_.clear();
     if (discard_composition) {
         pending_text_.clear();
@@ -447,6 +510,9 @@ void App::set_interaction_active(bool active) {
     }
 }
 void App::set_dragging(bool dragging) {
+    if (dragging && settings_.pinned) {
+        return;
+    }
     if (dragging_ == dragging) {
         return;
     }
@@ -462,6 +528,21 @@ void App::show_settings() {
     cancel();
     settings_open_ = true;
     pending_ = settings_.active;
+    pending_favorites_ = settings_.favorites;
+    pending_hide_numpad_ = settings_.hide_numpad;
+    update_settings_ui();
+    settings_ui_.reset();
+    dirty = true;
+}
+void App::back() {
+    if (settings_ui_.popup_open()) {
+        settings_ui_.close_popup();
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (settings_open_) {
+        cancel();
+        settings_open_ = false;
+    }
     dirty = true;
 }
 void App::summon() {
@@ -477,7 +558,7 @@ std::vector<PlacementAction> App::take_placement_actions() {
     result.swap(placement_actions_);
     return result;
 }
-void App::apply(Selection selection) {
+void App::activate(Selection selection) {
     validate_selection(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
@@ -490,12 +571,40 @@ void App::apply(Selection selection) {
     pending_ = settings_.active;
     refresh_typing();
     status_.clear();
+    update_settings_ui();
+    dirty = true;
+}
+void App::save() {
     try {
-        save_selection(options_.config_dir, settings_.active);
+        auto saved = settings_;
+        saved.active = default_;
+        save_settings(options_.config_dir, saved);
     } catch (const std::exception& error) {
         status_ = "Applied, but not saved: " + std::string(error.what());
     }
-    dirty = true;
+}
+void App::apply(Selection selection) {
+    activate(std::move(selection));
+    default_ = settings_.active;
+    save();
+}
+std::vector<Selection> App::cycle_entries() const {
+    std::vector<Selection> entries{default_};
+    for (const auto& favorite : settings_.favorites) {
+        auto candidate = favorite.selection;
+        candidate.theme = settings_.active.theme;
+        if (std::any_of(entries.begin(), entries.end(),
+                        [&](const Selection& entry) { return same_pair(entry, candidate); })) {
+            continue;
+        }
+        try {
+            validate_selection(profiles_, candidate);
+            entries.push_back(std::move(candidate));
+        } catch (const std::exception&) {
+            // A removed/incompatible favorite must not prevent cycling the rest.
+        }
+    }
+    return entries;
 }
 void App::reload() {
     auto candidate = load_profiles(options_.data_dir, options_.config_dir, &profiles_);
@@ -507,10 +616,21 @@ void App::reload() {
     cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
     keymap_ = std::move(keymap);
-    const auto updated_settings = load_settings(options_.config_dir, profiles_.errors);
-    settings_.favorites = updated_settings.favorites;
-    favorite_index_ = 0;
+    std::vector<std::string> config_errors;
+    const auto updated_settings = load_settings(options_.config_dir, config_errors);
+    if (config_errors.empty()) {
+        settings_.favorites = updated_settings.favorites;
+        settings_.pinned = updated_settings.pinned;
+        settings_.num_lock = updated_settings.num_lock;
+        settings_.hide_numpad = updated_settings.hide_numpad;
+        keyboard_.set_num(settings_.num_lock);
+    }
+    profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
     pending_ = settings_.active;
+    pending_favorites_ = settings_.favorites;
+    pending_hide_numpad_ = settings_.hide_numpad;
+    update_settings_ui();
+    settings_ui_.reset();
     refresh_typing();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
 }
@@ -834,11 +954,6 @@ void App::action(const std::string& id) {
         placement_actions_.push_back(adjustment->second);
         return;
     }
-    if (id.starts_with("preset-ja-")) {
-        pending_.language = id.substr(7);
-        pending_.layout = pending_.language == "ja-romaji" ? "en-us-full" : "ja-jis-full";
-        return;
-    }
     if (id.starts_with("cjk-") && cjk_) {
         if (id == "cjk-toggle") {
             if (!cjk_->empty()) {
@@ -884,10 +999,39 @@ void App::action(const std::string& id) {
         cancel();
         gate_.enabled = false;
         quit_ = true;
+    } else if (id == "pin") {
+        cancel();
+        settings_.pinned = !settings_.pinned;
+        status_.clear();
+        save();
+    } else if (id == "language-cycle") {
+        const auto entries = cycle_entries();
+        if (entries.size() > 1) {
+            const auto current =
+                std::find_if(entries.begin(), entries.end(),
+                             [&](const Selection& entry) { return same_pair(entry, settings_.active); });
+            const auto index =
+                current == entries.end()
+                    ? 0
+                    : (static_cast<std::size_t>(current - entries.begin()) + 1) % entries.size();
+            std::string failure;
+            for (std::size_t offset = 0; offset < entries.size(); ++offset) {
+                auto candidate = entries[(index + offset) % entries.size()];
+                candidate.theme = settings_.active.theme;
+                try {
+                    activate(std::move(candidate));
+                    return;
+                } catch (const std::exception& error) {
+                    // Missing optional engines must not strand the cycle at an
+                    // unusable favorite. Keep the current keyboard until one works.
+                    failure = error.what();
+                }
+            }
+            status_ = failure;
+        }
     } else if (id == "settings") {
         if (settings_open_) {
-            cancel();
-            settings_open_ = false;
+            back();
         } else {
             show_settings();
         }
@@ -896,24 +1040,58 @@ void App::action(const std::string& id) {
         placement_actions_.clear();
         recenter_ = true;
     } else if (id == "apply") {
-        apply(pending_);
+        // Prepare/activate first. A failed candidate must leave all saved state intact.
+        activate(pending_);
+        settings_.favorites = pending_favorites_;
+        settings_.hide_numpad = pending_hide_numpad_;
+        default_ = settings_.active;
+        save();
         settings_open_ = false;
     } else if (id == "reload") {
         reload();
-    } else if (id == "layout-next" || id == "layout-prev") {
-        cycle(profiles_.layouts, pending_.layout, id.ends_with("next"));
-    } else if (id == "language-next" || id == "language-prev") {
-        cycle(profiles_.languages, pending_.language, id.ends_with("next"));
-        pending_.layout = compatible_layout(profiles_, pending_);
-    } else if (id == "theme-next" || id == "theme-prev") {
-        cycle(profiles_.themes, pending_.theme, id.ends_with("next"));
-    } else if ((id == "favorite-next" || id == "favorite-prev") && !settings_.favorites.empty()) {
-        const auto count = settings_.favorites.size();
-        favorite_index_ = (favorite_index_ + (id.ends_with("next") ? 1 : count - 1)) % count;
-    } else if (id == "favorite-use") {
-        const auto& candidate = settings_.favorites.at(favorite_index_).selection;
-        validate_selection(profiles_, candidate);
-        pending_ = candidate;
+    } else if (id == "layout" || id == "language" || id == "theme") {
+        pressed_controls_.clear();
+        hovered_.clear();
+        settings_ui_.toggle(id);
+    } else if (const auto choice = settings_ui_.choice(id)) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        if (choice->first == "layout") {
+            pending_.layout = choice->second;
+        } else if (choice->first == "language") {
+            pending_.language = choice->second;
+            pending_.layout = compatible_layout(profiles_, pending_);
+        } else if (choice->first == "theme") {
+            pending_.theme = choice->second;
+        }
+        settings_ui_.close_popup();
+        update_settings_ui();
+    } else if (id == "hide-numpad") {
+        pending_hide_numpad_ = !pending_hide_numpad_;
+        update_settings_ui();
+    } else if (id == "favorite") {
+        const bool exists =
+            std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
+                        [&](const Favorite& f) { return same_pair(f.selection, pending_); });
+        if (exists) {
+            std::erase_if(pending_favorites_,
+                          [&](const Favorite& f) { return same_pair(f.selection, pending_); });
+        } else {
+            validate_selection(profiles_, pending_);
+            if (pending_favorites_.size() >= 32) {
+                throw std::runtime_error("At most 32 favorites can be saved.");
+            }
+            // IDs are metadata only; choose one that cannot collide with legacy favorites.
+            int index = 1;
+            std::string favorite_id;
+            do {
+                favorite_id = "favorite-" + std::to_string(index++);
+            } while (std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
+                                 [&](const Favorite& f) { return f.id == favorite_id; }));
+            pending_favorites_.push_back(
+                {favorite_id, profiles_.languages.at(pending_.language).name, pending_});
+        }
+        update_settings_ui();
     }
 }
 bool App::take_recenter() {

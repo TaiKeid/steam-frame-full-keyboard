@@ -30,6 +30,7 @@ struct Language {
     std::vector<std::string> required_keys;
 };
 struct Selection {
+    bool operator==(const Selection&) const = default;
     std::string layout{"en-us-full"}, language{"en-us"}, theme{"graphite"};
 };
 struct Favorite {
@@ -46,6 +47,9 @@ struct Profiles {
 struct Settings {
     Selection active;
     std::vector<Favorite> favorites;
+    bool pinned{};
+    bool num_lock{};
+    bool hide_numpad{};
 };
 
 fs::path default_config_dir();
@@ -54,6 +58,7 @@ Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir,
                        const Profiles* previous = nullptr);
 Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors);
 void save_selection(const fs::path& user_dir, const Selection& selection);
+void save_settings(const fs::path& user_dir, const Settings& settings);
 void validate_selection(const Profiles& profiles, const Selection& selection);
 Layout parse_layout(const std::string& json);
 Theme parse_theme(const std::string& json);

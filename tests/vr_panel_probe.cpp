@@ -1,3 +1,4 @@
+#include "framekeyboard/app.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "openvr.h"
 
@@ -22,7 +23,7 @@ void wait_for_ui() {
 void click(vr::VROverlayHandle_t panel, float x, float y) {
     vr::VREvent_t event{};
     event.data.mouse.x = x;
-    event.data.mouse.y = 600 - y;
+    event.data.mouse.y = framekeyboard::texture_height - framekeyboard::popup_margin - y;
     event.data.mouse.button = vr::VRMouseButton_Left;
     event.eventType = vr::VREvent_MouseButtonDown;
     vr::VROverlayView()->PostOverlayEvent(panel, &event);
@@ -128,17 +129,50 @@ int main(int argc, char** argv) {
                 std::cout << "Restored live pose and width match the pre-close snapshot.\n";
             }
         } else if (mode == "--close") {
-            click(panel, 1515, 33);
+            click(panel, 1552, 33);
             std::cout << "Clicked Close on the input-disabled keyboard.\n";
         } else if (mode == "--exercise") {
             require(vr::VROverlayView() != nullptr, "overlay event interface unavailable");
             const auto original = transform(panel);
             float width = 0, resized = 0;
             vr::VROverlay()->GetOverlayWidthInMeters(panel, &width);
-            click(panel, 560, 33); // Main-view larger icon.
+            // Reuse actual toolbar geometry, including the optional language
+            // button. This App only reads the test instance's profiles/config;
+            // its NullSink cannot deliver input to any application.
+            framekeyboard::Options options;
+            options.config_dir = framekeyboard::default_config_dir();
+            std::vector<std::string> args;
+            for (std::size_t start = 0; start < arguments.size();) {
+                const auto end = arguments.find('\0', start);
+                args.push_back(arguments.substr(start, end - start));
+                if (end == std::string::npos) {
+                    break;
+                }
+                start = end + 1;
+            }
+            for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+                if (args[i] == "--config-dir") {
+                    options.config_dir = args[i + 1];
+                } else if (args[i] == "--data-dir") {
+                    options.data_dir = args[i + 1];
+                }
+            }
+            framekeyboard::NullSink sink;
+            framekeyboard::App ui(options, sink);
+            auto click_control = [&](const std::string& id) {
+                for (const auto& control : ui.view().controls) {
+                    if (control.id == id) {
+                        click(panel, static_cast<float>(control.bounds.x + control.bounds.width / 2),
+                              static_cast<float>(control.bounds.y + control.bounds.height / 2));
+                        return;
+                    }
+                }
+                throw std::runtime_error("missing control " + id);
+            };
+            click_control("size-larger");
             vr::VROverlay()->GetOverlayWidthInMeters(panel, &resized);
             require(std::abs(resized - width - .05) < .005, "larger icon adds 5 cm");
-            click(panel, 490, 33); // Main-view smaller icon.
+            click_control("size-smaller");
             vr::VROverlay()->GetOverlayWidthInMeters(panel, &resized);
             require(std::abs(resized - width) < .005, "smaller icon restores width");
             const auto after = transform(panel);

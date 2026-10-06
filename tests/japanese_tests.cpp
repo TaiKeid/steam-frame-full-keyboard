@@ -231,7 +231,10 @@ int main() {
         require(app.view().preedit.empty() && sink.delivery.empty(),
                 "Escape deliberately cancels without committing");
         app.show_settings();
-        control(app, "preset-ja-kana");
+        control(app, "language");
+        app.move(0, 300, 320);
+        app.scroll(0, 0, -2);
+        control(app, "choose:language:ja-kana");
         control(app, "apply");
         require(app.selection().layout == "ja-jis-full" && app.selection().language == "ja-kana",
                 "Kana preset applies required layout");

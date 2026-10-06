@@ -265,7 +265,7 @@ void app_tests() {
     fk::App app(options, sink);
     app.paint(1);
     const auto original = app.renderer.rgba();
-    require(original.size() == static_cast<std::size_t>(fk::panel_width * fk::panel_height * 4),
+    require(original.size() == static_cast<std::size_t>(fk::panel_width * fk::texture_height * 4),
             "RGBA size");
     app.apply({"international-full", "de-de", "midnight"});
     app.paint(2);
@@ -273,11 +273,6 @@ void app_tests() {
     app.show_settings();
     app.paint(3);
     require(app.renderer.hit_key(app.view(), 100, 100) == nullptr, "settings prevent hidden key hits");
-    auto has_japanese_presets = [&] {
-        const auto controls = app.view().controls;
-        return std::any_of(controls.begin(), controls.end(),
-                           [](const fk::Control& control) { return control.id == "preset-ja-romaji"; });
-    };
     auto click_control = [&](const std::string& id) {
         for (const auto& control : app.view().controls) {
             if (control.id == id) {
@@ -290,17 +285,12 @@ void app_tests() {
         }
         throw std::runtime_error("missing settings control " + id);
     };
-    require(!has_japanese_presets(), "German settings hide Japanese presets");
-    click_control("layout-next");
-    require(has_japanese_presets(), "pending Japanese layout shows presets before Apply");
-    click_control("layout-prev");
-    require(!has_japanese_presets(), "leaving Japanese layout hides presets");
-    for (std::size_t i = 0; i < fk::load_profiles({}, {}).languages.size() && !has_japanese_presets();
-         ++i) {
-        click_control("language-next");
-    }
-    click_control("preset-ja-romaji"); // Romaji uses the US layout.
-    require(has_japanese_presets(), "Japanese language shows presets with a US layout");
+    click_control("language");
+    app.move(0, 300, 320);
+    app.scroll(0, 0, 6);
+    click_control("choose:language:ja-romaji");
+    click_control("apply");
+    require(app.selection().language == "ja-romaji", "dropdown activates Japanese language");
     require(sink.events.empty(), "preview settings do not emit input");
     rejects([&] { app.apply({"missing", "en-us", "graphite"}); }, "invalid selection rejected");
     require(app.selection().theme == "midnight", "failed apply retains prior selection");

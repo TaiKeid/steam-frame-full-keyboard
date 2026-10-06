@@ -5,6 +5,7 @@
 #include "japanese.hpp"
 #include "panel.hpp"
 #include "placement.hpp"
+#include "settings_ui.hpp"
 #include <csignal>
 #include <optional>
 
@@ -48,12 +49,18 @@ class App {
     bool move(unsigned pointer, double x, double y);
     // True when this pointer releases a captured keyboard key, even outside it.
     bool up(unsigned pointer, double x, double y);
-    bool pointer_pressed(unsigned pointer) const { return keyboard_.pointer_pressed(pointer); }
+    bool pointer_pressed(unsigned pointer) const {
+        return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
+               settings_ui_.pressed(pointer);
+    }
     void cancel_pointer(unsigned pointer);
     void cancel(bool discard_composition = true);
     bool tick(double now);
     void paint(double now);
     void show_settings();
+    void back();
+    bool scroll(unsigned pointer, double dx, double dy);
+    bool pinned() const { return settings_.pinned; }
     void summon();
     void set_dragging(bool dragging);
     // Hiding the VR context releases keys before closing the input gate.
@@ -71,6 +78,10 @@ class App {
 
   private:
     std::vector<Control> controls() const;
+    void update_settings_ui();
+    void activate(Selection selection);
+    void save();
+    std::vector<Selection> cycle_entries() const;
     void action(const std::string& id);
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
@@ -92,7 +103,10 @@ class App {
     Options options_;
     Profiles profiles_;
     Settings settings_;
-    Selection pending_;
+    Selection pending_, default_;
+    std::vector<Favorite> pending_favorites_;
+    bool pending_hide_numpad_{};
+    SettingsUi settings_ui_;
     std::unique_ptr<LanguageMap> keymap_;
     // The launch declaration is frozen; Reload cannot redefine the target.
     std::optional<Language> target_language_;
@@ -107,7 +121,7 @@ class App {
     std::string status_;
     bool settings_open_{false}, quit_{false}, recenter_{false};
     std::vector<PlacementAction> placement_actions_;
-    std::size_t favorite_index_{};
+    std::map<unsigned, std::pair<double, double>> pointer_positions_;
     bool dragging_{};
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};

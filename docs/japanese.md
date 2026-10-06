@@ -1,6 +1,6 @@
 # Japanese input
 
-Choose a Japanese language or the JIS layout in Settings to reveal the Japanese presets. Choose Romaji, Kana, or JIS, then Apply and save. It preserves the theme and chooses the required keyboard geometry. Existing English/German profiles remain available in the language selector.
+Open the Language dropdown in Settings, choose Japanese Romaji, Kana, or JIS, then use Apply and save. Selection keeps the theme and chooses compatible keyboard geometry when the current layout lacks required keys. Choose the JIS layout explicitly if you want its dedicated Japanese keys. Existing English/German profiles remain available in the language selector.
 
 | Preset | Entry | Conversion/output |
 | --- | --- | --- |

@@ -11,9 +11,9 @@ The app implements runtime profiles, VR selectors, reload and persistent selecti
 | Layout | Key positions, sizes, physical key IDs and shortcut actions | `layouts/en-us.json`, `layouts/international.json` |
 | Language | Input keymap, key legends, locale and font preferences | `languages/en-us.json`, `languages/de-de.json` |
 | Theme | Colors, gradients, rounding, sides, press movement and animation timing | `themes/graphite.json` |
-| Settings | Active profile IDs and named favorite combinations | `config/default.json` |
+| Settings | Default profile IDs, favorite layout/language pairs and pin state | `config/default.json` |
 
-Keep these separate. The same geometry can display English or German legends, and a theme can apply to either language. A favorite saves a layout, language and theme together for one-step switching. Full-size is the default, but the runtime must not assume a fixed key count or hardcode their arrangement.
+Keep these separate. The same geometry can display English or German legends, and a theme can apply to either language. A favorite saves a layout/language pair for cycling from the main keyboard. Cycling preserves the active theme. Favorite records contain `id`, `name`, `layout` and `language`. The legacy `theme` field is optional, retained when saving, and does not affect cycling. Full-size is the default, but the runtime must not assume a fixed key count or hardcode their arrangement.
 
 The current `en-us-full` layout ID identifies the approved ANSI geometry and its fallback legends. Its name does not restrict it to English. Languages declare `required_keys` as physical action names. The German profile requires `IntlBackslash`, provided by `international-full`. Activation rejects a layout missing that key. This international variant retains the rectangular Enter from the approved design.
 
@@ -28,7 +28,7 @@ languages/*.json
 themes/*.json
 ```
 
-The installer must preserve user files during updates and must not rewrite them with bundled defaults. The OS image is not a configuration store. Each profile has a stable `id`, a display `name`, and a `schema_version`. Settings reference IDs, not absolute paths. A user profile with the same ID can override a bundled profile; the VR picker shows its source. Reject duplicate IDs within a source directory instead of depending on filesystem order.
+The installer must preserve user files during updates and must not rewrite them with bundled defaults. The OS image is not a configuration store. Each profile has a stable `id`, a display `name`, and a `schema_version`. Settings reference IDs, not absolute paths. A user profile with the same ID can override a bundled profile; the VR picker shows its display name. Reject duplicate IDs within a source directory instead of depending on filesystem order.
 
 Keep a compiled safe default available. If a user override is invalid, retain the last validated profile and show its filename and error in settings. On a cold start, fall back to the bundled profile or compiled default. Unknown schema versions must not be guessed or silently rewritten.
 
@@ -52,7 +52,21 @@ Use font fallback and text shaping for non-Latin legends. Treat interface transl
 
 ## Switching inside VR
 
-The top row provides gear, recenter, smaller/larger and close icons. Settings uses a back arrow to return to the keyboard. Japanese Romaji/Kana/JIS shortcuts appear only when the pending language is Japanese or the layout has a KanaMode key. Settings provides Layout, Language and Theme selectors, favorite combinations, Apply and save, and Reload profiles. Applying returns to the keyboard, which shows the selected design. A separate temporary preview/apply workflow remains future work. Newly added files appear after reload; an automatic file watcher is optional.
+The main toolbar has Settings, Recenter, smaller/larger zoom buttons, then Pin and, when favorites exist, a language abbreviation. The pin changes its icon when enabled without an active background. Pin prevents grip dragging and is saved immediately in the optional boolean `pinned` field of `config.json`. It does not stop dashboard following, resizing or recentering. Missing `pinned` defaults to false. A new install has no favorites.
+
+Settings has Back, Apply and save, and Reload config icons at the top left. The Languages and Layouts card contains Layout and Language dropdowns and a Favorite checkbox. The Appearance card contains a Theme dropdown and a Hide numpad checkbox. Dropdowns have no search and show up to five choices. Scroll to reach the rest, click a choice to select it, or click outside the list to dismiss it. Dismissal consumes that click. Escape in the desktop preview dismisses a list first, then leaves Settings.
+
+The card row scrolls horizontally when more cards are added. Each card has its own vertical scroll offset when its contents overflow. Cards and fields outside their viewports are hidden from painting and hit testing. Dropdowns are drawn and hit-tested above those clips and can extend beyond the keyboard case. Use scroll input or drag a scrollbar with the trigger. In the desktop preview, Shift plus the mouse wheel scrolls horizontally. A vertical wheel over a card with no vertical overflow scrolls the card row. The production UI has exactly two cards; automated tests supply extra cards and fields to exercise both axes.
+
+Num Lock is saved immediately as the optional global boolean `num_lock`, defaulting to false. It survives closing, reopening, layout changes and favorite cycling. Restoring it sets local legends and Unicode mapping without sending a Num Lock press to the target.
+
+The Appearance card's Hide numpad checkbox removes Num Lock and all Numpad keys, narrows the case, and keeps the remaining keys at the same size. It is saved as the optional global boolean `hide_numpad`, defaulting to false, and applies to every layout and favorite. Showing the numpad again restores its remembered Num Lock state. The transparent space beside the narrower case is excluded from VR interaction. Settings retains its full card area.
+
+Checkbox edits stay pending across dropdown selections. Apply and save activates the chosen profiles and saves all pending favorites and numpad visibility; Back discards pending edits. The checkbox reflects the current layout/language pair, irrespective of theme. Unchecking removes duplicate legacy records of that pair. At most 32 favorite records can be saved.
+
+The main language button cycles through the default saved by Apply and save, then unique valid favorites in saved order. A default that is already a favorite appears once. If the only favorite matches the default, the button has no other state to cycle to. Invalid or unavailable favorites are skipped. Cycling changes the current keyboard without replacing the saved default. Saving pin state while on a favorite also preserves that default. Reload rereads profiles, favorites, pin state, Num Lock and numpad visibility, closes dropdowns, cancels UI captures, and resets pending edits while retaining the current active keyboard. Malformed config edits report an error and retain the last loaded global settings and favorites. Newly added profile files appear after reload; an automatic file watcher is optional.
+
+Japanese Romaji, Kana and external JIS modes are choices in the Language dropdown. They use the same compatibility validation and Apply path as other languages.
 
 Validate and prepare a candidate configuration off to the side. On Apply, cancel active pointer presses, stop repeat and release held keys through the old backend before changing mappings. Clear latched modifiers, replace geometry and hit regions together, and redraw. Preserve the target application's focus. A failed apply keeps the previous working configuration and reports the error in VR.
 

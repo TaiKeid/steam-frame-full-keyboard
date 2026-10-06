@@ -27,7 +27,7 @@ class PanelTexture {
             vr::VROverlay()->SetOverlayFlag(overlay_, vr::VROverlayFlags_IsPremultiplied, true) ==
                 vr::VROverlayError_None) {
             premultiplied_enabled_ = true;
-            if (native_texture_.create(context, panel_width, panel_height, error,
+            if (native_texture_.create(context, panel_width, texture_height, error,
                                        VK_FORMAT_B8G8R8A8_UNORM)) {
                 native_ = true;
                 return true;
@@ -76,7 +76,7 @@ class PanelTexture {
         }
         premultiplied_enabled_ = false;
         error.clear();
-        return rgba_texture_.create(*context_, panel_width, panel_height, error);
+        return rgba_texture_.create(*context_, panel_width, texture_height, error);
     }
     VulkanContext* context_{};
     vr::VROverlayHandle_t overlay_{};

@@ -116,7 +116,7 @@ class Upload {
         if (flag_error != vr::VROverlayError_None || premultiplied != native_pixels()) {
             throw std::runtime_error("overlay alpha flag does not match submitted pixels");
         }
-        std::vector<unsigned char> pixels(panel_width * panel_height * 4);
+        std::vector<unsigned char> pixels(panel_width * texture_height * 4);
         uint32_t width = 0, height = 0;
         const auto result = vr::VROverlay()->GetOverlayImageData(
             handle_, pixels.data(), static_cast<uint32_t>(pixels.size()), &width, &height);
@@ -125,7 +125,7 @@ class Upload {
                       << " (visual validation still required)\n";
             return;
         }
-        if (width != panel_width || height != panel_height) {
+        if (width != panel_width || height != texture_height) {
             throw std::runtime_error("overlay readback dimensions differ");
         }
         const auto* native_bytes = cairo_image_surface_get_data(renderer.surface());

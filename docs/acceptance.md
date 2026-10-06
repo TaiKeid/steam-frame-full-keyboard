@@ -67,3 +67,16 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 Measure idle CPU, process memory, redraw time and pointer-to-feedback latency on Frame before setting budgets. Confirm no idle full-frame repaint loop and no texture-replacement flicker.
 
 Typed text and clipboard contents must not appear in logs. Recovery must not paste or replay queued characters into a newly focused application.
+
+## Settings and pin
+
+- Confirm Settings, Recenter, smaller/larger zoom, Pin and language toolbar order. A pinned button changes icon without an active background.
+- Turn Num Lock on, close/reopen, and confirm its legends and mapping. Turn it off and repeat.
+- In Appearance check Hide numpad and Apply. Confirm the keys disappear and the case becomes narrower, with no laser/grab hits in the trimmed space. Change layouts and cycle favorites; visibility and Num Lock remain global. Show the numpad again and confirm its prior lock state.
+- Toggle pin, close/reopen, and confirm the saved icon/state. Grip cannot move a pinned keyboard; moving/tilting the dashboard still carries it. Unpin and confirm grip movement and same-hand depth controls.
+- Confirm the settings toolbar order is Back, Apply and save, Reload config. Production shows only Languages and Layouts and Appearance cards.
+- Open each dropdown, scroll through all choices, select one, and verify at most five rows are visible. Click outside a list and confirm only dismissal occurs. Verify laser hit positions match menu rows, including any rows beyond the case border.
+- Edit several favorites without saving, then go Back. Reopen and confirm edits were discarded. Repeat with Apply and save and confirm persistence after restart.
+- Cycle default plus favorites, including duplicate pairs, a favorite matching the default, and a single matching favorite. Confirm the active theme stays unchanged and cycling does not replace the saved default.
+- Hide/reopen the dashboard or disconnect a controller while a menu/scrollbar is held. Confirm captures clear and no stale release selects a new row.
+- Run the `settings` test for extra-card horizontal scrolling, independent vertical scrolling, clipping, popup overflow and cancellation. Extra test cards do not ship in the UI.

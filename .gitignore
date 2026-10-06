@@ -8,3 +8,4 @@ CMakeUserPresets.json
 compile_commands.json
 .env
 .env.*
+/docs/**/*.drawio

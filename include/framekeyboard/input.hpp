@@ -77,6 +77,8 @@ class KeyboardState {
     std::set<int> modifiers() const;
     bool caps() const { return caps_; }
     bool num() const { return num_; }
+    // Restore the local lock state without sending a lock key to the target.
+    void set_num(bool enabled) { num_ = enabled; }
     bool active() const { return !presses_.empty(); }
 
   private:

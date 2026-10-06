@@ -25,7 +25,7 @@ class Comparison {
         full.paint(view, now, true);
         auto* a = incremental.surface();
         auto* b = full.surface();
-        for (int y = 0; y < panel_height; ++y) {
+        for (int y = 0; y < texture_height; ++y) {
             const auto* actual = cairo_image_surface_get_data(a) + y * cairo_image_surface_get_stride(a);
             const auto* expected =
                 cairo_image_surface_get_data(b) + y * cairo_image_surface_get_stride(b);
@@ -104,6 +104,20 @@ void exercise(Layout layout, Theme theme, Language language) {
         view.hovered.clear();
         compare.settle(view, "large/icon key release");
     }
+    view.hide_numpad = true;
+    compare.frame(view, "hide numpad");
+    view.hovered = {a.id};
+    keyboard.down(0, a, compare.now);
+    compare.settle(view, "narrow keyboard press");
+    keyboard.up(0);
+    view.hovered.clear();
+    compare.settle(view, "narrow keyboard release");
+    view.settings = true;
+    compare.frame(view, "narrow keyboard settings");
+    view.settings = false;
+    compare.frame(view, "narrow keyboard return");
+    view.hide_numpad = false;
+    compare.frame(view, "restore numpad");
     view.hovered = {"settings"};
     compare.frame(view, "toolbar hover");
     view.status = "Connection status changed";

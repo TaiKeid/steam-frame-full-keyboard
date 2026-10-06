@@ -6,18 +6,40 @@
 #include <stdexcept>
 
 namespace framekeyboard {
+bool hidden_key(const PanelView& view, const Key& key) {
+    return view.hide_numpad && !view.settings &&
+           (key.action == "NumLock" || key.action.starts_with("Numpad"));
+}
 namespace {
+double visible_layout_width(const PanelView& view) {
+    if (!view.hide_numpad || view.settings) {
+        return view.layout->width;
+    }
+    double right = 0;
+    bool removed = false;
+    for (const auto& key : view.layout->keys) {
+        if (hidden_key(view, key)) {
+            removed = true;
+        } else {
+            right = std::max(right, key.bounds.x + key.bounds.width);
+        }
+    }
+    // Do not crop intentional whitespace on a layout without a numpad, or an
+    // all-numpad custom layout to zero width.
+    return removed && right > 0 ? right : view.layout->width;
+}
+
 constexpr double normal_toolbar_height = 96;
 struct Placement {
     double scale, x, y;
 };
-Placement placement(const PanelView& view) {
+Placement placement(const PanelView& view, bool normal = false) {
     const double margin = view.theme->padding;
-    const double toolbar_height = view.composing ? 208 : normal_toolbar_height;
+    const double toolbar_height = view.composing && !normal ? 208 : normal_toolbar_height;
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
-    return {scale, (panel_width - view.layout->width * scale) / 2,
+    return {scale, (panel_width - visible_layout_width(view) * scale) / 2,
             toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2};
 }
 void source(cairo_t* cr, Color color) {
@@ -43,7 +65,7 @@ void gradient(cairo_t* cr, Rect r, Color top, Color middle, Color bottom) {
     cairo_pattern_destroy(pattern);
 }
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
-           Color color, bool fit = false) {
+           Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER) {
     auto* layout = pango_cairo_create_layout(cr);
     auto* font = pango_font_description_new();
     pango_font_description_set_family(font, family.c_str());
@@ -62,7 +84,7 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     }
     pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 8) * PANGO_SCALE));
     pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
-    pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+    pango_layout_set_alignment(layout, alignment);
     int width, height;
     pango_layout_get_pixel_size(layout, &width, &height);
     source(cr, color);
@@ -119,6 +141,34 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_arc_negative(cr, -3, 0, 7.8, .5 * pi, -.5 * pi);
         cairo_close_path(cr);
         cairo_fill(cr);
+        break;
+    case Icon::Apply:
+        line(-8, 0, -2, 6);
+        line(-2, 6, 9, -7);
+        break;
+    case Icon::Reload:
+        cairo_arc(cr, 0, 0, 8, -.5, 4.8);
+        line(1, -8, -3, -10);
+        line(1, -8, -2, -4);
+        break;
+    case Icon::PinOn:
+    case Icon::PinOff:
+        if (icon == Icon::PinOff) {
+            cairo_rotate(cr, .65);
+        }
+        line(-5, -9, 5, -9);
+        line(-4, -9, -4, -1);
+        line(4, -9, 4, -1);
+        cairo_move_to(cr, -4, -1);
+        cairo_line_to(cr, -8, 3);
+        cairo_line_to(cr, 8, 3);
+        cairo_line_to(cr, 4, -1);
+        line(0, 3, 0, 10);
+        if (icon == Icon::PinOff) {
+            cairo_stroke(cr);
+            cairo_rotate(cr, -.65);
+            line(-10, -10, 10, 10);
+        }
         break;
     case Icon::Settings:
         // Each tooth has a flat tip and a recessed gap.
@@ -274,8 +324,13 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     }
 }
 } // namespace
+Rect panel_case_bounds(const PanelView& view) {
+    const auto p = placement(view, true);
+    const double width = panel_width - (view.layout->width - visible_layout_width(view)) * p.scale;
+    return {(panel_width - width) / 2, 0, width, panel_height};
+}
 PanelRenderer::PanelRenderer() {
-    surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
+    surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
         cairo_surface_destroy(surface_);
         surface_ = nullptr;
@@ -293,7 +348,7 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
     x = (x - p.x) / p.scale;
     y = (y - p.y) / p.scale;
     for (const auto& key : view.layout->keys) {
-        if (key.bounds.contains(x, y)) {
+        if (!hidden_key(view, key) && key.bounds.contains(x, y)) {
             return &key;
         }
     }
@@ -308,11 +363,15 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->view.controls != view.controls || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
-        previous_->view.preedit != view.preedit || previous_->view.key_labels != view.key_labels;
+        previous_->view.hide_numpad != view.hide_numpad || previous_->view.preedit != view.preedit ||
+        previous_->view.key_labels != view.key_labels;
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
     for (const auto& key : view.layout->keys) {
+        if (hidden_key(view, key)) {
+            continue;
+        }
         auto& animation = animations_[key.id];
         const double old_amount = animation.amount;
         const double target = view.keyboard->pressed(key.id) ? 1 : 0;
@@ -348,6 +407,9 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (!view.settings) {
             const auto p = placement(view);
             for (const auto& key : view.layout->keys) {
+                if (hidden_key(view, key)) {
+                    continue;
+                }
                 auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
                 auto* bounds_cr = cairo_create(recording);
                 cairo_translate(bounds_cr, p.x, p.y);
@@ -369,8 +431,9 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                      view.keyboard->num()};
         // No animation state from a removed key should survive a profile reload.
         std::erase_if(animations_, [&](const auto& item) {
-            return std::none_of(view.layout->keys.begin(), view.layout->keys.end(),
-                                [&](const Key& key) { return key.id == item.first; });
+            return std::none_of(view.layout->keys.begin(), view.layout->keys.end(), [&](const Key& key) {
+                return key.id == item.first && !hidden_key(view, key);
+            });
         });
     } else {
         previous_->view = view;
@@ -379,6 +442,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         return;
     }
     auto* cr = cairo_create(surface_);
+    cairo_translate(cr, 0, popup_margin);
     if (!full) {
         for (const auto& r : damage) {
             cairo_rectangle(cr, r.x, r.y, r.width, r.height);
@@ -391,7 +455,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    rounded(cr, {0, 0, panel_width, panel_height}, t.surface_radius);
+    const auto body = panel_case_bounds(view);
+    rounded(cr, body, t.surface_radius);
     source(cr, t.surface);
     cairo_fill(cr);
     if (!view.settings) {
@@ -400,6 +465,9 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_translate(cr, p.x, p.y);
         cairo_scale(cr, p.scale, p.scale);
         for (const auto& key : view.layout->keys) {
+            if (hidden_key(view, key)) {
+                continue;
+            }
             const auto& bounds = key_bounds_.at(key.id);
             const bool intersects =
                 full || std::any_of(damage.begin(), damage.end(), [&](const Rect& r) {
@@ -418,23 +486,103 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                            : method.starts_with("chinese-")
                                ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
                                : "Type → Space: convert · Enter: commit · Esc: cancel";
-        label(cr, view.preedit.empty() ? hint : view.preedit, {20, 94, 1560, 40}, 27,
+        label(cr, view.preedit.empty() ? hint : view.preedit, {body.x + 20, 94, body.width - 40, 40}, 27,
               view.language->font, t.legend);
     }
-    for (const auto& control : view.controls) {
-        rounded(cr, control.bounds, t.radius);
-        source(cr,
-               control.selected ? t.latched : (view.hovered.contains(control.id) ? t.hover : t.bottom));
-        cairo_fill(cr);
-        if (control.icon == Icon::None) {
-            label(cr, control.label, control.bounds, 19, view.language->font, t.legend);
+    if (view.settings) {
+        cairo_save(cr);
+        cairo_rectangle(cr, 18, 78, 1564, 476);
+        cairo_clip(cr);
+        for (const auto& card : view.cards) {
+            rounded(cr, card.bounds, 7);
+            source(cr, t.legend);
+            cairo_set_line_width(cr, 1.5);
+            cairo_stroke(cr);
+            // Titles stay fixed while the card's fields scroll beneath them.
+            label(cr, card.title, {card.bounds.x + 14, card.bounds.y + 8, card.bounds.width - 28, 32},
+                  22, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+        }
+        cairo_restore(cr);
+        for (const auto& field : view.field_labels) {
+            cairo_save(cr);
+            cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
+            cairo_clip(cr);
+            label(cr, field.text, field.bounds, 22, view.language->font, t.legend, false,
+                  field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
+            cairo_restore(cr);
+        }
+    }
+    auto draw_control = [&](const Control& control) {
+        cairo_save(cr);
+        if (control.clip) {
+            const auto& r = *control.clip;
+            cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+            cairo_clip(cr);
+        }
+        const auto r = control.bounds;
+        const auto color =
+            control.selected ? t.latched : (view.hovered.contains(control.id) ? t.hover : t.bottom);
+        rounded(cr, r, control.style == ControlStyle::Checkbox ? 3 : t.radius);
+        source(cr, color);
+        cairo_fill_preserve(cr);
+        if (view.settings && control.style != ControlStyle::Scrollbar &&
+            control.style != ControlStyle::MenuItem) {
+            source(cr, t.legend);
+            cairo_set_line_width(cr, 1.5);
+            cairo_stroke(cr);
         } else {
-            draw_icon(cr, control.icon, control.bounds, t.legend);
+            cairo_new_path(cr);
+        }
+        if (control.style == ControlStyle::Scrollbar) {
+            source(cr, t.hover);
+            rounded(cr, r, 3);
+            cairo_fill(cr);
+        } else if (control.style == ControlStyle::Dropdown) {
+            label(cr, control.label, {r.x + 6, r.y, r.width - 58, r.height}, 22, view.language->font,
+                  t.legend);
+            source(cr, t.legend);
+            cairo_move_to(cr, r.x + r.width - 50, r.y);
+            cairo_line_to(cr, r.x + r.width - 50, r.y + r.height);
+            const double x = r.x + r.width - 25, y = r.y + r.height / 2;
+            cairo_move_to(cr, x - 7, y - 4);
+            cairo_line_to(cr, x, y + 4);
+            cairo_line_to(cr, x + 7, y - 4);
+            cairo_stroke(cr);
+        } else if (control.style == ControlStyle::Checkbox) {
+            if (control.selected) {
+                draw_icon(cr, Icon::Apply, r, t.legend, 28);
+            }
+        } else if (control.icon != Icon::None) {
+            draw_icon(cr, control.icon, r, t.legend);
+        } else {
+            label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, t.legend);
+        }
+        cairo_restore(cr);
+    };
+    for (const auto& control : view.controls) {
+        if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu") {
+            draw_control(control);
         }
     }
     if (!view.status.empty()) {
-        label(cr, view.status, view.settings ? Rect{30, 526, 1540, 54} : Rect{18, 60, 1564, 28}, 17,
+        label(cr, view.status,
+              view.settings ? Rect{30, 574, 1540, 24} : Rect{body.x + 18, 60, body.width - 36, 28}, 17,
               view.language->font, t.legend);
+    }
+    // Popup is the last layer and deliberately bypasses both card and case clips.
+    if (view.popup) {
+        const auto r = *view.popup;
+        rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 5);
+        source(cr, t.legend);
+        cairo_fill(cr);
+        rounded(cr, r, 3);
+        source(cr, t.bottom);
+        cairo_fill(cr);
+        for (const auto& control : view.controls) {
+            if (control.style == ControlStyle::MenuItem || control.id == "scroll-menu") {
+                draw_control(control);
+            }
+        }
     }
     cairo_destroy(cr);
     cairo_surface_flush(surface_);
@@ -442,8 +590,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
 std::vector<unsigned char> PanelRenderer::rgba() const {
     const auto* bytes = cairo_image_surface_get_data(surface_);
     const int stride = cairo_image_surface_get_stride(surface_);
-    std::vector<unsigned char> result(static_cast<std::size_t>(panel_width) * panel_height * 4);
-    for (int y = 0; y < panel_height; ++y) {
+    std::vector<unsigned char> result(static_cast<std::size_t>(panel_width) * texture_height * 4);
+    for (int y = 0; y < texture_height; ++y) {
         const auto* row = reinterpret_cast<const std::uint32_t*>(bytes + y * stride);
         for (int x = 0; x < panel_width; ++x) {
             const auto pixel = row[x];
@@ -462,7 +610,14 @@ std::vector<unsigned char> PanelRenderer::rgba() const {
     return result;
 }
 void PanelRenderer::write_png(const fs::path& path) const {
-    if (cairo_surface_write_to_png(surface_, path.c_str()) != CAIRO_STATUS_SUCCESS) {
+    // Normal exports keep the case's original dimensions. Popup captures include
+    // the transparent margin so tests/design review can see the overflow.
+    const bool popup = previous_ && previous_->view.popup.has_value();
+    auto* output = cairo_surface_create_for_rectangle(surface_, 0, popup ? 0 : popup_margin, panel_width,
+                                                      popup ? texture_height : panel_height);
+    const auto status = cairo_surface_write_to_png(output, path.c_str());
+    cairo_surface_destroy(output);
+    if (status != CAIRO_STATUS_SUCCESS) {
         throw std::runtime_error("cannot write preview PNG");
     }
 }

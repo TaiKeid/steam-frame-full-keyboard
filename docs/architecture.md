@@ -24,13 +24,21 @@ The image is retained between paints. Hover/press/release updates clear and redr
 
 `PanelTexture` prefers Cairo's native premultiplied BGRA bytes on little-endian systems, using `VK_FORMAT_B8G8R8A8_UNORM` and `VROverlayFlags_IsPremultiplied`. It checks Vulkan format support and OpenVR flag acceptance, and falls back to straight RGBA conversion if setup or submission fails. Rejected native textures stay alive until VR shutdown. Both GPU images still receive full uploads; partial CPU painting does not introduce stale alternate textures. The visible 60 Hz pose loop and 80 ms Graphite animation duration are unchanged.
 
-The HTML in `design/` is a design artifact only. It is not an embedded browser requirement for the native app.
+The HTML in `design/` is a keycap design artifact only. Settings uses native card geometry rather than that older HTML toolbar. It is not an embedded browser requirement for the native app.
 
 ## Configuration and selection
+
+Global pin, Num Lock and numpad visibility preferences live beside the active selection and favorites. Hidden numpad keys are excluded from painting and hit testing. The remaining geometry keeps its full-size scale, centered in a narrower case. The fixed texture and saved dashboard anchor remain centered, with transparent side space excluded by the OpenVR intersection mask. Composition controls fit the narrower case; settings cards use the full case width.
 
 [Configuration](configuration.md) defines independent layout, language and theme profiles. Native rendering consumes the selected model, not hardcoded US keys or graphite colors. The VR settings panel uses the same catalog and validation as the host preview. Prepare a complete candidate before activation, release keys using the old mapping, and atomically replace geometry and hit regions. Persist the selection only after successful activation.
 
 The language model validates required physical keys. The normal Frame path composes characters locally and sends Unicode. Only physical uinput and external JIS use an explicit `--target-language` declaration. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
+
+Settings geometry and scrolling live in `SettingsUi`. App supplies two data-defined cards; the same model accepts extra cards and fields in tests. Card and field clips are shared with control hit testing. An open dropdown owns clicks and scroll input; outside dismissal consumes its click. Scroll changes invalidate pressed controls, and cancellation clears scrollbar ownership and menus.
+
+The logical case remains 1600 x 600. Cairo and the Vulkan upload include 200 transparent pixels above and below it so five-row dropdowns can escape the case. Preview and OpenVR events convert texture coordinates back to case coordinates. The symmetric margins preserve the case center, physical width and dashboard placement math. OpenVR intersection masks admit the case plus the open dropdown, excluding unused transparent margins. Normal PNG exports crop to the case; popup captures include the margins.
+
+Favorites use layout/language identity. App keeps the saved default separate from the current runtime selection so cycling and immediate pin saves do not overwrite it. Apply and save persists profiles, favorites and pin state atomically while preserving unknown top-level fields. Profile preparation happens before input cancellation or active-state changes. Pin gates grip capture in the VR layer; dashboard following continues through the existing placement path.
 
 ## Input and focus
 
@@ -90,7 +98,7 @@ The renderer reserves space for preedit/candidates during Japanese, Chinese and 
 | Pointer/key ownership, XKB legends, uinput | `src/input.cpp` |
 | Compositor key and text delivery | `src/ei_input.cpp`, `src/text_input.cpp` |
 | Native rendering and hit regions | `src/panel.cpp` |
-| Settings, profile changes, and input gating | `src/app.cpp` |
+| Settings, profile changes, and input gating | `src/app.cpp`, `src/settings_ui.cpp` |
 | Japanese reading and conversion | `src/japanese.cpp` |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |

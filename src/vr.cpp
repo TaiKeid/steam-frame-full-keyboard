@@ -243,9 +243,10 @@ class VrPanel {
               "SetOverlayWidthInMeters");
         check(overlay->SetOverlayInputMethod(handle_, vr::VROverlayInputMethod_Mouse),
               "SetOverlayInputMethod");
-        vr::HmdVector2_t scale{{panel_width, panel_height}};
+        vr::HmdVector2_t scale{{panel_width, texture_height}};
         check(overlay->SetOverlayMouseScale(handle_, &scale), "SetOverlayMouseScale");
-        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
+        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor,
+                                vr::VROverlayFlags_SendVRDiscreteScrollEvents}) {
             check(overlay->SetOverlayFlag(handle_, flag, true), "SetOverlayFlag");
         }
         std::string message;
@@ -310,7 +311,23 @@ class VrPanel {
             vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_CurrentUniverseId_Uint64, &error);
         return error == vr::TrackedProp_Success ? id : 0;
     }
-    void submit(PanelRenderer& renderer) {
+    void submit(PanelRenderer& renderer, const PanelView& view) {
+        // The enlarged texture has transparent popup margins. Restrict laser
+        // intersection to the case plus an open menu so invisible pixels cannot
+        // steal focus from the dashboard.
+        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 2> mask{};
+        auto rectangle = [&](std::size_t index, Rect bounds) {
+            mask[index].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
+            mask[index].m_Primitive.m_Rectangle = {
+                static_cast<float>(bounds.x), static_cast<float>(bounds.y + popup_margin),
+                static_cast<float>(bounds.width), static_cast<float>(bounds.height)};
+        };
+        rectangle(0, panel_case_bounds(view));
+        if (view.popup) {
+            rectangle(1, *view.popup);
+        }
+        check(vr::VROverlay()->SetOverlayIntersectionMask(handle_, mask.data(), view.popup ? 2 : 1),
+              "Set keyboard intersection mask");
         std::string error;
         if (!texture_.update(renderer, error)) {
             throw std::runtime_error(error);
@@ -491,7 +508,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 continue;
             }
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
-            const double x = event.data.mouse.x, y = panel_height - event.data.mouse.y;
+            const double x = event.data.mouse.x, y = texture_height - event.data.mouse.y - popup_margin;
             const auto pointer = event.data.mouse.cursorIndex;
             const auto device = event.trackedDeviceIndex;
             const bool controller =
@@ -506,7 +523,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             case vr::VREvent_MouseMove: {
                 if (event.trackedDeviceIndex < hovered_devices.size()) {
                     hovered_devices[event.trackedDeviceIndex] =
-                        x >= 0 && x < panel_width && y >= 0 && y < panel_height;
+                        panel_case_bounds(app.view()).contains(x, y);
                 }
                 if (!drag.active()) {
                     if (app.move(pointer, x, y) && controller) {
@@ -521,7 +538,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     const bool grabbing = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
                         return grip.active && grip.held && grip.device == event.trackedDeviceIndex;
                     });
-                    if (!grabbing) {
+                    if (app.pinned() || !grabbing) {
                         const bool key_pressed = app.down(pointer, x, y, now);
                         if (key_pressed && controller) {
                             feedback.press(pointer, device);
@@ -534,6 +551,12 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     if (app.up(pointer, x, y)) {
                         feedback.release(pointer);
                     }
+                }
+                break;
+            case vr::VREvent_ScrollDiscrete:
+                if (!drag.active()) {
+                    app.scroll(event.data.scroll.cursorIndex, -event.data.scroll.xdelta,
+                               -event.data.scroll.ydelta);
                 }
                 break;
             case vr::VREvent_FocusLeave:
@@ -583,7 +606,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             if (!held) {
                 stop_drag(true);
             }
-        } else if (visible && placement.ready()) {
+        } else if (visible && placement.ready() && !app.pinned()) {
             for (const auto& grip : grips) {
                 if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
                     hovered_devices[grip.device] && drag.start(grip, displayed, now)) {
@@ -699,7 +722,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 if (placement.ready() && vr::VROverlay()->IsDashboardVisible() &&
                     (show_pending || !visible || !compositor_visible)) {
                     app.paint(now);
-                    panel.submit(app.renderer);
+                    panel.submit(app.renderer, app.view());
                     check(vr::VROverlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     visible = true;
                     app.set_interaction_active(true);
@@ -719,7 +742,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         const bool repaint = app.tick(now);
         if (visible && repaint) {
             app.paint(now);
-            panel.submit(app.renderer);
+            panel.submit(app.renderer, app.view());
         }
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full

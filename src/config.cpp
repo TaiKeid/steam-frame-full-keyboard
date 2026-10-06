@@ -120,8 +120,10 @@ Color color(json_object* object, const char* name, const std::string& fallback =
     return {static_cast<double>((packed >> 16) & 255) / 255,
             static_cast<double>((packed >> 8) & 255) / 255, static_cast<double>(packed & 255) / 255};
 }
-Selection selection(json_object* object) {
-    return {identifier(object, "layout"), identifier(object, "language"), identifier(object, "theme")};
+Selection selection(json_object* object, bool favorite = false) {
+    const bool has_theme = field(object, "theme", json_type_string, favorite) != nullptr;
+    return {identifier(object, "layout"), identifier(object, "language"),
+            has_theme ? identifier(object, "theme") : "graphite"};
 }
 
 // Scan a directory as a transaction. Duplicate IDs never win by directory order.
@@ -412,8 +414,6 @@ Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir, const
 }
 Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors) {
     Settings settings;
-    settings.favorites = {{"english", "English", {}},
-                          {"german", "Deutsch", {"international-full", "de-de", "graphite"}}};
     const auto path = user_dir / "config.json";
     if (!fs::exists(path)) {
         return settings;
@@ -422,6 +422,15 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         auto document = decode(read_file(path));
         schema(document.get());
         settings.active = selection(field(document.get(), "active", json_type_object));
+        if (auto* pinned = field(document.get(), "pinned", json_type_boolean, true)) {
+            settings.pinned = json_object_get_boolean(pinned);
+        }
+        if (auto* num = field(document.get(), "num_lock", json_type_boolean, true)) {
+            settings.num_lock = json_object_get_boolean(num);
+        }
+        if (auto* hidden = field(document.get(), "hide_numpad", json_type_boolean, true)) {
+            settings.hide_numpad = json_object_get_boolean(hidden);
+        }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
                 throw std::runtime_error("too many favorites");
@@ -430,12 +439,12 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             for (std::size_t i = 0; i < json_object_array_length(favorites); ++i) {
                 auto* item = json_object_array_get_idx(favorites, i);
                 settings.favorites.push_back(
-                    {identifier(item, "id"), text(item, "name"), selection(item)});
+                    {identifier(item, "id"), text(item, "name"), selection(item, true)});
             }
         }
     } catch (const std::exception& error) {
         errors.push_back("config.json: " + std::string(error.what()));
-        settings.active = {};
+        settings = {};
     }
     return settings;
 }
@@ -457,7 +466,8 @@ void validate_selection(const Profiles& profiles, const Selection& s) {
     }
     LanguageMap check(language);
 }
-void save_selection(const fs::path& user_dir, const Selection& s) {
+namespace {
+void write_settings(const fs::path& user_dir, const Selection& s, const Settings* settings) {
     fs::create_directories(user_dir);
     const auto path = user_dir / "config.json";
     // Preserve favorites and unknown settings. Never overwrite a malformed user file.
@@ -472,6 +482,29 @@ void save_selection(const fs::path& user_dir, const Selection& s) {
     json_object_object_add(active, "language", json_object_new_string(s.language.c_str()));
     json_object_object_add(active, "theme", json_object_new_string(s.theme.c_str()));
     json_object_object_add(document.get(), "active", active);
+    if (settings) {
+        if (settings->favorites.size() > 32) {
+            throw std::runtime_error("too many favorites");
+        }
+        auto* favorites = json_object_new_array();
+        for (const auto& favorite : settings->favorites) {
+            auto* item = json_object_new_object();
+            json_object_object_add(item, "id", json_object_new_string(favorite.id.c_str()));
+            json_object_object_add(item, "name", json_object_new_string(favorite.name.c_str()));
+            json_object_object_add(item, "layout",
+                                   json_object_new_string(favorite.selection.layout.c_str()));
+            json_object_object_add(item, "language",
+                                   json_object_new_string(favorite.selection.language.c_str()));
+            json_object_object_add(item, "theme",
+                                   json_object_new_string(favorite.selection.theme.c_str()));
+            json_object_array_add(favorites, item);
+        }
+        json_object_object_add(document.get(), "favorites", favorites);
+        json_object_object_add(document.get(), "pinned", json_object_new_boolean(settings->pinned));
+        json_object_object_add(document.get(), "num_lock", json_object_new_boolean(settings->num_lock));
+        json_object_object_add(document.get(), "hide_numpad",
+                               json_object_new_boolean(settings->hide_numpad));
+    }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';
     std::string temporary = (user_dir / ".config-XXXXXX").string();
@@ -501,5 +534,12 @@ void save_selection(const fs::path& user_dir, const Selection& s) {
         unlink(temporary.c_str());
         throw;
     }
+}
+} // namespace
+void save_selection(const fs::path& user_dir, const Selection& selection) {
+    write_settings(user_dir, selection, nullptr);
+}
+void save_settings(const fs::path& user_dir, const Settings& settings) {
+    write_settings(user_dir, settings.active, &settings);
 }
 } // namespace framekeyboard
