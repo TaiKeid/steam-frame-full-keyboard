@@ -358,7 +358,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
-        if (!unicode_mode() && key->action.starts_with("Numpad") && gate_.enabled) {
+        const bool num_dependent = key->action == "NumpadDecimal" ||
+                                   (key->action.starts_with("Numpad") && key->action.size() == 7 &&
+                                    g_ascii_isdigit(key->action.back()));
+        if (!unicode_mode() && num_dependent && gate_.enabled) {
             // Never guess a native target's lock state or blindly toggle it at
             // launch. Wait for feedback before forwarding a lock-dependent key.
             const auto target_num = gate_.num_lock_state();

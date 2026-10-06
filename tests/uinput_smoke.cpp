@@ -21,7 +21,7 @@ int main() {
         for (int attempt = 0; attempt < 100 && receiver < 0; ++attempt) {
             const auto path = sink->event_node();
             if (!path.empty()) {
-                receiver = open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+                receiver = open(path.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
             }
             if (receiver < 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -29,6 +29,23 @@ int main() {
         }
         if (receiver < 0 || ioctl(receiver, EVIOCGRAB, 1) < 0) {
             throw std::runtime_error("cannot grab test device; no events sent");
+        }
+        // Feed LED feedback only to this exclusively grabbed disposable device.
+        // No system keyboard, focused app or global lock state is changed.
+        for (bool enabled : {true, false}) {
+            input_event leds[2]{};
+            leds[0].type = EV_LED;
+            leds[0].code = LED_NUML;
+            leds[0].value = enabled;
+            leds[1].type = EV_SYN;
+            leds[1].code = SYN_REPORT;
+            if (write(receiver, leds, sizeof(leds)) != sizeof(leds)) {
+                throw std::runtime_error("cannot feed test-device LED state");
+            }
+            sink->pump();
+            if (sink->num_lock_state() != std::optional<bool>(enabled)) {
+                throw std::runtime_error("uinput Num Lock feedback does not match receiver LEDs");
+            }
         }
         const std::vector<std::pair<int, int>> expected = {
             {KEY_ENTER, 1},    {KEY_ENTER, 0},   {KEY_LEFTCTRL, 1}, {KEY_C, 1},   {KEY_C, 0},

@@ -135,6 +135,21 @@ void native_num_restore() {
                 sink.lock.reset();
                 require(!app.down(0, x, y, 3) && sink.events.empty(),
                         "unknown target lock never sends a guessed keypad or toggle");
+                for (const auto* action :
+                     {"NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide"}) {
+                    const auto [kx, ky] = key_point(app, action);
+                    require(app.down(0, kx, ky, 3), "lock-independent keypad key remains usable");
+                    app.up(0, kx, ky);
+                    require(sink.events == std::vector<std::pair<int, int>>{{key_code(action), 1},
+                                                                            {key_code(action), 0}},
+                            "keypad controls do not require target Num Lock feedback");
+                    sink.events.clear();
+                }
+                const auto [nx, ny] = key_point(app, "NumLock");
+                require(app.down(0, nx, ny, 3), "native Num Lock toggles the saved local preference");
+                app.up(0, nx, ny);
+                require(sink.events.empty() && saved(app).num_lock == !saved_num,
+                        "native local toggle is persisted without guessing a target lock");
                 app.set_interaction_active(false);
                 sink.lock = !saved_num;
                 require(!app.down(0, x, y, 4) && sink.events.empty(),
