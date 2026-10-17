@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <fcntl.h>
@@ -20,6 +21,7 @@ extern char** environ;
 namespace framekeyboard {
 namespace {
 int startup_fd = -1;
+double startup_started = -1, startup_last = -1;
 using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
 std::string field(json_object* object, const char* key) {
     json_object* value{};
@@ -224,6 +226,7 @@ UpdateStartup::UpdateStartup() {
         if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && fd >= 3 &&
             fstat(fd, &info) == 0 && S_ISSOCK(info.st_mode)) {
             startup_fd = fd;
+            startup_started = startup_last = -1;
             fcntl(fd, F_SETFD, FD_CLOEXEC);
         }
     }
@@ -234,8 +237,21 @@ UpdateStartup::~UpdateStartup() {
         startup_fd = -1;
     }
 }
-void update_startup_ready() {
+void update_startup_ready(double now) {
     if (startup_fd >= 0) {
+        // Hidden residents complete a loop every 250 ms. A long stall restarts
+        // probation; elapsed time alone must not acknowledge a blocked main loop.
+        if (!std::isfinite(now)) {
+            startup_started = startup_last = -1;
+            return;
+        }
+        if (startup_last < 0 || now < startup_last || now - startup_last > 1) {
+            startup_started = now;
+        }
+        startup_last = now;
+        if (now - startup_started < 3) {
+            return;
+        }
         const auto ignored = ::send(startup_fd, "1", 1, MSG_NOSIGNAL);
         (void)ignored;
         close(startup_fd);

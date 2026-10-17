@@ -35,11 +35,11 @@ class Updates {
     bool handed_off_{};
 };
 
-// A private inherited pipe acknowledges the first complete frame after an update.
+// A private socket acknowledges three seconds of completed-loop progress after an update.
 class UpdateStartup {
   public:
     UpdateStartup();
     ~UpdateStartup();
 };
-void update_startup_ready();
+void update_startup_ready(double now);
 } // namespace framekeyboard

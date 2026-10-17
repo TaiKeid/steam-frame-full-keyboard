@@ -93,7 +93,9 @@ int run_preview(App& app, double duration) {
             SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
             SDL_RenderPresent(renderer.get());
         }
-        update_startup_ready();
+        if (!done && !app.quitting() && !interrupted) {
+            update_startup_ready(monotonic_seconds());
+        }
     }
     app.cancel();
     return 0;

@@ -2,11 +2,14 @@
 #include "framekeyboard/updates.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
 
@@ -33,7 +36,7 @@ int main(int argc, char** argv) {
         // Used only by the ARM64 integration test in a disposable installation.
         if (argc == 4 && std::string(argv[1]) == "--handoff-fixture") {
             const std::string helper = argv[2], config = argv[3];
-            Updates updates("0.5.0", {"--preview", "--duration", "3", "--config-dir", config}, helper);
+            Updates updates("0.5.0", {"--preview", "--duration", "6", "--config-dir", config}, helper);
             {
                 VrInstance instance(std::filesystem::path(config) / "instance");
                 require(instance.is_owner(), "fixture owns its private instance lock");
@@ -73,10 +76,37 @@ int main(int argc, char** argv) {
                             << "ready";
                     }
                 }
-                update_startup_ready();
-                std::this_thread::sleep_for(std::chrono::seconds(2));
+                const auto start = monotonic_seconds();
+                while (monotonic_seconds() - start < 4) {
+                    update_startup_ready(monotonic_seconds());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                }
                 return 0;
             }
+        }
+        {
+            int sockets[2];
+            require(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sockets) == 0,
+                    "private startup test socket");
+            setenv("FRAMEKEYBOARD_UPDATE_READY_FD", std::to_string(sockets[1]).c_str(), 1);
+            UpdateStartup startup;
+            char byte{};
+            const auto pending = [&] {
+                return recv(sockets[0], &byte, 1, MSG_DONTWAIT) < 0 &&
+                       (errno == EAGAIN || errno == EWOULDBLOCK);
+            };
+            update_startup_ready(10);
+            require(pending(), "first completed loop cannot commit startup");
+            update_startup_ready(14);
+            require(pending(), "a stalled loop cannot commit startup");
+            for (double now = 14.25; now < 17; now += .25) {
+                update_startup_ready(now);
+                require(pending(), "hidden-loop cadence must finish its probation");
+            }
+            update_startup_ready(17);
+            require(recv(sockets[0], &byte, 1, 0) == 1 && byte == '1',
+                    "three seconds of continuing progress confirms startup while hidden");
+            close(sockets[0]);
         }
         char temporary[] = "/tmp/full-keyboard-update-ui-XXXXXX";
         const auto directory = std::filesystem::path(mkdtemp(temporary));

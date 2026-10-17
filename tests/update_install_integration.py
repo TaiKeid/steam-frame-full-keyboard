@@ -46,7 +46,7 @@ u.download=download
 raise SystemExit(u.main())
 ''')
     shim_source = shim.read_text()
-    for mode in ("success", "rollback", "post-ack-term"):
+    for mode in ("success", "rollback", "early-exit", "post-ack-term"):
         active_shim = base / (mode + "-helper.py")
         hook = """write_status=u.Installation.write_status
 def status(installation,text):
@@ -54,7 +54,13 @@ def status(installation,text):
         u.signal.raise_signal(u.signal.SIGTERM)
     write_status(installation,text)
 u.Installation.write_status=status
-""" if mode == "post-ack-term" else ""
+""" if mode == "post-ack-term" else """launch=u.launch
+def early_exit(package,arguments,timeout=45):
+    if package.name != 'old':
+        arguments=[*arguments,'--duration','1']
+    return launch(package,arguments,timeout)
+u.launch=early_exit
+""" if mode == "early-exit" else ""
         active_shim.write_text(shim_source.replace('raise SystemExit(u.main())', hook + 'raise SystemExit(u.main())'))
         install = base / mode
         root = install / ".local/share/framekeyboard"
@@ -83,7 +89,7 @@ u.Installation.write_status=status
         while not result.exists() and time.monotonic() < deadline:
             time.sleep(.05)
         assert result.exists(), output + " no update result"
-        if mode != "rollback":
+        if mode not in ("rollback", "early-exit"):
             assert "installed" in result.read_text()
             assert (root / "current").resolve() != old
             assert os.readlink(root / "previous") == "releases/old"
