@@ -290,6 +290,16 @@ class ParentRecovery:
         self.resume_at = 0
         self.resume_frame = None
 
+    @staticmethod
+    def parent_stopped(owner):
+        try:
+            # comm can contain spaces and parentheses. The state follows its
+            # final closing parenthesis; only a signal stop uses uppercase T.
+            fields = Path(f"/proc/{owner}/stat").read_text().rsplit(") ", 1)[1].split()
+            return fields[0] == "T"
+        except (OSError, IndexError):
+            return False  # An unreadable state leaves the normal deadlines in place.
+
     def observe_clock(self, now, boot_now, frame_sent):
         # BOOTTIME includes system suspend; MONOTONIC and the frame clock do not.
         gap = boot_now - now
@@ -301,7 +311,19 @@ class ParentRecovery:
 
     def check(self, owner, watch, frame_sent, watchdog_sent, slow_until=0, runtime_until=0):
         now = time.monotonic()
-        if not owner or not watch or os.getppid() != owner or now - frame_sent < 3:
+        if not owner or not watch or os.getppid() != owner:
+            self.terminated_at = None
+            return False
+        stopped = self.parent_stopped(owner)
+        if os.getppid() != owner:
+            self.terminated_at = None
+            return False
+        if stopped:
+            # Neither the main loop nor its watchdog can run after SIGSTOP, and
+            # SIGTERM would remain pending. Remove the frozen panel's owner now.
+            os.kill(owner, signal.SIGKILL)
+            return True
+        if now - frame_sent < 3:
             self.terminated_at = None
             return False
         if self.terminated_at is None and (now < self.resume_until or

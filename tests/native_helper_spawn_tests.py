@@ -1,7 +1,9 @@
 """Exercise the production spawn/health descriptors with a private fake helper."""
 import json
+import os
 from pathlib import Path
 import shutil
+import select
 import signal
 import subprocess
 import sys
@@ -89,6 +91,33 @@ result.replace(result.with_name("result.json"))
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
     print(result.stdout.strip())
+
+    # Freeze only this disposable app process, after publishing a runtime wait.
+    # Its separate production helper must bypass the 30-second allowance.
+    (root / "bridge/result.json").unlink(missing_ok=True)
+    stopped = subprocess.Popen([str(binary), "--stopped-runtime-fixture", str(root / "stopped-instance")],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert select.select([stopped.stdout], [], [], 3)[0], "runtime fixture did not become ready"
+        assert stopped.stdout.readline() == b"Runtime wait ready.\n"
+        stopped_at = time.monotonic()
+        os.kill(stopped.pid, signal.SIGSTOP)
+        assert stopped.wait(timeout=2) == -signal.SIGKILL, "a stopped app must not retain runtime grace"
+        assert time.monotonic() - stopped_at < 2
+    finally:
+        if stopped.poll() is None:
+            stopped.kill()
+            stopped.wait(timeout=2)
+        stopped.stdout.close()
+        stopped.stderr.close()
+    deadline = time.monotonic() + 2
+    while not (root / "bridge/result.json").is_file() and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert json.loads((root / "bridge/result.json").read_text()) == dict(closed=True)
+    result = subprocess.run([str(binary), "--instance-fixture", str(root / "stopped-instance")],
+                            capture_output=True, text=True, timeout=6)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print("Signal-stopped runtime wait terminated promptly; helper exited and instance lock was released.")
 
     (root / "bridge/native_bridge.py").write_text('''import importlib.util,socket
 spec=importlib.util.spec_from_file_location("production_bridge", SOURCE)

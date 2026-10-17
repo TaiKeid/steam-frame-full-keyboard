@@ -99,6 +99,12 @@ class ExternalCDP(FakeCDP):
 
 
 class Lifecycle(unittest.TestCase):
+    def setUp(self):
+        # Unit recovery tests use a synthetic PID; never depend on host PID 77.
+        self.stopped_state = patch.object(bridge.ParentRecovery, "parent_stopped", return_value=False)
+        self.stopped_state.start()
+        self.addCleanup(self.stopped_state.stop)
+
     def receive(self, parent, operation):
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
@@ -192,6 +198,43 @@ class Lifecycle(unittest.TestCase):
                     parent.close()
                     worker.join(1)
                 self.assertFalse(worker.is_alive())
+
+    def test_signal_stopped_original_parent_bypasses_all_graces(self):
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=10), \
+                patch.object(bridge.ParentRecovery, "parent_stopped", return_value=True) as stopped:
+            recovery = bridge.ParentRecovery()
+            recovery.resume_until = 40
+            self.assertFalse(recovery.check(77, False, 9.9, 9.9, 39, 39))
+            self.assertFalse(recovery.check(78, True, 9.9, 9.9, 39, 39))
+            stopped.assert_not_called()
+            kill.assert_not_called()
+            self.assertTrue(recovery.check(77, True, 9.9, 9.9, 39, 39))
+            stopped.assert_called_once_with(77)
+            kill.assert_called_once_with(77, bridge.signal.SIGKILL)
+
+    def test_proc_state_parser_distinguishes_signal_stop_from_wait_and_trace(self):
+        self.stopped_state.stop()
+        for state in ("T", "S", "D", "R", "t", "Z", "I"):
+            with self.subTest(state=state), patch.object(bridge.Path, "read_text",
+                    return_value=f"77 (a tricky ) command) {state} 1 2 3") as read:
+                self.assertEqual(bridge.ParentRecovery.parent_stopped(77), state == "T")
+                read.assert_called_once()
+        for malformed in ("", "77 (unfinished", "77 (empty) "):
+            with patch.object(bridge.Path, "read_text", return_value=malformed):
+                self.assertFalse(bridge.ParentRecovery.parent_stopped(77))
+        for error in (FileNotFoundError(), PermissionError()):
+            with patch.object(bridge.Path, "read_text", side_effect=error):
+                self.assertFalse(bridge.ParentRecovery.parent_stopped(77))
+
+    def test_changed_parent_is_not_killed_after_state_read(self):
+        with patch.object(bridge.os, "getppid", side_effect=(77, 1)), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=10), \
+                patch.object(bridge.ParentRecovery, "parent_stopped", return_value=True):
+            self.assertFalse(bridge.ParentRecovery().check(77, True, 5, 5))
+            kill.assert_not_called()
 
     def test_main_loop_recovery_is_scoped_and_escalates_with_a_live_watchdog(self):
         with patch.object(bridge.os, "getppid", return_value=77), \

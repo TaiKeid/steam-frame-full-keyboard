@@ -616,7 +616,8 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 3 && (std::string(argv[1]) == "--stalled-main-fixture" ||
-                          std::string(argv[1]) == "--runtime-wait-fixture")) {
+                          std::string(argv[1]) == "--runtime-wait-fixture" ||
+                          std::string(argv[1]) == "--stopped-runtime-fixture")) {
             VrInstance instance(argv[2]);
             require(instance.is_owner(), "isolated stalled process owns its instance lock");
             NullSink local;
@@ -629,8 +630,12 @@ int main(int argc, char** argv) {
                 }
             });
             replacement.update(true, false, 0, false, monotonic_seconds(), true);
-            if (std::string(argv[1]) == "--runtime-wait-fixture") {
+            if (std::string(argv[1]) != "--stalled-main-fixture") {
                 replacement.begin_runtime_wait(monotonic_seconds());
+                if (std::string(argv[1]) == "--stopped-runtime-fixture") {
+                    replacement.watchdog_tick(monotonic_seconds());
+                    std::cout << "Runtime wait ready.\n" << std::flush;
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(4200));
                 replacement.end_runtime_wait(monotonic_seconds());
                 replacement.update(true, false, 0, false, monotonic_seconds(), true);
