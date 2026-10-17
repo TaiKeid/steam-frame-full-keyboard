@@ -248,6 +248,33 @@ def launch(package, arguments, timeout=45):
         child.close()
 
 
+@contextlib.contextmanager
+def activation_signals():
+    # Cancellation is immediate while downloading/preparing. Once the original
+    # app exits, finish activation or rollback before honoring a stop request.
+    signals = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+    previous = {number: signal.getsignal(number) for number in signals}
+    pending = None
+
+    def defer(number, frame):
+        nonlocal pending
+        if pending is None:
+            pending = number
+
+    try:
+        for number in signals:
+            if previous[number] != signal.SIG_IGN:
+                signal.signal(number, defer)
+        yield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        if pending is not None:
+            # Replayed outside the transaction's rollback handler. Caught signal
+            # dispositions reset on exec, so child startup/termination is normal.
+            signal.raise_signal(pending)
+
+
 class SettingsSnapshot:
     def __init__(self, root, name, arguments):
         base = os.environ.get("XDG_CONFIG_HOME", "")
@@ -304,12 +331,14 @@ class Installation:
         self.target = None
 
     def close(self):
-        if self.temporary:
-            self.temporary.cleanup()
-            self.temporary = None
-        if self.lock:
-            self.lock.close()
-            self.lock = None
+        temporary, self.temporary = self.temporary, None
+        lock, self.lock = self.lock, None
+        try:
+            if temporary:
+                temporary.cleanup()
+        finally:
+            if lock:
+                lock.close()
 
     def prepare(self, selected, progress):
         if platform.machine() != "aarch64":
@@ -344,6 +373,14 @@ class Installation:
             raise UpdateError("release-exists")
 
     def activate(self, arguments):
+        with activation_signals():
+            try:
+                return self.activate_transaction(arguments)
+            finally:
+                # Cleanup and unlock before replaying a default-action signal too.
+                self.close()
+
+    def activate_transaction(self, arguments):
         switched = False
         promoted = False
         snapshot = None
@@ -356,12 +393,14 @@ class Installation:
             replace_link(self.root, "previous", self.old_link)
             switched = True
             replace_link(self.root, "current", str(self.target.relative_to(self.root)))
-            launch(self.target, arguments)
-            with contextlib.suppress(OSError):
-                (self.root / "update-status.log").write_text("Update installed and startup acknowledged.\n")
+            process = launch(self.target, arguments)
         except BaseException:
             self.rollback(arguments, snapshot, promoted, switched)
             raise
+        # Acknowledged startup commits the new release. Optional bookkeeping can
+        # no longer enter rollback or remove resources from this live process.
+        self.write_status("Update installed and startup acknowledged.\n")
+        return process
 
     def write_status(self, text):
         with contextlib.suppress(OSError):

@@ -45,7 +45,17 @@ def download(url,output,limit,expected_size=None):
 u.download=download
 raise SystemExit(u.main())
 ''')
-    for mode in ("success", "rollback"):
+    shim_source = shim.read_text()
+    for mode in ("success", "rollback", "post-ack-term"):
+        active_shim = base / (mode + "-helper.py")
+        hook = """write_status=u.Installation.write_status
+def status(installation,text):
+    if text.startswith('Update installed'):
+        u.signal.raise_signal(u.signal.SIGTERM)
+    write_status(installation,text)
+u.Installation.write_status=status
+""" if mode == "post-ack-term" else ""
+        active_shim.write_text(shim_source.replace('raise SystemExit(u.main())', hook + 'raise SystemExit(u.main())'))
         install = base / mode
         root = install / ".local/share/framekeyboard"
         old = root / "releases/old"
@@ -63,8 +73,8 @@ raise SystemExit(u.main())
         launcher.parent.mkdir(parents=True)
         launcher.write_text("preserve custom launcher")
         env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime),
-                   SDL_VIDEODRIVER="dummy" if mode == "success" else "unavailable-test-driver")
-        parent = subprocess.Popen([str(old / "bin/framekeyboard"), "--handoff-fixture", str(shim), str(config)],
+                   SDL_VIDEODRIVER="unavailable-test-driver" if mode == "rollback" else "dummy")
+        parent = subprocess.Popen([str(old / "bin/framekeyboard"), "--handoff-fixture", str(active_shim), str(config)],
                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         output = parent.communicate(timeout=40)[0].decode()
         assert parent.returncode == 0, output
@@ -73,7 +83,7 @@ raise SystemExit(u.main())
         while not result.exists() and time.monotonic() < deadline:
             time.sleep(.05)
         assert result.exists(), output + " no update result"
-        if mode == "success":
+        if mode != "rollback":
             assert "installed" in result.read_text()
             assert (root / "current").resolve() != old
             assert os.readlink(root / "previous") == "releases/old"

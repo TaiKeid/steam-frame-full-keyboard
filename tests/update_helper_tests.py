@@ -14,6 +14,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -274,6 +275,74 @@ class Transaction(unittest.TestCase):
         self.assertEqual((config / "placement.json").read_text(), "original placement")
         self.assertEqual((snapshot.backup / "config.json").read_text(), "original config")
 
+    def test_stop_after_acknowledgement_keeps_the_live_release(self):
+        for phase in ("before-return", "status-write"):
+            with self.subTest(phase=phase):
+                self.prepare()
+                lock = self.root / (phase + "-instance.lock")
+                script = ("#!/usr/bin/env python3\nimport fcntl,os,socket,time\n"
+                          f"lock=open({str(lock)!r},'a')\n"
+                          "fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)\n"
+                          "peer=socket.socket(fileno=int(os.environ.pop('FRAMEKEYBOARD_UPDATE_READY_FD')))\n"
+                          "peer.send(b'1');peer.close()\ntime.sleep(10)\n")
+                for binary in (self.old / "bin/framekeyboard", self.installation.package / "bin/framekeyboard"):
+                    binary.write_text(script)
+                    binary.chmod(0o755)
+                children = []
+                original_launch = u.launch
+                original_status = u.Installation.write_status
+                def interrupted(number, frame):
+                    raise SystemExit(0)
+                def launch(package, arguments):
+                    self.assertEqual(package, self.installation.target, "a committed child must not trigger old relaunch")
+                    child = original_launch(package, arguments, timeout=2)
+                    children.append(child)
+                    if phase == "before-return":
+                        signal.raise_signal(signal.SIGTERM)
+                    return child
+                def status(installation, text):
+                    if phase == "status-write":
+                        signal.raise_signal(signal.SIGTERM)
+                    original_status(installation, text)
+                previous = signal.signal(signal.SIGTERM, interrupted)
+                try:
+                    with patch.object(u, "launch", side_effect=launch), patch.object(u.Installation, "write_status", status), self.assertRaises(SystemExit):
+                        self.installation.activate(["--config-dir", str(Path(self.directory.name) / "prefs")])
+                    self.assertEqual(len(children), 1)
+                    self.assertIsNone(children[0].poll())
+                    self.assertEqual((self.root / "current").resolve(), self.installation.target)
+                    self.assertTrue((self.installation.target / "bin/framekeyboard").exists())
+                    self.assertIn("startup acknowledged", (self.root / "update-status.log").read_text())
+                    self.assertIs(signal.getsignal(signal.SIGTERM), interrupted)
+                finally:
+                    signal.signal(signal.SIGTERM, previous)
+                    for child in children:
+                        if child.poll() is None:
+                            child.terminate()
+                        child.wait(timeout=3)
+                    self.installation.close()
+                    u.replace_link(self.root, "current", "releases/old")
+                    u.replace_link(self.root, "previous", "releases/older")
+
+    def test_stop_during_rollback_is_replayed_after_old_restart(self):
+        self.prepare()
+        replace = u.replace_link
+        def interrupted(number, frame):
+            raise SystemExit(0)
+        def repair(root, name, target):
+            if name == "current" and target == "releases/old":
+                signal.raise_signal(signal.SIGTERM)
+            return replace(root, name, target)
+        previous = signal.signal(signal.SIGTERM, interrupted)
+        try:
+            with patch.object(u, "replace_link", side_effect=repair), patch.object(u, "launch", side_effect=[u.UpdateError("startup"), None]) as launched, self.assertRaises(SystemExit):
+                self.installation.activate(["--config-dir", str(Path(self.directory.name) / "prefs")])
+            self.assertEqual(launched.call_args_list[1].args[0], self.old)
+            self.assertEqual((self.root / "current").resolve(), self.old)
+            self.assertFalse(self.installation.target.exists())
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+
     def test_startup_failure_restores_links_and_relaunches_old(self):
         self.prepare()
         with patch.object(u, "launch", side_effect=[u.UpdateError("startup"), None]) as launch:
@@ -304,6 +373,20 @@ class Startup(unittest.TestCase):
             binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(10)\n')
             with self.assertRaises(u.UpdateError):
                 u.launch(package, [], timeout=.1)
+
+
+    def test_activation_deferral_does_not_block_child_termination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "bin").mkdir()
+            binary = package / "bin/framekeyboard"
+            binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(10)\n')
+            binary.chmod(0o755)
+            started = time.monotonic()
+            with u.activation_signals(), self.assertRaises(u.UpdateError):
+                u.launch(package, [], timeout=.1)
+            self.assertLess(time.monotonic() - started, 2, "child must not inherit a blocked SIGTERM")
+
 
 
 class Protocol(unittest.TestCase):
