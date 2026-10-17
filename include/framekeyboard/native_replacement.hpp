@@ -1,5 +1,6 @@
 #pragma once
 #include "input.hpp"
+#include <atomic>
 #include <cstdint>
 #include <sys/types.h>
 
@@ -28,6 +29,12 @@ class NativeReplacement : public KeySink {
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
     bool prepare_watchdog();
     void watchdog_tick(double now, double slow_work_deadline = 0) const;
+    // Main-thread scopes identify external runtime waits. Nested calls share a
+    // fixed frame deadline; returning grants only a short completion margin.
+    void begin_runtime_wait(double now);
+    void end_runtime_wait(double now);
+    void frame_completed();
+    double runtime_wait_deadline() const { return runtime_until_.load(); }
     void send(int code, int value) override;
     bool pump() override { return local_.pump(); }
     bool take_input_reset() override;
@@ -58,6 +65,9 @@ class NativeReplacement : public KeySink {
     int fd_{-1};
     pid_t child_{-1};
     int watchdog_read_{-1}, watchdog_write_{-1};
+    std::atomic<double> runtime_until_{};
+    double runtime_frame_deadline_{};
+    unsigned runtime_depth_{};
     State state_;
     Failure failure_{Failure::None};
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};

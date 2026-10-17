@@ -251,6 +251,64 @@ class Lifecycle(unittest.TestCase):
             self.assertFalse(recovery.check(77, True, 9.9, 14))
             kill.assert_called_once_with(77, bridge.signal.SIGTERM)
 
+    def test_runtime_wait_is_bounded_even_if_the_overlay_watchdog_is_blocked(self):
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill:
+            recovery = bridge.ParentRecovery()
+            for now in (10, 20, 34.99):
+                with patch.object(bridge.time, "monotonic", return_value=now):
+                    self.assertFalse(recovery.check(77, True, 5, 5, 0, 35))
+            kill.assert_not_called()
+            with patch.object(bridge.time, "monotonic", return_value=35):
+                self.assertFalse(recovery.check(77, True, 5, 5, 0, 1000))
+                kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+            with patch.object(bridge.time, "monotonic", return_value=36):
+                self.assertTrue(recovery.check(77, True, 5, 36, 0, 1000))
+                self.assertEqual(kill.call_args.args, (77, bridge.signal.SIGKILL))
+
+    def test_suspend_resume_grace_is_fixed_until_main_progress(self):
+        recovery = bridge.ParentRecovery()
+        recovery.observe_clock(10, 10, 9)
+        recovery.observe_clock(11, 111, 9)
+        self.assertEqual(recovery.resume_until, 41)
+        recovery.observe_clock(20, 220, 9)
+        self.assertEqual(recovery.resume_until, 41, "repeat wakes cannot extend a stuck frame's grace")
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill:
+            with patch.object(bridge.time, "monotonic", return_value=40.99):
+                self.assertFalse(recovery.check(77, True, 9, None))
+                kill.assert_not_called()
+            with patch.object(bridge.time, "monotonic", return_value=41):
+                self.assertFalse(recovery.check(77, True, 9, None))
+                kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+            with patch.object(bridge.time, "monotonic", return_value=42):
+                self.assertTrue(recovery.check(77, True, 9, None))
+
+    def test_completed_frame_ends_resume_grace(self):
+        recovery = bridge.ParentRecovery()
+        recovery.observe_clock(10, 10, 9)
+        recovery.observe_clock(11, 111, 9)
+        recovery.observe_clock(14, 114, 13.9)
+        self.assertEqual(recovery.resume_until, 0)
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=18):
+            self.assertFalse(recovery.check(77, True, 13.9, 18))
+            kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+
+    def test_resume_does_not_cancel_termination_already_started(self):
+        recovery = bridge.ParentRecovery()
+        recovery.observe_clock(10, 10, 5)
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill:
+            with patch.object(bridge.time, "monotonic", return_value=10):
+                recovery.check(77, True, 5, 10)
+                kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+            recovery.observe_clock(10.5, 110.5, 5)
+            with patch.object(bridge.time, "monotonic", return_value=11):
+                self.assertTrue(recovery.check(77, True, 5, 11))
+                self.assertEqual(kill.call_args.args, (77, bridge.signal.SIGKILL))
+
     def test_independent_health_pipe_does_not_renew_render_progress(self):
         read_fd, write_fd = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
         health = bridge.WatchdogProgress(read_fd)
@@ -260,16 +318,17 @@ class Lifecycle(unittest.TestCase):
                     patch.object(bridge.os, "kill") as kill:
                 recovery = bridge.ParentRecovery()
                 # Include a split record, stale ticks and impossible timestamps.
-                packet = struct.pack("=dd", 5, 35)
+                packet = struct.pack("=ddd", 5, 35, 35)
                 os.write(write_fd, packet[:5])
                 health.poll()
                 self.assertIsNone(health.sent)
                 os.write(write_fd, packet[5:])
                 for tick in (9.9, 9.8, float("nan"), 99):
-                    os.write(write_fd, struct.pack("=dd", tick, 35))
+                    os.write(write_fd, struct.pack("=ddd", tick, 35, 35))
                 health.poll()
                 self.assertEqual(health.sent, 9.9, "only fresh increasing watchdog progress counts")
                 self.assertEqual(health.slow_until, 35)
+                self.assertEqual(health.runtime_until, 35)
                 self.assertFalse(recovery.check(77, True, 5, health.sent, health.slow_until))
                 kill.assert_not_called()
                 self.assertEqual(health.pending, b"")
@@ -289,14 +348,15 @@ class Lifecycle(unittest.TestCase):
         try:
             with patch.object(bridge.time, "monotonic", return_value=20):
                 for tick, deadline in ((1, float("nan")), (2, float("inf")), (3, -5), (4, 35)):
-                    os.write(write_fd, struct.pack("=dd", tick, deadline))
+                    os.write(write_fd, struct.pack("=ddd", tick, deadline, deadline))
                     health.poll()
                     self.assertEqual(health.sent, tick)
                     self.assertEqual(health.slow_until, 0)
-                os.write(write_fd, struct.pack("=dd", 5, 35))
+                    self.assertEqual(health.runtime_until, 0)
+                os.write(write_fd, struct.pack("=ddd", 5, 35, 35))
                 health.poll()
                 self.assertEqual(health.slow_until, 35)
-                os.write(write_fd, struct.pack("=dd", 6, 0))
+                os.write(write_fd, struct.pack("=ddd", 6, 0, 0))
                 health.poll()
                 self.assertEqual(health.slow_until, 0, "completed frames clear the allowance")
         finally:

@@ -23,11 +23,11 @@ while time.monotonic()<deadline:
     readable,_,_=select.select([parent,4],[],[],.05)
     if 4 in readable:
         data=os.read(4,4096)
-        assert len(data)%16==0
-        for offset in range(0,len(data),16):
-            sent,slow_until=struct.unpack("=dd",data[offset:offset+16])
+        assert len(data)%24==0
+        for offset in range(0,len(data),24):
+            sent,slow_until,runtime_until=struct.unpack("=ddd",data[offset:offset+24])
             assert 0<=time.monotonic()-sent<1
-            assert slow_until==0
+            assert slow_until==0 and runtime_until==0
             health=True
     if parent in readable:
         data=parent.recv(32768)
@@ -84,6 +84,11 @@ result.replace(result.with_name("result.json"))
                             capture_output=True, text=True, timeout=6)
     assert result.returncode == 0, result.stdout + result.stderr
     print("Stalled main loop recovered with a live watchdog; helper exited and relaunch acquired the instance lock.")
+
+    result = subprocess.run([str(binary), "--runtime-wait-fixture", str(root / "runtime-instance")],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print(result.stdout.strip())
 
     (root / "bridge/native_bridge.py").write_text('''import importlib.util,socket
 spec=importlib.util.spec_from_file_location("production_bridge", SOURCE)

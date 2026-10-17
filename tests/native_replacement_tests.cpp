@@ -585,6 +585,27 @@ void slow_work_allowance() {
     }
     fs::remove_all(directory);
 }
+void runtime_wait_allowance() {
+    NullSink local;
+    NativeReplacement replacement(local);
+    replacement.begin_runtime_wait(10);
+    require(replacement.runtime_wait_deadline() == 40, "runtime waits get a fixed deadline");
+    replacement.begin_runtime_wait(12);
+    replacement.end_runtime_wait(15);
+    require(replacement.runtime_wait_deadline() == 40, "nested runtime calls keep their outer scope");
+    replacement.end_runtime_wait(20);
+    require(replacement.runtime_wait_deadline() == 23,
+            "returning leaves a short frame-completion margin");
+    replacement.begin_runtime_wait(25);
+    require(replacement.runtime_wait_deadline() == 40, "repeated calls cannot extend the frame limit");
+    replacement.end_runtime_wait(39);
+    require(replacement.runtime_wait_deadline() == 40, "completion margin cannot extend the hard limit");
+    replacement.frame_completed();
+    require(replacement.runtime_wait_deadline() == 0, "completed frames clear runtime wait state");
+    replacement.begin_runtime_wait(100);
+    require(replacement.runtime_wait_deadline() == 130, "a later frame can wait for runtime recovery");
+    replacement.end_runtime_wait(101);
+}
 } // namespace
 int main(int argc, char** argv) {
     try {
@@ -594,7 +615,8 @@ int main(int argc, char** argv) {
             std::cout << "Recovered instance lock acquired.\n";
             return 0;
         }
-        if (argc == 3 && std::string(argv[1]) == "--stalled-main-fixture") {
+        if (argc == 3 && (std::string(argv[1]) == "--stalled-main-fixture" ||
+                          std::string(argv[1]) == "--runtime-wait-fixture")) {
             VrInstance instance(argv[2]);
             require(instance.is_owner(), "isolated stalled process owns its instance lock");
             NullSink local;
@@ -607,6 +629,15 @@ int main(int argc, char** argv) {
                 }
             });
             replacement.update(true, false, 0, false, monotonic_seconds(), true);
+            if (std::string(argv[1]) == "--runtime-wait-fixture") {
+                replacement.begin_runtime_wait(monotonic_seconds());
+                std::this_thread::sleep_for(std::chrono::milliseconds(4200));
+                replacement.end_runtime_wait(monotonic_seconds());
+                replacement.update(true, false, 0, false, monotonic_seconds(), true);
+                replacement.frame_completed();
+                std::cout << "Main loop resumed after a runtime delay longer than three seconds.\n";
+                return 0;
+            }
             // The independent watchdog stays live; the main loop never polls or
             // handles recenter again. No Steam, VR or input endpoint is used.
             for (;;) {
@@ -656,6 +687,7 @@ int main(int argc, char** argv) {
         resident_close();
         slow_work_allowance();
         unavailable_reasons();
+        runtime_wait_allowance();
         std::cout << "Native replacement transport and commit ownership passed.\n";
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

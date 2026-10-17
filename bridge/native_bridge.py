@@ -252,6 +252,7 @@ class WatchdogProgress:
         self.pending = b""
         self.sent = None
         self.slow_until = 0
+        self.runtime_until = 0
 
     def poll(self):
         if self.fd is None:
@@ -264,14 +265,16 @@ class WatchdogProgress:
             if not data:
                 break
             self.pending += data
-            while len(self.pending) >= 16:
-                sent, slow_until = struct.unpack("=dd", self.pending[:16])
-                self.pending = self.pending[16:]
+            while len(self.pending) >= 24:
+                sent, slow_until, runtime_until = struct.unpack("=ddd", self.pending[:24])
+                self.pending = self.pending[24:]
                 if math.isfinite(sent) and 0 < sent <= time.monotonic() and \
                         (self.sent is None or sent > self.sent):
                     self.sent = sent
                     self.slow_until = slow_until if math.isfinite(slow_until) and \
                         0 < slow_until <= sent + 30 else 0
+                    self.runtime_until = runtime_until if math.isfinite(runtime_until) and \
+                        0 < runtime_until <= sent + 30 else 0
 
     def close(self):
         if self.fd is not None:
@@ -282,11 +285,27 @@ class WatchdogProgress:
 class ParentRecovery:
     def __init__(self):
         self.terminated_at = None
+        self.boot_gap = None
+        self.resume_until = 0
+        self.resume_at = 0
+        self.resume_frame = None
 
-    def check(self, owner, watch, frame_sent, watchdog_sent, slow_until=0):
+    def observe_clock(self, now, boot_now, frame_sent):
+        # BOOTTIME includes system suspend; MONOTONIC and the frame clock do not.
+        gap = boot_now - now
+        if self.boot_gap is not None and gap - self.boot_gap > .5 and self.resume_frame != frame_sent:
+            self.resume_at, self.resume_until, self.resume_frame = now, now + 30, frame_sent
+        self.boot_gap = gap
+        if frame_sent > self.resume_at:
+            self.resume_until = 0
+
+    def check(self, owner, watch, frame_sent, watchdog_sent, slow_until=0, runtime_until=0):
         now = time.monotonic()
         if not owner or not watch or os.getppid() != owner or now - frame_sent < 3:
             self.terminated_at = None
+            return False
+        if self.terminated_at is None and (now < self.resume_until or
+                                          now < min(runtime_until, frame_sent + 30)):
             return False
         # A live overlay watchdog does not prove main-loop progress. Only an
         # explicit slow operation may delay recovery, never beyond 30 seconds
@@ -435,8 +454,10 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 if ok is not True:
                     fallback_request = message["request"]
             watchdog.poll()
+            recovery_watchdog.observe_clock(time.monotonic(), time.clock_gettime(time.CLOCK_BOOTTIME), frame_sent)
             if not select.select([parent], [], [], 0)[0] and recovery_watchdog.check(
-                    parent_pid, watch_main_loop, frame_sent, watchdog.sent, watchdog.slow_until):
+                    parent_pid, watch_main_loop, frame_sent, watchdog.sent, watchdog.slow_until,
+                    watchdog.runtime_until):
                 break
             if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:
                 frame["ready"] = False

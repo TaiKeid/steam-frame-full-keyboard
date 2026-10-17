@@ -18,10 +18,68 @@
 
 namespace framekeyboard {
 namespace {
+// Only the VR/main thread installs this binding. The overlay watchdog never
+// writes main-loop runtime state, even when its own OpenVR call blocks.
+thread_local NativeReplacement* runtime_watch = nullptr;
+class RuntimeBinding {
+  public:
+    explicit RuntimeBinding(NativeReplacement& watch) : previous_(runtime_watch) {
+        runtime_watch = &watch;
+    }
+    ~RuntimeBinding() { runtime_watch = previous_; }
+
+  private:
+    NativeReplacement* previous_;
+};
+class RuntimeWait {
+  public:
+    RuntimeWait() : watch_(runtime_watch) {
+        if (watch_) {
+            watch_->begin_runtime_wait(monotonic_seconds());
+        }
+    }
+    ~RuntimeWait() {
+        if (watch_) {
+            watch_->end_runtime_wait(monotonic_seconds());
+        }
+    }
+    RuntimeWait(const RuntimeWait&) = delete;
+    RuntimeWait& operator=(const RuntimeWait&) = delete;
+
+  private:
+    NativeReplacement* watch_;
+};
+// Start the scope before fetching the interface. It lasts through the complete
+// API expression, and also covers methods using a retained local interface.
+template <typename Interface> class RuntimeInterface {
+  public:
+    explicit RuntimeInterface(Interface* (*get)()) : value_(get()) {}
+    Interface* operator->() const { return value_; }
+    explicit operator bool() const { return value_ != nullptr; }
+
+  private:
+    RuntimeWait wait_;
+    Interface* value_;
+};
+auto vr_system() {
+    return RuntimeInterface<vr::IVRSystem>(vr::VRSystem);
+}
+auto vr_overlay() {
+    return RuntimeInterface<vr::IVROverlay>(vr::VROverlay);
+}
+auto vr_input() {
+    return RuntimeInterface<vr::IVRInput>(vr::VRInput);
+}
+auto vr_models() {
+    return RuntimeInterface<vr::IVRRenderModels>(vr::VRRenderModels);
+}
+auto vr_compositor() {
+    return RuntimeInterface<vr::IVRCompositor>(vr::VRCompositor);
+}
 void check(vr::EVROverlayError error, const char* operation) {
     if (error != vr::VROverlayError_None) {
         throw std::runtime_error(std::string(operation) + ": " +
-                                 vr::VROverlay()->GetOverlayErrorNameFromEnum(error));
+                                 vr_overlay()->GetOverlayErrorNameFromEnum(error));
     }
 }
 Transform from_vr(const vr::HmdMatrix34_t& pose) {
@@ -37,7 +95,7 @@ bool pointer_device(vr::TrackedDeviceIndex_t device) {
     if (device >= vr::k_unMaxTrackedDeviceCount) {
         return false;
     }
-    const auto kind = vr::VRSystem()->GetTrackedDeviceClass(device);
+    const auto kind = vr_system()->GetTrackedDeviceClass(device);
     return kind == vr::TrackedDeviceClass_Controller || kind == vr::TrackedDeviceClass_HMD;
 }
 std::optional<Transform> read_pointer_pose(vr::TrackedDeviceIndex_t device) {
@@ -48,8 +106,8 @@ std::optional<Transform> read_pointer_pose(vr::TrackedDeviceIndex_t device) {
     // is unavailable. Query tracking separately; a missing button state is not
     // evidence that the controller is untracked or its trigger was released.
     vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
-    vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses,
-                                                    vr::k_unMaxTrackedDeviceCount);
+    vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses,
+                                                 vr::k_unMaxTrackedDeviceCount);
     const auto& pose = poses[device];
     if (!pose.bPoseIsValid || !pose.bDeviceIsConnected) {
         return {};
@@ -70,8 +128,8 @@ class GrabInput {
         }
     }
     bool connect() {
-        auto* input = vr::VRInput();
-        if (!input || !vr::VRRenderModels()) {
+        auto input = vr_input();
+        if (!input || !vr_models()) {
             return false;
         }
         ready_ = input->GetInputSourceHandle("/user/hand/left", &hands_[0]) == vr::VRInputError_None &&
@@ -86,7 +144,7 @@ class GrabInput {
         for (std::size_t i = 0; i < hands_.size(); ++i) {
             const auto role =
                 i == 0 ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
-            const auto device = vr::VRSystem()->GetTrackedDeviceIndexForControllerRole(role);
+            const auto device = vr_system()->GetTrackedDeviceIndexForControllerRole(role);
             if (laser_device && device != *laser_device) {
                 latches_[i].reset();
                 continue;
@@ -98,11 +156,11 @@ class GrabInput {
             }
             char model[1024]{};
             vr::ETrackedPropertyError error{};
-            vr::VRSystem()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String,
-                                                           model, sizeof(model), &error);
+            vr_system()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String, model,
+                                                        sizeof(model), &error);
             const std::string expected = i == 0 ? "{frame_controller}frame_controller_left"
                                                 : "{frame_controller}frame_controller_right";
-            if (error || model != expected || !vr::VRSystem()->IsTrackedDeviceConnected(device)) {
+            if (error || model != expected || !vr_system()->IsTrackedDeviceConnected(device)) {
                 latches_[i].reset();
                 sticks_[i] = {};
                 continue;
@@ -110,7 +168,7 @@ class GrabInput {
             vr::RenderModel_ControllerMode_State_t mode{};
             vr::RenderModel_ComponentState_t current{}, neutral{};
             vr::VRControllerState_t released{};
-            auto* models = vr::VRRenderModels();
+            auto models = vr_models();
             result[i] = {true, false, false, device};
             if (laser_device) {
                 // A trigger-held line capture needs only this hand's stick.
@@ -170,7 +228,7 @@ class GrabInput {
         // AUX captures the HMD, which has no thumbstick. Never borrow another
         // device's stick, and retain pose-only dragging if sampling is unavailable.
         if (device >= vr::k_unMaxTrackedDeviceCount ||
-            vr::VRSystem()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
+            vr_system()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
             return fallback;
         }
         for (const auto& sample : poll(device)) {
@@ -234,8 +292,8 @@ class LaserDrag {
         }
         vr::RenderModel_ControllerMode_State_t mode{};
         vr::RenderModel_ComponentState_t current{};
-        if (!vr::VRRenderModels()->GetComponentStateForDevicePath(trigger_model_.c_str(), "trigger",
-                                                                  trigger_hand_, &mode, &current)) {
+        if (!vr_models()->GetComponentStateForDevicePath(trigger_model_.c_str(), "trigger",
+                                                         trigger_hand_, &mode, &current)) {
             return trigger_release_.update(std::nullopt, now);
         }
         const auto angle = component_rotation_degrees(*trigger_neutral_,
@@ -246,20 +304,20 @@ class LaserDrag {
 
   private:
     void prepare_trigger() {
-        auto* models = vr::VRRenderModels();
-        auto* input = vr::VRInput();
+        auto models = vr_models();
+        auto input = vr_input();
         if (!models || !input) {
             return;
         }
-        const auto role = vr::VRSystem()->GetControllerRoleForTrackedDeviceIndex(device());
+        const auto role = vr_system()->GetControllerRoleForTrackedDeviceIndex(device());
         if (role != vr::TrackedControllerRole_LeftHand && role != vr::TrackedControllerRole_RightHand) {
             return;
         }
         const bool left = role == vr::TrackedControllerRole_LeftHand;
         char model[1024]{};
         vr::ETrackedPropertyError error{};
-        vr::VRSystem()->GetStringTrackedDeviceProperty(device(), vr::Prop_RenderModelName_String, model,
-                                                       sizeof(model), &error);
+        vr_system()->GetStringTrackedDeviceProperty(device(), vr::Prop_RenderModelName_String, model,
+                                                    sizeof(model), &error);
         const std::string expected = left ? "{frame_controller}frame_controller_left"
                                           : "{frame_controller}frame_controller_right";
         if (error || model != expected ||
@@ -290,9 +348,9 @@ class VrPanel {
             return;
         }
         if (handle_) {
-            vr::VROverlay()->HideOverlay(handle_);
-            vr::VROverlay()->ClearOverlayTexture(handle_);
-            vr::VROverlay()->DestroyOverlay(handle_);
+            vr_overlay()->HideOverlay(handle_);
+            vr_overlay()->ClearOverlayTexture(handle_);
+            vr_overlay()->DestroyOverlay(handle_);
             std::this_thread::sleep_for(std::chrono::milliseconds(400));
         }
         // The compositor can retain submitted images. End the VR connection before
@@ -323,10 +381,10 @@ class VrPanel {
             throw std::runtime_error(vr::VR_GetVRInitErrorAsEnglishDescription(error));
         }
         connected_ = true;
-        if (!vr::VRSystem() || !vr::VRCompositor() || !vr::VROverlay()) {
+        if (!vr_system() || !vr_compositor() || !vr_overlay()) {
             throw std::runtime_error("required OpenVR interfaces are unavailable");
         }
-        auto* overlay = vr::VROverlay();
+        auto overlay = vr_overlay();
         check(overlay->CreateOverlay("org.framekeyboard.panel", "Full Keyboard", &handle_),
               "CreateOverlay");
         check(overlay->SetOverlayWidthInMeters(handle_, static_cast<float>(PanelPlacement{}.width())),
@@ -346,7 +404,7 @@ class VrPanel {
     }
     bool read_head(Transform& head) {
         vr::TrackedDevicePose_t pose{};
-        vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
+        vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
         if (!pose.bPoseIsValid) {
             return false;
         }
@@ -358,7 +416,7 @@ class VrPanel {
         return true;
     }
     std::optional<Transform> read_dashboard(const char* key, bool bottom_center) {
-        auto* overlay = vr::VROverlay();
+        auto overlay = vr_overlay();
         vr::VROverlayHandle_t dashboard{};
         if (!overlay->IsDashboardVisible() ||
             overlay->FindOverlay(key, &dashboard) != vr::VROverlayError_None ||
@@ -389,19 +447,20 @@ class VrPanel {
                 transform.m[row][col] = static_cast<float>(world[row][col]);
             }
         }
-        check(vr::VROverlay()->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding,
-                                                           &transform),
-              "Place keyboard");
-        check(vr::VROverlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
+        check(
+            vr_overlay()->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding, &transform),
+            "Place keyboard");
+        check(vr_overlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
               "Resize keyboard");
     }
     std::uint64_t universe() const {
         vr::ETrackedPropertyError error{};
-        const auto id = vr::VRSystem()->GetUint64TrackedDeviceProperty(
+        const auto id = vr_system()->GetUint64TrackedDeviceProperty(
             vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_CurrentUniverseId_Uint64, &error);
         return error == vr::TrackedProp_Success ? id : 0;
     }
     void submit(PanelRenderer& renderer, const PanelView& view) {
+        RuntimeWait runtime_wait;
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle and open menu so unused pixels cannot
         // steal focus from the dashboard.
@@ -420,8 +479,8 @@ class VrPanel {
         if (const auto handle = panel_move_handle_bounds(view)) {
             rectangle(count++, *handle);
         }
-        check(vr::VROverlay()->SetOverlayIntersectionMask(handle_, mask.data(),
-                                                          static_cast<std::uint32_t>(count)),
+        check(vr_overlay()->SetOverlayIntersectionMask(handle_, mask.data(),
+                                                       static_cast<std::uint32_t>(count)),
               "Set keyboard intersection mask");
         std::string error;
         if (!texture_.update(renderer, error)) {
@@ -446,6 +505,7 @@ class VrPanel {
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
+    RuntimeBinding runtime_binding(replacement);
     app.set_interaction_active(false);
     VrPanel panel;
     panel.connect();
@@ -457,11 +517,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // atomic slow-work deadline, it never touches App/input state.
     std::jthread replacement_watchdog([&](std::stop_token stop) {
         while (!stop.stop_requested()) {
+            replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
-                vr::VROverlay()->HideOverlay(panel.handle());
+                vr_overlay()->HideOverlay(panel.handle());
                 replacement_stalled.store(true);
             }
-            replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
@@ -550,7 +610,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         pointer_devices.clear();
         grip_input.reset();
         if (visible) {
-            check(vr::VROverlay()->HideOverlay(panel.handle()), "Hide keyboard");
+            check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard");
             visible = false;
         }
     };
@@ -575,6 +635,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             show_pending = false;
         }
     };
+    replacement.frame_completed();
     while (!done && !app.quitting() && !interrupted) {
         const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
@@ -612,7 +673,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         } else if (visible) {
             app.set_interaction_active(presentation.interactive());
         }
-        const bool dashboard_visible = vr::VROverlay()->IsDashboardVisible();
+        const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
         if (!dashboard_visible) {
             hide_panel();
         }
@@ -630,9 +691,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             stop_drag();
         }
         vr::VREvent_t event{};
-        while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
+        while (vr_system()->PollNextEvent(&event, sizeof(event))) {
             if (event.eventType == vr::VREvent_Quit) {
-                vr::VRSystem()->AcknowledgeQuit_Exiting();
+                vr_system()->AcknowledgeQuit_Exiting();
                 done = true;
             }
             if (event.eventType == vr::VREvent_SeatedZeroPoseReset ||
@@ -655,10 +716,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
         }
-        while (vr::VROverlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
+        while (vr_overlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
             // Recheck before every pointer event, not just once per batch. A
             // closing dashboard must not deliver queued clicks to a local app.
-            if (!vr::VROverlay()->IsDashboardVisible()) {
+            if (!vr_overlay()->IsDashboardVisible()) {
                 hide_panel();
             }
             if (event.eventType == vr::VREvent_OverlayClosed) {
@@ -678,7 +739,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             const auto device = event.trackedDeviceIndex;
             const bool controller =
                 device < vr::k_unMaxTrackedDeviceCount &&
-                vr::VRSystem()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller;
+                vr_system()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller;
             const bool tracked_pointer = pointer_device(device);
             if (tracked_pointer && (event.eventType == vr::VREvent_MouseMove ||
                                     event.eventType == vr::VREvent_MouseButtonDown ||
@@ -830,6 +891,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         for (const auto& [device, kind] : feedback.take(now)) {
             if (!drag.active() && visible) {
+                RuntimeWait runtime_wait;
                 haptics.send(device, kind);
             }
         }
@@ -930,12 +992,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 // Read actual compositor visibility rather than trusting our cached flag.
                 // Another UI can hide an overlay without destroying its owner process.
-                const bool compositor_visible = vr::VROverlay()->IsOverlayVisible(panel.handle());
-                if (placement.ready() && vr::VROverlay()->IsDashboardVisible() &&
+                const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
+                if (placement.ready() && vr_overlay()->IsDashboardVisible() &&
                     (show_pending || !visible || !compositor_visible)) {
                     app.paint(now);
                     panel.submit(app.renderer, app.view());
-                    check(vr::VROverlay()->ShowOverlay(panel.handle()), "Show keyboard");
+                    check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     visible = true;
                     app.set_interaction_active(presentation.interactive());
                     show_pending = false;
@@ -948,7 +1010,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             place_panel(now);
         }
         // Repeat and text commits share the same gate as pointer presses.
-        if (!vr::VROverlay()->IsDashboardVisible()) {
+        if (!vr_overlay()->IsDashboardVisible()) {
             hide_panel();
         }
         const bool repaint = app.tick(now);
@@ -968,12 +1030,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // opens the dashboard. Presentation is acknowledged separately for each request.
         const bool ready = app.replacement_ready() && (!dashboard_visible || !waiting_for_tracking);
         const bool presented =
-            ready && dashboard_visible && visible && vr::VROverlay()->IsOverlayVisible(panel.handle());
+            ready && dashboard_visible && visible && vr_overlay()->IsOverlayVisible(panel.handle());
         const auto completed = monotonic_seconds();
         replacement.update(replace, ready, presented && presentation.show() ? native.request : 0,
                            fallback || presentation.fallback_requested(), completed, true);
         replacement_progress.store(completed);
         app.frame_completed();
+        replacement.frame_completed();
         replacement_watched.store(replace && visible);
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full

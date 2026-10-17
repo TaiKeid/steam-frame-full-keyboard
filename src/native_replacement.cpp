@@ -82,10 +82,27 @@ void NativeReplacement::watchdog_tick(double now, double slow_work_deadline) con
     if (watchdog_write_ >= 0) {
         // One fixed-size write is atomic and never waits for the helper. This
         // proves watchdog progress, not render/input readiness for takeover.
-        const double health[] = {now, slow_work_deadline};
+        const double health[] = {now, slow_work_deadline, runtime_until_.load()};
         const auto ignored = write(watchdog_write_, health, sizeof(health));
         (void)ignored;
     }
+}
+void NativeReplacement::begin_runtime_wait(double now) {
+    if (runtime_depth_++ == 0) {
+        if (runtime_frame_deadline_ == 0) {
+            runtime_frame_deadline_ = now + 30;
+        }
+        runtime_until_.store(runtime_frame_deadline_);
+    }
+}
+void NativeReplacement::end_runtime_wait(double now) {
+    if (--runtime_depth_ == 0) {
+        runtime_until_.store(std::min(runtime_frame_deadline_, now + 3));
+    }
+}
+void NativeReplacement::frame_completed() {
+    runtime_frame_deadline_ = 0;
+    runtime_until_.store(0);
 }
 bool NativeReplacement::packet(const std::string& data) {
     if (fd_ < 0 || data.size() > 32768) {
