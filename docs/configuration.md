@@ -95,3 +95,5 @@ With replacement enabled in VR, the main × dismisses the typing session and hid
 The Settings header has a centered Check for updates button. Its latest-version message resets after five seconds; an available update remains offered until the process exits. This state is not a saved preference. Download and install update verifies, stages and restarts into a newer stable GitHub release. It preserves configuration and placement. See [updates](updates.md).
 
 Experimental → Start with SteamOS is saved as the optional boolean `start_with_steamos`, defaulting to false. Its choice is remembered while replacement is off, but startup is active only when both saved booleans are true. Applying either option updates the user-local startup unit on the preference worker; the VR loop keeps running. See [background startup](native-replacement.md#start-with-steamos).
+
+Saving VR preferences commits the startup unit and JSON settings together. If configuration saving fails, the previous unit and enablement link are restored and the user manager is refreshed. The settings error remains visible for retry.

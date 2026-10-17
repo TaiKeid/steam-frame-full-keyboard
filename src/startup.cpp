@@ -92,7 +92,8 @@ void reload_manager() {
 }
 } // namespace
 void configure_startup(const Settings& settings, const fs::path& executable, const fs::path& config_dir,
-                       fs::path unit_directory, std::function<void()> reload) {
+                       fs::path unit_directory, std::function<void()> reload,
+                       std::function<void()> persist) {
     const bool enabled = settings.replace_native_keyboard && settings.start_with_steamos;
     if (unit_directory.empty()) {
         unit_directory = default_config_dir().parent_path() / "systemd/user";
@@ -119,6 +120,9 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
         throw std::runtime_error("A custom SteamOS startup link already exists.");
     }
     if (!enabled && !previous && !linked) {
+        if (persist) {
+            persist();
+        }
         return;
     }
     std::string contents;
@@ -148,6 +152,9 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             "# Updater and native-fallback helpers must outlive the parent during handoff.\n"
             "KillMode=process\n\n[Install]\nWantedBy=gamescope-session.target\n";
         if (previous == contents && linked) {
+            if (persist) {
+                persist();
+            }
             return;
         }
     }
@@ -164,6 +171,9 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             fs::remove(unit);
         }
         (reload ? reload : reload_manager)();
+        if (persist) {
+            persist();
+        }
     } catch (...) {
         // Keep a failed toggle from leaving a half-written boot configuration.
         try {
@@ -177,6 +187,8 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             } else if (!linked) {
                 fs::remove(link);
             }
+            // A successful provisional reload must not outlive rolled-back files.
+            (reload ? reload : reload_manager)();
         } catch (...) {
         }
         throw;

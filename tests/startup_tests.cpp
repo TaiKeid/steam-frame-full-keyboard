@@ -51,15 +51,42 @@ int main(int argc, char** argv) {
             std::cout << unit << '\n';
             return 0;
         }
-        settings.replace_native_keyboard = false;
+        // Config and user-unit directories can have different permissions.
+        // A failed config write after a successful unit removal must undo it.
+        save_settings(config, settings);
+        fs::permissions(config, fs::perms::owner_read | fs::perms::owner_exec);
+        auto disabled = settings;
+        disabled.start_with_steamos = false;
         bool failed = false;
+        int transaction_reloads = 0;
         try {
-            configure_startup(settings, binary, config, units,
-                              [] { throw std::runtime_error("injected reload error"); });
+            configure_startup(
+                disabled, binary, config, units, [&] { ++transaction_reloads; },
+                [&] { save_settings(config, disabled); });
         } catch (...) {
             failed = true;
         }
-        require(failed && read(unit) == contents && fs::is_symlink(link),
+        fs::permissions(config, fs::perms::owner_all);
+        std::vector<std::string> errors;
+        const auto saved = load_settings(config, errors);
+        require(failed && errors.empty() && saved.start_with_steamos && read(unit) == contents &&
+                    fs::is_symlink(link) && transaction_reloads == 2,
+                "failed settings save restores the previous unit, link and manager state");
+        int saves = 0;
+        configure_startup(settings, binary, config, units, reload, [&] { ++saves; });
+        require(saves == 1 && reloads == 1,
+                "an unchanged unit still saves preferences without reloading the manager");
+        settings.replace_native_keyboard = false;
+        failed = false;
+        bool persisted = false;
+        try {
+            configure_startup(
+                settings, binary, config, units,
+                [] { throw std::runtime_error("injected reload error"); }, [&] { persisted = true; });
+        } catch (...) {
+            failed = true;
+        }
+        require(failed && !persisted && read(unit) == contents && fs::is_symlink(link),
                 "failed changes restore the old unit and link");
         configure_startup(settings, binary, config, units, reload);
         require(!fs::exists(unit) && !fs::is_symlink(link) && reloads == 2,

@@ -194,8 +194,8 @@ int main(int argc, char** argv) {
                 preferences = [config = options.config_dir,
                                executable =
                                    fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
-                    fk::configure_startup(settings, executable, config);
-                    fk::save_settings(config, settings);
+                    fk::configure_startup(settings, executable, config, {}, {},
+                                          [&] { fk::save_settings(config, settings); });
                 };
             }
             fk::App app(options, replacement, std::move(preferences),
