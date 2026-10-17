@@ -22,6 +22,8 @@ The helper and any restarted app inherit the original app's stdout and stderr de
 
 ## Validation
 
+In-app updates preserve the existing launcher and desktop entry and restart with the current launch arguments. They do not apply changes in a newer install script. Release preparation must verify compatibility with older launchers; see the [release checklist](releasing.md#prepare). Manual installation refreshes the generated launcher and desktop entry.
+
 Offline tests use fake release metadata, capture channels and disposable installs. They cover numeric comparison, exact checksum matching, hostile archives, architecture/profile rejection, install locking, cancellation, restart acknowledgement, startup failure/rollback and button timing. Real download checks and ARM64 runtime validation are separate from those offline fixtures. A future release is needed for normal in-headset upgrade acceptance; changing the version is reserved for the project owner.
 
 Rollback attempts link repair, each saved preference and the old executable independently. A file error does not skip the other recovery steps or the old-app restart. The downloaded archive is removed first to free space; the promoted release is removed only after `current` is confirmed to name the old release. If writes remain unavailable, the new target is retained so the launcher never points at a deleted directory, and the helper directly starts the known old binary. The fixed status log reports incomplete recovery writes; preference backups remain available for repair.

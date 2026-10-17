@@ -10,6 +10,7 @@ The public name is **Full Keyboard for Steam Frame**; the launcher label is **Fu
 - Run the safe ARM64 core tests on Frame and record the manual checks in [acceptance](acceptance.md). Do not turn untested items into claims.
 - Regenerate the [README image](building.md#refresh-the-readme-image) if the default appearance changed.
 - Validate a clean install, update, rollback, and uninstall; preserve user settings.
+- Check upgrade compatibility with the previous release's launcher arguments and environment. In-app updates preserve `~/.local/bin/framekeyboard` and the desktop entry, including user customizations; they do not run the new installer. If a release needs new launcher flags or environment variables, keep older launchers working or provide a migration before offering that release through the updater. A manual install refreshes the generated launcher and desktop entry.
 - Check that LICENSE, third-party notices, README, and docs are included in the archive.
 - Inspect tracked files and Git history for private data before making the repository public. Do not publish local sysroots, user profiles, logs, backups, or credentials.
 
