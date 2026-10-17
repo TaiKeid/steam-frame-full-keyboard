@@ -18,6 +18,8 @@ The keyboard then releases held input, withdraws native replacement, saves setti
 
 User settings, placement, custom profiles, launchers, desktop entries and autostart are preserved. Saved config/placement backups stay under the installation’s `update-backups/` directory. The previous release remains available for [manual rollback](runtime.md#update-rollback-and-removal). Automatic installations use a unique version-prefixed release directory, so an existing installation is never overwritten. Short, fixed results and failure codes are saved to `~/.local/share/framekeyboard/update-status.log`, including check/download/validation failures before restart. Failure reporting also uses normal stderr, including for launches outside a versioned installation. Exception text, URLs, network responses, input text and clipboard content are never included in these reports.
 
+The helper and any restarted app inherit the original app's stdout and stderr destinations. An update therefore preserves normal launcher or terminal logging, including after rollback. Stdin remains disconnected, and no additional log service or debug interface is installed.
+
 ## Validation
 
 Offline tests use fake release metadata, capture channels and disposable installs. They cover numeric comparison, exact checksum matching, hostile archives, architecture/profile rejection, install locking, cancellation, restart acknowledgement, startup failure/rollback and button timing. Real download checks and ARM64 runtime validation are separate from those offline fixtures. A future release is needed for normal in-headset upgrade acceptance; changing the version is reserved for the project owner.

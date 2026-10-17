@@ -268,8 +268,7 @@ def launch(package, arguments, timeout=45):
         env = dict(os.environ, FRAMEKEYBOARD_UPDATE_READY_FD=str(child.fileno()))
         process = subprocess.Popen([str(package / "bin/framekeyboard"),
                                     *restart_arguments(arguments, package)], env=env,
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, pass_fds=(child.fileno(),),
+                                   stdin=subprocess.DEVNULL, pass_fds=(child.fileno(),),
                                    start_new_session=True)
         child.close()
         readable, _, _ = select.select([parent], [], [], timeout)

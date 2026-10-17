@@ -129,8 +129,7 @@ bool Updates::start() {
     }
     posix_spawn_file_actions_addclosefrom_np(&actions, 4);
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
-    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
-    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    // Keep the launcher's normal log destinations across helper/app replacement.
     pid_t child{};
     const int result =
         source < 0 ? errno : posix_spawnp(&child, "python3", &actions, nullptr, argv.data(), environ);

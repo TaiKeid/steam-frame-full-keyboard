@@ -31,7 +31,9 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-update-integration-") as 
                                      digest="sha256:"+digest),
                             "SHA256SUMS":dict(browser_download_url="https://fixture/sums")})
     shim = base / "offline-helper.py"
-    shim.write_text(f'''import hashlib,importlib.util,json,shutil
+    shim.write_text(f'''import hashlib,importlib.util,json,shutil,sys
+print('updater stdout preserved',flush=True)
+print('updater stderr preserved',file=sys.stderr,flush=True)
 spec=importlib.util.spec_from_file_location("updates",{str(helper)!r})
 u=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(u)
@@ -84,6 +86,7 @@ u.launch=early_exit
                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         output = parent.communicate(timeout=40)[0].decode()
         assert parent.returncode == 0, output
+        assert 'updater stdout preserved' in output and 'updater stderr preserved' in output, output
         result = root / "update-status.log"
         deadline = time.monotonic() + 15
         while not result.exists() and time.monotonic() < deadline:

@@ -354,6 +354,24 @@ class Transaction(unittest.TestCase):
 
 
 class Startup(unittest.TestCase):
+    def test_restarted_app_inherits_both_log_destinations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "bin").mkdir()
+            binary = package / "bin/framekeyboard"
+            binary.write_text('#!/usr/bin/env python3\nimport os,socket,sys,time\ns=socket.socket(fileno=int(os.environ.pop("FRAMEKEYBOARD_UPDATE_READY_FD")))\ns.send(b"1");s.close()\nprint("app stdout preserved",flush=True)\nprint("app stderr preserved",file=sys.stderr,flush=True)\ntime.sleep(.1)\n')
+            binary.chmod(0o755)
+            runner = '''import importlib.util,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("updates",sys.argv[1])
+u=importlib.util.module_from_spec(spec);spec.loader.exec_module(u)
+child=u.launch(Path(sys.argv[2]),[],timeout=2)
+raise SystemExit(child.wait(timeout=3))
+'''
+            result = subprocess.run([sys.executable, "-I", "-c", runner, str(Path(u.__file__).resolve()), str(package)], capture_output=True, text=True, timeout=5, check=True)
+            self.assertEqual(result.stdout, "app stdout preserved\n")
+            self.assertEqual(result.stderr, "app stderr preserved\n")
+
     def test_private_ack_and_failure_reaping(self):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory)

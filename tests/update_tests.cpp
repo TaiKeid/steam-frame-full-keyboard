@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -20,6 +21,27 @@ void require(bool value, const char* message) {
         throw std::runtime_error(message);
     }
 }
+class CaptureLogs {
+  public:
+    explicit CaptureLogs(const std::filesystem::path& path) {
+        const int log = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        require(log >= 0, "create disposable log destination");
+        output_ = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 10);
+        error_ = fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, 10);
+        require(output_ >= 0 && error_ >= 0, "save test log descriptors");
+        require(dup2(log, STDOUT_FILENO) >= 0 && dup2(log, STDERR_FILENO) >= 0, "capture helper logs");
+        close(log);
+    }
+    ~CaptureLogs() {
+        dup2(output_, STDOUT_FILENO);
+        dup2(error_, STDERR_FILENO);
+        close(output_);
+        close(error_);
+    }
+
+  private:
+    int output_{-1}, error_{-1};
+};
 void wait_label(Updates& updates, const std::string& label, double now) {
     for (int i = 0; i < 300; ++i) {
         updates.tick(now);
@@ -115,6 +137,9 @@ int main(int argc, char** argv) {
 peer=socket.socket(fileno=3)
 peer.setblocking(True)
 mode=sys.argv[-1]
+if mode=='logging':
+    print('helper stdout preserved',flush=True)
+    print('helper stderr preserved',file=sys.stderr,flush=True)
 while True:
     packet=peer.recv(2048)
     if not packet: break
@@ -131,6 +156,20 @@ while True:
             peer.send(b'{"state":"progress","phase":"verify"}')
             peer.send(b'{"state":"prepared"}')
 )PY";
+        {
+            const auto log = directory / "helper-output.log";
+            {
+                CaptureLogs capture(log);
+                Updates updates("0.6.0", {"logging"}, helper);
+                updates.click(10);
+                wait_label(updates, "Download and install update", 20);
+            }
+            std::ifstream stream(log);
+            const std::string contents((std::istreambuf_iterator<char>(stream)), {});
+            require(contents.find("helper stdout preserved") != std::string::npos &&
+                        contents.find("helper stderr preserved") != std::string::npos,
+                    "updater helper inherits both original log destinations");
+        }
         {
             Updates updates("0.6.0", {"latest"}, helper);
             require(updates.label() == "Check for updates", "initial label");
