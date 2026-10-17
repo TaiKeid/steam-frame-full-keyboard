@@ -1,6 +1,7 @@
 """Manual release updates over a private socket. No listeners or background checks."""
 import argparse
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -13,10 +14,12 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
 from urllib.parse import quote, urlsplit
+from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 REPOSITORY = "TaiKeid/steam-frame-full-keyboard"
@@ -27,6 +30,48 @@ MAX_UNPACKED = 256 * 1024 * 1024
 
 class UpdateError(Exception):
     pass
+
+
+def failure_reason(error):
+    # Never forward exception text, URLs or server responses to the UI or log.
+    if isinstance(error, HTTPError):
+        return "rate-limit" if (error.code == 429 or
+                (error.code == 403 and (error.headers or {}).get("X-RateLimit-Remaining") == "0")) else "server-unavailable"
+    if isinstance(error, (URLError, ConnectionError)):
+        return "network-unavailable"
+    if isinstance(error, TimeoutError):
+        return "download-timeout"
+    if isinstance(error, UpdateError):
+        code = str(error)
+        if code in {"not-installed-release", "installation-changed", "wrong-platform",
+                    "version-mismatch", "startup-failed", "install-busy", "download-timeout"}:
+            return code
+        if code in {"checksum-mismatch", "inconsistent-checksum", "missing-or-duplicate-checksum"}:
+            return "checksum-failed"
+        if code in {"incomplete-download", "download-limit", "invalid-download-size"}:
+            return "download-failed"
+        return "invalid-release"
+    if isinstance(error, subprocess.SubprocessError):
+        return "validation-failed"
+    if isinstance(error, OSError):
+        if error.errno in {errno.ENOSPC, errno.EDQUOT}:
+            return "disk-full"
+        if error.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+            return "permission-denied"
+        return "files-unavailable"
+    return "invalid-release"
+
+
+def record_failure(executable, operation, reason):
+    text = f"Update {operation} failed: {reason}.\n"
+    with contextlib.suppress(OSError):
+        print(text, end="", file=sys.stderr, flush=True)
+    with contextlib.suppress(OSError):
+        path = Path(executable).resolve()
+        if (len(path.parents) >= 4 and path.name == "framekeyboard" and
+                path.parent.name == "bin" and path.parents[2].name == "releases"):
+            with (path.parents[3] / "update-status.log").open("a") as output:
+                output.write(text)
 
 
 def version(value):
@@ -344,7 +389,10 @@ class Installation:
         if platform.machine() != "aarch64":
             raise UpdateError("wrong-platform")
         self.lock = (self.root / "install.lock").open("a")
-        fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise UpdateError("install-busy") from None
         if os.readlink(self.root / "current") != self.old_link:
             raise UpdateError("installation-changed")
         self.previous = os.readlink(self.root / "previous") if (self.root / "previous").is_symlink() else None
@@ -469,6 +517,7 @@ def serve(peer, executable, current, arguments):
             if flags & socket.MSG_TRUNC:
                 raise UpdateError("oversized-command")
             command = json.loads(packet)
+            operation = "check" if command.get("op") == "check" else "install"
             try:
                 if command["op"] == "check":
                     selected = release()
@@ -499,12 +548,17 @@ def serve(peer, executable, current, arguments):
                     return
                 else:
                     raise UpdateError("invalid-command")
-            except (OSError, ValueError, TypeError, KeyError, UpdateError, subprocess.SubprocessError, tarfile.TarError):
+            except (OSError, ValueError, TypeError, KeyError, UpdateError, subprocess.SubprocessError, tarfile.TarError) as error:
+                reason = failure_reason(error)
+                record_failure(executable, operation, reason)
                 if installation:
-                    installation.close()
+                    with contextlib.suppress(OSError):
+                        installation.close()
                     installation = None
                     prepared_at = None
-                send("error")
+                if peer.fileno() < 0:
+                    return
+                send("error", reason=reason)
     finally:
         if installation:
             installation.close()

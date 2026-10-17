@@ -13,6 +13,7 @@ class Updates {
     Updates(const Updates&) = delete;
     Updates& operator=(const Updates&) = delete;
     std::string label() const;
+    std::string failure_reason() const;
     bool busy() const;
     void click(double now);
     bool tick(double now);
@@ -25,8 +26,8 @@ class Updates {
     bool start();
     bool send(const std::string& operation);
     void stop();
-    void fail(double now);
-    std::string version_, offer_, progress_;
+    void fail(double now, const std::string& reason = {});
+    std::string version_, offer_, progress_, failure_;
     std::vector<std::string> arguments_;
     std::filesystem::path helper_;
     State state_{State::Idle};

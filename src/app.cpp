@@ -271,6 +271,9 @@ PanelView App::view() const {
     v.status = dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
                                                        : "Release trigger to place keyboard")
                          : status_;
+    if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
+        v.status = updates_->failure_reason();
+    }
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == "render" || options_.mode == "render-settings";
     if (v.status.empty() && !typing_ready_ && !image_export) {

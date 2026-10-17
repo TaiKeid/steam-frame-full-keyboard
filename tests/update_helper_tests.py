@@ -181,7 +181,7 @@ class Transaction(unittest.TestCase):
         lock = (self.root / "install.lock").open("a")
         try:
             u.fcntl.flock(lock, u.fcntl.LOCK_EX | u.fcntl.LOCK_NB)
-            with self.assertRaises(BlockingIOError):
+            with self.assertRaisesRegex(u.UpdateError, "install-busy"):
                 self.prepare()
         finally:
             lock.close()
@@ -390,6 +390,65 @@ class Startup(unittest.TestCase):
 
 
 class Protocol(unittest.TestCase):
+    def test_failure_reasons_are_fixed_and_logged_before_restart(self):
+        private = "https://private.example/secret"
+        failures = [
+            (u.URLError(private), "network-unavailable"),
+            (u.HTTPError(private, 429, private, {}, None), "rate-limit"),
+            (u.HTTPError(private, 403, private, {"X-RateLimit-Remaining": "0"}, None), "rate-limit"),
+            (u.HTTPError(private, 503, private, None, None), "server-unavailable"),
+            (TimeoutError(private), "download-timeout"),
+            (OSError(errno.ENOSPC, private), "disk-full"),
+            (OSError(errno.EACCES, private), "permission-denied"),
+            (u.UpdateError("checksum-mismatch"), "checksum-failed"),
+            (u.UpdateError("install-busy"), "install-busy"),
+            (u.UpdateError("not-installed-release"), "not-installed-release"),
+            (u.UpdateError("version-mismatch"), "version-mismatch"),
+            (u.UpdateError(private), "invalid-release"),
+            (subprocess.CalledProcessError(1, private), "validation-failed"),
+        ]
+        selected = {"tag": "9.0.0", "parts": (9, 0, 0)}
+        for operation in ("check", "install"):
+            for error, reason in failures:
+                with self.subTest(operation=operation, reason=reason), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    executable = root / "releases/old/bin/framekeyboard"
+                    executable.parent.mkdir(parents=True)
+                    executable.touch()
+                    client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                    client.settimeout(2)
+                    errors = []
+                    class FailingInstallation:
+                        def __init__(self, executable):
+                            pass
+                        def prepare(self, selected, progress):
+                            raise error
+                        def close(self):
+                            pass
+                    def run():
+                        try:
+                            u.serve(server, str(executable), "0.6.0", [])
+                        except BaseException as failure:
+                            errors.append(failure)
+                    with patch.object(u, "release", **({"side_effect": error} if operation == "check" else {"return_value": selected})), patch.object(u, "Installation", FailingInstallation), patch.object(sys, "stderr", io.StringIO()) as log:
+                        thread = threading.Thread(target=run)
+                        thread.start()
+                        try:
+                            client.send(json.dumps(dict(op=operation, version="9.0.0")).encode())
+                            self.assertEqual(json.loads(client.recv(2048)), {"state": "error", "reason": reason})
+                        finally:
+                            client.close()
+                            thread.join(timeout=3)
+                        self.assertFalse(thread.is_alive())
+                        self.assertEqual(errors, [])
+                        expected = f"Update {operation} failed: {reason}.\n"
+                        self.assertEqual((root / "update-status.log").read_text(), expected)
+                        self.assertEqual(log.getvalue(), expected)
+                        self.assertNotIn(private, log.getvalue())
+        for error, _ in failures:
+            if isinstance(error, u.HTTPError):
+                error.close()
+
     def test_closing_channel_cancels_prepared_install_without_activation(self):
         client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         selected = {"tag": "9.0.0", "parts": (9, 0, 0)}

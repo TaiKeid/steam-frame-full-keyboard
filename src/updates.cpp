@@ -8,6 +8,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <fcntl.h>
+#include <iostream>
 #include <json-c/json.h>
 #include <memory>
 #include <spawn.h>
@@ -29,6 +30,34 @@ std::string field(json_object* object, const char* key) {
                    json_object_get_type(value) == json_type_string
                ? json_object_get_string(value)
                : "";
+}
+std::string failure_message(const std::string& code) {
+    static const std::pair<const char*, const char*> reasons[] = {
+        {"network-unavailable", "Network unavailable. Check your connection."},
+        {"server-unavailable", "GitHub could not serve the update. Try again later."},
+        {"rate-limit", "GitHub request limit reached. Try again later."},
+        {"download-timeout", "The update download timed out."},
+        {"download-failed", "The update download is incomplete or invalid."},
+        {"checksum-failed", "Update checksum verification failed."},
+        {"install-busy", "Another installation is running."},
+        {"not-installed-release", "Install a release package before updating."},
+        {"installation-changed", "The installation changed. Relaunch Full Keyboard."},
+        {"wrong-platform", "Updates require a Steam Frame ARM64 installation."},
+        {"version-mismatch", "The package version does not match the release."},
+        {"startup-failed", "The updated keyboard could not finish startup."},
+        {"validation-failed", "The update package could not run its validation."},
+        {"invalid-release", "The release package or metadata is invalid."},
+        {"disk-full", "Not enough disk space to install the update."},
+        {"permission-denied", "The installation is not writable."},
+        {"files-unavailable", "Update files could not be read or written."},
+        {"helper-unavailable", "The update helper could not start."},
+        {"connection-lost", "The update helper connection was lost."}};
+    for (const auto& [reason, message] : reasons) {
+        if (code == reason) {
+            return message;
+        }
+    }
+    return "The update could not be completed. Try again.";
 }
 } // namespace
 Updates::Updates(std::string version, std::vector<std::string> arguments, std::filesystem::path helper)
@@ -148,8 +177,13 @@ std::string Updates::label() const {
     }
     return {};
 }
-void Updates::fail(double now) {
+std::string Updates::failure_reason() const {
+    return state_ == State::Error ? failure_ : "";
+}
+void Updates::fail(double now, const std::string& reason) {
     state_ = State::Error;
+    failure_ = failure_message(reason);
+    std::cerr << failure_ << '\n';
     reset_at_ = now + 5;
 }
 void Updates::click(double now) {
@@ -157,7 +191,7 @@ void Updates::click(double now) {
         return;
     }
     if (!start() || !send(offer_.empty() ? "check" : "install")) {
-        fail(now);
+        fail(now, "helper-unavailable");
         return;
     }
     state_ = offer_.empty() ? State::Checking : State::Installing;
@@ -165,6 +199,7 @@ void Updates::click(double now) {
 }
 bool Updates::tick(double now) {
     const auto before = label();
+    const auto before_reason = failure_reason();
     if ((state_ == State::Latest || state_ == State::Error) && now >= reset_at_) {
         state_ = offer_.empty() ? State::Idle : State::Available;
     }
@@ -178,7 +213,7 @@ bool Updates::tick(double now) {
             close(fd_);
             fd_ = -1;
             if (!prepared()) {
-                fail(now);
+                fail(now, "connection-lost");
             }
             break;
         }
@@ -197,7 +232,7 @@ bool Updates::tick(double now) {
         } else if (state == "prepared" && state_ == State::Installing) {
             state_ = State::Prepared;
         } else if (state == "error") {
-            fail(now);
+            fail(now, field(packet.get(), "reason"));
         }
     }
     if (child_ > 0 && !prepared() && waitpid(child_, nullptr, WNOHANG) == child_) {
@@ -207,10 +242,10 @@ bool Updates::tick(double now) {
             fd_ = -1;
         }
         if (busy()) {
-            fail(now);
+            fail(now, "connection-lost");
         }
     }
-    return before != label();
+    return before != label() || before_reason != failure_reason();
 }
 bool Updates::handoff() {
     handed_off_ = prepared() && send("activate");

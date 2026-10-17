@@ -125,7 +125,8 @@ while True:
         peer.send(json.dumps(value).encode())
     elif command['op']=='install':
         assert command['version']=='9.0.0'
-        if mode=='failure': peer.send(b'{"state":"error"}')
+        if mode in ('failure','unknown-failure'):
+            peer.send(json.dumps({'state':'error','reason':'checksum-failed' if mode=='failure' else 'untrusted exception text'}).encode())
         else:
             peer.send(b'{"state":"progress","phase":"verify"}')
             peer.send(b'{"state":"prepared"}')
@@ -188,11 +189,32 @@ while True:
             wait_label(updates, "Download and install update", 20);
             updates.click(21);
             wait_label(updates, "Update failed. Try again", 22);
+            require(updates.failure_reason() == "Update checksum verification failed.",
+                    "fixed helper failure reason reaches the UI");
             updates.tick(27);
+            require(updates.failure_reason().empty(), "expired error clears the status reason");
             require(updates.label() == "Download and install update",
                     "failed install retains the offer");
             updates.click(28);
             wait_label(updates, "Update failed. Try again", 29);
+        }
+        {
+            Updates updates("0.6.0", {"unknown-failure"}, helper);
+            NullSink sink;
+            Options options;
+            options.mode = "preview";
+            options.config_dir = directory / "reason-config";
+            App app(options, sink, {}, &updates);
+            app.show_settings();
+            updates.click(10);
+            wait_label(updates, "Download and install update", 20);
+            updates.click(21);
+            wait_label(updates, "Update failed. Try again", 22);
+            require(app.view().status == "The update could not be completed. Try again.",
+                    "Settings status uses a fixed fallback and never displays helper exception text");
+            updates.tick(27);
+            require(app.view().status != "The update could not be completed. Try again.",
+                    "Settings status recovers after the temporary failure");
         }
         {
             Updates updates("0.6.0", {"exit"}, helper);
