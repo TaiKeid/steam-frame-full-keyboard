@@ -1,5 +1,6 @@
 """Offline updater tests in disposable installs; never download or touch a real keyboard."""
 import copy
+import errno
 import hashlib
 import importlib.util
 import io
@@ -218,6 +219,60 @@ class Transaction(unittest.TestCase):
         backups = list((self.root / "update-backups").glob("*/config.json"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), "saved before restart")
+
+    def test_rollback_file_errors_cannot_skip_old_restart_or_leave_dangling_current(self):
+        for failing_step in ("current", "previous", "preferences"):
+            with self.subTest(step=failing_step):
+                self.prepare()
+                config = Path(self.directory.name) / "prefs"
+                real_replace = u.replace_link
+                def replace(root, name, target):
+                    if (name == failing_step and
+                            target == ("releases/old" if name == "current" else "releases/older")):
+                        self.assertFalse((Path(self.installation.temporary.name) / "update.tar.gz").exists())
+                        raise OSError(errno.EIO, "injected rollback failure")
+                    return real_replace(root, name, target)
+                def restore(snapshot):
+                    if failing_step == "preferences":
+                        raise OSError(errno.ENOSPC, "injected restore failure")
+                with patch.object(u, "replace_link", side_effect=replace), patch.object(u.SettingsSnapshot, "restore", autospec=True, side_effect=restore) as restored, patch.object(u, "launch", side_effect=[u.UpdateError("startup"), None]) as launched:
+                    with self.assertRaises(u.UpdateError):
+                        self.installation.activate(["--vr", "--config-dir", str(config)])
+                    self.assertEqual(launched.call_args_list[1].args[0], self.old)
+                    restored.assert_called_once()
+                self.assertTrue((self.root / "current").exists())
+                self.assertTrue((self.old / "bin/framekeyboard").exists())
+                if failing_step == "current":
+                    self.assertTrue(self.installation.target.exists())
+                else:
+                    self.assertEqual((self.root / "current").resolve(), self.old)
+                    self.assertFalse(self.installation.target.exists())
+                self.assertIn("recovery writes incomplete", (self.root / "update-status.log").read_text())
+                self.installation.close()
+                # Each subcase starts from the original link state; all paths are private.
+                real_replace(self.root, "current", "releases/old")
+                real_replace(self.root, "previous", "releases/older")
+
+    def test_snapshot_attempts_placement_after_config_restore_error(self):
+        config = Path(self.directory.name) / "preferences"
+        config.mkdir()
+        (config / "config.json").write_text("original config")
+        (config / "placement.json").write_text("original placement")
+        snapshot = u.SettingsSnapshot(self.root, "snapshot-test", ["--config-dir", str(config)])
+        (config / "config.json").write_text("changed config")
+        (config / "placement.json").write_text("changed placement")
+        create = u.tempfile.NamedTemporaryFile
+        calls = 0
+        def temporary(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError(errno.ENOSPC, "injected config write failure")
+            return create(*args, **kwargs)
+        with patch.object(u.tempfile, "NamedTemporaryFile", side_effect=temporary), self.assertRaises(OSError):
+            snapshot.restore()
+        self.assertEqual((config / "placement.json").read_text(), "original placement")
+        self.assertEqual((snapshot.backup / "config.json").read_text(), "original config")
 
     def test_startup_failure_restores_links_and_relaunches_old(self):
         self.prepare()

@@ -267,18 +267,24 @@ class SettingsSnapshot:
                 shutil.copy2(path, self.backup / filename)
 
     def restore(self):
+        errors = []
         for filename, existed in self.saved.items():
             path = self.config / filename
-            if existed:
-                with tempfile.NamedTemporaryFile(dir=self.config, delete=False) as temporary:
-                    name = Path(temporary.name)
-                try:
-                    shutil.copy2(self.backup / filename, name)
-                    name.replace(path)
-                finally:
-                    name.unlink(missing_ok=True)
-            else:
-                path.unlink(missing_ok=True)
+            try:
+                if existed:
+                    with tempfile.NamedTemporaryFile(dir=self.config, delete=False) as temporary:
+                        name = Path(temporary.name)
+                    try:
+                        shutil.copy2(self.backup / filename, name)
+                        name.replace(path)
+                    finally:
+                        name.unlink(missing_ok=True)
+                else:
+                    path.unlink(missing_ok=True)
+            except OSError as error:
+                errors.append(error)
+        if errors:
+            raise errors[0]
 
 
 class Installation:
@@ -354,22 +360,51 @@ class Installation:
             with contextlib.suppress(OSError):
                 (self.root / "update-status.log").write_text("Update installed and startup acknowledged.\n")
         except BaseException:
-            # The failed child is reaped by launch before rollback. Remove only our
-            # unique new target, also freeing room for link restoration on a full disk.
-            if promoted:
-                with contextlib.suppress(OSError):
-                    shutil.rmtree(self.target)
-            if switched:
-                if os.readlink(self.root / "current") != self.old_link:
-                    replace_link(self.root, "current", self.old_link)
-                replace_link(self.root, "previous", self.previous)
-            if snapshot:
-                snapshot.restore()
-            # Only called once the original app has exited and released its instance lock.
-            launch(self.old, arguments)
-            with contextlib.suppress(OSError):
-                (self.root / "update-status.log").write_text("Update failed; previous release relaunched.\n")
+            self.rollback(arguments, snapshot, promoted, switched)
             raise
+
+    def write_status(self, text):
+        with contextlib.suppress(OSError):
+            (self.root / "update-status.log").write_text(text)
+
+    def rollback(self, arguments, snapshot, promoted, switched):
+        errors = []
+
+        def attempt(operation):
+            try:
+                operation()
+            except OSError as error:
+                errors.append(error)
+
+        try:
+            # Free the completed download first, without deleting the release that
+            # current might still name. Link repair may itself need disk space.
+            if self.temporary:
+                attempt(lambda: (Path(self.temporary.name) / "update.tar.gz").unlink(missing_ok=True))
+            if switched:
+                attempt(lambda: replace_link(self.root, "current", self.old_link))
+                attempt(lambda: replace_link(self.root, "previous", self.previous))
+            if snapshot:
+                attempt(snapshot.restore)
+            if promoted:
+                try:
+                    old_current = (self.root / "current").resolve(strict=True) == self.old
+                except OSError:
+                    old_current = False
+                # A persistent write failure must never leave current dangling.
+                # Retain the new target until the old link is confirmed restored.
+                if old_current:
+                    attempt(lambda: shutil.rmtree(self.target))
+        finally:
+            # Repair failures are independent. Always attempt the known old binary
+            # directly, even when current or a saved preference cannot be restored.
+            try:
+                launch(self.old, arguments)
+            except BaseException:
+                self.write_status("Update failed; previous release could not restart.\n")
+                raise
+            status = "Update failed; previous release relaunched"
+            self.write_status(status + ("; recovery writes incomplete.\n" if errors else ".\n"))
 
 
 def serve(peer, executable, current, arguments):
