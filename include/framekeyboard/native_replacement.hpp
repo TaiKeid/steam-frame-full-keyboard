@@ -23,6 +23,7 @@ class NativeReplacement : public KeySink {
     void route(bool remote) { remote_ = remote; }
     bool remote() const { return remote_; }
     void dismiss_request();
+    bool take_unsupported_control();
     void send(int code, int value) override;
     bool pump() override { return local_.pump(); }
     bool take_input_reset() override;
@@ -44,7 +45,7 @@ class NativeReplacement : public KeySink {
     int fd_{-1};
     pid_t child_{-1};
     State state_;
-    bool remote_{}, reset_{}, force_fallback_{};
+    bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
     double last_reply_{}, next_start_{}, now_{}, pending_since_{};
     std::uint64_t progress_{}, sequence_{}, pending_id_{};
     std::string pending_text_;

@@ -83,9 +83,33 @@ void transport() {
         replacement.send(KEY_LEFTCTRL, 0);
         replacement.send(KEY_ENTER, 2);
         replacement.send(KEY_ENTER, 0);
-        require(local.keys.size() == 5 && local.keys[3] == std::pair{KEY_ENTER, 2} &&
-                    local.keys.back() == std::pair{KEY_ENTER, 0},
-                "native repeat and release retain their route after modifier-up");
+        for (const auto code : {KEY_W, KEY_C, KEY_V}) {
+            replacement.send(KEY_LEFTCTRL, 1);
+            replacement.send(code, 1);
+            replacement.send(code, 2);
+            replacement.send(KEY_LEFTCTRL, 0);
+            replacement.send(code, 0);
+        }
+        replacement.send(KEY_LEFTMETA, 1);
+        replacement.send(KEY_LEFTMETA, 0);
+        replacement.send(KEY_DELETE, 1);
+        replacement.send(KEY_DELETE, 0);
+        char byte;
+        require(local.keys.empty() && recv(pair[1], &byte, 1, MSG_DONTWAIT) < 0 && errno == EAGAIN,
+                "Steam fields block shortcuts and unsupported controls on both input routes");
+        require(replacement.take_unsupported_control() && !replacement.take_unsupported_control(),
+                "unsupported controls produce a consumable user notice");
+        replacement.route(false);
+        replacement.send(KEY_LEFTCTRL, 1);
+        replacement.send(KEY_ENTER, 1);
+        replacement.send(KEY_LEFTCTRL, 0);
+        replacement.route(true);
+        replacement.send(KEY_ENTER, 2);
+        replacement.send(KEY_ENTER, 0);
+        require(local.keys ==
+                    std::vector<std::pair<int, int>>{
+                        {KEY_LEFTCTRL, 1}, {KEY_ENTER, 1}, {KEY_LEFTCTRL, 0}, {KEY_ENTER, 0}},
+                "local shortcuts remain supported, with release preserved across a route change");
         require(!replacement.commit_text("unsent"), "begin next commit");
         take(pair[1]);
         activate(pair[1], replacement, 10.5);

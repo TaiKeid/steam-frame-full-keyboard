@@ -217,6 +217,9 @@ void NativeReplacement::dismiss_request() {
         force_fallback_ = true;
     }
 }
+bool NativeReplacement::take_unsupported_control() {
+    return std::exchange(unsupported_control_, false);
+}
 void NativeReplacement::send(int code, int value) {
     const auto held = remote_keys_.find(code);
     if (value == 0 && held != remote_keys_.end()) {
@@ -245,7 +248,9 @@ void NativeReplacement::send(int code, int value) {
         return;
     }
     if (value == 2 && local_keys_.contains(code)) {
-        local_.send(code, value);
+        if (!remote_) {
+            local_.send(code, value);
+        }
         return;
     }
     if (value == 0 && local_keys_.erase(code)) {
@@ -273,6 +278,14 @@ void NativeReplacement::send(int code, int value) {
             return;
         }
         remote_keys_.emplace(code, RemoteKey{id, state_.request, true});
+        return;
+    }
+    if (remote_) {
+        // A retained Steam field is not the compositor's focused application.
+        // Unsupported physical controls must never escape through local input.
+        if (value == 1) {
+            unsupported_control_ = true;
+        }
         return;
     }
     if (value == 1) {

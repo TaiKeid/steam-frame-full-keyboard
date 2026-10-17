@@ -579,6 +579,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             break;
         }
         replacement.poll(now);
+        if (replacement.take_unsupported_control()) {
+            app.report_status("Control unavailable in Steam fields. Use Steam keyboard for shortcuts.");
+        }
         const auto native = replacement.state();
         app.set_replacement_available(native.available);
         app.set_native_session(native.open);
