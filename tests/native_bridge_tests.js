@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const factory = vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"));
 const MAIN = "valve.steam.gamepadui.main";
 
-function fixture(open = false, production = false, external = false) {
+function fixture(open = false, production = false, external = false, sharedApi = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false;
     const calls = [], deliveries = [], nodes = new Set();
     const status = {bIsOpen: open, bMinimal: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false};
@@ -75,8 +75,12 @@ function fixture(open = false, production = false, external = false) {
         root.webpackChunksteamui = [];
         root.webpackChunksteamui.push = function(chunk) { Array.prototype.push.call(this, chunk); chunk[2](require); };
     }
+    const otherKey = "valve.steam.gamepadui.barpopup";
+    const other = sharedApi ? {...manager, m_Instance: {GetVROverlayKey() { return otherKey; }},
+        m_ActiveElementProps: {onTextEntered(value) { deliveries.push(value); }}} : null;
+    if (other) root.SteamUIStore.WindowStore.SteamUIWindows.push({VirtualKeyboardManager: other});
     const bridge = factory(root, production ? undefined : store, external);
-    return {bridge, calls, deliveries, nodes, manager, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
+    return {bridge, calls, deliveries, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true) {
             return bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
@@ -104,6 +108,22 @@ function externalOwned(f) {
     assert(s.local && s.eligible && !f.nativeOpen(), "close the complete external native presentation");
     assert(f.step(s.request).active);
     return s.request;
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, true);
+    f.step(); f.status({bIsOpen: true, sOverlayKey: "valve.steam.gamepadui.barpopup"});
+    const s = f.step();
+    assert(s.eligible && f.step(s.request).active && !f.nativeOpen(),
+        "a second owner sharing the provider can acquire its native session");
+    assert.equal(f.calls.filter(c => c === "native-hide").length, 1,
+        "takeover calls the original provider rather than another owner's hook");
+    assert(f.bridge.send(s.request, "shared provider fixture"));
+    assert(f.bridge.dismiss(s.request) && !f.step().open && !f.nativeOpen());
+    assert.equal(f.calls.filter(c => c === "native-hide").length, 2, "dismiss invokes the provider once");
+    f.status({sOverlayKey: MAIN});
+    assert(owned(f), "the first owner can still summon after the shared owner's dismissal");
+    f.bridge.dispose();
+    assert.equal(f.keyboard.Hide, f.oldHide, "restore the single shared provider hook");
 }
 {
     const f = fixture(false, false, true), generation = externalOwned(f);

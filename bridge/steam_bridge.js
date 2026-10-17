@@ -261,13 +261,14 @@
         }
     }
     try {
-        const hookedApis = new Set();
+        const hookedApis = new Map();
         for (const manager of managers) {
             const api = manager.m_ownerWindow?.SteamClient?.OpenVR?.Keyboard;
             const key = manager.m_Instance?.GetVROverlayKey?.();
             if (!ownSteam(key) || typeof api?.Show !== "function" || typeof api?.Hide !== "function" ||
                 typeof manager.SetVRKeyboardOpenForThisInstance !== "function") continue;
-            const owner = {manager, api, key, show: api.Show, hide: api.Hide};
+            const originals = hookedApis.get(api) || {show: api.Show, hide: api.Hide};
+            const owner = {manager, api, key, ...originals};
             if (typeof manager.SetVirtualKeyboardShownInternal === "function") {
                 owner.fieldHook = true;
                 hook(manager, "SetVirtualKeyboardShownInternal", original => function(open, ...args) {
@@ -289,7 +290,7 @@
             });
             owners.push(owner);
             if (!hookedApis.has(api)) {
-                hookedApis.add(api);
+                hookedApis.set(api, originals);
                 hook(api, "Hide", original => function(...args) {
                     if (logical?.owner.api === this) releaseLogical(false);
                     return original.apply(this, args);
