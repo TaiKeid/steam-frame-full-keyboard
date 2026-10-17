@@ -14,7 +14,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
 - Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
 - Controller laser typing, press/release haptic clicks, and subtle hover feedback.
-- Grab anywhere to move and rotate the keyboard, with thumbstick depth adjustment and size controls.
+- Move with the laser handle below the keyboard, or enable grab movement in Settings. Size controls are available in both modes.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Editable layouts, languages, and themes, with a settings menu inside VR.
 - English, German, French, Spanish, Italian, Brazilian Portuguese, Russian, Ukrainian, Japanese, Chinese and Korean options. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul.
@@ -65,19 +65,21 @@ To update, **close the keyboard**, download the new release assets, and repeat t
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
 | Copy / paste | Use the two icons on the left; select text first when copying |
-| Move / rotate | Unpin, point anywhere on the keyboard, hold grab/grip, move your hand, then release |
+| Move / rotate | Unpin, point at the line below the keyboard, hold the trigger, move your hand, then release |
+| Use the headset cursor | Press AUX to show the head cursor. Aim at keys with your head and click AUX; hold AUX on the movement line to move the keyboard |
+| Use grab movement | Enable **Use Drag to Move** in the **General** settings card and apply. Point anywhere on the keyboard and hold grab/grip; the same hand's thumbstick adjusts depth |
 | Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
 | Cycle favorite layouts and languages | Press the language abbreviation beside the pin icon |
-| Move farther / closer | While grabbing, push that same controller's thumbstick up / down |
+| Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Use the smaller / larger icons in the toolbar |
-| Hide the numpad | In Settings, check Appearance → Hide numpad and Apply and save |
+| Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
 | Close | Use the × icon |
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
-Closing and reopening normally restores the last position, rotation, size and Num Lock state. Numpad visibility is saved globally across all layouts. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. After releasing a grab, a sideways lean within 5° eases level over 500 ms. This preserves the desk-like forward tilt and never fights your hand during a grab.
+Closing and reopening normally restores the last position, rotation, size and Num Lock state. Numpad visibility is saved globally across all layouts. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. With General → Auto leveling enabled, a sideways lean within 5° eases level over 500 ms after releasing movement. Auto leveling is on by default; disable it to keep the angle you set. This preserves the desk-like forward tilt and never fights your hand during a grab.
 
 ## Languages and customization
 

@@ -8,5 +8,7 @@
   "favorites": [],
   "pinned": false,
   "num_lock": false,
-  "hide_numpad": false
+  "hide_numpad": false,
+  "use_drag_to_move": false,
+  "auto_leveling": true
 }

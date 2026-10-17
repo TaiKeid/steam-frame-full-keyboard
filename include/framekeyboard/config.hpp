@@ -50,6 +50,8 @@ struct Settings {
     bool pinned{};
     bool num_lock{};
     bool hide_numpad{};
+    bool use_drag_to_move{};
+    bool auto_leveling{true};
 };
 
 fs::path default_config_dir();

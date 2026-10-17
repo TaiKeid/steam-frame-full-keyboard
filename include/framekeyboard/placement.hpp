@@ -26,7 +26,7 @@ class DashboardAnchor {
 // animation never feeds its own correction back into the controller grab.
 class HorizonAlignment {
   public:
-    Transform update(const Transform& raw, double now, bool grabbed = false);
+    Transform update(const Transform& raw, double now, bool grabbed = false, bool enabled = true);
     void reset() { *this = {}; }
     bool animating() const { return animating_; }
 
@@ -35,6 +35,32 @@ class HorizonAlignment {
     bool within_threshold_{}, animating_{};
 };
 enum class PlacementAction { Smaller, Larger };
+enum class MoveSource { Laser, Grip };
+// Capture belongs to the initiating head/controller and cursor. Another pointer
+// must not steal or release movement, even when it reuses the same cursor index.
+class MoveCapture {
+  public:
+    bool begin(MoveSource source, unsigned device, unsigned pointer = 0) {
+        if (active()) {
+            return false;
+        }
+        source_ = source;
+        device_ = device;
+        pointer_ = pointer;
+        return true;
+    }
+    bool active() const { return source_.has_value(); }
+    std::optional<MoveSource> source() const { return source_; }
+    unsigned device() const { return device_; }
+    bool owns_pointer(unsigned device, unsigned pointer) const {
+        return source_ == MoveSource::Laser && device_ == device && pointer_ == pointer;
+    }
+    void reset() { source_.reset(); }
+
+  private:
+    std::optional<MoveSource> source_;
+    unsigned device_{}, pointer_{};
+};
 class PanelPlacement {
   public:
     void recenter(const Transform& head, const Transform* dashboard_bottom = nullptr,

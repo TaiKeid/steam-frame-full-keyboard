@@ -23,10 +23,10 @@ Rotation level_heading(const Transform& head) {
     return {{{zz, 0, zx}, {0, 1, 0}, {-zx, 0, zz}}};
 }
 } // namespace
-Transform HorizonAlignment::update(const Transform& raw, double now, bool grabbed) {
-    if (grabbed) {
-        // The hand owns the exact pose until release. Do not run the easing
-        // clock in the background, or a long grab would snap on release.
+Transform HorizonAlignment::update(const Transform& raw, double now, bool grabbed, bool enabled) {
+    if (grabbed || !enabled) {
+        // Preserve the exact pose while moving or with assistance disabled.
+        // Reset the easing clock so release or enabling starts smoothly.
         reset();
         return raw;
     }

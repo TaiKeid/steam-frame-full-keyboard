@@ -94,4 +94,40 @@ void GripLatch::reset() {
     held_ = false;
     armed_ = false;
 }
+void TriggerReleaseGuard::begin(double now) {
+    *this = {};
+    started_ = now;
+}
+bool TriggerReleaseGuard::update(std::optional<double> angle_degrees, double now) {
+    if (!angle_degrees || !std::isfinite(*angle_degrees) || !std::isfinite(now) || now < started_) {
+        released_since_.reset();
+        sampled_at_.reset();
+        return false;
+    }
+    // A delayed frame is not evidence of continuously released input.
+    if (sampled_at_ && (now < *sampled_at_ || now - *sampled_at_ > .1)) {
+        released_since_.reset();
+    }
+    sampled_at_ = now;
+    if (*angle_degrees >= 1) {
+        seen_held_ = true;
+    }
+    if (*angle_degrees >= .5) {
+        released_since_.reset();
+        return false;
+    }
+    // Preserve immediate normal-release recovery after seeing a hold,
+    // including a genuine click shorter than the initial grace period.
+    if (seen_held_) {
+        return true;
+    }
+    if (now - started_ < .15) {
+        released_since_.reset();
+        return false;
+    }
+    if (!released_since_) {
+        released_since_ = now;
+    }
+    return now - *released_since_ >= .05;
+}
 } // namespace framekeyboard

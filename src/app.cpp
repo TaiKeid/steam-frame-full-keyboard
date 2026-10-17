@@ -75,6 +75,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     rebuild_cycle_entries();
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    pending_use_drag_to_move_ = settings_.use_drag_to_move;
+    pending_auto_leveling_ = settings_.auto_leveling;
     update_settings_ui();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
     if (const auto target = profiles_.languages.find(options_.target_language);
@@ -86,17 +88,30 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result;
-    if (settings_open_) {
-        return {{"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back},
-                {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply},
-                {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload}};
-    }
     PanelView geometry;
     geometry.layout = &profiles_.layouts.at(settings_.active.layout);
     geometry.theme = &profiles_.themes.at(settings_.active.theme);
     geometry.language = &profiles_.languages.at(settings_.active.language);
     geometry.hide_numpad = settings_.hide_numpad;
+    geometry.settings = settings_open_;
     const auto body = panel_case_bounds(geometry);
+    auto append_move_handle = [&] {
+        if (!settings_.pinned && !settings_.use_drag_to_move) {
+            result.push_back({"move-handle",
+                              "Move keyboard",
+                              {body.x + body.width / 2 - 220, panel_height + 12, 440, 60},
+                              dragging_,
+                              Icon::None,
+                              ControlStyle::MoveHandle});
+        }
+    };
+    if (settings_open_) {
+        result = {{"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back},
+                  {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply},
+                  {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload}};
+        append_move_handle();
+        return result;
+    }
     const double x = body.x + 18;
     result.push_back({"settings", "Settings", {x, 12, 60, 42}, false, Icon::Settings});
     result.push_back({"recenter", "Recenter", {x + 70, 12, 60, 42}, false, Icon::Recenter});
@@ -173,6 +188,7 @@ std::vector<Control> App::controls() const {
         result[i].bounds.x = body.x + result[i].bounds.x * body.width / panel_width;
         result[i].bounds.width *= body.width / panel_width;
     }
+    append_move_handle();
     return result;
 }
 void App::update_settings_ui() {
@@ -194,14 +210,22 @@ void App::update_settings_ui() {
            {"language", "Language:", pending_.language, ControlStyle::Dropdown, false,
             choices(profiles_.languages)},
            {"favorite", "Favorite:", "", ControlStyle::Checkbox, favorite, {}}}},
-         {"appearance",
-          "Appearance",
+         {"general",
+          "General",
           {{"theme", "Theme:", pending_.theme, ControlStyle::Dropdown, false, choices(profiles_.themes)},
-           {"hide-numpad",
-            "Hide numpad",
+           {"hide-numpad", "Hide numpad", "", ControlStyle::Checkbox, pending_hide_numpad_, {}, true},
+           {"use-drag-to-move",
+            "Use Drag to Move",
             "",
             ControlStyle::Checkbox,
-            pending_hide_numpad_,
+            pending_use_drag_to_move_,
+            {},
+            true},
+           {"auto-leveling",
+            "Auto leveling",
+            "",
+            ControlStyle::Checkbox,
+            pending_auto_leveling_,
             {},
             true}}}});
 }
@@ -217,7 +241,9 @@ PanelView App::view() const {
     if (settings_open_) {
         settings_ui_.append(v);
     }
-    v.status = dragging_ ? "Release grab to place keyboard" : status_;
+    v.status = dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
+                                                       : "Release trigger to place keyboard")
+                         : status_;
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == "render" || options_.mode == "render-settings";
     if (v.status.empty() && !gate_.enabled && !image_export) {
@@ -555,6 +581,8 @@ void App::show_settings() {
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    pending_use_drag_to_move_ = settings_.use_drag_to_move;
+    pending_auto_leveling_ = settings_.auto_leveling;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -684,12 +712,16 @@ void App::reload() {
         settings_.pinned = updated_settings.pinned;
         settings_.num_lock = updated_settings.num_lock;
         settings_.hide_numpad = updated_settings.hide_numpad;
+        settings_.use_drag_to_move = updated_settings.use_drag_to_move;
+        settings_.auto_leveling = updated_settings.auto_leveling;
         keyboard_.set_num(settings_.num_lock);
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    pending_use_drag_to_move_ = settings_.use_drag_to_move;
+    pending_auto_leveling_ = settings_.auto_leveling;
     rebuild_cycle_entries();
     update_settings_ui();
     settings_ui_.reset();
@@ -1110,6 +1142,8 @@ void App::action(const std::string& id) {
         activate(pending_);
         settings_.favorites = pending_favorites_;
         settings_.hide_numpad = pending_hide_numpad_;
+        settings_.use_drag_to_move = pending_use_drag_to_move_;
+        settings_.auto_leveling = pending_auto_leveling_;
         default_ = settings_.active;
         rebuild_cycle_entries();
         save();
@@ -1135,6 +1169,12 @@ void App::action(const std::string& id) {
         update_settings_ui();
     } else if (id == "hide-numpad") {
         pending_hide_numpad_ = !pending_hide_numpad_;
+        update_settings_ui();
+    } else if (id == "use-drag-to-move") {
+        pending_use_drag_to_move_ = !pending_use_drag_to_move_;
+        update_settings_ui();
+    } else if (id == "auto-leveling") {
+        pending_auto_leveling_ = !pending_auto_leveling_;
         update_settings_ui();
     } else if (id == "favorite") {
         const bool exists =

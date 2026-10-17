@@ -11,7 +11,7 @@ constexpr int panel_height = 600;
 // Logical UI and placement coordinates still describe the 1600 x 600 case.
 constexpr int popup_margin = 200;
 constexpr int texture_height = panel_height + 2 * popup_margin;
-enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar };
+enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle };
 struct Control {
     bool operator==(const Control&) const = default;
     std::string id, label;
@@ -56,6 +56,8 @@ bool hidden_key(const PanelView& view, const Key& key);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
 Rect panel_case_bounds(const PanelView& view);
+// This is the complete hit region, including transparent padding around the line.
+std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 
 class PanelRenderer {
   public:
@@ -87,6 +89,7 @@ class PanelRenderer {
     std::optional<Snapshot> previous_;
     std::map<std::string, Rect> key_bounds_;
     std::map<std::string, Animation> animations_;
+    Animation move_handle_;
     cairo_surface_t* surface_{};
     bool animating_{};
 };

@@ -31,9 +31,15 @@ Transform from_vr(const vr::HmdMatrix34_t& pose) {
     }
     return result;
 }
-std::optional<Transform> read_controller(vr::TrackedDeviceIndex_t device) {
-    if (device >= vr::k_unMaxTrackedDeviceCount ||
-        vr::VRSystem()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
+bool pointer_device(vr::TrackedDeviceIndex_t device) {
+    if (device >= vr::k_unMaxTrackedDeviceCount) {
+        return false;
+    }
+    const auto kind = vr::VRSystem()->GetTrackedDeviceClass(device);
+    return kind == vr::TrackedDeviceClass_Controller || kind == vr::TrackedDeviceClass_HMD;
+}
+std::optional<Transform> read_pointer_pose(vr::TrackedDeviceIndex_t device) {
+    if (!pointer_device(device)) {
         return {};
     }
     // Dashboard overlays receive laser events even when legacy controller input
@@ -70,7 +76,7 @@ class GrabInput {
                  input->GetInputSourceHandle("/user/hand/right", &hands_[1]) == vr::VRInputError_None;
         return ready_;
     }
-    std::array<GrabSample, 2> poll() {
+    std::array<GrabSample, 2> poll(std::optional<vr::TrackedDeviceIndex_t> laser_device = {}) {
         std::array<GrabSample, 2> result{};
         if (!ready_) {
             return result;
@@ -79,6 +85,10 @@ class GrabInput {
             const auto role =
                 i == 0 ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
             const auto device = vr::VRSystem()->GetTrackedDeviceIndexForControllerRole(role);
+            if (laser_device && device != *laser_device) {
+                latches_[i].reset();
+                continue;
+            }
             if (device != devices_[i]) {
                 latches_[i].reset();
                 devices_[i] = device;
@@ -99,24 +109,31 @@ class GrabInput {
             vr::RenderModel_ComponentState_t current{}, neutral{};
             vr::VRControllerState_t released{};
             auto* models = vr::VRRenderModels();
-            // Frame's dashboard masks grip actions and legacy controller state.
-            // Its render component still animates the physical squeeze. Supplying
-            // an all-released state gives a stable rest pose, even when launched
-            // while the user already holds the grip. This is Frame-model specific.
-            const bool valid =
-                models->GetComponentStateForDevicePath(model, "button_grip", hands_[i], &mode,
-                                                       &current) &&
-                models->GetComponentState(model, "button_grip", &released, &mode, &neutral);
-            if (!valid) {
+            result[i] = {true, false, false, device};
+            if (laser_device) {
+                // A trigger-held line capture needs only this hand's stick.
+                // Grip availability/state must not gate laser depth control.
                 latches_[i].reset();
-                continue;
+            } else {
+                // Frame's dashboard masks grip actions and legacy controller
+                // state. Compare the live component with a synthetic rest pose.
+                const bool valid =
+                    models->GetComponentStateForDevicePath(model, "button_grip", hands_[i], &mode,
+                                                           &current) &&
+                    models->GetComponentState(model, "button_grip", &released, &mode, &neutral);
+                if (!valid) {
+                    latches_[i].reset();
+                    result[i] = {};
+                    continue;
+                }
+                const double angle =
+                    component_rotation_degrees(from_vr(neutral.mTrackingToComponentRenderModel),
+                                               from_vr(current.mTrackingToComponentRenderModel));
+                const auto grip = latches_[i].update(angle);
+                result[i].held = grip.held;
+                result[i].pressed = grip.pressed;
             }
-            const double angle =
-                component_rotation_degrees(from_vr(neutral.mTrackingToComponentRenderModel),
-                                           from_vr(current.mTrackingToComponentRenderModel));
-            const auto grip = latches_[i].update(angle);
-            result[i] = {true, grip.held, grip.pressed, device};
-            if (grip.held) {
+            if (laser_device || result[i].held) {
                 auto& stick = sticks_[i];
                 if (!stick.attempted) {
                     stick.attempted = true;
@@ -145,6 +162,22 @@ class GrabInput {
         }
         return result;
     }
+    GrabSample laser_sample(vr::TrackedDeviceIndex_t device) {
+        GrabSample fallback;
+        fallback.device = device;
+        // AUX captures the HMD, which has no thumbstick. Never borrow another
+        // device's stick, and retain pose-only dragging if sampling is unavailable.
+        if (device >= vr::k_unMaxTrackedDeviceCount ||
+            vr::VRSystem()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
+            return fallback;
+        }
+        for (const auto& sample : poll(device)) {
+            if (sample.active && sample.device == device) {
+                return sample;
+            }
+        }
+        return fallback;
+    }
 
   private:
     struct Stick {
@@ -161,19 +194,23 @@ class GrabInput {
 };
 class LaserDrag {
   public:
-    bool start(const GrabSample& input, const PanelPlacement& placement, double now) {
-        const auto pose = read_controller(input.device);
-        if (!pose) {
+    bool start(const GrabSample& input, const PanelPlacement& placement, double now, MoveSource source,
+               unsigned pointer = 0) {
+        const auto pose = read_pointer_pose(input.device);
+        if (!pose || !capture_.begin(source, input.device, pointer)) {
             return false;
         }
-        device_ = input.device;
         started_ = updated_ = now;
         transform_.begin(*pose, placement.transform(), input.ray_direction);
-        active_ = true;
+        trigger_release_.begin(now);
+        trigger_neutral_.reset();
+        if (source == MoveSource::Laser) {
+            prepare_trigger();
+        }
         return true;
     }
     bool update(PanelPlacement& placement, double now, double stick_y) {
-        const auto pose = read_controller(device_);
+        const auto pose = read_pointer_pose(device());
         if (!pose || now - started_ > 30) {
             stop();
             return false;
@@ -183,15 +220,66 @@ class LaserDrag {
         placement.set_transform(transform_.update(*pose));
         return true;
     }
-    bool active() const { return active_; }
-    vr::TrackedDeviceIndex_t device() const { return device_; }
-    void stop() { active_ = false; }
+    bool active() const { return capture_.active(); }
+    vr::TrackedDeviceIndex_t device() const { return capture_.device(); }
+    std::optional<MoveSource> source() const { return capture_.source(); }
+    bool owns_pointer(unsigned device, unsigned pointer) const {
+        return capture_.owns_pointer(device, pointer);
+    }
+    bool trigger_released(double now) {
+        if (source() != MoveSource::Laser || !trigger_neutral_) {
+            return false;
+        }
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t current{};
+        if (!vr::VRRenderModels()->GetComponentStateForDevicePath(trigger_model_.c_str(), "trigger",
+                                                                  trigger_hand_, &mode, &current)) {
+            return trigger_release_.update(std::nullopt, now);
+        }
+        const auto angle = component_rotation_degrees(*trigger_neutral_,
+                                                      from_vr(current.mTrackingToComponentRenderModel));
+        return trigger_release_.update(angle, now);
+    }
+    void stop() { capture_.reset(); }
 
   private:
+    void prepare_trigger() {
+        auto* models = vr::VRRenderModels();
+        auto* input = vr::VRInput();
+        if (!models || !input) {
+            return;
+        }
+        const auto role = vr::VRSystem()->GetControllerRoleForTrackedDeviceIndex(device());
+        if (role != vr::TrackedControllerRole_LeftHand && role != vr::TrackedControllerRole_RightHand) {
+            return;
+        }
+        const bool left = role == vr::TrackedControllerRole_LeftHand;
+        char model[1024]{};
+        vr::ETrackedPropertyError error{};
+        vr::VRSystem()->GetStringTrackedDeviceProperty(device(), vr::Prop_RenderModelName_String, model,
+                                                       sizeof(model), &error);
+        const std::string expected = left ? "{frame_controller}frame_controller_left"
+                                          : "{frame_controller}frame_controller_right";
+        if (error || model != expected ||
+            input->GetInputSourceHandle(left ? "/user/hand/left" : "/user/hand/right", &trigger_hand_) !=
+                vr::VRInputError_None) {
+            return;
+        }
+        vr::VRControllerState_t released{};
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t neutral{};
+        if (models->GetComponentState(model, "trigger", &released, &mode, &neutral)) {
+            trigger_model_ = model;
+            trigger_neutral_ = from_vr(neutral.mTrackingToComponentRenderModel);
+        }
+    }
     PanelDrag transform_;
-    vr::TrackedDeviceIndex_t device_{vr::k_unTrackedDeviceIndexInvalid};
+    MoveCapture capture_;
     double started_{}, updated_{};
-    bool active_{};
+    std::string trigger_model_;
+    vr::VRInputValueHandle_t trigger_hand_{};
+    std::optional<Transform> trigger_neutral_;
+    TriggerReleaseGuard trigger_release_;
 };
 class VrPanel {
   public:
@@ -313,9 +401,9 @@ class VrPanel {
     }
     void submit(PanelRenderer& renderer, const PanelView& view) {
         // The enlarged texture has transparent popup margins. Restrict laser
-        // intersection to the case plus an open menu so invisible pixels cannot
+        // intersection to the case, movement handle and open menu so unused pixels cannot
         // steal focus from the dashboard.
-        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 2> mask{};
+        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 3> mask{};
         auto rectangle = [&](std::size_t index, Rect bounds) {
             mask[index].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
             mask[index].m_Primitive.m_Rectangle = {
@@ -323,10 +411,15 @@ class VrPanel {
                 static_cast<float>(bounds.width), static_cast<float>(bounds.height)};
         };
         rectangle(0, panel_case_bounds(view));
+        std::size_t count = 1;
         if (view.popup) {
-            rectangle(1, *view.popup);
+            rectangle(count++, *view.popup);
         }
-        check(vr::VROverlay()->SetOverlayIntersectionMask(handle_, mask.data(), view.popup ? 2 : 1),
+        if (const auto handle = panel_move_handle_bounds(view)) {
+            rectangle(count++, *handle);
+        }
+        check(vr::VROverlay()->SetOverlayIntersectionMask(handle_, mask.data(),
+                                                          static_cast<std::uint32_t>(count)),
               "Set keyboard intersection mask");
         std::string error;
         if (!texture_.update(renderer, error)) {
@@ -363,7 +456,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     haptics.connect(manifest);
     KeyHaptics feedback;
     GrabInput grip_input;
-    if (!grip_input.connect()) {
+    if (!grip_input.connect() && app.use_drag_to_move()) {
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
     }
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
@@ -407,6 +500,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         placement.set_width(saved->width);
     }
     HorizonAlignment horizon;
+    bool auto_leveling = app.auto_leveling();
     std::optional<Transform> previous_dashboard;
     DashboardAnchor dashboard_anchor;
     if (saved && (!saved->universe || !panel.universe() || saved->universe == panel.universe())) {
@@ -443,7 +537,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         }
     };
     auto place_panel = [&](double now) {
-        const auto aligned = horizon.update(placement.transform(), now, drag.active());
+        const auto aligned = horizon.update(placement.transform(), now, drag.active(), auto_leveling);
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());
@@ -474,7 +568,14 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         if (!visible) {
             grip_input.reset();
         }
-        const auto grips = visible ? grip_input.poll() : std::array<GrabSample, 2>{};
+        const auto grips =
+            visible && app.use_drag_to_move() ? grip_input.poll() : std::array<GrabSample, 2>{};
+        if (!app.use_drag_to_move()) {
+            grip_input.reset();
+        }
+        if (drag.active() && !app.allows_movement(*drag.source())) {
+            stop_drag();
+        }
         vr::VREvent_t event{};
         while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
             if (event.eventType == vr::VREvent_Quit) {
@@ -493,6 +594,12 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             if (event.eventType == vr::VREvent_InputFocusChanged) {
                 stop_drag();
                 app.cancel();
+            }
+            if (event.eventType == vr::VREvent_TrackedDeviceDeactivated) {
+                cancel_device(event.trackedDeviceIndex);
+                if (drag.active() && event.trackedDeviceIndex == drag.device()) {
+                    stop_drag();
+                }
             }
         }
         while (vr::VROverlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
@@ -514,9 +621,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             const bool controller =
                 device < vr::k_unMaxTrackedDeviceCount &&
                 vr::VRSystem()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller;
-            if (controller && (event.eventType == vr::VREvent_MouseMove ||
-                               event.eventType == vr::VREvent_MouseButtonDown ||
-                               event.eventType == vr::VREvent_MouseButtonUp)) {
+            const bool tracked_pointer = pointer_device(device);
+            if (tracked_pointer && (event.eventType == vr::VREvent_MouseMove ||
+                                    event.eventType == vr::VREvent_MouseButtonDown ||
+                                    event.eventType == vr::VREvent_MouseButtonUp)) {
                 pointer_devices[pointer] = device;
             }
             switch (event.eventType) {
@@ -534,6 +642,29 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             }
             case vr::VREvent_MouseButtonDown:
                 if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
+                    const auto view = app.view();
+                    const auto handle = panel_move_handle_bounds(view);
+                    if (app.allows_movement(MoveSource::Laser) && !view.popup && handle &&
+                        handle->contains(x, y)) {
+                        const auto input = grip_input.laser_sample(device);
+                        if (tracked_pointer && placement.ready() &&
+                            drag.start(input, displayed, now, MoveSource::Laser, pointer)) {
+                            placement.restore(displayed.transform(), displayed.width());
+                            horizon.reset();
+                            feedback.cancel();
+                            app.set_dragging(true);
+                            std::cout << "Keyboard movement started: "
+                                      << (controller ? "controller" : "head cursor") << ".\n"
+                                      << std::flush;
+                        } else if (!tracked_pointer) {
+                            // Source metadata for a handle click only. Never log
+                            // coordinates or pointer/key events over typed keys.
+                            std::cout << "Keyboard movement ignored: untracked pointer device " << device
+                                      << ", cursor " << pointer << ".\n"
+                                      << std::flush;
+                        }
+                        break; // A handle press must never also reach a key.
+                    }
                     // Grabbing cannot also type if grip and trigger arrive together.
                     const bool grabbing = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
                         return grip.active && grip.held && grip.device == event.trackedDeviceIndex;
@@ -547,8 +678,11 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 }
                 break;
             case vr::VREvent_MouseButtonUp:
-                if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
-                    if (app.up(pointer, x, y)) {
+                if (event.data.mouse.button == vr::VRMouseButton_Left) {
+                    if (drag.owns_pointer(device, pointer)) {
+                        stop_drag(true);
+                        app.move(pointer, x, y);
+                    } else if (!drag.active() && app.up(pointer, x, y)) {
                         feedback.release(pointer);
                     }
                 }
@@ -588,28 +722,46 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         if (done || app.quitting()) {
             break;
         }
-        // No arbitrary hold deadline: a tracked controller may legitimately hold
-        // Shift or Backspace for minutes. A lost controller releases only its keys.
+        if (auto_leveling != app.auto_leveling()) {
+            // Adopt the visible pose before disabling assistance so a partial
+            // correction never jumps back to the original roll. Enabling starts
+            // a fresh ease from that same pose, including changes via Reload.
+            if (displayed.ready()) {
+                placement.restore(displayed.transform(), displayed.width());
+            }
+            horizon.reset();
+            auto_leveling = app.auto_leveling();
+            transform_dirty = true;
+        }
+        // A tracked head cursor or controller may hold a key for minutes. Lost
+        // tracking releases only the keys belonging to that pointer device.
         std::set<vr::TrackedDeviceIndex_t> lost_devices;
         for (const auto& [pointer, device] : pointer_devices) {
-            if (app.pointer_pressed(pointer) && !read_controller(device)) {
+            if (app.pointer_pressed(pointer) && !read_pointer_pose(device)) {
                 lost_devices.insert(device);
             }
         }
         for (const auto device : lost_devices) {
             cancel_device(device);
         }
-        if (drag.active()) {
+        if (drag.active() && !app.allows_movement(*drag.source())) {
+            stop_drag();
+        }
+        if (drag.active() && drag.trigger_released(now)) {
+            stop_drag(true);
+        }
+        if (drag.active() && drag.source() == MoveSource::Grip) {
             const bool held = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
                 return grip.active && grip.held && grip.device == drag.device();
             });
             if (!held) {
                 stop_drag(true);
             }
-        } else if (visible && placement.ready() && !app.pinned()) {
+        } else if (!drag.active() && visible && placement.ready() &&
+                   app.allows_movement(MoveSource::Grip)) {
             for (const auto& grip : grips) {
                 if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
-                    hovered_devices[grip.device] && drag.start(grip, displayed, now)) {
+                    hovered_devices[grip.device] && drag.start(grip, displayed, now, MoveSource::Grip)) {
                     // Capture the visible pose, not the uncorrected pose behind
                     // horizon assistance, so regrabbing never snaps the keyboard.
                     placement.restore(displayed.transform(), displayed.width());
@@ -640,9 +792,13 @@ int run_vr(App& app, VrInstance& instance, double duration) {
         }
         if (drag.active()) {
             double stick_y = 0;
-            for (const auto& input : grips) {
-                if (input.active && input.held && input.device == drag.device()) {
-                    stick_y = input.stick_y;
+            if (drag.source() == MoveSource::Laser) {
+                stick_y = grip_input.laser_sample(drag.device()).stick_y;
+            } else {
+                for (const auto& input : grips) {
+                    if (input.active && input.held && input.device == drag.device()) {
+                        stick_y = input.stick_y;
+                    }
                 }
             }
             if (drag.update(placement, now, stick_y)) {

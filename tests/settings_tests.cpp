@@ -179,6 +179,9 @@ void compact_toolbar() {
         const auto view = app.view();
         const auto body = panel_case_bounds(view);
         for (std::size_t i = 0; i < view.controls.size(); ++i) {
+            if (view.controls[i].style == ControlStyle::MoveHandle) {
+                continue; // The movement handle deliberately sits below the case.
+            }
             const auto& a = view.controls[i].bounds;
             require(body.contains(a.x, a.y) && body.contains(a.x + a.width - 1, a.y + a.height - 1),
                     "compact case contains every toolbar control");
@@ -431,7 +434,8 @@ void app_settings() {
     require(!app.pinned(), "pin can be disabled");
 
     app.show_settings();
-    require(app.view().cards.size() == 2, "production settings contains exactly two cards");
+    require(app.view().cards.size() == 2 && app.view().cards[1].title == "General",
+            "production settings contains only Languages and Layouts and General cards");
     require(has(app.view(), "apply") && has(app.view(), "reload"), "settings toolbar actions");
     require(!has(app.view(), "close") && !has(app.view(), "recenter"), "settings toolbar is focused");
     click(app, "language");
@@ -580,13 +584,173 @@ void app_settings() {
     data.assign(std::istreambuf_iterator<char>(malformed), {});
     require(data == "{broken", "malformed config is never overwritten");
 }
+void behavior_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = "render";
+    CaptureSink sink;
+    App app(options, sink);
+    require(!app.use_drag_to_move() && app.allows_movement(MoveSource::Laser) &&
+                !app.allows_movement(MoveSource::Grip),
+            "missing preference defaults to laser movement with grip disabled");
+    const auto handle = panel_move_handle_bounds(app.view());
+    require(handle && handle->y > panel_height && handle->x + handle->width / 2 == panel_width / 2,
+            "default movement handle is centered below the keyboard");
+    const int x = static_cast<int>(handle->x + handle->width / 2);
+    const int y = static_cast<int>(handle->y + handle->height / 2);
+    auto handle_alpha = [&] {
+        const auto rgba = app.renderer.rgba();
+        return rgba[static_cast<std::size_t>((y + popup_margin) * panel_width + x) * 4 + 3];
+    };
+    app.paint(1);
+    require(handle_alpha() > 0 && !app.renderer.hit_key(app.view(), x, y),
+            "movement line paints below the case and cannot type a key");
+    app.renderer.write_png("/tmp/framekeyboard-behavior-laser.png");
+    click(app, "move-handle");
+    app.set_dragging(true);
+    require(app.view().status == "Release trigger to place keyboard",
+            "laser movement has the correct release instruction");
+    app.set_dragging(false);
+    app.show_settings();
+    const auto settings_view = app.view();
+    require(settings_view.cards.size() == 2 && settings_view.cards[1].title == "General" &&
+                !control(settings_view, "use-drag-to-move").selected,
+            "General card has an unchecked movement preference");
+    const auto numpad_bounds = control(settings_view, "hide-numpad").bounds;
+    const auto movement_bounds = control(settings_view, "use-drag-to-move").bounds;
+    const auto leveling_bounds = control(settings_view, "auto-leveling").bounds;
+    require(numpad_bounds.x == movement_bounds.x && movement_bounds.x == leveling_bounds.x &&
+                movement_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y,
+            "General checkboxes form one evenly spaced vertical column");
+    for (const auto* text : {"Hide numpad", "Use Drag to Move", "Auto leveling"}) {
+        require(std::any_of(settings_view.field_labels.begin(), settings_view.field_labels.end(),
+                            [&](const FieldLabel& field) {
+                                return field.text == text && field.left &&
+                                       field.bounds.x > movement_bounds.x + movement_bounds.width;
+                            }),
+                "General checkbox labels are on the right");
+    }
+    app.paint(2);
+    app.renderer.write_png("/tmp/framekeyboard-behavior-settings.png");
+    click(app, "use-drag-to-move");
+    require(control(app.view(), "use-drag-to-move").selected && !app.use_drag_to_move(),
+            "movement preference remains staged until Apply");
+    app.back();
+    app.show_settings();
+    require(!control(app.view(), "use-drag-to-move").selected, "Back discards a staged movement change");
+    click(app, "use-drag-to-move");
+    click(app, "apply");
+    require(app.use_drag_to_move() && saved(app).use_drag_to_move &&
+                app.allows_movement(MoveSource::Grip) && !app.allows_movement(MoveSource::Laser) &&
+                !panel_move_handle_bounds(app.view()),
+            "Apply enables grab, saves it and removes the line hit region");
+    app.paint(3);
+    require(handle_alpha() == 0, "grab mode clears the old line pixels");
+    {
+        App reopened(options, sink);
+        require(reopened.use_drag_to_move() && !panel_move_handle_bounds(reopened.view()),
+                "grab preference survives restart");
+    }
+    click(app, "pin");
+    require(!app.allows_movement(MoveSource::Grip) && !app.allows_movement(MoveSource::Laser) &&
+                !panel_move_handle_bounds(app.view()),
+            "pin blocks both movement methods in grab mode");
+    click(app, "pin");
+    require(app.allows_movement(MoveSource::Grip) && !panel_move_handle_bounds(app.view()),
+            "unpinning retains grab mode");
+    app.show_settings();
+    click(app, "use-drag-to-move");
+    click(app, "hide-numpad");
+    click(app, "apply");
+    require(!saved(app).use_drag_to_move && panel_move_handle_bounds(app.view()) &&
+                panel_move_handle_bounds(app.view())->x + handle->width / 2 == panel_width / 2,
+            "laser handle stays centered on the compact case");
+    click(app, "pin");
+    require(!panel_move_handle_bounds(app.view()) && !app.allows_movement(MoveSource::Laser) &&
+                !app.allows_movement(MoveSource::Grip),
+            "pin hides the line and blocks both methods in laser mode");
+    app.paint(4);
+    require(handle_alpha() == 0, "pin leaves no line pixels");
+    app.renderer.write_png("/tmp/framekeyboard-behavior-pinned.png");
+    click(app, "pin");
+    app.paint(5);
+    require(handle_alpha() > 0 && app.allows_movement(MoveSource::Laser),
+            "unpinning restores the line and laser movement");
+    app.renderer.write_png("/tmp/framekeyboard-behavior-compact.png");
+    auto settings = saved(app);
+    settings.use_drag_to_move = true;
+    save_settings(directory.path, settings);
+    app.reload();
+    require(app.use_drag_to_move() && !panel_move_handle_bounds(app.view()),
+            "Reload applies the saved movement preference");
+    require(sink.events.empty(), "behavior tests deliver no desktop input");
+
+    MoveCapture capture;
+    require(capture.begin(MoveSource::Laser, 1, 0) && capture.owns_pointer(1, 0),
+            "laser capture records the controller and pointer");
+    require(!capture.begin(MoveSource::Grip, 2) && !capture.begin(MoveSource::Laser, 2, 1) &&
+                !capture.owns_pointer(2, 0) && !capture.owns_pointer(1, 1),
+            "a second hand or pointer cannot steal or release movement");
+    capture.reset();
+    require(!capture.active() && !capture.owns_pointer(1, 0) && capture.begin(MoveSource::Grip, 2) &&
+                !capture.owns_pointer(2, 0),
+            "cancellation clears capture and laser release cannot end a grip");
+    capture.reset();
+    require(capture.begin(MoveSource::Laser, 0, 0) && capture.owns_pointer(0, 0) &&
+                !capture.owns_pointer(1, 0) && !capture.begin(MoveSource::Laser, 1, 0),
+            "AUX head capture owns HMD device zero even when a controller uses the same cursor");
+    capture.reset();
+    require(!capture.owns_pointer(0, 0), "AUX release or tracking loss clears head capture");
+}
 void favorite_schema() {
     TemporaryDirectory directory;
     std::ofstream(directory.path / "config.json")
         << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"favorites":[{"id":"pair","name":"Pair only","layout":"international-full","language":"de-de"}]})";
     const auto config = saved(directory.path);
+    require(!config.use_drag_to_move, "legacy configs default to laser movement");
+    require(config.auto_leveling, "legacy configs default to Auto leveling enabled");
     require(config.favorites.size() == 1 && config.favorites.front().selection.language == "de-de",
             "favorite pair does not require a legacy theme field");
+}
+void auto_leveling_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = "render";
+    CaptureSink sink;
+    App app(options, sink);
+    require(app.auto_leveling(), "Auto leveling is enabled on a new install");
+    app.show_settings();
+    require(control(app.view(), "auto-leveling").selected, "Auto leveling starts checked");
+    click(app, "auto-leveling");
+    require(app.auto_leveling() && !control(app.view(), "auto-leveling").selected,
+            "Auto leveling stays pending until Apply");
+    app.back();
+    app.show_settings();
+    require(control(app.view(), "auto-leveling").selected, "Back discards Auto leveling edits");
+    click(app, "auto-leveling");
+    click(app, "apply");
+    require(!app.auto_leveling() && !saved(app).auto_leveling, "Apply disables and saves Auto leveling");
+    {
+        App reopened(options, sink);
+        require(!reopened.auto_leveling(), "disabled Auto leveling survives restart");
+    }
+    click(app, "pin");
+    require(!saved(app).auto_leveling, "immediate pin save preserves disabled Auto leveling");
+    auto settings = saved(app);
+    settings.auto_leveling = true;
+    save_settings(directory.path, settings);
+    app.show_settings();
+    click(app, "reload");
+    require(app.auto_leveling() && control(app.view(), "auto-leveling").selected,
+            "Reload applies saved Auto leveling and refreshes its checkbox");
+    require(sink.events.empty(), "Auto leveling settings send no desktop input");
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"auto_leveling":"false"})";
+    std::vector<std::string> errors;
+    load_settings(directory.path, errors);
+    require(!errors.empty(), "Auto leveling requires a JSON boolean");
 }
 void fractional_dropdown_scroll() {
     SettingsUi ui;
@@ -757,6 +921,8 @@ int main() {
         background_preferences();
         numpad_settings();
         app_settings();
+        behavior_settings();
+        auto_leveling_settings();
         favorite_schema();
         fractional_dropdown_scroll();
         scroll_cards();

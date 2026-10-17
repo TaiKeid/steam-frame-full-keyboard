@@ -72,11 +72,26 @@ Typed text and clipboard contents must not appear in logs. Recovery must not pas
 
 - Confirm Settings, Recenter, smaller/larger zoom, Pin and language toolbar order. A pinned button changes icon without an active background.
 - Turn Num Lock on, close/reopen, and confirm its legends and mapping. Turn it off and repeat.
-- In Appearance check Hide numpad and Apply. Confirm the keys disappear and the case becomes narrower, with no laser/grab hits in the trimmed space. Change layouts and cycle favorites; visibility and Num Lock remain global. Show the numpad again and confirm its prior lock state.
-- Toggle pin, close/reopen, and confirm the saved icon/state. Grip cannot move a pinned keyboard; moving/tilting the dashboard still carries it. Unpin and confirm grip movement and same-hand depth controls.
-- Confirm the settings toolbar order is Back, Apply and save, Reload config. Production shows only Languages and Layouts and Appearance cards.
+- In General check Hide numpad and Apply. Confirm the keys disappear and the case becomes narrower, with no laser/grab hits in the trimmed space. Change layouts and cycle favorites; visibility and Num Lock remain global. Show the numpad again and confirm its prior lock state.
+- Toggle pin, close/reopen, and confirm the saved icon/state. Neither movement method can move a pinned keyboard; moving/tilting the dashboard still carries it. Unpin and confirm the selected movement method returns.
+- Confirm the settings toolbar order is Back, Apply and save, Reload config. Production shows Languages and Layouts and General cards.
 - Open each dropdown, scroll through all choices, select one, and verify at most five rows are visible. Click outside a list and confirm only dismissal occurs. Verify laser hit positions match menu rows, including any rows beyond the case border.
 - Edit several favorites without saving, then go Back. Reopen and confirm edits were discarded. Repeat with Apply and save and confirm persistence after restart.
 - Cycle default plus favorites, including duplicate pairs, a favorite matching the default, and a single matching favorite. Confirm the active theme stays unchanged and cycling does not replace the saved default.
 - Hide/reopen the dashboard or disconnect a controller while a menu/scrollbar is held. Confirm captures clear and no stale release selects a new row.
 - Run the `settings` test for extra-card horizontal scrolling, independent vertical scrolling, clipping, popup overflow and cancellation. Extra test cards do not ship in the UI.
+
+## Movement behavior
+
+- With Use Drag to Move off, confirm that a white line appears below the unpinned keyboard. Hold the trigger over it, move and release. Verify release after pointing away from the line, two-hand ownership, cancellation on tracking loss and dashboard closure, and saved placement. Grip should not move the keyboard in this mode.
+- In General, enable Use Drag to Move and Apply. The line must disappear and grip movement must work as before, including thumbstick depth. Restart and Reload must preserve the preference; Back must discard a pending edit.
+- Pin in each mode. Neither trigger-handle nor grip movement should work, and no line should remain visible or intercept the laser. Unpinning must restore only the selected movement method. Repeat with the numpad hidden and while settings is open.
+
+- Compare the movement line with Steam: opaque #3d4450 idle, white while hovered/held, 10% horizontal growth with an 80 ms ease-out transition, and no grown pixels after leaving. Confirm the hit region stays stable and animation stops when idle or pinned.
+- With Use Drag to Move off and the keyboard unpinned, show the AUX head cursor, aim at the line, hold AUX, move your head, and release. Confirm that click/typing still works, another controller cannot steal/release capture, and head tracking loss or dashboard closure cancels movement. No haptic pulse should be sent for the head cursor.
+
+- In General, confirm Hide numpad, Use Drag to Move and Auto leveling checkboxes share one vertical column with labels on the right. Auto leveling starts checked on a new or older config. Toggle it and use Back to discard; Apply and restart must retain it. With it off, place the keyboard at a small sideways angle and confirm it stays there after release in laser, AUX and grip modes. Re-enable it and confirm the existing 5°/500 ms correction resumes without a pose jump or pitch change. Reload must refresh the checkbox and behavior.
+
+- With Use Drag to Move off, hold the line with a controller trigger and leave grip released. That same hand's stick up must move the keyboard farther along the ray; down must bring it closer with the existing speed, dead zone and bounds. The other hand's stick must have no effect. Repeat with each controller, release, pin, hide the dashboard and lose tracking to verify depth stops with capture. Ordinary key hover/click must not move depth. An AUX head-cursor capture must ignore both controllers' sticks. Re-enable grip mode and verify its same-hand depth still works.
+
+- Quickly click/release the movement line, then move the controller. A missed overlay mouse-up must not leave the keyboard following for the 30-second timeout. Initial stale rest samples must not cancel a genuine hold; release after an observed hold must stay immediate. Missing/invalid component samples must not count toward a released-sample window. Automated placement tests cover these timing sequences, and the isolated runtime harness verifies the production line-capture wiring.

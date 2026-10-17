@@ -6,11 +6,37 @@
 #include <stdexcept>
 
 namespace framekeyboard {
+std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
+    for (const auto& control : view.controls) {
+        if (control.style == ControlStyle::MoveHandle) {
+            return control.bounds;
+        }
+    }
+    return {};
+}
 bool hidden_key(const PanelView& view, const Key& key) {
     return view.hide_numpad && !view.settings &&
            (key.action == "NumLock" || key.action.starts_with("Numpad"));
 }
 namespace {
+// CSS ease-out is cubic-bezier(0, 0, .58, 1), as used by Steam's handle.
+double handle_ease_out(double progress) {
+    if (progress <= 0 || progress >= 1) {
+        return progress;
+    }
+    double low = 0, high = 1;
+    for (int i = 0; i < 16; ++i) {
+        const double t = (low + high) / 2;
+        const double x = 3 * .58 * (1 - t) * t * t + t * t * t;
+        if (x < progress) {
+            low = t;
+        } else {
+            high = t;
+        }
+    }
+    const double t = (low + high) / 2;
+    return t * t * (3 - 2 * t);
+}
 double visible_layout_width(const PanelView& view) {
     if (!view.hide_numpad || view.settings) {
         return view.layout->width;
@@ -374,6 +400,26 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
+    if (const auto handle = panel_move_handle_bounds(view)) {
+        const bool held = std::any_of(view.controls.begin(), view.controls.end(), [](const Control& c) {
+            return c.style == ControlStyle::MoveHandle && c.selected;
+        });
+        const double target = held || view.hovered.contains("move-handle") ? 1 : 0;
+        const double old_amount = move_handle_.amount;
+        const bool changed = target != move_handle_.target;
+        if (changed) {
+            move_handle_.from = move_handle_.amount;
+            move_handle_.target = target;
+            move_handle_.started = now;
+        }
+        const double progress = std::clamp((now - move_handle_.started) / .08, 0.0, 1.0);
+        move_handle_.amount =
+            move_handle_.from + (target - move_handle_.from) * handle_ease_out(progress);
+        animating_ |= progress < 1;
+        full |= changed || move_handle_.amount != old_amount;
+    } else {
+        move_handle_ = {};
+    }
     for (const auto& key : view.layout->keys) {
         if (hidden_key(view, key)) {
             continue;
@@ -520,6 +566,18 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }
     auto draw_control = [&](const Control& control) {
         cairo_save(cr);
+        if (control.style == ControlStyle::MoveHandle) {
+            const auto r = control.bounds;
+            const double width = (r.width - 80) * (1 + .1 * move_handle_.amount);
+            rounded(cr, {r.x + (r.width - width) / 2, r.y + r.height / 2 - 4, width, 8}, 4);
+            auto channel = [&](double idle) {
+                return idle / 255 + (1 - idle / 255) * move_handle_.amount;
+            };
+            cairo_set_source_rgb(cr, channel(61), channel(68), channel(80));
+            cairo_fill(cr);
+            cairo_restore(cr);
+            return;
+        }
         if (control.clip) {
             const auto& r = *control.clip;
             cairo_rectangle(cr, r.x, r.y, r.width, r.height);
@@ -616,11 +674,12 @@ std::vector<unsigned char> PanelRenderer::rgba() const {
     return result;
 }
 void PanelRenderer::write_png(const fs::path& path) const {
-    // Normal exports keep the case's original dimensions. Popup captures include
-    // the transparent margin so tests/design review can see the overflow.
+    // Include overflow controls in previews instead of cropping the movement line.
     const bool popup = previous_ && previous_->view.popup.has_value();
+    const auto handle = previous_ ? panel_move_handle_bounds(previous_->view) : std::nullopt;
+    const int height = handle ? static_cast<int>(handle->y + handle->height + 12) : panel_height;
     auto* output = cairo_surface_create_for_rectangle(surface_, 0, popup ? 0 : popup_margin, panel_width,
-                                                      popup ? texture_height : panel_height);
+                                                      popup ? texture_height : height);
     const auto status = cairo_surface_write_to_png(output, path.c_str());
     cairo_surface_destroy(output);
     if (status != CAIRO_STATUS_SUCCESS) {

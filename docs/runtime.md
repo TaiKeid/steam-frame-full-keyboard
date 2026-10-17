@@ -22,11 +22,11 @@ Keys have no fixed hold deadline: holding Shift with one hand or repeating Backs
 
 ## Movement and feedback
 
-Point at the keyboard and squeeze grab/grip to move and rotate it. Either hand works. While grabbing, that hand's thumbstick moves it farther with up and closer with down. Grip must be released once after launch or a controller reconnect. Tracking loss, hiding, recentering, or a 30-second grab timeout ends movement and restores the typing state.
+By default, point at the line below the keyboard, hold the trigger, move your hand, then release to place it. The line matches the native dashboard handle: dark gray at rest, white and 10% wider while hovered or held, with an 80 ms transition. To use the original grip movement, enable Use Drag to Move in the General settings card and Apply. In that mode the line is hidden; point at the keyboard and squeeze grab/grip to move and rotate it. While holding the movement line or grabbing, that hand's thumbstick moves it farther with up and closer with down. Line movement does not require holding grip. Grip must be released once after launch or a controller reconnect. Either controller can start movement, and only that pointer owns it until release. The AUX head cursor can also capture the line: aim with your head, hold AUX, move your head and release. Head tracking supplies its pose; haptics remain controller-only. Pinning disables both methods and hides the line. Tracking loss, hiding, recentering, or a 30-second movement timeout restores the typing state.
 
 The keyboard reads grip travel from the native Frame controller model. Other controller models are unsupported. Steam updates that change this model may require an app update. No global SteamVR input setting is changed.
 
-Horizon assistance runs only after release: a roll within 5° eases level over 500 ms without changing pitch. Toolbar size controls change width by 5 cm within 45 cm to 2 m.
+General → Auto leveling is on by default. Horizon assistance runs only after release: a roll within 5° eases level over 500 ms without changing pitch. Disable Auto leveling and Apply to retain your chosen roll. Changing the setting preserves the current displayed pose. Toolbar size controls change width by 5 cm within 45 cm to 2 m.
 
 Press feedback uses 25 ms at full strength; release uses 8 ms at 35%, both at 150 Hz. Hover uses 4 ms at 10% and 240 Hz. Feedback goes to the controller responsible for the interaction. Toolbar actions, repeats, and dragging do not pulse.
 

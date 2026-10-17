@@ -300,6 +300,21 @@ void horizon_tests() {
     near(roll_degrees(grabbed.update(rolled(-4), 13)), -4, "release begins without a snap");
     near(roll_degrees(grabbed.update(rolled(-4), 13.25)), -2, "release eases halfway after 250 ms");
     near(roll_degrees(grabbed.update(rolled(-4), 13.5)), 0, "release levels after 500 ms");
+    fk::HorizonAlignment disabled;
+    disabled.update(rolled(4), 1);
+    const auto visible = disabled.update(rolled(4), 1.25);
+    near(roll_degrees(visible), 2, "toggle test starts during partial leveling");
+    // The VR layer adopts this displayed pose when the setting changes.
+    require(disabled.update(visible, 1.25, false, false) == visible &&
+                disabled.update(visible, 12, false, false) == visible && !disabled.animating(),
+            "disabling leveling freezes the visible pose and stops animation");
+    require(disabled.update(rolled(-4), 13, true, false) == rolled(-4) &&
+                disabled.update(rolled(-4), 14, false, false) == rolled(-4),
+            "disabled leveling preserves exact hand and release angles");
+    near(roll_degrees(disabled.update(rolled(-4), 15)), -4,
+         "reenabling starts without stale correction or a jump");
+    near(roll_degrees(disabled.update(rolled(-4), 15.5)), 0,
+         "reenabling restores the normal release correction");
     fk::HorizonAlignment horizon;
     near(roll_degrees(horizon.update(rolled(5.01), 20)), 5.01, "outside range is untouched");
     horizon.update(rolled(4), 21);
@@ -547,6 +562,50 @@ void grip_tests() {
     require(grip.update(2).pressed, "release after reconnect re-arms grip");
     require(!grip.update(std::numeric_limits<double>::quiet_NaN()).held,
             "invalid component pose releases grip");
+}
+void trigger_release_tests() {
+    fk::TriggerReleaseGuard release;
+    release.begin(10);
+    for (double now : {10., 10.05, 10.14, 10.16, 10.19}) {
+        require(!release.update(0, now), "quick release waits for grace and repeated rest samples");
+    }
+    require(release.update(0, 10.22), "lost mouse-up recovers without ever seeing the trigger held");
+
+    release.begin(20);
+    require(!release.update(0, 20) && !release.update(0, 20.04),
+            "stale initial rest samples cannot cancel a new capture");
+    require(!release.update(12.5, 20.06) && !release.update(12.5, 30),
+            "a real hold survives both startup and a long movement");
+    require(release.update(0, 30.01), "observed hold retains immediate release recovery");
+    release.begin(40);
+    require(!release.update(12.5, 40.01) && release.update(0, 40.02),
+            "an observed quick click releases even inside startup grace");
+
+    release.begin(50);
+    require(!release.update(0, 50.16) && !release.update(0, 50.19) && !release.update(.75, 50.2) &&
+                !release.update(0, 50.21) && !release.update(0, 50.24) && release.update(0, 50.27),
+            "partially pulled trigger interrupts the released-sample window");
+
+    release.begin(60);
+    require(!release.update(0, 60.16) && !release.update(std::nullopt, 60.19) &&
+                !release.update(0, 60.22) &&
+                !release.update(std::numeric_limits<double>::quiet_NaN(), 60.24) &&
+                !release.update(0, 60.27) && !release.update(0, 60.29) && release.update(0, 60.33),
+            "missing and invalid samples cannot count as continuously released input");
+
+    release.begin(70);
+    require(!release.update(0, 70.16) && !release.update(0, 71) && !release.update(0, 71.02) &&
+                release.update(0, 71.06),
+            "a polling gap requires a fresh sequence of released samples");
+
+    release.begin(80);
+    for (int i = 0; i < 60; ++i) {
+        require(!release.update(std::nullopt, 80 + i / 60.),
+                "unavailable trigger data never manufactures release");
+    }
+    release.update(12.5, 81);
+    release.begin(90);
+    require(!release.update(0, 90.01), "a new capture clears the preceding held state");
 }
 void instance_tests() {
     TemporaryDirectory temp;
@@ -866,6 +925,7 @@ int main() {
         horizon_tests();
         stick_depth_tests();
         grip_tests();
+        trigger_release_tests();
         persistence_tests();
         key_feedback_tests();
         haptic_routing_tests();

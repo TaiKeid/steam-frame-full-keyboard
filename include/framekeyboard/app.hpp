@@ -63,6 +63,11 @@ class App {
     void back();
     bool scroll(unsigned pointer, double dx, double dy);
     bool pinned() const { return settings_.pinned; }
+    bool use_drag_to_move() const { return settings_.use_drag_to_move; }
+    bool auto_leveling() const { return settings_.auto_leveling; }
+    bool allows_movement(MoveSource source) const {
+        return !pinned() && use_drag_to_move() == (source == MoveSource::Grip);
+    }
     void summon();
     void set_dragging(bool dragging);
     // Hiding the VR context releases keys before closing the input gate.
@@ -113,6 +118,8 @@ class App {
     std::vector<Selection> cycle_entries_;
     std::vector<Favorite> pending_favorites_;
     bool pending_hide_numpad_{};
+    bool pending_use_drag_to_move_{};
+    bool pending_auto_leveling_{true};
     SettingsUi settings_ui_;
     std::unique_ptr<LanguageMap> keymap_;
     // The launch declaration is frozen; Reload cannot redefine the target.

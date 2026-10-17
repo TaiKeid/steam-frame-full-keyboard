@@ -35,4 +35,17 @@ class GripLatch {
   private:
     bool armed_{}, held_{};
 };
+// Recover a line capture when overlay mouse-up is lost. An initial rest pose
+// can be stale, so allow a short grace period before trusting repeated rest
+// samples without a preceding held sample. Missing samples break that streak.
+class TriggerReleaseGuard {
+  public:
+    void begin(double now);
+    bool update(std::optional<double> angle_degrees, double now);
+
+  private:
+    double started_{};
+    bool seen_held_{};
+    std::optional<double> released_since_, sampled_at_;
+};
 } // namespace framekeyboard

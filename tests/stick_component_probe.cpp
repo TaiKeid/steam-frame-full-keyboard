@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
 
 namespace {
 framekeyboard::Transform convert(const vr::HmdMatrix34_t& matrix) {
@@ -14,14 +15,18 @@ framekeyboard::Transform convert(const vr::HmdMatrix34_t& matrix) {
     }
     return result;
 }
-framekeyboard::Transform component(const char* model, float x, float y) {
+framekeyboard::Transform component(const char* model, float x, float y,
+                                   const char* name = "thumbstick") {
     vr::VRControllerState_t input{};
     input.rAxis[0].x = x;
     input.rAxis[0].y = y;
+    if (std::string_view(name) == "trigger") {
+        input.rAxis[1].x = x;
+    }
     vr::RenderModel_ControllerMode_State_t mode{};
     vr::RenderModel_ComponentState_t state{};
-    if (!vr::VRRenderModels()->GetComponentState(model, "thumbstick", &input, &mode, &state)) {
-        throw std::runtime_error("thumbstick render component unavailable");
+    if (!vr::VRRenderModels()->GetComponentState(model, name, &input, &mode, &state)) {
+        throw std::runtime_error("render component unavailable");
     }
     return convert(state.mTrackingToComponentRenderModel);
 }
@@ -52,6 +57,17 @@ int main() {
             std::cout << model << " maximum axis error=" << maximum_error << '\n';
             if (maximum_error > .02) {
                 throw std::runtime_error("thumbstick axis extraction failed");
+            }
+            const auto neutral = component(model, 0, 0, "trigger");
+            maximum_error = 0;
+            for (float pull : {0.f, .25f, .5f, 1.f}) {
+                const auto angle = framekeyboard::component_rotation_degrees(
+                    neutral, component(model, pull, 0, "trigger"));
+                maximum_error = std::max(maximum_error, std::abs(angle - 12.5 * pull));
+            }
+            std::cout << model << " maximum trigger angle error=" << maximum_error << '\n';
+            if (maximum_error > .1) {
+                throw std::runtime_error("trigger release fallback model mapping failed");
             }
         }
     } catch (const std::exception& error) {
