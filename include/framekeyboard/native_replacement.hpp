@@ -24,6 +24,9 @@ class NativeReplacement : public KeySink {
     bool remote() const { return remote_; }
     void dismiss_request();
     bool take_unsupported_control();
+    // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
+    bool prepare_watchdog();
+    void watchdog_tick(double now) const;
     void send(int code, int value) override;
     bool pump() override { return local_.pump(); }
     bool take_input_reset() override;
@@ -44,6 +47,7 @@ class NativeReplacement : public KeySink {
     KeySink& local_;
     int fd_{-1};
     pid_t child_{-1};
+    int watchdog_read_{-1}, watchdog_write_{-1};
     State state_;
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
     double last_reply_{}, next_start_{}, now_{}, pending_since_{};

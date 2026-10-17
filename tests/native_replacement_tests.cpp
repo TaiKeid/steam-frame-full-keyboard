@@ -520,10 +520,12 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "--steam-unarmed") {
             NullSink local;
             NativeReplacement replacement(local);
+            require(replacement.prepare_watchdog(), "private health pipe available");
             const auto start = monotonic_seconds();
             while (monotonic_seconds() - start < 3) {
                 const double now = monotonic_seconds();
                 replacement.poll(now);
+                replacement.watchdog_tick(now);
                 replacement.update(true, false, 0, false, now);
                 if (replacement.state().available) {
                     require(!replacement.state().active, "unarmed bridge must not take over");

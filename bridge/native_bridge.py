@@ -4,6 +4,7 @@ import base64
 from collections import deque
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import select
@@ -186,19 +187,64 @@ def send(parent, value):
         raise ValueError("parent-backpressure")
 
 
-def recover_stalled_parent(owner, watch, sent):
-    # Only this helper's original parent may be terminated. Parent EOF exits normally.
-    # SIGKILL also removes the overlay and input devices of a SIGSTOP-frozen app.
-    if owner and watch and time.monotonic() - sent >= 3 and os.getppid() == owner:
-        os.kill(owner, signal.SIGKILL)
-        return True
-    return False
+class WatchdogProgress:
+    """Private pipe from the overlay watchdog, independent of the VR/main loop."""
+    def __init__(self, fd):
+        self.fd = fd
+        self.pending = b""
+        self.sent = None
+
+    def poll(self):
+        if self.fd is None:
+            return
+        while True:
+            try:
+                data = os.read(self.fd, 4096)
+            except BlockingIOError:
+                break
+            if not data:
+                break
+            self.pending += data
+            while len(self.pending) >= 8:
+                sent, = struct.unpack("=d", self.pending[:8])
+                self.pending = self.pending[8:]
+                if math.isfinite(sent) and 0 < sent <= time.monotonic() and \
+                        (self.sent is None or sent > self.sent):
+                    self.sent = sent
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
 
 
-def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard):
+class ParentRecovery:
+    def __init__(self):
+        self.terminated_at = None
+
+    def check(self, owner, watch, frame_sent, watchdog_sent):
+        now = time.monotonic()
+        # Slow main-loop work is not a frozen process when the independent
+        # watchdog is progressing and can hide the overlay for native recovery.
+        if not owner or not watch or os.getppid() != owner or watchdog_sent is None or \
+                now - frame_sent < 3 or now - watchdog_sent < 3:
+            self.terminated_at = None
+            return False
+        if self.terminated_at is None:
+            os.kill(owner, signal.SIGTERM)
+            self.terminated_at = now
+        elif now - self.terminated_at >= 1:
+            os.kill(owner, signal.SIGKILL)
+            return True
+        return False
+
+
+def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, health_fd=None):
     client = None
     guard = None
     installed = False
+    watchdog = WatchdogProgress(health_fd)
+    recovery_watchdog = ParentRecovery()
     token = os.urandom(16).hex()
     reference = f"globalThis.{GLOBAL}"
     try:
@@ -320,7 +366,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard):
                     send(parent, {"op": f"{operation}-result", "id": message["id"], "ok": ok is True})
                 if ok is not True:
                     fallback_request = message["request"]
-            if not select.select([parent], [], [], 0)[0] and recover_stalled_parent(parent_pid, watch_panel, frame_sent):
+            watchdog.poll()
+            if not select.select([parent], [], [], 0)[0] and recovery_watchdog.check(
+                    parent_pid, watch_panel, frame_sent, watchdog.sent):
                 break
             if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:
                 frame["ready"] = False
@@ -375,12 +423,13 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard):
             client.close()
         if guard:
             guard.close()
+        watchdog.close()
         parent.close()
 
 
 if __name__ == "__main__":
     # SIGTERM follows the same cleanup path as EOF from the owning application.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    if len(sys.argv) != 3 or sys.argv[1] != "--fd":
+    if len(sys.argv) != 5 or sys.argv[1] != "--fd" or sys.argv[3] != "--health-fd":
         sys.exit(2)
-    run(socket.socket(fileno=int(sys.argv[2])), parent_pid=os.getppid())
+    run(socket.socket(fileno=int(sys.argv[2])), parent_pid=os.getppid(), health_fd=int(sys.argv[4]))

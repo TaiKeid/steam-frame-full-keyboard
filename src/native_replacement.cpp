@@ -59,6 +59,32 @@ NativeReplacement::~NativeReplacement() {
         kill(child_, SIGKILL);
         waitpid(child_, nullptr, 0);
     }
+    if (watchdog_read_ >= 0) {
+        close(watchdog_read_);
+    }
+    if (watchdog_write_ >= 0) {
+        close(watchdog_write_);
+    }
+}
+bool NativeReplacement::prepare_watchdog() {
+    if (watchdog_read_ >= 0) {
+        return true;
+    }
+    int descriptors[2];
+    if (pipe2(descriptors, O_CLOEXEC | O_NONBLOCK) != 0) {
+        return false;
+    }
+    watchdog_read_ = descriptors[0];
+    watchdog_write_ = descriptors[1];
+    return true;
+}
+void NativeReplacement::watchdog_tick(double now) const {
+    if (watchdog_write_ >= 0) {
+        // One fixed-size write is atomic and never waits for the helper. This
+        // proves watchdog progress, not render/input readiness for takeover.
+        const auto ignored = write(watchdog_write_, &now, sizeof(now));
+        (void)ignored;
+    }
 }
 bool NativeReplacement::packet(const std::string& data) {
     if (fd_ < 0 || data.size() > 32768) {
@@ -69,6 +95,9 @@ bool NativeReplacement::packet(const std::string& data) {
 }
 void NativeReplacement::start(double now) {
     next_start_ = now + 5;
+    if (watchdog_read_ < 0) {
+        return;
+    }
     auto directory = fs::canonical("/proc/self/exe").parent_path();
     auto helper = directory.parent_path() / "share/framekeyboard/bridge/native_bridge.py";
     if (!fs::is_regular_file(helper)) {
@@ -81,6 +110,13 @@ void NativeReplacement::start(double now) {
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, pair) < 0) {
         return;
     }
+    // Preserve the health descriptor before spawn actions can overwrite fd 3/4.
+    const int health = fcntl(watchdog_read_, F_DUPFD_CLOEXEC, 5);
+    if (health < 0) {
+        close(pair[0]);
+        close(pair[1]);
+        return;
+    }
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addclose(&actions, pair[0]);
@@ -88,16 +124,20 @@ void NativeReplacement::start(double now) {
     if (pair[1] != 3) {
         posix_spawn_file_actions_addclose(&actions, pair[1]);
     }
-    posix_spawn_file_actions_addclosefrom_np(&actions, 4);
+    posix_spawn_file_actions_adddup2(&actions, health, 4);
+    posix_spawn_file_actions_addclosefrom_np(&actions, 5);
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
     std::string path = helper.string();
     char python[] = "python3", fd_option[] = "--fd", fd_number[] = "3";
-    char* arguments[] = {python, path.data(), fd_option, fd_number, nullptr};
+    char health_option[] = "--health-fd", health_number[] = "4";
+    char* arguments[] = {python,        path.data(),   fd_option, fd_number,
+                         health_option, health_number, nullptr};
     const int error = posix_spawnp(&child_, python, &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
     close(pair[1]);
+    close(health);
     if (error) {
         close(pair[0]);
         child_ = -1;

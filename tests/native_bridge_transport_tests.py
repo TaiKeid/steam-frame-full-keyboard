@@ -1,8 +1,10 @@
 """Isolated helper lifecycle tests. No Steam endpoint or focused application is used."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import socket
+import struct
 import sys
 import threading
 import time
@@ -109,12 +111,50 @@ class Lifecycle(unittest.TestCase):
         with patch.object(bridge.os, "getppid", return_value=77), \
                 patch.object(bridge.os, "kill") as kill, \
                 patch.object(bridge.time, "monotonic", return_value=10):
-            self.assertFalse(bridge.recover_stalled_parent(77, False, 5))
-            self.assertFalse(bridge.recover_stalled_parent(78, True, 5))
-            self.assertFalse(bridge.recover_stalled_parent(77, True, 8))
+            recovery = bridge.ParentRecovery()
+            self.assertFalse(recovery.check(77, False, 5, 5))
+            self.assertFalse(recovery.check(78, True, 5, 5))
+            self.assertFalse(recovery.check(77, True, 8, 5))
+            self.assertFalse(recovery.check(77, True, 5, 9.9), "a live watchdog permits slow work")
+            self.assertFalse(recovery.check(77, True, 5, None), "missing health cannot prove a freeze")
             kill.assert_not_called()
-            self.assertTrue(bridge.recover_stalled_parent(77, True, 5))
+            self.assertFalse(recovery.check(77, True, 5, 5))
+            kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=10.5):
+            self.assertFalse(recovery.check(77, True, 5, 5))
+            kill.assert_not_called()
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=11):
+            self.assertTrue(recovery.check(77, True, 5, 5))
             kill.assert_called_once_with(77, bridge.signal.SIGKILL)
+
+    def test_independent_health_pipe_does_not_renew_render_progress(self):
+        read_fd, write_fd = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+        health = bridge.WatchdogProgress(read_fd)
+        try:
+            with patch.object(bridge.time, "monotonic", return_value=10), \
+                    patch.object(bridge.os, "getppid", return_value=77), \
+                    patch.object(bridge.os, "kill") as kill:
+                recovery = bridge.ParentRecovery()
+                for tick in (5, 9.9, 9.8, float("nan"), 99):
+                    os.write(write_fd, struct.pack("=d", tick))
+                health.poll()
+                self.assertEqual(health.sent, 9.9, "only fresh increasing watchdog progress counts")
+                self.assertFalse(recovery.check(77, True, 5, health.sent))
+                kill.assert_not_called()
+                self.assertEqual(health.pending, b"")
+            with patch.object(bridge.time, "monotonic", return_value=14), \
+                    patch.object(bridge.os, "getppid", return_value=77), \
+                    patch.object(bridge.os, "kill") as kill:
+                health.poll()
+                self.assertFalse(recovery.check(77, True, 5, health.sent))
+                kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+        finally:
+            os.close(write_fd)
+            health.close()
 
     def test_external_guard_arms_before_takeover_and_cancels_on_x(self):
         self.external_lifecycle(False)

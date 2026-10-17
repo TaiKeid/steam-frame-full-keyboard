@@ -451,6 +451,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     panel.connect();
     std::atomic<double> replacement_progress{monotonic_seconds()};
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false};
+    replacement.prepare_watchdog();
     // Steam restores stock independently. This thread removes a frozen panel that could
     // otherwise cover or intercept the recovered native keyboard. It never touches App/input.
     std::jthread replacement_watchdog([&](std::stop_token stop) {
@@ -459,6 +460,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 vr::VROverlay()->HideOverlay(panel.handle());
                 replacement_stalled.store(true);
             }
+            replacement.watchdog_tick(monotonic_seconds());
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
