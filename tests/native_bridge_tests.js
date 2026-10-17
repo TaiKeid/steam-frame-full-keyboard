@@ -109,6 +109,21 @@ function externalOwned(f) {
     assert(f.step(s.request).active);
     return s.request;
 }
+{
+    const f = fixture(false, false, true), request = externalOwned(f);
+    // App, helper and native guard are all gone: no further step/restore ack.
+    f.advance(901);
+    assert(f.bridge.expired() && f.nodes.size === 0 && !f.bridge.diagnostics().active);
+    assert(f.bridge.diagnostics().externalRestore && !f.nativeOpen(),
+        "no external provider can restore a prior request after its guard is gone");
+    f.status({bIsOpen: true, sOverlayKey: "gamescope.gamescope-0.window.62"});
+    f.api.ShowWindow();
+    assert(f.nativeOpen() && f.calls.includes("window-show") && !f.bridge.send(request, "stale"),
+        "a fresh native summon stays visible after all replacement processes exit");
+    f.advance(601);
+    assert(!f.alive() && !f.observing() && f.keyboard.Hide === f.oldHide,
+        "the expired hook removes itself without a surviving helper");
+}
 for (const production of [false, true]) {
     const f = fixture(false, production, false, true);
     f.step(); f.status({bIsOpen: true, sOverlayKey: "valve.steam.gamepadui.barpopup"});
