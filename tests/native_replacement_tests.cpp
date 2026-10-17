@@ -517,7 +517,8 @@ void resident_close() {
 } // namespace
 int main(int argc, char** argv) {
     try {
-        if (argc == 2 && std::string(argv[1]) == "--steam-unarmed") {
+        if (argc == 2 &&
+            (std::string(argv[1]) == "--steam-unarmed" || std::string(argv[1]) == "--helper-fixture")) {
             NullSink local;
             NativeReplacement replacement(local);
             require(replacement.prepare_watchdog(), "private health pipe available");
@@ -530,7 +531,10 @@ int main(int argc, char** argv) {
                 if (replacement.state().available) {
                     require(!replacement.state().active, "unarmed bridge must not take over");
                     replacement.update(false, false, 0, false, now);
-                    std::cout << "C++ helper spawn, unarmed Steam handshake and detach passed.\n";
+                    std::cout
+                        << (std::string(argv[1]) == "--helper-fixture"
+                                ? "Private helper spawn, health pipe and detach passed.\n"
+                                : "C++ helper spawn, unarmed Steam handshake and detach passed.\n");
                     return 0;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));

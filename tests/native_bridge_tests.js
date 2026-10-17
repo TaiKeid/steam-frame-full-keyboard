@@ -58,6 +58,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     }, BringToFront() { calls.push("focus"); }};
     const oldKey = manager.HandleVirtualKeyDown, oldOpen = manager.SetVRKeyboardOpenForThisInstance;
     const oldShow = api.ShowWindow, oldHide = keyboard.Hide;
+    const oldFront = api.BringToFront, oldFieldShow = manager.SetVirtualKeyboardShownInternal;
     const popup = {window: {SteamClient: {Window: api}, document: {
         documentElement: {appendChild(node) { nodes.add(node); }},
         createElement() { return {setAttribute() {}, remove() { nodes.delete(this); }}; }
@@ -81,6 +82,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     if (other) root.SteamUIStore.WindowStore.SteamUIWindows.push({VirtualKeyboardManager: other});
     const bridge = factory(root, production ? undefined : store, external);
     return {bridge, calls, deliveries, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
+        oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true) {
             return bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
@@ -412,4 +414,78 @@ for (const values of [
     f.api.ShowWindow = other; f.bridge.dispose();
     assert.equal(f.api.ShowWindow, other, "cleanup preserves another tool's later hook");
 }
-console.log("Native bridge: closed native scene, stable target ownership, buttons, Enter, readiness and fallback passed.");
+// Reproducible event walks combine real production hooks with independent safety
+// properties. Include the seed/trace on failure so every discovered sequence can
+// become a focused regression. No real endpoint or user text is involved.
+for (let seed = 1; seed <= 128; ++seed) {
+    let random = seed, previousRequest = 0;
+    const next = n => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
+    const f = fixture(false, seed % 2 === 0, true, seed % 3 === 0), trace = [];
+    const opened = key => f.status({bIsOpen: true, sOverlayKey: key,
+        bMinimal: true, bDispatchEventsToSteamVR: false});
+    try {
+        f.step(); f.api.ShowWindow(); f.deferHide(next(2) === 0);
+        opened([MAIN, "gamescope.gamescope-0.window.62", "unknown.overlay",
+            "valve.steam.gamepadui.barpopup"][next(4)]);
+        const candidate = f.bridge.diagnostics().externalCandidate;
+        if (candidate && next(2)) f.bridge.prepareExternal(candidate.request, candidate.key);
+        f.advance(401);
+        const expiredRequest = f.bridge.diagnostics();
+        assert(!expiredRequest.eligible && (f.nativeOpen() || expiredRequest.externalRestore),
+            "an unacknowledged request reaches native or exact-overlay recovery by its deadline");
+        for (let step = 0; step < 160 && f.alive(); ++step) {
+            const op = next(17), before = f.bridge.diagnostics();
+            trace.push(op);
+            switch (op) {
+            case 0: f.step(before.request); break;
+            case 1: f.step(before.request - 1, true, false, false); break;
+            case 2: f.step(0, false); break;
+            case 3: opened(MAIN); break;
+            case 4: opened("gamescope.gamescope-0.window.62"); break;
+            case 5: opened("unknown.overlay"); break;
+            case 6: opened("valve.steam.gamepadui.barpopup"); break;
+            case 7: f.status({bIsOpen: false}); break;
+            case 8: f.api.ShowWindow(); break;
+            case 9: f.api.BringToFront(); break;
+            case 10: f.newTarget(); break;
+            case 11: f.deferHide(next(2) === 0); break;
+            case 12: f.bridge.dismiss(before.request); break;
+            case 13: f.step(before.request, true, true); break;
+            case 14:
+                if (before.externalCandidate)
+                    f.bridge.prepareExternal(before.request - next(2), before.externalCandidate.key);
+                break;
+            case 15:
+                f.newTarget(); f.manager.SetVirtualKeyboardShownInternal(true); break;
+            case 16: f.advance([16, 50, 100, 401, 901][next(5)]); break;
+            }
+            const s = f.bridge.diagnostics();
+            assert(s.request >= previousRequest, "request identities never go backwards");
+            previousRequest = s.request;
+            assert(!s.active || s.eligible && !f.nativeOpen(), "takeover never overlaps native presentation");
+            if (f.bridge.expired()) assert.equal(f.nodes.size, 0, "expired leases leave nothing hidden");
+            const delivered = f.deliveries.length;
+            if (!s.active) assert(!f.bridge.send(s.request, "inactive fixture"), "inactive requests reject input");
+            assert(!f.bridge.send(s.request + 1, "stale fixture"), "wrong request identities reject input");
+            assert.equal(f.deliveries.length, delivered, "rejected dispatch cannot reach any target");
+            if (step % 20 === 19) {
+                f.step(0, false);
+                assert(f.bridge.expired() && f.nodes.size === 0 && !f.bridge.diagnostics().active,
+                    "readiness withdrawal always removes takeover and presentation suppression");
+            }
+        }
+        f.bridge.dispose();
+        assert.equal(f.nodes.size, 0);
+        assert(!f.alive() && !f.observing());
+        assert.equal(f.manager.HandleVirtualKeyDown, f.oldKey);
+        assert.equal(f.manager.SetVRKeyboardOpenForThisInstance, f.oldOpen);
+        assert.equal(f.manager.SetVirtualKeyboardShownInternal, f.oldFieldShow);
+        assert.equal(f.keyboard.Hide, f.oldHide);
+        assert.equal(f.api.ShowWindow, f.oldShow);
+        assert.equal(f.api.BringToFront, f.oldFront);
+    } catch (error) {
+        error.message += ` (seed ${seed}, events ${trace.join(",")})`;
+        throw error;
+    } finally { f.bridge.dispose(); }
+}
+console.log("Native bridge: lifecycle regressions and 128 seeded event sequences passed.");

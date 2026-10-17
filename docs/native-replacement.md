@@ -42,7 +42,7 @@ Use Settings → Quit Full Keyboard for normal shutdown. If terminating from a s
 
 ## Validation
 
-Automated tests use fake Steam objects, fake input sinks and private socketpairs. They cover automatic-field metadata, same-window target changes, Unicode acknowledgement, failed commits, controller guarding, readiness deadlines, lease expiry, restoration, hook ownership and helper cleanup. Host CJK suites may skip when their optional engines are absent; ARM64 tests run against the Frame's installed libraries.
+Automated tests use fake Steam objects, fake input sinks and private socketpairs. They cover automatic-field metadata, same-window target changes, Unicode acknowledgement, failed commits, controller guarding, readiness deadlines, lease expiry, restoration, hook ownership and helper cleanup. A further 128 deterministic event sequences combine target changes, shared providers, missed close acknowledgements, pre-status shows, stale input, progress/readiness changes, dismissal and recovery. They check deadline resolution, expired-lease visibility, exclusive presentation, input rejection and restoration of original functions. Failure output includes a replayable seed and event trace. Host CJK suites may skip when their optional engines are absent; ARM64 tests run against the Frame's installed libraries.
 
 Before relying on replacement, test in the headset with harmless text:
 
