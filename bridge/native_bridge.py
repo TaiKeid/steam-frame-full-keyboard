@@ -229,6 +229,7 @@ class WatchdogProgress:
         self.fd = fd
         self.pending = b""
         self.sent = None
+        self.slow_until = 0
 
     def poll(self):
         if self.fd is None:
@@ -241,12 +242,14 @@ class WatchdogProgress:
             if not data:
                 break
             self.pending += data
-            while len(self.pending) >= 8:
-                sent, = struct.unpack("=d", self.pending[:8])
-                self.pending = self.pending[8:]
+            while len(self.pending) >= 16:
+                sent, slow_until = struct.unpack("=dd", self.pending[:16])
+                self.pending = self.pending[16:]
                 if math.isfinite(sent) and 0 < sent <= time.monotonic() and \
                         (self.sent is None or sent > self.sent):
                     self.sent = sent
+                    self.slow_until = slow_until if math.isfinite(slow_until) and \
+                        0 < slow_until <= sent + 30 else 0
 
     def close(self):
         if self.fd is not None:
@@ -258,13 +261,16 @@ class ParentRecovery:
     def __init__(self):
         self.terminated_at = None
 
-    def check(self, owner, watch, frame_sent, watchdog_sent):
+    def check(self, owner, watch, frame_sent, watchdog_sent, slow_until=0):
         now = time.monotonic()
-        # Slow main-loop work is not a frozen process when the independent
-        # watchdog is progressing and can hide the overlay for native recovery.
-        if not owner or not watch or os.getppid() != owner or watchdog_sent is None or \
-                now - frame_sent < 3 or now - watchdog_sent < 3:
+        if not owner or not watch or os.getppid() != owner or now - frame_sent < 3:
             self.terminated_at = None
+            return False
+        # A live overlay watchdog does not prove main-loop progress. Only an
+        # explicit slow operation may delay recovery, never beyond 30 seconds
+        # from the last completed frame. It cannot cancel a termination begun.
+        if self.terminated_at is None and watchdog_sent is not None and \
+                0 <= now - watchdog_sent < 3 and now < min(slow_until, frame_sent + 30):
             return False
         if self.terminated_at is None:
             os.kill(owner, signal.SIGTERM)
@@ -301,7 +307,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                  "sent": time.monotonic()}
         frame_sent = time.monotonic()
         last_parent = time.monotonic()
-        watch_panel = False
+        watch_main_loop = False
         fallback_request = None
         external_ack = 0
         next_poll = 0.0
@@ -344,7 +350,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         fallback_request = message.get("fallbackRequest", 0)
                     last_parent = time.monotonic()
                     frame_sent = float(message["sent"])
-                    watch_panel = message.get("watch") is True
+                    watch_main_loop = message.get("watch") is True
                 elif operation == "key-up":
                     if type(message.get("id")) is not int or type(message.get("request")) is not int:
                         raise ValueError("invalid-release")
@@ -404,7 +410,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     fallback_request = message["request"]
             watchdog.poll()
             if not select.select([parent], [], [], 0)[0] and recovery_watchdog.check(
-                    parent_pid, watch_panel, frame_sent, watchdog.sent):
+                    parent_pid, watch_main_loop, frame_sent, watchdog.sent, watchdog.slow_until):
                 break
             if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:
                 frame["ready"] = False

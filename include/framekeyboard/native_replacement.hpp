@@ -18,7 +18,7 @@ class NativeReplacement : public KeySink {
     };
     void poll(double now);
     void update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback, double now,
-                bool watch_panel = false);
+                bool watch_main_loop = false);
     const State& state() const { return state_; }
     void route(bool remote) { remote_ = remote; }
     bool remote() const { return remote_; }
@@ -26,7 +26,7 @@ class NativeReplacement : public KeySink {
     bool take_unsupported_control();
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
     bool prepare_watchdog();
-    void watchdog_tick(double now) const;
+    void watchdog_tick(double now, double slow_work_deadline = 0) const;
     void send(int code, int value) override;
     bool pump() override { return local_.pump(); }
     bool take_input_reset() override;

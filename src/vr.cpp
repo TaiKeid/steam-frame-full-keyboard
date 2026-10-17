@@ -453,14 +453,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false};
     replacement.prepare_watchdog();
     // Steam restores stock independently. This thread removes a frozen panel that could
-    // otherwise cover or intercept the recovered native keyboard. It never touches App/input.
+    // otherwise cover or intercept the recovered native keyboard. Apart from the
+    // atomic slow-work deadline, it never touches App/input state.
     std::jthread replacement_watchdog([&](std::stop_token stop) {
         while (!stop.stop_requested()) {
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
                 vr::VROverlay()->HideOverlay(panel.handle());
                 replacement_stalled.store(true);
             }
-            replacement.watchdog_tick(monotonic_seconds());
+            replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
@@ -968,9 +969,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const bool ready = app.replacement_ready() && (!dashboard_visible || !waiting_for_tracking);
         const bool presented =
             ready && dashboard_visible && visible && vr::VROverlay()->IsOverlayVisible(panel.handle());
+        const auto completed = monotonic_seconds();
         replacement.update(replace, ready, presented && presentation.show() ? native.request : 0,
-                           fallback || presentation.fallback_requested(), now, visible);
-        replacement_progress.store(monotonic_seconds());
+                           fallback || presentation.fallback_requested(), completed, true);
+        replacement_progress.store(completed);
+        app.frame_completed();
         replacement_watched.store(replace && visible);
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full

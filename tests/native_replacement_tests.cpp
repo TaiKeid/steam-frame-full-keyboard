@@ -514,9 +514,62 @@ void resident_close() {
     }
     fs::remove_all(directory);
 }
+void slow_work_allowance() {
+    const auto directory =
+        fs::temp_directory_path() / ("framekeyboard-slow-work-" + std::to_string(getpid()));
+    Options options;
+    options.config_dir = directory;
+    NullSink sink;
+    {
+        App app(options, sink);
+        require(app.slow_work_deadline() == 0, "ordinary frames have no slow-work allowance");
+        const auto before = monotonic_seconds();
+        app.apply({});
+        const auto deadline = app.slow_work_deadline();
+        require(deadline >= before + 30 && deadline <= monotonic_seconds() + 30,
+                "profile activation grants a bounded deadline");
+        app.flush_settings();
+        app.reload();
+        require(app.slow_work_deadline() == deadline,
+                "nested or repeated storage/profile work cannot extend a frame's allowance");
+        app.frame_completed();
+        require(app.slow_work_deadline() == 0, "only a completed frame clears slow-work state");
+        app.flush_settings();
+        require(app.slow_work_deadline() > 0, "a storage barrier explicitly declares slow work");
+        app.frame_completed();
+        app.reload();
+        require(app.slow_work_deadline() > 0, "profile reload explicitly declares slow work");
+    }
+    fs::remove_all(directory);
+}
 } // namespace
 int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string(argv[1]) == "--instance-fixture") {
+            VrInstance instance(argv[2]);
+            require(instance.is_owner(), "a recovered process must release the instance lock");
+            std::cout << "Recovered instance lock acquired.\n";
+            return 0;
+        }
+        if (argc == 3 && std::string(argv[1]) == "--stalled-main-fixture") {
+            VrInstance instance(argv[2]);
+            require(instance.is_owner(), "isolated stalled process owns its instance lock");
+            NullSink local;
+            NativeReplacement replacement(local);
+            require(replacement.prepare_watchdog(), "private recovery health pipe");
+            std::jthread watchdog([&](std::stop_token stop) {
+                while (!stop.stop_requested()) {
+                    replacement.watchdog_tick(monotonic_seconds());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+            });
+            replacement.update(true, false, 0, false, monotonic_seconds(), true);
+            // The independent watchdog stays live; the main loop never polls or
+            // handles recenter again. No Steam, VR or input endpoint is used.
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        }
         if (argc == 2 &&
             (std::string(argv[1]) == "--steam-unarmed" || std::string(argv[1]) == "--helper-fixture")) {
             NullSink local;
@@ -548,6 +601,7 @@ int main(int argc, char** argv) {
         handoff_status();
         resident_visibility();
         resident_close();
+        slow_work_allowance();
         std::cout << "Native replacement transport and commit ownership passed.\n";
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

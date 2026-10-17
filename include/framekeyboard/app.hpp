@@ -7,6 +7,7 @@
 #include "placement.hpp"
 #include "settings_ui.hpp"
 #include "settings_writer.hpp"
+#include <atomic>
 #include <csignal>
 #include <optional>
 
@@ -96,6 +97,10 @@ class App {
     void apply(Selection selection);
     void reload();
     void flush_settings();
+    // Only explicit profile/storage work gets extra time. The deadline stays
+    // fixed until a complete VR frame, even across nested or repeated work.
+    double slow_work_deadline() const { return slow_work_deadline_.load(); }
+    void frame_completed() { slow_work_deadline_.store(0); }
     const fs::path& config_dir() const { return options_.config_dir; }
     bool quitting() const { return quit_; }
     bool take_recenter();
@@ -109,11 +114,13 @@ class App {
     void activate(Selection selection);
     void save();
     void update_save_status();
+    void allow_slow_work();
     void rebuild_cycle_entries();
     void action(const std::string& id);
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
+    void convert_japanese();
     bool japanese() const;
     bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_cjk();
@@ -165,6 +172,7 @@ class App {
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;
+    std::atomic<double> slow_work_deadline_{};
 };
 
 double monotonic_seconds();

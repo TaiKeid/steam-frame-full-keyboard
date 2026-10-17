@@ -163,7 +163,7 @@ class Lifecycle(unittest.TestCase):
         finally:
             parent.close()
 
-    def test_recovery_is_scoped_to_a_frozen_original_parent(self):
+    def test_main_loop_recovery_is_scoped_and_escalates_with_a_live_watchdog(self):
         with patch.object(bridge.os, "getppid", return_value=77), \
                 patch.object(bridge.os, "kill") as kill, \
                 patch.object(bridge.time, "monotonic", return_value=10):
@@ -171,21 +171,55 @@ class Lifecycle(unittest.TestCase):
             self.assertFalse(recovery.check(77, False, 5, 5))
             self.assertFalse(recovery.check(78, True, 5, 5))
             self.assertFalse(recovery.check(77, True, 8, 5))
-            self.assertFalse(recovery.check(77, True, 5, 9.9), "a live watchdog permits slow work")
-            self.assertFalse(recovery.check(77, True, 5, None), "missing health cannot prove a freeze")
             kill.assert_not_called()
-            self.assertFalse(recovery.check(77, True, 5, 5))
+            self.assertFalse(recovery.check(77, True, 5, 9.9),
+                             "a live watchdog cannot excuse a deadlocked main loop")
             kill.assert_called_once_with(77, bridge.signal.SIGTERM)
         with patch.object(bridge.os, "getppid", return_value=77), \
                 patch.object(bridge.os, "kill") as kill, \
                 patch.object(bridge.time, "monotonic", return_value=10.5):
-            self.assertFalse(recovery.check(77, True, 5, 5))
+            self.assertFalse(recovery.check(77, True, 5, 10.5))
             kill.assert_not_called()
         with patch.object(bridge.os, "getppid", return_value=77), \
                 patch.object(bridge.os, "kill") as kill, \
                 patch.object(bridge.time, "monotonic", return_value=11):
-            self.assertTrue(recovery.check(77, True, 5, 5))
+            self.assertTrue(recovery.check(77, True, 5, 11, 35),
+                            "a late slow-work allowance cannot cancel termination")
             kill.assert_called_once_with(77, bridge.signal.SIGKILL)
+
+    def test_explicit_slow_work_is_bounded_and_does_not_protect_a_frozen_watchdog(self):
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill:
+            recovery = bridge.ParentRecovery()
+            for now in (10, 20, 34.99):
+                with patch.object(bridge.time, "monotonic", return_value=now):
+                    self.assertFalse(recovery.check(77, True, 5, now, 35))
+            kill.assert_not_called()
+            with patch.object(bridge.time, "monotonic", return_value=35):
+                self.assertFalse(recovery.check(77, True, 5, 35, 1000),
+                                 "even a growing allowance cannot extend the frame's hard limit")
+                kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+            for watchdog in (5, None):
+                kill.reset_mock()
+                with patch.object(bridge.time, "monotonic", return_value=10):
+                    self.assertFalse(bridge.ParentRecovery().check(77, True, 5, watchdog, 35))
+                kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+
+    def test_resumed_main_loop_clears_recovery_and_starts_a_new_grace_period(self):
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=10):
+            recovery = bridge.ParentRecovery()
+            recovery.check(77, True, 5, 9.9)
+            self.assertIsNotNone(recovery.terminated_at)
+            recovery.check(77, True, 9.9, 9.9)
+            self.assertIsNone(recovery.terminated_at)
+            kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+        with patch.object(bridge.os, "getppid", return_value=77), \
+                patch.object(bridge.os, "kill") as kill, \
+                patch.object(bridge.time, "monotonic", return_value=14):
+            self.assertFalse(recovery.check(77, True, 9.9, 14))
+            kill.assert_called_once_with(77, bridge.signal.SIGTERM)
 
     def test_independent_health_pipe_does_not_renew_render_progress(self):
         read_fd, write_fd = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
@@ -195,19 +229,46 @@ class Lifecycle(unittest.TestCase):
                     patch.object(bridge.os, "getppid", return_value=77), \
                     patch.object(bridge.os, "kill") as kill:
                 recovery = bridge.ParentRecovery()
-                for tick in (5, 9.9, 9.8, float("nan"), 99):
-                    os.write(write_fd, struct.pack("=d", tick))
+                # Include a split record, stale ticks and impossible timestamps.
+                packet = struct.pack("=dd", 5, 35)
+                os.write(write_fd, packet[:5])
+                health.poll()
+                self.assertIsNone(health.sent)
+                os.write(write_fd, packet[5:])
+                for tick in (9.9, 9.8, float("nan"), 99):
+                    os.write(write_fd, struct.pack("=dd", tick, 35))
                 health.poll()
                 self.assertEqual(health.sent, 9.9, "only fresh increasing watchdog progress counts")
-                self.assertFalse(recovery.check(77, True, 5, health.sent))
+                self.assertEqual(health.slow_until, 35)
+                self.assertFalse(recovery.check(77, True, 5, health.sent, health.slow_until))
                 kill.assert_not_called()
                 self.assertEqual(health.pending, b"")
             with patch.object(bridge.time, "monotonic", return_value=14), \
                     patch.object(bridge.os, "getppid", return_value=77), \
                     patch.object(bridge.os, "kill") as kill:
                 health.poll()
-                self.assertFalse(recovery.check(77, True, 5, health.sent))
+                self.assertFalse(recovery.check(77, True, 5, health.sent, health.slow_until))
                 kill.assert_called_once_with(77, bridge.signal.SIGTERM)
+        finally:
+            os.close(write_fd)
+            health.close()
+
+    def test_health_pipe_rejects_invalid_slow_work_deadlines(self):
+        read_fd, write_fd = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+        health = bridge.WatchdogProgress(read_fd)
+        try:
+            with patch.object(bridge.time, "monotonic", return_value=20):
+                for tick, deadline in ((1, float("nan")), (2, float("inf")), (3, -5), (4, 35)):
+                    os.write(write_fd, struct.pack("=dd", tick, deadline))
+                    health.poll()
+                    self.assertEqual(health.sent, tick)
+                    self.assertEqual(health.slow_until, 0)
+                os.write(write_fd, struct.pack("=dd", 5, 35))
+                health.poll()
+                self.assertEqual(health.slow_until, 35)
+                os.write(write_fd, struct.pack("=dd", 6, 0))
+                health.poll()
+                self.assertEqual(health.slow_until, 0, "completed frames clear the allowance")
         finally:
             os.close(write_fd)
             health.close()

@@ -662,6 +662,7 @@ std::vector<PlacementAction> App::take_placement_actions() {
     return result;
 }
 void App::activate(Selection selection) {
+    allow_slow_work();
     validate_selection_profiles(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
@@ -701,8 +702,13 @@ void App::update_save_status() {
     }
 }
 void App::flush_settings() {
+    allow_slow_work();
     settings_writer_.flush();
     update_save_status();
+}
+void App::allow_slow_work() {
+    double unset = 0;
+    slow_work_deadline_.compare_exchange_strong(unset, monotonic_seconds() + 30);
 }
 void App::apply(Selection selection) {
     activate(std::move(selection));
@@ -743,6 +749,7 @@ void App::rebuild_cycle_entries() {
     cycle_entries_ = std::move(entries);
 }
 void App::reload() {
+    allow_slow_work();
     // A pending preference write must finish before reading an edited config;
     // otherwise an older snapshot could overwrite it after Reload returns.
     flush_settings();
@@ -813,6 +820,11 @@ void App::refresh_typing() {
     typing_ready_ = typing_ready;
     gate_.enabled = interaction_active_ && typing_ready_;
 }
+void App::convert_japanese() {
+    // Anthy loads its library and dictionary lazily on first conversion.
+    allow_slow_work();
+    composition_.convert();
+}
 void App::commit_japanese() {
     const auto text = composition_.commit_text();
     if (text.empty()) {
@@ -856,7 +868,7 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
             if (shift && composition_.converting()) {
                 composition_.cycle(-1);
             } else {
-                composition_.convert();
+                convert_japanese();
             }
         }
         return true;
@@ -1141,7 +1153,7 @@ void App::action(const std::string& id) {
             composition_.cancel();
             japanese_latin_ = !japanese_latin_;
         } else if (id == "ime-convert") {
-            composition_.convert();
+            convert_japanese();
         } else if (id == "ime-commit") {
             commit_japanese();
         } else if (id == "ime-cancel") {

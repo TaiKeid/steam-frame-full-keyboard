@@ -119,7 +119,8 @@ if(BUILD_TESTING)
     if(NOT CMAKE_CROSSCOMPILING)
         add_test(NAME native-helper-spawn COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_helper_spawn_tests.py"
-            "$<TARGET_FILE:native-replacement-tests>")
+            "$<TARGET_FILE:native-replacement-tests>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/bridge/native_bridge.py")
         add_test(NAME native-bridge-transport COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_bridge_transport_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/bridge/native_bridge.py")

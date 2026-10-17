@@ -78,11 +78,12 @@ bool NativeReplacement::prepare_watchdog() {
     watchdog_write_ = descriptors[1];
     return true;
 }
-void NativeReplacement::watchdog_tick(double now) const {
+void NativeReplacement::watchdog_tick(double now, double slow_work_deadline) const {
     if (watchdog_write_ >= 0) {
         // One fixed-size write is atomic and never waits for the helper. This
         // proves watchdog progress, not render/input readiness for takeover.
-        const auto ignored = write(watchdog_write_, &now, sizeof(now));
+        const double health[] = {now, slow_work_deadline};
+        const auto ignored = write(watchdog_write_, health, sizeof(health));
         (void)ignored;
     }
 }
@@ -225,7 +226,7 @@ void NativeReplacement::poll(double now) {
     }
 }
 void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback,
-                               double now, bool watch_panel) {
+                               double now, bool watch_main_loop) {
     if (!enabled) {
         stop();
         return;
@@ -238,7 +239,7 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
                        ",\"progress\":" + std::to_string(++progress_) +
                        ",\"ready\":" + (ready ? "true" : "false") +
                        ",\"ack\":" + std::to_string(acknowledgement) +
-                       ",\"watch\":" + (watch_panel ? "true" : "false") +
+                       ",\"watch\":" + (watch_main_loop ? "true" : "false") +
                        ",\"fallbackRequest\":" + std::to_string(state_.request) +
                        ",\"fallback\":" + (use_fallback ? "true}" : "false}");
     // Dropped heartbeats never extend a lease. A dropped explicit fallback closes IPC.
