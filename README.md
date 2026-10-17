@@ -43,7 +43,7 @@ No AI tools, compilation, `sudo`, or SteamOS write access are needed for the rel
    ```
 
    Continue only if the checksum reports `OK`. For a newer version, use its archive and extracted directory names.
-3. Return to the Frame's dashboard and open **Full Keyboard** from the app launcher. The headset's VR session must already be running. You can also launch it from a terminal:
+3. Return to the Frame's dashboard and open **Full Keyboard** from the app launcher. You can also launch it from a terminal:
 
    ```sh
    ~/.local/bin/framekeyboard
