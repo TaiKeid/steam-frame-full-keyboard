@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -83,6 +84,32 @@ class Metadata(unittest.TestCase):
         for url in ("http://github.com/file", "https://example.com/file", "https://github.com.evil.org/file", "https://user@github.com/file"):
             with self.subTest(url=url), self.assertRaises(u.UpdateError):
                 handler.redirect_request(None, None, 302, "", {}, url)
+
+    def test_tls_drop_during_response_read_reports_connection_failure(self):
+        class Response:
+            headers = {}
+            closed = False
+            reads = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.closed = True
+            def read(self, size):
+                self.reads += 1
+                if self.reads == 1:
+                    return b"partial download"
+                raise ssl.SSLEOFError(ssl.SSL_ERROR_EOF, "private TLS error details")
+        response = Response()
+        class Opener:
+            def open(self, *args, **kwargs):
+                return response
+        output = io.BytesIO()
+        with patch.object(u, "build_opener", return_value=Opener()):
+            with self.assertRaises(ssl.SSLEOFError) as raised:
+                u.download_response("https://github.com/fixture", output, 1024)
+        self.assertEqual(u.failure_reason(raised.exception), "network-unavailable")
+        self.assertEqual(output.getvalue(), b"partial download")
+        self.assertTrue(response.closed)
 
 
 class Archives(unittest.TestCase):
@@ -412,11 +439,15 @@ class Protocol(unittest.TestCase):
         private = "https://private.example/secret"
         failures = [
             (u.URLError(private), "network-unavailable"),
+            (ssl.SSLError(ssl.SSL_ERROR_SSL, private), "network-unavailable"),
+            (ssl.SSLEOFError(ssl.SSL_ERROR_EOF, private), "network-unavailable"),
+            (ssl.SSLCertVerificationError(ssl.SSL_ERROR_SSL, private), "network-unavailable"),
             (u.HTTPError(private, 429, private, {}, None), "rate-limit"),
             (u.HTTPError(private, 403, private, {"X-RateLimit-Remaining": "0"}, None), "rate-limit"),
             (u.HTTPError(private, 503, private, None, None), "server-unavailable"),
             (TimeoutError(private), "download-timeout"),
             (OSError(errno.ENOSPC, private), "disk-full"),
+            (OSError(errno.EIO, private), "files-unavailable"),
             (OSError(errno.EACCES, private), "permission-denied"),
             (u.UpdateError("checksum-mismatch"), "checksum-failed"),
             (u.UpdateError("install-busy"), "install-busy"),

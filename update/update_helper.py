@@ -13,6 +13,7 @@ import select
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -37,7 +38,7 @@ def failure_reason(error):
     if isinstance(error, HTTPError):
         return "rate-limit" if (error.code == 429 or
                 (error.code == 403 and (error.headers or {}).get("X-RateLimit-Remaining") == "0")) else "server-unavailable"
-    if isinstance(error, (URLError, ConnectionError)):
+    if isinstance(error, (URLError, ConnectionError, ssl.SSLError)):
         return "network-unavailable"
     if isinstance(error, TimeoutError):
         return "download-timeout"
