@@ -514,6 +514,49 @@ void resident_close() {
     }
     fs::remove_all(directory);
 }
+void unavailable_reasons() {
+    const auto directory =
+        fs::temp_directory_path() / ("framekeyboard-reason-tests-" + std::to_string(getpid()));
+    Settings settings;
+    settings.replace_native_keyboard = true;
+    save_settings(directory, settings);
+    Options options;
+    options.mode = "vr";
+    options.input = "ei";
+    options.start_enabled = true;
+    options.config_dir = directory;
+    Local local;
+    {
+        App app(options, local);
+        app.show_settings();
+        for (const auto& [code, message] : std::vector<std::pair<std::string, std::string>>{
+                 {"debugger-unavailable", "Steam debugger is unavailable."},
+                 {"debugger-blocked", "Local Steam debugger access is blocked."},
+                 {"steam-incompatible", "Steam keyboard interfaces are incompatible."},
+                 {"replacement-busy", "Another keyboard replacement is active."},
+                 {"connection-lost", "Replacement connection was lost."},
+                 {"private fixture", "Replacement helper is unavailable."}}) {
+            int pair[2];
+            require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                    "failure reason fixture socketpair");
+            NativeReplacement replacement(local, pair[0]);
+            put(pair[1], "{\"op\":\"unavailable\",\"reason\":\"" + code + "\"}");
+            close(pair[1]); // The last status must survive helper EOF.
+            replacement.poll(1);
+            require(!replacement.state().available && replacement.unavailable_reason() == message,
+                    "unavailable metadata maps only to fixed user-facing reasons");
+            app.dirty = false;
+            app.set_replacement_available(false, replacement.unavailable_reason());
+            require(app.dirty && app.view().status == message + " Steam keyboard remains available.",
+                    "a changed unavailable reason repaints Settings without changing availability");
+            require(app.view().status.find("private fixture") == std::string::npos,
+                    "unrecognized helper text is never displayed");
+        }
+        app.set_replacement_available(true);
+        require(app.view().status.empty(), "restored availability clears the failure notice");
+    }
+    fs::remove_all(directory);
+}
 void slow_work_allowance() {
     const auto directory =
         fs::temp_directory_path() / ("framekeyboard-slow-work-" + std::to_string(getpid()));
@@ -571,7 +614,8 @@ int main(int argc, char** argv) {
             }
         }
         if (argc == 2 &&
-            (std::string(argv[1]) == "--steam-unarmed" || std::string(argv[1]) == "--helper-fixture")) {
+            (std::string(argv[1]) == "--steam-unarmed" || std::string(argv[1]) == "--helper-fixture" ||
+             std::string(argv[1]) == "--helper-error-fixture")) {
             NullSink local;
             NativeReplacement replacement(local);
             require(replacement.prepare_watchdog(), "private health pipe available");
@@ -581,6 +625,14 @@ int main(int argc, char** argv) {
                 replacement.poll(now);
                 replacement.watchdog_tick(now);
                 replacement.update(true, false, 0, false, now);
+                if (std::string(argv[1]) == "--helper-error-fixture") {
+                    if (std::string(replacement.unavailable_reason()) ==
+                        "Local Steam debugger access is blocked.") {
+                        std::cout << "Exited helper failure reason preserved.\n";
+                        return 0;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
                 if (replacement.state().available) {
                     require(!replacement.state().active, "unarmed bridge must not take over");
                     replacement.update(false, false, 0, false, now);
@@ -592,7 +644,8 @@ int main(int argc, char** argv) {
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
-            throw std::runtime_error("unarmed Steam handshake unavailable");
+            throw std::runtime_error(std::string("unarmed Steam handshake unavailable: ") +
+                                     replacement.unavailable_reason());
         }
         require(argc == 1, "unknown test option");
         transport();
@@ -602,6 +655,7 @@ int main(int argc, char** argv) {
         resident_visibility();
         resident_close();
         slow_work_allowance();
+        unavailable_reasons();
         std::cout << "Native replacement transport and commit ownership passed.\n";
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

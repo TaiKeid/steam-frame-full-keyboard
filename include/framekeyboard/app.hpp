@@ -10,6 +10,7 @@
 #include <atomic>
 #include <csignal>
 #include <optional>
+#include <utility>
 
 namespace framekeyboard {
 class NativeReplacement;
@@ -77,9 +78,13 @@ class App {
     }
     void close_panel();
     bool take_dismissal();
-    void set_replacement_available(bool available) {
-        dirty |= replacement_available_ != available;
+    void set_replacement_available(bool available, std::string reason = {}) {
+        if (available) {
+            reason.clear();
+        }
+        dirty |= replacement_available_ != available || replacement_unavailable_reason_ != reason;
         replacement_available_ = available;
+        replacement_unavailable_reason_ = std::move(reason);
     }
     void set_native_session(bool open) {
         dirty |= native_session_ != open;
@@ -149,6 +154,7 @@ class App {
     bool pending_replace_native_keyboard_{};
     bool native_fallback_{};
     bool replacement_available_{};
+    std::string replacement_unavailable_reason_;
     bool native_session_{};
     bool dismiss_requested_{};
     SettingsUi settings_ui_;

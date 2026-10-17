@@ -134,7 +134,7 @@ class Lifecycle(unittest.TestCase):
             with patch.object(bridge.Path, "read_text", lambda path: rows[path.name]):
                 bridge.require_loopback_debugger()
         with patch.object(bridge.Path, "read_text", side_effect=PermissionError()):
-            with self.assertRaises(PermissionError):
+            with self.assertRaises(bridge.BridgeUnavailable):
                 bridge.require_loopback_debugger()
         with self.assertRaises(ValueError):
             bridge.NoDebuggerRedirects().redirect_request(None, None, None, None, None,
@@ -150,6 +150,14 @@ class Lifecycle(unittest.TestCase):
                 client.evaluate("fixture metadata")
             frame.assert_not_called()
 
+    def test_missing_steam_shared_context_reports_incompatible_interfaces(self):
+        with patch.object(bridge, "require_loopback_debugger"), \
+                patch.object(bridge, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = b"[]"
+            with self.assertRaises(bridge.BridgeUnavailable) as error:
+                bridge.CDP()
+            self.assertEqual(error.exception.reason, "steam-incompatible")
+
     def test_unavailable_debugger_disables_replacement_before_installing_hooks(self):
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         parent.settimeout(1)
@@ -159,12 +167,31 @@ class Lifecycle(unittest.TestCase):
         worker = threading.Thread(target=bridge.run, args=(child, unavailable, None, guard_factory))
         worker.start()
         try:
-            self.assertEqual(self.receive(parent, "unavailable"), dict(op="unavailable"))
+            self.assertEqual(self.receive(parent, "unavailable"),
+                             dict(op="unavailable", reason="debugger-unavailable"))
             worker.join(1)
             self.assertFalse(worker.is_alive())
             guard_factory.assert_not_called()
         finally:
             parent.close()
+
+    def test_failure_reasons_are_fixed_codes_and_do_not_echo_exceptions(self):
+        for reason in ("debugger-blocked", "steam-incompatible", "replacement-busy", "private fixture"):
+            with self.subTest(reason=reason):
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                parent.settimeout(1)
+                def unavailable():
+                    raise bridge.BridgeUnavailable(reason)
+                worker = threading.Thread(target=bridge.run, args=(child, unavailable))
+                worker.start()
+                try:
+                    expected = reason if reason != "private fixture" else "helper-unavailable"
+                    self.assertEqual(self.receive(parent, "unavailable"),
+                                     dict(op="unavailable", reason=expected))
+                finally:
+                    parent.close()
+                    worker.join(1)
+                self.assertFalse(worker.is_alive())
 
     def test_main_loop_recovery_is_scoped_and_escalates_with_a_live_watchdog(self):
         with patch.object(bridge.os, "getppid", return_value=77), \
@@ -461,7 +488,7 @@ class Lifecycle(unittest.TestCase):
         try:
             parent.send(b'{"op":"unknown","text":"private fixture"}')
             message = self.receive(parent, "unavailable")
-            self.assertEqual(message, dict(op="unavailable"))
+            self.assertEqual(message, dict(op="unavailable", reason="connection-lost"))
         finally:
             parent.close()
             worker.join(2)

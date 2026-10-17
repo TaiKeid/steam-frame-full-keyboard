@@ -22,6 +22,14 @@ MAX_PACKET = 32768
 GLOBAL = "__fullKeyboardNativeV1"
 
 
+class BridgeUnavailable(ValueError):
+    """Only fixed, non-sensitive codes may cross the private status channel."""
+    def __init__(self, reason):
+        self.reason = reason if reason in {"debugger-blocked", "steam-incompatible",
+                                          "replacement-busy"} else "helper-unavailable"
+        super().__init__(self.reason)
+
+
 def require_loopback_debugger():
     """Require the debugger endpoint we use to be bound to loopback."""
     for table in ("tcp", "tcp6"):
@@ -30,7 +38,9 @@ def require_loopback_debugger():
         except FileNotFoundError:
             if table == "tcp6":
                 continue  # IPv6 can be disabled by the device.
-            raise
+            raise BridgeUnavailable("debugger-blocked") from None
+        except OSError:
+            raise BridgeUnavailable("debugger-blocked") from None
         for line in lines:
             fields = line.split()
             if fields[3] != "0A":
@@ -44,12 +54,12 @@ def require_loopback_debugger():
             address = ipaddress.ip_address(raw)
             mapped = getattr(address, "ipv4_mapped", None)
             if not (mapped or address).is_loopback:
-                raise ValueError("network-debugger-exposed")
+                raise BridgeUnavailable("debugger-blocked")
 
 
 class NoDebuggerRedirects(HTTPRedirectHandler):
     def redirect_request(self, *_args, **_kwargs):
-        raise ValueError("debugger-redirect-refused")
+        raise BridgeUnavailable("debugger-blocked")
 
 
 class NativeGuard:
@@ -130,10 +140,12 @@ class CDP:
             if len(data) > 1024 * 1024:
                 raise ValueError("target-list-too-large")
             targets = json.loads(data)
-            target = next(t for t in targets if t.get("title") == "SharedJSContext")
+            target = next((t for t in targets if t.get("title") == "SharedJSContext"), None)
+            if target is None:
+                raise BridgeUnavailable("steam-incompatible")
             url = urlsplit(target["webSocketDebuggerUrl"])
             if url.scheme != "ws" or url.hostname not in ("localhost", "127.0.0.1") or url.port != 8080:
-                raise ValueError("nonlocal-debugger")
+                raise BridgeUnavailable("debugger-blocked")
             self.socket = socket.create_connection(("127.0.0.1", 8080), timeout=0.3)
             key = base64.b64encode(os.urandom(16)).decode()
             path = url.path + ("?" + url.query if url.query else "")
@@ -212,7 +224,7 @@ class CDP:
             if message.get("id") != self.sequence:
                 continue
             if "exceptionDetails" in message.get("result", {}) or "error" in message:
-                raise ValueError("steam-evaluation-failed")
+                raise BridgeUnavailable("steam-incompatible")
             return message.get("result", {}).get("result", {}).get("value")
         raise TimeoutError()
 
@@ -221,6 +233,16 @@ def send(parent, value):
     data = json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode()
     if len(data) > MAX_PACKET or parent.send(data) != len(data):
         raise ValueError("parent-backpressure")
+
+
+def report_unavailable(parent, reason):
+    # Closing a seqpacket peer with unread frames discards its final reply with
+    # ECONNRESET. Refuse new writes and drain the bounded queue before reporting.
+    parent.shutdown(socket.SHUT_RD)
+    for _ in range(1024):
+        if not parent.recv(MAX_PACKET + 1, socket.MSG_DONTWAIT):
+            break
+    send(parent, {"op": "unavailable", "reason": reason})
 
 
 class WatchdogProgress:
@@ -289,20 +311,24 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
     recovery_watchdog = ParentRecovery()
     token = os.urandom(16).hex()
     reference = f"globalThis.{GLOBAL}"
+    failure_reason = "debugger-unavailable"
     try:
         client = client_factory()
         try:
             guard = guard_factory()
         except (OSError, ValueError, EOFError):
             pass  # Steam targets remain supported when the native adapter is unavailable.
+        failure_reason = "helper-unavailable"
         source = Path(__file__).with_name("steam_bridge.js").read_text()
+        failure_reason = "steam-incompatible"
         # Never displace another live instance. A dead owner's lease must expire first.
         result = client.evaluate(f"(() => {{ if ({reference}) {{ if (!{reference}.bridge.expired()) return false; {reference}.bridge.dispose(); delete {reference}; }} "
                                  f"const bridge = ({source})(globalThis, undefined, {str(guard is not None).lower()}); "
                                  f"{reference} = {{token: {json.dumps(token)}, bridge}}; return true; }})()")
         if result is not True:
-            raise ValueError("bridge-already-installed")
+            raise BridgeUnavailable("replacement-busy")
         installed = True
+        failure_reason = "connection-lost"
         frame = {"progress": 0, "ready": False, "ack": 0, "fallback": False,
                  "sent": time.monotonic()}
         frame_sent = time.monotonic()
@@ -420,7 +446,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 result = client.evaluate(f"{reference}?.bridge.step({json.dumps(poll_frame)})")
                 fallback_request = None
                 if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
-                    raise ValueError("bridge-unavailable")
+                    raise BridgeUnavailable("steam-incompatible")
                 if guard:
                     recovery = result.get("externalRestore")
                     if recovery and recovery["request"] != external_ack:
@@ -437,7 +463,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             result = client.evaluate(f"{reference}?.bridge.prepareExternal("
                                                      f"{candidate['request']},{json.dumps(candidate['key'])})")
                             if not isinstance(result, dict):
-                                raise ValueError("bridge-unavailable")
+                                raise BridgeUnavailable("steam-incompatible")
                     recovery = result.get("externalRestore")
                     if recovery and recovery["request"] != external_ack:
                         guard.restore()
@@ -446,10 +472,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         guard.cancel()
                 send(parent, {"op": "state", **result})
                 next_poll = time.monotonic() + 0.035
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as error:
         # Errors are fixed status codes. Never echo CDP expressions, input packets or field values.
         try:
-            send(parent, {"op": "unavailable"})
+            reason = error.reason if isinstance(error, BridgeUnavailable) else failure_reason
+            report_unavailable(parent, reason)
         except Exception:
             pass
     finally:

@@ -94,8 +94,29 @@ bool NativeReplacement::packet(const std::string& data) {
     return ::send(fd_, data.data(), data.size(), MSG_NOSIGNAL | MSG_DONTWAIT) ==
            static_cast<ssize_t>(data.size());
 }
+const char* NativeReplacement::unavailable_reason() const {
+    switch (failure_) {
+    case Failure::DebuggerUnavailable:
+        return "Steam debugger is unavailable.";
+    case Failure::DebuggerBlocked:
+        return "Local Steam debugger access is blocked.";
+    case Failure::SteamIncompatible:
+        return "Steam keyboard interfaces are incompatible.";
+    case Failure::ReplacementBusy:
+        return "Another keyboard replacement is active.";
+    case Failure::HelperUnavailable:
+        return "Replacement helper is unavailable.";
+    case Failure::ConnectionLost:
+        return "Replacement connection was lost.";
+    case Failure::None:
+        return "";
+    }
+    return "";
+}
 void NativeReplacement::start(double now) {
     next_start_ = now + 5;
+    const auto previous_failure = failure_;
+    failure_ = Failure::HelperUnavailable;
     if (watchdog_read_ < 0) {
         return;
     }
@@ -145,6 +166,7 @@ void NativeReplacement::start(double now) {
         return;
     }
     fd_ = pair[0];
+    failure_ = previous_failure;
     last_reply_ = now;
 }
 void NativeReplacement::stop() {
@@ -160,9 +182,9 @@ void NativeReplacement::stop() {
 }
 void NativeReplacement::poll(double now) {
     now_ = now;
-    if (child_ > 0 && waitpid(child_, nullptr, WNOHANG) != 0) {
+    const bool child_exited = child_ > 0 && waitpid(child_, nullptr, WNOHANG) != 0;
+    if (child_exited) {
         child_ = -1;
-        stop();
     }
     if (fd_ < 0) {
         return;
@@ -174,18 +196,21 @@ void NativeReplacement::poll(double now) {
             break;
         }
         if (size <= 0 || size > 32768) {
+            failure_ = Failure::ConnectionLost;
             stop();
             break;
         }
         Json value(json_tokener_parse(std::string(buffer, static_cast<std::size_t>(size)).c_str()),
                    json_object_put);
         if (!value || json_object_get_type(value.get()) != json_type_object) {
+            failure_ = Failure::HelperUnavailable;
             stop();
             break;
         }
         auto field = [&](const char* name) { return json_object_object_get(value.get(), name); };
         const auto* operation = json_object_get_string(field("op"));
         if (!operation) {
+            failure_ = Failure::HelperUnavailable;
             stop();
             break;
         }
@@ -198,6 +223,26 @@ void NativeReplacement::poll(double now) {
                       true,
                       json_object_get_boolean(field("local")) != 0};
             last_reply_ = now;
+            failure_ = Failure::None;
+        } else if (op == "unavailable") {
+            // Map only known codes. Never display arbitrary helper/exception text.
+            const char* code = json_object_get_string(field("reason"));
+            const std::string reason = code ? code : "";
+            if (reason == "debugger-unavailable") {
+                failure_ = Failure::DebuggerUnavailable;
+            } else if (reason == "debugger-blocked") {
+                failure_ = Failure::DebuggerBlocked;
+            } else if (reason == "steam-incompatible") {
+                failure_ = Failure::SteamIncompatible;
+            } else if (reason == "replacement-busy") {
+                failure_ = Failure::ReplacementBusy;
+            } else if (reason == "connection-lost") {
+                failure_ = Failure::ConnectionLost;
+            } else {
+                failure_ = Failure::HelperUnavailable;
+            }
+            stop();
+            break;
         } else if (op == "text-result") {
             if (pending_id_ && json_object_get_uint64(field("id")) == pending_id_) {
                 pending_result_ = json_object_get_boolean(field("ok")) != 0;
@@ -213,11 +258,13 @@ void NativeReplacement::poll(double now) {
                 }
             }
         } else {
+            failure_ = Failure::HelperUnavailable;
             stop();
             break;
         }
     }
-    if (fd_ >= 0 && now - last_reply_ > .8) {
+    if (fd_ >= 0 && (child_exited || now - last_reply_ > .8)) {
+        failure_ = Failure::ConnectionLost;
         stop();
     }
     if (pending_id_ && !pending_result_ && now - pending_since_ > .6) {
@@ -229,6 +276,7 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
                                double now, bool watch_main_loop) {
     if (!enabled) {
         stop();
+        failure_ = Failure::None;
         return;
     }
     if (fd_ < 0 && child_ < 0 && now >= next_start_) {

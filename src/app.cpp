@@ -276,7 +276,9 @@ PanelView App::view() const {
     v.settings = settings_open_;
     if (settings_open_ && settings_.replace_native_keyboard && !replacement_available_ &&
         v.status.empty()) {
-        v.status = "Native replacement unavailable. Steam keyboard remains available.";
+        v.status = replacement_unavailable_reason_.empty() ? "Native replacement unavailable. "
+                                                           : replacement_unavailable_reason_ + " ";
+        v.status += "Steam keyboard remains available.";
     }
     v.composing = japanese() && !japanese_latin_;
     if (v.composing) {

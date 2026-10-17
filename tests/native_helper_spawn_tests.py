@@ -84,3 +84,15 @@ result.replace(result.with_name("result.json"))
                             capture_output=True, text=True, timeout=6)
     assert result.returncode == 0, result.stdout + result.stderr
     print("Stalled main loop recovered with a live watchdog; helper exited and relaunch acquired the instance lock.")
+
+    (root / "bridge/native_bridge.py").write_text('''import importlib.util,socket
+spec=importlib.util.spec_from_file_location("production_bridge", SOURCE)
+bridge=importlib.util.module_from_spec(spec);spec.loader.exec_module(bridge)
+parent=socket.socket(fileno=3)
+bridge.report_unavailable(parent,"debugger-blocked")
+parent.close()
+'''.replace("SOURCE", repr(source)))
+    result = subprocess.run([str(binary), "--helper-error-fixture"], capture_output=True,
+                            text=True, timeout=6)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print(result.stdout.strip())

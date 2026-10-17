@@ -20,6 +20,7 @@ class NativeReplacement : public KeySink {
     void update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback, double now,
                 bool watch_main_loop = false);
     const State& state() const { return state_; }
+    const char* unavailable_reason() const;
     void route(bool remote) { remote_ = remote; }
     bool remote() const { return remote_; }
     void dismiss_request();
@@ -41,6 +42,15 @@ class NativeReplacement : public KeySink {
     std::optional<bool> num_lock_state() override { return local_.num_lock_state(); }
 
   private:
+    enum class Failure {
+        None,
+        DebuggerUnavailable,
+        DebuggerBlocked,
+        SteamIncompatible,
+        ReplacementBusy,
+        HelperUnavailable,
+        ConnectionLost
+    };
     bool packet(const std::string& data);
     void start(double now);
     void stop();
@@ -49,6 +59,7 @@ class NativeReplacement : public KeySink {
     pid_t child_{-1};
     int watchdog_read_{-1}, watchdog_write_{-1};
     State state_;
+    Failure failure_{Failure::None};
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
     double last_reply_{}, next_start_{}, now_{}, pending_since_{};
     std::uint64_t progress_{}, sequence_{}, pending_id_{};

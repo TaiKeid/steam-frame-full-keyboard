@@ -8,6 +8,8 @@ SteamOS can separately provide port 8081 through `steam-web-debug-portforward.se
 
 The bridge checks that its debugger endpoint on port 8080 is bound only to loopback. Port 8081 is unused and does not affect replacement availability. A Steam UI update may disable replacement until compatibility is restored.
 
+When replacement cannot run, Settings reports a fixed reason: unavailable debugger, blocked local debugger access, incompatible Steam keyboard interfaces, another active replacement, unavailable helper, or lost connection. It also confirms that Steam's keyboard remains available. No raw exception, field value or input packet is displayed. A successful reconnection clears the notice.
+
 ## When it runs
 
 Checking the option and choosing Apply and save starts the bundled helper and a temporary watchdog inside the running Steam UI. It does not install a background service. Unchecking it and applying stops the helper, removes the Steam hooks/watchdog, and restores native presentation. The app's internal safety thread stays idle while replacement is off and ends when the app exits.

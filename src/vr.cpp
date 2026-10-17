@@ -586,7 +586,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             app.report_status("Control unavailable in Steam fields. Use Steam keyboard for shortcuts.");
         }
         const auto native = replacement.state();
-        app.set_replacement_available(native.available);
+        app.set_replacement_available(native.available, replacement.unavailable_reason());
         app.set_native_session(native.open);
         const bool replace = app.replace_native_keyboard();
         presentation.update(replace, native);
