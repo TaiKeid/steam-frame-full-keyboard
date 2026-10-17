@@ -39,27 +39,29 @@ class FakeCDP:
         self.closed = True
 
 
-class FakeGuard:
+class FakeGuard(bridge.NativeGuard):
     def __init__(self):
         self.armed = self.closed = False
+        self.native_armed = False
         self.prepared = self.cancelled = self.restored = 0
+        self.reject = set()
 
-    def prepare(self, candidate, frame):
-        assert candidate["key"] == "gamescope.gamescope-0.window.62" and frame["ready"]
-        self.prepared += 1
-        self.armed = True
+    def command(self, op, **fields):
+        if op in self.reject:
+            return False
+        if op == "prepare":
+            self.prepared += 1
+            assert fields["key"] == "gamescope.gamescope-0.window.62" and fields["ready"]
+            if self.native_armed:
+                return False  # Match the real guard's single-lease invariant.
+            self.native_armed = True
+        elif op == "cancel":
+            self.cancelled += 1
+            self.native_armed = False
+        elif op == "restore":
+            self.restored += 1
+            self.native_armed = False
         return True
-
-    def renew(self, frame):
-        pass
-
-    def cancel(self):
-        self.cancelled += 1
-        self.armed = False
-
-    def restore(self):
-        self.restored += 1
-        self.armed = False
 
     def close(self):
         self.closed = True
@@ -119,6 +121,66 @@ class Lifecycle(unittest.TestCase):
 
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)
+
+    def test_guard_state_changes_only_after_acknowledged_commands(self):
+        guard = FakeGuard()
+        candidate = dict(key="gamescope.gamescope-0.window.62", flags=13)
+        frame = dict(progress=1, sent=time.monotonic(), ready=True)
+        self.assertTrue(guard.prepare(candidate, frame))
+        self.assertFalse(guard.prepare(candidate, frame))
+        self.assertTrue(guard.armed and guard.native_armed,
+                        "rejected preparation cannot erase the previous lease")
+        for command in ("cancel", "restore"):
+            guard.reject.add(command)
+            with self.assertRaises(ValueError):
+                getattr(guard, command)()
+            self.assertTrue(guard.armed and guard.native_armed)
+            guard.reject.clear()
+
+    def test_external_resummon_between_polls_rearms_guard(self):
+        guard = FakeGuard()
+
+        class ResummonCDP(ExternalCDP):
+            generation = 2
+            resummon = threading.Event()
+
+            def evaluate(self, expression):
+                if self.resummon.is_set() and ".bridge.step(" in expression:
+                    self.resummon.clear()
+                    self.external = False
+                    self.generation += 2
+                result = super().evaluate(expression)
+                if isinstance(result, dict):
+                    result["request"] = self.generation
+                    for name in ("external", "externalCandidate"):
+                        if result.get(name):
+                            result[name]["request"] = self.generation
+                return result
+
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        client = ResummonCDP(guard)
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard))
+        worker.start()
+        try:
+            parent.send(json.dumps(dict(op="frame", progress=1, ready=True, ack=0,
+                                        sent=time.monotonic())).encode())
+            while not self.receive(parent, "state").get("local"):
+                pass
+            for generation in (4, 6):
+                client.resummon.set()
+                while True:
+                    state = self.receive(parent, "state")
+                    if state["request"] == generation:
+                        break
+                self.assertTrue(state.get("local"), "the next request acquires a new guard")
+                self.assertTrue(guard.armed and guard.native_armed)
+            self.assertEqual((guard.prepared, guard.cancelled), (3, 2))
+        finally:
+            parent.close()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(guard.restored, 1)
 
     def external_lifecycle(self, leave_open):
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)

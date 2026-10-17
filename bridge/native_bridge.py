@@ -51,19 +51,23 @@ class NativeGuard:
         return json.loads(self.socket.recv(2048)).get("ok") is True
 
     def prepare(self, candidate, frame):
-        self.armed = self.command("prepare", key=candidate["key"], flags=candidate["flags"],
-                                  progress=frame["progress"], sent=frame["sent"], ready=frame["ready"])
-        return self.armed
+        ok = self.command("prepare", key=candidate["key"], flags=candidate["flags"],
+                          progress=frame["progress"], sent=frame["sent"], ready=frame["ready"])
+        if ok:
+            self.armed = True
+        return ok
 
     def renew(self, frame):
         self.command("renew", progress=frame["progress"], sent=frame["sent"], ready=frame["ready"])
 
     def cancel(self):
-        self.command("cancel")
+        if not self.command("cancel"):
+            raise ValueError("native-guard-cancel-failed")
         self.armed = False
 
     def restore(self):
-        self.command("restore")
+        if not self.command("restore"):
+            raise ValueError("native-guard-restore-failed")
         self.armed = False
 
     def close(self):
@@ -280,14 +284,24 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard):
                 if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
                     raise ValueError("bridge-unavailable")
                 if guard:
-                    candidate = result.get("externalCandidate")
-                    if candidate and guard.prepare(candidate, frame):
-                        result = client.evaluate(f"{reference}?.bridge.prepareExternal("
-                                                 f"{candidate['request']},{json.dumps(candidate['key'])})")
-                        if not isinstance(result, dict):
-                            raise ValueError("bridge-unavailable")
                     recovery = result.get("externalRestore")
-                    if recovery:
+                    if recovery and recovery["request"] != external_ack:
+                        guard.restore()
+                        external_ack = frame["externalRestored"] = recovery["request"]
+                    candidate = result.get("externalCandidate")
+                    if candidate:
+                        # Dismissal and resummon can both occur between polls. A
+                        # candidate has no logical owner, so any old lease must
+                        # be cancelled before the next exact target is armed.
+                        if guard.armed:
+                            guard.cancel()
+                        if guard.prepare(candidate, frame):
+                            result = client.evaluate(f"{reference}?.bridge.prepareExternal("
+                                                     f"{candidate['request']},{json.dumps(candidate['key'])})")
+                            if not isinstance(result, dict):
+                                raise ValueError("bridge-unavailable")
+                    recovery = result.get("externalRestore")
+                    if recovery and recovery["request"] != external_ack:
                         guard.restore()
                         external_ack = frame["externalRestored"] = recovery["request"]
                     elif not result.get("external") and guard.armed:
