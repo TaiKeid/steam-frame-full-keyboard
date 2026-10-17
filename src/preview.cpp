@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/updates.hpp"
 #include <SDL.h>
 #include <memory>
 #include <stdexcept>
@@ -92,6 +93,7 @@ int run_preview(App& app, double duration) {
             SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
             SDL_RenderPresent(renderer.get());
         }
+        update_startup_ready();
     }
     app.cancel();
     return 0;

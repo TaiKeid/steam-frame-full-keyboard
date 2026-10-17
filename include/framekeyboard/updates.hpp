@@ -1,0 +1,45 @@
+#pragma once
+
+#include <filesystem>
+#include <string>
+#include <vector>
+
+namespace framekeyboard {
+// The UI only polls private packets. Network and installation work runs in a child.
+class Updates {
+  public:
+    Updates(std::string version, std::vector<std::string> arguments, std::filesystem::path helper = {});
+    ~Updates();
+    Updates(const Updates&) = delete;
+    Updates& operator=(const Updates&) = delete;
+    std::string label() const;
+    bool busy() const;
+    void click(double now);
+    bool tick(double now);
+    bool prepared() const { return state_ == State::Prepared; }
+    // Call after App, input, VR, replacement and the instance lock are gone.
+    bool handoff();
+
+  private:
+    enum class State { Idle, Checking, Latest, Available, Installing, Error, Prepared };
+    bool start();
+    bool send(const std::string& operation);
+    void stop();
+    void fail(double now);
+    std::string version_, offer_, progress_;
+    std::vector<std::string> arguments_;
+    std::filesystem::path helper_;
+    State state_{State::Idle};
+    double reset_at_{};
+    int fd_{-1}, child_{-1};
+    bool handed_off_{};
+};
+
+// A private inherited pipe acknowledges the first complete frame after an update.
+class UpdateStartup {
+  public:
+    UpdateStartup();
+    ~UpdateStartup();
+};
+void update_startup_ready();
+} // namespace framekeyboard

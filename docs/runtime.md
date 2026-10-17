@@ -78,7 +78,9 @@ No input is sent outside the dashboard. Streamed VR applications, including VRCh
 
 ## Update, rollback, and removal
 
-Close the keyboard before installing a new version. The installer validates the copied ARM64 binary and profile files in a temporary staging directory before switching `current`, retains the old target in `previous`, and preserves `~/.config/framekeyboard`. A failed copy, validation, or activation removes the incomplete new release so the same version can be retried. Completed releases remain protected from overwrite.
+Use the centered Settings → Check for updates button for a verified download, installation and restart. See [updates](updates.md) for button states, requirements and recovery.
+
+For a manual installation, close the keyboard before installing a new version. The installer validates the copied ARM64 binary and profile files in a temporary staging directory before switching `current`, retains the old target in `previous`, and preserves `~/.config/framekeyboard`. A failed copy, validation, or activation removes the incomplete new release so the same version can be retried. Completed releases remain protected from overwrite.
 
 To roll back, close the keyboard and run on Frame:
 

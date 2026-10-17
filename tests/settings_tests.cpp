@@ -438,6 +438,11 @@ void app_settings() {
                 app.view().cards[2].title == "Experimental",
             "production settings contains Languages and Layouts, General and Experimental cards");
     require(has(app.view(), "apply") && has(app.view(), "reload"), "settings toolbar actions");
+    const auto update_button = control(app.view(), "updates");
+    require(update_button.label == "Check for updates" &&
+                update_button.bounds.x + update_button.bounds.width / 2 == panel_width / 2 &&
+                update_button.bounds.y == 12,
+            "update button is centered in the settings header");
     require(!has(app.view(), "close") && !has(app.view(), "recenter"), "settings toolbar is focused");
     click(app, "language");
     require(app.view().popup.has_value(), "dropdown opens");

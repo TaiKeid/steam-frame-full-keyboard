@@ -1,0 +1,23 @@
+# Updates from Settings
+
+The centered **Check for updates** button in the Settings header checks the newest stable release from [this project's GitHub releases](https://github.com/TaiKeid/steam-frame-full-keyboard/releases). There are no automatic checks. Python 3.12 or newer, HTTPS access and a normal versioned ARM64 installation are required to install. The feature uses Python's standard library and adds no service or listening port.
+
+If the published version is equal to or older than the running version, the button says **You are on latest version** for five seconds, then returns to **Check for updates**. Versions are compared numerically, so 0.10.0 is newer than 0.9.0. Drafts and prereleases are excluded.
+
+When a newer stable release is available, **Download and install update** stays available until the process exits, including across closing/reopening Settings. Pressing it starts the update. Checking alone never downloads or installs a package. During an operation, duplicate presses do nothing. If checking or preparation fails, **Update failed. Try again** appears for five seconds. A known update remains offered after a failed install.
+
+## Verification and installation
+
+A private helper handles all network, hashing, archive and installation work. The VR loop exchanges bounded nonblocking packets and keeps rendering/input responsive. Requests go to the fixed public GitHub repository over certificate-verified HTTPS, without credentials or proxy-environment forwarding. Asset URLs must match the exact release/tag/name. Redirects are restricted to HTTPS GitHub release download hosts. Requests, sizes and unpacked files are bounded.
+
+Each stable release must publish `framekeyboard-VERSION-aarch64.tar.gz` and `SHA256SUMS`. The helper requires exactly one checksum entry for that exact archive and verifies SHA-256 before extraction. If GitHub also provides an asset digest, it must agree. This trusts the project's GitHub release and protects against download corruption; it is not a separate signature system.
+
+Extraction rejects traversal, absolute paths, links, devices, duplicate names and special permission bits. Before closing the keyboard, the helper takes the existing installation lock, extracts into a private directory under the installation's `releases/`, verifies the AArch64 ELF binaries, checks the package version and validates copied profiles with an isolated configuration. No downloaded installer script is executed.
+
+The keyboard then releases held input, withdraws native replacement, saves settings/placement and closes VR and its instance lock. Only an explicit handoff after cleanup authorizes activation. Merely closing/crashing the app cancels unfinished work. The helper waits for the original process to exit, snapshots the saved config and placement, atomically updates `current` and `previous`, and starts the new executable with the original launch options and the new data directory. The new process acknowledges its first completed frame through a private inherited socket. If startup fails or times out, the helper terminates only that new child, restores the links and saved preferences and relaunches the previous executable. A successful startup is not a guarantee that every later interaction works; native replacement retains its independent fallback rules.
+
+User settings, placement, custom profiles, launchers, desktop entries and autostart are preserved. Saved config/placement backups stay under the installation’s `update-backups/` directory. The previous release remains available for [manual rollback](runtime.md#update-rollback-and-removal). Automatic installations use a unique version-prefixed release directory, so an existing installation is never overwritten. A short, fixed update result is saved to `~/.local/share/framekeyboard/update-status.log`. No input text, clipboard content or network responses are logged.
+
+## Validation
+
+Offline tests use fake release metadata, capture channels and disposable installs. They cover numeric comparison, exact checksum matching, hostile archives, architecture/profile rejection, install locking, cancellation, restart acknowledgement, startup failure/rollback and button timing. Real download checks and ARM64 runtime validation are separate from those offline fixtures. A future release is needed for normal in-headset upgrade acceptance; changing the version is reserved for the project owner.

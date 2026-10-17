@@ -53,7 +53,9 @@ The installer adds a desktop application entry named **Full Keyboard**. If you a
 
 Everything installs under your home directory. The installer preserves settings and custom profiles, retains the previous release for rollback, and does not enable autostart or alter Steam files. Internal filenames and commands remain `framekeyboard`.
 
-To update, **quit Full Keyboard**. With native replacement enabled, use Settings → Quit Full Keyboard. Then download the new release assets, and repeat the installation steps. The installer refuses to overwrite an already installed version. See [rollback and removal](docs/runtime.md#update-rollback-and-removal) for recovery instructions.
+To update from the installed keyboard, open Settings and press **Check for updates** at the top center. If a newer stable release is available, press **Download and install update**. The keyboard verifies the archive, installs it and restarts, preserving your settings and the previous release for rollback. See [updates](docs/updates.md).
+
+For a manual update, quit Full Keyboard first. With native replacement enabled, use Settings → Quit Full Keyboard. Download the new release assets and repeat the installation steps. The manual installer refuses to overwrite an already installed version. See [rollback and removal](docs/runtime.md#update-rollback-and-removal) for recovery instructions.
 
 ## Use the keyboard
 

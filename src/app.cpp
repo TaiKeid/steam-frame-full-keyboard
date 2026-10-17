@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/updates.hpp"
 #include <utility>
 
 #include <algorithm>
@@ -59,8 +60,10 @@ std::string language_short_name(const Language& language) {
     return name;
 }
 } // namespace
-App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences)
-    : options_(options), profiles_(load_profiles(options.data_dir, options.config_dir)),
+App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences,
+         Updates* updates)
+    : updates_(updates), options_(options),
+      profiles_(load_profiles(options.data_dir, options.config_dir)),
       settings_(load_settings(options.config_dir, profiles_.errors)),
       settings_writer_(options.config_dir, std::move(write_preferences)), gate_(sink), keyboard_(gate_) {
     try {
@@ -111,6 +114,8 @@ std::vector<Control> App::controls() const {
         result = {{"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back},
                   {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply},
                   {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload}};
+        result.push_back(
+            {"updates", updates_ ? updates_->label() : "Check for updates", {550, 12, 500, 42}});
         if (settings_.replace_native_keyboard && native_session_) {
             result.push_back({"native-fallback", "Use Steam keyboard", {250, 12, 245, 42}});
         }
@@ -558,6 +563,18 @@ void App::cancel(bool discard_composition) {
     dirty = true;
 }
 bool App::tick(double now) {
+    if (updates_) {
+        if (updates_->tick(now)) {
+            // A new async label must not turn an already-held press into installation.
+            std::erase_if(pressed_controls_,
+                          [](const auto& entry) { return entry.second == "updates"; });
+            dirty = true;
+        }
+        if (updates_->prepared()) {
+            set_interaction_active(false);
+            quit_ = true;
+        }
+    }
     update_save_status();
     refresh_typing();
     if (gate_.enabled && gate_.text_pending()) {
@@ -1171,7 +1188,13 @@ void App::action(const std::string& id) {
         }
         return;
     }
-    if (id == "close") {
+    if (id == "updates" && settings_open_) {
+        if (updates_) {
+            updates_->click(monotonic_seconds());
+        } else {
+            report_status("Updates are available from the installed keyboard.");
+        }
+    } else if (id == "close") {
         close_panel();
     } else if (id == "quit" && resident_replacement()) {
         set_interaction_active(false);

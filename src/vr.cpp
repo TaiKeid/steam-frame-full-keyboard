@@ -2,6 +2,7 @@
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/placement_store.hpp"
+#include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_haptics.hpp"
 #include "framekeyboard/vr_texture.hpp"
 #include "openvr.h"
@@ -1036,6 +1037,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                            fallback || presentation.fallback_requested(), completed, true);
         replacement_progress.store(completed);
         app.frame_completed();
+        update_startup_ready();
         replacement.frame_completed();
         replacement_watched.store(replace && visible);
         // Follow the dashboard every visible frame, even without a laser over

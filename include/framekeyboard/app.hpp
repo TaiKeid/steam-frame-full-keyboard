@@ -14,6 +14,7 @@
 
 namespace framekeyboard {
 class NativeReplacement;
+class Updates;
 struct Options {
     fs::path data_dir, config_dir, ei_socket, text_socket;
     std::string mode{"help"}, output, input{"none"}, target_language;
@@ -48,7 +49,8 @@ class InputGate : public KeySink {
 };
 class App {
   public:
-    App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {});
+    App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {},
+        Updates* updates = nullptr);
     PanelView view() const;
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);
@@ -140,6 +142,7 @@ class App {
         double next;
     };
     std::map<unsigned, TextRepeat> text_repeats_;
+    Updates* updates_{};
     Options options_;
     Profiles profiles_;
     Settings settings_;

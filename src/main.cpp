@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/updates.hpp"
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -34,6 +35,8 @@ void signal_handler(int) {
 } // namespace
 int main(int argc, char** argv) {
     try {
+        fk::UpdateStartup startup;
+        fk::Updates updates(FRAMEKEYBOARD_VERSION, std::vector<std::string>(argv + 1, argv + argc));
         fk::Options options;
         options.config_dir = fk::default_config_dir();
         bool mode_set = false;
@@ -115,69 +118,82 @@ int main(int argc, char** argv) {
         if (options.start_enabled && options.input == "none") {
             throw std::runtime_error("--start-enabled requires an input backend");
         }
-        std::unique_ptr<fk::VrInstance> instance;
-        if (options.mode == "vr") {
-            instance = std::make_unique<fk::VrInstance>();
-            if (!instance->is_owner()) {
-                std::cout << "Recenter requested from the running keyboard.\n";
+        int result{};
+        {
+            std::unique_ptr<fk::VrInstance> instance;
+            if (options.mode == "vr") {
+                instance = std::make_unique<fk::VrInstance>();
+                if (!instance->is_owner()) {
+                    std::cout << "Recenter requested from the running keyboard.\n";
+                    return 0;
+                }
+            }
+            auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
+            if (options.mode == "check" || options.mode == "describe") {
+                const auto settings = fk::load_settings(options.config_dir, profiles.errors);
+                fk::validate_selection(profiles, settings.active);
+                if (options.mode == "describe") {
+                    const auto& layout = profiles.layouts.at(settings.active.layout);
+                    std::cout << layout.name << '\n'
+                              << layout.keys.size() << " keys; " << layout.width << " x "
+                              << layout.height << " design area\n";
+                } else {
+                    for (const auto& [id, p] : profiles.layouts) {
+                        std::cout << "layout " << id << ": " << p.name << '\n';
+                    }
+                    for (const auto& [id, p] : profiles.languages) {
+                        std::cout << "language " << id << ": " << p.name << '\n';
+                    }
+                    for (const auto& [id, p] : profiles.themes) {
+                        std::cout << "theme " << id << ": " << p.name << '\n';
+                    }
+                }
+                for (const auto& error : profiles.errors) {
+                    std::cerr << error << '\n';
+                }
+                return profiles.errors.empty() ? 0 : 1;
+            }
+            std::unique_ptr<fk::KeySink> sink;
+            if (options.input != "none" && !options.target_language.empty() &&
+                !profiles.languages.contains(options.target_language)) {
+                throw std::runtime_error("unknown target-language profile");
+            }
+            if (options.input == "ei") {
+                if (options.ei_socket.empty()) {
+                    options.ei_socket =
+                        std::string("/run/user/") + std::to_string(getuid()) + "/gamescope-0-ei";
+                }
+                sink = std::make_unique<fk::EiSink>(options.ei_socket, options.text_socket);
+            } else if (options.input == "uinput") {
+                sink = std::make_unique<fk::UInputSink>();
+            } else {
+                sink = std::make_unique<fk::NullSink>();
+            }
+            fk::NativeReplacement replacement(*sink);
+            fk::App app(options, replacement, {}, options.mode == "vr" ? &updates : nullptr);
+            if (options.mode == "render" || options.mode == "render-settings") {
+                if (options.mode == "render-settings") {
+                    app.show_settings();
+                }
+                app.paint(fk::monotonic_seconds());
+                app.renderer.write_png(options.output);
                 return 0;
             }
-        }
-        auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
-        if (options.mode == "check" || options.mode == "describe") {
-            const auto settings = fk::load_settings(options.config_dir, profiles.errors);
-            fk::validate_selection(profiles, settings.active);
-            if (options.mode == "describe") {
-                const auto& layout = profiles.layouts.at(settings.active.layout);
-                std::cout << layout.name << '\n'
-                          << layout.keys.size() << " keys; " << layout.width << " x " << layout.height
-                          << " design area\n";
-            } else {
-                for (const auto& [id, p] : profiles.layouts) {
-                    std::cout << "layout " << id << ": " << p.name << '\n';
-                }
-                for (const auto& [id, p] : profiles.languages) {
-                    std::cout << "language " << id << ": " << p.name << '\n';
-                }
-                for (const auto& [id, p] : profiles.themes) {
-                    std::cout << "theme " << id << ": " << p.name << '\n';
-                }
+            std::signal(SIGINT, signal_handler);
+            std::signal(SIGTERM, signal_handler);
+            result = options.mode == "vr" ? fk::run_vr(app, *instance, replacement, options.duration)
+                                          : fk::run_preview(app, options.duration);
+            app.flush_settings();
+        } // Destroy VR, replacement helpers, input and the instance lock before handoff.
+        if (updates.prepared() && !fk::interrupted) {
+            if (updates.handoff()) {
+                return 0;
             }
-            for (const auto& error : profiles.errors) {
-                std::cerr << error << '\n';
-            }
-            return profiles.errors.empty() ? 0 : 1;
+            // If the prepared helper disappeared, restart the still-current build.
+            execv("/proc/self/exe", argv);
+            throw std::runtime_error("could not restart keyboard after update failure");
         }
-        std::unique_ptr<fk::KeySink> sink;
-        if (options.input != "none" && !options.target_language.empty() &&
-            !profiles.languages.contains(options.target_language)) {
-            throw std::runtime_error("unknown target-language profile");
-        }
-        if (options.input == "ei") {
-            if (options.ei_socket.empty()) {
-                options.ei_socket =
-                    std::string("/run/user/") + std::to_string(getuid()) + "/gamescope-0-ei";
-            }
-            sink = std::make_unique<fk::EiSink>(options.ei_socket, options.text_socket);
-        } else if (options.input == "uinput") {
-            sink = std::make_unique<fk::UInputSink>();
-        } else {
-            sink = std::make_unique<fk::NullSink>();
-        }
-        fk::NativeReplacement replacement(*sink);
-        fk::App app(options, replacement);
-        if (options.mode == "render" || options.mode == "render-settings") {
-            if (options.mode == "render-settings") {
-                app.show_settings();
-            }
-            app.paint(fk::monotonic_seconds());
-            app.renderer.write_png(options.output);
-            return 0;
-        }
-        std::signal(SIGINT, signal_handler);
-        std::signal(SIGTERM, signal_handler);
-        return options.mode == "vr" ? fk::run_vr(app, *instance, replacement, options.duration)
-                                    : fk::run_preview(app, options.duration);
+        return result;
     } catch (const std::exception& error) {
         std::cerr << "Full Keyboard: " << error.what() << '\n';
         return 1;
