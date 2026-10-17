@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include <utility>
 
 #include <algorithm>
 #include <chrono>
@@ -77,6 +78,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
+    pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     update_settings_ui();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
     if (const auto target = profiles_.languages.find(options_.target_language);
@@ -109,6 +111,12 @@ std::vector<Control> App::controls() const {
         result = {{"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back},
                   {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply},
                   {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload}};
+        if (settings_.replace_native_keyboard && native_session_) {
+            result.push_back({"native-fallback", "Use Steam keyboard", {250, 12, 245, 42}});
+        }
+        if (resident_replacement()) {
+            result.push_back({"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
+        }
         append_move_handle();
         return result;
     }
@@ -128,7 +136,11 @@ std::vector<Control> App::controls() const {
                           language_short_name(profiles_.languages.at(settings_.active.language)),
                           {x + 350, 12, 100, 42}});
     }
-    result.push_back({"close", "Close", {body.x + body.width - 78, 12, 60, 42}, false, Icon::Close});
+    result.push_back({"close",
+                      resident_replacement() ? "Hide keyboard" : "Close",
+                      {body.x + body.width - 78, 12, 60, 42},
+                      false,
+                      Icon::Close});
     const auto ime_start = result.size();
     if (japanese()) {
         result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
@@ -227,7 +239,17 @@ void App::update_settings_ui() {
             ControlStyle::Checkbox,
             pending_auto_leveling_,
             {},
-            true}}}});
+            true}}},
+         {"experimental",
+          "Experimental",
+          {{"replace-native-keyboard",
+            "Replace native keyboard:",
+            "",
+            ControlStyle::Checkbox,
+            pending_replace_native_keyboard_,
+            {},
+            false,
+            300}}}});
 }
 PanelView App::view() const {
     PanelView v;
@@ -246,12 +268,16 @@ PanelView App::view() const {
                          : status_;
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == "render" || options_.mode == "render-settings";
-    if (v.status.empty() && !gate_.enabled && !image_export) {
+    if (v.status.empty() && !typing_ready_ && !image_export) {
         v.status = options_.input == "none"
                        ? "Preview only: this launch cannot type."
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
     v.settings = settings_open_;
+    if (settings_open_ && settings_.replace_native_keyboard && !replacement_available_ &&
+        v.status.empty()) {
+        v.status = "Native replacement unavailable. Steam keyboard remains available.";
+    }
     v.composing = japanese() && !japanese_latin_;
     if (v.composing) {
         v.preedit = composition_.preedit(true);
@@ -427,6 +453,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 return false; // Failed commit must not lose text or change the target.
             }
         }
+        if (gate_.text_pending()) {
+            return false;
+        }
         // Capture the symbol before a tapped Shift/AltGr is consumed by down().
         const auto symbol = text_local
                                 ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
@@ -445,7 +474,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 } else if (text_local && key->action != "CapsLock" && key->action != "NumLock") {
                     pending_text_ = keymap_->compose(symbol);
                     const auto repeated = pending_text_;
-                    if (flush_text() && !repeated.empty()) {
+                    if ((flush_text() || gate_.text_pending()) && !repeated.empty()) {
                         text_repeats_[pointer] = {repeated, now + .5};
                     }
                     if (keymap_->composing()) {
@@ -511,6 +540,7 @@ void App::cancel(bool discard_composition) {
     pointer_positions_.clear();
     text_repeats_.clear();
     if (discard_composition) {
+        gate_.cancel_text();
         pending_text_.clear();
         if (keymap_) {
             keymap_->cancel_compose();
@@ -528,13 +558,31 @@ void App::cancel(bool discard_composition) {
 bool App::tick(double now) {
     update_save_status();
     refresh_typing();
+    if (gate_.enabled && gate_.text_pending()) {
+        if (!pending_text_.empty()) {
+            flush_text();
+        } else if (!composition_.empty()) {
+            commit_japanese();
+        } else if (cjk_ && !cjk_->empty()) {
+            commit_cjk();
+        }
+        dirty = true;
+    }
     dirty |= keyboard_.tick(now);
+    if (!pending_text_.empty() && !gate_.text_pending()) {
+        text_repeats_.clear();
+    }
     for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
         if (now >= it->second.next) {
-            if (options_.input != "none" && !gate_.commit_text(it->second.text)) {
-                // Stop a repeat after an interruption; never replay a backlog.
-                it = text_repeats_.erase(it);
+            if (gate_.text_pending()) {
+                ++it;
                 continue;
+            }
+            pending_text_ = it->second.text;
+            if (!flush_text() && !gate_.text_pending()) {
+                // Keep the unsent text, stop repeating, and require an explicit retry.
+                text_repeats_.clear();
+                break;
             }
             it->second.next = now + .04;
         }
@@ -583,6 +631,7 @@ void App::show_settings() {
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
+    pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -599,6 +648,7 @@ void App::back() {
     dirty = true;
 }
 void App::summon() {
+    dismiss_requested_ = false;
     // Release held keys before moving; keep the input connection unchanged.
     cancel();
     settings_open_ = false;
@@ -714,6 +764,7 @@ void App::reload() {
         settings_.hide_numpad = updated_settings.hide_numpad;
         settings_.use_drag_to_move = updated_settings.use_drag_to_move;
         settings_.auto_leveling = updated_settings.auto_leveling;
+        settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         keyboard_.set_num(settings_.num_lock);
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
@@ -722,6 +773,7 @@ void App::reload() {
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
+    pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     rebuild_cycle_entries();
     update_settings_ui();
     settings_ui_.reset();
@@ -750,11 +802,16 @@ void App::refresh_typing() {
     // external JIS still rely on a declared receiving-session keymap.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
                           (japanese() || cjk_ || options_.target_language == settings_.active.language);
-    gate_.enabled =
-        interaction_active_ && options_.start_enabled && options_.mode == "vr" &&
+    // Hidden panels and native handoffs deliberately pause interaction. That is
+    // separate from an unavailable typing backend and must not show a warning.
+    const bool typing_ready =
+        options_.start_enabled && options_.mode == "vr" &&
         (options_.input == "ei" || options_.input == "uinput") &&
         (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
         backend_ready_;
+    dirty |= typing_ready_ != typing_ready;
+    typing_ready_ = typing_ready;
+    gate_.enabled = interaction_active_ && typing_ready_;
 }
 void App::commit_japanese() {
     const auto text = composition_.commit_text();
@@ -908,7 +965,8 @@ bool App::flush_text() {
         status_.clear();
         return true;
     }
-    status_ = "Text not sent. Release other keys, then press Enter to retry.";
+    status_ = gate_.text_pending() ? "Sending text to Steam..."
+                                   : "Text not sent. Release other keys, then press Enter to retry.";
     return false;
 }
 int App::native_code(const Key& key, const std::set<int>& mods) {
@@ -1052,6 +1110,12 @@ void App::action(const std::string& id) {
         placement_actions_.push_back(adjustment->second);
         return;
     }
+    if (gate_.text_pending() && (id.starts_with("cjk-") || id.starts_with("ime-"))) {
+        if (id != "cjk-cancel" && id != "ime-cancel" && id != "ime-toggle") {
+            return;
+        }
+        gate_.cancel_text();
+    }
     if (id.starts_with("cjk-") && cjk_) {
         if (id == "cjk-toggle") {
             if (!cjk_->empty()) {
@@ -1094,8 +1158,9 @@ void App::action(const std::string& id) {
         return;
     }
     if (id == "close") {
-        cancel();
-        gate_.enabled = false;
+        close_panel();
+    } else if (id == "quit" && resident_replacement()) {
+        set_interaction_active(false);
         quit_ = true;
     } else if (id == "pin") {
         cancel();
@@ -1144,6 +1209,7 @@ void App::action(const std::string& id) {
         settings_.hide_numpad = pending_hide_numpad_;
         settings_.use_drag_to_move = pending_use_drag_to_move_;
         settings_.auto_leveling = pending_auto_leveling_;
+        settings_.replace_native_keyboard = pending_replace_native_keyboard_;
         default_ = settings_.active;
         rebuild_cycle_entries();
         save();
@@ -1173,6 +1239,12 @@ void App::action(const std::string& id) {
     } else if (id == "use-drag-to-move") {
         pending_use_drag_to_move_ = !pending_use_drag_to_move_;
         update_settings_ui();
+    } else if (id == "replace-native-keyboard") {
+        pending_replace_native_keyboard_ = !pending_replace_native_keyboard_;
+        update_settings_ui();
+    } else if (id == "native-fallback") {
+        cancel();
+        native_fallback_ = true;
     } else if (id == "auto-leveling") {
         pending_auto_leveling_ = !pending_auto_leveling_;
         update_settings_ui();
@@ -1200,6 +1272,26 @@ void App::action(const std::string& id) {
         }
         update_settings_ui();
     }
+}
+bool App::replacement_ready() const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    return options_.mode == "vr" && options_.input == "ei" && options_.start_enabled && backend_ready_ &&
+           text_ready_ && !(language.input_method == "xkb" && language.keymap == "jp");
+}
+bool App::take_native_fallback() {
+    return std::exchange(native_fallback_, false);
+}
+void App::close_panel() {
+    set_interaction_active(false);
+    if (resident_replacement()) {
+        settings_open_ = false;
+        dismiss_requested_ = true;
+    } else {
+        quit_ = true;
+    }
+}
+bool App::take_dismissal() {
+    return std::exchange(dismiss_requested_, false);
 }
 bool App::take_recenter() {
     const bool result = recenter_;

@@ -10,5 +10,6 @@
   "num_lock": false,
   "hide_numpad": false,
   "use_drag_to_move": false,
-  "auto_leveling": true
+  "auto_leveling": true,
+  "replace_native_keyboard": false
 }

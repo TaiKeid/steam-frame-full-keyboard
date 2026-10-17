@@ -11,7 +11,7 @@ Follow any enclosing workspace instructions. This file covers project engineerin
 - Do not log typed text, credentials, clipboard contents, or browser field values. Do not add clipboard reads for debugging.
 - Distinguish logical key IDs, Linux evdev codes, and Steam key codes. Never reuse raw numeric codes across backends.
 - Every held key needs a release path on cancellation, target change, disconnect, hide, and shutdown. The stock keyboard must remain usable if the native process dies.
-- Keep this a manually launched alternative keyboard. Do not suppress the stock UI or intercept its summon button.
+- Keep manual launching. In replacement mode, X dismisses the panel while the app remains resident; only Settings exposes Quit Full Keyboard. With replacement off, X exits as before. Optional native keyboard replacement is default-off, uses temporary feature-checked hooks, preserves Steam typing targets, and must restore stock independently when the app stops progressing. Close native presentation completely, including its scene geometry; do not use browser-window hiding to suppress it. Leave requests native when their original owner cannot be restored safely. Never patch Steam files or persist a global summon remap.
 - Feature-check private runtime interfaces and fail without changing Steam files or global input settings.
 - Vendor external code only with a pinned revision and its license/attribution. The sibling overlay is a reference, not an implicit build dependency.
 - Git stays local until publication is requested. Do not copy build sysroots, credentials, machine logs, or recovery backups into Git.

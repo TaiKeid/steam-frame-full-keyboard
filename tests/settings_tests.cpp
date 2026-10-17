@@ -434,8 +434,9 @@ void app_settings() {
     require(!app.pinned(), "pin can be disabled");
 
     app.show_settings();
-    require(app.view().cards.size() == 2 && app.view().cards[1].title == "General",
-            "production settings contains only Languages and Layouts and General cards");
+    require(app.view().cards.size() == 3 && app.view().cards[1].title == "General" &&
+                app.view().cards[2].title == "Experimental",
+            "production settings contains Languages and Layouts, General and Experimental cards");
     require(has(app.view(), "apply") && has(app.view(), "reload"), "settings toolbar actions");
     require(!has(app.view(), "close") && !has(app.view(), "recenter"), "settings toolbar is focused");
     click(app, "language");
@@ -614,7 +615,7 @@ void behavior_settings() {
     app.set_dragging(false);
     app.show_settings();
     const auto settings_view = app.view();
-    require(settings_view.cards.size() == 2 && settings_view.cards[1].title == "General" &&
+    require(settings_view.cards.size() == 3 && settings_view.cards[1].title == "General" &&
                 !control(settings_view, "use-drag-to-move").selected,
             "General card has an unchecked movement preference");
     const auto numpad_bounds = control(settings_view, "hide-numpad").bounds;
@@ -751,6 +752,55 @@ void auto_leveling_settings() {
     std::vector<std::string> errors;
     load_settings(directory.path, errors);
     require(!errors.empty(), "Auto leveling requires a JSON boolean");
+}
+void native_replacement_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = "render";
+    CaptureSink sink;
+    App app(options, sink);
+    require(!app.replace_native_keyboard(), "replacement defaults off");
+    app.show_settings();
+    const auto view = app.view();
+    const auto experimental = view.cards.back().bounds;
+    const auto checkbox = control(view, "replace-native-keyboard").bounds;
+    const auto label =
+        std::find_if(view.field_labels.begin(), view.field_labels.end(),
+                     [](const FieldLabel& f) { return f.text == "Replace native keyboard:"; });
+    require(view.cards.back().title == "Experimental" && label != view.field_labels.end(),
+            "replacement belongs to Experimental");
+    require(label->left && label->bounds.x == experimental.x + 30 &&
+                checkbox.x > label->bounds.x + label->bounds.width,
+            "experimental label has a small inset and precedes checkbox");
+    click(app, "replace-native-keyboard");
+    require(!app.replace_native_keyboard(), "replacement edit stays pending");
+    app.back();
+    app.show_settings();
+    require(!control(app.view(), "replace-native-keyboard").selected, "Back discards replacement edit");
+    click(app, "replace-native-keyboard");
+    click(app, "apply");
+    require(app.replace_native_keyboard() && saved(app).replace_native_keyboard,
+            "Apply persists replacement");
+    app.set_native_session(true);
+    app.show_settings();
+    click(app, "native-fallback");
+    require(app.take_native_fallback() && !app.take_native_fallback(), "escape is consumed once");
+    require(saved(app).replace_native_keyboard, "escape does not disable future replacement requests");
+    App reopened(options, sink);
+    require(reopened.replace_native_keyboard(), "replacement survives restart");
+    auto settings = saved(app);
+    settings.replace_native_keyboard = false;
+    save_settings(directory.path, settings);
+    click(app, "reload");
+    require(!app.replace_native_keyboard(), "Reload disables replacement");
+    require(!has(app.view(), "native-fallback"), "escape is absent when replacement is off");
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"replace_native_keyboard":"true"})";
+    std::vector<std::string> errors;
+    load_settings(directory.path, errors);
+    require(!errors.empty(), "replacement requires JSON boolean");
+    require(sink.events.empty(), "replacement settings send no desktop input");
 }
 void fractional_dropdown_scroll() {
     SettingsUi ui;
@@ -923,6 +973,7 @@ int main() {
         app_settings();
         behavior_settings();
         auto_leveling_settings();
+        native_replacement_settings();
         favorite_schema();
         fractional_dropdown_scroll();
         scroll_cards();

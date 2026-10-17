@@ -1,6 +1,6 @@
 # Roadmap
 
-Full Keyboard for Steam Frame is a manually launched alternative keyboard for local dashboard apps. It does not replace the system keyboard or intercept its summon button. Streamed VR-app input is outside the project scope.
+Full Keyboard for Steam Frame is a manually launched alternative keyboard for local dashboard apps. Default behavior leaves the system keyboard untouched. An experimental, default-off replacement bridge handles supported native requests while the app runs. Streamed VR-app input is outside the project scope.
 
 ## Implemented
 
@@ -21,6 +21,15 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Review the public repository and package for private files and complete third-party notices.
 - Publish a release with the ARM64 archive and checksums once review is complete.
 
+## Experimental native replacement
+
+- [x] Default-off setting, temporary bridge, request readiness and independent native fallback.
+- [x] Resident panel dismissal with × and a separate Settings Quit shown only in replacement mode.
+- [x] Isolated request, timeout, target-switch, Unicode and cleanup regressions.
+- [ ] In-headset automatic Steam-field, dashboard summon and zero-flash acceptance.
+- [ ] Crash, hang, backend loss and sleep/wake acceptance with usable native recovery.
+- [ ] Buffered requests and broader native target coverage.
+
 ## Further work
 
 - Broader local-app, nested-desktop, and language testing.
@@ -29,4 +38,4 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
 
-No stock keyboard takeover, streamed PC input, speech recognition, swipe typing, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+No universal native keyboard replacement, streamed PC input, speech recognition, swipe typing, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

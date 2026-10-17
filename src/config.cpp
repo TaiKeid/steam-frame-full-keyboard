@@ -437,6 +437,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* leveling = field(document.get(), "auto_leveling", json_type_boolean, true)) {
             settings.auto_leveling = json_object_get_boolean(leveling);
         }
+        if (auto* replace = field(document.get(), "replace_native_keyboard", json_type_boolean, true)) {
+            settings.replace_native_keyboard = json_object_get_boolean(replace);
+        }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
                 throw std::runtime_error("too many favorites");
@@ -517,6 +520,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->use_drag_to_move));
         json_object_object_add(document.get(), "auto_leveling",
                                json_object_new_boolean(settings->auto_leveling));
+        json_object_object_add(document.get(), "replace_native_keyboard",
+                               json_object_new_boolean(settings->replace_native_keyboard));
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

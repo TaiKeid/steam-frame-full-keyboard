@@ -50,7 +50,7 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 
 - Full Keyboard launches independently; the existing system keyboard button still opens the stock keyboard.
 - Main-view minus/plus icons change width by 5 cm without moving the panel; grabbing handles position and rotation.
-- Launching repeatedly retains one owner, restores visibility and recenters it. Closing and reopening creates a fresh owner; abrupt exit leaves no permanent launch lock.
+- Launching repeatedly retains one owner, restores visibility and recenters it. With replacement disabled, closing and reopening creates a fresh owner; abrupt exit leaves no permanent launch lock.
 - Recenter clears position/angle offsets while preserving width, including after a tracking-space change.
 - Tracking loss and the 30-second grab timeout restore typing.
 - Grabbing with either hand disables horizon correction until release.
@@ -95,3 +95,12 @@ Typed text and clipboard contents must not appear in logs. Recovery must not pas
 - With Use Drag to Move off, hold the line with a controller trigger and leave grip released. That same hand's stick up must move the keyboard farther along the ray; down must bring it closer with the existing speed, dead zone and bounds. The other hand's stick must have no effect. Repeat with each controller, release, pin, hide the dashboard and lose tracking to verify depth stops with capture. Ordinary key hover/click must not move depth. An AUX head-cursor capture must ignore both controllers' sticks. Re-enable grip mode and verify its same-hand depth still works.
 
 - Quickly click/release the movement line, then move the controller. A missed overlay mouse-up must not leave the keyboard following for the 30-second timeout. Initial stale rest samples must not cancel a genuine hold; release after an observed hold must stay immediate. Missing/invalid component samples must not count toward a released-sample window. Automated placement tests cover these timing sequences, and the isolated runtime harness verifies the production line-capture wiring.
+
+## Resident native replacement
+
+- Invoke the native keyboard button, then repeatedly click/type on our panel. Native keys, collision and move line must remain absent; neither panel may loop open/closed. X must dismiss ours and keep both panels dismissed. The native button must then reopen ours, and another press must dismiss it. Repeat with automatic Steam field focus and field Enter/close handling. External requests lacking an exact restorable owner must remain native.
+- Enable replacement and Apply. Hold keys with both pointers, then X. All owned input releases, our panel hides, the process remains and native does not reappear for that dismissed session.
+- Invoke a native keyboard request again. The same resident process shows our panel and completes a new readiness handshake. Repeat after closing/reopening the dashboard.
+- Relaunch the app while its resident panel is hidden. The existing process reopens/recenters and Settings is reachable.
+- Quit Full Keyboard is present only in Settings while replacement is enabled. Explicit Quit ends the process and restores native fallback; native summons remain usable afterward.
+- Uncheck replacement and Apply. The Quit action disappears, normal X exits, and the original Steam button behavior is restored.

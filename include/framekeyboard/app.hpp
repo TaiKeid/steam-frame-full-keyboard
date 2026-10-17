@@ -11,6 +11,7 @@
 #include <optional>
 
 namespace framekeyboard {
+class NativeReplacement;
 struct Options {
     fs::path data_dir, config_dir, ei_socket, text_socket;
     std::string mode{"help"}, output, input{"none"}, target_language;
@@ -32,6 +33,8 @@ class InputGate : public KeySink {
     bool can_resume() const override { return target_.can_resume(); }
     bool text_available() override { return target_.text_available(); }
     bool commit_text(const std::string& text) override { return enabled && target_.commit_text(text); }
+    bool text_pending() const override { return target_.text_pending(); }
+    void cancel_text() override { target_.cancel_text(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
         return target_.shortcut_code(symbol, fallback);
     }
@@ -65,6 +68,22 @@ class App {
     bool pinned() const { return settings_.pinned; }
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
+    bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }
+    bool replacement_ready() const;
+    bool take_native_fallback();
+    bool resident_replacement() const {
+        return options_.mode == "vr" && settings_.replace_native_keyboard;
+    }
+    void close_panel();
+    bool take_dismissal();
+    void set_replacement_available(bool available) {
+        dirty |= replacement_available_ != available;
+        replacement_available_ = available;
+    }
+    void set_native_session(bool open) {
+        dirty |= native_session_ != open;
+        native_session_ = open;
+    }
     bool allows_movement(MoveSource source) const {
         return !pinned() && use_drag_to_move() == (source == MoveSource::Grip);
     }
@@ -120,6 +139,11 @@ class App {
     bool pending_hide_numpad_{};
     bool pending_use_drag_to_move_{};
     bool pending_auto_leveling_{true};
+    bool pending_replace_native_keyboard_{};
+    bool native_fallback_{};
+    bool replacement_available_{};
+    bool native_session_{};
+    bool dismiss_requested_{};
     SettingsUi settings_ui_;
     std::unique_ptr<LanguageMap> keymap_;
     // The launch declaration is frozen; Reload cannot redefine the target.
@@ -131,6 +155,7 @@ class App {
     bool cjk_latin_{};
     bool japanese_latin_{};
     bool text_ready_{};
+    bool typing_ready_{};
     std::map<unsigned, std::string> hovered_, pressed_controls_;
     std::string status_;
     bool settings_open_{false}, quit_{false}, recenter_{false};
@@ -145,5 +170,5 @@ class App {
 double monotonic_seconds();
 extern volatile std::sig_atomic_t interrupted;
 int run_preview(App& app, double duration);
-int run_vr(App& app, VrInstance& instance, double duration);
+int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration);
 } // namespace framekeyboard

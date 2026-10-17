@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/ei_input.hpp"
+#include "framekeyboard/native_replacement.hpp"
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -25,7 +26,7 @@ void help() {
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
               << "Typing stays disabled unless --start-enabled is supplied.\n"
-              << "Separate dashboard keyboard. Stock keyboard and autostart are unchanged.\n";
+              << "Native replacement is optional in Settings. Autostart is unchanged.\n";
 }
 void signal_handler(int) {
     fk::interrupted = 1;
@@ -163,7 +164,8 @@ int main(int argc, char** argv) {
         } else {
             sink = std::make_unique<fk::NullSink>();
         }
-        fk::App app(options, *sink);
+        fk::NativeReplacement replacement(*sink);
+        fk::App app(options, replacement);
         if (options.mode == "render" || options.mode == "render-settings") {
             if (options.mode == "render-settings") {
                 app.show_settings();
@@ -174,7 +176,7 @@ int main(int argc, char** argv) {
         }
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
-        return options.mode == "vr" ? fk::run_vr(app, *instance, options.duration)
+        return options.mode == "vr" ? fk::run_vr(app, *instance, replacement, options.duration)
                                     : fk::run_preview(app, options.duration);
     } catch (const std::exception& error) {
         std::cerr << "Full Keyboard: " << error.what() << '\n';

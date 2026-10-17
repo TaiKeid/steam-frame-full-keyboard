@@ -24,6 +24,9 @@ class KeySink {
     virtual bool can_resume() const { return false; }
     virtual bool text_available() { return false; }
     virtual bool commit_text(const std::string&) { return false; }
+    // Optional asynchronous transports retain one commit until the caller consumes its result.
+    virtual bool text_pending() const { return false; }
+    virtual void cancel_text() {}
     virtual int shortcut_code(xkb_keysym_t, int fallback) { return fallback; }
     // Unknown until the receiving system reports its lock state.
     virtual std::optional<bool> num_lock_state() { return {}; }

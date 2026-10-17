@@ -52,6 +52,7 @@ struct Settings {
     bool hide_numpad{};
     bool use_drag_to_move{};
     bool auto_leveling{true};
+    bool replace_native_keyboard{};
 };
 
 fs::path default_config_dir();

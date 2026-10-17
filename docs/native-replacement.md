@@ -1,0 +1,52 @@
+# Experimental native keyboard replacement
+
+In Settings → Experimental, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. No system files, button mappings, services or autostart settings are changed.
+
+This prototype requires Python 3 and Steam's Developer Mode debugging endpoint on localhost port 8080. It checks the private Steam interfaces on connection. It never enables debugging for you. If the endpoint, popup, input backend or required interfaces are unavailable, requests remain native. A Steam UI update may disable replacement until compatibility is restored. Developer Mode exposes powerful debugging access; use the device's own developer settings to control it.
+
+## When it runs
+
+Checking the option and choosing Apply and save starts the bundled helper and a temporary watchdog inside the running Steam UI. It does not install a background service. Unchecking it and applying stops the helper, removes the Steam hooks/watchdog, and restores native presentation. The app's internal safety thread stays idle while replacement is off and ends when the app exits.
+
+With replacement enabled, the top-right X dismisses the current typing session and hides the panel. Full Keyboard and its bridge keep running, ready to show our panel on the next supported native request. Dismissing X does not bring back the stock keyboard. Dismissals are scoped to their request, and duplicate native close notifications cannot create new sessions. Pressing a supported native keyboard button while our acknowledged panel is open dismisses both presentations, including after closing an app and returning to the dashboard. Explicit Steam field-focus requests transfer the typing target and keep our panel open. The bridge distinguishes these requests through the existing field-manager show path, rather than treating a stale field reference as new focus.
+
+**Quit Full Keyboard** appears in Settings only while replacement is enabled in VR. Use it to exit the resident app and restore native fallback. With replacement disabled, X exits normally and the separate Quit action is absent. Desktop preview keeps its ordinary exit behavior.
+
+The preference is saved, so launching Full Keyboard again recreates the bridge when replacement is enabled. After an explicit Quit, crash, uninstall or reboot, native requests use Steam's keyboard until Full Keyboard is launched again. This option does not enable autostart or launch a new Full Keyboard process from the native keyboard button. Relaunching the existing resident app reopens/recenters its panel so Settings remains reachable.
+
+## Coverage
+
+Requests come from Steam's shared VR keyboard status, including Steam field focus and dashboard summons. Steam field takeover requires a matching window whose existing virtual-keyboard manager and native Show/Hide provider can restore that exact target. The main Steam UI is supported, including its minimal SteamVR-dispatched requests; a Steam bar/app popup requires its own matching manager and field callback.
+
+Frame-local Gamescope desktop/window requests are also supported when their metadata matches the dashboard's minimal, single-line request with flags 13 and SteamVR dispatch disabled. These use the ordinary local libei/Unicode backend. An app-scoped native guard must first resolve the exact requesting overlay and arm recovery. It can reopen native for that overlay through OpenVR, independently of Python and the Steam UI. If that guard is unavailable, the request stays native. Unknown targets, mismatched Steam owners, other external request modes and buffered SteamVR requests remain native. A native keyboard already open when the bridge connects stays native until dismissed. Streamed VR-app input remains outside the project scope.
+
+The bridge closes native presentation through its owning provider and temporarily preserves the Steam manager's logical open state and target. It suppresses only the corresponding physical-close cleanup. A real target change, explicit dismissal or another native request still receives the appropriate cleanup and request generation. Full Keyboard sends committed Unicode and plain Backspace, Enter, Tab and arrow actions through the existing manager, preserving Steam field Enter behavior. For each dispatch it temporarily routes the renderer override directly to the retained field callback, or to Steam's existing controller-text helper for the main UI. This avoids the renderer's native SendText route, which requires an open native presentation session. The override is restored after each call, including failures. Modifiers, shortcuts and other physical controls continue through the local libei backend and depend on system focus. External JIS and buffered external requests are excluded.
+
+## Presentation and fallback
+
+While the app's render/input loop is healthy, the bridge prepares a transparent, noninteractive native popup texture and gates its show/focus calls. A supported request closes native presentation through the original provider. Our panel becomes eligible only after that close is confirmed, removing the native scene's collision and movement line before takeover. Each new request or field target still needs acknowledgement from our visible, input-ready panel within 400 ms. A failed native close or late acknowledgement leaves or restores the stock keyboard. Browser HideWindow is never used because it leaves separate dashboard geometry alive and can trigger focus-driven reopening. Stock controller keyboard actions are blocked while replacement owns the retained session.
+
+The stock dashboard handle is owned separately by SteamVR. Closing the actual presentation is required to remove it; CSS alone cannot do that. Native show/close ordering can still change. Confirm no flash, stale texture, collision or remaining handle in the headset before treating the prototype as complete visual replacement.
+
+An independent watchdog in Steam's SharedJSContext expires the lease after 900 ms without new render-loop progress. Traffic from the helper alone cannot renew it. Readiness timeout, unsupported targets, backend loss, explicit escape, helper disconnect or app failure restore native presentation. An in-process watchdog hides our overlay after a 700 ms main-loop stall so it cannot cover native recovery. If the entire app freezes, including its watchdog thread, the independent helper terminates its own original parent after three seconds without progress while our panel was visible. This removes the frozen overlay and releases its compositor input devices. It never terminates Steam or another application. Sleep/wake and recovery latency still require device acceptance.
+
+Open the gear menu and select **Use Steam keyboard** to give the current request back to Steam. Escape, timeout, disable, exit and removal reopen the original owner's native provider while keeping its Steam field target intact, then remove presentation suppression. The restored request remains native until dismissed. The helper exits on parent EOF and removes its hooks when CDP is available. If CDP is lost, the independent Steam-side lease performs restoration. A subsequent bridge can replace an expired hook instance. No surviving helper is meant to suppress native input after uninstall.
+
+The helper never reads initial field text or clipboard contents. Text travels transiently through the private IPC/CDP connection and is not logged or saved. Unicode commits wait for an acknowledgement; failure retains text for explicit retry. Target changes and cancellation invalidate pending results, preventing replay into another field. As with other input transports, a connection loss after delivery but before acknowledgement cannot establish whether the character reached the target. Check the field before retrying in that case.
+
+For local Gamescope recovery, the native guard uses a 1.2 second deadline measured from real app progress. This allows Steam's 900 ms presentation lease to expire first, so recovery cannot be mistaken for a new toggle. Explicit fallback restores immediately after withdrawing the Steam hook's logical session. On app/helper EOF or failure the guard restores the exact overlay. OpenVR closes a keyboard when its requesting client exits, so a guard that has restored native stays alive until the native session closes. It then exits. This is temporary request ownership, with no installed service or startup entry. X cancels recovery and keeps native closed.
+
+## Validation
+
+Automated tests use fake Steam objects, fake input sinks and private socketpairs. They cover automatic-field metadata, same-window target changes, Unicode acknowledgement, failed commits, controller guarding, readiness deadlines, lease expiry, restoration, hook ownership and helper cleanup. Host CJK suites may skip when their optional engines are absent; ARM64 tests run against the Frame's installed libraries.
+
+Before relying on replacement, test in the headset with harmless text:
+
+- Steam search and another Steam field that opens the keyboard automatically; dashboard keyboard button; desktop and floating local-app fields.
+- Unicode, held Backspace, held printable keys, Enter, Tab, arrows, modifiers, Copy/Paste and local composition.
+- No visible native keys or native movement handle, no flash on repeated summons, and no stock controller actions beneath our panel.
+- X hides without exiting; the next native request reopens ours. Settings Quit exists only with replacement enabled.
+- Use Steam keyboard, disable, explicit Settings Quit, crash, helper/CDP loss, backend loss, main-loop stall and full process suspension. Native must remain visible and clickable, including after repeated summon presses.
+- Request changes while readiness or text is pending; Steam restart/update; headset sleep/wake; app removal followed by native summons.
+
+This document defines prototype behavior and checks. It does not claim those physical acceptance checks have passed.

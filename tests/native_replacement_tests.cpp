@@ -1,0 +1,451 @@
+#include "framekeyboard/app.hpp"
+#include "framekeyboard/native_replacement.hpp"
+#include <chrono>
+#include <iostream>
+#include <json-c/json.h>
+#include <linux/input-event-codes.h>
+#include <stdexcept>
+#include <sys/socket.h>
+#include <thread>
+#include <unistd.h>
+
+using namespace framekeyboard;
+namespace {
+void require(bool ok, const char* message) {
+    if (!ok) {
+        throw std::runtime_error(message);
+    }
+}
+struct Local : KeySink {
+    std::vector<std::pair<int, int>> keys;
+    std::vector<std::string> text;
+    void send(int code, int value) override { keys.emplace_back(code, value); }
+    bool text_available() override { return true; }
+    bool commit_text(const std::string& value) override {
+        text.push_back(value);
+        return true;
+    }
+};
+void put(int fd, const std::string& text) {
+    require(::send(fd, text.data(), text.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(text.size()),
+            "fixture packet send");
+}
+std::string take(int fd) {
+    char data[32769];
+    const auto size = recv(fd, data, sizeof(data), MSG_DONTWAIT);
+    require(size > 0, "fixture packet receive");
+    return {data, static_cast<std::size_t>(size)};
+}
+void activate(int fd, NativeReplacement& replacement, double now = 10) {
+    put(fd, R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":true})");
+    replacement.poll(now);
+    require(replacement.state().active && replacement.state().request == 2,
+            "versioned session metadata");
+    replacement.route(true);
+}
+void transport() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "fixture socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        require(replacement.commit_text("local"), "ordinary text bypasses bridge");
+        activate(pair[1], replacement);
+        require(!replacement.commit_text("café 世界") && replacement.text_pending(),
+                "commit waits for acknowledgement");
+        auto* message = json_tokener_parse(take(pair[1]).c_str());
+        require(std::string(json_object_get_string(json_object_object_get(message, "text"))) ==
+                    "café 世界",
+                "Unicode retained by transport");
+        const auto id = json_object_get_uint64(json_object_object_get(message, "id"));
+        json_object_put(message);
+        require(!replacement.commit_text("other"), "pending text cannot be overwritten");
+        put(pair[1], "{\"op\":\"text-result\",\"id\":" + std::to_string(id + 1) + ",\"ok\":true}");
+        replacement.poll(10.1);
+        require(!replacement.commit_text("café 世界"), "stale result ignored");
+        put(pair[1], "{\"op\":\"text-result\",\"id\":" + std::to_string(id) + ",\"ok\":true}");
+        replacement.poll(10.2);
+        require(replacement.commit_text("café 世界") && !replacement.text_pending(),
+                "success consumed once");
+        require(local.text.size() == 1, "remote text never leaks to the focused local app");
+        replacement.send(KEY_ENTER, 1);
+        replacement.send(KEY_ENTER, 0);
+        require(take(pair[1]).find("Enter") != std::string::npos && local.keys.empty(),
+                "native field Enter uses Steam session");
+        replacement.dismiss_request();
+        require(take(pair[1]) == "{\"op\":\"dismiss\",\"request\":2}",
+                "panel dismissal is scoped to the current native request");
+        replacement.send(KEY_LEFTCTRL, 1);
+        replacement.send(KEY_ENTER, 1);
+        replacement.send(KEY_LEFTCTRL, 0);
+        replacement.send(KEY_ENTER, 0);
+        require(local.keys.size() == 4 && local.keys.back() == std::pair{KEY_ENTER, 0},
+                "native release survives modifier-up before ordinary-key-up");
+        require(!replacement.commit_text("unsent"), "begin next commit");
+        take(pair[1]);
+        activate(pair[1], replacement, 10.5);
+        replacement.poll(10.9);
+        require(!replacement.commit_text("unsent") && !replacement.text_pending(),
+                "timeout consumes failure without success");
+        replacement.update(true, true, 2, false, 10.9);
+        require(take(pair[1]).find("\"fallback\":true") != std::string::npos,
+                "timeout requests native restoration");
+    }
+    close(pair[1]);
+}
+struct Deferred : Local {
+    bool pending{}, done{}, success{};
+    std::string held;
+    int deliveries{};
+    bool commit_text(const std::string& value) override {
+        if (pending) {
+            if (value != held || !done) {
+                return false;
+            }
+            pending = false;
+            return success;
+        }
+        held = value;
+        pending = true;
+        done = false;
+        ++deliveries;
+        return false;
+    }
+    bool text_pending() const override { return pending; }
+    void cancel_text() override { pending = false; }
+};
+void app_commit() {
+    Deferred sink;
+    Options options;
+    options.mode = "vr";
+    options.input = "ei";
+    options.start_enabled = true;
+    options.config_dir =
+        fs::temp_directory_path() / ("framekeyboard-bridge-test-" + std::to_string(getpid()));
+    fs::remove_all(options.config_dir);
+    {
+        App app(options, sink);
+        auto press = [&](const std::string& action, double now) {
+            const auto view = app.view();
+            for (int y = 96; y < panel_height; y += 4) {
+                for (int x = 0; x < panel_width; x += 4) {
+                    const auto* key = app.renderer.hit_key(view, x, y);
+                    if (!key || key->action != action) {
+                        continue;
+                    }
+                    const bool accepted = app.down(1, x, y, now);
+                    app.up(1, x, y);
+                    return accepted;
+                }
+            }
+            throw std::runtime_error("fixture key missing");
+        };
+        require(!app.replace_native_keyboard(), "replacement defaults off");
+        require(press("KeyA", 1) && sink.held == "a", "App queues printable Unicode");
+        require(!press("KeyB", 1.1) && sink.deliveries == 1, "another key cannot overtake pending text");
+        sink.done = true;
+        sink.success = false;
+        app.tick(1.2);
+        press("Enter", 1.3);
+        require(sink.deliveries == 2 && sink.held == "a", "failure preserves text for explicit retry");
+        sink.done = sink.success = true;
+        app.tick(1.4);
+        require(!sink.pending && press("KeyB", 1.5) && sink.held == "b",
+                "acknowledgement unlocks next text");
+        app.cancel();
+        require(!sink.pending, "target cancellation invalidates deferred text");
+        const auto view = app.view();
+        for (int y = 96; y < panel_height; y += 4) {
+            bool found = false;
+            for (int x = 0; x < panel_width; x += 4) {
+                const auto* key = app.renderer.hit_key(view, x, y);
+                if (!key || key->action != "KeyA") {
+                    continue;
+                }
+                require(app.down(2, x, y, 2), "held printable key starts async commit");
+                sink.done = sink.success = true;
+                app.tick(2.1);
+                const int before = sink.deliveries;
+                app.tick(2.6);
+                require(sink.pending && sink.deliveries == before + 1 && sink.held == "a",
+                        "held printable key repeats without losing async commit ownership");
+                app.up(2, x, y);
+                sink.done = sink.success = true;
+                app.tick(2.7);
+                require(!sink.pending, "final repeat acknowledgement is consumed after release");
+                found = true;
+                break;
+            }
+            if (found) {
+                break;
+            }
+        }
+    }
+    fs::remove_all(options.config_dir);
+}
+void handoff_status() {
+    const auto directory =
+        fs::temp_directory_path() / ("framekeyboard-handoff-tests-" + std::to_string(getpid()));
+    fs::remove_all(directory);
+    Settings settings;
+    settings.replace_native_keyboard = true;
+    save_settings(directory, settings);
+    Options options;
+    options.mode = "vr";
+    options.input = "ei";
+    options.start_enabled = true;
+    options.config_dir = directory;
+    struct Availability : Local {
+        bool ready{true}, text_ready{true};
+        bool pump() override { return ready; }
+        bool text_available() override { return text_ready; }
+    } sink;
+    {
+        App app(options, sink);
+        ReplacementPresentation presentation;
+        NativeReplacement::State state{2, true, true, false, true};
+        presentation.update(true, state);
+        app.set_interaction_active(presentation.interactive());
+        require(presentation.show() && app.replacement_ready(), "handoff prepares a ready panel");
+        require(app.view().status.empty(), "healthy handoff must not flash a typing-disabled warning");
+        std::optional<std::pair<double, double>> point;
+        const auto view = app.view();
+        for (int y = 96; y < panel_height && !point; y += 4) {
+            for (int x = 0; x < panel_width; x += 4) {
+                const auto* key = app.renderer.hit_key(view, x, y);
+                if (key && key->action == "KeyA") {
+                    point = {x, y};
+                    break;
+                }
+            }
+        }
+        require(point.has_value(), "handoff fixture key exists");
+        const auto [x, y] = *point;
+        require(!app.down(1, x, y, 1) && sink.keys.empty() && sink.text.empty(),
+                "quiet handoff still blocks input before acknowledgement");
+        state.active = true;
+        presentation.update(true, state);
+        app.set_interaction_active(presentation.interactive());
+        require(app.view().status.empty() && app.down(1, x, y, 2),
+                "acknowledged handoff enables typing without changing the notice");
+        app.up(1, x, y);
+        require(sink.text == std::vector<std::string>{"a"}, "typing resumes after acknowledgement");
+        app.set_interaction_active(false);
+        sink.ready = false;
+        app.tick(3);
+        require(app.view().status.starts_with("Keyboard connection lost."),
+                "a real backend failure remains visible during the handoff");
+        sink.ready = true;
+        sink.text_ready = false;
+        app.tick(4);
+        require(app.view().status.starts_with("Text delivery unavailable."),
+                "missing text transport still shows the typing warning");
+        app.paint(4);
+        sink.text_ready = true;
+        require(app.tick(5) && app.view().status.empty(),
+                "transport recovery repaints the warning while input remains paused");
+        require(!app.down(1, x, y, 5), "recovery cannot bypass the handoff input gate");
+        app.report_status("Input connection error");
+        require(app.view().status == "Input connection error", "handoff preserves explicit errors");
+    }
+    {
+        Options disabled = options;
+        disabled.start_enabled = false;
+        App app(disabled, sink);
+        app.set_interaction_active(false);
+        require(app.view().status.starts_with("Typing disabled:"),
+                "an input-disabled launch still shows its warning");
+    }
+    {
+        options.mode = "preview";
+        options.input = "none";
+        options.start_enabled = false;
+        App app(options, sink);
+        app.set_interaction_active(false);
+        require(app.view().status.starts_with("Preview only:"), "preview retains its input notice");
+    }
+    fs::remove_all(directory);
+}
+void resident_visibility() {
+    ReplacementPresentation view;
+    NativeReplacement::State state{1, false, false, false, true};
+    view.update(true, state);
+    require(view.show(), "first launch can show the manual panel");
+    view.dismiss();
+    view.update(true, state);
+    require(!view.show() && !view.interactive(), "manual X remains hidden while resident");
+    state = {2, true, true, false, true};
+    view.update(true, state);
+    require(view.show() && !view.interactive(), "native summon prepares the hidden resident panel");
+    state.active = true;
+    view.update(true, state);
+    require(view.interactive() && view.remote(), "acknowledged summon enables session input");
+    state.local = true;
+    view.update(true, state);
+    require(view.show() && view.interactive() && !view.remote(),
+            "Gamescope takeover uses local libei and Unicode rather than Steam's field manager");
+    state.local = false;
+    view.update(true, state);
+    view.dismiss();
+    view.update(true, state);
+    require(!view.show() && !view.remote(), "X cannot reopen the still-cached native request");
+    state = {3, false, false, false, true};
+    view.update(true, state);
+    require(!view.show(), "native close acknowledgement keeps the resident panel hidden");
+    state = {4, true, true, false, true};
+    view.update(true, state);
+    require(view.show(), "a later native request reopens ours without relaunch");
+    view.dismiss();
+    view.update(true, {});
+    require(!view.show(), "helper loss cannot reopen a dismissed manual panel");
+    view.update(true, {1, false, false, false, true});
+    view.summon();
+    require(view.show() && view.interactive(), "manual relaunch can reach Settings while resident");
+    view.dismiss();
+    view.update(false, state);
+    require(view.show() && view.interactive() && !view.remote(),
+            "disable returns to ordinary app behavior");
+    view.update(true, {5, true, false, false, true});
+    require(!view.show(), "unknown requests stay native");
+}
+void resident_close() {
+    const auto directory =
+        fs::temp_directory_path() / ("framekeyboard-resident-tests-" + std::to_string(getpid()));
+    fs::remove_all(directory);
+    Settings settings;
+    settings.replace_native_keyboard = true;
+    save_settings(directory, settings);
+    Options options;
+    options.mode = "vr";
+    options.input = "ei";
+    options.start_enabled = true;
+    options.config_dir = directory;
+    Local sink;
+    auto has = [](App& app, const std::string& id) {
+        for (const auto& c : app.view().controls) {
+            if (c.id == id) {
+                return true;
+            }
+        }
+        return false;
+    };
+    auto click = [](App& app, const std::string& id) {
+        for (const auto& c : app.view().controls) {
+            if (c.id != id) {
+                continue;
+            }
+            const auto r = c.bounds;
+            app.down(3, r.x + r.width / 2, r.y + r.height / 2, 1);
+            app.up(3, r.x + r.width / 2, r.y + r.height / 2);
+            return;
+        }
+        throw std::runtime_error("resident fixture control missing");
+    };
+    {
+        App app(options, sink);
+        auto hold = [&](const std::string& action, unsigned pointer) {
+            const auto view = app.view();
+            for (int y = 96; y < panel_height; y += 4) {
+                for (int x = 0; x < panel_width; x += 4) {
+                    const auto* key = app.renderer.hit_key(view, x, y);
+                    if (key && key->action == action) {
+                        require(app.down(pointer, x, y, 1), "resident fixture key accepted");
+                        return;
+                    }
+                }
+            }
+            throw std::runtime_error("resident fixture key missing");
+        };
+        require(!has(app, "quit"), "Quit is absent from the main toolbar");
+        hold("ControlLeft", 1);
+        hold("KeyC", 2);
+        click(app, "close");
+        require(!app.quitting() && app.take_dismissal() && !app.take_dismissal(),
+                "replacement X dismisses once without exiting");
+        require(app.replacement_ready(),
+                "a dismissed resident retains backend readiness for new summons");
+        require(sink.keys ==
+                    std::vector<std::pair<int, int>>{
+                        {KEY_LEFTCTRL, 1}, {KEY_C, 1}, {KEY_C, 0}, {KEY_LEFTCTRL, 0}},
+                "dismissal releases both controllers through the original input gate");
+        app.summon();
+        app.set_interaction_active(true);
+        app.show_settings();
+        require(has(app, "quit"), "Quit is available in Settings while replacement is enabled");
+        app.set_replacement_available(true);
+        app.set_native_session(true);
+        app.paint(1);
+        app.renderer.write_png("/tmp/framekeyboard-resident-settings.png");
+        click(app, "quit");
+        require(app.quitting() && !app.take_dismissal(), "Settings Quit exits the resident app");
+    }
+    settings.replace_native_keyboard = false;
+    save_settings(directory, settings);
+    {
+        App app(options, sink);
+        app.show_settings();
+        require(!has(app, "quit"), "Quit is absent with replacement disabled");
+        click(app, "replace-native-keyboard");
+        require(!has(app, "quit"), "pending enable does not expose Quit before Apply");
+        click(app, "apply");
+        app.show_settings();
+        require(has(app, "quit"), "applied enable exposes Settings Quit");
+        click(app, "replace-native-keyboard");
+        require(has(app, "quit"), "pending disable retains Quit until Apply");
+        click(app, "apply");
+        app.show_settings();
+        require(!has(app, "quit"), "applied disable removes Settings Quit");
+        app.back();
+        click(app, "close");
+        require(app.quitting() && !app.take_dismissal(), "ordinary X retains its quit behavior");
+    }
+    settings.replace_native_keyboard = true;
+    save_settings(directory, settings);
+    {
+        Options preview = options;
+        preview.mode = "preview";
+        preview.input = "none";
+        preview.start_enabled = false;
+        App app(preview, sink);
+        app.show_settings();
+        require(!has(app, "quit"), "desktop preview does not enter resident replacement mode");
+        app.back();
+        click(app, "close");
+        require(app.quitting() && !app.take_dismissal(),
+                "preview X still exits with a saved replacement preference");
+    }
+    fs::remove_all(directory);
+}
+} // namespace
+int main(int argc, char** argv) {
+    try {
+        if (argc == 2 && std::string(argv[1]) == "--steam-unarmed") {
+            NullSink local;
+            NativeReplacement replacement(local);
+            const auto start = monotonic_seconds();
+            while (monotonic_seconds() - start < 3) {
+                const double now = monotonic_seconds();
+                replacement.poll(now);
+                replacement.update(true, false, 0, false, now);
+                if (replacement.state().available) {
+                    require(!replacement.state().active, "unarmed bridge must not take over");
+                    replacement.update(false, false, 0, false, now);
+                    std::cout << "C++ helper spawn, unarmed Steam handshake and detach passed.\n";
+                    return 0;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            throw std::runtime_error("unarmed Steam handshake unavailable");
+        }
+        require(argc == 1, "unknown test option");
+        transport();
+        app_commit();
+        handoff_status();
+        resident_visibility();
+        resident_close();
+        std::cout << "Native replacement transport and commit ownership passed.\n";
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << '\n';
+        return 1;
+    }
+}

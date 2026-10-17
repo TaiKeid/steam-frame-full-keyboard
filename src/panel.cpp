@@ -559,7 +559,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_save(cr);
             cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
             cairo_clip(cr);
-            label(cr, field.text, field.bounds, 22, view.language->font, t.legend, false,
+            label(cr, field.text, field.bounds, 22, view.language->font, t.legend, field.left,
                   field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
             cairo_restore(cr);
         }

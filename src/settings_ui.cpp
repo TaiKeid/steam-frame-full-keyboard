@@ -5,7 +5,8 @@
 
 namespace framekeyboard {
 namespace {
-constexpr double card_width = 510, card_gap = 18, row_height = 76, menu_row_height = 52;
+// Three production cards fit without a scrollbar for a two-pixel overflow.
+constexpr double card_width = 509, card_gap = 18, row_height = 76, menu_row_height = 52;
 constexpr int visible_choices = 5;
 bool intersects(Rect a, Rect b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
@@ -40,6 +41,10 @@ Rect SettingsUi::body(std::size_t i) const {
 }
 Rect SettingsUi::field_bounds(std::size_t i, std::size_t field) const {
     const auto r = card_bounds(i);
+    if (cards_[i].fields[field].inline_label_width > 0) {
+        return {r.x + 30 + cards_[i].fields[field].inline_label_width + 14,
+                r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id), 56, 56};
+    }
     return {r.x + 164, r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id),
             318, 56};
 }
@@ -150,12 +155,15 @@ void SettingsUi::append(PanelView& view) const {
                 bounds.width = bounds.height;
             }
             const Rect text =
-                field.label_after
+                field.inline_label_width > 0
+                    ? Rect{r.x + 30, bounds.y, field.inline_label_width, bounds.height}
+                : field.label_after
                     ? Rect{bounds.x + bounds.width + 14, bounds.y,
                            r.x + r.width - 12 - (bounds.x + bounds.width + 14), bounds.height}
                     : Rect{r.x + 12, bounds.y, 142, bounds.height};
             if (intersects(text, clip)) {
-                view.field_labels.push_back({field.label, text, clip, field.label_after});
+                view.field_labels.push_back(
+                    {field.label, text, clip, field.label_after || field.inline_label_width > 0});
             }
             if (intersects(bounds, clip)) {
                 const auto selected =

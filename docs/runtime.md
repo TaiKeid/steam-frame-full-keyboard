@@ -8,11 +8,13 @@ The installed **Full Keyboard** launcher uses:
 framekeyboard --vr --input ei --start-enabled
 ```
 
-It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR, replace the stock keyboard, or register autostart. It is visible and accepts input only while the dashboard is open. Hiding cancels keys, unfinished composition, and grabs.
+It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an experimental option, disabled by default. It is visible and accepts input only while the dashboard is open. Hiding cancels keys, unfinished composition, and grabs.
 
 First launch starts at 95 cm wide, tilted back 50° from upright, just beneath the dashboard. If the dashboard anchor is unavailable, it falls back to 65 cm below eye level and 85 cm forward. Placement follows dashboard position and full rotation, including when a local app tab is selected.
 
-Closing saves the pose, size, and dashboard reference. Reopening restores them. Launching an already running instance recenters it and preserves size; it also returns from Settings to the keys. A launch while the dashboard is hidden queues recentering for its next opening. Later launch flags do not change the running instance's backend or language. Close it before changing those options.
+Quitting saves the pose, size, and dashboard reference. Reopening restores them. Launching an already running instance recenters it and preserves size; it also returns from Settings to the keys. A launch while the dashboard is hidden queues recentering for its next opening. Later launch flags do not change the running instance's backend or language. Quit it before changing those options.
+
+When Experimental → Replace native keyboard is enabled, × dismisses the current typing session and hides the panel while the app stays resident. The next supported native keyboard request reopens our panel. **Quit Full Keyboard** is available only in Settings while replacement is enabled; use it for a full exit before updates, removal or changing launch options. With replacement disabled, × exits normally. See [native replacement](native-replacement.md).
 
 A temporary compositor pause releases held keys and resumes typing when its keyboard device returns, without replaying old holds. A disconnected compositor socket still requires closing and reopening the app. Connection status remains visible even if the interruption happened while the dashboard was closed.
 

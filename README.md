@@ -2,7 +2,7 @@
 
 A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons for browsing, signing in, editing text, and using local apps.
 
-**This is a separate app, not a replacement for the system keyboard.** Launch **Full Keyboard** yourself; SteamOS's existing keyboard button still opens the original keyboard.
+**Full Keyboard is launched manually.** By default, SteamOS's keyboard button opens the original keyboard. An experimental **Replace native keyboard** option in Experimental redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. See [native replacement](docs/native-replacement.md).
 
 ![Full Keyboard with the Graphite theme](docs/images/keyboard-graphite.png)
 
@@ -53,7 +53,7 @@ The installer adds a desktop application entry named **Full Keyboard**. If you a
 
 Everything installs under your home directory. The installer preserves settings and custom profiles, retains the previous release for rollback, and does not enable autostart or alter Steam files. Internal filenames and commands remain `framekeyboard`.
 
-To update, **close the keyboard**, download the new release assets, and repeat the installation steps. The installer refuses to overwrite an already installed version. See [rollback and removal](docs/runtime.md#update-rollback-and-removal) for recovery instructions.
+To update, **quit Full Keyboard**. With native replacement enabled, use Settings → Quit Full Keyboard. Then download the new release assets, and repeat the installation steps. The installer refuses to overwrite an already installed version. See [rollback and removal](docs/runtime.md#update-rollback-and-removal) for recovery instructions.
 
 ## Use the keyboard
 
@@ -75,7 +75,8 @@ To update, **close the keyboard**, download the new release assets, and repeat t
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
-| Close | Use the × icon |
+| Close | Use × to hide the panel in replacement mode; otherwise it exits the app |
+| Quit replacement mode | Open Settings → Quit Full Keyboard |
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
@@ -110,7 +111,7 @@ The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR dis
 
 Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save composition history. Placement and profile preferences are stored locally.
 
-The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. Closing the keyboard exits the process. Battery impact has not been benchmarked.
+The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 
 ## Development and feedback
 

@@ -1,11 +1,13 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/grip.hpp"
+#include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/vr_haptics.hpp"
 #include "framekeyboard/vr_texture.hpp"
 #include "openvr.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -443,10 +445,23 @@ class VrPanel {
     std::optional<bool> reported_native_;
 };
 } // namespace
-int run_vr(App& app, VrInstance& instance, double duration) {
+int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
     app.set_interaction_active(false);
     VrPanel panel;
     panel.connect();
+    std::atomic<double> replacement_progress{monotonic_seconds()};
+    std::atomic<bool> replacement_watched{false}, replacement_stalled{false};
+    // Steam restores stock independently. This thread removes a frozen panel that could
+    // otherwise cover or intercept the recovered native keyboard. It never touches App/input.
+    std::jthread replacement_watchdog([&](std::stop_token stop) {
+        while (!stop.stop_requested()) {
+            if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
+                vr::VROverlay()->HideOverlay(panel.handle());
+                replacement_stalled.store(true);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
     VrHaptics haptics;
     auto manifest = fs::canonical("/proc/self/exe").parent_path().parent_path() /
                     "share/framekeyboard/vr/actions.json";
@@ -547,17 +562,49 @@ int run_vr(App& app, VrInstance& instance, double duration) {
     };
     std::vector<PlacementAction> adjustments;
     double next_tracking_check = 0;
+    ReplacementPresentation presentation;
+    std::uint64_t last_request = 0;
+    auto dismiss_panel = [&] {
+        if (app.take_dismissal()) {
+            hide_panel();
+            presentation.dismiss();
+            replacement.dismiss_request();
+            show_pending = false;
+        }
+    };
     while (!done && !app.quitting() && !interrupted) {
         const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
         if (duration > 0 && now - start >= duration) {
             break;
         }
+        replacement.poll(now);
+        const auto native = replacement.state();
+        app.set_replacement_available(native.available);
+        app.set_native_session(native.open);
+        const bool replace = app.replace_native_keyboard();
+        presentation.update(replace, native);
+        if (replacement_stalled.exchange(false)) {
+            presentation.fallback();
+        }
         if (instance.poll_recenter()) {
             stop_drag();
             std::cout << "Launch request received.\n" << std::flush;
             app.summon();
             show_pending = true;
+            presentation.summon();
+        }
+        const bool remote = presentation.remote();
+        if (last_request != native.request || remote != replacement.remote()) {
+            stop_drag();
+            app.cancel();
+            replacement.route(remote);
+            last_request = native.request;
+        }
+        if (!presentation.show()) {
+            hide_panel();
+        } else if (visible) {
+            app.set_interaction_active(presentation.interactive());
         }
         const bool dashboard_visible = vr::VROverlay()->IsDashboardVisible();
         if (!dashboard_visible) {
@@ -609,7 +656,12 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 hide_panel();
             }
             if (event.eventType == vr::VREvent_OverlayClosed) {
-                done = true;
+                app.close_panel();
+                dismiss_panel();
+                if (app.quitting()) {
+                    done = true;
+                    break;
+                }
             }
             if (!visible) {
                 continue;
@@ -712,12 +764,10 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 stop_drag();
                 app.cancel();
                 break;
-            case vr::VREvent_OverlayClosed:
-                done = true;
-                break;
             default:
                 break;
             }
+            dismiss_panel();
         }
         if (done || app.quitting()) {
             break;
@@ -807,7 +857,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                 stop_drag();
             }
         }
-        if (dashboard_visible && (visible || now >= next_tracking_check)) {
+        if (dashboard_visible && presentation.show() && (visible || now >= next_tracking_check)) {
             Transform head{};
             if (!panel.read_head(head)) {
                 if (recenter_pending && !waiting_for_tracking) {
@@ -881,7 +931,7 @@ int run_vr(App& app, VrInstance& instance, double duration) {
                     panel.submit(app.renderer, app.view());
                     check(vr::VROverlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     visible = true;
-                    app.set_interaction_active(true);
+                    app.set_interaction_active(presentation.interactive());
                     show_pending = false;
                     std::cout << "Full Keyboard overlay visible.\n" << std::flush;
                 }
@@ -900,12 +950,32 @@ int run_vr(App& app, VrInstance& instance, double duration) {
             app.paint(now);
             panel.submit(app.renderer, app.view());
         }
+        bool fallback = app.take_native_fallback();
+        if (replacement_stalled.exchange(false)) {
+            fallback = true;
+        }
+        if (fallback) {
+            presentation.fallback();
+            hide_panel();
+        }
+        // A hidden resident must remain ready for the next summon, including one that
+        // opens the dashboard. Presentation is acknowledged separately for each request.
+        const bool ready = app.replacement_ready() && (!dashboard_visible || !waiting_for_tracking);
+        const bool presented =
+            ready && dashboard_visible && visible && vr::VROverlay()->IsOverlayVisible(panel.handle());
+        replacement.update(replace, ready, presented && presentation.show() ? native.request : 0,
+                           fallback || presentation.fallback_requested(), now, visible);
+        replacement_progress.store(monotonic_seconds());
+        replacement_watched.store(replace && visible);
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
         const auto period = std::chrono::microseconds(visible ? 16667 : 250000);
         std::this_thread::sleep_until(frame_started + period);
     }
+    hide_panel();
+    replacement_watched.store(false);
+    replacement.update(false, false, 0, false, monotonic_seconds());
     app.cancel();
     if (displayed.ready()) {
         try {
