@@ -324,7 +324,7 @@ void reload_startup() {
     const auto binary = directory.path / "install/releases/test/bin/framekeyboard";
     const auto units = directory.path / "units";
     const auto unit = units / "framekeyboard-autostart.service";
-    const auto link = units / "gamescope-session.target.wants/framekeyboard-autostart.service";
+    const auto link = units / "steamvr.service.wants/framekeyboard-autostart.service";
     fs::create_directories(binary.parent_path());
     std::ofstream(binary) << "fixture\n";
     fs::create_symlink("releases/test", directory.path / "install/current");

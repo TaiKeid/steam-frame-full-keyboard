@@ -21,7 +21,8 @@ int main(int argc, char** argv) {
         const auto binary = root / "releases/test/bin/framekeyboard";
         const auto units = base / "units";
         const auto unit = units / "framekeyboard-autostart.service";
-        const auto link = units / "gamescope-session.target.wants/framekeyboard-autostart.service";
+        const auto link = units / "steamvr.service.wants/framekeyboard-autostart.service";
+        const auto legacy = units / "gamescope-session.target.wants/framekeyboard-autostart.service";
         const auto config = base / "config";
         fs::create_directories(binary.parent_path());
         std::ofstream(binary) << "#!/bin/sh\nexit 0\n";
@@ -45,12 +46,31 @@ int main(int argc, char** argv) {
                         std::string::npos &&
                     contents.find("KillMode=process") != std::string::npos,
                 "boot is hidden, waits for VR and preserves independent recovery/update helpers");
+        require(contents.find("Restart=always\nRestartPreventExitStatus=3\nSuccessExitStatus=3") !=
+                        std::string::npos &&
+                    contents.find("WantedBy=steamvr.service") != std::string::npos,
+                "runtime exits restart while deliberate exits pause until the next SteamVR start");
         configure_startup(settings, binary, config, units, reload);
         require(reloads == 1, "ordinary preference saves do not reload systemd repeatedly");
         if (argc == 2) {
             std::cout << unit << '\n';
             return 0;
         }
+        fs::create_directories(legacy.parent_path());
+        fs::rename(link, legacy);
+        bool migration_failed = false;
+        try {
+            configure_startup(
+                settings, binary, config, units, [] {},
+                [] { throw std::runtime_error("migration save failed"); });
+        } catch (...) {
+            migration_failed = true;
+        }
+        require(migration_failed && fs::is_symlink(legacy) && !fs::is_symlink(link),
+                "failed migration restores the original enablement link");
+        configure_startup(settings, binary, config, units, [] {});
+        require(fs::is_symlink(link) && !fs::is_symlink(legacy),
+                "owned legacy startup link migrates to SteamVR enablement");
         // Config and user-unit directories can have different permissions.
         // A failed config write after a successful unit removal must undo it.
         save_settings(config, settings);

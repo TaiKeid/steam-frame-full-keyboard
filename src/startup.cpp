@@ -99,7 +99,8 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
         unit_directory = default_config_dir().parent_path() / "systemd/user";
     }
     const auto unit = unit_directory / name;
-    const auto link = unit_directory / "gamescope-session.target.wants" / name;
+    const auto link = unit_directory / "steamvr.service.wants" / name;
+    const auto legacy_link = unit_directory / "gamescope-session.target.wants" / name;
     const fs::path link_target = fs::path("..") / name;
     std::optional<std::string> previous;
     if (fs::exists(unit) || fs::is_symlink(unit)) {
@@ -115,11 +116,15 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             throw std::runtime_error("A custom SteamOS startup unit already exists.");
         }
     }
-    const bool linked = fs::is_symlink(link);
-    if ((linked && fs::read_symlink(link) != link_target) || (!linked && fs::exists(link))) {
-        throw std::runtime_error("A custom SteamOS startup link already exists.");
-    }
-    if (!enabled && !previous && !linked) {
+    auto owned_link = [&](const fs::path& path) {
+        const bool linked = fs::is_symlink(path);
+        if ((linked && fs::read_symlink(path) != link_target) || (!linked && fs::exists(path))) {
+            throw std::runtime_error("A custom SteamOS startup link already exists.");
+        }
+        return linked;
+    };
+    const bool linked = owned_link(link), legacy_linked = owned_link(legacy_link);
+    if (!enabled && !previous && !linked && !legacy_linked) {
         if (persist) {
             persist();
         }
@@ -148,10 +153,11 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             " --vr --input ei --start-enabled --autostart --data-dir " +
             quoted(current / "share/framekeyboard") + " --config-dir " +
             quoted(fs::absolute(config_dir)) +
-            "\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=5\n"
+            "\nRestart=always\nRestartPreventExitStatus=3\nSuccessExitStatus=3\n"
+            "RestartSec=3\nTimeoutStopSec=5\n"
             "# Updater and native-fallback helpers must outlive the parent during handoff.\n"
-            "KillMode=process\n\n[Install]\nWantedBy=gamescope-session.target\n";
-        if (previous == contents && linked) {
+            "KillMode=process\n\n[Install]\nWantedBy=steamvr.service\n";
+        if (previous == contents && linked && !legacy_linked) {
             if (persist) {
                 persist();
             }
@@ -170,6 +176,7 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             fs::remove(link);
             fs::remove(unit);
         }
+        fs::remove(legacy_link);
         (reload ? reload : reload_manager)();
         if (persist) {
             persist();
@@ -186,6 +193,11 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
                 fs::create_symlink(link_target, link);
             } else if (!linked) {
                 fs::remove(link);
+            }
+            if (legacy_linked && !fs::is_symlink(legacy_link)) {
+                fs::create_symlink(link_target, legacy_link);
+            } else if (!legacy_linked) {
+                fs::remove(legacy_link);
             }
             // A successful provisional reload must not outlive rolled-back files.
             (reload ? reload : reload_manager)();

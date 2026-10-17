@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
             // A stale unit cannot start replacement after the user disables it.
             if (!errors.empty() || !settings.replace_native_keyboard || !settings.start_with_steamos) {
                 std::cout << "SteamOS keyboard startup is disabled.\n";
-                return 0;
+                return fk::deliberate_exit_status;
             }
         }
         int result{};
@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
                 if (!instance->is_owner()) {
                     std::cout << (options.autostart ? "Full Keyboard is already running.\n"
                                                     : "Recenter requested from the running keyboard.\n");
-                    return 0;
+                    return fk::deliberate_exit_status;
                 }
             }
             auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
@@ -218,11 +218,14 @@ int main(int argc, char** argv) {
             std::signal(SIGTERM, signal_handler);
             result = options.mode == "vr" ? fk::run_vr(app, *instance, replacement, options.duration)
                                           : fk::run_preview(app, options.duration);
+            if (options.mode == "vr" && (app.quitting() || fk::interrupted || options.duration > 0)) {
+                result = fk::deliberate_exit_status;
+            }
             app.flush_settings();
         } // Destroy VR, replacement helpers, input and the instance lock before handoff.
         if (updates.prepared() && !fk::interrupted) {
             if (updates.handoff()) {
-                return 0;
+                return fk::deliberate_exit_status;
             }
             // If the prepared helper disappeared, restart the still-current build.
             auto arguments =
