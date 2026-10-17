@@ -118,6 +118,12 @@ if(BUILD_TESTING)
     add_executable(startup-tests tests/startup_tests.cpp)
     target_link_libraries(startup-tests PRIVATE keyboard_core)
     add_test(NAME startup COMMAND startup-tests)
+    find_program(SYSTEMD_ANALYZE systemd-analyze)
+    if(SYSTEMD_ANALYZE AND NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME startup-unit COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/startup_unit_tests.py"
+            "$<TARGET_FILE:startup-tests>" "${SYSTEMD_ANALYZE}")
+    endif()
     add_executable(update-tests tests/update_tests.cpp)
     target_link_libraries(update-tests PRIVATE keyboard_core)
     add_test(NAME updates COMMAND update-tests)

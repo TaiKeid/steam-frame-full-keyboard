@@ -16,19 +16,26 @@ namespace framekeyboard {
 namespace {
 constexpr auto name = "framekeyboard-autostart.service";
 constexpr auto marker = "# Managed by Full Keyboard\n";
-std::string quoted(const fs::path& path) {
-    std::string result = "\"";
+std::string condition_path(const fs::path& path) {
+    std::string result;
     for (const auto c : path.string()) {
         if (static_cast<unsigned char>(c) < 32 || c == 127) {
             throw std::runtime_error("Startup paths cannot contain control characters.");
-        }
-        if (c == '\\' || c == '"') {
-            result += '\\';
         }
         result += c;
         if (c == '%') {
             result += '%'; // Literal percent, not a systemd specifier.
         }
+    }
+    return result;
+}
+std::string quoted(const fs::path& path) {
+    std::string result = "\"";
+    for (const auto c : condition_path(path)) {
+        if (c == '\\' || c == '"') {
+            result += '\\';
+        }
+        result += c;
     }
     return result + '"';
 }
@@ -147,7 +154,7 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             "After=gamescope-session.service steamvr.service\n"
             "PartOf=graphical-session.target steamvr.service\nStartLimitIntervalSec=0\n"
             "ConditionPathExists=" +
-            quoted(current / "bin/framekeyboard") +
+            condition_path(current / "bin/framekeyboard") +
             "\n\n[Service]\nType=exec\nEnvironmentFile=-/usr/share/deckard/mesavars.sh\nExecStart=" +
             quoted(current / "bin/framekeyboard") +
             " --vr --input ei --start-enabled --autostart --data-dir " +
