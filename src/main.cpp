@@ -219,7 +219,15 @@ int main(int argc, char** argv) {
                 return 0;
             }
             // If the prepared helper disappeared, restart the still-current build.
-            execv("/proc/self/exe", argv);
+            auto arguments =
+                fk::update_restart_arguments(std::vector<std::string>(argv + 1, argv + argc));
+            arguments.insert(arguments.begin(), argv[0]);
+            std::vector<char*> restart;
+            for (auto& argument : arguments) {
+                restart.push_back(argument.data());
+            }
+            restart.push_back(nullptr);
+            execv("/proc/self/exe", restart.data());
             throw std::runtime_error("could not restart keyboard after update failure");
         }
         return result;

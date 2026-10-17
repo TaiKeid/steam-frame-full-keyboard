@@ -20,6 +20,8 @@ User settings, placement, custom profiles, launchers, desktop entries and autost
 
 The helper and any restarted app inherit the original app's stdout and stderr destinations. An update therefore preserves normal launcher or terminal logging, including after rollback. Stdin remains disconnected, and no additional log service or debug interface is installed.
 
+The boot-only `--autostart` option is omitted from update, rollback and failed-handoff restarts. These are explicit user-requested launches, so turning off Start with SteamOS or replacement during a session cannot prevent them from starting. Saved startup preferences and the session unit are preserved.
+
 ## Validation
 
 In-app updates preserve the existing launcher and desktop entry and restart with the current launch arguments. They do not apply changes in a newer install script. Release preparation must verify compatibility with older launchers; see the [release checklist](releasing.md#prepare). Manual installation refreshes the generated launcher and desktop entry.

@@ -5,6 +5,8 @@
 #include <vector>
 
 namespace framekeyboard {
+// Boot opt-in is checked once. User-requested update restarts are normal launches.
+std::vector<std::string> update_restart_arguments(const std::vector<std::string>& arguments);
 // The UI only polls private packets. Network and installation work runs in a child.
 class Updates {
   public:

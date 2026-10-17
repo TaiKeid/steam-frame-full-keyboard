@@ -55,6 +55,11 @@ void wait_label(Updates& updates, const std::string& label, double now) {
 } // namespace
 int main(int argc, char** argv) {
     try {
+        require(update_restart_arguments({"--vr", "--autostart", "--input", "ei", "--start-enabled",
+                                          "--config-dir", "--autostart", "--data-dir", "profiles"}) ==
+                    std::vector<std::string>({"--vr", "--input", "ei", "--start-enabled", "--config-dir",
+                                              "--autostart", "--data-dir", "profiles"}),
+                "update and fallback restarts omit only the boot option, preserving option values");
         // Used only by the ARM64 integration test in a disposable installation.
         if (argc == 4 && std::string(argv[1]) == "--handoff-fixture") {
             const std::string helper = argv[2], config = argv[3];
@@ -136,6 +141,7 @@ int main(int argc, char** argv) {
         std::ofstream(helper) << R"PY(import json,socket,sys
 peer=socket.socket(fileno=3)
 peer.setblocking(True)
+assert '--autostart' not in sys.argv[1:]
 mode=sys.argv[-1]
 if mode=='logging':
     print('helper stdout preserved',flush=True)
@@ -171,7 +177,7 @@ while True:
                     "updater helper inherits both original log destinations");
         }
         {
-            Updates updates("0.6.0", {"latest"}, helper);
+            Updates updates("0.6.0", {"--autostart", "latest"}, helper);
             require(updates.label() == "Check for updates", "initial label");
             updates.click(10);
             require(updates.busy(), "check is asynchronous");

@@ -60,8 +60,26 @@ std::string failure_message(const std::string& code) {
     return "The update could not be completed. Try again.";
 }
 } // namespace
+std::vector<std::string> update_restart_arguments(const std::vector<std::string>& arguments) {
+    std::vector<std::string> result;
+    bool value = false;
+    for (const auto& argument : arguments) {
+        if (value) {
+            result.push_back(argument);
+            value = false;
+        } else if (argument != "--autostart") {
+            result.push_back(argument);
+            value = argument == "--config-dir" || argument == "--data-dir" ||
+                    argument == "--ei-socket" || argument == "--text-socket" || argument == "--input" ||
+                    argument == "--target-language" || argument == "--duration" ||
+                    argument == "--render" || argument == "--render-settings";
+        }
+    }
+    return result;
+}
 Updates::Updates(std::string version, std::vector<std::string> arguments, std::filesystem::path helper)
-    : version_(std::move(version)), arguments_(std::move(arguments)), helper_(std::move(helper)) {
+    : version_(std::move(version)), arguments_(update_restart_arguments(arguments)),
+      helper_(std::move(helper)) {
 }
 Updates::~Updates() {
     if (handed_off_) {
