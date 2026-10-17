@@ -88,6 +88,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             return bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
         },
         status: update,
+        now() { return time; },
         advance(ms) { time += ms; tick?.(); },
         newTarget() { manager.m_currentVirtualKeyboardRef = {}; manager.m_ActiveElementProps = {}; tick?.(); },
         deferHide(value) { deferHide = value; },
@@ -417,22 +418,44 @@ for (const values of [
 // Reproducible event walks combine real production hooks with independent safety
 // properties. Include the seed/trace on failure so every discovered sequence can
 // become a focused regression. No real endpoint or user text is involved.
+let deadlineChecks = 0, laterDeadlineChecks = 0;
 for (let seed = 1; seed <= 128; ++seed) {
     let random = seed, previousRequest = 0;
     const next = n => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
     const f = fixture(false, seed % 2 === 0, true, seed % 3 === 0), trace = [];
     const opened = key => f.status({bIsOpen: true, sOverlayKey: key,
         bMinimal: true, bDispatchEventsToSteamVR: false});
+    // Keep the deadline in the test, independently of the bridge's timer. A new
+    // target gets its own deadline; readiness heartbeats cannot extend it.
+    let pending;
+    const observeRequest = () => {
+        const s = f.bridge.diagnostics();
+        if (s.active || !(s.eligible || s.closingNative || s.externalCandidate)) pending = null;
+        else if (pending?.request !== s.request) pending = {request: s.request, until: f.now() + 400};
+    };
+    const advanceAndCheck = (ms, later) => {
+        const due = pending && f.now() + ms >= pending.until;
+        f.advance(ms);
+        if (due) {
+            const s = f.bridge.diagnostics();
+            assert(!s.eligible && !s.closingNative && (f.nativeOpen() || s.externalRestore),
+                "every unacknowledged request reaches native or exact-overlay recovery by its deadline");
+            ++deadlineChecks;
+            if (later) ++laterDeadlineChecks;
+        }
+    };
     try {
         f.step(); f.api.ShowWindow(); f.deferHide(next(2) === 0);
         opened([MAIN, "gamescope.gamescope-0.window.62", "unknown.overlay",
             "valve.steam.gamepadui.barpopup"][next(4)]);
         const candidate = f.bridge.diagnostics().externalCandidate;
         if (candidate && next(2)) f.bridge.prepareExternal(candidate.request, candidate.key);
-        f.advance(401);
+        observeRequest();
+        advanceAndCheck(401, false);
         const expiredRequest = f.bridge.diagnostics();
         assert(!expiredRequest.eligible && (f.nativeOpen() || expiredRequest.externalRestore),
             "an unacknowledged request reaches native or exact-overlay recovery by its deadline");
+        observeRequest();
         for (let step = 0; step < 160 && f.alive(); ++step) {
             const op = next(17), before = f.bridge.diagnostics();
             trace.push(op);
@@ -457,7 +480,7 @@ for (let seed = 1; seed <= 128; ++seed) {
                 break;
             case 15:
                 f.newTarget(); f.manager.SetVirtualKeyboardShownInternal(true); break;
-            case 16: f.advance([16, 50, 100, 401, 901][next(5)]); break;
+            case 16: advanceAndCheck([16, 50, 100, 401, 901][next(5)], true); break;
             }
             const s = f.bridge.diagnostics();
             assert(s.request >= previousRequest, "request identities never go backwards");
@@ -473,6 +496,7 @@ for (let seed = 1; seed <= 128; ++seed) {
                 assert(f.bridge.expired() && f.nodes.size === 0 && !f.bridge.diagnostics().active,
                     "readiness withdrawal always removes takeover and presentation suppression");
             }
+            observeRequest();
         }
         f.bridge.dispose();
         assert.equal(f.nodes.size, 0);
@@ -488,4 +512,5 @@ for (let seed = 1; seed <= 128; ++seed) {
         throw error;
     } finally { f.bridge.dispose(); }
 }
-console.log("Native bridge: lifecycle regressions and 128 seeded event sequences passed.");
+assert(laterDeadlineChecks > 0, "random walks must exercise deadlines after their initial request");
+console.log(`Native bridge: lifecycle regressions, 128 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);
