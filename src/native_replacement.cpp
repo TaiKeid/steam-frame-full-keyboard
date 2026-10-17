@@ -1,4 +1,5 @@
 #include "framekeyboard/native_replacement.hpp"
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -152,12 +153,23 @@ void NativeReplacement::poll(double now) {
             state_ = {json_object_get_uint64(field("request")),
                       json_object_get_boolean(field("open")) != 0,
                       json_object_get_boolean(field("eligible")) != 0,
-                      json_object_get_boolean(field("active")) != 0, true,
+                      json_object_get_boolean(field("active")) != 0,
+                      true,
                       json_object_get_boolean(field("local")) != 0};
             last_reply_ = now;
         } else if (op == "text-result") {
             if (pending_id_ && json_object_get_uint64(field("id")) == pending_id_) {
                 pending_result_ = json_object_get_boolean(field("ok")) != 0;
+            }
+        } else if (op == "key-result") {
+            const auto id = json_object_get_uint64(field("id"));
+            const auto key = std::find_if(remote_keys_.begin(), remote_keys_.end(),
+                                          [id](const auto& held) { return held.second.id == id; });
+            if (key != remote_keys_.end()) {
+                key->second.pending = false;
+                if (!json_object_get_boolean(field("ok"))) {
+                    force_fallback_ = reset_ = true;
+                }
             }
         } else {
             stop();
@@ -206,7 +218,34 @@ void NativeReplacement::dismiss_request() {
     }
 }
 void NativeReplacement::send(int code, int value) {
-    if (value == 0 && remote_keys_.erase(code)) {
+    const auto held = remote_keys_.find(code);
+    if (value == 0 && held != remote_keys_.end()) {
+        const auto release = "{\"op\":\"key-up\",\"request\":" + std::to_string(held->second.request) +
+                             ",\"id\":" + std::to_string(held->second.id) + "}";
+        remote_keys_.erase(held);
+        if (!packet(release)) {
+            // A lost release must not leave queued repeats in a live helper.
+            force_fallback_ = reset_ = true;
+            stop();
+        }
+        return;
+    }
+    if (value == 2 && held != remote_keys_.end()) {
+        auto& key = held->second;
+        if (remote_ && state_.active && state_.request == key.request && modifiers_.empty() &&
+            !key.pending) {
+            if (packet("{\"op\":\"key\",\"request\":" + std::to_string(key.request) +
+                       ",\"id\":" + std::to_string(key.id) +
+                       ",\"value\":2,\"text\":" + encoded(named_key(code)) + "}")) {
+                key.pending = true;
+            } else {
+                force_fallback_ = reset_ = true;
+            }
+        }
+        return;
+    }
+    if (value == 2 && local_keys_.contains(code)) {
+        local_.send(code, value);
         return;
     }
     if (value == 0 && local_keys_.erase(code)) {
@@ -223,15 +262,17 @@ void NativeReplacement::send(int code, int value) {
     }
     const auto key = named_key(code);
     if (remote_ && !key.empty() && modifiers_.empty()) {
-        if (value == 0) {
+        if (value != 1 || held != remote_keys_.end()) {
             return;
         }
-        if (!state_.active || !packet("{\"op\":\"key\",\"request\":" + std::to_string(state_.request) +
-                                      ",\"text\":" + encoded(key) + "}")) {
+        const auto id = ++sequence_;
+        if (!state_.active ||
+            !packet("{\"op\":\"key\",\"request\":" + std::to_string(state_.request) +
+                    ",\"id\":" + std::to_string(id) + ",\"value\":1,\"text\":" + encoded(key) + "}")) {
             force_fallback_ = reset_ = true;
             return;
         }
-        remote_keys_.insert(code);
+        remote_keys_.emplace(code, RemoteKey{id, state_.request, true});
         return;
     }
     if (value == 1) {

@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include <cerrno>
 #include <chrono>
 #include <iostream>
 #include <json-c/json.h>
@@ -72,15 +73,19 @@ void transport() {
         replacement.send(KEY_ENTER, 0);
         require(take(pair[1]).find("Enter") != std::string::npos && local.keys.empty(),
                 "native field Enter uses Steam session");
+        require(take(pair[1]).find("key-up") != std::string::npos,
+                "release cancels helper repeats without sending local input");
         replacement.dismiss_request();
         require(take(pair[1]) == "{\"op\":\"dismiss\",\"request\":2}",
                 "panel dismissal is scoped to the current native request");
         replacement.send(KEY_LEFTCTRL, 1);
         replacement.send(KEY_ENTER, 1);
         replacement.send(KEY_LEFTCTRL, 0);
+        replacement.send(KEY_ENTER, 2);
         replacement.send(KEY_ENTER, 0);
-        require(local.keys.size() == 4 && local.keys.back() == std::pair{KEY_ENTER, 0},
-                "native release survives modifier-up before ordinary-key-up");
+        require(local.keys.size() == 5 && local.keys[3] == std::pair{KEY_ENTER, 2} &&
+                    local.keys.back() == std::pair{KEY_ENTER, 0},
+                "native repeat and release retain their route after modifier-up");
         require(!replacement.commit_text("unsent"), "begin next commit");
         take(pair[1]);
         activate(pair[1], replacement, 10.5);
@@ -92,6 +97,75 @@ void transport() {
                 "timeout requests native restoration");
     }
     close(pair[1]);
+}
+void named_key_repeats() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "repeat socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        activate(pair[1], replacement);
+        const auto read_id = [&](const char* kind, int value) {
+            auto* message = json_tokener_parse(take(pair[1]).c_str());
+            require(std::string(json_object_get_string(json_object_object_get(message, "op"))) == kind,
+                    "key operation");
+            if (value) {
+                require(json_object_get_int(json_object_object_get(message, "value")) == value,
+                        "key distinguishes initial press from repeat");
+            }
+            const auto id = json_object_get_uint64(json_object_object_get(message, "id"));
+            json_object_put(message);
+            return id;
+        };
+        const auto empty = [&] {
+            char byte;
+            require(recv(pair[1], &byte, 1, MSG_DONTWAIT) < 0 && errno == EAGAIN,
+                    "unacknowledged repeats do not accumulate");
+        };
+        const auto ack = [&](std::uint64_t id) {
+            put(pair[1], "{\"op\":\"key-result\",\"id\":" + std::to_string(id) + ",\"ok\":true}");
+            replacement.poll(10.1);
+        };
+        replacement.send(KEY_BACKSPACE, 1);
+        const auto first = read_id("key", 1);
+        for (int i = 0; i < 10; ++i) {
+            replacement.send(KEY_BACKSPACE, 2);
+        }
+        empty();
+        ack(first);
+        replacement.send(KEY_BACKSPACE, 2);
+        require(read_id("key", 2) == first, "repeat belongs to its initial hold");
+        replacement.send(KEY_BACKSPACE, 2);
+        empty();
+        replacement.route(false); // App cancellation releases through the original hold.
+        replacement.send(KEY_BACKSPACE, 0);
+        require(read_id("key-up", 0) == first && local.keys.empty(),
+                "route change releases remote hold");
+        replacement.route(true);
+        replacement.send(KEY_BACKSPACE, 1);
+        const auto second = read_id("key", 1);
+        require(second != first, "separate rapid clicks have distinct identities");
+        ack(first);
+        replacement.send(KEY_BACKSPACE, 2);
+        empty();
+        ack(second);
+        replacement.send(KEY_LEFTCTRL, 1);
+        replacement.send(KEY_BACKSPACE, 2);
+        empty();
+        replacement.send(KEY_LEFTCTRL, 0);
+        replacement.send(KEY_BACKSPACE, 2);
+        require(read_id("key", 2) == second, "remote repeat resumes after modifier release");
+        ack(second);
+        put(pair[1],
+            R"({"op":"state","version":1,"request":3,"open":true,"eligible":true,"active":true})");
+        replacement.poll(10.2);
+        replacement.send(KEY_BACKSPACE, 2);
+        empty();
+        close(pair[1]);
+        replacement.send(KEY_BACKSPACE, 0);
+        require(!replacement.state().available && replacement.take_input_reset(),
+                "a lost release withdraws the helper instead of leaving repeats live");
+    }
 }
 struct Deferred : Local {
     bool pending{}, done{}, success{};
@@ -439,6 +513,7 @@ int main(int argc, char** argv) {
         }
         require(argc == 1, "unknown test option");
         transport();
+        named_key_repeats();
         app_commit();
         handoff_status();
         resident_visibility();

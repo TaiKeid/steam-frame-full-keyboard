@@ -49,7 +49,12 @@ class NativeReplacement : public KeySink {
     std::uint64_t progress_{}, sequence_{}, pending_id_{};
     std::string pending_text_;
     std::optional<bool> pending_result_;
-    std::set<int> modifiers_, remote_keys_, local_keys_;
+    struct RemoteKey {
+        std::uint64_t id, request;
+        bool pending;
+    };
+    std::map<int, RemoteKey> remote_keys_;
+    std::set<int> modifiers_, local_keys_;
 };
 
 // Keep panel dismissal separate from process lifetime. All visibility decisions use the

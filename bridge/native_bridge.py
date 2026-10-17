@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """App-scoped CDP transport. Only localhost Steam is contacted; no listeners or files are created."""
 import base64
+from collections import deque
 import hashlib
 import json
 import os
@@ -222,19 +223,32 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard):
         fallback_request = None
         external_ack = 0
         next_poll = 0.0
+        pending = deque()
+        held_keys = {}
+        pending_repeats = set()
+        stopping = False
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
-            readable, _, _ = select.select([parent], [], [], max(0, next_poll - time.monotonic()))
-            if readable:
+            readable, _, _ = select.select([parent], [], [],
+                                           0 if pending else max(0, next_poll - time.monotonic()))
+            # Drain releases before dispatching more work. CDP can be slower than
+            # repeat generation; initial clicks stay ordered, repeats do not pile up.
+            received = 0
+            while readable:
+                received += 1
+                if received > 256:
+                    raise ValueError("parent-backlog")
                 packet = parent.recv(MAX_PACKET + 1)
                 if not packet:
+                    stopping = True
                     break
                 if len(packet) > MAX_PACKET:
                     raise ValueError("oversize-packet")
                 message = json.loads(packet)
                 operation = message.get("op")
                 if operation == "stop":
+                    stopping = True
                     break
                 if operation == "frame":
                     if type(message.get("progress")) is not int or type(message.get("ready")) is not bool:
@@ -249,29 +263,63 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard):
                     last_parent = time.monotonic()
                     frame_sent = float(message["sent"])
                     watch_panel = message.get("watch") is True
+                elif operation == "key-up":
+                    if type(message.get("id")) is not int or type(message.get("request")) is not int:
+                        raise ValueError("invalid-release")
+                    key_id = message["id"]
+                    held = held_keys.get(key_id)
+                    if held and held[0] == message["request"]:
+                        del held_keys[key_id]
+                        pending_repeats.discard(key_id)
+                        pending = deque(m for m in pending if not (
+                            m["op"] == "key" and m["value"] == 2 and m["id"] == key_id))
                 elif operation == "dismiss":
                     if type(message.get("request")) is not int:
                         raise ValueError("invalid-dismissal")
-                    ok = client.evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true")
-                    if ok is not True:
-                        fallback_request = message["request"]
-                    # The next status distinguishes a completed dismissal from an
-                    # unprocessed command before withdrawing the native lease.
-                    next_poll = 0
+                    pending.append(message)
                 elif operation in ("text", "key"):
                     if type(message.get("request")) is not int or not isinstance(message.get("text"), str):
                         raise ValueError("invalid-input")
                     if len(message["text"].encode()) > 8192:
                         raise ValueError("oversize-input")
+                    if operation == "key":
+                        if type(message.get("id")) is not int or message["id"] <= 0 or \
+                                type(message.get("value")) is not int or message["value"] not in (1, 2):
+                            raise ValueError("invalid-key")
+                        key_id = message["id"]
+                        identity = (message["request"], message["text"])
+                        if message["value"] == 1:
+                            if key_id in held_keys or len(held_keys) >= 128:
+                                raise ValueError("invalid-key-hold")
+                            held_keys[key_id] = identity
+                            pending.append(message)
+                        elif held_keys.get(key_id) == identity and key_id not in pending_repeats:
+                            pending_repeats.add(key_id)
+                            pending.append(message)
+                    else:
+                        pending.append(message)
+                else:
+                    raise ValueError("unknown-operation")
+                if len(pending) > 128:
+                    raise ValueError("input-backlog")
+                readable, _, _ = select.select([parent], [], [], 0)
+            if stopping:
+                break
+            if pending:
+                message = pending.popleft()
+                operation = message["op"]
+                if operation == "dismiss":
+                    ok = client.evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true")
+                    next_poll = 0
+                else:
+                    if operation == "key" and message["value"] == 2:
+                        pending_repeats.discard(message["id"])
                     # The JS side checks the current target and lease again at delivery.
                     ok = client.evaluate(f"{reference}?.bridge.send({message['request']},"
                                          f"{json.dumps(message['text'], ensure_ascii=True)}) === true")
-                    if operation == "text":
-                        send(parent, {"op": "text-result", "id": message["id"], "ok": ok is True})
-                    if ok is not True:
-                        fallback_request = message["request"]
-                else:
-                    raise ValueError("unknown-operation")
+                    send(parent, {"op": f"{operation}-result", "id": message["id"], "ok": ok is True})
+                if ok is not True:
+                    fallback_request = message["request"]
             if not select.select([parent], [], [], 0)[0] and recover_stalled_parent(parent_pid, watch_panel, frame_sent):
                 break
             if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:

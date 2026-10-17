@@ -81,9 +81,9 @@ class ExternalCDP(FakeCDP):
         if ".bridge.step(" in expression or ".bridge.prepareExternal(" in expression:
             result = dict(version=1, request=2, open=True, eligible=self.external,
                           active=self.external, local=self.external)
-            if not self.external:
+            if not self.external and '"ready": true' in expression:
                 result["externalCandidate"] = dict(request=2, key="gamescope.gamescope-0.window.62", flags=13)
-            else:
+            elif self.external:
                 result["external"] = dict(request=2, key="gamescope.gamescope-0.window.62")
             if self.dismissed.is_set():
                 result = dict(version=1, request=3, open=False, eligible=False, active=False)
@@ -118,6 +118,69 @@ class Lifecycle(unittest.TestCase):
 
     def test_external_guard_arms_before_takeover_and_cancels_on_x(self):
         self.external_lifecycle(False)
+
+    def test_slow_dispatch_coalesces_repeats_and_release_preserves_distinct_clicks(self):
+        for release in (False, True):
+            with self.subTest(release=release):
+                class DelayedCDP(FakeCDP):
+                    def __init__(self):
+                        super().__init__()
+                        self.blocked = threading.Event()
+                        self.resume = threading.Event()
+                        self.deliveries = []
+
+                    def evaluate(self, expression):
+                        if ".bridge.send(" in expression:
+                            arguments = expression.split(".bridge.send(", 1)[1].rsplit(") === true", 1)[0]
+                            request, text = json.loads("[" + arguments + "]")
+                            if text == "fixture barrier":
+                                self.blocked.set()
+                                assert self.resume.wait(1), "fixture dispatch unblocked"
+                            if request != 2:
+                                return False
+                            self.deliveries.append(text)
+                            return True
+                        return super().evaluate(expression)
+
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                parent.settimeout(1)
+                client = DelayedCDP()
+                worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None))
+                worker.start()
+
+                def packet(**fields):
+                    parent.send(json.dumps(fields).encode())
+
+                try:
+                    packet(op="frame", progress=1, ready=True, ack=2, sent=time.monotonic())
+                    self.receive(parent, "state")
+                    packet(op="key", request=2, id=1, value=1, text="Backspace")
+                    self.assertTrue(self.receive(parent, "key-result")["ok"])
+                    packet(op="text", request=2, id=90, text="fixture barrier")
+                    self.assertTrue(client.blocked.wait(1))
+                    # Model queued input while Steam's preceding call is delayed.
+                    for _ in range(6):
+                        packet(op="key", request=2, id=1, value=2, text="Backspace")
+                    if release:
+                        packet(op="key-up", request=2, id=1)
+                    for key_id, request in ((2, 2), (3, 2), (4, 1)):
+                        packet(op="key", request=request, id=key_id, value=1, text="ArrowLeft")
+                        packet(op="key-up", request=request, id=key_id)
+                    client.resume.set()
+                    self.assertEqual(self.receive(parent, "text-result")["id"], 90)
+                    expected = [2, 3, 4] if release else [1, 2, 3, 4]
+                    for key_id in expected:
+                        result = self.receive(parent, "key-result")
+                        self.assertEqual(result, dict(op="key-result", id=key_id, ok=key_id != 4))
+                    self.assertEqual(client.deliveries,
+                                     ["Backspace", "fixture barrier"] +
+                                     ([] if release else ["Backspace"]) + ["ArrowLeft", "ArrowLeft"],
+                                     "release drops repeats, retains distinct clicks and rejects stale targets")
+                finally:
+                    client.resume.set()
+                    parent.close()
+                    worker.join(2)
+                self.assertFalse(worker.is_alive())
 
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)
