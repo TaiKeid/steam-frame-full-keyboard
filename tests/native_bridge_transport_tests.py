@@ -123,8 +123,11 @@ class Lifecycle(unittest.TestCase):
                     rows = tables(address, port)
                     with patch.object(bridge.Path, "read_text", lambda path: rows[path.name]), \
                             patch.object(bridge, "build_opener") as opener:
-                        with self.assertRaises(ValueError):
-                            bridge.CDP()
+                        if port == 8081:
+                            bridge.require_loopback_debugger()
+                        else:
+                            with self.assertRaises(ValueError):
+                                bridge.CDP()
                         opener.assert_not_called()
         for address in ("127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"):
             rows = tables(address, 8080)

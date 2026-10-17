@@ -6,7 +6,7 @@ The current replacement bridge requires Python 3 and Steam's existing debugger a
 
 SteamOS can separately provide port 8081 through `steam-web-debug-portforward.service` for remote debugging from another computer. Full Keyboard does not connect to port 8081. It opens no debugging listener and leaves SteamOS's ports, forwarding services and Developer Mode settings unchanged. Installation adds no administrator or port-configuration step.
 
-The current bridge also has an [additional listener-binding check](architecture.md#optional-native-keyboard-replacement). This policy can keep replacement inactive when SteamOS's remote forwarder is network-bound, even if the required local connection works. Port 8081 is not a connection requirement for replacement. A Steam UI update may also disable replacement until compatibility is restored.
+The bridge checks that its debugger endpoint on port 8080 is bound only to loopback. Port 8081 is unused and does not affect replacement availability. A Steam UI update may disable replacement until compatibility is restored.
 
 ## When it runs
 

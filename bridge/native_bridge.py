@@ -23,7 +23,7 @@ GLOBAL = "__fullKeyboardNativeV1"
 
 
 def require_loopback_debugger():
-    """Reject known Steam debugger listeners/forwarders bound off loopback."""
+    """Require the debugger endpoint we use to be bound to loopback."""
     for table in ("tcp", "tcp6"):
         try:
             lines = Path("/proc/net", table).read_text().splitlines()[1:]
@@ -36,7 +36,7 @@ def require_loopback_debugger():
             if fields[3] != "0A":
                 continue
             host, port = fields[1].split(":")
-            if int(port, 16) not in (8080, 8081):
+            if int(port, 16) != 8080:
                 continue
             raw = bytes.fromhex(host)
             if sys.byteorder == "little":
