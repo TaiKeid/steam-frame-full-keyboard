@@ -3,6 +3,7 @@
 import base64
 from collections import deque
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -15,10 +16,40 @@ import subprocess
 import sys
 import time
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
 MAX_PACKET = 32768
 GLOBAL = "__fullKeyboardNativeV1"
+
+
+def require_loopback_debugger():
+    """Reject known Steam debugger listeners/forwarders bound off loopback."""
+    for table in ("tcp", "tcp6"):
+        try:
+            lines = Path("/proc/net", table).read_text().splitlines()[1:]
+        except FileNotFoundError:
+            if table == "tcp6":
+                continue  # IPv6 can be disabled by the device.
+            raise
+        for line in lines:
+            fields = line.split()
+            if fields[3] != "0A":
+                continue
+            host, port = fields[1].split(":")
+            if int(port, 16) not in (8080, 8081):
+                continue
+            raw = bytes.fromhex(host)
+            if sys.byteorder == "little":
+                raw = b"".join(raw[i:i + 4][::-1] for i in range(0, len(raw), 4))
+            address = ipaddress.ip_address(raw)
+            mapped = getattr(address, "ipv4_mapped", None)
+            if not (mapped or address).is_loopback:
+                raise ValueError("network-debugger-exposed")
+
+
+class NoDebuggerRedirects(HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        raise ValueError("debugger-redirect-refused")
 
 
 class NativeGuard:
@@ -91,7 +122,9 @@ class CDP:
         self.pending = b""
         self.sequence = 0
         try:
-            opener = build_opener(ProxyHandler({}))
+            require_loopback_debugger()
+            self.network_checked = time.monotonic()
+            opener = build_opener(ProxyHandler({}), NoDebuggerRedirects())
             with opener.open("http://127.0.0.1:8080/json/list", timeout=0.4) as response:
                 data = response.read(1024 * 1024 + 1)
             if len(data) > 1024 * 1024:
@@ -149,6 +182,9 @@ class CDP:
         self.socket.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
 
     def evaluate(self, expression):
+        if time.monotonic() - self.network_checked >= 1:
+            require_loopback_debugger()
+            self.network_checked = time.monotonic()
         self.sequence += 1
         command = {"id": self.sequence, "method": "Runtime.evaluate", "params": {
             "expression": expression, "returnByValue": True, "silent": True}}

@@ -1,5 +1,6 @@
 """Isolated helper lifecycle tests. No Steam endpoint or focused application is used."""
 import importlib.util
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -106,6 +107,61 @@ class Lifecycle(unittest.TestCase):
                 return message
             self.assertEqual(message.get("op"), "state", "only status may precede a reply")
         self.fail("helper reply timed out")
+
+    def test_debugger_must_be_bound_to_loopback_before_any_connection(self):
+        def tables(address, port):
+            value = ipaddress.ip_address(address)
+            raw = value.packed
+            if sys.byteorder == "little":
+                raw = b"".join(raw[i:i + 4][::-1] for i in range(0, len(raw), 4))
+            row = f"0: {raw.hex().upper()}:{port:04X} 00000000:0000 0A"
+            return {"tcp": "header\n" + (row if value.version == 4 else ""),
+                    "tcp6": "header\n" + (row if value.version == 6 else "")}
+        for address in ("0.0.0.0", "192.0.2.1", "::", "2001:db8::1", "::ffff:192.0.2.1"):
+            for port in (8080, 8081):
+                with self.subTest(address=address, port=port):
+                    rows = tables(address, port)
+                    with patch.object(bridge.Path, "read_text", lambda path: rows[path.name]), \
+                            patch.object(bridge, "build_opener") as opener:
+                        with self.assertRaises(ValueError):
+                            bridge.CDP()
+                        opener.assert_not_called()
+        for address in ("127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"):
+            rows = tables(address, 8080)
+            with patch.object(bridge.Path, "read_text", lambda path: rows[path.name]):
+                bridge.require_loopback_debugger()
+        with patch.object(bridge.Path, "read_text", side_effect=PermissionError()):
+            with self.assertRaises(PermissionError):
+                bridge.require_loopback_debugger()
+        with self.assertRaises(ValueError):
+            bridge.NoDebuggerRedirects().redirect_request(None, None, None, None, None,
+                                                        "http://192.0.2.1:8080/json/list")
+
+    def test_new_network_exposure_stops_an_existing_debugger_connection(self):
+        client = bridge.CDP.__new__(bridge.CDP)
+        client.network_checked = 0
+        with patch.object(bridge.time, "monotonic", return_value=2), \
+                patch.object(bridge, "require_loopback_debugger", side_effect=ValueError()), \
+                patch.object(client, "frame") as frame:
+            with self.assertRaises(ValueError):
+                client.evaluate("fixture metadata")
+            frame.assert_not_called()
+
+    def test_unavailable_debugger_disables_replacement_before_installing_hooks(self):
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        def unavailable():
+            raise ConnectionRefusedError()
+        guard_factory = unittest.mock.Mock()
+        worker = threading.Thread(target=bridge.run, args=(child, unavailable, None, guard_factory))
+        worker.start()
+        try:
+            self.assertEqual(self.receive(parent, "unavailable"), dict(op="unavailable"))
+            worker.join(1)
+            self.assertFalse(worker.is_alive())
+            guard_factory.assert_not_called()
+        finally:
+            parent.close()
 
     def test_recovery_is_scoped_to_a_frozen_original_parent(self):
         with patch.object(bridge.os, "getppid", return_value=77), \

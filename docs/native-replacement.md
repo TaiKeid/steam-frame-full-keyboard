@@ -2,7 +2,9 @@
 
 In Settings → Experimental, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. No system files, button mappings, services or autostart settings are changed.
 
-This prototype requires Python 3 and Steam's Developer Mode debugging endpoint on localhost port 8080. It checks the private Steam interfaces on connection. It never enables debugging for you. If the endpoint, popup, input backend or required interfaces are unavailable, requests remain native. A Steam UI update may disable replacement until compatibility is restored. Developer Mode exposes powerful debugging access; use the device's own developer settings to control it.
+This prototype requires Python 3 and Steam's Developer Mode debugging endpoint on localhost port 8080. It opens no network listener, ignores HTTP proxies and refuses debugger redirects. Before connecting and periodically while running, it checks Linux's TCP listener tables and refuses replacement if either Steam's port 8080 or its standard devkit forwarder port 8081 listens outside loopback. If those checks cannot run or the endpoint, popup, input backend or required interfaces are unavailable, replacement stays inactive and requests remain native. Saved preferences are retained for a later available connection. A Steam UI update may disable replacement until compatibility is restored.
+
+SteamOS can run `steam-web-debug-portforward.service`, forwarding port 8081 on every interface to localhost:8080. Replacement does not create or change that service, enable Developer Mode or modify Steam files. Installation needs no administrator step. If an existing standard debugger forwarder is network-bound, replacement is unavailable and the ordinary keyboard keeps working. Full Keyboard cannot protect a debugger exposed by unrelated software on an arbitrary port. A future replacement backend without a debugger dependency is needed for broad availability without device setup.
 
 ## When it runs
 
