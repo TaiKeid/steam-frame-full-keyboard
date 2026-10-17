@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/startup.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -316,6 +317,81 @@ void background_preferences() {
     const auto result = writer.take_result();
     require(attempts == 2 && result && result->error.empty(),
             "newest successful snapshot supersedes an older failed write");
+}
+void reload_startup() {
+    TemporaryDirectory directory;
+    const auto config = directory.path / "config";
+    const auto binary = directory.path / "install/releases/test/bin/framekeyboard";
+    const auto units = directory.path / "units";
+    const auto unit = units / "framekeyboard-autostart.service";
+    const auto link = units / "gamescope-session.target.wants/framekeyboard-autostart.service";
+    fs::create_directories(binary.parent_path());
+    std::ofstream(binary) << "fixture\n";
+    fs::create_symlink("releases/test", directory.path / "install/current");
+    auto bytes = [&] {
+        std::ifstream stream(config / "config.json");
+        return std::string(std::istreambuf_iterator<char>(stream), {});
+    };
+    Settings settings;
+    settings.replace_native_keyboard = true;
+    save_settings(config, settings);
+    Options options;
+    options.config_dir = config;
+    options.mode = "vr";
+    CaptureSink sink;
+    int writes = 0, reconciliations = 0;
+    bool fail = false;
+    App app(
+        options, sink, [&](const Settings&) { ++writes; }, nullptr,
+        [&](const Settings& updated) {
+            ++reconciliations;
+            if (fail) {
+                throw std::runtime_error("test manager unavailable");
+            }
+            configure_startup(updated, binary, config, units, [] {});
+        });
+    const auto original = app.selection();
+    const auto normal_status = app.view().status;
+    settings.start_with_steamos = true;
+    settings.active.layout = settings.active.language = "en-gb";
+    save_settings(config, settings);
+    auto before = bytes();
+    app.reload();
+    app.flush_settings();
+    require(app.start_with_steamos() && fs::exists(unit) && fs::is_symlink(link),
+            "Reload enables the startup unit for externally edited saved preferences");
+    require(writes == 0 && reconciliations == 1 && bytes() == before &&
+                app.selection().layout == original.layout &&
+                app.selection().language == original.language,
+            "Reload reconciles without saving JSON or activating an edited profile");
+    settings.replace_native_keyboard = false;
+    save_settings(config, settings);
+    before = bytes();
+    app.reload();
+    app.flush_settings();
+    require(!app.start_with_steamos() && !fs::exists(unit) && !fs::is_symlink(link) &&
+                bytes() == before && writes == 0 && reconciliations == 2,
+            "Reload also removes startup when replacement is disabled without changing JSON");
+    settings.replace_native_keyboard = true;
+    save_settings(config, settings);
+    fail = true;
+    app.reload();
+    app.flush_settings();
+    require(app.view().status == "SteamOS startup not configured: test manager unavailable" &&
+                !fs::exists(unit),
+            "Reload reports a startup reconciliation error distinctly from an unsaved config");
+    fail = false;
+    app.reload();
+    app.flush_settings();
+    require(app.view().status == normal_status && fs::exists(unit) && writes == 0 &&
+                reconciliations == 4,
+            "Reload retries reconciliation and clears its error");
+    std::ofstream(config / "config.json") << "{broken";
+    app.reload();
+    app.flush_settings();
+    require(reconciliations == 4 && bytes() == "{broken" && fs::exists(unit),
+            "malformed external settings cannot reconfigure startup or be overwritten");
+    require(sink.events.empty(), "startup reconciliation sends no input");
 }
 void numpad_settings() {
     TemporaryDirectory directory;
@@ -1001,6 +1077,7 @@ int main() {
         compact_toolbar();
         favorite_cache_reload();
         background_preferences();
+        reload_startup();
         numpad_settings();
         app_settings();
         behavior_settings();

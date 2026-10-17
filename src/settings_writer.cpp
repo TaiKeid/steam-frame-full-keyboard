@@ -3,12 +3,12 @@
 #include <stdexcept>
 
 namespace framekeyboard {
-SettingsWriter::SettingsWriter(fs::path directory, Write write)
+SettingsWriter::SettingsWriter(fs::path directory, Write write, Write reconcile)
     : write_(write ? std::move(write)
                    : Write([directory = std::move(directory)](const Settings& settings) {
                          save_settings(directory, settings);
                      })),
-      worker_([this] { run(); }) {
+      reconcile_(std::move(reconcile)), worker_([this] { run(); }) {
 }
 SettingsWriter::~SettingsWriter() {
     {
@@ -19,9 +19,17 @@ SettingsWriter::~SettingsWriter() {
     worker_.join(); // The worker drains the final snapshot before stopping.
 }
 void SettingsWriter::enqueue(Settings settings) {
+    queue(Request{std::move(settings), false});
+}
+void SettingsWriter::reconcile(Settings settings) {
+    if (reconcile_) {
+        queue(Request{std::move(settings), true});
+    }
+}
+void SettingsWriter::queue(Request request) {
     {
         std::lock_guard lock(mutex_);
-        pending_ = std::move(settings);
+        pending_ = std::move(request);
         result_.reset();
     }
     changed_.notify_all();
@@ -46,13 +54,14 @@ void SettingsWriter::run() {
         if (!pending_) {
             return;
         }
-        auto settings = std::move(*pending_);
+        auto request = std::move(*pending_);
         pending_.reset();
         writing_ = true;
         lock.unlock();
         Result result;
+        result.reconcile = request.reconcile;
         try {
-            write_(settings);
+            (request.reconcile ? reconcile_ : write_)(request.settings);
         } catch (const std::exception& error) {
             result.error = error.what();
         } catch (...) {

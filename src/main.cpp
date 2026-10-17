@@ -190,6 +190,7 @@ int main(int argc, char** argv) {
             }
             fk::NativeReplacement replacement(*sink);
             fk::SettingsWriter::Write preferences;
+            fk::SettingsWriter::Write reconcile_preferences;
             if (options.mode == "vr") {
                 preferences = [config = options.config_dir,
                                executable =
@@ -197,9 +198,14 @@ int main(int argc, char** argv) {
                     fk::configure_startup(settings, executable, config, {}, {},
                                           [&] { fk::save_settings(config, settings); });
                 };
+                reconcile_preferences =
+                    [config = options.config_dir,
+                     executable = fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
+                        fk::configure_startup(settings, executable, config);
+                    };
             }
             fk::App app(options, replacement, std::move(preferences),
-                        options.mode == "vr" ? &updates : nullptr);
+                        options.mode == "vr" ? &updates : nullptr, std::move(reconcile_preferences));
             if (options.mode == "render" || options.mode == "render-settings") {
                 if (options.mode == "render-settings") {
                     app.show_settings();

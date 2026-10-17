@@ -51,7 +51,7 @@ class InputGate : public KeySink {
 class App {
   public:
     App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {},
-        Updates* updates = nullptr);
+        Updates* updates = nullptr, SettingsWriter::Write reconcile_preferences = {});
     PanelView view() const;
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);

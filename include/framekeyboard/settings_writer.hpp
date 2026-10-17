@@ -15,22 +15,30 @@ class SettingsWriter {
     using Write = std::function<void(const Settings&)>;
     struct Result {
         std::string error;
+        bool reconcile{};
     };
-    explicit SettingsWriter(fs::path directory, Write write = {});
+    explicit SettingsWriter(fs::path directory, Write write = {}, Write reconcile = {});
     ~SettingsWriter();
     SettingsWriter(const SettingsWriter&) = delete;
     SettingsWriter& operator=(const SettingsWriter&) = delete;
     void enqueue(Settings settings);
+    // Reload applies external settings without writing JSON or changing profiles.
+    void reconcile(Settings settings);
     std::optional<Result> take_result();
     // Explicit durability barrier for shutdown, config reload and tests.
     void flush();
 
   private:
     void run();
-    Write write_;
+    struct Request {
+        Settings settings;
+        bool reconcile{};
+    };
+    void queue(Request request);
+    Write write_, reconcile_;
     std::mutex mutex_;
     std::condition_variable changed_;
-    std::optional<Settings> pending_;
+    std::optional<Request> pending_;
     std::optional<Result> result_;
     bool writing_{}, stopping_{};
     std::thread worker_;

@@ -97,3 +97,5 @@ The Settings header has a centered Check for updates button. Its latest-version 
 Experimental → Start with SteamOS is saved as the optional boolean `start_with_steamos`, defaulting to false. Its choice is remembered while replacement is off, but startup is active only when both saved booleans are true. Applying either option updates the user-local startup unit on the preference worker; the VR loop keeps running. See [background startup](native-replacement.md#start-with-steamos).
 
 Saving VR preferences commits the startup unit and JSON settings together. If configuration saving fails, the previous unit and enablement link are restored and the user manager is refreshed. The settings error remains visible for retry.
+
+Reload also reconciles the startup unit with valid saved settings on the same worker. It does not rewrite JSON or activate an edited profile. A failed reconciliation reports a startup configuration error; Reload retries it. Preview and render modes do not configure startup.

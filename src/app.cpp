@@ -61,11 +61,13 @@ std::string language_short_name(const Language& language) {
 }
 } // namespace
 App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences,
-         Updates* updates)
+         Updates* updates, SettingsWriter::Write reconcile_preferences)
     : updates_(updates), options_(options),
       profiles_(load_profiles(options.data_dir, options.config_dir)),
       settings_(load_settings(options.config_dir, profiles_.errors)),
-      settings_writer_(options.config_dir, std::move(write_preferences)), gate_(sink), keyboard_(gate_) {
+      settings_writer_(options.config_dir, std::move(write_preferences),
+                       std::move(reconcile_preferences)),
+      gate_(sink), keyboard_(gate_) {
     try {
         validate_selection(profiles_, settings_.active);
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
@@ -728,7 +730,9 @@ void App::update_save_status() {
             }
             save_status_.clear();
         } else {
-            save_status_ = "Applied, but not saved: " + result->error;
+            save_status_ =
+                (result->reconcile ? "SteamOS startup not configured: " : "Applied, but not saved: ") +
+                result->error;
             status_ = save_status_;
         }
         dirty = true;
@@ -806,6 +810,7 @@ void App::reload() {
         settings_.auto_leveling = updated_settings.auto_leveling;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
+        settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
