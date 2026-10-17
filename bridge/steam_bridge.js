@@ -127,6 +127,7 @@
         acknowledged = 0;
         ++request;
         ignoreOpen = true;
+        if (!restore) interceptedShow = false;
         restoreWindow();
         if (!session) return;
         if (session.owner.external) {
@@ -233,7 +234,10 @@
                 if (fresh() && owner && time < rawDeadline) begin(owner);
                 else if (!fresh() || !potential(native) || time >= rawDeadline) ignoreOpen = true;
             }
-            setHidden(!!blocking());
+            // A show can arrive before its native status. Replay it when that
+            // request falls back, even if we never acquired a logical session.
+            if (blocking()) setHidden(true);
+            else restoreWindow();
         } finally { inspecting = false; }
     }
     function snapshot() {

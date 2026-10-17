@@ -186,6 +186,30 @@ for(const values of [{bDispatchEventsToSteamVR:true},{bMinimal:false},{sOverlayK
     f.bridge.dispose();
 }
 for (const production of [false, true]) {
+    for (const reason of ["unsupported", "missing route", "unprepared external", "not ready"]) {
+        const f = fixture(false, production, true);
+        if (reason === "missing route") f.manager.m_fnVROnTextEnteredOverride = null;
+        f.step(); f.api.ShowWindow();
+        assert(!f.calls.includes("window-show"), "pre-status show is initially gated");
+        f.status({bIsOpen: true, sOverlayKey: reason === "unsupported" ? "unknown.overlay" :
+            reason === "unprepared external" ? "gamescope.gamescope-0.window.62" : MAIN});
+        if (reason === "not ready") f.step(0, false);
+        for (let i = 0; i < 8; ++i) { f.advance(100); f.step(0, reason !== "not ready"); }
+        assert(f.nativeOpen() && !f.step(0, reason !== "not ready").eligible);
+        assert.equal(f.nodes.size, 0, "fallback removes suppression");
+        assert.equal(f.calls.filter(c => c === "window-show").length, 1,
+            `${reason} replays the gated show exactly once`);
+        f.bridge.dispose();
+    }
+}
+{
+    const f = fixture(); const generation = owned(f);
+    f.api.ShowWindow();
+    assert(f.bridge.dismiss(generation));
+    assert(!f.calls.includes("window-show"), "explicit dismissal discards a gated show");
+    f.bridge.dispose();
+}
+for (const production of [false, true]) {
     const f = fixture(false, production); f.step();
     assert.equal(f.nodes.size, 1, "prearm transparent texture without reading initial text");
     f.api.ShowWindow(); assert.equal(f.calls.length, 0, "gate a pre-show call");
