@@ -365,6 +365,28 @@ void handoff_status() {
     fs::remove_all(directory);
 }
 void resident_visibility() {
+    {
+        ReplacementPresentation background(true);
+        background.update(true, {});
+        require(!background.show() && !background.interactive(),
+                "boot remains hidden before bridge readiness");
+        background.update(true, {1, false, false, false, true});
+        require(!background.show(), "bridge readiness does not summon a boot resident");
+        background.update(true, {2, true, true, false, true});
+        require(background.show() && !background.interactive(),
+                "a native request reveals the boot resident");
+        background.update(true, {2, true, true, true, true});
+        require(background.interactive(), "boot resident follows ordinary takeover readiness");
+        background.dismiss();
+        background.update(true, {3, false, false, false, true});
+        require(!background.show(), "boot resident dismisses normally");
+        background.summon();
+        require(background.show(), "manual relaunch can summon a boot resident");
+        ReplacementPresentation unavailable(true);
+        unavailable.update(true, {});
+        unavailable.summon();
+        require(unavailable.show(), "manual launch reaches Settings even if the bridge is unavailable");
+    }
     ReplacementPresentation view;
     NativeReplacement::State state{1, false, false, false, true};
     view.update(true, state);

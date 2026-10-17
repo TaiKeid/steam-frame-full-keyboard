@@ -82,6 +82,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
+    pending_start_with_steamos_ = settings_.start_with_steamos;
     update_settings_ui();
     status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
     if (const auto target = profiles_.languages.find(options_.target_language);
@@ -254,7 +255,16 @@ void App::update_settings_ui() {
             pending_replace_native_keyboard_,
             {},
             false,
-            300}}}});
+            300},
+           {"start-with-steamos",
+            "Start with SteamOS",
+            "",
+            ControlStyle::Checkbox,
+            pending_start_with_steamos_ && pending_replace_native_keyboard_,
+            {},
+            false,
+            300,
+            pending_replace_native_keyboard_}}}});
 }
 PanelView App::view() const {
     PanelView v;
@@ -654,6 +664,7 @@ void App::show_settings() {
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
+    pending_start_with_steamos_ = settings_.start_with_steamos;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -794,6 +805,7 @@ void App::reload() {
         settings_.use_drag_to_move = updated_settings.use_drag_to_move;
         settings_.auto_leveling = updated_settings.auto_leveling;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
+        settings_.start_with_steamos = updated_settings.start_with_steamos;
         keyboard_.set_num(settings_.num_lock);
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
@@ -803,6 +815,7 @@ void App::reload() {
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
+    pending_start_with_steamos_ = settings_.start_with_steamos;
     rebuild_cycle_entries();
     update_settings_ui();
     settings_ui_.reset();
@@ -1250,6 +1263,7 @@ void App::action(const std::string& id) {
         settings_.use_drag_to_move = pending_use_drag_to_move_;
         settings_.auto_leveling = pending_auto_leveling_;
         settings_.replace_native_keyboard = pending_replace_native_keyboard_;
+        settings_.start_with_steamos = pending_start_with_steamos_;
         default_ = settings_.active;
         rebuild_cycle_entries();
         save();
@@ -1281,6 +1295,11 @@ void App::action(const std::string& id) {
         update_settings_ui();
     } else if (id == "replace-native-keyboard") {
         pending_replace_native_keyboard_ = !pending_replace_native_keyboard_;
+        std::erase_if(pressed_controls_,
+                      [](const auto& entry) { return entry.second == "start-with-steamos"; });
+        update_settings_ui();
+    } else if (id == "start-with-steamos" && pending_replace_native_keyboard_) {
+        pending_start_with_steamos_ = !pending_start_with_steamos_;
         update_settings_ui();
     } else if (id == "native-fallback") {
         cancel();

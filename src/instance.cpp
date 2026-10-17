@@ -65,7 +65,8 @@ std::filesystem::path VrInstance::runtime_directory() {
     require_private_directory(base);
     return base / "framekeyboard";
 }
-VrInstance::VrInstance(const std::filesystem::path& directory) : socket_path_(directory / "vr.sock") {
+VrInstance::VrInstance(const std::filesystem::path& directory, bool notify_existing)
+    : socket_path_(directory / "vr.sock") {
     if (mkdir(directory.c_str(), 0700) < 0 && errno != EEXIST) {
         fail("create runtime directory");
     }
@@ -91,6 +92,9 @@ VrInstance::VrInstance(const std::filesystem::path& directory) : socket_path_(di
             }
             if (errno != EWOULDBLOCK) {
                 fail("lock keyboard instance");
+            }
+            if (!notify_existing) {
+                return;
             }
             if (notify_owner()) {
                 return;

@@ -82,7 +82,7 @@ Use the centered Settings → Check for updates button for a verified download, 
 
 For a manual installation, close the keyboard before installing a new version. The installer validates the copied ARM64 binary and profile files in a temporary staging directory before switching `current`, retains the old target in `previous`, and preserves `~/.config/framekeyboard`. A failed copy, validation, or activation removes the incomplete new release so the same version can be retried. Completed releases remain protected from overwrite.
 
-To roll back, close the keyboard and run on Frame:
+Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Then close the keyboard and run on Frame:
 
 ```sh
 cd ~/.local/share/framekeyboard
@@ -93,7 +93,15 @@ ln -sfn "$(readlink previous)" current
 
 Use this only when `previous` exists and names the release you want. Old releases remain available until you remove them. The installed app label stays Full Keyboard when rolling back to an older binary.
 
-To uninstall, close the app, then run:
+To uninstall, first uncheck Start with SteamOS and Apply and save, then quit the app. If the app cannot run, remove its optional startup unit first:
+
+```sh
+systemctl --user disable --now framekeyboard-autostart.service
+rm -f ~/.config/systemd/user/framekeyboard-autostart.service
+systemctl --user daemon-reload
+```
+
+Then run:
 
 ```sh
 rm ~/.local/bin/framekeyboard
@@ -101,7 +109,7 @@ rm ~/.local/share/applications/framekeyboard.desktop
 rm -r ~/.local/share/framekeyboard
 ```
 
-Keep `~/.config/framekeyboard` if you want to preserve themes, layouts, and placement. If you added a Steam Library shortcut manually, remove it through Steam too. No OS files, services, or stock keyboard files need restoring.
+Keep `~/.config/framekeyboard` if you want to preserve themes, layouts, and placement. If you added a Steam Library shortcut manually, remove it through Steam too. No OS or stock keyboard files need restoring. The optional user-local startup unit is removed as described above.
 
 ## Developer diagnostics
 

@@ -87,6 +87,7 @@ class NativeReplacement : public KeySink {
 // same request snapshot, so closing X cannot acknowledge or reopen the old request.
 class ReplacementPresentation {
   public:
+    explicit ReplacementPresentation(bool start_hidden = false) : startup_hidden_(start_hidden) {}
     void update(bool enabled, NativeReplacement::State state) {
         if (enabled != enabled_) {
             managed_ = dismissed_ = false;
@@ -99,6 +100,7 @@ class ReplacementPresentation {
         }
         if (enabled && state.available && state.open) {
             managed_ = true;
+            startup_hidden_ = false;
         }
     }
     void dismiss() {
@@ -106,6 +108,7 @@ class ReplacementPresentation {
         dismissed_request_ = state_.request;
     }
     void summon() {
+        startup_hidden_ = false;
         dismissed_ = false;
         if (!state_.open) {
             managed_ = false;
@@ -116,12 +119,14 @@ class ReplacementPresentation {
         managed_ = true;
     }
     bool show() const {
-        return !enabled_ || (!managed_ && !dismissed_) ||
-               (state_.available && state_.open && state_.eligible &&
-                state_.request != bypass_request_ && state_.request != dismissed_request_);
+        return !startup_hidden_ &&
+               (!enabled_ || (!managed_ && !dismissed_) ||
+                (state_.available && state_.open && state_.eligible &&
+                 state_.request != bypass_request_ && state_.request != dismissed_request_));
     }
     bool interactive() const {
-        return !enabled_ || (!managed_ && !dismissed_) || (show() && state_.active);
+        return !startup_hidden_ &&
+               (!enabled_ || (!managed_ && !dismissed_) || (show() && state_.active));
     }
     bool remote() const { return enabled_ && managed_ && show() && state_.active && !state_.local; }
     bool fallback_requested() const { return state_.open && state_.request == bypass_request_; }
@@ -129,6 +134,7 @@ class ReplacementPresentation {
   private:
     NativeReplacement::State state_;
     bool enabled_{}, managed_{}, dismissed_{};
+    bool startup_hidden_{};
     std::uint64_t bypass_request_{}, dismissed_request_{};
 };
 } // namespace framekeyboard

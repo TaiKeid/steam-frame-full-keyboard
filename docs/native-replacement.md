@@ -1,6 +1,6 @@
 # Experimental native keyboard replacement
 
-In Settings → Experimental, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. No system files, button mappings, services or autostart settings are changed.
+In Settings → Experimental, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. Replacement alone changes no startup settings or Steam files. The separate **Start with SteamOS** checkbox is off by default and can only be edited while replacement is checked.
 
 The current replacement bridge requires Python 3 and Steam's existing debugger at `127.0.0.1:8080`. It uses that local connection to install temporary keyboard hooks in Steam's UI. Ordinary Full Keyboard typing works without the debugger. If the debugger or required interfaces are unavailable, replacement stays inactive and native requests keep using Steam's keyboard. The saved preference is retained for a later available connection.
 
@@ -18,7 +18,15 @@ With replacement enabled, the top-right X dismisses the current typing session a
 
 **Quit Full Keyboard** appears in Settings only while replacement is enabled in VR. Use it to exit the resident app and restore native fallback. With replacement disabled, X exits normally and the separate Quit action is absent. Desktop preview keeps its ordinary exit behavior.
 
-The preference is saved, so launching Full Keyboard again recreates the bridge when replacement is enabled. After an explicit Quit, crash, uninstall or reboot, native requests use Steam's keyboard until Full Keyboard is launched again. This option does not enable autostart or launch a new Full Keyboard process from the native keyboard button. Relaunching the existing resident app reopens/recenters its panel so Settings remains reachable.
+The preference is saved, so launching Full Keyboard again recreates the bridge when replacement is enabled. After an explicit Quit or uninstall, native requests use Steam's keyboard until Full Keyboard is launched again. Without **Start with SteamOS**, a crash or reboot also requires a manual launch. The native button summons a running resident; it does not launch a stopped app. Relaunching the existing resident app reopens/recenters its panel so Settings remains reachable.
+
+## Start with SteamOS
+
+Check **Replace native keyboard**, then **Start with SteamOS**, and choose Apply and save. The startup checkbox is disabled while replacement is unchecked. Both saved preferences must be on for startup to run. Turning replacement off removes boot startup; turning it on again restores startup if its saved checkbox was selected. Unchecking startup alone removes it while replacement keeps working in the current session. Back discards pending edits.
+
+This creates only a user-local `framekeyboard-autostart.service` and a link under `~/.config/systemd/user/gamescope-session.target.wants/`. It follows the Frame's existing SteamVR session and retries failed starts while dependencies become ready. It does not start SteamVR itself, require administrator access or alter Steam files. Startup begins with the panel hidden, including while the debugger reconnects; the app, replacement helper and watchdog run normally. The native keyboard button or supported field focus summons it. A duplicate boot start cannot summon an already running panel. Launching Full Keyboard manually still summons/recenters it and reaches Settings.
+
+Settings Quit exits the app for the rest of the session; the next SteamOS login starts it again if both options remain enabled. The unit preserves independent fallback helpers and in-app update handoff when the main process exits. Startup reads the saved settings before opening input or VR, so a stale unit cannot activate it with either option off. If startup fails, Steam's keyboard remains available. Preview/image exports never install a startup unit.
 
 ## Coverage
 

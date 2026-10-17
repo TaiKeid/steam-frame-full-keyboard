@@ -162,16 +162,17 @@ void SettingsUi::append(PanelView& view) const {
                            r.x + r.width - 12 - (bounds.x + bounds.width + 14), bounds.height}
                     : Rect{r.x + 12, bounds.y, 142, bounds.height};
             if (intersects(text, clip)) {
-                view.field_labels.push_back(
-                    {field.label, text, clip, field.label_after || field.inline_label_width > 0});
+                view.field_labels.push_back({field.label, text, clip,
+                                             field.label_after || field.inline_label_width > 0,
+                                             field.enabled});
             }
             if (intersects(bounds, clip)) {
                 const auto selected =
                     std::find_if(field.choices.begin(), field.choices.end(),
                                  [&](const SettingChoice& choice) { return choice.id == field.value; });
                 const auto name = selected == field.choices.end() ? field.value : selected->name;
-                view.controls.push_back(
-                    {field.id, name, bounds, field.checked, Icon::None, field.style, clip});
+                view.controls.push_back({field.id, name, bounds, field.checked, Icon::None, field.style,
+                                         clip, field.enabled});
             }
         }
     }

@@ -20,6 +20,7 @@ struct Options {
     std::string mode{"help"}, output, input{"none"}, target_language;
     double duration{};
     bool start_enabled{false};
+    bool autostart{};
 };
 
 // Development previews never send input. The installed typing launcher opts in.
@@ -73,6 +74,10 @@ class App {
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }
+    bool start_with_steamos() const {
+        return settings_.replace_native_keyboard && settings_.start_with_steamos;
+    }
+    bool background_start() const { return options_.autostart; }
     bool replacement_ready() const;
     bool take_native_fallback();
     bool resident_replacement() const {
@@ -155,6 +160,7 @@ class App {
     bool pending_use_drag_to_move_{};
     bool pending_auto_leveling_{true};
     bool pending_replace_native_keyboard_{};
+    bool pending_start_with_steamos_{};
     bool native_fallback_{};
     bool replacement_available_{};
     std::string replacement_unavailable_reason_;

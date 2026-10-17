@@ -20,8 +20,9 @@ struct Control {
     Icon icon{Icon::None};
     ControlStyle style{ControlStyle::Button};
     std::optional<Rect> clip{};
+    bool enabled{true};
     bool hit(double x, double y) const {
-        return bounds.contains(x, y) && (!clip || clip->contains(x, y));
+        return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }
 };
 struct CardView {
@@ -32,6 +33,7 @@ struct FieldLabel {
     std::string text;
     Rect bounds, clip;
     bool left{};
+    bool enabled{true};
 };
 struct PanelView {
     const Layout* layout{};

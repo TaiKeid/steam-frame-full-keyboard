@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/startup.hpp"
 #include "framekeyboard/updates.hpp"
 #include <cmath>
 #include <iostream>
@@ -14,6 +15,7 @@ void help() {
     std::cout << "Full Keyboard for Steam Frame " << FRAMEKEYBOARD_VERSION << "\n\n"
               << "  --preview                 Native desktop preview, no system input\n"
               << "  --vr                      Manually launched native VR panel\n"
+              << "  --autostart               Start VR replacement hidden, if enabled in Settings\n"
               << "  --render FILE.png         Render the keyboard without a window\n"
               << "  --render-settings FILE    Render the profile selector\n"
               << "  --check                   Validate and list available profiles\n"
@@ -27,7 +29,7 @@ void help() {
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
               << "Typing stays disabled unless --start-enabled is supplied.\n"
-              << "Native replacement is optional in Settings. Autostart is unchanged.\n";
+              << "Native replacement and SteamOS startup are optional in Settings.\n";
 }
 void signal_handler(int) {
     fk::interrupted = 1;
@@ -87,6 +89,8 @@ int main(int argc, char** argv) {
                 options.input = value();
             } else if (argument == "--start-enabled") {
                 options.start_enabled = true;
+            } else if (argument == "--autostart") {
+                options.autostart = true;
             } else if (argument == "--target-language") {
                 options.target_language = value();
             } else if (argument == "--duration") {
@@ -118,13 +122,28 @@ int main(int argc, char** argv) {
         if (options.start_enabled && options.input == "none") {
             throw std::runtime_error("--start-enabled requires an input backend");
         }
+        if (options.autostart) {
+            if (options.mode != "vr") {
+                throw std::runtime_error("--autostart requires --vr");
+            }
+            std::vector<std::string> errors;
+            const auto settings = fk::load_settings(options.config_dir, errors);
+            // Check both persisted preferences before opening input, VR or helpers.
+            // A stale unit cannot start replacement after the user disables it.
+            if (!errors.empty() || !settings.replace_native_keyboard || !settings.start_with_steamos) {
+                std::cout << "SteamOS keyboard startup is disabled.\n";
+                return 0;
+            }
+        }
         int result{};
         {
             std::unique_ptr<fk::VrInstance> instance;
             if (options.mode == "vr") {
-                instance = std::make_unique<fk::VrInstance>();
+                instance = std::make_unique<fk::VrInstance>(fk::VrInstance::runtime_directory(),
+                                                            !options.autostart);
                 if (!instance->is_owner()) {
-                    std::cout << "Recenter requested from the running keyboard.\n";
+                    std::cout << (options.autostart ? "Full Keyboard is already running.\n"
+                                                    : "Recenter requested from the running keyboard.\n");
                     return 0;
                 }
             }
@@ -170,7 +189,17 @@ int main(int argc, char** argv) {
                 sink = std::make_unique<fk::NullSink>();
             }
             fk::NativeReplacement replacement(*sink);
-            fk::App app(options, replacement, {}, options.mode == "vr" ? &updates : nullptr);
+            fk::SettingsWriter::Write preferences;
+            if (options.mode == "vr") {
+                preferences = [config = options.config_dir,
+                               executable =
+                                   fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
+                    fk::configure_startup(settings, executable, config);
+                    fk::save_settings(config, settings);
+                };
+            }
+            fk::App app(options, replacement, std::move(preferences),
+                        options.mode == "vr" ? &updates : nullptr);
             if (options.mode == "render" || options.mode == "render-settings") {
                 if (options.mode == "render-settings") {
                     app.show_settings();

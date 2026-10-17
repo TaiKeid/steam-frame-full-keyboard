@@ -14,6 +14,7 @@ struct SettingField {
     bool label_after{};
     // An inline label has a small row inset and precedes its checkbox.
     double inline_label_width{};
+    bool enabled{true};
 };
 struct SettingsCard {
     std::string id, title;

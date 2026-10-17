@@ -53,6 +53,7 @@ struct Settings {
     bool use_drag_to_move{};
     bool auto_leveling{true};
     bool replace_native_keyboard{};
+    bool start_with_steamos{};
 };
 
 fs::path default_config_dir();

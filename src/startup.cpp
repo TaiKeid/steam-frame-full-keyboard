@@ -1,0 +1,185 @@
+#include "framekeyboard/startup.hpp"
+#include <cerrno>
+#include <chrono>
+#include <csignal>
+#include <cstdlib>
+#include <fstream>
+#include <optional>
+#include <spawn.h>
+#include <stdexcept>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
+
+extern char** environ;
+namespace framekeyboard {
+namespace {
+constexpr auto name = "framekeyboard-autostart.service";
+constexpr auto marker = "# Managed by Full Keyboard\n";
+std::string quoted(const fs::path& path) {
+    std::string result = "\"";
+    for (const auto c : path.string()) {
+        if (static_cast<unsigned char>(c) < 32 || c == 127) {
+            throw std::runtime_error("Startup paths cannot contain control characters.");
+        }
+        if (c == '\\' || c == '"') {
+            result += '\\';
+        }
+        result += c;
+        if (c == '%') {
+            result += '%'; // Literal percent, not a systemd specifier.
+        }
+    }
+    return result + '"';
+}
+void write_atomic(const fs::path& path, const std::string& text) {
+    auto temporary = (path.parent_path() / ".framekeyboard-startup-XXXXXX").string();
+    const int fd = mkstemp(temporary.data());
+    if (fd < 0) {
+        throw std::runtime_error("Could not prepare SteamOS startup settings.");
+    }
+    try {
+        std::size_t offset = 0;
+        while (offset < text.size()) {
+            const auto count = write(fd, text.data() + offset, text.size() - offset);
+            if (count < 0 && errno == EINTR) {
+                continue;
+            }
+            if (count <= 0) {
+                throw std::runtime_error("Could not write SteamOS startup settings.");
+            }
+            offset += static_cast<std::size_t>(count);
+        }
+        if (fsync(fd) != 0) {
+            throw std::runtime_error("Could not save SteamOS startup settings.");
+        }
+        fs::rename(temporary, path);
+    } catch (...) {
+        close(fd);
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        throw;
+    }
+    close(fd);
+}
+void reload_manager() {
+    char command[] = "systemctl", user[] = "--user", reload[] = "daemon-reload";
+    char* args[]{command, user, reload, nullptr};
+    pid_t pid{};
+    if (posix_spawnp(&pid, command, nullptr, nullptr, args, environ) != 0) {
+        throw std::runtime_error("SteamOS startup manager is unavailable.");
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    int status{};
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto result = waitpid(pid, &status, WNOHANG);
+        if (result == pid) {
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                return;
+            }
+            throw std::runtime_error("Could not refresh SteamOS startup settings.");
+        }
+        if (result < 0 && errno != EINTR) {
+            throw std::runtime_error("Could not wait for the SteamOS startup manager.");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // This is only our bounded systemctl client, never Steam or a shared service.
+    kill(pid, SIGKILL);
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    throw std::runtime_error("Could not refresh SteamOS startup settings.");
+}
+} // namespace
+void configure_startup(const Settings& settings, const fs::path& executable, const fs::path& config_dir,
+                       fs::path unit_directory, std::function<void()> reload) {
+    const bool enabled = settings.replace_native_keyboard && settings.start_with_steamos;
+    if (unit_directory.empty()) {
+        unit_directory = default_config_dir().parent_path() / "systemd/user";
+    }
+    const auto unit = unit_directory / name;
+    const auto link = unit_directory / "gamescope-session.target.wants" / name;
+    const fs::path link_target = fs::path("..") / name;
+    std::optional<std::string> previous;
+    if (fs::exists(unit) || fs::is_symlink(unit)) {
+        if (fs::is_symlink(unit) || !fs::is_regular_file(unit) || fs::file_size(unit) > 65536) {
+            throw std::runtime_error("A custom SteamOS startup unit already exists.");
+        }
+        std::ifstream stream(unit);
+        if (!stream) {
+            throw std::runtime_error("Could not read SteamOS startup settings.");
+        }
+        previous = std::string(std::istreambuf_iterator<char>(stream), {});
+        if (!previous->starts_with(marker)) {
+            throw std::runtime_error("A custom SteamOS startup unit already exists.");
+        }
+    }
+    const bool linked = fs::is_symlink(link);
+    if ((linked && fs::read_symlink(link) != link_target) || (!linked && fs::exists(link))) {
+        throw std::runtime_error("A custom SteamOS startup link already exists.");
+    }
+    if (!enabled && !previous && !linked) {
+        return;
+    }
+    std::string contents;
+    if (enabled) {
+        const auto binary = fs::canonical(executable);
+        const auto old = binary.parent_path().parent_path();
+        const auto root = old.parent_path().parent_path();
+        if (binary.filename() != "framekeyboard" || binary.parent_path().filename() != "bin" ||
+            old.parent_path().filename() != "releases" || !fs::is_symlink(root / "current") ||
+            fs::canonical(root / "current") != old) {
+            throw std::runtime_error("Install a release package before enabling SteamOS startup.");
+        }
+        const auto current = root / "current";
+        contents =
+            std::string(marker) +
+            "[Unit]\nDescription=Full Keyboard background replacement\n"
+            "After=gamescope-session.service steamvr.service\n"
+            "PartOf=graphical-session.target steamvr.service\nStartLimitIntervalSec=0\n"
+            "ConditionPathExists=" +
+            quoted(current / "bin/framekeyboard") +
+            "\n\n[Service]\nType=exec\nEnvironmentFile=-/usr/share/deckard/mesavars.sh\nExecStart=" +
+            quoted(current / "bin/framekeyboard") +
+            " --vr --input ei --start-enabled --autostart --data-dir " +
+            quoted(current / "share/framekeyboard") + " --config-dir " +
+            quoted(fs::absolute(config_dir)) +
+            "\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=5\n"
+            "# Updater and native-fallback helpers must outlive the parent during handoff.\n"
+            "KillMode=process\n\n[Install]\nWantedBy=gamescope-session.target\n";
+        if (previous == contents && linked) {
+            return;
+        }
+    }
+    fs::create_directories(unit_directory);
+    try {
+        if (enabled) {
+            write_atomic(unit, contents);
+            fs::create_directories(link.parent_path());
+            if (!linked) {
+                fs::create_symlink(link_target, link);
+            }
+        } else {
+            fs::remove(link);
+            fs::remove(unit);
+        }
+        (reload ? reload : reload_manager)();
+    } catch (...) {
+        // Keep a failed toggle from leaving a half-written boot configuration.
+        try {
+            if (previous) {
+                write_atomic(unit, *previous);
+            } else {
+                fs::remove(unit);
+            }
+            if (linked && !fs::is_symlink(link)) {
+                fs::create_symlink(link_target, link);
+            } else if (!linked) {
+                fs::remove(link);
+            }
+        } catch (...) {
+        }
+        throw;
+    }
+}
+} // namespace framekeyboard

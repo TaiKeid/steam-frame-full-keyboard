@@ -626,7 +626,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     };
     std::vector<PlacementAction> adjustments;
     double next_tracking_check = 0;
-    ReplacementPresentation presentation;
+    ReplacementPresentation presentation(app.background_start());
+    if (app.background_start()) {
+        std::cout << "Full Keyboard started in background.\n" << std::flush;
+    }
     std::uint64_t last_request = 0;
     auto dismiss_panel = [&] {
         if (app.take_dismissal()) {

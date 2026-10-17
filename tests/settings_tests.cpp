@@ -769,6 +769,14 @@ void native_replacement_settings() {
     app.show_settings();
     const auto view = app.view();
     const auto experimental = view.cards.back().bounds;
+    const auto startup = control(view, "start-with-steamos");
+    require(!startup.enabled && !startup.selected &&
+                !startup.hit(startup.bounds.x + 4, startup.bounds.y + 4),
+            "SteamOS startup defaults off and cannot be pressed without replacement");
+    app.down(0, startup.bounds.x + 4, startup.bounds.y + 4, 1);
+    app.up(0, startup.bounds.x + 4, startup.bounds.y + 4);
+    require(!control(app.view(), "start-with-steamos").selected,
+            "pressing a disabled startup checkbox cannot opt in");
     const auto checkbox = control(view, "replace-native-keyboard").bounds;
     const auto label =
         std::find_if(view.field_labels.begin(), view.field_labels.end(),
@@ -780,13 +788,32 @@ void native_replacement_settings() {
             "experimental label has a small inset and precedes checkbox");
     click(app, "replace-native-keyboard");
     require(!app.replace_native_keyboard(), "replacement edit stays pending");
+    require(control(app.view(), "start-with-steamos").enabled,
+            "pending replacement enables startup editing");
+    click(app, "start-with-steamos");
     app.back();
     app.show_settings();
     require(!control(app.view(), "replace-native-keyboard").selected, "Back discards replacement edit");
+    require(!control(app.view(), "start-with-steamos").selected, "Back discards startup edits too");
     click(app, "replace-native-keyboard");
+    click(app, "start-with-steamos");
     click(app, "apply");
     require(app.replace_native_keyboard() && saved(app).replace_native_keyboard,
             "Apply persists replacement");
+    require(app.start_with_steamos() && saved(app).start_with_steamos, "Apply persists startup opt-in");
+    app.show_settings();
+    click(app, "replace-native-keyboard");
+    require(!control(app.view(), "start-with-steamos").enabled &&
+                !control(app.view(), "start-with-steamos").selected,
+            "unchecking replacement disables and unchecks effective startup");
+    click(app, "apply");
+    require(!app.start_with_steamos(), "saved replacement-off cannot autostart");
+    app.show_settings();
+    click(app, "replace-native-keyboard");
+    require(control(app.view(), "start-with-steamos").enabled &&
+                control(app.view(), "start-with-steamos").selected,
+            "reenabling replacement restores the saved startup choice");
+    click(app, "apply");
     app.set_native_session(true);
     app.show_settings();
     click(app, "native-fallback");

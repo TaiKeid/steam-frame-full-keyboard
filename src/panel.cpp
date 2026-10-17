@@ -19,6 +19,10 @@ bool hidden_key(const PanelView& view, const Key& key) {
            (key.action == "NumLock" || key.action.starts_with("Numpad"));
 }
 namespace {
+Color disabled_legend(const Theme& theme) {
+    return {(theme.legend.r + theme.disabled.r) / 2, (theme.legend.g + theme.disabled.g) / 2,
+            (theme.legend.b + theme.disabled.b) / 2};
+}
 // CSS ease-out is cubic-bezier(0, 0, .58, 1), as used by Steam's handle.
 double handle_ease_out(double progress) {
     if (progress <= 0 || progress >= 1) {
@@ -559,7 +563,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_save(cr);
             cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
             cairo_clip(cr);
-            label(cr, field.text, field.bounds, 22, view.language->font, t.legend, field.left,
+            label(cr, field.text, field.bounds, 22, view.language->font,
+                  field.enabled ? t.legend : disabled_legend(t), field.left,
                   field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
             cairo_restore(cr);
         }
@@ -584,14 +589,17 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_clip(cr);
         }
         const auto r = control.bounds;
+        const auto legend = control.enabled ? t.legend : disabled_legend(t);
         const auto color =
-            control.selected ? t.latched : (view.hovered.contains(control.id) ? t.hover : t.bottom);
+            control.enabled && control.selected
+                ? t.latched
+                : (control.enabled && view.hovered.contains(control.id) ? t.hover : t.bottom);
         rounded(cr, r, control.style == ControlStyle::Checkbox ? 3 : t.radius);
         source(cr, color);
         cairo_fill_preserve(cr);
         if (view.settings && control.style != ControlStyle::Scrollbar &&
             control.style != ControlStyle::MenuItem) {
-            source(cr, t.legend);
+            source(cr, legend);
             cairo_set_line_width(cr, 1.5);
             cairo_stroke(cr);
         } else {
@@ -603,8 +611,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_fill(cr);
         } else if (control.style == ControlStyle::Dropdown) {
             label(cr, control.label, {r.x + 6, r.y, r.width - 58, r.height}, 22, view.language->font,
-                  t.legend);
-            source(cr, t.legend);
+                  legend);
+            source(cr, legend);
             cairo_move_to(cr, r.x + r.width - 50, r.y);
             cairo_line_to(cr, r.x + r.width - 50, r.y + r.height);
             const double x = r.x + r.width - 25, y = r.y + r.height / 2;
@@ -614,12 +622,12 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_stroke(cr);
         } else if (control.style == ControlStyle::Checkbox) {
             if (control.selected) {
-                draw_icon(cr, Icon::Apply, r, t.legend, 28);
+                draw_icon(cr, Icon::Apply, r, legend, 28);
             }
         } else if (control.icon != Icon::None) {
-            draw_icon(cr, control.icon, r, t.legend);
+            draw_icon(cr, control.icon, r, legend);
         } else {
-            label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, t.legend);
+            label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
         }
         cairo_restore(cr);
     };

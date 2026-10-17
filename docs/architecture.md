@@ -54,11 +54,11 @@ Copy/Paste are shortcut actions, initially Ctrl+C and Ctrl+V for browser targets
 
 ## Packaging and failure cleanup
 
-Releases live under `~/.local/share/framekeyboard/releases`, with a `current` symlink and a launcher in `~/.local/bin`. Config lives under `~/.config/framekeyboard`. The package installs no service, browser bridge, startup hook, kernel module, or Steam patch.
+Releases live under `~/.local/share/framekeyboard/releases`, with a `current` symlink and a launcher in `~/.local/bin`. Config lives under `~/.config/framekeyboard`. The package enables no startup by default. The explicit Start with SteamOS option maintains a user-local session unit on the preference worker. It launches hidden replacement only when both saved options are on; independent fallback and update helpers survive main-process handoff. No kernel module or Steam patch is installed.
 
 Every held key has a cancellation path. Disconnect, focus loss, hiding, close, and drag capture release input. Overlapping controller presses share backend key references, including lock-key toggles. After a drag timeout or tracking loss, cleanup clears the application's dragging state even if the motion tracker already stopped. Cleanup is idempotent.
 
-The stock keyboard remains untouched, so no stock-UI watchdog is needed. Per-user instance IPC accepts only a recenter request, not arbitrary input or text.
+Optional replacement uses independent readiness leases and watchdogs to restore the stock keyboard. Per-user instance IPC accepts only a recenter request, not arbitrary input or text.
 
 ## Instance ownership and placement
 

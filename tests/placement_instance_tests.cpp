@@ -613,6 +613,11 @@ void instance_tests() {
     {
         fk::VrInstance owner(runtime);
         require(owner.is_owner(), "first launch owns instance");
+        {
+            fk::VrInstance background(runtime, false);
+            require(!background.is_owner() && !owner.poll_recenter(),
+                    "duplicate boot startup leaves the existing panel hidden");
+        }
         for (int repeat = 0; repeat < 3; ++repeat) {
             auto launch = std::async(std::launch::async, [&] {
                 fk::VrInstance second(runtime);

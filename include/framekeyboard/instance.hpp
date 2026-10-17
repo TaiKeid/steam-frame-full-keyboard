@@ -8,7 +8,8 @@ namespace framekeyboard {
 // exits before initializing OpenVR or creating another virtual input device.
 class VrInstance {
   public:
-    explicit VrInstance(const std::filesystem::path& directory = runtime_directory());
+    explicit VrInstance(const std::filesystem::path& directory = runtime_directory(),
+                        bool notify_existing = true);
     ~VrInstance();
     VrInstance(const VrInstance&) = delete;
     VrInstance& operator=(const VrInstance&) = delete;
