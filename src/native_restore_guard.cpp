@@ -31,12 +31,18 @@ int main(int argc, char** argv) {
         return 3;
     }
     bool connected = reply(fd, true), armed = false, restored = false, saw_open = false;
+    bool quitting = false;
     vr::VROverlayHandle_t target = vr::k_ulOverlayHandleInvalid;
     std::uint64_t progress = 0;
     double deadline = 0;
     auto events = [&] {
         vr::VREvent_t event{};
         while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
+            if (event.eventType == vr::VREvent_Quit) {
+                vr::VRSystem()->AcknowledgeQuit_Exiting();
+                quitting = true;
+                break;
+            }
             if (event.eventType == vr::VREvent_KeyboardOpened_Global && restored) {
                 saw_open = true;
             }
@@ -46,11 +52,14 @@ int main(int argc, char** argv) {
         }
     };
     auto restore = [&] {
-        if (!armed) {
+        if (!armed || quitting) {
             return;
         }
         armed = false;
         events();
+        if (quitting) {
+            return; // SteamVR is exiting; reopening its keyboard cannot recover anything.
+        }
         const auto result = vr::VROverlay()->ShowKeyboardForOverlay(
             target, vr::k_EGamepadTextInputModeNormal, vr::k_EGamepadTextInputLineModeSingleLine,
             vr::KeyboardFlag_Minimal | vr::KeyboardFlag_HideDoneKey | vr::KeyboardFlag_ShowArrowKeys, "",
@@ -61,8 +70,11 @@ int main(int argc, char** argv) {
             saw_open = false;
         }
     };
-    while (connected || armed || restored) {
+    while (!quitting && (connected || armed || restored)) {
         events();
+        if (quitting) {
+            break;
+        }
         if (armed && now() >= deadline) {
             restore();
         }
