@@ -9,3 +9,4 @@ compile_commands.json
 .env
 .env.*
 /docs/**/*.drawio
+/_bugs.md
