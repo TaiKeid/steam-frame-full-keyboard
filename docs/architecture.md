@@ -52,6 +52,33 @@ Deliberate VR exits return 0 for manual launches and 3 for boot launches or proc
 
 ## Input and focus
 
+`OutputController` owns the enabled gate, ordered output queue, delivered-key
+references, text retry buffer and repeat scheduling. `KeyboardState` retains
+pointer captures, visual state and sticky modifier interpretation. Each accepted
+native press snapshots its chord; Unicode presses snapshot the composed text.
+Up to 32 output entries can wait for delivery, with at most 32 Unicode characters
+per text entry. Accepted queued keys receive the normal pressed visual and haptic.
+Releases do not require queue space. A queued click sends a balanced down/up;
+already-delivered keys release immediately, including while another result waits.
+Repeats begin only after initial delivery completes and never catch up after a stall.
+
+The controller consumes text and native-control results before advancing to the
+next entry. Steam named controls acknowledge delivery through the helper; local
+native controls complete when submitted to libei/uinput. Physical holds must end
+before a following Unicode commit. A failure stops the queue and releases delivered
+holds. The failed text and consecutive queued text before the first native action
+remain for one explicit Enter retry, in transport-sized chunks. Native actions and
+text after that boundary are discarded with a status, so a discarded Tab or Enter
+cannot join text intended for separate fields. A synchronous preedit rejection
+leaves the original editor responsible for its unchanged preedit.
+
+Cancellation, hide, input reset and observed target/request or route changes clear
+queued output and retries before another session can receive input. A late result
+cannot advance the new session. An unowned Wayland ordering barrier left by
+cancellation still rejects output presses with a compositor-wait status; local
+locks and preedit edits remain available. Transport-specific protocol state and
+device cleanup stay in the sinks. No queue state is persisted or logged.
+
 The installed launcher uses libei through the running Gamescope socket. A keyboard seat is bound, output starts only after device resume, and a pause or removed device clears held state. Resuming or receiving a replacement keyboard can restore typing. Disconnected native and Unicode sockets reconnect in the background with a 1-second delay doubling up to 30 seconds, without replaying old holds or text. While waiting, App reports "Keyboard paused or disconnected". An interruption flag survives a pause/resume pair within one dispatch, and blocks backend output until the app clears its old UI holds. Connection state is tracked even while the dashboard disables typing. Existing evdev key mapping is shared with uinput; compositor repeat replaces synthetic EV_KEY repeat in the libei path. Development previews remain input-disabled. Apply/Reload releases held keys and restores typing only for a live backend, available text transport and an explicitly enabled launch. Physical-only modes additionally check their target declaration; no pause/resume button is needed.
 
 Use logical names such as `Enter`, `ControlLeft`, `KeyC`, and `NumpadEnter`. Every backend owns its mapping. Steam key-state values are not Linux evdev values. The native keyboard must not use Steam's contextual Enter callback for its dedicated Enter action.
@@ -74,7 +101,7 @@ VR launches acquire `VrInstance` before touching OpenVR. A later launch connects
 
 `PanelPlacement` contains pure transform math with no VR calls. Its initial width is 0.95 m; recenter keeps the chosen width and applies a 50-degree backward pitch from upright, independent of headset pitch/roll. Recenter reads the live bottom center of `valve.steam.gamepadui.main` through `GetTransformForOverlayCoordinates`, normalizes its scaled basis, and puts the keyboard's top edge 6 cm below it with its center 24 cm toward the viewer. The hidden stock keyboard is deliberately ignored because its transform can lag behind dashboard movement. If the dashboard pose is unavailable, placement falls back to 0.85 m ahead and 0.65 m below the headset. While visible, dashboard movement updates the panel's relative pose at a target 60 Hz without repainting the texture. During a grab the hand owns the pose and updates its offset. The last dashboard anchor is saved with placement, so close/reopen follows subsequent dashboard movement. `PanelPlacement` stores the world transform directly; only recenter constructs a default rotation. The main-view resize icons queue bounded width changes without rebuilding the pose; controller grabbing handles positioning. The VR loop consumes them, updates the transform/width, and checks compositor visibility independently of its cached state. Tracking loss clears held keys; a valid pose after a brief loss restores visibility without moving the panel. Tracking-origin reset events still request recentering. `placement_store.cpp` validates and atomically persists the standing-space transform, width and tracking-universe ID on orderly shutdown. A cold launch restores the saved placement once tracking is valid. A different known universe recenters the pose while preserving saved width. An invalid file falls back to defaults. Legacy placement files without a dashboard anchor retain their world-space pose until reset. This is not a cross-room spatial anchor.
 
-`IsDashboardVisible` gates both rendering and interaction. The loop checks it before pointer events and before repeat, releases held keys before disabling `InputGate`, cancels preedit/grabs and drains hidden pointer events. The gate also covers Apply, Reload and relaunch, so they cannot enable hidden output. The overlay does not set `MakeOverlaysInteractiveIfVisible`; it relies on dashboard interaction only and cannot deliberately claim scene inputs after closure. No active-VR-app backend is provided, so the panel remains hidden outside the dashboard.
+`IsDashboardVisible` gates both rendering and interaction. The loop checks it before pointer events and before repeat, releases held keys before disabling `OutputController`, cancels preedit/grabs and drains hidden pointer events. The gate also covers Apply, Reload and relaunch, so they cannot enable hidden output. The overlay does not set `MakeOverlaysInteractiveIfVisible`; it relies on dashboard interaction only and cannot deliberately claim scene inputs after closure. No active-VR-app backend is provided, so the panel remains hidden outside the dashboard.
 
 Controller line dragging and grip dragging capture a controller-to-panel transform at grab time, then composes each tracked controller pose with that fixed offset. Frame's dashboard masks modern grip actions and legacy controller-state polling. `GrabInput` instead reads the native `button_grip` render component for the known Frame controller models. A synthetic all-released controller state supplies its neutral component pose; the live component's relative rotation measures physical squeeze. `GripLatch` applies press/release hysteresis and requires a released sample after startup or a missing sample. This model-specific path must be rechecked when Valve changes controller models. It does not alter runtime input settings.
 
@@ -92,7 +119,7 @@ When an app tab such as Brave is active, Steam's hidden main dashboard overlay r
 
 ## Japanese composition
 
-`JapaneseComposer` owns a bounded in-memory preedit, romaji parsing and UTF-8 kana editing. Anthy is loaded dynamically on first conversion. Its public C API provides segment candidates; no dictionary learning/commit API is called. Candidate controls, script changes and Enter update local state before committing. Composition keys use `KeyboardState` for pointer ownership, visuals, modifier consumption and haptics, with native emission/repeat suppressed for those presses. Raw Ctrl/Alt/Meta shortcuts retain their normal key path, but unfinished composition is committed before any native key-down. A failed commit keeps the preedit and blocks the forwarding action. Gamescope text commits use an asynchronous sync callback before a following key can be sent over the separate libei socket.
+`JapaneseComposer` owns a bounded in-memory preedit, romaji parsing and UTF-8 kana editing. Anthy is loaded dynamically on first conversion. Its public C API provides segment candidates; no dictionary learning/commit API is called. Candidate controls, script changes and Enter update local state before committing. Composition keys use `KeyboardState` for pointer ownership, visuals, modifier consumption and haptics, with native emission/repeat suppressed for those presses. Raw Ctrl/Alt/Meta shortcuts retain their normal key path, but unfinished composition is queued before native key-down. Once accepted, the controller owns that text, allowing the next preedit to begin while delivery waits. A synchronous rejection retains the preedit and blocks the forwarding action. Gamescope text commits use an asynchronous sync callback before a following key can be sent over the separate libei socket.
 
 `EiSink` derives the Japanese text socket only from the documented `gamescope-N-ei` naming convention, preserving its directory and compositor number. Nonstandard key sockets require an explicit `--text-socket`; there is no fallback to gamescope-0 or the default Wayland display.
 
@@ -106,9 +133,10 @@ The renderer reserves space for preedit/candidates during Japanese, Chinese and 
 | --- | --- |
 | Configuration and validation | `src/config.cpp`, `include/framekeyboard/config.hpp` |
 | Pointer/key ownership, XKB legends, uinput | `src/input.cpp` |
+| Output queue, gate, delivered holds, retries and repeat | `src/output.cpp`, `include/framekeyboard/output.hpp` |
 | Compositor key and text delivery | `src/ei_input.cpp`, `src/text_input.cpp` |
 | Native rendering and hit regions | `src/panel.cpp` |
-| Settings, profile changes, and input gating | `src/app.cpp`, `src/settings_ui.cpp` |
+| Settings, profile changes and composition dispatch | `src/app.cpp`, `src/settings_ui.cpp` |
 | Japanese reading and conversion | `src/japanese.cpp` |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |

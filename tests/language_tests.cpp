@@ -156,10 +156,10 @@ void unicode_input() {
 }
 void input_gate_recovery() {
     Sink sink;
-    InputGate gate(sink);
-    gate.enabled = true;
+    OutputController gate(sink);
+    gate.set_enabled(true);
     gate.send(KEY_BACKSPACE, 1);
-    gate.enabled = false;
+    gate.set_enabled(false);
     gate.send(KEY_BACKSPACE, 2);
     gate.send(KEY_A, 1);
     gate.send(KEY_A, 0);

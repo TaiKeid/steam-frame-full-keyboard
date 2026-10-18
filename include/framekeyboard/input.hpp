@@ -10,6 +10,8 @@
 #include <xkbcommon/xkbcommon.h>
 
 namespace framekeyboard {
+class OutputController;
+enum class Delivery { Waiting, Success, Failure };
 int key_code(const std::string& name);
 bool is_modifier(int code);
 
@@ -18,6 +20,13 @@ class KeySink {
   public:
     virtual ~KeySink() = default;
     virtual void send(int code, int value) = 0;
+    // Repeating the same operation consumes its asynchronous result, not another key.
+    // Releases always execute immediately, even with an outstanding down result.
+    virtual Delivery deliver_key(int code, int value) {
+        send(code, value);
+        return Delivery::Success;
+    }
+    virtual void cancel_delivery() { cancel_text(); }
     virtual bool pump() { return true; }
     // A pause/resume can happen within one pump. The app must still discard old holds.
     virtual bool take_input_reset() { return false; }
@@ -79,6 +88,7 @@ class LanguageMap {
 class KeyboardState {
   public:
     explicit KeyboardState(KeySink& sink) : sink_(sink) {}
+    explicit KeyboardState(OutputController& output);
     ~KeyboardState();
     bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0);
     bool up(unsigned pointer);
@@ -106,6 +116,7 @@ class KeyboardState {
     void acquire(int code);
     void release(int code);
     KeySink& sink_;
+    OutputController* output_{};
     std::map<unsigned, Press> presses_;
     std::map<int, unsigned> references_;
     std::set<int> latched_;

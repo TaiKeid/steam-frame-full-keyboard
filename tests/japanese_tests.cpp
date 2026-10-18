@@ -39,7 +39,9 @@ void click_key(App& app, const std::string& id, unsigned pointer = 0, bool relea
         for (int x = 0; x < panel_width; x += 2) {
             auto* key = app.renderer.hit_key(view, x, y);
             if (key && key->id == id) {
-                require(app.down(pointer, x, y, 1) == expect_accepted, "key acceptance");
+                if (app.down(pointer, x, y, 1) != expect_accepted) {
+                    throw std::runtime_error("key acceptance: " + id);
+                }
                 if (release) {
                     app.up(pointer, x, y);
                 }

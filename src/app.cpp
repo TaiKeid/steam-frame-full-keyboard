@@ -16,8 +16,6 @@ double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 namespace {
-constexpr auto output_blocked_status =
-    "Waiting for compositor text delivery. Try the key again when it completes.";
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -68,7 +66,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       profiles_(load_profiles(options.data_dir, options.config_dir)),
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
-      gate_(sink), keyboard_(gate_) {
+      output_(sink), keyboard_(output_) {
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
@@ -479,33 +477,30 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
         const bool cancel_accent = unicode_mode() && keymap_->composing() &&
                                    (key->action == "Escape" || key->action == "Backspace");
-        const bool retry_text = !pending_text_.empty() && key->action == "Enter";
+        const bool retry_text = output_.retry_available() && key->action == "Enter";
         const bool local = ime_local || text_local || cancel_accent || retry_text;
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
-        // Pending text is resolved below. Cancellation can leave a transport
-        // barrier even when there is no pending result left for App to consume.
-        // Unicode output also waits; local locks and IME preedit edits can continue.
-        if ((!local || sends_text) && !gate_.text_pending() && gate_.output_blocked()) {
-            status_ = output_blocked_status;
+        if (!output_.admit((!local || sends_text) && !retry_text, now)) {
+            update_output_status();
             dirty = true;
             return false;
         }
         const bool num_dependent = key->action == "NumpadDecimal" ||
                                    (key->action.starts_with("Numpad") && key->action.size() == 7 &&
                                     g_ascii_isdigit(key->action.back()));
-        if (!unicode_mode() && num_dependent && gate_.enabled) {
+        if (!unicode_mode() && num_dependent && output_.enabled()) {
             // Never guess a native target's lock state or blindly toggle it at
             // launch. Wait for feedback before forwarding a lock-dependent key.
-            const auto target_num = gate_.num_lock_state();
+            const auto target_num = output_.num_lock_state();
             if (target_num && native_num_requested_ == target_num) {
                 native_num_requested_.reset();
             }
             if (native_num_requested_ || !target_num || *target_num != keyboard_.num()) {
                 if (target_num && !native_num_requested_) {
-                    gate_.send(KEY_NUMLOCK, 1);
-                    gate_.send(KEY_NUMLOCK, 0);
+                    output_.send(KEY_NUMLOCK, 1);
+                    output_.send(KEY_NUMLOCK, 0);
                     native_num_requested_ = !*target_num;
                 }
                 status_ = "Waiting for target Num Lock. Press the keypad key again.";
@@ -515,12 +510,6 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
         const bool sends_action = key->action_kind == ActionKind::Shortcut ||
                                   !is_modifier(key_code(key->action)) || !key->sticky;
-        if (!pending_text_.empty() && sends_action) {
-            if (!flush_text()) {
-                dirty = true;
-                return false;
-            }
-        }
         if (!ime_local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
             // Commit before either native events or ordinary Unicode text. Spaces,
             // digits and punctuation must not overtake the unfinished IME word.
@@ -534,9 +523,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
                 return false; // Failed commit must not lose text or change the target.
             }
-        }
-        if (gate_.text_pending()) {
-            return false;
+            if (!output_.admit(!local || sends_text, now)) {
+                update_output_status();
+                return false; // The preedit commit may have filled the final queue slot.
+            }
         }
         // Capture the symbol before a tapped Shift/AltGr is consumed by down().
         const auto symbol = text_local
@@ -547,17 +537,20 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             keyboard_.down(pointer, *key, now, local, local ? 0 : native_code(*key, modifiers));
         if (accepted) {
             try {
-                if (ime_local) {
+                if (retry_text) {
+                    retry_output();
+                } else if (ime_local) {
                     japanese_key(*key, true, modifiers);
                     cjk_key(*key, true, modifiers);
                 } else if (cancel_accent) {
                     keymap_->cancel_compose();
                     status_.clear();
                 } else if (sends_text) {
-                    pending_text_ = keymap_->compose(symbol);
-                    const auto repeated = pending_text_;
-                    if ((flush_text() || gate_.text_pending()) && !repeated.empty()) {
-                        text_repeats_[pointer] = {repeated, now + .5};
+                    const auto text = keymap_->compose(symbol);
+                    if (options_.input == "none") {
+                        status_.clear();
+                    } else {
+                        output_.text_press(pointer, text, now);
                     }
                     if (keymap_->composing()) {
                         status_ = "Accent pending";
@@ -574,6 +567,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 save();
             }
         }
+        update_output_status();
         dirty |= accepted;
         return accepted;
     }
@@ -589,7 +583,6 @@ bool App::up(unsigned pointer, double x, double y) {
         dirty = true;
         return false;
     }
-    text_repeats_.erase(pointer);
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
@@ -611,7 +604,6 @@ bool App::up(unsigned pointer, double x, double y) {
 void App::cancel_pointer(unsigned pointer) {
     settings_ui_.cancel_pointer(pointer);
     pointer_positions_.erase(pointer);
-    text_repeats_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
     pressed_controls_.erase(pointer);
     hovered_.erase(pointer);
@@ -620,10 +612,7 @@ void App::cancel_pointer(unsigned pointer) {
 void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
     pointer_positions_.clear();
-    text_repeats_.clear();
     if (discard_composition) {
-        gate_.cancel_text();
-        pending_text_.clear();
         if (keymap_) {
             keymap_->cancel_compose();
         }
@@ -652,36 +641,8 @@ bool App::tick(double now) {
     }
     update_save_status();
     refresh_typing();
-    if (gate_.enabled && gate_.text_pending()) {
-        if (!pending_text_.empty()) {
-            flush_text();
-        } else if (!composition_.empty()) {
-            commit_japanese();
-        } else if (cjk_ && !cjk_->empty()) {
-            commit_cjk();
-        }
-        dirty = true;
-    }
-    dirty |= keyboard_.tick(now);
-    if (!pending_text_.empty() && !gate_.text_pending()) {
-        text_repeats_.clear();
-    }
-    for (auto it = text_repeats_.begin(); it != text_repeats_.end();) {
-        if (now >= it->second.next) {
-            if (gate_.text_pending()) {
-                ++it;
-                continue;
-            }
-            pending_text_ = it->second.text;
-            if (!flush_text() && !gate_.text_pending()) {
-                // Keep the unsent text, stop repeating, and require an explicit retry.
-                text_repeats_.clear();
-                break;
-            }
-            it->second.next = now + .04;
-        }
-        ++it;
-    }
+    dirty |= output_.tick(now);
+    update_output_status();
     return dirty || renderer.animating();
 }
 void App::paint(double now) {
@@ -699,7 +660,7 @@ void App::set_interaction_active(bool active) {
     if (active) {
         refresh_typing();
     } else {
-        gate_.enabled = false;
+        output_.set_enabled(false);
     }
 }
 void App::set_dragging(bool dragging) {
@@ -895,13 +856,9 @@ bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
 }
 void App::refresh_typing() {
-    const bool ready = gate_.pump();
-    if (status_ == output_blocked_status && !gate_.output_blocked()) {
-        status_.clear();
-        dirty = true;
-    }
-    const bool reset = gate_.take_input_reset();
-    const bool can_resume = gate_.can_resume();
+    const bool ready = output_.pump();
+    const bool reset = output_.take_input_reset();
+    const bool can_resume = output_.can_resume();
     if (reset || (backend_ready_ && !ready)) {
         native_num_requested_.reset();
         // Clear UI holds even if input was already disabled by a hidden dashboard.
@@ -912,7 +869,7 @@ void App::refresh_typing() {
     backend_ready_ = ready;
     backend_can_resume_ = can_resume;
     const auto& language = profiles_.languages.at(settings_.active.language);
-    text_ready_ = (unicode_mode() || japanese() || cjk_) && gate_.text_available();
+    text_ready_ = (unicode_mode() || japanese() || cjk_) && output_.text_available();
     // Unicode mode owns character mapping. Only physical-only backends and
     // external JIS still rely on a declared receiving-session keymap.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
@@ -926,12 +883,12 @@ void App::refresh_typing() {
         backend_ready_;
     dirty |= typing_ready_ != typing_ready;
     typing_ready_ = typing_ready;
-    if (gate_.enabled && !(interaction_active_ && typing_ready_)) {
+    if (output_.enabled() && !(interaction_active_ && typing_ready_)) {
         // Transport loss ends key ownership, but unsent composition stays for
         // an explicit retry once text delivery is available again.
         cancel(false);
     }
-    gate_.enabled = interaction_active_ && typing_ready_;
+    output_.set_enabled(interaction_active_ && typing_ready_);
 }
 void App::convert_japanese() {
     // Anthy loads its library and dictionary lazily on first conversion.
@@ -946,7 +903,7 @@ void App::commit_japanese() {
     if (options_.input == "none") {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
-    } else if (gate_.commit_text(text)) {
+    } else if (output_.commit_text(text)) {
         composition_.cancel();
         status_.clear();
     } else {
@@ -1087,26 +1044,24 @@ bool App::text_key(const Key& key, const std::set<int>& mods) const {
     const auto symbol = keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num());
     return symbol == XKB_KEY_KP_Begin || LanguageMap::printable(symbol);
 }
-bool App::flush_text() {
-    if (pending_text_.empty()) {
-        return true;
+void App::update_output_status() {
+    if (auto status = output_.take_status()) {
+        status_ = std::move(*status);
+        dirty = true;
     }
-    if (options_.input == "none" || gate_.commit_text(pending_text_)) {
-        pending_text_.clear();
-        status_.clear();
-        return true;
-    }
-    status_ = gate_.text_pending() ? "Sending text to Steam..."
-                                   : "Text not sent. Release other keys, then press Enter to retry.";
-    return false;
+}
+bool App::retry_output() {
+    const bool accepted = output_.retry();
+    update_output_status();
+    return accepted;
 }
 int App::native_code(const Key& key, const std::set<int>& mods) {
     if (!unicode_mode()) {
         return 0;
     }
     if (key.action_kind == ActionKind::Shortcut) {
-        return gate_.shortcut_code(key.action == "copy" ? XKB_KEY_c : XKB_KEY_v,
-                                   key_code(key.action == "copy" ? "KeyC" : "KeyV"));
+        return output_.shortcut_code(key.action == "copy" ? XKB_KEY_c : XKB_KEY_v,
+                                     key_code(key.action == "copy" ? "KeyC" : "KeyV"));
     }
     if (key.action.starts_with("Numpad")) {
         // Num Lock is local in Unicode mode. Send explicit navigation codes,
@@ -1147,7 +1102,7 @@ int App::native_code(const Key& key, const std::set<int>& mods) {
         }
         const int fallback = key_code(
             "Key" + std::string(1, static_cast<char>(g_ascii_toupper(static_cast<char>(symbol)))));
-        return gate_.shortcut_code(symbol, fallback);
+        return output_.shortcut_code(symbol, fallback);
     }
     return 0;
 }
@@ -1165,7 +1120,7 @@ void App::commit_cjk() {
         return;
     }
     const auto text = cjk_->text();
-    if (!text.empty() && (options_.input == "none" || gate_.commit_text(text))) {
+    if (!text.empty() && (options_.input == "none" || output_.commit_text(text))) {
         cjk_->cancel();
         status_.clear();
     } else {
@@ -1241,11 +1196,11 @@ void App::action(const std::string& id) {
         placement_actions_.push_back(adjustment->second);
         return;
     }
-    if (gate_.text_pending() && (id.starts_with("cjk-") || id.starts_with("ime-"))) {
+    if (output_.text_pending() && (id.starts_with("cjk-") || id.starts_with("ime-"))) {
         if (id != "cjk-cancel" && id != "ime-cancel" && id != "ime-toggle") {
             return;
         }
-        gate_.cancel_text();
+        output_.cancel_text();
     }
     if (id.starts_with("cjk-") && cjk_) {
         if (id == "cjk-toggle") {
@@ -1257,7 +1212,11 @@ void App::action(const std::string& id) {
             }
             cjk_latin_ = !cjk_latin_;
         } else if (id == "cjk-commit") {
-            commit_cjk();
+            if (!output_.retry_available()) {
+                commit_cjk();
+            } else {
+                retry_output();
+            }
         } else if (id == "cjk-cancel") {
             cjk_->cancel();
         } else if (id == "cjk-next" || id == "cjk-prev") {
@@ -1274,7 +1233,11 @@ void App::action(const std::string& id) {
         } else if (id == "ime-convert") {
             convert_japanese();
         } else if (id == "ime-commit") {
-            commit_japanese();
+            if (!output_.retry_available()) {
+                commit_japanese();
+            } else {
+                retry_output();
+            }
         } else if (id == "ime-cancel") {
             composition_.cancel();
         } else if (id == "ime-hiragana" || id == "ime-katakana") {

@@ -294,6 +294,10 @@ void NativeReplacement::poll(double now) {
             }
         } else if (op == "key-result") {
             const auto id = json_object_get_uint64(field("id"));
+            if (native_id_ && id == native_id_) {
+                native_result_ = json_object_get_boolean(field("ok")) != 0;
+                force_fallback_ |= !*native_result_;
+            }
             const auto key = std::find_if(remote_keys_.begin(), remote_keys_.end(),
                                           [id](const auto& held) { return held.second.id == id; });
             if (key != remote_keys_.end()) {
@@ -316,6 +320,10 @@ void NativeReplacement::poll(double now) {
     }
     if (pending_id_ && !pending_result_ && now - pending_since_ > .6) {
         pending_result_ = false;
+        force_fallback_ = true;
+    }
+    if (native_id_ && !native_result_ && now - native_since_ > .6) {
+        native_result_ = false;
         force_fallback_ = true;
     }
 }
@@ -434,6 +442,46 @@ void NativeReplacement::send(int code, int value) {
         local_keys_.insert(code);
     }
     local_.send(code, value);
+}
+Delivery NativeReplacement::deliver_key(int code, int value) {
+    if (value == 0) {
+        send(code, value);
+        return Delivery::Success;
+    }
+    if (!remote_) {
+        send(code, value); // Retain route ownership for a later release during handoff.
+        return Delivery::Success;
+    }
+    if (native_id_) {
+        if (native_code_ != code || native_value_ != value) {
+            return Delivery::Failure;
+        }
+        if (!native_result_) {
+            return Delivery::Waiting;
+        }
+        const bool ok = *native_result_;
+        native_id_ = 0;
+        native_result_.reset();
+        return ok ? Delivery::Success : Delivery::Failure;
+    }
+    send(code, value);
+    const auto held = remote_keys_.find(code);
+    if (held == remote_keys_.end()) {
+        return Delivery::Failure;
+    }
+    native_id_ = held->second.id;
+    native_code_ = code;
+    native_value_ = value;
+    native_since_ = now_;
+    return Delivery::Waiting;
+}
+void NativeReplacement::cancel_delivery() {
+    native_id_ = 0;
+    native_result_.reset();
+    pending_id_ = 0;
+    pending_result_.reset();
+    pending_text_.clear();
+    local_.cancel_delivery();
 }
 bool NativeReplacement::commit_text(const std::string& text) {
     if (pending_id_) {

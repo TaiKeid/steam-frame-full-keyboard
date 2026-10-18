@@ -1,4 +1,5 @@
 #include "framekeyboard/input.hpp"
+#include "framekeyboard/output.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -381,6 +382,8 @@ std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, 
     return key.label;
 }
 
+KeyboardState::KeyboardState(OutputController& output) : sink_(output), output_(&output) {
+}
 KeyboardState::~KeyboardState() {
     try {
         cancel_all();
@@ -390,7 +393,9 @@ KeyboardState::~KeyboardState() {
 void KeyboardState::acquire(int code) {
     auto& count = references_[code];
     if (count++ == 0) {
-        sink_.send(code, 1);
+        if (!output_) {
+            sink_.send(code, 1);
+        }
         // Both controllers can hold the same lock key. Its state changes once
         // per backend key-down, not once per pointer.
         if (code == KEY_CAPSLOCK) {
@@ -407,7 +412,9 @@ void KeyboardState::release(int code) {
         return;
     }
     if (--found->second == 0) {
-        sink_.send(code, 0);
+        if (!output_) {
+            sink_.send(code, 0);
+        }
         references_.erase(found);
     }
 }
@@ -434,6 +441,9 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         presses_.emplace(pointer, std::move(press));
         if (!key.sticky) {
             acquire(code);
+            if (output_) {
+                output_->native_press(pointer, {code}, 0, now);
+            }
         }
         return true;
     }
@@ -483,6 +493,9 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     for (int key_value : press.codes) {
         acquire(key_value);
     }
+    if (output_) {
+        output_->native_press(pointer, press.codes, press.repeat_code, now);
+    }
     return true;
 }
 
@@ -497,6 +510,9 @@ bool KeyboardState::up(unsigned pointer) {
             return item.first != pointer && item.second.modifier == press.modifier;
         });
         if (!another_hold) {
+            if (output_) {
+                output_->release_modifier(press.modifier);
+            }
             // Chords borrow held modifiers. Releasing the modifier must remove
             // those borrowed references now, even if the ordinary key stays down.
             for (auto& [id, held] : presses_) {
@@ -518,6 +534,9 @@ bool KeyboardState::up(unsigned pointer) {
     for (auto it = press.codes.rbegin(); it != press.codes.rend(); ++it) {
         release(*it);
     }
+    if (output_) {
+        output_->release(pointer);
+    }
     presses_.erase(found);
     return true;
 }
@@ -530,6 +549,9 @@ void KeyboardState::cancel_pointer(unsigned pointer) {
     }
 }
 void KeyboardState::cancel_all() {
+    if (output_) {
+        output_->cancel();
+    }
     std::exception_ptr failure;
     // Release non-modifiers first; try every release even if one backend call fails.
     for (bool modifiers_only : {false, true}) {
@@ -539,7 +561,9 @@ void KeyboardState::cancel_all() {
                 continue;
             }
             try {
-                sink_.send(code, 0);
+                if (!output_) {
+                    sink_.send(code, 0);
+                }
             } catch (...) {
                 failure = std::current_exception();
             }
@@ -553,6 +577,9 @@ void KeyboardState::cancel_all() {
     }
 }
 bool KeyboardState::tick(double now) {
+    if (output_) {
+        return false;
+    }
     std::set<int> repeated;
     for (auto& [pointer, press] : presses_) {
         (void)pointer;

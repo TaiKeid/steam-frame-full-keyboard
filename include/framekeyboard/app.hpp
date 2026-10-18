@@ -3,6 +3,7 @@
 #include "cjk.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
+#include "output.hpp"
 #include "panel.hpp"
 #include "placement.hpp"
 #include "settings_ui.hpp"
@@ -23,42 +24,6 @@ struct Options {
     bool autostart{};
 };
 
-// Development previews never send input. The installed typing launcher opts in.
-class InputGate : public KeySink {
-  public:
-    explicit InputGate(KeySink& target) : target_(target) {}
-    void send(int code, int value) override {
-        // Releases for our own downs must pass even after readiness closes the
-        // gate. Unforwarded presses must never manufacture a release.
-        if (value == 0) {
-            if (held_.erase(code)) {
-                target_.send(code, value);
-            }
-        } else if (enabled) {
-            target_.send(code, value);
-            if (value == 1) {
-                held_.insert(code);
-            }
-        }
-    }
-    bool pump() override { return target_.pump(); }
-    bool take_input_reset() override { return target_.take_input_reset(); }
-    bool can_resume() const override { return target_.can_resume(); }
-    bool text_available() override { return target_.text_available(); }
-    bool commit_text(const std::string& text) override { return enabled && target_.commit_text(text); }
-    bool text_pending() const override { return target_.text_pending(); }
-    void cancel_text() override { target_.cancel_text(); }
-    bool output_blocked() const override { return target_.output_blocked(); }
-    int shortcut_code(xkb_keysym_t symbol, int fallback) override {
-        return target_.shortcut_code(symbol, fallback);
-    }
-    std::optional<bool> num_lock_state() override { return target_.num_lock_state(); }
-    bool enabled{false};
-
-  private:
-    KeySink& target_;
-    std::set<int> held_;
-};
 class App {
   public:
     App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {},
@@ -151,13 +116,8 @@ class App {
     bool unicode_mode() const;
     bool text_key(const Key& key, const std::set<int>& mods) const;
     int native_code(const Key& key, const std::set<int>& mods);
-    bool flush_text();
-    std::string pending_text_;
-    struct TextRepeat {
-        std::string text;
-        double next;
-    };
-    std::map<unsigned, TextRepeat> text_repeats_;
+    void update_output_status();
+    bool retry_output();
     Updates* updates_{};
     Options options_;
     Profiles profiles_;
@@ -185,7 +145,7 @@ class App {
     std::unique_ptr<LanguageMap> keymap_;
     // The launch declaration is frozen; Reload cannot redefine the target.
     std::optional<Language> target_language_;
-    InputGate gate_;
+    OutputController output_;
     KeyboardState keyboard_;
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;

@@ -41,6 +41,8 @@ class NativeReplacement : public KeySink {
     void frame_completed();
     double runtime_wait_deadline() const { return runtime_until_.load(); }
     void send(int code, int value) override;
+    Delivery deliver_key(int code, int value) override;
+    void cancel_delivery() override;
     bool pump() override { return local_.pump(); }
     bool take_input_reset() override;
     bool can_resume() const override { return local_.can_resume(); }
@@ -85,6 +87,10 @@ class NativeReplacement : public KeySink {
     std::uint64_t progress_{}, sequence_{}, pending_id_{};
     std::string pending_text_;
     std::optional<bool> pending_result_;
+    std::uint64_t native_id_{};
+    int native_code_{}, native_value_{};
+    double native_since_{};
+    std::optional<bool> native_result_;
     struct RemoteKey {
         std::uint64_t id, request;
         bool pending;

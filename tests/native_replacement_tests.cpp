@@ -122,6 +122,86 @@ void transport() {
     }
     close(pair[1]);
 }
+void ordered_transport() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "ordered socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        activate(pair[1], replacement);
+        OutputController output(replacement);
+        output.set_enabled(true);
+        auto packet_id = [&](const char* operation) {
+            auto* message = json_tokener_parse(take(pair[1]).c_str());
+            require(message && std::string(json_object_get_string(
+                                   json_object_object_get(message, "op"))) == operation,
+                    "ordered fixture operation");
+            const auto id = json_object_get_uint64(json_object_object_get(message, "id"));
+            json_object_put(message);
+            return id;
+        };
+        auto empty = [&] {
+            char byte;
+            return recv(pair[1], &byte, 1, MSG_DONTWAIT) < 0 && errno == EAGAIN;
+        };
+        auto result = [&](const char* op, std::uint64_t id, bool ok, double now) {
+            put(pair[1], std::string("{\"op\":\"") + op + "-result\",\"id\":" + std::to_string(id) +
+                             ",\"ok\":" + (ok ? "true}" : "false}"));
+            replacement.poll(now);
+            output.tick(now);
+        };
+        output.native_press(0, {KEY_BACKSPACE}, KEY_BACKSPACE, 10);
+        const auto first = packet_id("key");
+        output.release(0);
+        packet_id("key-up");
+        require(output.text_press(1, "b", 10), "text accepted behind native action");
+        output.release(1);
+        require(empty(), "native acknowledgement orders text even after early release");
+        result("key", first, true, 10.1);
+        const auto text = packet_id("text");
+        result("text", text, true, 10.2);
+        require(empty(), "each confirmed action is delivered once");
+
+        output.native_press(0, {KEY_BACKSPACE}, KEY_BACKSPACE, 10.2);
+        const auto failed = packet_id("key");
+        output.release(0);
+        packet_id("key-up");
+        output.text_press(1, "discard", 10.2);
+        output.release(1);
+        result("key", failed, false, 10.3);
+        require(empty(), "failed native action cannot leak queued text after release");
+
+        output.cancel();
+        output.text_press(0, "old", 10.3);
+        const auto old = packet_id("text");
+        output.release(0);
+        output.text_press(1, "queued-old", 10.3);
+        output.release(1);
+        output.cancel();
+        put(pair[1],
+            R"({"op":"state","version":1,"request":3,"open":true,"eligible":true,"active":true})");
+        replacement.poll(10.4);
+        output.text_press(0, "new", 10.4);
+        const auto fresh = packet_id("text");
+        output.release(0);
+        result("text", old, true, 10.4);
+        require(empty() && output.text_pending(), "late old acknowledgement cannot unlock new work");
+        result("text", fresh, true, 10.5);
+        require(empty() && !output.text_pending() && local.keys.empty() && local.text.empty(),
+                "request change never replays queued input or escapes to compositor input");
+    }
+    close(pair[1]);
+}
+void delivered_local_route() {
+    Local local;
+    NativeReplacement replacement(local);
+    require(replacement.deliver_key(KEY_LEFTCTRL, 1) == Delivery::Success,
+            "local delivery retains wrapper ownership");
+    replacement.route(true);
+    require(replacement.deliver_key(KEY_LEFTCTRL, 0) == Delivery::Success &&
+                local.keys == std::vector<std::pair<int, int>>{{KEY_LEFTCTRL, 1}, {KEY_LEFTCTRL, 0}},
+            "a local down always releases locally after route change");
+}
 void helper_retry_backoff() {
     Local local;
     int peer = -1;
@@ -307,6 +387,9 @@ void app_commit() {
                         continue;
                     }
                     const bool accepted = app.down(1, x, y, now);
+                    if (accepted) {
+                        require(app.pointer_pressed(1), "accepted queued key owns its pressed visual");
+                    }
                     app.up(1, x, y);
                     return accepted;
                 }
@@ -315,7 +398,8 @@ void app_commit() {
         };
         require(!app.replace_native_keyboard(), "replacement defaults off");
         require(press("KeyA", 1) && sink.held == "a", "App queues printable Unicode");
-        require(!press("KeyB", 1.1) && sink.deliveries == 1, "another key cannot overtake pending text");
+        require(press("KeyB", 1.1) && sink.deliveries == 1,
+                "another key is accepted without overtaking pending text");
         sink.done = true;
         sink.success = false;
         app.tick(1.2);
@@ -323,8 +407,12 @@ void app_commit() {
         require(sink.deliveries == 2 && sink.held == "a", "failure preserves text for explicit retry");
         sink.done = sink.success = true;
         app.tick(1.4);
+        require(sink.pending && sink.held == "b", "one retry preserves the queued character too");
+        sink.done = true;
+        app.tick(1.45);
         require(!sink.pending && press("KeyB", 1.5) && sink.held == "b",
                 "acknowledgement unlocks next text");
+        require(press("KeyC", 1.6), "queued character accepted before target cancellation");
         app.cancel();
         require(!sink.pending, "target cancellation invalidates deferred text");
         const auto view = app.view();
@@ -353,6 +441,30 @@ void app_commit() {
                 break;
             }
         }
+        require(press("KeyA", 3) && press("KeyB", 3.1), "hide fixture has pending and queued text");
+        const auto before_hide = sink.deliveries;
+        app.set_interaction_active(false);
+        sink.done = true;
+        app.tick(3.2);
+        require(!sink.pending && sink.deliveries == before_hide,
+                "hiding discards queued output before any late result can deliver it");
+        app.set_interaction_active(true);
+        app.apply({"en-us-full", "ja-romaji", "graphite"});
+        require(press("KeyA", 4) && press("Enter", 4.1) && app.view().preedit.empty(),
+                "accepted IME commit transfers preedit to the controller");
+        require(press("KeyA", 4.2) && app.view().preedit == "あ",
+                "new local preedit can start while the previous commit waits");
+        sink.done = true;
+        sink.success = false;
+        app.tick(4.3);
+        const auto before_retry = sink.deliveries;
+        require(press("Enter", 4.4) && sink.deliveries == before_retry + 1 && app.view().preedit == "あ",
+                "retrying earlier IME text never consumes identical newly typed preedit");
+        sink.done = sink.success = true;
+        app.tick(4.5);
+        require(press("Enter", 4.6) && sink.deliveries == before_retry + 2 && app.view().preedit.empty(),
+                "new preedit remains independently available after retry");
+        app.cancel();
     }
     fs::remove_all(options.config_dir);
 }
@@ -784,6 +896,8 @@ int main(int argc, char** argv) {
         }
         require(argc == 1, "unknown test option");
         transport();
+        ordered_transport();
+        delivered_local_route();
         helper_retry_backoff();
         named_key_repeats();
         app_commit();
