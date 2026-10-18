@@ -190,10 +190,10 @@ bool NativeReplacement::start(double now) {
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
     std::string path = helper.string();
-    char python[] = "python3", fd_option[] = "--fd", fd_number[] = "3";
+    char python[] = "python3", isolated[] = "-I", fd_option[] = "--fd", fd_number[] = "3";
     char health_option[] = "--health-fd", health_number[] = "4";
-    char* arguments[] = {python,        path.data(),   fd_option, fd_number,
-                         health_option, health_number, nullptr};
+    char* arguments[] = {python,    isolated,      path.data(),   fd_option,
+                         fd_number, health_option, health_number, nullptr};
     const int error = posix_spawnp(&child_, python, &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
     close(pair[1]);

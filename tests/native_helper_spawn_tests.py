@@ -17,6 +17,7 @@ with tempfile.TemporaryDirectory(prefix="framekeyboard-helper-fixture-") as dire
     (root / "bridge").mkdir()
     (root / "bridge/native_bridge.py").write_text('''import json,os,select,socket,struct,sys,time
 from pathlib import Path
+assert sys.flags.isolated == 1
 assert sys.argv[1:] == ["--fd", "3", "--health-fd", "4"]
 parent=socket.socket(fileno=3)
 deadline=time.monotonic()+2
@@ -47,7 +48,10 @@ else:
     raise AssertionError("helper descriptor fixture timed out")
 parent.close();os.close(4)
 ''')
-    result = subprocess.run([str(binary), "--helper-fixture"], capture_output=True, text=True, timeout=8)
+    # A sibling module and PYTHONPATH must not shadow standard-library imports.
+    (root / "bridge/json.py").write_text('raise RuntimeError("unisolated helper import")\n')
+    result = subprocess.run([str(binary), "--helper-fixture"], capture_output=True, text=True, timeout=8,
+                            env={**os.environ, "PYTHONPATH": str(root / "bridge")})
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads((root / "bridge/result.json").read_text()) == dict(health=True, frame=True, closed=True)
     print(result.stdout.strip())
