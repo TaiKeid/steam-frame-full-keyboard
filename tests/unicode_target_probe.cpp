@@ -40,8 +40,8 @@ int main() {
         }
         EiSink sink("/run/user/" + std::to_string(getuid()) + "/gamescope-0-ei");
         Options options;
-        options.mode = "vr";
-        options.input = "ei";
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
         options.start_enabled = true;
         options.config_dir = directory;
         App app(options, sink); // No --target-language and no changes to system layouts.

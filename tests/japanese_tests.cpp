@@ -80,8 +80,8 @@ void romaji_legends() {
             for (bool shift : {false, true}) {
                 Options options;
                 options.config_dir = directory;
-                options.mode = "vr";
-                options.input = "ei";
+                options.mode = Mode::Vr;
+                options.input = InputBackend::Ei;
                 options.start_enabled = true;
                 Sink sink;
                 App app(options, sink);
@@ -202,8 +202,8 @@ int main() {
         } cleanup{directory};
         Options options;
         options.config_dir = directory;
-        options.mode = "vr";
-        options.input = "ei";
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
         options.start_enabled = true;
         options.target_language = "en-us";
         Sink sink;

@@ -267,7 +267,7 @@ int main(int argc, char** argv) {
         }
         temporary = directory;
         Options options;
-        options.mode = "render"; // Same panel without the preview-only notice.
+        options.mode = Mode::Render; // Same panel without the preview-only notice.
         options.config_dir = temporary;
         NullSink sink;
         App app(options, sink);

@@ -43,6 +43,7 @@ int main(int argc, char** argv) {
         fk::Options options;
         options.config_dir = fk::default_config_dir();
         bool mode_set = false;
+        std::optional<fk::InputBackend> input = fk::InputBackend::None;
         for (int i = 1; i < argc; ++i) {
             const std::string argument = argv[i];
             auto value = [&]() -> std::string {
@@ -51,7 +52,7 @@ int main(int argc, char** argv) {
                 }
                 return argv[i];
             };
-            auto mode = [&](const std::string& name) {
+            auto mode = [&](fk::Mode name) {
                 if (mode_set) {
                     throw std::runtime_error("choose one operation");
                 }
@@ -65,16 +66,16 @@ int main(int argc, char** argv) {
                 std::cout << "framekeyboard " << FRAMEKEYBOARD_VERSION << '\n';
                 return 0;
             } else if (argument == "--preview") {
-                mode("preview");
+                mode(fk::Mode::Preview);
             } else if (argument == "--vr") {
-                mode("vr");
+                mode(fk::Mode::Vr);
             } else if (argument == "--render" || argument == "--render-settings") {
-                mode(argument.substr(2));
+                mode(argument == "--render" ? fk::Mode::Render : fk::Mode::RenderSettings);
                 options.output = value();
             } else if (argument == "--check") {
-                mode("check");
+                mode(fk::Mode::Check);
             } else if (argument == "--describe-layout") {
-                mode("describe");
+                mode(fk::Mode::Describe);
             } else if (argument == "--config-dir") {
                 options.config_dir = value();
             } else if (argument == "--data-dir") {
@@ -87,7 +88,16 @@ int main(int argc, char** argv) {
                     throw std::runtime_error("--text-socket requires a nonempty path");
                 }
             } else if (argument == "--input") {
-                options.input = value();
+                const auto name = value();
+                if (name == "none") {
+                    input = fk::InputBackend::None;
+                } else if (name == "ei") {
+                    input = fk::InputBackend::Ei;
+                } else if (name == "uinput") {
+                    input = fk::InputBackend::Uinput;
+                } else {
+                    input.reset();
+                }
             } else if (argument == "--start-enabled") {
                 options.start_enabled = true;
             } else if (argument == "--autostart") {
@@ -105,27 +115,29 @@ int main(int argc, char** argv) {
                 throw std::runtime_error("unknown argument: " + argument);
             }
         }
-        if (options.mode == "help") {
+        if (options.mode == fk::Mode::Help) {
             help();
             return 0;
         }
-        if (options.input != "none" && options.input != "uinput" && options.input != "ei") {
+        if (!input) {
             throw std::runtime_error("input must be none, ei or uinput");
         }
-        if (options.input != "none" &&
-            (options.mode != "vr" || (options.input == "uinput" && options.target_language.empty()))) {
+        options.input = *input;
+        if (options.input != fk::InputBackend::None &&
+            (options.mode != fk::Mode::Vr ||
+             (options.input == fk::InputBackend::Uinput && options.target_language.empty()))) {
             throw std::runtime_error("typing requires --vr; uinput also requires --target-language; "
                                      "desktop preview never injects input");
         }
-        if (!options.text_socket.empty() && options.input != "ei") {
+        if (!options.text_socket.empty() && options.input != fk::InputBackend::Ei) {
             throw std::runtime_error("--text-socket requires --input ei");
         }
-        if (options.start_enabled && options.input == "none") {
+        if (options.start_enabled && options.input == fk::InputBackend::None) {
             throw std::runtime_error("--start-enabled requires an input backend");
         }
         const int deliberate_exit = fk::deliberate_exit_status(options.autostart);
         if (options.autostart) {
-            if (options.mode != "vr") {
+            if (options.mode != fk::Mode::Vr) {
                 throw std::runtime_error("--autostart requires --vr");
             }
             std::vector<std::string> errors;
@@ -140,7 +152,7 @@ int main(int argc, char** argv) {
         int result{};
         {
             std::unique_ptr<fk::VrInstance> instance;
-            if (options.mode == "vr") {
+            if (options.mode == fk::Mode::Vr) {
                 instance = std::make_unique<fk::VrInstance>(fk::VrInstance::runtime_directory(),
                                                             !options.autostart);
                 if (!instance->is_owner()) {
@@ -150,11 +162,11 @@ int main(int argc, char** argv) {
                 }
                 fk::require_steamvr();
             }
-            if (options.mode == "check" || options.mode == "describe") {
+            if (options.mode == fk::Mode::Check || options.mode == fk::Mode::Describe) {
                 auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
                 const auto settings = fk::load_settings(options.config_dir, profiles.errors);
                 fk::validate_selection(profiles, settings.active);
-                if (options.mode == "describe") {
+                if (options.mode == fk::Mode::Describe) {
                     const auto& layout = profiles.layouts.at(settings.active.layout);
                     std::cout << layout.name << '\n'
                               << layout.keys.size() << " keys; " << layout.width << " x "
@@ -176,19 +188,19 @@ int main(int argc, char** argv) {
                 return profiles.errors.empty() ? 0 : 1;
             }
             std::unique_ptr<fk::KeySink> sink;
-            if (options.input != "none" && !options.target_language.empty()) {
+            if (options.input != fk::InputBackend::None && !options.target_language.empty()) {
                 const auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
                 if (!profiles.languages.contains(options.target_language)) {
                     throw std::runtime_error("unknown target-language profile");
                 }
             }
-            if (options.input == "ei") {
+            if (options.input == fk::InputBackend::Ei) {
                 if (options.ei_socket.empty()) {
                     options.ei_socket =
                         std::string("/run/user/") + std::to_string(getuid()) + "/gamescope-0-ei";
                 }
                 sink = std::make_unique<fk::EiSink>(options.ei_socket, options.text_socket);
-            } else if (options.input == "uinput") {
+            } else if (options.input == fk::InputBackend::Uinput) {
                 sink = std::make_unique<fk::UInputSink>();
             } else {
                 sink = std::make_unique<fk::NullSink>();
@@ -196,7 +208,7 @@ int main(int argc, char** argv) {
             fk::NativeReplacement replacement(*sink);
             fk::SettingsWriter::Write preferences;
             fk::SettingsWriter::Write reconcile_preferences;
-            if (options.mode == "vr") {
+            if (options.mode == fk::Mode::Vr) {
                 preferences = [config = options.config_dir,
                                executable =
                                    fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
@@ -209,9 +221,10 @@ int main(int argc, char** argv) {
                     };
             }
             fk::App app(options, replacement, std::move(preferences),
-                        options.mode == "vr" ? &updates : nullptr, std::move(reconcile_preferences));
-            if (options.mode == "render" || options.mode == "render-settings") {
-                if (options.mode == "render-settings") {
+                        options.mode == fk::Mode::Vr ? &updates : nullptr,
+                        std::move(reconcile_preferences));
+            if (options.mode == fk::Mode::Render || options.mode == fk::Mode::RenderSettings) {
+                if (options.mode == fk::Mode::RenderSettings) {
                     app.show_settings();
                 }
                 app.paint(fk::monotonic_seconds());
@@ -220,11 +233,12 @@ int main(int argc, char** argv) {
             }
             std::signal(SIGINT, signal_handler);
             std::signal(SIGTERM, signal_handler);
-            result = options.mode == "vr" ? fk::run_vr(app, *instance, replacement, options.duration)
-                                          : fk::run_preview(app, options.duration);
+            result = options.mode == fk::Mode::Vr
+                         ? fk::run_vr(app, *instance, replacement, options.duration)
+                         : fk::run_preview(app, options.duration);
             // A watchdog's SIGTERM must still permit service recovery. systemctl
             // stop already suppresses restart independently of our exit status.
-            if (options.mode == "vr" && (app.quitting() || options.duration > 0)) {
+            if (options.mode == fk::Mode::Vr && (app.quitting() || options.duration > 0)) {
                 result = deliberate_exit;
             }
             app.flush_settings();

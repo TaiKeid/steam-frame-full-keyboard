@@ -370,8 +370,8 @@ struct Deferred : Local {
 void app_commit() {
     Deferred sink;
     Options options;
-    options.mode = "vr";
-    options.input = "ei";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
     options.start_enabled = true;
     options.config_dir =
         fs::temp_directory_path() / ("framekeyboard-bridge-test-" + std::to_string(getpid()));
@@ -476,8 +476,8 @@ void handoff_status() {
     settings.replace_native_keyboard = true;
     save_settings(directory, settings);
     Options options;
-    options.mode = "vr";
-    options.input = "ei";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
     options.start_enabled = true;
     options.config_dir = directory;
     struct Availability : Local {
@@ -544,8 +544,8 @@ void handoff_status() {
                 "an input-disabled launch still shows its warning");
     }
     {
-        options.mode = "preview";
-        options.input = "none";
+        options.mode = Mode::Preview;
+        options.input = InputBackend::None;
         options.start_enabled = false;
         App app(options, sink);
         app.set_interaction_active(false);
@@ -625,8 +625,8 @@ void resident_close() {
     settings.replace_native_keyboard = true;
     save_settings(directory, settings);
     Options options;
-    options.mode = "vr";
-    options.input = "ei";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
     options.start_enabled = true;
     options.config_dir = directory;
     Local sink;
@@ -712,8 +712,8 @@ void resident_close() {
     save_settings(directory, settings);
     {
         Options preview = options;
-        preview.mode = "preview";
-        preview.input = "none";
+        preview.mode = Mode::Preview;
+        preview.input = InputBackend::None;
         preview.start_enabled = false;
         App app(preview, sink);
         app.show_settings();
@@ -732,8 +732,8 @@ void unavailable_reasons() {
     settings.replace_native_keyboard = true;
     save_settings(directory, settings);
     Options options;
-    options.mode = "vr";
-    options.input = "ei";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
     options.start_enabled = true;
     options.config_dir = directory;
     Local local;

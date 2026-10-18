@@ -67,8 +67,8 @@ void unicode_input() {
     Sink sink;
     Options options;
     options.config_dir = path;
-    options.input = "ei";
-    options.mode = "vr";
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
     options.start_enabled = true;
     // Deliberately no target-language declaration: characters are resolved locally.
     App app(options, sink);
@@ -177,8 +177,8 @@ void input_gate_recovery() {
     } cleanup{path};
     Options options;
     options.config_dir = path;
-    options.input = "ei";
-    options.mode = "vr";
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
     options.start_enabled = true;
     App app(options, sink);
     sink.events.clear();
@@ -276,8 +276,8 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
     } cleanup{path};
     Options options;
     options.config_dir = path;
-    options.input = "ei";
-    options.mode = "vr";
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
     options.target_language = "en-us";
     options.start_enabled = true;
     for (const auto* id : {"zh-cn-pinyin", "zh-tw-pinyin", "ko-kr"}) {

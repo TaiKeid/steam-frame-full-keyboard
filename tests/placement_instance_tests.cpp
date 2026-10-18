@@ -687,8 +687,9 @@ void typing_tests() {
     TemporaryDirectory temp;
     fk::Options options;
     options.config_dir = temp.path;
-    options.mode = "vr";
-    options.input = "uinput"; // Exercise the explicit physical-key backend and its keymap guard.
+    options.mode = fk::Mode::Vr;
+    options.input =
+        fk::InputBackend::Uinput; // Exercise the explicit physical-key backend and its keymap guard.
     options.target_language = "en-us";
     options.start_enabled = true;
     RecordingSink sink;
@@ -735,8 +736,9 @@ void connection_recovery_tests() {
     TemporaryDirectory temp;
     fk::Options options;
     options.config_dir = temp.path;
-    options.mode = "vr";
-    options.input = "uinput"; // Exercise the explicit physical-key backend and its keymap guard.
+    options.mode = fk::Mode::Vr;
+    options.input =
+        fk::InputBackend::Uinput; // Exercise the explicit physical-key backend and its keymap guard.
     options.target_language = "en-us";
     options.start_enabled = true;
     RecordingSink sink;
@@ -780,8 +782,9 @@ void hidden_input_tests() {
     TemporaryDirectory temp;
     fk::Options options;
     options.config_dir = temp.path;
-    options.mode = "vr";
-    options.input = "uinput"; // Exercise the explicit physical-key backend and its keymap guard.
+    options.mode = fk::Mode::Vr;
+    options.input =
+        fk::InputBackend::Uinput; // Exercise the explicit physical-key backend and its keymap guard.
     options.target_language = "en-us";
     options.start_enabled = true;
     RecordingSink sink;
@@ -816,8 +819,9 @@ void language_recovery_tests() {
     TemporaryDirectory temp;
     fk::Options options;
     options.config_dir = temp.path;
-    options.mode = "vr";
-    options.input = "uinput"; // Exercise the explicit physical-key backend and its keymap guard.
+    options.mode = fk::Mode::Vr;
+    options.input =
+        fk::InputBackend::Uinput; // Exercise the explicit physical-key backend and its keymap guard.
     options.target_language = "en-us";
     options.start_enabled = true;
     RecordingSink sink;

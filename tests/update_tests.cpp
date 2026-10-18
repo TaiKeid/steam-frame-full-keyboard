@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
                 require(instance.is_owner(), "fixture owns its private instance lock");
                 NullSink sink;
                 Options options;
-                options.mode = "preview";
+                options.mode = Mode::Preview;
                 options.config_dir = config;
                 App app(options, sink, {}, &updates);
                 app.show_settings();
@@ -228,7 +228,7 @@ while True:
             Updates updates("0.6.0", {"available"}, helper);
             NullSink sink;
             Options options;
-            options.mode = "preview";
+            options.mode = Mode::Preview;
             options.config_dir = directory / "config";
             App app(options, sink, {}, &updates);
             app.show_settings();
@@ -270,7 +270,7 @@ while True:
             Updates updates("0.6.0", {"unknown-failure"}, helper);
             NullSink sink;
             Options options;
-            options.mode = "preview";
+            options.mode = Mode::Preview;
             options.config_dir = directory / "reason-config";
             App app(options, sink, {}, &updates);
             app.show_settings();

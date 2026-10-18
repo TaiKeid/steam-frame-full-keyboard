@@ -16,9 +16,13 @@
 namespace framekeyboard {
 class NativeReplacement;
 class Updates;
+enum class Mode { Help, Preview, Vr, Render, RenderSettings, Check, Describe };
+enum class InputBackend { None, Ei, Uinput };
 struct Options {
     fs::path data_dir, config_dir, ei_socket, text_socket;
-    std::string mode{"help"}, output, input{"none"}, target_language;
+    Mode mode{Mode::Help};
+    InputBackend input{InputBackend::None};
+    std::string output, target_language;
     double duration{};
     bool start_enabled{false};
     bool autostart{};
@@ -57,7 +61,7 @@ class App {
     bool replacement_ready() const;
     bool take_native_fallback();
     bool resident_replacement() const {
-        return options_.mode == "vr" && settings_.replace_native_keyboard;
+        return options_.mode == Mode::Vr && settings_.replace_native_keyboard;
     }
     void close_panel();
     bool take_dismissal();
@@ -104,7 +108,7 @@ class App {
     void update_save_status();
     void allow_slow_work();
     void rebuild_cycle_entries();
-    void action(const std::string& id);
+    void action(const ControlAction& action);
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
@@ -159,7 +163,11 @@ class App {
         bool operator==(const HoverTarget&) const = default;
     };
     std::map<unsigned, HoverTarget> hovered_;
-    std::map<unsigned, std::string> pressed_controls_;
+    struct PressedControl {
+        std::string id;
+        ControlAction action;
+    };
+    std::map<unsigned, PressedControl> pressed_controls_;
     std::string status_;
     bool settings_open_{false}, quit_{false}, recenter_{false};
     std::vector<PlacementAction> placement_actions_;

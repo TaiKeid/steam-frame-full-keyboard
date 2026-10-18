@@ -15,6 +15,8 @@ struct SettingField {
     // An inline label has a small row inset and precedes its checkbox.
     double inline_label_width{};
     bool enabled{true};
+    // Dropdowns use this kind for choosing a value; their row opens generically.
+    ControlAction action{};
 };
 struct SettingsCard {
     std::string id, title;
@@ -31,7 +33,6 @@ class SettingsUi {
     void close_popup();
     bool popup_open() const { return !open_field_.empty(); }
     void toggle(const std::string& field);
-    std::optional<std::pair<std::string, std::string>> choice(const std::string& control) const;
     bool scroll(double x, double y, double dx, double dy);
     bool down(unsigned pointer, double x, double y);
     bool move(unsigned pointer, double x, double y);

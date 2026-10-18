@@ -98,19 +98,19 @@ void native_num_restore() {
             }
         }
     };
-    for (const auto* input : {"uinput", "ei"}) {
+    for (auto input : {InputBackend::Uinput, InputBackend::Ei}) {
         for (bool saved_num : {false, true}) {
             for (bool target_num : {false, true}) {
                 TemporaryDirectory directory;
                 Settings settings;
                 settings.num_lock = saved_num;
-                if (std::string(input) == "ei") {
+                if (input == InputBackend::Ei) {
                     settings.active = {"ja-jis-full", "ja-jis", "graphite"};
                 }
                 save_settings(directory.path, settings);
                 Options options;
                 options.config_dir = directory.path;
-                options.mode = "vr";
+                options.mode = Mode::Vr;
                 options.input = input;
                 options.target_language = settings.active.language;
                 options.start_enabled = true;
@@ -174,7 +174,7 @@ void compact_toolbar() {
         save_settings(directory.path, settings);
         Options options;
         options.config_dir = directory.path;
-        options.mode = "render";
+        options.mode = Mode::Render;
         CaptureSink sink;
         App app(options, sink);
         const auto view = app.view();
@@ -208,7 +208,7 @@ void startup_profile_fallback() {
         save_settings(directory.path, settings);
         Options options;
         options.config_dir = directory.path;
-        options.mode = "render";
+        options.mode = Mode::Render;
         CaptureSink sink;
         App app(options, sink);
         require(app.selection().language == "de-de" && app.selection().theme == "graphite",
@@ -245,7 +245,7 @@ void incompatible_saved_language() {
         save_selection(directory.path, selection);
         Options options;
         options.config_dir = directory.path;
-        options.mode = "render";
+        options.mode = Mode::Render;
         CaptureSink sink;
         App app(options, sink);
         require(app.selection() == Selection{} && app.view().language->required_keys.empty(),
@@ -272,7 +272,7 @@ void missing_saved_language_status() {
         save_selection(directory.path, selection);
         Options options;
         options.config_dir = directory.path;
-        options.mode = "render";
+        options.mode = Mode::Render;
         CaptureSink sink;
         App app(options, sink);
         const auto message = "Saved language unavailable. Using English.";
@@ -301,8 +301,8 @@ void key_control_namespaces() {
     } sink;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "vr";
-    options.input = "ei";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
     options.start_enabled = true;
     App app(options, sink);
     app.apply({"collision", "en-us", "graphite"});
@@ -356,7 +356,7 @@ void favorite_cache_reload() {
     save_settings(directory.path, settings);
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render";
+    options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
     click(app, "language-cycle");
@@ -379,7 +379,7 @@ void background_preferences() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render";
+    options.mode = Mode::Render;
     CaptureSink sink;
     std::promise<void> entered, release;
     auto started = entered.get_future();
@@ -486,7 +486,7 @@ void preferences_with_broken_startup() {
         return std::string(std::istreambuf_iterator<char>(input), {});
     };
     Options options;
-    options.mode = "render";
+    options.mode = Mode::Render;
     options.config_dir = config;
     CaptureSink sink;
     App app(options, sink, [&](const Settings& settings) {
@@ -571,7 +571,7 @@ void reload_startup() {
     save_settings(config, settings);
     Options options;
     options.config_dir = config;
-    options.mode = "vr";
+    options.mode = Mode::Vr;
     CaptureSink sink;
     int writes = 0, reconciliations = 0;
     bool fail = false;
@@ -655,7 +655,7 @@ void launch_startup() {
     };
     const auto before = read(config / "config.json");
     Options options;
-    options.mode = "vr";
+    options.mode = Mode::Vr;
     options.config_dir = config;
     CaptureSink sink;
     int writes = 0, reloads = 0, reconciliations = 0;
@@ -687,13 +687,13 @@ void launch_startup() {
         require(reconciliations == 2 && reloads == 1,
                 "matching startup configuration skips manager reload on the next launch");
     }
-    options.mode = "preview";
+    options.mode = Mode::Preview;
     {
         App preview(options, sink, {}, nullptr, reconcile);
         preview.flush_settings();
         require(reconciliations == 2, "preview launch never reconciles session startup");
     }
-    options.mode = "vr";
+    options.mode = Mode::Vr;
     std::ofstream(config / "config.json") << "{broken";
     {
         App malformed(options, sink, {}, nullptr, reconcile);
@@ -707,7 +707,7 @@ void numpad_settings() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render";
+    options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
     const auto full_body = panel_case_bounds(app.view());
@@ -798,7 +798,7 @@ void app_settings() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render-settings";
+    options.mode = Mode::RenderSettings;
     CaptureSink sink;
     App app(options, sink);
     require(!has(app.view(), "language-cycle"), "no favorites hides language cycle");
@@ -980,7 +980,7 @@ void behavior_settings() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render";
+    options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
     require(!app.use_drag_to_move() && app.allows_movement(MoveSource::Laser) &&
@@ -1109,7 +1109,7 @@ void auto_leveling_settings() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render";
+    options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
     require(app.auto_leveling(), "Auto leveling is enabled on a new install");
@@ -1148,7 +1148,7 @@ void native_replacement_settings() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
-    options.mode = "render";
+    options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
     require(!app.replace_native_keyboard(), "replacement defaults off");
@@ -1330,7 +1330,7 @@ void scroll_cards() {
     const auto outside_case = control(view, "choose:test-0-field-4:choice-4");
     require(outside_case.hit(outside_case.bounds.x + 5, outside_case.bounds.y + 5),
             "overflow option remains clickable");
-    require(ui.choice(outside_case.id)->second == "choice-4", "overflow option resolves to choice");
+    require(outside_case.action.value == "choice-4", "overflow option resolves to choice");
     require(!ui.scroll(900, 200, 1, 1), "open popup blocks underlying card scrolling");
     require(ui.scroll(view.popup->x + 5, view.popup->y + 5, 0, 100),
             "popup scroll reaches last choices");

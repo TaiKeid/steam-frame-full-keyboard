@@ -173,6 +173,10 @@ void SettingsUi::append(PanelView& view) const {
                 const auto name = selected == field.choices.end() ? field.value : selected->name;
                 view.controls.push_back({field.id, name, bounds, field.checked, Icon::None, field.style,
                                          clip, field.enabled});
+                view.controls.back().action =
+                    field.style == ControlStyle::Dropdown
+                        ? ControlAction{ControlKind::ToggleDropdown, 0, field.id}
+                        : field.action;
             }
         }
     }
@@ -189,10 +193,15 @@ void SettingsUi::append(PanelView& view) const {
                  choice.id == field->value,
                  Icon::None,
                  ControlStyle::MenuItem});
+            view.controls.back().action = field->action;
+            view.controls.back().action.value = choice.id;
         }
     }
     for (const auto& bar : scrollbars()) {
         view.controls.push_back({bar.id, "", bar.thumb, false, Icon::None, ControlStyle::Scrollbar});
+        if (bar.id == "scroll-menu") {
+            view.controls.back().action.kind = ControlKind::ScrollMenu;
+        }
     }
 }
 void SettingsUi::close_popup() {
@@ -227,17 +236,6 @@ void SettingsUi::toggle(const std::string& id) {
     } else {
         close_popup();
     }
-}
-std::optional<std::pair<std::string, std::string>> SettingsUi::choice(const std::string& id) const {
-    const auto* field = open_field();
-    if (field) {
-        for (const auto& choice : field->choices) {
-            if (id == "choose:" + field->id + ":" + choice.id) {
-                return std::pair{field->id, choice.id};
-            }
-        }
-    }
-    return {};
 }
 bool SettingsUi::scroll(double x, double y, double dx, double dy) {
     if (!std::isfinite(dx) || !std::isfinite(dy)) {

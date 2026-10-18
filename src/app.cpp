@@ -138,12 +138,16 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     refresh_typing();
     // Refresh owned units after an update without requiring Apply or Reload.
     // Invalid settings must not remove an existing startup configuration.
-    if (options.mode == "vr" && settings_errors.empty()) {
+    if (options.mode == Mode::Vr && settings_errors.empty()) {
         settings_writer_.reconcile(settings_);
     }
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result;
+    auto add = [&](ControlAction action, Control control) {
+        control.action = std::move(action);
+        result.push_back(std::move(control));
+    };
     PanelView geometry;
     geometry.layout = &profiles_.layouts.at(settings_.active.layout);
     geometry.theme = &profiles_.themes.at(settings_.active.theme);
@@ -153,100 +157,106 @@ std::vector<Control> App::controls() const {
     const auto body = panel_case_bounds(geometry);
     auto append_move_handle = [&] {
         if (!settings_.pinned && !settings_.use_drag_to_move) {
-            result.push_back({"move-handle",
-                              "Move keyboard",
-                              {body.x + body.width / 2 - 220, panel_height + 12, 440, 60},
-                              dragging_,
-                              Icon::None,
-                              ControlStyle::MoveHandle});
+            add({ControlKind::MoveHandle}, {"move-handle",
+                                            "Move keyboard",
+                                            {body.x + body.width / 2 - 220, panel_height + 12, 440, 60},
+                                            dragging_,
+                                            Icon::None,
+                                            ControlStyle::MoveHandle});
         }
     };
     if (settings_open_) {
-        result = {{"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back},
-                  {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply},
-                  {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload}};
-        result.push_back(
+        add({ControlKind::Settings}, {"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back});
+        add({ControlKind::Apply}, {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply});
+        add({ControlKind::Reload}, {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload});
+        add({ControlKind::Updates},
             {"updates", updates_ ? updates_->label() : "Check for updates", {550, 12, 500, 42}});
         if (settings_.replace_native_keyboard && native_session_) {
-            result.push_back({"native-fallback", "Use Steam keyboard", {250, 12, 245, 42}});
+            add({ControlKind::NativeFallback},
+                {"native-fallback", "Use Steam keyboard", {250, 12, 245, 42}});
         }
         if (resident_replacement()) {
-            result.push_back({"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
+            add({ControlKind::Quit},
+                {"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
         }
         append_move_handle();
         return result;
     }
     const double x = body.x + 18;
-    result.push_back({"settings", "Settings", {x, 12, 60, 42}, false, Icon::Settings});
-    result.push_back({"recenter", "Recenter", {x + 70, 12, 60, 42}, false, Icon::Recenter});
-    result.push_back(
+    add({ControlKind::Settings}, {"settings", "Settings", {x, 12, 60, 42}, false, Icon::Settings});
+    add({ControlKind::Recenter}, {"recenter", "Recenter", {x + 70, 12, 60, 42}, false, Icon::Recenter});
+    add({ControlKind::Smaller},
         {"size-smaller", "Smaller keyboard", {x + 140, 12, 60, 42}, false, Icon::ScaleDown});
-    result.push_back({"size-larger", "Larger keyboard", {x + 210, 12, 60, 42}, false, Icon::ScaleUp});
-    result.push_back({"pin",
-                      settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
-                      {x + 280, 12, 60, 42},
-                      false,
-                      settings_.pinned ? Icon::PinOn : Icon::PinOff});
+    add({ControlKind::Larger},
+        {"size-larger", "Larger keyboard", {x + 210, 12, 60, 42}, false, Icon::ScaleUp});
+    add({ControlKind::Pin}, {"pin",
+                             settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
+                             {x + 280, 12, 60, 42},
+                             false,
+                             settings_.pinned ? Icon::PinOn : Icon::PinOff});
     if (!settings_.favorites.empty()) {
-        result.push_back({"language-cycle",
-                          language_short_name(profiles_.languages.at(settings_.active.language)),
-                          {x + 350, 12, 100, 42}});
+        add({ControlKind::LanguageCycle},
+            {"language-cycle",
+             language_short_name(profiles_.languages.at(settings_.active.language)),
+             {x + 350, 12, 100, 42}});
     }
-    result.push_back({"close",
-                      resident_replacement() ? "Hide keyboard" : "Close",
-                      {body.x + body.width - 78, 12, 60, 42},
-                      false,
-                      Icon::Close});
+    add({ControlKind::Close}, {"close",
+                               resident_replacement() ? "Hide keyboard" : "Close",
+                               {body.x + body.width - 78, 12, 60, 42},
+                               false,
+                               Icon::Close});
     const auto ime_start = result.size();
     if (japanese()) {
-        result.push_back({"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
+        add({ControlKind::ImeToggle},
+            {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
         if (!japanese_latin_) {
-            result.push_back({"ime-hiragana", "ひらがな", {735, 12, 120, 42}});
-            result.push_back({"ime-katakana", "カタカナ", {865, 12, 120, 42}});
-            result.push_back({"ime-commit", "確定 / Commit", {995, 12, 180, 42}});
-            result.push_back({"ime-cancel", "Cancel", {1185, 12, 110, 42}});
+            add({ControlKind::ImeHiragana}, {"ime-hiragana", "ひらがな", {735, 12, 120, 42}});
+            add({ControlKind::ImeKatakana}, {"ime-katakana", "カタカナ", {865, 12, 120, 42}});
+            add({ControlKind::ImeCommit}, {"ime-commit", "確定 / Commit", {995, 12, 180, 42}});
+            add({ControlKind::ImeCancel}, {"ime-cancel", "Cancel", {1185, 12, 110, 42}});
             const auto candidates = composition_.candidates();
             if (!candidates.empty()) {
-                result.push_back({"ime-prev", "↑", {20, 148, 55, 42}});
+                add({ControlKind::ImePrev}, {"ime-prev", "↑", {20, 148, 55, 42}});
                 const int page = composition_.selected() / 5 * 5;
                 for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
-                    result.push_back(
+                    add({ControlKind::ImeCandidate, i},
                         {"ime-candidate-" + std::to_string(i),
                          std::to_string(i + 1) + " " + candidates[static_cast<std::size_t>(i)],
                          {85.0 + (i - page) * 240, 148, 230, 42},
                          i == composition_.selected()});
                 }
-                result.push_back({"ime-next", "↓", {1290, 148, 55, 42}});
-                result.push_back({"ime-segment-prev", "←", {1355, 148, 55, 42}});
-                result.push_back({"ime-segment-next", "→", {1420, 148, 55, 42}});
-                result.push_back({"ime-segment-label",
-                                  std::to_string(composition_.active_segment() + 1) + "/" +
-                                      std::to_string(composition_.segment_count()),
-                                  {1485, 148, 90, 42}});
+                add({ControlKind::ImeNext}, {"ime-next", "↓", {1290, 148, 55, 42}});
+                add({ControlKind::ImeSegmentPrev}, {"ime-segment-prev", "←", {1355, 148, 55, 42}});
+                add({ControlKind::ImeSegmentNext}, {"ime-segment-next", "→", {1420, 148, 55, 42}});
+                add({ControlKind::None}, {"ime-segment-label",
+                                          std::to_string(composition_.active_segment() + 1) + "/" +
+                                              std::to_string(composition_.segment_count()),
+                                          {1485, 148, 90, 42}});
             } else {
-                result.push_back({"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
+                add({ControlKind::ImeConvert}, {"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
             }
         }
     }
     if (cjk_) {
-        result.push_back({"cjk-toggle",
-                          cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
-                          {610, 12, 150, 42}});
+        add({ControlKind::CjkToggle},
+            {"cjk-toggle",
+             cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
+             {610, 12, 150, 42}});
         if (!cjk_latin_) {
-            result.push_back({"cjk-commit", "Commit", {995, 12, 180, 42}});
-            result.push_back({"cjk-cancel", "Cancel", {1185, 12, 110, 42}});
+            add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {995, 12, 180, 42}});
+            add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1185, 12, 110, 42}});
             const auto candidates = cjk_->candidates();
             if (!candidates.empty()) {
                 const int page = cjk_->selected() / 5 * 5;
-                result.push_back({"cjk-prev", "↑", {20, 148, 55, 42}});
+                add({ControlKind::CjkPrev}, {"cjk-prev", "↑", {20, 148, 55, 42}});
                 for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
-                    result.push_back(
+                    add({ControlKind::CjkCandidate, i},
                         {"cjk-candidate-" + std::to_string(i),
                          std::to_string(i - page + 1) + " " + candidates[static_cast<std::size_t>(i)],
                          {85.0 + (i - page) * 240, 148, 230, 42},
                          i == cjk_->selected()});
                 }
-                result.push_back({"cjk-next", "↓", {1290, 148, 55, 42}});
+                add({ControlKind::CjkNext}, {"cjk-next", "↓", {1290, 148, 55, 42}});
             }
         }
     }
@@ -260,6 +270,10 @@ std::vector<Control> App::controls() const {
     return result;
 }
 void App::update_settings_ui() {
+    auto field = [](ControlKind kind, SettingField value) {
+        value.action.kind = kind;
+        return value;
+    };
     auto choices = [](const auto& profiles) {
         std::vector<SettingChoice> result;
         for (const auto& [id, profile] : profiles) {
@@ -273,48 +287,58 @@ void App::update_settings_ui() {
     settings_ui_.set_cards(
         {{"languages",
           "Languages and Layouts",
-          {{"layout", "Layout:", pending_.layout, ControlStyle::Dropdown, false,
-            choices(profiles_.layouts)},
-           {"language", "Language:", pending_.language, ControlStyle::Dropdown, false,
-            choices(profiles_.languages)},
-           {"favorite", "Favorite:", "", ControlStyle::Checkbox, favorite, {}}}},
+          {field(ControlKind::ChooseLayout, {"layout", "Layout:", pending_.layout,
+                                             ControlStyle::Dropdown, false, choices(profiles_.layouts)}),
+           field(ControlKind::ChooseLanguage,
+                 {"language", "Language:", pending_.language, ControlStyle::Dropdown, false,
+                  choices(profiles_.languages)}),
+           field(ControlKind::Favorite,
+                 {"favorite", "Favorite:", "", ControlStyle::Checkbox, favorite, {}})}},
          {"general",
           "General",
-          {{"theme", "Theme:", pending_.theme, ControlStyle::Dropdown, false, choices(profiles_.themes)},
-           {"hide-numpad", "Hide numpad", "", ControlStyle::Checkbox, pending_hide_numpad_, {}, true},
-           {"use-drag-to-move",
-            "Use Drag to Move",
-            "",
-            ControlStyle::Checkbox,
-            pending_use_drag_to_move_,
-            {},
-            true},
-           {"auto-leveling",
-            "Auto leveling",
-            "",
-            ControlStyle::Checkbox,
-            pending_auto_leveling_,
-            {},
-            true}}},
+          {field(ControlKind::ChooseTheme, {"theme", "Theme:", pending_.theme, ControlStyle::Dropdown,
+                                            false, choices(profiles_.themes)}),
+           field(ControlKind::HideNumpad, {"hide-numpad",
+                                           "Hide numpad",
+                                           "",
+                                           ControlStyle::Checkbox,
+                                           pending_hide_numpad_,
+                                           {},
+                                           true}),
+           field(ControlKind::UseDragToMove, {"use-drag-to-move",
+                                              "Use Drag to Move",
+                                              "",
+                                              ControlStyle::Checkbox,
+                                              pending_use_drag_to_move_,
+                                              {},
+                                              true}),
+           field(ControlKind::AutoLeveling, {"auto-leveling",
+                                             "Auto leveling",
+                                             "",
+                                             ControlStyle::Checkbox,
+                                             pending_auto_leveling_,
+                                             {},
+                                             true})}},
          {"experimental",
           "Experimental",
-          {{"replace-native-keyboard",
-            "Replace native keyboard:",
-            "",
-            ControlStyle::Checkbox,
-            pending_replace_native_keyboard_,
-            {},
-            false,
-            300},
-           {"start-with-steamos",
-            "Start with SteamOS",
-            "",
-            ControlStyle::Checkbox,
-            pending_start_with_steamos_ && pending_replace_native_keyboard_,
-            {},
-            false,
-            300,
-            pending_replace_native_keyboard_}}}});
+          {field(ControlKind::ReplaceNativeKeyboard, {"replace-native-keyboard",
+                                                      "Replace native keyboard:",
+                                                      "",
+                                                      ControlStyle::Checkbox,
+                                                      pending_replace_native_keyboard_,
+                                                      {},
+                                                      false,
+                                                      300}),
+           field(ControlKind::StartWithSteamos,
+                 {"start-with-steamos",
+                  "Start with SteamOS",
+                  "",
+                  ControlStyle::Checkbox,
+                  pending_start_with_steamos_ && pending_replace_native_keyboard_,
+                  {},
+                  false,
+                  300,
+                  pending_replace_native_keyboard_})}}});
 }
 PanelView App::view() const {
     PanelView v;
@@ -335,9 +359,9 @@ PanelView App::view() const {
         v.status = updates_->failure_reason();
     }
     // Image exports show the layout without the interactive preview's input notice.
-    const bool image_export = options_.mode == "render" || options_.mode == "render-settings";
+    const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings;
     if (v.status.empty() && !typing_ready_ && !image_export) {
-        v.status = options_.input == "none"
+        v.status = options_.input == InputBackend::None
                        ? "Preview only: this launch cannot type."
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
@@ -385,7 +409,8 @@ PanelView App::view() const {
                    : resident_replacement()
                        ? "Keyboard connection lost. Use Settings > Quit Full Keyboard, then relaunch."
                        : "Keyboard connection lost. Reopen the app to reconnect.";
-    } else if ((unicode_mode() || japanese() || cjk_) && options_.input != "none" && !text_ready_) {
+    } else if ((unicode_mode() || japanese() || cjk_) && options_.input != InputBackend::None &&
+               !text_ready_) {
         v.status = "Text delivery unavailable. Waiting for the compositor connection to recover.";
     }
     for (const auto& [pointer, target] : hovered_) {
@@ -426,7 +451,8 @@ bool App::move(unsigned pointer, double x, double y) {
     const auto v = view();
     HoverTarget target;
     for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
-        if (v.popup && !it->id.starts_with("choose:") && it->id != "scroll-menu") {
+        if (v.popup && it->style != ControlStyle::MenuItem &&
+            it->action.kind != ControlKind::ScrollMenu) {
             continue;
         }
         if (it->hit(x, y)) {
@@ -467,7 +493,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false; // Dismissal consumes the click instead of hitting through.
     }
     if (hovered_[pointer].kind == HoverTarget::Kind::Control) {
-        pressed_controls_[pointer] = hovered_[pointer].id;
+        const auto control =
+            std::find_if(v.controls.rbegin(), v.controls.rend(),
+                         [&](const Control& item) { return item.id == hovered_[pointer].id; });
+        if (control != v.controls.rend()) {
+            pressed_controls_[pointer] = {control->id, control->action};
+        }
         return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
@@ -547,7 +578,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                     status_.clear();
                 } else if (sends_text) {
                     const auto text = keymap_->compose(symbol);
-                    if (options_.input == "none") {
+                    if (options_.input == InputBackend::None) {
                         status_.clear();
                     } else {
                         output_.text_press(pointer, text, now);
@@ -587,11 +618,11 @@ bool App::up(unsigned pointer, double x, double y) {
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
     if (it != pressed_controls_.end()) {
-        const auto id = it->second;
+        const auto pressed = it->second;
         pressed_controls_.erase(it);
-        if (hovered_[pointer] == HoverTarget{HoverTarget::Kind::Control, id}) {
+        if (hovered_[pointer] == HoverTarget{HoverTarget::Kind::Control, pressed.id}) {
             try {
-                action(id);
+                action(pressed.action);
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
@@ -630,8 +661,9 @@ bool App::tick(double now) {
     if (updates_) {
         if (updates_->tick(now)) {
             // A new async label must not turn an already-held press into installation.
-            std::erase_if(pressed_controls_,
-                          [](const auto& entry) { return entry.second == "updates"; });
+            std::erase_if(pressed_controls_, [](const auto& entry) {
+                return entry.second.action.kind == ControlKind::Updates;
+            });
             dirty = true;
         }
         if (updates_->prepared()) {
@@ -877,8 +909,8 @@ void App::refresh_typing() {
     // Hidden panels and native handoffs deliberately pause interaction. That is
     // separate from an unavailable typing backend and must not show a warning.
     const bool typing_ready =
-        options_.start_enabled && options_.mode == "vr" &&
-        (options_.input == "ei" || options_.input == "uinput") &&
+        options_.start_enabled && options_.mode == Mode::Vr &&
+        (options_.input == InputBackend::Ei || options_.input == InputBackend::Uinput) &&
         (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
         backend_ready_;
     dirty |= typing_ready_ != typing_ready;
@@ -900,7 +932,7 @@ void App::commit_japanese() {
     if (text.empty()) {
         return;
     }
-    if (options_.input == "none") {
+    if (options_.input == InputBackend::None) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
     } else if (output_.commit_text(text)) {
@@ -1016,7 +1048,7 @@ bool App::unicode_mode() const {
     const auto& language = profiles_.languages.at(settings_.active.language);
     // External JIS explicitly delegates conversion to a system IME.
     const bool external_jis = language.input_method == "xkb" && language.keymap == "jp";
-    return options_.input != "uinput" && !external_jis;
+    return options_.input != InputBackend::Uinput && !external_jis;
 }
 bool App::text_key(const Key& key, const std::set<int>& mods) const {
     if (key.action_kind == ActionKind::Key && key.action == "NumLock") {
@@ -1120,7 +1152,7 @@ void App::commit_cjk() {
         return;
     }
     const auto text = cjk_->text();
-    if (!text.empty() && (options_.input == "none" || output_.commit_text(text))) {
+    if (!text.empty() && (options_.input == InputBackend::None || output_.commit_text(text))) {
         cjk_->cancel();
         status_.clear();
     } else {
@@ -1188,22 +1220,25 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     }
     return false;
 }
-void App::action(const std::string& id) {
-    const std::map<std::string, PlacementAction> adjustments = {
-        {"size-smaller", PlacementAction::Smaller}, {"size-larger", PlacementAction::Larger}};
-    if (const auto adjustment = adjustments.find(id); adjustment != adjustments.end()) {
+void App::action(const ControlAction& command) {
+    const auto kind = command.kind;
+    if (kind == ControlKind::Smaller || kind == ControlKind::Larger) {
         cancel();
-        placement_actions_.push_back(adjustment->second);
+        placement_actions_.push_back(kind == ControlKind::Smaller ? PlacementAction::Smaller
+                                                                  : PlacementAction::Larger);
         return;
     }
-    if (output_.text_pending() && (id.starts_with("cjk-") || id.starts_with("ime-"))) {
-        if (id != "cjk-cancel" && id != "ime-cancel" && id != "ime-toggle") {
+    if (output_.text_pending() &&
+        ((kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate) ||
+         (kind >= ControlKind::ImeToggle && kind <= ControlKind::ImeCandidate))) {
+        if (kind != ControlKind::CjkCancel && kind != ControlKind::ImeCancel &&
+            kind != ControlKind::ImeToggle) {
             return;
         }
         output_.cancel_text();
     }
-    if (id.starts_with("cjk-") && cjk_) {
-        if (id == "cjk-toggle") {
+    if ((kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate) && cjk_) {
+        if (kind == ControlKind::CjkToggle) {
             if (!cjk_->empty()) {
                 commit_cjk();
                 if (!cjk_->empty()) {
@@ -1211,63 +1246,63 @@ void App::action(const std::string& id) {
                 }
             }
             cjk_latin_ = !cjk_latin_;
-        } else if (id == "cjk-commit") {
+        } else if (kind == ControlKind::CjkCommit) {
             if (!output_.retry_available()) {
                 commit_cjk();
             } else {
                 retry_output();
             }
-        } else if (id == "cjk-cancel") {
+        } else if (kind == ControlKind::CjkCancel) {
             cjk_->cancel();
-        } else if (id == "cjk-next" || id == "cjk-prev") {
-            cjk_->cycle(id == "cjk-next" ? 1 : -1);
-        } else if (id.starts_with("cjk-candidate-")) {
-            choose_cjk(std::stoi(id.substr(14)));
+        } else if (kind == ControlKind::CjkNext || kind == ControlKind::CjkPrev) {
+            cjk_->cycle(kind == ControlKind::CjkNext ? 1 : -1);
+        } else if (kind == ControlKind::CjkCandidate) {
+            choose_cjk(command.index);
         }
         return;
     }
-    if (id.starts_with("ime-")) {
-        if (id == "ime-toggle") {
+    if ((kind >= ControlKind::ImeToggle && kind <= ControlKind::ImeCandidate)) {
+        if (kind == ControlKind::ImeToggle) {
             composition_.cancel();
             japanese_latin_ = !japanese_latin_;
-        } else if (id == "ime-convert") {
+        } else if (kind == ControlKind::ImeConvert) {
             convert_japanese();
-        } else if (id == "ime-commit") {
+        } else if (kind == ControlKind::ImeCommit) {
             if (!output_.retry_available()) {
                 commit_japanese();
             } else {
                 retry_output();
             }
-        } else if (id == "ime-cancel") {
+        } else if (kind == ControlKind::ImeCancel) {
             composition_.cancel();
-        } else if (id == "ime-hiragana" || id == "ime-katakana") {
-            composition_.script(id == "ime-katakana");
-        } else if (id == "ime-next" || id == "ime-prev") {
-            composition_.cycle(id == "ime-next" ? 1 : -1);
-        } else if (id == "ime-segment-next" || id == "ime-segment-prev") {
-            composition_.segment(id == "ime-segment-next" ? 1 : -1);
-        } else if (id.starts_with("ime-candidate-")) {
-            composition_.choose(std::stoi(id.substr(14)));
+        } else if (kind == ControlKind::ImeHiragana || kind == ControlKind::ImeKatakana) {
+            composition_.script(kind == ControlKind::ImeKatakana);
+        } else if (kind == ControlKind::ImeNext || kind == ControlKind::ImePrev) {
+            composition_.cycle(kind == ControlKind::ImeNext ? 1 : -1);
+        } else if (kind == ControlKind::ImeSegmentNext || kind == ControlKind::ImeSegmentPrev) {
+            composition_.segment(kind == ControlKind::ImeSegmentNext ? 1 : -1);
+        } else if (kind == ControlKind::ImeCandidate) {
+            composition_.choose(command.index);
         }
         return;
     }
-    if (id == "updates" && settings_open_) {
+    if (kind == ControlKind::Updates && settings_open_) {
         if (updates_) {
             updates_->click(monotonic_seconds());
         } else {
             report_status("Updates are available from the installed keyboard.");
         }
-    } else if (id == "close") {
+    } else if (kind == ControlKind::Close) {
         close_panel();
-    } else if (id == "quit" && resident_replacement()) {
+    } else if (kind == ControlKind::Quit && resident_replacement()) {
         set_interaction_active(false);
         quit_ = true;
-    } else if (id == "pin") {
+    } else if (kind == ControlKind::Pin) {
         cancel();
         settings_.pinned = !settings_.pinned;
         status_.clear();
         save();
-    } else if (id == "language-cycle") {
+    } else if (kind == ControlKind::LanguageCycle) {
         const auto& entries = cycle_entries_;
         if (entries.size() > 1) {
             const auto current =
@@ -1292,17 +1327,17 @@ void App::action(const std::string& id) {
             }
             status_ = failure;
         }
-    } else if (id == "settings") {
+    } else if (kind == ControlKind::Settings) {
         if (settings_open_) {
             back();
         } else {
             show_settings();
         }
-    } else if (id == "recenter") {
+    } else if (kind == ControlKind::Recenter) {
         cancel();
         placement_actions_.clear();
         recenter_ = true;
-    } else if (id == "apply") {
+    } else if (kind == ControlKind::Apply) {
         // Prepare/activate first. A failed candidate must leave all saved state intact.
         activate(pending_);
         settings_.favorites = pending_favorites_;
@@ -1317,46 +1352,48 @@ void App::action(const std::string& id) {
         rebuild_cycle_entries();
         save();
         settings_open_ = false;
-    } else if (id == "reload") {
+    } else if (kind == ControlKind::Reload) {
         reload();
-    } else if (id == "layout" || id == "language" || id == "theme") {
+    } else if (kind == ControlKind::ToggleDropdown) {
         pressed_controls_.clear();
         hovered_.clear();
-        settings_ui_.toggle(id);
-    } else if (const auto choice = settings_ui_.choice(id)) {
+        settings_ui_.toggle(command.value);
+    } else if (kind == ControlKind::ChooseLayout || kind == ControlKind::ChooseLanguage ||
+               kind == ControlKind::ChooseTheme) {
         pressed_controls_.clear();
         hovered_.clear();
-        if (choice->first == "layout") {
-            pending_.layout = choice->second;
-        } else if (choice->first == "language") {
-            pending_.language = choice->second;
+        if (kind == ControlKind::ChooseLayout) {
+            pending_.layout = command.value;
+        } else if (kind == ControlKind::ChooseLanguage) {
+            pending_.language = command.value;
             pending_.layout = compatible_layout(profiles_, pending_);
-        } else if (choice->first == "theme") {
-            pending_.theme = choice->second;
+        } else if (kind == ControlKind::ChooseTheme) {
+            pending_.theme = command.value;
         }
         settings_ui_.close_popup();
         update_settings_ui();
-    } else if (id == "hide-numpad") {
+    } else if (kind == ControlKind::HideNumpad) {
         pending_hide_numpad_ = !pending_hide_numpad_;
         update_settings_ui();
-    } else if (id == "use-drag-to-move") {
+    } else if (kind == ControlKind::UseDragToMove) {
         pending_use_drag_to_move_ = !pending_use_drag_to_move_;
         update_settings_ui();
-    } else if (id == "replace-native-keyboard") {
+    } else if (kind == ControlKind::ReplaceNativeKeyboard) {
         pending_replace_native_keyboard_ = !pending_replace_native_keyboard_;
-        std::erase_if(pressed_controls_,
-                      [](const auto& entry) { return entry.second == "start-with-steamos"; });
+        std::erase_if(pressed_controls_, [](const auto& entry) {
+            return entry.second.action.kind == ControlKind::StartWithSteamos;
+        });
         update_settings_ui();
-    } else if (id == "start-with-steamos" && pending_replace_native_keyboard_) {
+    } else if (kind == ControlKind::StartWithSteamos && pending_replace_native_keyboard_) {
         pending_start_with_steamos_ = !pending_start_with_steamos_;
         update_settings_ui();
-    } else if (id == "native-fallback") {
+    } else if (kind == ControlKind::NativeFallback) {
         cancel();
         native_fallback_ = true;
-    } else if (id == "auto-leveling") {
+    } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
         update_settings_ui();
-    } else if (id == "favorite") {
+    } else if (kind == ControlKind::Favorite) {
         const bool exists =
             std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
                         [&](const Favorite& f) { return same_pair(f.selection, pending_); });
@@ -1383,8 +1420,8 @@ void App::action(const std::string& id) {
 }
 bool App::replacement_ready() const {
     const auto& language = profiles_.languages.at(settings_.active.language);
-    return options_.mode == "vr" && options_.input == "ei" && options_.start_enabled && backend_ready_ &&
-           text_ready_ && !(language.input_method == "xkb" && language.keymap == "jp");
+    return options_.mode == Mode::Vr && options_.input == InputBackend::Ei && options_.start_enabled &&
+           backend_ready_ && text_ready_ && !(language.input_method == "xkb" && language.keymap == "jp");
 }
 bool App::take_native_fallback() {
     return std::exchange(native_fallback_, false);

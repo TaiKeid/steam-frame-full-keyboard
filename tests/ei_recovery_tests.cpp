@@ -332,8 +332,8 @@ void app_ordering_barrier() {
     NativeReplacement wrapper(*sink);
     Options options;
     options.config_dir = server.directory / "config";
-    options.mode = "vr";
-    options.input = "ei";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
     options.start_enabled = true;
     App app(options, wrapper);
     auto point = [&](const std::string& action) -> std::pair<int, int> {

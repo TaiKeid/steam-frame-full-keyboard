@@ -12,6 +12,57 @@ constexpr int panel_height = 600;
 constexpr int popup_margin = 200;
 constexpr int texture_height = panel_height + 2 * popup_margin;
 enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle };
+enum class ControlKind {
+    None,
+    Settings,
+    Apply,
+    Reload,
+    Updates,
+    NativeFallback,
+    Quit,
+    Recenter,
+    Smaller,
+    Larger,
+    Pin,
+    LanguageCycle,
+    Close,
+    MoveHandle,
+    ToggleDropdown,
+    ChooseLayout,
+    ChooseLanguage,
+    ChooseTheme,
+    Favorite,
+    HideNumpad,
+    UseDragToMove,
+    AutoLeveling,
+    ReplaceNativeKeyboard,
+    StartWithSteamos,
+    ScrollMenu,
+    // Contiguous composition groups support policy checks without inspecting IDs.
+    ImeToggle,
+    ImeConvert,
+    ImeCommit,
+    ImeCancel,
+    ImeHiragana,
+    ImeKatakana,
+    ImeNext,
+    ImePrev,
+    ImeSegmentNext,
+    ImeSegmentPrev,
+    ImeCandidate,
+    CjkToggle,
+    CjkCommit,
+    CjkCancel,
+    CjkNext,
+    CjkPrev,
+    CjkCandidate
+};
+struct ControlAction {
+    ControlKind kind{ControlKind::None};
+    int index{};
+    std::string value{};
+    bool operator==(const ControlAction&) const = default;
+};
 struct Control {
     bool operator==(const Control&) const = default;
     std::string id, label;
@@ -21,6 +72,7 @@ struct Control {
     ControlStyle style{ControlStyle::Button};
     std::optional<Rect> clip{};
     bool enabled{true};
+    ControlAction action{};
     bool hit(double x, double y) const {
         return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }
