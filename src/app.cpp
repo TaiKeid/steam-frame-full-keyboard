@@ -71,21 +71,33 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     settings_ = load_settings(options.config_dir, settings_errors);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     persisted_active_ = settings_.active;
+    auto fallback_status = [&](const std::string& message) {
+        profiles_.errors.push_back(message);
+        if (!startup_status_.empty()) {
+            startup_status_ += " ";
+        }
+        startup_status_ += message;
+    };
     if (!profiles_.themes.contains(settings_.active.theme)) {
-        profiles_.errors.push_back("Saved theme unavailable. Using Graphite.");
+        fallback_status("Saved theme unavailable. Using Graphite.");
         settings_.active.theme = "graphite";
+    }
+    if (!profiles_.languages.contains(settings_.active.language)) {
+        fallback_status("Saved language unavailable. Using English.");
+        settings_.active.language = "en-us";
     }
     try {
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
     } catch (const std::exception& error) {
-        profiles_.errors.push_back(error.what());
+        fallback_status("Saved language could not be prepared. Using English. " +
+                        std::string(error.what()));
         settings_.active.language = "en-us";
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at("en-us"));
     }
     const auto layout = compatible_layout(profiles_, settings_.active);
     if (layout != settings_.active.layout) {
-        profiles_.errors.push_back("Saved layout unavailable or incompatible. Using " + layout + ".");
+        fallback_status("Saved layout unavailable or incompatible. Using " + layout + ".");
         settings_.active.layout = layout;
     }
     try {
@@ -105,9 +117,6 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         cjk_.reset();
         startup_status_ = "Saved selection has no compatible layout. Using English defaults.";
     }
-    if (settings_.active != persisted_active_ && startup_status_.empty()) {
-        startup_status_ = profiles_.errors.front();
-    }
     keyboard_.set_num(settings_.num_lock);
     pending_ = default_ = settings_.active;
     rebuild_cycle_entries();
@@ -118,7 +127,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     update_settings_ui();
-    status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
+    status_ = !startup_status_.empty()   ? startup_status_
+              : profiles_.errors.empty() ? ""
+                                         : profiles_.errors.front();
     if (const auto target = profiles_.languages.find(options_.target_language);
         target != profiles_.languages.end()) {
         target_language_ = target->second;

@@ -261,6 +261,28 @@ void incompatible_saved_language() {
         require(app.view().settings, "Settings remains reachable to repair the saved profile");
     }
 }
+void missing_saved_language_status() {
+    for (bool malformed : {false, true}) {
+        TemporaryDirectory directory;
+        if (malformed) {
+            fs::create_directories(directory.path / "languages");
+            std::ofstream(directory.path / "languages/broken.json") << "{broken";
+        }
+        const Selection selection{"en-us-full", "removed-language", "graphite"};
+        save_selection(directory.path, selection);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = "render";
+        CaptureSink sink;
+        App app(options, sink);
+        const auto message = "Saved language unavailable. Using English.";
+        require(app.selection().language == "en-us" && app.view().status == message,
+                "missing language reports its own readable fallback reason");
+        click(app, "pin");
+        require(saved(app).active == selection && app.view().status == message,
+                "fallback reason and saved choice survive unrelated preference saves");
+    }
+}
 void key_control_namespaces() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "layouts");
@@ -1280,6 +1302,7 @@ int main() {
         compact_toolbar();
         startup_profile_fallback();
         incompatible_saved_language();
+        missing_saved_language_status();
         key_control_namespaces();
         favorite_cache_reload();
         background_preferences();
