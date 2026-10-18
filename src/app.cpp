@@ -88,8 +88,24 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         profiles_.errors.push_back("Saved layout unavailable or incompatible. Using " + layout + ".");
         settings_.active.layout = layout;
     }
-    validate_selection_profiles(profiles_, settings_.active);
-    if (settings_.active != persisted_active_) {
+    try {
+        validate_selection_profiles(profiles_, settings_.active);
+    } catch (const std::exception& error) {
+        profiles_.errors.push_back(error.what());
+        // Even the default IDs can have user overrides. Restore only their
+        // embedded models as a last resort, keeping other profiles and the
+        // persisted choice available for repair in Settings.
+        settings_.active = {};
+        const auto defaults = load_profiles({}, {});
+        profiles_.layouts[settings_.active.layout] = defaults.layouts.at(settings_.active.layout);
+        profiles_.languages[settings_.active.language] =
+            defaults.languages.at(settings_.active.language);
+        profiles_.themes[settings_.active.theme] = defaults.themes.at(settings_.active.theme);
+        keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
+        cjk_.reset();
+        startup_status_ = "Saved selection has no compatible layout. Using English defaults.";
+    }
+    if (settings_.active != persisted_active_ && startup_status_.empty()) {
         startup_status_ = profiles_.errors.front();
     }
     keyboard_.set_num(settings_.num_lock);

@@ -230,6 +230,37 @@ void startup_profile_fallback() {
         require(saved(app).active == app.selection(), "explicit Apply commits the displayed fallback");
     }
 }
+void incompatible_saved_language() {
+    for (const auto* id : {"xx-test", "en-us"}) {
+        TemporaryDirectory directory;
+        fs::create_directories(directory.path / "languages");
+        const auto path = directory.path / "languages" / (std::string(id) + ".json");
+        const auto json = std::string(R"({"schema_version":1,"id":")") + id +
+                          R"(","name":"No compatible layout","locale":"en-US",
+            "keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},
+            "legends":{"source":"keymap","overrides":{}},"font_families":["sans-serif"],
+            "required_keys":["Backquote","Convert"]})";
+        std::ofstream(path) << json;
+        const Selection selection{"en-us-full", id, "graphite"};
+        save_selection(directory.path, selection);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = "render";
+        CaptureSink sink;
+        App app(options, sink);
+        require(app.selection() == Selection{} && app.view().language->required_keys.empty(),
+                "unmatchable language falls back to usable embedded English defaults");
+        require(!app.view().status.empty(), "last-resort fallback explains the saved selection failure");
+        click(app, "pin");
+        require(saved(app).active == selection && saved(app).pinned,
+                "last-resort fallback preserves saved profiles during ordinary saves");
+        std::ifstream original(path);
+        require(std::string(std::istreambuf_iterator<char>(original), {}) == json,
+                "runtime recovery never rewrites the incompatible profile file");
+        app.show_settings();
+        require(app.view().settings, "Settings remains reachable to repair the saved profile");
+    }
+}
 void key_control_namespaces() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "layouts");
@@ -1248,6 +1279,7 @@ int main() {
         native_num_restore();
         compact_toolbar();
         startup_profile_fallback();
+        incompatible_saved_language();
         key_control_namespaces();
         favorite_cache_reload();
         background_preferences();
