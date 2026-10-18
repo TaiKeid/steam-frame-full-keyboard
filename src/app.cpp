@@ -16,6 +16,8 @@ double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 namespace {
+constexpr auto output_blocked_status =
+    "Waiting for compositor text delivery. Try the key again when it completes.";
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -481,6 +483,13 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
+        // Pending text is resolved below. Cancellation can leave a transport
+        // barrier even when there is no pending result left for App to consume.
+        if (!local && !gate_.text_pending() && gate_.output_blocked()) {
+            status_ = output_blocked_status;
+            dirty = true;
+            return false;
+        }
         const bool num_dependent = key->action == "NumpadDecimal" ||
                                    (key->action.starts_with("Numpad") && key->action.size() == 7 &&
                                     g_ascii_isdigit(key->action.back()));
@@ -883,6 +892,10 @@ bool App::japanese() const {
 }
 void App::refresh_typing() {
     const bool ready = gate_.pump();
+    if (status_ == output_blocked_status && !gate_.output_blocked()) {
+        status_.clear();
+        dirty = true;
+    }
     const bool reset = gate_.take_input_reset();
     const bool can_resume = gate_.can_resume();
     if (reset || (backend_ready_ && !ready)) {

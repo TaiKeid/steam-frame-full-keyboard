@@ -27,6 +27,9 @@ class KeySink {
     // Optional asynchronous transports retain one commit until the caller consumes its result.
     virtual bool text_pending() const { return false; }
     virtual void cancel_text() {}
+    // An outstanding text request can still order native downs after the caller
+    // cancels or consumes a timeout. Releases remain allowed through this barrier.
+    virtual bool output_blocked() const { return false; }
     virtual int shortcut_code(xkb_keysym_t, int fallback) { return fallback; }
     // Unknown until the receiving system reports its lock state.
     virtual std::optional<bool> num_lock_state() { return {}; }

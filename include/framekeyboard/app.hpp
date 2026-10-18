@@ -48,6 +48,7 @@ class InputGate : public KeySink {
     bool commit_text(const std::string& text) override { return enabled && target_.commit_text(text); }
     bool text_pending() const override { return target_.text_pending(); }
     void cancel_text() override { target_.cancel_text(); }
+    bool output_blocked() const override { return target_.output_blocked(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
         return target_.shortcut_code(symbol, fallback);
     }

@@ -1,3 +1,4 @@
+#include "framekeyboard/app.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
@@ -315,6 +316,77 @@ void asynchronous_text() {
     });
     require(text.connections == connections + 1, "text reconnect restores readiness");
 }
+void app_ordering_barrier() {
+    Server server;
+    TextServer text(server.directory / "text");
+    double now = 10;
+    auto connecting = std::async(std::launch::async, [&] {
+        return std::make_unique<EiSink>(server.socket, server.directory / "text", [&] { return now; });
+    });
+    server.until([&] { return connecting.wait_for(0ms) == std::future_status::ready; });
+    auto sink = connecting.get();
+    server.until([&] {
+        text.pump();
+        return sink->text_available();
+    });
+    NativeReplacement wrapper(*sink);
+    Options options;
+    options.config_dir = server.directory / "config";
+    options.mode = "vr";
+    options.input = "ei";
+    options.start_enabled = true;
+    App app(options, wrapper);
+    auto point = [&](const std::string& action) -> std::pair<int, int> {
+        const auto view = app.view();
+        for (int y = 96; y < panel_height; y += 4) {
+            for (int x = 0; x < panel_width; x += 4) {
+                const auto* key = app.renderer.hit_key(view, x, y);
+                if (key && key->action == action) {
+                    return {x, y};
+                }
+            }
+        }
+        throw std::runtime_error("missing barrier fixture key");
+    };
+    const auto [ax, ay] = point("KeyA");
+    require(app.down(0, ax, ay, now), "App starts an asynchronous character commit");
+    app.up(0, ax, ay);
+    now += 2;
+    app.tick(now);
+    app.cancel();
+    require(!wrapper.text_pending() && wrapper.output_blocked(),
+            "cancellation clears retry state but keeps the transport ordering barrier");
+    const auto [x, y] = point("ArrowLeft");
+    require(!app.down(0, x, y, now) && !app.pointer_pressed(0),
+            "blocked native press has no accepted capture, pressed visual or haptic");
+    app.up(0, x, y);
+    require(app.view().status.starts_with("Waiting for compositor text delivery."),
+            "blocked native press explains the outstanding text");
+    server.pump();
+    require(server.keys.empty(), "blocked native press never reaches libei");
+    for (int i = 0; i < 10; ++i) {
+        text.pump();
+        app.tick(now);
+    }
+    require(!wrapper.output_blocked() && app.view().status.empty(),
+            "late sync clears the barrier and waiting status");
+    require(app.down(0, x, y, now), "same native press is accepted after late sync");
+    app.up(0, x, y);
+    server.until([&] { return server.keys.size() == 2; });
+    require(server.keys == std::vector<std::pair<unsigned, bool>>{{105, true}, {105, false}},
+            "unblocked native press reaches libei with balanced release");
+    require(app.down(0, ax, ay, now), "start another character commit");
+    app.up(0, ax, ay);
+    for (int i = 0; i < 10; ++i) {
+        text.pump();
+        sink->pump();
+    }
+    require(wrapper.text_pending(), "completed text still awaits App result consumption");
+    require(app.down(0, x, y, now),
+            "native press can consume an already completed text result without extra rejection");
+    app.up(0, x, y);
+    server.until([&] { return server.keys.size() == 4; });
+}
 #endif
 void reconnect() {
     auto server = std::make_unique<Server>();
@@ -387,6 +459,7 @@ int main() {
         reconnect();
 #ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
         asynchronous_text();
+        app_ordering_barrier();
 #endif
         for (const auto* layout : {"us", "fr"}) {
             Server mapping("input", layout);

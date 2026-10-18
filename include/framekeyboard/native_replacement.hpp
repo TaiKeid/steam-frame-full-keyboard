@@ -48,6 +48,7 @@ class NativeReplacement : public KeySink {
     bool commit_text(const std::string& text) override;
     bool text_pending() const override { return pending_id_ != 0 || local_.text_pending(); }
     void cancel_text() override;
+    bool output_blocked() const override { return !remote_ && local_.output_blocked(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
         return local_.shortcut_code(symbol, fallback);
     }
