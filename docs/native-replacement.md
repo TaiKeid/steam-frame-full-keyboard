@@ -28,6 +28,8 @@ This creates only a user-local `framekeyboard-autostart.service` and a link unde
 
 Settings Quit pauses the app until the next SteamVR start or SteamOS login if both options remain enabled. Disable Start with SteamOS and apply to keep it off across those starts. Deliberate VR exits use status 3, which the unit treats as successful without an automatic restart; runtime shutdown uses normal exit status and is retried. The unit preserves independent fallback helpers and in-app update handoff when the main process exits. Startup reads the saved settings before opening input or VR, so a stale unit cannot activate it with either option off. If startup fails, Steam's keyboard remains available. Preview/image exports never install a startup unit.
 
+Repeated startup failures use five restart-delay steps from 3 seconds up to 60 seconds. These backoff directives require systemd 254 or later; older managers ignore them and retain the 3-second delay. VR launches check for a running SteamVR server before parsing profiles or connecting input. Existing owned units receive the new settings through startup reconciliation.
+
 ## Coverage
 
 Service-started keyboards retain service supervision through an in-app update or rollback. The original process stays registered until systemd confirms the replacement's PID. Subsequent crashes and SteamVR shutdown still use the startup unit's recovery policy. A manual app launch remains independent of the startup service.

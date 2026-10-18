@@ -1,4 +1,5 @@
 #include "framekeyboard/startup.hpp"
+#include "framekeyboard/vr_runtime.hpp"
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -34,6 +35,13 @@ int main(int argc, char** argv) {
         char pattern[] = "/tmp/full-keyboard-startup-XXXXXX";
         const fs::path base = argc == 2 ? fs::path(argv[1]) : fs::path(mkdtemp(pattern));
         const auto root = base / "install";
+        const auto proc = base / "proc";
+        require(!steamvr_running(proc), "missing proc directory cannot imply a running server");
+        fs::create_directories(proc / "100");
+        std::ofstream(proc / "100/comm") << "vrserver-other\n";
+        require(!steamvr_running(proc), "SteamVR check requires an exact process name");
+        std::ofstream(proc / "100/comm") << "vrserver\n";
+        require(steamvr_running(proc), "SteamVR check finds a running server");
         const auto binary = root / "releases/test/bin/framekeyboard";
         const auto units = base / "units";
         const auto unit = units / "framekeyboard-autostart.service";
@@ -66,12 +74,24 @@ int main(int argc, char** argv) {
                         std::string::npos &&
                     contents.find("WantedBy=steamvr.service") != std::string::npos,
                 "runtime exits restart while deliberate exits pause until the next SteamVR start");
+        require(contents.find("RestartSec=3\nRestartSteps=5\nRestartMaxDelaySec=60\n") !=
+                    std::string::npos,
+                "persistent failures back off to a one-minute restart delay");
         configure_startup(settings, binary, config, units, reload);
         require(reloads == 1, "ordinary preference saves do not reload systemd repeatedly");
         if (argc == 2) {
             std::cout << unit << '\n';
             return 0;
         }
+        auto old_contents = contents;
+        const auto backoff = old_contents.find("RestartSteps=5\nRestartMaxDelaySec=60\n");
+        old_contents.erase(backoff, std::string("RestartSteps=5\nRestartMaxDelaySec=60\n").size());
+        std::ofstream(unit) << old_contents;
+        int migrations = 0;
+        configure_startup(settings, binary, config, units, [&] { ++migrations; });
+        configure_startup(settings, binary, config, units, [&] { ++migrations; });
+        require(read(unit) == contents && migrations == 1,
+                "reconcile migrates a pre-backoff owned unit exactly once");
         fs::create_directories(legacy.parent_path());
         fs::rename(link, legacy);
         bool migration_failed = false;

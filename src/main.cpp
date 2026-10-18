@@ -3,6 +3,7 @@
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/startup.hpp"
 #include "framekeyboard/updates.hpp"
+#include "framekeyboard/vr_runtime.hpp"
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -147,9 +148,10 @@ int main(int argc, char** argv) {
                                                     : "Recenter requested from the running keyboard.\n");
                     return deliberate_exit;
                 }
+                fk::require_steamvr();
             }
-            auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
             if (options.mode == "check" || options.mode == "describe") {
+                auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
                 const auto settings = fk::load_settings(options.config_dir, profiles.errors);
                 fk::validate_selection(profiles, settings.active);
                 if (options.mode == "describe") {
@@ -174,9 +176,11 @@ int main(int argc, char** argv) {
                 return profiles.errors.empty() ? 0 : 1;
             }
             std::unique_ptr<fk::KeySink> sink;
-            if (options.input != "none" && !options.target_language.empty() &&
-                !profiles.languages.contains(options.target_language)) {
-                throw std::runtime_error("unknown target-language profile");
+            if (options.input != "none" && !options.target_language.empty()) {
+                const auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
+                if (!profiles.languages.contains(options.target_language)) {
+                    throw std::runtime_error("unknown target-language profile");
+                }
             }
             if (options.input == "ei") {
                 if (options.ei_socket.empty()) {

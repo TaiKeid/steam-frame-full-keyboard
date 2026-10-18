@@ -4,6 +4,7 @@
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_haptics.hpp"
+#include "framekeyboard/vr_runtime.hpp"
 #include "framekeyboard/vr_texture.hpp"
 #include "openvr.h"
 
@@ -365,18 +366,7 @@ class VrPanel {
         // Connect only once: a background connect/disconnect followed immediately
         // by an overlay connection can leave SteamVR using the old legacy input
         // context. On this Linux-only app, refuse launch if no VR server is running.
-        bool server_running = false;
-        for (const auto& entry : fs::directory_iterator("/proc")) {
-            std::ifstream name(entry.path() / "comm");
-            std::string process_name;
-            if (std::getline(name, process_name) && process_name == "vrserver") {
-                server_running = true;
-                break;
-            }
-        }
-        if (!server_running) {
-            throw std::runtime_error("SteamVR must already be running");
-        }
+        require_steamvr();
         vr::VR_Init(&error, vr::VRApplication_Overlay);
         if (error != vr::VRInitError_None) {
             throw std::runtime_error(vr::VR_GetVRInitErrorAsEnglishDescription(error));

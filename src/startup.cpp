@@ -166,7 +166,7 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
                    quoted(current / "share/framekeyboard") + " --config-dir " +
                    quoted(fs::absolute(config_dir)) +
                    "\nRestart=always\nRestartPreventExitStatus=3\nSuccessExitStatus=3\n"
-                   "RestartSec=3\nTimeoutStopSec=5\n"
+                   "RestartSec=3\nRestartSteps=5\nRestartMaxDelaySec=60\nTimeoutStopSec=5\n"
                    "# Updater and native-fallback helpers must outlive the parent during handoff.\n"
                    "KillMode=process\n\n[Install]\nWantedBy=steamvr.service\n";
         if (previous == contents && linked && !legacy_linked) {
