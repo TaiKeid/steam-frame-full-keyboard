@@ -1,4 +1,9 @@
 #include "framekeyboard/ei_input.hpp"
+#include "framekeyboard/native_replacement.hpp"
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+#include "gamescope-input-method-server.h"
+#include <wayland-server.h>
+#endif
 #include <chrono>
 #include <cstring>
 #include <future>
@@ -169,10 +174,148 @@ void socket_routing_tests() {
         require(!default_display.contacted(), "must never contact unrelated gamescope-0");
     }
 }
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+// An isolated protocol peer, pumped explicitly so sync replies can be delayed.
+struct TextServer {
+    wl_display* display{wl_display_create()};
+    wl_resource* input{};
+    std::string pending;
+    std::vector<std::string> commits;
+    unsigned connections{};
+    explicit TextServer(const fs::path& socket) {
+        require(display && wl_display_add_socket(display, socket.c_str()) == 0,
+                "isolated Wayland socket");
+        wl_global_create(display, &wl_seat_interface, 1, this,
+                         [](wl_client* client, void*, std::uint32_t, std::uint32_t id) {
+                             wl_resource_create(client, &wl_seat_interface, 1, id);
+                         });
+        wl_global_create(
+            display, &gamescope_input_method_manager_interface, 1, this,
+            [](wl_client* client, void* data, std::uint32_t, std::uint32_t id) {
+                auto* resource =
+                    wl_resource_create(client, &gamescope_input_method_manager_interface, 1, id);
+                static const struct gamescope_input_method_manager_interface implementation{
+                    [](wl_client*, wl_resource* resource) { wl_resource_destroy(resource); },
+                    [](wl_client* client, wl_resource* manager, wl_resource*, std::uint32_t id) {
+                        auto& self = *static_cast<TextServer*>(wl_resource_get_user_data(manager));
+                        ++self.connections;
+                        self.input =
+                            wl_resource_create(client, &gamescope_input_method_interface, 1, id);
+                        static const struct gamescope_input_method_interface implementation{
+                            [](wl_client*, wl_resource* resource) { wl_resource_destroy(resource); },
+                            [](wl_client*, wl_resource* resource, std::uint32_t) {
+                                auto& self =
+                                    *static_cast<TextServer*>(wl_resource_get_user_data(resource));
+                                self.commits.push_back(self.pending);
+                                self.pending.clear();
+                            },
+                            [](wl_client*, wl_resource* resource, const char* text) {
+                                static_cast<TextServer*>(wl_resource_get_user_data(resource))->pending =
+                                    text;
+                            },
+                            [](wl_client*, wl_resource*, std::uint32_t) {},
+                            nullptr,
+                            nullptr,
+                            nullptr,
+                            nullptr};
+                        wl_resource_set_implementation(
+                            self.input, &implementation, &self, [](wl_resource* resource) {
+                                auto& self =
+                                    *static_cast<TextServer*>(wl_resource_get_user_data(resource));
+                                if (self.input == resource) {
+                                    self.input = nullptr;
+                                }
+                            });
+                        gamescope_input_method_send_done(self.input, 1);
+                    }};
+                wl_resource_set_implementation(resource, &implementation, data, nullptr);
+            });
+    }
+    ~TextServer() {
+        wl_display_destroy_clients(display);
+        wl_display_destroy(display);
+    }
+    void pump() {
+        wl_event_loop_dispatch(wl_display_get_event_loop(display), 0);
+        wl_display_flush_clients(display);
+    }
+};
+void asynchronous_text() {
+    Server server;
+    TextServer text(server.directory / "text");
+    double now = 10;
+    auto connecting = std::async(std::launch::async, [&] {
+        return std::make_unique<EiSink>(server.socket, server.directory / "text", [&] { return now; });
+    });
+    server.until([&] {
+        text.pump();
+        return connecting.wait_for(0ms) == std::future_status::ready;
+    });
+    auto sink = connecting.get();
+    server.until([&] {
+        text.pump();
+        return sink->text_available();
+    });
+    sink->take_input_reset();
+    NativeReplacement wrapper(*sink);
+    const auto start = std::chrono::steady_clock::now();
+    require(!wrapper.commit_text("slow") && wrapper.text_pending(), "commit starts asynchronously");
+    require(std::chrono::steady_clock::now() - start < 16ms, "commit does not wait for compositor");
+    sink->send(30, 1);
+    now += 2;
+    sink->pump();
+    require(sink->text_available() && !wrapper.commit_text("slow") && !wrapper.text_pending(),
+            "timeout reports failure without killing text connection");
+    sink->send(31, 1);
+    server.pump();
+    require(server.keys.empty(), "native downs cannot overtake unresolved text after timeout");
+    // Deliver the old sync, then retry explicitly on the same connection.
+    for (int i = 0; i < 10; ++i) {
+        text.pump();
+        sink->pump();
+    }
+    require(!wrapper.commit_text("retry") && wrapper.text_pending(), "same connection accepts retry");
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return wrapper.commit_text("retry");
+    });
+    require(text.commits == std::vector<std::string>{"slow", "retry"}, "no automatic duplicate commit");
+    sink->send(32, 1);
+    sink->send(32, 0);
+    server.until([&] { return server.keys.size() == 2; });
+    require(!wrapper.commit_text("cancel") && wrapper.text_pending(), "local pending is forwarded");
+    wrapper.cancel_text();
+    require(!wrapper.text_pending(), "local cancellation is forwarded");
+    sink->send(33, 1);
+    server.pump();
+    require(server.keys.size() == 2, "cancel retains outstanding text ordering barrier");
+    for (int i = 0; i < 10; ++i) {
+        text.pump();
+        sink->pump();
+    }
+    const auto connections = text.connections;
+    gamescope_input_method_send_unavailable(text.input);
+    text.pump();
+    require(!sink->text_available(), "unavailable retires connection");
+    now += .9;
+    text.pump();
+    require(!sink->text_available() && text.connections == connections, "reconnect respects backoff");
+    now += .2;
+    server.until([&] {
+        text.pump();
+        return sink->text_available();
+    });
+    require(text.connections == connections + 1, "text reconnect restores readiness");
+}
+#endif
 } // namespace
 int main() {
     try {
         socket_routing_tests();
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+        asynchronous_text();
+#endif
         for (const auto* layout : {"us", "fr"}) {
             Server mapping("input", layout);
             auto connecting =

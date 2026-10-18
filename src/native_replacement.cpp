@@ -425,6 +425,7 @@ bool NativeReplacement::commit_text(const std::string& text) {
     return false;
 }
 void NativeReplacement::cancel_text() {
+    local_.cancel_text();
     pending_id_ = 0;
     pending_result_.reset();
     pending_text_.clear();

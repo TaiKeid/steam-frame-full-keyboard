@@ -45,6 +45,13 @@ int main() {
         options.start_enabled = true;
         options.config_dir = directory;
         App app(options, sink); // No --target-language and no changes to system layouts.
+        for (int i = 0; i < 200 && !sink.text_available(); ++i) {
+            app.tick(monotonic_seconds());
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (!sink.text_available()) {
+            throw std::runtime_error("Gamescope Unicode text protocol unavailable");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         XSetInputFocus(display, window, RevertToPointerRoot, CurrentTime);
         XSync(display, False);
@@ -87,6 +94,7 @@ int main() {
             expected += addition;
             // Drain each commit before the next temporary Unicode keymap is sent.
             for (int attempt = 0; attempt < 100 && received != expected; ++attempt) {
+                app.tick(monotonic_seconds());
                 // No input is sent here. Already-delivered events in our own
                 // receiver remain safe to inspect even if dashboard focus returns.
                 while (XPending(display)) {

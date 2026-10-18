@@ -1,4 +1,5 @@
 #include "framekeyboard/ei_input.hpp"
+#include <algorithm>
 #include <chrono>
 #include <poll.h>
 #include <stdexcept>
@@ -23,8 +24,12 @@ fs::path gamescope_text_socket(const fs::path& input_socket, const fs::path& exp
     // Relative names resolve under XDG_RUNTIME_DIR in both libei and Wayland.
     return input_socket.parent_path() / name.substr(0, name.size() - suffix.size());
 }
-EiSink::EiSink(const fs::path& socket, const fs::path& text_socket)
-    : text_socket_(gamescope_text_socket(socket, text_socket)) {
+EiSink::EiSink(const fs::path& socket, const fs::path& text_socket, GamescopeText::Clock clock)
+    : text_socket_(gamescope_text_socket(socket, text_socket)),
+      clock_(clock ? std::move(clock) : GamescopeText::Clock([] {
+          return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+              .count();
+      })) {
     context_ = ei_new_sender(nullptr);
     if (!context_) {
         throw std::runtime_error("Cannot allocate compositor input connection");
@@ -50,18 +55,29 @@ EiSink::EiSink(const fs::path& socket, const fs::path& text_socket)
         throw;
     }
 }
-bool EiSink::text_available() {
+void EiSink::service_text() {
     if (text_socket_.empty()) {
-        return false; // Never let Wayland fall back to an unrelated default display.
+        return; // Never let Wayland fall back to an unrelated default display.
     }
-    if (!text_attempted_) {
-        text_attempted_ = true;
+    if (text_ && text_->ready()) {
+        text_retry_delay_ = 1;
+    }
+    if (text_ && text_->failed()) {
+        text_.reset();
+        text_retry_at_ = clock_() + text_retry_delay_;
+        text_retry_delay_ = std::min(30.0, text_retry_delay_ * 2);
+    }
+    if (!text_ && clock_() >= text_retry_at_) {
         try {
-            text_ = std::make_unique<GamescopeText>(text_socket_.string());
+            text_ = std::make_unique<GamescopeText>(text_socket_.string(), clock_);
         } catch (const std::exception&) {
-            return false;
+            text_retry_at_ = clock_() + text_retry_delay_;
+            text_retry_delay_ = std::min(30.0, text_retry_delay_ * 2);
         }
     }
+}
+bool EiSink::text_available() {
+    service_text();
     return text_ && text_->ready();
 }
 bool EiSink::commit_text(const std::string& text) {
@@ -71,9 +87,7 @@ bool EiSink::pump() {
     if (disconnected_) {
         return false;
     }
-    if (text_) {
-        text_->ready(); // Flush/dispatch only; no extra thread or blocking roundtrip.
-    }
+    service_text();
     ei_dispatch(context_);
     while (auto* event = ei_get_event(context_)) {
         auto* device = ei_event_get_device(event);
@@ -199,6 +213,9 @@ void EiSink::send(int code, int value) {
         return;
     }
     if (value == 1) {
+        if (text_ && text_->busy()) {
+            return; // A native down cannot overtake unresolved Unicode delivery.
+        }
         if (!held_.insert(code).second) {
             return;
         }

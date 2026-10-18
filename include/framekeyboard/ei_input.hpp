@@ -12,7 +12,8 @@ fs::path gamescope_text_socket(const fs::path& input_socket, const fs::path& exp
 // SteamVR startup-time discovery limitation of a newly created uinput device.
 class EiSink : public KeySink {
   public:
-    explicit EiSink(const fs::path& socket, const fs::path& text_socket = {});
+    explicit EiSink(const fs::path& socket, const fs::path& text_socket = {},
+                    GamescopeText::Clock clock = {});
     ~EiSink() override;
     void send(int code, int value) override;
     bool pump() override;
@@ -20,6 +21,12 @@ class EiSink : public KeySink {
     bool can_resume() const override { return !disconnected_; }
     bool text_available() override;
     bool commit_text(const std::string& text) override;
+    bool text_pending() const override { return text_ && text_->pending(); }
+    void cancel_text() override {
+        if (text_) {
+            text_->cancel();
+        }
+    }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
     std::optional<bool> num_lock_state() override { return num_lock_; }
     EiSink(const EiSink&) = delete;
@@ -27,13 +34,15 @@ class EiSink : public KeySink {
 
   private:
     void read_keymap();
+    void service_text();
     std::unique_ptr<xkb_context, decltype(&xkb_context_unref)> xkb_{nullptr, xkb_context_unref};
     std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> keymap_{nullptr, xkb_keymap_unref};
     xkb_layout_index_t group_{};
     std::optional<bool> num_lock_;
     fs::path text_socket_;
     std::unique_ptr<GamescopeText> text_;
-    bool text_attempted_{};
+    GamescopeText::Clock clock_;
+    double text_retry_at_{}, text_retry_delay_{1};
     ei* context_{};
     ei_device* keyboard_{};
     bool resumed_{}, disconnected_{}, input_reset_{};

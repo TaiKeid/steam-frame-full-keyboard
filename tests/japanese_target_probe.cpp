@@ -48,6 +48,9 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Cannot create test text receiver");
         }
         XSetICFocus(ic);
+        for (int i = 0; i < 200 && !input.text_available(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
         if (!input.text_available()) {
             throw std::runtime_error("Gamescope Unicode text protocol unavailable");
         }
@@ -57,7 +60,12 @@ int main(int argc, char** argv) {
         if (focus != window) {
             throw std::runtime_error("Test window lost focus; no text sent");
         }
-        if (!input.commit_text(expected)) {
+        bool committed = input.commit_text(expected);
+        while (!committed && input.text_pending()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            committed = input.commit_text(expected);
+        }
+        if (!committed) {
             throw std::runtime_error("Text commit rejected");
         }
         std::string received;
