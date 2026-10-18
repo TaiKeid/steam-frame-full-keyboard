@@ -16,12 +16,13 @@ struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
     std::vector<std::string> text;
     std::vector<std::string> delivery;
-    bool available = true, accept = true;
+    bool available = true, accept = true, blocked = false;
     void send(int code, int value) override {
         keys.emplace_back(code, value);
         delivery.push_back("key");
     }
     bool text_available() override { return available; }
+    bool output_blocked() const override { return blocked; }
     bool commit_text(const std::string& value) override {
         if (!accept) {
             return false;
@@ -206,6 +207,14 @@ int main() {
         Sink sink;
         App app(options, sink);
         app.apply({"en-us-full", "ja-romaji", "graphite"});
+        sink.blocked = true;
+        click_key(app, "KeyK");
+        click_key(app, "KeyI");
+        require(app.view().preedit == "き", "output barrier permits local Romaji preedit");
+        click_key(app, "Backspace");
+        require(app.view().preedit.empty() && sink.keys.empty() && sink.text.empty(),
+                "output barrier permits preedit editing without transport output");
+        sink.blocked = false;
         for (const auto& id : {"KeyN", "KeyI", "KeyH", "KeyO", "KeyN"}) {
             click_key(app, id);
         }

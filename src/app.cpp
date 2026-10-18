@@ -476,6 +476,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         const auto modifiers = keyboard_.modifiers();
         const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
         const bool text_local = !ime_local && text_key(*key, modifiers);
+        const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
         const bool cancel_accent = unicode_mode() && keymap_->composing() &&
                                    (key->action == "Escape" || key->action == "Backspace");
         const bool retry_text = !pending_text_.empty() && key->action == "Enter";
@@ -485,7 +486,8 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
         // Pending text is resolved below. Cancellation can leave a transport
         // barrier even when there is no pending result left for App to consume.
-        if (!local && !gate_.text_pending() && gate_.output_blocked()) {
+        // Unicode output also waits; local locks and IME preedit edits can continue.
+        if ((!local || sends_text) && !gate_.text_pending() && gate_.output_blocked()) {
             status_ = output_blocked_status;
             dirty = true;
             return false;
@@ -551,7 +553,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 } else if (cancel_accent) {
                     keymap_->cancel_compose();
                     status_.clear();
-                } else if (text_local && key->action != "CapsLock" && key->action != "NumLock") {
+                } else if (sends_text) {
                     pending_text_ = keymap_->compose(symbol);
                     const auto repeated = pending_text_;
                     if ((flush_text() || gate_.text_pending()) && !repeated.empty()) {

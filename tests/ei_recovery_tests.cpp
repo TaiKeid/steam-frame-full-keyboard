@@ -356,6 +356,17 @@ void app_ordering_barrier() {
     app.cancel();
     require(!wrapper.text_pending() && wrapper.output_blocked(),
             "cancellation clears retry state but keeps the transport ordering barrier");
+    const auto [bx, by] = point("KeyB");
+    require(!app.down(0, bx, by, now) && !app.pointer_pressed(0),
+            "blocked Unicode press has no accepted capture, pressed visual or haptic");
+    app.up(0, bx, by);
+    require(app.view().status.starts_with("Waiting for compositor text delivery."),
+            "blocked Unicode press explains the outstanding text");
+    const auto [cx, cy] = point("CapsLock");
+    for (int i = 0; i < 2; ++i) {
+        require(app.down(0, cx, cy, now), "local lock toggle is allowed during the barrier");
+        app.up(0, cx, cy);
+    }
     const auto [x, y] = point("ArrowLeft");
     require(!app.down(0, x, y, now) && !app.pointer_pressed(0),
             "blocked native press has no accepted capture, pressed visual or haptic");
@@ -375,6 +386,23 @@ void app_ordering_barrier() {
     server.until([&] { return server.keys.size() == 2; });
     require(server.keys == std::vector<std::pair<unsigned, bool>>{{105, true}, {105, false}},
             "unblocked native press reaches libei with balanced release");
+    const auto [ex, ey] = point("Enter");
+    require(app.down(0, ex, ey, now), "Enter has no rejected Unicode text to retry");
+    app.up(0, ex, ey);
+    server.until([&] { return server.keys.size() == 4; });
+    require(server.keys[2] == std::pair<unsigned, bool>{28, true} &&
+                server.keys[3] == std::pair<unsigned, bool>{28, false} &&
+                text.commits == std::vector<std::string>{"a"},
+            "blocked Unicode press leaves no text queued for Enter or automatic delivery");
+    require(app.down(0, bx, by, now), "same Unicode press is accepted after late sync");
+    app.up(0, bx, by);
+    server.until([&] {
+        text.pump();
+        app.tick(now);
+        return !wrapper.text_pending();
+    });
+    require(text.commits == std::vector<std::string>{"a", "b"},
+            "unblocked Unicode press is delivered exactly once");
     require(app.down(0, ax, ay, now), "start another character commit");
     app.up(0, ax, ay);
     for (int i = 0; i < 10; ++i) {
@@ -385,7 +413,7 @@ void app_ordering_barrier() {
     require(app.down(0, x, y, now),
             "native press can consume an already completed text result without extra rejection");
     app.up(0, x, y);
-    server.until([&] { return server.keys.size() == 4; });
+    server.until([&] { return server.keys.size() == 6; });
 }
 #endif
 void reconnect() {
