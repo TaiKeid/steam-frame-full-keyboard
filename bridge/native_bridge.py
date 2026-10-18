@@ -172,16 +172,34 @@ class CDP:
             self.socket.close()
             self.socket = None
 
-    def exact(self, count):
+    def peek(self, count, deadline):
         while len(self.pending) < count:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError()
+            self.socket.settimeout(remaining)
             data = self.socket.recv(min(65536, count - len(self.pending)))
             if not data:
                 raise EOFError()
             self.pending += data
-        data, self.pending = self.pending[:count], self.pending[count:]
-        return data
+        return self.pending[:count]
 
-    def frame(self, opcode, data):
+    def receive_frame(self, deadline):
+        # Do not consume a partial frame on timeout. The next call must be able
+        # to drain a late reply, including one interrupted inside its payload.
+        first, second = self.peek(2, deadline)
+        length, header = second & 127, 2
+        if length == 126:
+            length, header = struct.unpack("!H", self.peek(4, deadline)[2:4])[0], 4
+        elif length == 127:
+            length, header = struct.unpack("!Q", self.peek(10, deadline)[2:10])[0], 10
+        if length > 1024 * 1024 or second & 128 or not first & 0x80 or first & 0x70:
+            raise ValueError("invalid-debug-frame")
+        data = self.peek(header + length, deadline)[header:]
+        self.pending = self.pending[header + length:]
+        return first & 15, data
+
+    def frame(self, opcode, data, deadline):
         size = len(data)
         header = bytes([0x80 | opcode])
         if size < 126:
@@ -191,7 +209,12 @@ class CDP:
         else:
             header += bytes([0xff]) + struct.pack("!Q", size)
         mask = os.urandom(4)
-        self.socket.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+        self.socket.settimeout(max(0.001, deadline - time.monotonic()))
+        try:
+            self.socket.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+        except TimeoutError as error:
+            # A partial write cannot safely be retried on the same stream.
+            raise ConnectionError("debugger-write-failed") from error
 
     def evaluate(self, expression):
         if time.monotonic() - self.network_checked >= 1:
@@ -200,21 +223,12 @@ class CDP:
         self.sequence += 1
         command = {"id": self.sequence, "method": "Runtime.evaluate", "params": {
             "expression": expression, "returnByValue": True, "silent": True}}
-        self.frame(1, json.dumps(command, ensure_ascii=True).encode())
         deadline = time.monotonic() + 0.4
+        self.frame(1, json.dumps(command, ensure_ascii=True).encode(), deadline)
         while time.monotonic() < deadline:
-            first, second = self.exact(2)
-            length = second & 127
-            if length == 126:
-                length = struct.unpack("!H", self.exact(2))[0]
-            elif length == 127:
-                length = struct.unpack("!Q", self.exact(8))[0]
-            if length > 1024 * 1024 or second & 128 or not first & 0x80:
-                raise ValueError("invalid-debug-frame")
-            payload = self.exact(length)
-            opcode = first & 15
+            opcode, payload = self.receive_frame(deadline)
             if opcode == 9:
-                self.frame(10, payload)
+                self.frame(10, payload, deadline)
                 continue
             if opcode == 8:
                 raise EOFError()
@@ -382,6 +396,20 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         held_keys = {}
         pending_repeats = set()
         stopping = False
+        consecutive_timeouts = 0
+
+        def evaluate(expression):
+            nonlocal consecutive_timeouts
+            try:
+                result = client.evaluate(expression)
+            except TimeoutError:
+                consecutive_timeouts += 1
+                if consecutive_timeouts >= 3:
+                    raise ConnectionError("debugger-reply-timeouts")
+                raise
+            consecutive_timeouts = 0
+            return result
+
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
@@ -463,15 +491,19 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
-                if operation == "dismiss":
-                    ok = client.evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true")
-                    next_poll = 0
-                else:
-                    if operation == "key" and message["value"] == 2:
-                        pending_repeats.discard(message["id"])
-                    # The JS side checks the current target and lease again at delivery.
-                    ok = client.evaluate(f"{reference}?.bridge.send({message['request']},"
-                                         f"{json.dumps(message['text'], ensure_ascii=True)}) === true")
+                try:
+                    if operation == "dismiss":
+                        ok = evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true")
+                        next_poll = 0
+                    else:
+                        if operation == "key" and message["value"] == 2:
+                            pending_repeats.discard(message["id"])
+                        # The JS side checks the target and lease again at delivery.
+                        ok = evaluate(f"{reference}?.bridge.send({message['request']},"
+                                      f"{json.dumps(message['text'], ensure_ascii=True)}) === true")
+                except TimeoutError:
+                    ok = False  # Unknown delivery fails this request closed.
+                if operation != "dismiss":
                     send(parent, {"op": f"{operation}-result", "id": message["id"], "ok": ok is True})
                 if ok is not True:
                     fallback_request = message["request"]
@@ -486,33 +518,39 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             if time.monotonic() >= next_poll:
                 poll_frame = {**frame, "fallback": fallback_request is not None,
                               "fallbackRequest": fallback_request}
-                result = client.evaluate(f"{reference}?.bridge.step({json.dumps(poll_frame)})")
-                fallback_request = None
-                if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
-                    raise BridgeUnavailable("steam-incompatible")
-                if guard:
-                    recovery = result.get("externalRestore")
-                    if recovery and recovery["request"] != external_ack:
-                        guard.restore()
-                        external_ack = frame["externalRestored"] = recovery["request"]
-                    candidate = result.get("externalCandidate")
-                    if candidate:
-                        # Dismissal and resummon can both occur between polls. A
-                        # candidate has no logical owner, so any old lease must
-                        # be cancelled before the next exact target is armed.
-                        if guard.armed:
+                try:
+                    result = evaluate(f"{reference}?.bridge.step({json.dumps(poll_frame)})")
+                    if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
+                        raise BridgeUnavailable("steam-incompatible")
+                    if guard:
+                        recovery = result.get("externalRestore")
+                        if recovery and recovery["request"] != external_ack:
+                            guard.restore()
+                            external_ack = frame["externalRestored"] = recovery["request"]
+                        candidate = result.get("externalCandidate")
+                        if candidate:
+                            # Dismissal and resummon can both occur between polls. A
+                            # candidate has no logical owner, so any old lease must
+                            # be cancelled before the next exact target is armed.
+                            if guard.armed:
+                                guard.cancel()
+                            if guard.prepare(candidate, frame):
+                                result = evaluate(f"{reference}?.bridge.prepareExternal("
+                                                         f"{candidate['request']},{json.dumps(candidate['key'])})")
+                                if not isinstance(result, dict):
+                                    raise BridgeUnavailable("steam-incompatible")
+                        recovery = result.get("externalRestore")
+                        if recovery and recovery["request"] != external_ack:
+                            guard.restore()
+                            external_ack = frame["externalRestored"] = recovery["request"]
+                        elif not result.get("external") and guard.armed:
                             guard.cancel()
-                        if guard.prepare(candidate, frame):
-                            result = client.evaluate(f"{reference}?.bridge.prepareExternal("
-                                                     f"{candidate['request']},{json.dumps(candidate['key'])})")
-                            if not isinstance(result, dict):
-                                raise BridgeUnavailable("steam-incompatible")
-                    recovery = result.get("externalRestore")
-                    if recovery and recovery["request"] != external_ack:
-                        guard.restore()
-                        external_ack = frame["externalRestored"] = recovery["request"]
-                    elif not result.get("external") and guard.armed:
-                        guard.cancel()
+                except TimeoutError:
+                    # step is idempotent. Keep the last state/fallback request;
+                    # the JS lease and C++ freshness timeout remain independent.
+                    next_poll = time.monotonic() + 0.035
+                    continue
+                fallback_request = None
                 send(parent, {"op": "state", **result})
                 next_poll = time.monotonic() + 0.035
     except (Exception, SystemExit) as error:

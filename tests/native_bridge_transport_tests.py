@@ -114,6 +114,123 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(message.get("op"), "state", "only status may precede a reply")
         self.fail("helper reply timed out")
 
+    def test_slow_step_and_send_do_not_end_helper(self):
+        class SlowCDP(FakeCDP):
+            step_calls = 0
+            def evaluate(self, expression):
+                if ".bridge.step(" in expression:
+                    self.step_calls += 1
+                    if self.step_calls == 1:
+                        raise TimeoutError()
+                if ".bridge.send(" in expression or ".bridge.dismiss(" in expression:
+                    raise TimeoutError()
+                return super().evaluate(expression)
+
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        client = SlowCDP()
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client))
+        worker.start()
+        try:
+            self.receive(parent, "state")
+            self.assertGreaterEqual(client.step_calls, 2)
+            for operation in ("text", "key"):
+                parent.send(json.dumps(dict(op=operation, request=2, id=7, text="fixture", value=1)).encode())
+                self.assertEqual(self.receive(parent, operation + "-result"),
+                                 dict(op=operation + "-result", id=7, ok=False))
+                self.receive(parent, "state")
+                self.assertTrue(worker.is_alive())
+            parent.send(json.dumps(dict(op="dismiss", request=2)).encode())
+            self.receive(parent, "state")
+            self.assertTrue(worker.is_alive(), "dismiss timeout uses request fallback")
+        finally:
+            parent.close()
+            worker.join(2)
+        self.assertTrue(client.disposed and client.closed)
+
+    def test_three_consecutive_poll_timeouts_end_helper(self):
+        class SlowCDP(FakeCDP):
+            def evaluate(self, expression):
+                if ".bridge.step(" in expression:
+                    raise TimeoutError()
+                return super().evaluate(expression)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        client = SlowCDP()
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client))
+        worker.start()
+        try:
+            self.assertEqual(self.receive(parent, "unavailable"),
+                             dict(op="unavailable", reason="connection-lost"))
+            worker.join(1)
+            self.assertFalse(worker.is_alive())
+        finally:
+            parent.close()
+            worker.join(2)
+
+    def test_cdp_reply_deadline_and_late_partial_frame(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                local, peer = socket.socketpair()
+                local.settimeout(.3)  # The old inherited connect timeout.
+                peer.settimeout(2)
+                client = bridge.CDP.__new__(bridge.CDP)
+                client.socket, client.pending, client.sequence = local, b"", 0
+                client.network_checked = time.monotonic()
+
+                def request():
+                    def exact(count):
+                        data = b""
+                        while len(data) < count:
+                            chunk = peer.recv(count - len(data))
+                            if not chunk:
+                                raise EOFError()
+                            data += chunk
+                        return data
+                    first, second = exact(2)
+                    length = second & 127
+                    if length == 126:
+                        length = struct.unpack("!H", exact(2))[0]
+                    elif length == 127:
+                        length = struct.unpack("!Q", exact(8))[0]
+                    mask, payload = exact(4), exact(length)
+                    return json.loads(bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+
+                def reply(identity):
+                    payload = json.dumps(dict(id=identity, result=dict(result=dict(value=True)))).encode()
+                    return bytes([0x81, len(payload)]) + payload
+
+                errors = []
+                def server():
+                    try:
+                        first = reply(request()["id"])
+                        if partial:
+                            peer.sendall(first[:7])
+                            time.sleep(.45)
+                            peer.sendall(first[7:])
+                            peer.sendall(reply(request()["id"]))
+                        else:
+                            time.sleep(.35)
+                            peer.sendall(first)
+                    except Exception as error:
+                        errors.append(error)
+                worker = threading.Thread(target=server)
+                worker.start()
+                try:
+                    if partial:
+                        with self.assertRaises(TimeoutError):
+                            client.evaluate("fixture")
+                        self.assertTrue(client.evaluate("next fixture"), "late id is drained")
+                    else:
+                        self.assertTrue(client.evaluate("fixture"), "reply after 300 ms is accepted")
+                    worker.join(2)
+                    self.assertFalse(worker.is_alive())
+                    self.assertEqual(errors, [])
+                finally:
+                    client.close()
+                    peer.close()
+                    worker.join(2)
+
     def test_debugger_must_be_bound_to_loopback_before_any_connection(self):
         def tables(address, port):
             value = ipaddress.ip_address(address)
