@@ -195,7 +195,7 @@ bool EiSink::pump() {
         }
         ei_event_unref(event);
     }
-    if (!disconnected_ && connect_deadline_ && clock_() >= connect_deadline_) {
+    if (!disconnected_ && connect_deadline_ != 0 && clock_() >= connect_deadline_) {
         connection_lost();
     }
     return resumed_ && !disconnected_;
