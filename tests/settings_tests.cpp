@@ -350,6 +350,9 @@ void reload_startup() {
             }
             configure_startup(updated, binary, config, units, [] {});
         });
+    app.flush_settings();
+    require(reconciliations == 1 && writes == 0 && !fs::exists(unit),
+            "VR startup reconciles saved settings without writing JSON");
     const auto original = app.selection();
     const auto normal_status = app.view().status;
     settings.start_with_steamos = true;
@@ -360,7 +363,7 @@ void reload_startup() {
     app.flush_settings();
     require(app.start_with_steamos() && fs::exists(unit) && fs::is_symlink(link),
             "Reload enables the startup unit for externally edited saved preferences");
-    require(writes == 0 && reconciliations == 1 && bytes() == before &&
+    require(writes == 0 && reconciliations == 2 && bytes() == before &&
                 app.selection().layout == original.layout &&
                 app.selection().language == original.language,
             "Reload reconciles without saving JSON or activating an edited profile");
@@ -370,7 +373,7 @@ void reload_startup() {
     app.reload();
     app.flush_settings();
     require(!app.start_with_steamos() && !fs::exists(unit) && !fs::is_symlink(link) &&
-                bytes() == before && writes == 0 && reconciliations == 2,
+                bytes() == before && writes == 0 && reconciliations == 3,
             "Reload also removes startup when replacement is disabled without changing JSON");
     settings.replace_native_keyboard = true;
     save_settings(config, settings);
@@ -384,14 +387,87 @@ void reload_startup() {
     app.reload();
     app.flush_settings();
     require(app.view().status == normal_status && fs::exists(unit) && writes == 0 &&
-                reconciliations == 4,
+                reconciliations == 5,
             "Reload retries reconciliation and clears its error");
     std::ofstream(config / "config.json") << "{broken";
     app.reload();
     app.flush_settings();
-    require(reconciliations == 4 && bytes() == "{broken" && fs::exists(unit),
+    require(reconciliations == 5 && bytes() == "{broken" && fs::exists(unit),
             "malformed external settings cannot reconfigure startup or be overwritten");
     require(sink.events.empty(), "startup reconciliation sends no input");
+}
+void launch_startup() {
+    using namespace std::chrono_literals;
+    TemporaryDirectory directory;
+    const auto config = directory.path / "config";
+    const auto binary = directory.path / "install/releases/test/bin/framekeyboard";
+    const auto units = directory.path / "units";
+    const auto unit = units / "framekeyboard-autostart.service";
+    const auto link = units / "steamvr.service.wants/framekeyboard-autostart.service";
+    const auto legacy = units / "gamescope-session.target.wants/framekeyboard-autostart.service";
+    fs::create_directories(binary.parent_path());
+    std::ofstream(binary) << "fixture\n";
+    fs::create_symlink("releases/test", directory.path / "install/current");
+    fs::create_directories(legacy.parent_path());
+    const std::string old_unit = "# Managed by Full Keyboard\n[Service]\nRestart=on-failure\n";
+    std::ofstream(unit) << old_unit;
+    fs::create_symlink("../framekeyboard-autostart.service", legacy);
+    Settings settings;
+    settings.replace_native_keyboard = settings.start_with_steamos = true;
+    save_settings(config, settings);
+    auto read = [](const fs::path& path) {
+        std::ifstream stream(path);
+        return std::string(std::istreambuf_iterator<char>(stream), {});
+    };
+    const auto before = read(config / "config.json");
+    Options options;
+    options.mode = "vr";
+    options.config_dir = config;
+    CaptureSink sink;
+    int writes = 0, reloads = 0, reconciliations = 0;
+    std::promise<void> entered, release;
+    auto started = entered.get_future(), unblock = release.get_future();
+    App app(
+        options, sink, [&](const Settings&) { ++writes; }, nullptr,
+        [&](const Settings& updated) {
+            ++reconciliations;
+            entered.set_value();
+            unblock.wait();
+            configure_startup(updated, binary, config, units, [&] { ++reloads; });
+        });
+    const bool queued = started.wait_for(2s) == std::future_status::ready;
+    release.set_value(); // Always unblock destruction before asserting.
+    app.flush_settings();
+    require(queued && reconciliations == 1 && reloads == 1 && fs::is_symlink(link) &&
+                !fs::is_symlink(legacy) && read(unit).find("Restart=always") != std::string::npos,
+            "VR launch asynchronously migrates an owned older service without Apply or Reload");
+    require(writes == 0 && read(config / "config.json") == before && sink.events.empty(),
+            "startup migration preserves saved bytes and sends no input");
+    auto reconcile = [&](const Settings& updated) {
+        ++reconciliations;
+        configure_startup(updated, binary, config, units, [&] { ++reloads; });
+    };
+    {
+        App again(options, sink, {}, nullptr, reconcile);
+        again.flush_settings();
+        require(reconciliations == 2 && reloads == 1,
+                "matching startup configuration skips manager reload on the next launch");
+    }
+    options.mode = "preview";
+    {
+        App preview(options, sink, {}, nullptr, reconcile);
+        preview.flush_settings();
+        require(reconciliations == 2, "preview launch never reconciles session startup");
+    }
+    options.mode = "vr";
+    std::ofstream(config / "config.json") << "{broken";
+    {
+        App malformed(options, sink, {}, nullptr, reconcile);
+        malformed.flush_settings();
+        require(reconciliations == 2 && fs::is_symlink(link) &&
+                    read(config / "config.json") == "{broken",
+                "invalid saved settings cannot remove startup or be overwritten on launch");
+    }
 }
 void numpad_settings() {
     TemporaryDirectory directory;
@@ -1078,6 +1154,7 @@ int main() {
         favorite_cache_reload();
         background_preferences();
         reload_startup();
+        launch_startup();
         numpad_settings();
         app_settings();
         behavior_settings();

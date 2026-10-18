@@ -42,6 +42,8 @@ Favorites use layout/language identity. App keeps the saved default separate fro
 
 Preference snapshots go to a dedicated `SettingsWriter` worker. Atomic file writes and fsync never run during key-down or pin clicks. One writer preserves ordering and coalesces pending snapshots to the newest state; completion errors return to App during its normal tick. Shutdown drains the final write after key cleanup. Explicit Reload waits for pending writes before reading edited configuration so an older save cannot overwrite the reloaded file later.
 
+VR startup queues one reconciliation of valid saved startup preferences on that worker. This refreshes owned service templates after an update without requiring Apply or Reload. Matching files skip manager reload; malformed settings preserve the existing unit. Previews never configure startup.
+
 ## Input and focus
 
 The installed launcher uses libei through the running Gamescope socket. A keyboard seat is bound, output starts only after device resume, and a pause or removed device clears held state. Resuming or receiving a replacement keyboard can restore typing; a disconnected socket requires reopening. An interruption flag survives a pause/resume pair within one dispatch, and blocks backend output until the app clears its old UI holds. Connection state is tracked even while the dashboard disables typing. Existing evdev key mapping is shared with uinput; compositor repeat replaces synthetic EV_KEY repeat in the libei path. Development previews remain input-disabled. Apply/Reload releases held keys and restores typing only for a live backend, available text transport and an explicitly enabled launch. Physical-only modes additionally check their target declaration; no pause/resume button is needed.

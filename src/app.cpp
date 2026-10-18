@@ -64,10 +64,12 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
          Updates* updates, SettingsWriter::Write reconcile_preferences)
     : updates_(updates), options_(options),
       profiles_(load_profiles(options.data_dir, options.config_dir)),
-      settings_(load_settings(options.config_dir, profiles_.errors)),
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
       gate_(sink), keyboard_(gate_) {
+    std::vector<std::string> settings_errors;
+    settings_ = load_settings(options.config_dir, settings_errors);
+    profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     try {
         validate_selection(profiles_, settings_.active);
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
@@ -93,6 +95,11 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     }
     // A saved language mismatch must leave Settings reachable, not abort launch.
     refresh_typing();
+    // Refresh owned units after an update without requiring Apply or Reload.
+    // Invalid settings must not remove an existing startup configuration.
+    if (options.mode == "vr" && settings_errors.empty()) {
+        settings_writer_.reconcile(settings_);
+    }
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result;

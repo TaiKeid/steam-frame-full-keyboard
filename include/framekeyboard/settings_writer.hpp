@@ -22,7 +22,7 @@ class SettingsWriter {
     SettingsWriter(const SettingsWriter&) = delete;
     SettingsWriter& operator=(const SettingsWriter&) = delete;
     void enqueue(Settings settings);
-    // Reload applies external settings without writing JSON or changing profiles.
+    // Startup/Reload reconcile saved settings without writing JSON or changing profiles.
     void reconcile(Settings settings);
     std::optional<Result> take_result();
     // Explicit durability barrier for shutdown, config reload and tests.
