@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0: Movement, native replacement and updates
+
+- Added a movement line below the keyboard with native-style colors and hover feedback. Hold it with the controller laser or AUX head cursor to move the keyboard; the same controller's thumbstick adjusts distance.
+- Renamed Appearance to General and added **Use Drag to Move** to select grip movement instead of the default laser line. Pinning blocks both movement methods and hides the line.
+- Added **Auto leveling** in General, enabled by default, to level small sideways tilts after releasing movement. Aligned the General checkboxes with their labels on the right.
+- Added experimental **Replace native keyboard** for supported dashboard, Steam-field and local-app requests. It is off by default and requires Steam Developer Mode with an available local debugger connection. Independent recovery restores the native keyboard when Full Keyboard becomes unavailable or stops progressing.
+- In replacement mode, × dismisses the panel while the app stays ready for the next request. **Quit Full Keyboard** appears in Settings, and **Use Steam keyboard** returns the current request to Steam.
+- Added optional **Start with SteamOS**, available only with replacement enabled. It starts the keyboard and recovery helpers in the background without showing the panel, ready for native keyboard requests. Startup after a device reboot has been manually verified.
+- Added **Check for updates** at the top of Settings. Checks run only when requested, report the latest-version result briefly, and keep a newer release available to download and install until the app exits.
+- Updates verify release checksums, archive contents, ARM64 architecture, version and profiles before installation. They restart the keyboard, preserve settings and startup preferences, and roll back if the new app fails to complete its startup checks. Failures show a short reason and retain normal logging.
+- Improved service recovery across SteamVR restarts and update handoffs. Saved startup preferences and owned service files stay consistent on Apply, Reload and launch, including after upgrades. Deliberate Quit pauses service restart, while ordinary manual launches retain successful exit codes.
+- Improved movement release detection, cancellation of native key repeats, and recovery from stalled or signal-stopped keyboard processes, with bounded allowances for slow work and SteamVR waits.
+
 ## 0.6.0: Settings and keyboard preferences
 
 - Rebuilt Settings as separate cards for languages/layouts and appearance, with horizontal card scrolling and independent vertical scrolling within each card.
