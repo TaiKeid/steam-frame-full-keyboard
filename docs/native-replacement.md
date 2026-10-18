@@ -68,6 +68,22 @@ For local Gamescope recovery, the native guard uses a 1.2 second deadline measur
 
 Use Settings → Quit Full Keyboard for normal shutdown. If terminating from a shell, signal the app's exact PID rather than matching every process containing `framekeyboard`. A broad pattern such as `pkill -f framekeyboard` can terminate the independent native guard too. Steam's expiring hook still withdraws suppression, but automatic recovery of the previous local-app request cannot run without that guard. Press the native keyboard button again after suppression has expired. That new request remains native while Full Keyboard is stopped. The lease intervals are design deadlines, not guaranteed wall-clock recovery bounds during runtime stalls or headset sleep.
 
+The host `timing-ordering` test reads the actual C++, Python and JavaScript timing
+expressions and checks these required relationships. Missing or ambiguous source
+matches fail the test, so a refactor cannot silently disable a check. Values remain
+in their current source files; this adds no runtime configuration or timer changes.
+
+| Required relationship | Current values | Purpose |
+| --- | --- | --- |
+| Bridge receipt/frame freshness and native-guard frame freshness < Steam lease | 700 ms < 900 ms | Stale app progress stops qualifying for takeover before the lease expires |
+| Overlay hide < Steam lease | 700 ms < 900 ms | Withdraw our panel before native recovery |
+| Request acknowledgement < Steam lease | 400 ms < 900 ms | Bound unacknowledged presentation within the lease |
+| CDP call < each C++ text/key confirmation < helper reply freshness < Steam lease | 400 ms < 600 ms < 800 ms < 900 ms | Resolve or fail individual deliveries before broader session expiry |
+| Steam lease < both native-guard arm/renew deadlines < ordinary parent recovery < declared slow-work ceiling | 900 ms < 1.2 s < 3 s < 30 s | Expire suppression before reopening native, and allow fallback before ordinary hang termination |
+
+These are ordering checks. Scheduling delays, blocked runtime calls and suspend
+still require the headset acceptance checks described above.
+
 ## Validation
 
 Automated tests use fake Steam objects, fake input sinks and private socketpairs. They cover automatic-field metadata, same-window target changes, Unicode acknowledgement, failed commits, controller guarding, readiness deadlines, lease expiry, restoration, hook ownership and helper cleanup. A further 128 deterministic event sequences combine target changes, shared providers, missed close acknowledgements, pre-status shows, stale input, progress/readiness changes, dismissal and recovery. They check each unacknowledged request's deadline after time advances, expired-lease visibility, exclusive presentation, input rejection and restoration of original functions. Failure output includes a replayable seed and event trace. Recovery tests exercise bounded slow work, a stuck main loop with a live watchdog, signal escalation, helper exit and acquisition of the released instance lock by a new process. Actual process termination is confined to an isolated test executable with fake Steam/OpenVR interfaces. Host CJK suites may skip when their optional engines are absent; ARM64 tests run against the Frame's installed libraries.

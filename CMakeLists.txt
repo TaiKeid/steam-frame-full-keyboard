@@ -139,6 +139,9 @@ if(BUILD_TESTING)
     target_link_libraries(native-replacement-tests PRIVATE keyboard_core)
     add_test(NAME native-replacement COMMAND native-replacement-tests)
     if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME timing-ordering COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/timing_order_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}")
         add_test(NAME native-helper-spawn COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_helper_spawn_tests.py"
             "$<TARGET_FILE:native-replacement-tests>"
