@@ -192,7 +192,13 @@ class App {
     bool japanese_latin_{};
     bool text_ready_{};
     bool typing_ready_{};
-    std::map<unsigned, std::string> hovered_, pressed_controls_;
+    struct HoverTarget {
+        enum class Kind { None, Key, Control } kind{Kind::None};
+        std::string id;
+        bool operator==(const HoverTarget&) const = default;
+    };
+    std::map<unsigned, HoverTarget> hovered_;
+    std::map<unsigned, std::string> pressed_controls_;
     std::string status_;
     bool settings_open_{false}, quit_{false}, recenter_{false};
     std::vector<PlacementAction> placement_actions_;

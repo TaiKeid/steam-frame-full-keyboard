@@ -361,9 +361,13 @@ PanelView App::view() const {
     } else if ((unicode_mode() || japanese() || cjk_) && options_.input != "none" && !text_ready_) {
         v.status = "Text delivery unavailable. Waiting for the compositor connection to recover.";
     }
-    for (const auto& [pointer, id] : hovered_) {
+    for (const auto& [pointer, target] : hovered_) {
         (void)pointer;
-        v.hovered.insert(id);
+        if (target.kind == HoverTarget::Kind::Key) {
+            v.hovered_keys.insert(target.id);
+        } else if (target.kind == HoverTarget::Kind::Control) {
+            v.hovered_controls.insert(target.id);
+        }
     }
     return v;
 }
@@ -393,27 +397,26 @@ bool App::move(unsigned pointer, double x, double y) {
         return false;
     }
     const auto v = view();
-    std::string id;
-    bool keyboard_key = false;
+    HoverTarget target;
     for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
         if (v.popup && !it->id.starts_with("choose:") && it->id != "scroll-menu") {
             continue;
         }
         if (it->hit(x, y)) {
-            id = it->id;
+            target = {HoverTarget::Kind::Control, it->id};
             break;
         }
     }
-    if (id.empty()) {
+    if (target.kind == HoverTarget::Kind::None) {
         if (const auto* key = renderer.hit_key(v, x, y)) {
-            id = key->id;
-            keyboard_key = true;
+            target = {HoverTarget::Kind::Key, key->id};
         }
     }
-    if (hovered_[pointer] != id) {
-        hovered_[pointer] = id;
+    if (hovered_[pointer] != target) {
+        hovered_[pointer] = target;
         dirty = true;
-        return keyboard_key && !dragging_ && !keyboard_.pointer_pressed(pointer);
+        return target.kind == HoverTarget::Kind::Key && !dragging_ &&
+               !keyboard_.pointer_pressed(pointer);
     }
     return false;
 }
@@ -436,13 +439,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         dirty = true;
         return false; // Dismissal consumes the click instead of hitting through.
     }
-    if (!hovered_[pointer].empty()) {
-        for (const auto& control : v.controls) {
-            if (control.id == hovered_[pointer]) {
-                pressed_controls_[pointer] = control.id;
-                return false;
-            }
-        }
+    if (hovered_[pointer].kind == HoverTarget::Kind::Control) {
+        pressed_controls_[pointer] = hovered_[pointer].id;
+        return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         const auto modifiers = keyboard_.modifiers();
@@ -559,7 +558,7 @@ bool App::up(unsigned pointer, double x, double y) {
     if (it != pressed_controls_.end()) {
         const auto id = it->second;
         pressed_controls_.erase(it);
-        if (hovered_[pointer] == id) {
+        if (hovered_[pointer] == HoverTarget{HoverTarget::Kind::Control, id}) {
             try {
                 action(id);
             } catch (const std::exception& error) {

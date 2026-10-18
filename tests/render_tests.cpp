@@ -92,7 +92,7 @@ void handle_states() {
                 idle[center + 3] == 255,
             "idle handle uses native opaque #3d4450");
     compare.incremental.write_png("/tmp/framekeyboard-handle-idle.png");
-    view.hovered = {"move-handle"};
+    view.hovered_controls = {"move-handle"};
     compare.frame(view, "start movement hover");
     require(compare.incremental.animating(), "hover schedules its 80 ms transition");
     compare.frame(view, "movement hover transition");
@@ -105,7 +105,8 @@ void handle_states() {
                 std::abs(width(hovered) - width(idle) * 1.1) <= 2 && !compare.incremental.animating(),
             "hover ends white and 10 percent wider, then stops repainting");
     compare.incremental.write_png("/tmp/framekeyboard-handle-hover.png");
-    view.hovered.clear();
+    view.hovered_keys.clear();
+    view.hovered_controls.clear();
     view.controls.front().selected = true;
     compare.frame(view, "captured movement stays active");
     require(row() == hovered, "capture retains the native active appearance after hover is cleared");
@@ -115,7 +116,7 @@ void handle_states() {
     require(row() == idle && !compare.incremental.animating(),
             "leaving the handle clears grown pixels and restores idle color");
     view.settings = true;
-    view.hovered = {"move-handle"};
+    view.hovered_controls = {"move-handle"};
     compare.frame(view, "settings movement hover");
     require(compare.incremental.animating(), "hover animates while settings is open too");
     view.controls.clear();
@@ -152,13 +153,14 @@ void exercise(Layout layout, Theme theme, Language language) {
                              Icon::None,
                              ControlStyle::MoveHandle});
     compare.frame(view, "show movement line");
-    view.hovered = {"move-handle"};
+    view.hovered_controls = {"move-handle"};
     compare.frame(view, "hover movement line");
     view.controls.pop_back();
     compare.frame(view, "hide movement line on pin or grab mode");
-    view.hovered.clear();
+    view.hovered_keys.clear();
+    view.hovered_controls.clear();
     const auto a = find_key(layout, "KeyA"), b = find_key(layout, "KeyB");
-    view.hovered = {a.id};
+    view.hovered_keys = {a.id};
     compare.frame(view, "hover");
     keyboard.down(0, a, compare.now);
     compare.frame(view, "press");
@@ -166,10 +168,11 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "second controller");
     // Reverse partway through a press; the retained image must erase its old edge.
     keyboard.up(0);
-    view.hovered = {b.id};
+    view.hovered_keys = {b.id};
     compare.settle(view, "release while second hand holds");
     keyboard.cancel_all();
-    view.hovered.clear();
+    view.hovered_keys.clear();
+    view.hovered_controls.clear();
     compare.settle(view, "cancel");
     for (const auto* action :
          {"ShiftLeft", "CapsLock", "NumLock", "ControlLeft", "MetaLeft", "MetaRight"}) {
@@ -185,20 +188,22 @@ void exercise(Layout layout, Theme theme, Language language) {
     }
     for (const auto* action : {"Enter", "NumpadEnter", "Space", "Copy", "ArrowUp"}) {
         const auto key = find_key(layout, action);
-        view.hovered = {key.id};
+        view.hovered_keys = {key.id};
         keyboard.down(0, key, compare.now);
         compare.settle(view, "large/icon key press");
         keyboard.up(0);
-        view.hovered.clear();
+        view.hovered_keys.clear();
+        view.hovered_controls.clear();
         compare.settle(view, "large/icon key release");
     }
     view.hide_numpad = true;
     compare.frame(view, "hide numpad");
-    view.hovered = {a.id};
+    view.hovered_keys = {a.id};
     keyboard.down(0, a, compare.now);
     compare.settle(view, "narrow keyboard press");
     keyboard.up(0);
-    view.hovered.clear();
+    view.hovered_keys.clear();
+    view.hovered_controls.clear();
     compare.settle(view, "narrow keyboard release");
     view.settings = true;
     compare.frame(view, "narrow keyboard settings");
@@ -206,7 +211,7 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "narrow keyboard return");
     view.hide_numpad = false;
     compare.frame(view, "restore numpad");
-    view.hovered = {"settings"};
+    view.hovered_controls = {"settings"};
     compare.frame(view, "toolbar hover");
     view.status = "Connection status changed";
     compare.frame(view, "status");
@@ -243,7 +248,7 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.settle(view, "large font press");
     keyboard.up(0);
     compare.settle(view, "large font release");
-    view.hovered = {b.id};
+    view.hovered_keys = {b.id};
     compare.frame(view, "large font hover");
     theme.duration_ms = 0;
     compare.frame(view, "instant animation theme");

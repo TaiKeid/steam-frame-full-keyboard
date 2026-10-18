@@ -291,7 +291,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     if (latched) {
         source(cr, t.latched);
         cairo_fill(cr);
-    } else if (view.hovered.contains(key.id)) {
+    } else if (view.hovered_keys.contains(key.id)) {
         gradient(cr, face, t.hover, t.middle, t.bottom);
     } else {
         gradient(cr, face, t.top, t.middle, t.bottom);
@@ -408,7 +408,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         const bool held = std::any_of(view.controls.begin(), view.controls.end(), [](const Control& c) {
             return c.style == ControlStyle::MoveHandle && c.selected;
         });
-        const double target = held || view.hovered.contains("move-handle") ? 1 : 0;
+        const double target = held || view.hovered_controls.contains("move-handle") ? 1 : 0;
         const double old_amount = move_handle_.amount;
         const bool changed = target != move_handle_.target;
         if (changed) {
@@ -442,15 +442,17 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                : std::clamp((now - animation.started) * 1000 / t.duration_ms, 0.0, 1.0);
         animation.amount = animation.from + (animation.target - animation.from) * progress;
         animating_ |= !view.settings && progress < 1;
-        if (!full && (changed_target || animation.amount != old_amount ||
-                      previous_->view.hovered.contains(key.id) != view.hovered.contains(key.id))) {
+        if (!full &&
+            (changed_target || animation.amount != old_amount ||
+             previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id))) {
             damage.push_back(key_bounds_.at(key.id));
         }
     }
     // Toolbar changes are infrequent and may overlap custom key geometry.
     if (!full) {
         for (const auto& control : view.controls) {
-            if (previous_->view.hovered.contains(control.id) != view.hovered.contains(control.id)) {
+            if (previous_->view.hovered_controls.contains(control.id) !=
+                view.hovered_controls.contains(control.id)) {
                 full = true;
             }
         }
@@ -593,7 +595,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         const auto color =
             control.enabled && control.selected
                 ? t.latched
-                : (control.enabled && view.hovered.contains(control.id) ? t.hover : t.bottom);
+                : (control.enabled && view.hovered_controls.contains(control.id) ? t.hover : t.bottom);
         rounded(cr, r, control.style == ControlStyle::Checkbox ? 3 : t.radius);
         source(cr, color);
         cairo_fill_preserve(cr);

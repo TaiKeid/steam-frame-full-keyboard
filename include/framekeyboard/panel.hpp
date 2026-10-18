@@ -51,7 +51,7 @@ struct PanelView {
     bool hide_numpad{};
     std::string preedit;
     std::map<std::string, std::string> key_labels;
-    std::set<std::string> hovered;
+    std::set<std::string> hovered_keys, hovered_controls;
 };
 
 bool hidden_key(const PanelView& view, const Key& key);

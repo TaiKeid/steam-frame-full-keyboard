@@ -230,6 +230,71 @@ void startup_profile_fallback() {
         require(saved(app).active == app.selection(), "explicit Apply commits the displayed fallback");
     }
 }
+void key_control_namespaces() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "layouts");
+    std::ofstream(directory.path / "layouts/collision.json")
+        << R"({"schema_version":1,"id":"collision","name":"Colliding IDs","width":300,"height":100,"keys":[
+        {"id":"close","label":"A","x":0,"y":0,"width":80,"height":80,"action":{"kind":"key","value":"KeyA"}},
+        {"id":"settings","label":"B","x":100,"y":0,"width":80,"height":80,"action":{"kind":"key","value":"KeyB"}},
+        {"id":"apply","label":"C","x":200,"y":0,"width":80,"height":80,"action":{"kind":"key","value":"KeyC"}}]})";
+    struct TextSink : CaptureSink {
+        std::vector<std::string> text;
+        bool text_available() override { return true; }
+        bool commit_text(const std::string& value) override {
+            text.push_back(value);
+            return true;
+        }
+    } sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = "vr";
+    options.input = "ei";
+    options.start_enabled = true;
+    App app(options, sink);
+    app.apply({"collision", "en-us", "graphite"});
+    app.paint(1);
+    const auto idle = app.renderer.rgba();
+    for (const auto* action : {"KeyA", "KeyB", "KeyC"}) {
+        const auto [x, y] = key_point(app, action);
+        require(app.move(0, x, y), "colliding key hover is still a keyboard target");
+        const auto view = app.view();
+        const auto id = app.renderer.hit_key(view, x, y)->id;
+        require(view.hovered_keys.contains(id) && view.hovered_controls.empty(),
+                "key hover does not select a same-named control");
+        app.paint(1);
+        const auto hovered = app.renderer.rgba();
+        for (const auto& control : view.controls) {
+            if (control.id != id) {
+                continue;
+            }
+            for (int py = static_cast<int>(control.bounds.y);
+                 py < control.bounds.y + control.bounds.height; ++py) {
+                for (int px = static_cast<int>(control.bounds.x);
+                     px < control.bounds.x + control.bounds.width; ++px) {
+                    const auto offset =
+                        static_cast<std::size_t>((py + popup_margin) * panel_width + px) * 4;
+                    require(std::equal(idle.begin() + offset, idle.begin() + offset + 4,
+                                       hovered.begin() + offset),
+                            "colliding toolbar pixels stay idle");
+                }
+            }
+        }
+        require(app.down(0, x, y, 2), "colliding key press accepted");
+        app.up(0, x, y);
+        require(!app.quitting() && !app.view().settings, "key cannot invoke toolbar actions");
+    }
+    require(sink.text == std::vector<std::string>{"a", "b", "c"}, "colliding IDs type normally");
+    const auto close = control(app.view(), "close");
+    const auto [x, y] = key_point(app, "KeyA");
+    app.down(0, close.bounds.x + 2, close.bounds.y + 2, 3);
+    require(app.view().hovered_keys.empty() && app.view().hovered_controls.contains("close"),
+            "control hover cannot highlight the same-named key");
+    app.up(0, x, y);
+    require(!app.quitting(), "releasing a toolbar press on a same-named key cannot activate it");
+    click(app, "settings");
+    require(app.view().settings, "real controls remain usable");
+}
 void favorite_cache_reload() {
     TemporaryDirectory directory;
     Settings settings;
@@ -1183,6 +1248,7 @@ int main() {
         native_num_restore();
         compact_toolbar();
         startup_profile_fallback();
+        key_control_namespaces();
         favorite_cache_reload();
         background_preferences();
         reload_startup();
