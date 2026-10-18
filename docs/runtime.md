@@ -16,7 +16,7 @@ Quitting saves the pose, size, and dashboard reference. Reopening restores them.
 
 When Experimental → Replace native keyboard is enabled, × dismisses the current typing session and hides the panel while the app stays resident. The next supported native keyboard request reopens our panel. **Quit Full Keyboard** is available only in Settings while replacement is enabled; use it for a full exit before updates, removal or changing launch options. With replacement disabled, × exits normally. See [native replacement](native-replacement.md).
 
-A temporary compositor pause releases held keys and resumes typing when its keyboard device returns, without replaying old holds. A disconnected compositor socket still requires closing and reopening the app. Connection status remains visible even if the interruption happened while the dashboard was closed.
+A temporary compositor pause releases held keys and resumes typing when its keyboard device returns. After a disconnect, native and Unicode connections retry in the background with a 1-second delay doubling up to 30 seconds. Old holds and text are never replayed. The "Keyboard paused or disconnected" status remains visible even if the interruption happened while the dashboard was closed. OpenVR session loss can still require a relaunch.
 
 Tracking loss hides the keyboard and releases input. When tracking returns, the panel returns to its pose. A tracking-origin reset or a known saved tracking-space mismatch recenters it while retaining size. Corrupt saved placement is ignored. Forced termination cannot save the latest movement.
 
@@ -66,7 +66,7 @@ Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessio
 | App exits immediately | Run `~/.local/bin/framekeyboard` in a terminal and read the error; check that the VR session is running |
 | Keys do not reach a local app | Focus a harmless text field first; check the Unicode text connection and chosen profile |
 | Keyboard paused or disconnected | Wait for the compositor; native and Unicode connections retry in the background and old holds are cleared |
-| Input connection was lost | Close and reopen the keyboard to reconnect |
+| Input connection was lost | Wait for background reconnect; old holds and text are discarded. For an unrecoverable resident failure, use Settings → Quit Full Keyboard, then relaunch |
 | Wrong characters | Check the selected app language and custom XKB profile; physical uinput/external-JIS modes additionally need a matching target keymap |
 | Copy/Paste fail in a terminal | This version sends Ctrl+C/Ctrl+V, not terminal Ctrl+Shift shortcuts |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
