@@ -60,6 +60,7 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 - A crash leaves the stock keyboard usable and does not retain a stale instance lock.
 - Input connection loss, runtime restart, sleep/wake, and reboot fail or recover predictably.
 - Install/update/rollback/uninstall follow the documented steps and preserve user profiles.
+- Reinstall the same production version and manually install an older package. Confirm `current` changes only after validation, the replaced marked release is removed, and unmarked/development directories survive. Refuse manual installation while Full Keyboard holds its instance lock. An acknowledged in-app update removes the replaced marked release and its snapshot; a failed start keeps the old release as `current`. Manual rollback reinstalls a package rather than switching a `previous` link.
 - Unsupported runtime interfaces fail without changing Steam files or global input settings.
 
 ## Performance and privacy

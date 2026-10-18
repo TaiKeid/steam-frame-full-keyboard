@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import signal
 import socket
@@ -217,17 +218,73 @@ class Transaction(unittest.TestCase):
         with self.assertRaises(u.UpdateError):
             self.prepare()
 
-    def test_activate_preserves_previous_and_restart_arguments(self):
+    def test_activate_preserves_unmarked_releases_and_restart_arguments(self):
         self.prepare()
         def launch(package, args):
             self.assertEqual((self.root / "current").resolve(), package)
-            self.assertEqual(os.readlink(self.root / "previous"), "releases/old")
+            self.assertEqual(os.readlink(self.root / "previous"), "releases/older")
             self.assertEqual(args, ["--vr", "--input", "ei", "--start-enabled", "--config-dir", str(Path(self.directory.name)/"prefs")])
         with patch.object(u, "launch", side_effect=launch):
             self.installation.activate(["--vr", "--input", "ei", "--start-enabled", "--config-dir", str(Path(self.directory.name)/"prefs")])
         self.assertEqual((self.root / "current").resolve(), self.installation.target)
         self.assertTrue(self.old.exists())
         self.assertEqual(u.restart_arguments(["--data-dir", "old", "--vr", "--config-dir", "custom"], self.installation.target), ["--data-dir", str(self.installation.target / "share/framekeyboard"), "--vr", "--config-dir", "custom"])
+
+    def test_acknowledged_update_removes_only_replaced_production_and_snapshot(self):
+        u.mark_production_release(self.root, self.old, self.old.name)
+        u.replace_link(self.root, "previous", "releases/old")
+        dev = self.root / "releases/dev"
+        dev.mkdir()
+        (dev / "source").write_text("manual deployment")
+        self.prepare()
+        def launch(package, arguments):
+            self.assertTrue(self.old.is_dir(), "old release must survive startup probation")
+            self.assertTrue(list((self.root / "update-backups").iterdir()))
+        with patch.object(u, "launch", side_effect=launch):
+            self.installation.activate(["--config-dir", str(Path(self.directory.name) / "prefs")])
+        self.assertFalse(self.old.exists())
+        self.assertEqual((dev / "source").read_text(), "manual deployment")
+        self.assertTrue((self.installation.target / u.PRODUCTION_MARKER).is_file())
+        self.assertFalse(list((self.root / "update-backups").iterdir()))
+        self.assertFalse((self.root / "previous").is_symlink())
+        self.assertEqual((self.root / "current").resolve(), self.installation.target)
+
+    def test_failed_start_keeps_marked_current_and_restores_it(self):
+        u.mark_production_release(self.root, self.old, self.old.name)
+        self.prepare()
+        with patch.object(u, "launch", side_effect=[u.UpdateError("startup"), None]):
+            with self.assertRaises(u.UpdateError):
+                self.installation.activate(["--config-dir", str(Path(self.directory.name) / "prefs")])
+        self.assertTrue(self.old.is_dir())
+        self.assertEqual((self.root / "current").resolve(), self.old)
+
+    def test_cleanup_failure_never_rolls_back_acknowledged_app(self):
+        u.mark_production_release(self.root, self.old, self.old.name)
+        self.prepare()
+        with patch.object(u, "launch") as launched, patch.object(
+                u, "remove_production_release", side_effect=OSError(errno.EIO, "cleanup")):
+            self.installation.activate(["--config-dir", str(Path(self.directory.name) / "prefs")])
+        self.assertEqual(launched.call_count, 1)
+        self.assertTrue(self.old.exists())
+        self.assertEqual((self.root / "current").resolve(), self.installation.target)
+        self.assertFalse(list((self.root / "update-backups").iterdir()))
+        self.assertIn("could not all be removed", (self.root / "update-status.log").read_text())
+
+    def test_cleanup_refuses_current_unmarked_symlinked_and_moved_releases(self):
+        u.mark_production_release(self.root, self.old, self.old.name)
+        self.assertFalse(u.remove_production_release(self.root, self.old))
+        for name in ("unmarked", "moved", "linked-marker"):
+            candidate = self.root / "releases" / name
+            candidate.mkdir()
+            if name == "moved":
+                shutil.copy2(self.old / u.PRODUCTION_MARKER, candidate / u.PRODUCTION_MARKER)
+            elif name == "linked-marker":
+                (candidate / u.PRODUCTION_MARKER).symlink_to(self.old / u.PRODUCTION_MARKER)
+            self.assertFalse(u.remove_production_release(self.root, candidate))
+            self.assertTrue(candidate.is_dir())
+        link = self.root / "releases/link"
+        link.symlink_to(self.old)
+        self.assertFalse(u.remove_production_release(self.root, link))
 
     def test_failed_adoption_rolls_back_and_adopts_the_previous_release(self):
         self.prepare()
@@ -271,7 +328,7 @@ class Transaction(unittest.TestCase):
         self.assertEqual(backups[0].read_text(), "saved before restart")
 
     def test_rollback_file_errors_cannot_skip_old_restart_or_leave_dangling_current(self):
-        for failing_step in ("current", "previous", "preferences"):
+        for failing_step in ("current", "preferences"):
             with self.subTest(step=failing_step):
                 self.prepare()
                 config = Path(self.directory.name) / "prefs"

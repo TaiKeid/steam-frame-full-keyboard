@@ -238,6 +238,45 @@ def parent_identity(pid):
         return None
 
 
+PRODUCTION_MARKER = ".full-keyboard-production.json"
+
+
+def mark_production_release(root, directory, name):
+    # Written by the installer/updater, never trusted from a downloaded package.
+    marker = directory / PRODUCTION_MARKER
+    marker.unlink(missing_ok=True)
+    marker.write_text(json.dumps({"format": 1, "root": str(root.resolve()), "release": name}) + "\n")
+
+
+def remove_production_release(root, directory):
+    """Caller holds install.lock. Unmarked, moved, symlinked and active releases stay."""
+    root = root.resolve(strict=True)
+    releases = root / "releases"
+    directory = Path(directory)
+    if (releases.is_symlink() or directory.is_symlink() or not directory.is_dir() or
+            directory.parent.resolve() != releases):
+        return False
+    marker = directory / PRODUCTION_MARKER
+    try:
+        if marker.is_symlink() or json.loads(marker.read_text()) != {
+                "format": 1, "root": str(root), "release": directory.name}:
+            return False
+        # A missing/broken current is ambiguous. Keep recovery material.
+        current = root / "current"
+        if (not current.is_symlink() or not current.resolve(strict=True).is_dir() or
+                current.resolve(strict=True) == directory.resolve(strict=True)):
+            return False
+    except (OSError, ValueError):
+        return False
+    previous = root / "previous"
+    old_previous = previous.is_symlink() and previous.resolve() == directory.resolve()
+    shutil.rmtree(directory)
+    # Only a link to the production directory just removed is known safe to drop.
+    if old_previous and previous.is_symlink() and previous.resolve() == directory.resolve():
+        previous.unlink()
+    return True
+
+
 def replace_link(root, name, target):
     if target is None:
         (root / name).unlink(missing_ok=True)
@@ -404,7 +443,6 @@ class Installation:
                 (self.root / "current").resolve() != self.old):
             raise UpdateError("not-installed-release")
         self.old_link = os.readlink(self.root / "current")
-        self.previous = None
         self.lock = None
         self.temporary = None
         self.package = None
@@ -430,7 +468,6 @@ class Installation:
             raise UpdateError("install-busy") from None
         if os.readlink(self.root / "current") != self.old_link:
             raise UpdateError("installation-changed")
-        self.previous = os.readlink(self.root / "previous") if (self.root / "previous").is_symlink() else None
         self.temporary = tempfile.TemporaryDirectory(prefix=".update-", dir=self.root / "releases")
         work = Path(self.temporary.name)
         archive_asset = selected["assets"][selected["archive"]]
@@ -450,10 +487,11 @@ class Installation:
         self.package = extract(archive, work, selected["number"])
         progress("prepare")
         validate(self.package, selected["number"])
-        # Unique names retain any earlier installation of the same release for rollback.
+        # Fresh directories also permit reinstalling a version without editing a live release.
         self.target = self.root / "releases" / (selected["number"] + "-update-" + work.name[8:])
         if self.target.exists():
             raise UpdateError("release-exists")
+        mark_production_release(self.root, self.package, self.target.name)
 
     def activate(self, arguments, adopt=None):
         with activation_signals():
@@ -473,7 +511,6 @@ class Installation:
             snapshot = SettingsSnapshot(self.root, self.target.name, arguments)
             self.package.rename(self.target)
             promoted = True
-            replace_link(self.root, "previous", self.old_link)
             switched = True
             replace_link(self.root, "current", str(self.target.relative_to(self.root)))
             process = launch(self.target, arguments)
@@ -488,7 +525,15 @@ class Installation:
             raise
         # Acknowledged startup commits the new release. Optional bookkeeping can
         # no longer enter rollback or remove resources from this live process.
-        self.write_status("Update installed and startup acknowledged.\n")
+        cleanup_errors = []
+        for operation in (lambda: remove_production_release(self.root, self.old),
+                          lambda: shutil.rmtree(snapshot.backup)):
+            try:
+                operation()
+            except OSError:
+                cleanup_errors.append(True)
+        self.write_status("Update installed and startup acknowledged." +
+                          (" Old update files could not all be removed.\n" if cleanup_errors else "\n"))
         return process
 
     def write_status(self, text):
@@ -511,7 +556,6 @@ class Installation:
                 attempt(lambda: (Path(self.temporary.name) / "update.tar.gz").unlink(missing_ok=True))
             if switched:
                 attempt(lambda: replace_link(self.root, "current", self.old_link))
-                attempt(lambda: replace_link(self.root, "previous", self.previous))
             if snapshot:
                 attempt(snapshot.restore)
             if promoted:
@@ -638,6 +682,22 @@ def serve(peer, executable, current, arguments):
 
 
 def main():
+    # Package install.sh shares the marker and conservative cleanup rules with
+    # the updater. The caller holds both installation and instance locks.
+    if sys.argv[1:2] == ["--mark-production"] and len(sys.argv) == 5:
+        try:
+            mark_production_release(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4])
+        except OSError:
+            print("Could not mark the new production release.", file=sys.stderr)
+            return 1
+        return 0
+    if sys.argv[1:2] == ["--remove-production"] and len(sys.argv) == 4:
+        try:
+            remove_production_release(Path(sys.argv[2]), Path(sys.argv[3]))
+        except OSError:
+            print("Could not remove the replaced production release.", file=sys.stderr)
+            return 1
+        return 0
     parser = argparse.ArgumentParser()
     parser.add_argument("--fd", type=int, required=True)
     parser.add_argument("--executable", required=True)

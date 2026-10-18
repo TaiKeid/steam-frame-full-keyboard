@@ -71,7 +71,7 @@ Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessio
 | Copy/Paste fail in a terminal | This version sends Ctrl+C/Ctrl+V, not terminal Ctrl+Shift shortcuts |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
-| Installer says release exists | That version is already installed; launch it or install a newer release |
+| Installer says Full Keyboard is running | Quit Full Keyboard in Settings, then run the installer again |
 | New name is absent in Steam Library | A manually added shortcut has its own title; rename it to Full Keyboard in its Properties |
 
 No input is sent outside the dashboard. Streamed VR applications, including VRChat, are outside the supported scope. Focus behavior in nested desktops and floating apps needs testing per application. Do not assume success in a dedicated receiver proves every app works.
@@ -80,18 +80,16 @@ No input is sent outside the dashboard. Streamed VR applications, including VRCh
 
 Use the centered Settings → Check for updates button for a verified download, installation and restart. See [updates](updates.md) for button states, requirements and recovery.
 
-For a manual installation, close the keyboard before installing a new version. The installer validates the copied ARM64 binary and profile files in a temporary staging directory before switching `current`, retains the old target in `previous`, and preserves `~/.config/framekeyboard`. A failed copy, validation, or activation removes the incomplete new release so the same version can be retried. Completed releases remain protected from overwrite.
+For a manual installation, quit Full Keyboard first. The installer holds the instance lock throughout installation and refuses if the app is running. It validates the copied ARM64 binary and profiles in a fresh staging directory before switching `current`, then removes the replaced production release. Settings under `~/.config/framekeyboard` are preserved. The same version can be reinstalled, and older versions can replace newer ones. A failed preparation leaves the current release usable; interrupted cleanup never deletes the release named by `current`.
 
-Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Then close the keyboard and run on Frame:
+To roll back, download an older release archive and its checksums, verify it and extract it as described in the README. Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Quit Full Keyboard, then reinstall the older package. For an older package whose installer predates reinstall support, use the installer from a newer extracted package and pass the older package directory:
 
 ```sh
-cd ~/.local/share/framekeyboard
-readlink previous
-ln -sfn "$(readlink previous)" current
+bash /path/to/newer-package/install.sh /path/to/extracted-older-package
 ~/.local/bin/framekeyboard
 ```
 
-Use this only when `previous` exists and names the release you want. Old releases remain available until you remove them. The installed app label stays Full Keyboard when rolling back to an older binary.
+Production installs keep no permanent rollback release or `previous` link. During an in-app update, the old release and preference snapshot survive until the new process confirms startup; a failed start restores the old release automatically. Cleanup only removes directories positively marked by the production installer/updater. Development deployments, historical unmarked releases and unrelated `previous` links stay untouched. Older installers/updaters keep their original retention behavior. The installed app label stays Full Keyboard when reinstalling an older binary.
 
 To uninstall, first uncheck Start with SteamOS and Apply and save, then quit the app. If the app cannot run, remove its optional startup unit first:
 
