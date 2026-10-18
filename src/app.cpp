@@ -991,8 +991,11 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         }
         return false;
     }
-    const auto legend = keymap_->legend(key, mods, keyboard_.caps(), keyboard_.num());
-    if (legend.size() == 1 && g_ascii_isprint(legend[0]) && !is_modifier(key_code(code))) {
+    // Legends may be cosmetic overrides. Composition follows the actual XKB
+    // symbol, including Shift/Caps, independently of the displayed label.
+    const auto character =
+        xkb_keysym_to_utf32(keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num()));
+    if (character >= 0x20 && character <= 0x7e && !is_modifier(key_code(code))) {
         if (execute) {
             if (composition_.converting()) {
                 commit_japanese();
@@ -1000,7 +1003,7 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                     return true;
                 }
             }
-            composition_.roman(legend[0]);
+            composition_.roman(static_cast<char>(character));
         }
         return true;
     }

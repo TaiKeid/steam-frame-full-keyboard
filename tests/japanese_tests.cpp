@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <dlfcn.h>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
@@ -57,8 +58,52 @@ void control(App& app, const std::string& id) {
     }
     throw std::runtime_error("Missing test control: " + id);
 }
+void romaji_legends() {
+    char directory[] = "/tmp/framekeyboard-romaji-legends-XXXXXX";
+    require(mkdtemp(directory), "temporary legend profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    fs::create_directories(fs::path(directory) / "languages");
+    for (bool overridden : {false, true}) {
+        std::ofstream(fs::path(directory) / "languages/ja-test.json")
+            << R"({"schema_version":1,"id":"ja-test","name":"Test Romaji","locale":"ja-JP",
+                   "keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},
+                   "font_families":["sans-serif"],"input_method":"japanese-romaji",
+                   "legends":{"source":"keymap","overrides":)"
+            << (overridden ? R"({"KeyK":"s"})" : "{}") << "}}";
+        for (bool caps : {false, true}) {
+            for (bool shift : {false, true}) {
+                Options options;
+                options.config_dir = directory;
+                options.mode = "vr";
+                options.input = "ei";
+                options.start_enabled = true;
+                Sink sink;
+                App app(options, sink);
+                app.apply({"en-us-full", "ja-test", "graphite"});
+                if (caps) {
+                    click_key(app, "CapsLock");
+                }
+                if (shift) {
+                    click_key(app, "ShiftLeft");
+                }
+                click_key(app, "KeyK");
+                if (shift) {
+                    click_key(app, "ShiftLeft");
+                }
+                click_key(app, "KeyI");
+                require(app.view().preedit == "き", "Romaji ignores cosmetic legends with Shift/Caps");
+                click_key(app, "Enter");
+                require(sink.text == std::vector<std::string>{"き"}, "Romaji commits mapped symbols");
+            }
+        }
+    }
+}
 int main() {
     try {
+        romaji_legends();
         JapaneseComposer composer;
         for (const auto& [roman, expected] :
              std::vector<std::pair<std::string, std::string>>{{"nihon", "にほん"},
