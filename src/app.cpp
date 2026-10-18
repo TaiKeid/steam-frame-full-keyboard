@@ -990,6 +990,9 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         }
         return false;
     }
+    if (code == "Space") {
+        return false; // With no preedit, Space remains ordinary Unicode output.
+    }
     // Legends may be cosmetic overrides. Composition follows the actual XKB
     // symbol, including Shift/Caps, independently of the displayed label.
     const auto character =

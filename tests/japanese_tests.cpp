@@ -97,6 +97,9 @@ void romaji_legends() {
                 require(app.view().preedit == "き", "Romaji ignores cosmetic legends with Shift/Caps");
                 click_key(app, "Enter");
                 require(sink.text == std::vector<std::string>{"き"}, "Romaji commits mapped symbols");
+                click_key(app, "Space");
+                require(app.view().preedit.empty() && sink.text == std::vector<std::string>{"き", " "},
+                        "idle Romaji Space types directly without starting composition");
             }
         }
     }
