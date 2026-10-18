@@ -122,6 +122,81 @@ void transport() {
     }
     close(pair[1]);
 }
+void helper_retry_backoff() {
+    Local local;
+    int peer = -1;
+    unsigned attempts = 0;
+    NativeReplacement replacement(local, -1, [&] {
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                "retry fixture socketpair");
+        if (peer >= 0) {
+            close(peer);
+        }
+        peer = pair[1];
+        ++attempts;
+        return pair[0];
+    });
+    double now = 100;
+    auto update = [&](double time) { replacement.update(true, false, 0, false, time); };
+    auto fail = [&](const std::string& reason) {
+        put(peer, "{\"op\":\"unavailable\",\"reason\":\"" + reason + "\"}");
+        replacement.poll(now);
+    };
+    auto expect_delay = [&](double delay) {
+        const auto previous = attempts;
+        update(now + delay - .01);
+        require(attempts == previous, "helper retry must wait for backoff");
+        now += delay;
+        update(now);
+        require(attempts == previous + 1, "helper retries when backoff expires");
+    };
+    update(now);
+    for (double delay : {5, 10, 20, 40, 60, 60}) {
+        fail("debugger-unavailable");
+        expect_delay(delay);
+    }
+    put(peer, R"({"op":"state","version":1,"open":false})");
+    replacement.poll(now);
+    fail("debugger-unavailable");
+    expect_delay(5); // A successful state resets consecutive failures.
+    fail("debugger-blocked");
+    expect_delay(5);
+    fail("steam-incompatible");
+    expect_delay(10);
+    fail("helper-unavailable");
+    replacement.update(false, false, 0, false, now);
+    update(now);
+    fail("helper-unavailable");
+    expect_delay(5); // Re-enable resets the delay.
+    fail("debugger-unavailable");
+    const auto previous = attempts;
+    replacement.retry_now(++now);
+    update(now);
+    require(attempts == previous + 1, "explicit summon retries promptly");
+    for (const auto* reason : {"replacement-busy", "connection-lost"}) {
+        for (int i = 0; i < 3; ++i) {
+            fail(reason);
+            expect_delay(5);
+        }
+    }
+    replacement.update(false, false, 0, false, now);
+    close(peer);
+
+    unsigned failures = 0;
+    NativeReplacement missing(local, -1, [&] {
+        ++failures;
+        return -1;
+    });
+    missing.update(true, false, 0, false, 0);
+    missing.update(true, false, 0, false, 4.9);
+    require(failures == 1, "spawn failure waits five seconds");
+    missing.update(true, false, 0, false, 5);
+    missing.update(true, false, 0, false, 14.9);
+    require(failures == 2, "consecutive spawn failures also back off");
+    missing.update(true, false, 0, false, 15);
+    require(failures == 3, "spawn failure retry uses doubled delay");
+}
 void named_key_repeats() {
     Local local;
     int pair[2];
@@ -709,6 +784,7 @@ int main(int argc, char** argv) {
         }
         require(argc == 1, "unknown test option");
         transport();
+        helper_retry_backoff();
         named_key_repeats();
         app_commit();
         handoff_status();

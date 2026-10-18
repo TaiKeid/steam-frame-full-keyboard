@@ -130,12 +130,33 @@ const char* NativeReplacement::unavailable_reason() const {
     }
     return "";
 }
-void NativeReplacement::start(double now) {
+void NativeReplacement::retry_now(double now) {
+    retry_delay_ = 5;
+    next_start_ = now;
+}
+void NativeReplacement::schedule_retry(double now) {
+    const bool persistent =
+        !state_.available &&
+        (failure_ == Failure::DebuggerUnavailable || failure_ == Failure::DebuggerBlocked ||
+         failure_ == Failure::SteamIncompatible || failure_ == Failure::HelperUnavailable);
+    next_start_ = now + (persistent ? retry_delay_ : 5);
+    retry_delay_ = persistent ? std::min(60.0, retry_delay_ * 2) : 5;
+}
+bool NativeReplacement::start(double now) {
     next_start_ = now + 5;
     const auto previous_failure = failure_;
     failure_ = Failure::HelperUnavailable;
+    if (connect_) {
+        fd_ = connect_();
+        if (fd_ < 0) {
+            return false;
+        }
+        failure_ = previous_failure;
+        last_reply_ = now;
+        return true;
+    }
     if (watchdog_read_ < 0) {
-        return;
+        return false;
     }
     auto directory = fs::canonical("/proc/self/exe").parent_path();
     auto helper = directory.parent_path() / "share/framekeyboard/bridge/native_bridge.py";
@@ -143,18 +164,18 @@ void NativeReplacement::start(double now) {
         helper = directory / "bridge/native_bridge.py";
     }
     if (!fs::is_regular_file(helper)) {
-        return;
+        return false;
     }
     int pair[2]{};
     if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, pair) < 0) {
-        return;
+        return false;
     }
     // Preserve the health descriptor before spawn actions can overwrite fd 3/4.
     const int health = fcntl(watchdog_read_, F_DUPFD_CLOEXEC, 5);
     if (health < 0) {
         close(pair[0]);
         close(pair[1]);
-        return;
+        return false;
     }
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
@@ -180,11 +201,12 @@ void NativeReplacement::start(double now) {
     if (error) {
         close(pair[0]);
         child_ = -1;
-        return;
+        return false;
     }
     fd_ = pair[0];
     failure_ = previous_failure;
     last_reply_ = now;
+    return true;
 }
 void NativeReplacement::stop() {
     packet("{\"op\":\"stop\"}");
@@ -214,6 +236,7 @@ void NativeReplacement::poll(double now) {
         }
         if (size <= 0 || size > 32768) {
             failure_ = Failure::ConnectionLost;
+            schedule_retry(now);
             stop();
             break;
         }
@@ -221,6 +244,7 @@ void NativeReplacement::poll(double now) {
                    json_object_put);
         if (!value || json_object_get_type(value.get()) != json_type_object) {
             failure_ = Failure::HelperUnavailable;
+            schedule_retry(now);
             stop();
             break;
         }
@@ -228,6 +252,7 @@ void NativeReplacement::poll(double now) {
         const auto* operation = json_object_get_string(field("op"));
         if (!operation) {
             failure_ = Failure::HelperUnavailable;
+            schedule_retry(now);
             stop();
             break;
         }
@@ -241,6 +266,8 @@ void NativeReplacement::poll(double now) {
                       json_object_get_boolean(field("local")) != 0};
             last_reply_ = now;
             failure_ = Failure::None;
+            retry_delay_ = 5;
+            next_start_ = now + 5;
         } else if (op == "unavailable") {
             // Map only known codes. Never display arbitrary helper/exception text.
             const char* code = json_object_get_string(field("reason"));
@@ -258,6 +285,7 @@ void NativeReplacement::poll(double now) {
             } else {
                 failure_ = Failure::HelperUnavailable;
             }
+            schedule_retry(now);
             stop();
             break;
         } else if (op == "text-result") {
@@ -276,12 +304,14 @@ void NativeReplacement::poll(double now) {
             }
         } else {
             failure_ = Failure::HelperUnavailable;
+            schedule_retry(now);
             stop();
             break;
         }
     }
     if (fd_ >= 0 && (child_exited || now - last_reply_ > .8)) {
         failure_ = Failure::ConnectionLost;
+        schedule_retry(now);
         stop();
     }
     if (pending_id_ && !pending_result_ && now - pending_since_ > .6) {
@@ -291,13 +321,19 @@ void NativeReplacement::poll(double now) {
 }
 void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback,
                                double now, bool watch_main_loop) {
+    if (enabled != enabled_) {
+        enabled_ = enabled;
+        retry_now(now);
+    }
     if (!enabled) {
         stop();
         failure_ = Failure::None;
         return;
     }
     if (fd_ < 0 && child_ < 0 && now >= next_start_) {
-        start(now);
+        if (!start(now)) {
+            schedule_retry(now);
+        }
     }
     const bool use_fallback = fallback || std::exchange(force_fallback_, false);
     const auto frame = "{\"op\":\"frame\",\"sent\":" + std::to_string(now) +

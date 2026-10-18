@@ -20,6 +20,8 @@ With replacement enabled, the top-right X dismisses the current typing session a
 
 The preference is saved, so launching Full Keyboard again recreates the bridge when replacement is enabled. After an explicit Quit or uninstall, native requests use Steam's keyboard until Full Keyboard is launched again. Without **Start with SteamOS**, a crash or reboot also requires a manual launch. The native button summons a running resident; it does not launch a stopped app. Relaunching the existing resident app reopens/recenters its panel so Settings remains reachable.
 
+Repeated debugger, compatibility or helper failures before a usable state back off from 5 seconds to a 60-second retry interval. A successful state, re-enabling replacement, or an explicit relaunch/recenter request resets the delay. A busy replacement or lost established connection retains the 5-second retry so temporary ownership and transport interruptions can recover promptly.
+
 ## Start with SteamOS
 
 Check **Replace native keyboard**, then **Start with SteamOS**, and choose Apply and save. The startup checkbox is disabled while replacement is unchecked. Both saved preferences must be on for startup to run. Turning replacement off removes boot startup; turning it on again restores startup if its saved checkbox was selected. Unchecking startup alone removes it while replacement keeps working in the current session. Back discards pending edits.

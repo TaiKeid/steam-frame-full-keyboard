@@ -649,6 +649,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             presentation.fallback();
         }
         if (instance.poll_recenter()) {
+            replacement.retry_now(now);
             stop_drag();
             std::cout << "Launch request received.\n" << std::flush;
             app.summon();
@@ -890,6 +891,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         if (app.take_recenter()) {
+            replacement.retry_now(now);
             stop_drag();
             saved.reset();
             recenter_pending = true;

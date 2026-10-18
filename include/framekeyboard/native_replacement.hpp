@@ -2,7 +2,9 @@
 #include "input.hpp"
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <sys/types.h>
+#include <utility>
 
 namespace framekeyboard {
 // Version 1: one app-scoped helper, private SOCK_SEQPACKET IPC, metadata-only status.
@@ -11,7 +13,9 @@ namespace framekeyboard {
 class NativeReplacement : public KeySink {
   public:
     // An owned IPC endpoint can be supplied by isolated receiver tests.
-    explicit NativeReplacement(KeySink& local, int transport = -1) : local_(local), fd_(transport) {}
+    using Connect = std::function<int()>;
+    explicit NativeReplacement(KeySink& local, int transport = -1, Connect connect = {})
+        : local_(local), connect_(std::move(connect)), fd_(transport) {}
     ~NativeReplacement() override;
     struct State {
         std::uint64_t request{};
@@ -25,6 +29,7 @@ class NativeReplacement : public KeySink {
     void route(bool remote) { remote_ = remote; }
     bool remote() const { return remote_; }
     void dismiss_request();
+    void retry_now(double now);
     bool take_unsupported_control();
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
     bool prepare_watchdog();
@@ -59,9 +64,11 @@ class NativeReplacement : public KeySink {
         ConnectionLost
     };
     bool packet(const std::string& data);
-    void start(double now);
+    bool start(double now);
+    void schedule_retry(double now);
     void stop();
     KeySink& local_;
+    Connect connect_;
     int fd_{-1};
     pid_t child_{-1};
     int watchdog_read_{-1}, watchdog_write_{-1};
@@ -72,6 +79,8 @@ class NativeReplacement : public KeySink {
     Failure failure_{Failure::None};
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
     double last_reply_{}, next_start_{}, now_{}, pending_since_{};
+    double retry_delay_{5};
+    bool enabled_{};
     std::uint64_t progress_{}, sequence_{}, pending_id_{};
     std::string pending_text_;
     std::optional<bool> pending_result_;
