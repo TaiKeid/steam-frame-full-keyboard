@@ -29,10 +29,11 @@ void type(CjkComposer& composer, const std::string& text) {
 struct Sink : KeySink {
     std::vector<std::string> events;
     bool accept{true};
+    bool available{true};
     void send(int code, int value) override {
         events.push_back(std::to_string(code) + ":" + std::to_string(value));
     }
-    bool text_available() override { return true; }
+    bool text_available() override { return available; }
     bool commit_text(const std::string& value) override {
         if (!accept) {
             return false;
@@ -152,6 +153,63 @@ void unicode_input() {
     app.set_interaction_active(false);
     click(app, "KeyQ", false);
     require(sink.events.size() == 3, "hidden keyboard blocks Unicode");
+}
+void input_gate_recovery() {
+    Sink sink;
+    InputGate gate(sink);
+    gate.enabled = true;
+    gate.send(KEY_BACKSPACE, 1);
+    gate.enabled = false;
+    gate.send(KEY_BACKSPACE, 2);
+    gate.send(KEY_A, 1);
+    gate.send(KEY_A, 0);
+    gate.send(KEY_BACKSPACE, 0);
+    gate.send(KEY_BACKSPACE, 0);
+    require(sink.events == std::vector<std::string>{"14:1", "14:0"},
+            "disabled gate releases only owned keys and drops downs and repeats");
+
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-gate-test-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    Options options;
+    options.config_dir = path;
+    options.input = "ei";
+    options.mode = "vr";
+    options.start_enabled = true;
+    App app(options, sink);
+    sink.events.clear();
+    bool pressed = false;
+    for (int y = 96; y < panel_height && !pressed; y += 4) {
+        for (int x = 0; x < panel_width && !pressed; x += 4) {
+            const auto* hit = app.renderer.hit_key(app.view(), x, y);
+            if (hit && hit->action == "Backspace") {
+                require(app.down(0, x, y, 1), "hold Backspace before text loss");
+                sink.available = false;
+                app.tick(2);
+                app.up(0, x, y);
+                app.cancel();
+                pressed = true;
+            }
+        }
+    }
+    require(pressed && sink.events == std::vector<std::string>{"14:1", "14:0"},
+            "text loss releases Backspace before disabling input and stops repeats");
+    click(app, "ArrowLeft");
+    require(sink.events.size() == 2, "disabled key press and release send nothing");
+
+    sink.available = true;
+    app.tick(3);
+    app.apply({"ja-jis-full", "ja-romaji", "graphite"});
+    click(app, "KeyK");
+    const auto preedit = app.view().preedit;
+    require(!preedit.empty(), "composition exists before text loss");
+    sink.available = false;
+    app.tick(4);
+    require(app.view().preedit == preedit, "text loss retains composition for retry");
 }
 void engines(const std::string& group = "") {
     if (group != "--chinese") {
@@ -343,6 +401,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         require(group.empty() || group == "--core", "unknown test group");
+        input_gate_recovery();
         struct Case {
             const char* id;
             const char* layout;

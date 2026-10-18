@@ -865,6 +865,11 @@ void App::refresh_typing() {
         backend_ready_;
     dirty |= typing_ready_ != typing_ready;
     typing_ready_ = typing_ready;
+    if (gate_.enabled && !(interaction_active_ && typing_ready_)) {
+        // Transport loss ends key ownership, but unsent composition stays for
+        // an explicit retry once text delivery is available again.
+        cancel(false);
+    }
     gate_.enabled = interaction_active_ && typing_ready_;
 }
 void App::convert_japanese() {

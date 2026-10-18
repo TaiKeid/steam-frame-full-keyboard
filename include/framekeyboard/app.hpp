@@ -28,8 +28,17 @@ class InputGate : public KeySink {
   public:
     explicit InputGate(KeySink& target) : target_(target) {}
     void send(int code, int value) override {
-        if (enabled) {
+        // Releases for our own downs must pass even after readiness closes the
+        // gate. Unforwarded presses must never manufacture a release.
+        if (value == 0) {
+            if (held_.erase(code)) {
+                target_.send(code, value);
+            }
+        } else if (enabled) {
             target_.send(code, value);
+            if (value == 1) {
+                held_.insert(code);
+            }
         }
     }
     bool pump() override { return target_.pump(); }
@@ -47,6 +56,7 @@ class InputGate : public KeySink {
 
   private:
     KeySink& target_;
+    std::set<int> held_;
 };
 class App {
   public:
