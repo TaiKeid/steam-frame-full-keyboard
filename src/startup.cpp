@@ -148,22 +148,23 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
             throw std::runtime_error("Install a release package before enabling SteamOS startup.");
         }
         const auto current = root / "current";
-        contents =
-            std::string(marker) +
-            "[Unit]\nDescription=Full Keyboard background replacement\n"
-            "After=gamescope-session.service steamvr.service\n"
-            "PartOf=graphical-session.target steamvr.service\nStartLimitIntervalSec=0\n"
-            "ConditionPathExists=" +
-            condition_path(current / "bin/framekeyboard") +
-            "\n\n[Service]\nType=exec\nEnvironmentFile=-/usr/share/deckard/mesavars.sh\nExecStart=" +
-            quoted(current / "bin/framekeyboard") +
-            " --vr --input ei --start-enabled --autostart --data-dir " +
-            quoted(current / "share/framekeyboard") + " --config-dir " +
-            quoted(fs::absolute(config_dir)) +
-            "\nRestart=always\nRestartPreventExitStatus=3\nSuccessExitStatus=3\n"
-            "RestartSec=3\nTimeoutStopSec=5\n"
-            "# Updater and native-fallback helpers must outlive the parent during handoff.\n"
-            "KillMode=process\n\n[Install]\nWantedBy=steamvr.service\n";
+        contents = std::string(marker) +
+                   "[Unit]\nDescription=Full Keyboard background replacement\n"
+                   "After=gamescope-session.service steamvr.service\n"
+                   "PartOf=graphical-session.target steamvr.service\nStartLimitIntervalSec=0\n"
+                   "ConditionPathExists=" +
+                   condition_path(current / "bin/framekeyboard") +
+                   "\n\n[Service]\nType=exec\nNotifyAccess=all\n"
+                   "Environment=FRAMEKEYBOARD_SERVICE=framekeyboard-autostart.service\n"
+                   "EnvironmentFile=-/usr/share/deckard/mesavars.sh\nExecStart=" +
+                   quoted(current / "bin/framekeyboard") +
+                   " --vr --input ei --start-enabled --autostart --data-dir " +
+                   quoted(current / "share/framekeyboard") + " --config-dir " +
+                   quoted(fs::absolute(config_dir)) +
+                   "\nRestart=always\nRestartPreventExitStatus=3\nSuccessExitStatus=3\n"
+                   "RestartSec=3\nTimeoutStopSec=5\n"
+                   "# Updater and native-fallback helpers must outlive the parent during handoff.\n"
+                   "KillMode=process\n\n[Install]\nWantedBy=steamvr.service\n";
         if (previous == contents && linked && !legacy_linked) {
             if (persist) {
                 persist();

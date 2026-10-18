@@ -45,7 +45,8 @@ def failure_reason(error):
     if isinstance(error, UpdateError):
         code = str(error)
         if code in {"not-installed-release", "installation-changed", "wrong-platform",
-                    "version-mismatch", "startup-failed", "install-busy", "download-timeout"}:
+                    "version-mismatch", "startup-failed", "service-handoff-failed",
+                    "install-busy", "download-timeout"}:
             return code
         if code in {"checksum-mismatch", "inconsistent-checksum", "missing-or-duplicate-checksum"}:
             return "checksum-failed"
@@ -293,6 +294,40 @@ def launch(package, arguments, timeout=45):
         child.close()
 
 
+def stop_child(process):
+    if process is not None and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+
+
+def service_main_pid(unit):
+    if not re.fullmatch(r"[a-zA-Z0-9_.@:-]+\.service", unit):
+        raise UpdateError("service-handoff-failed")
+    try:
+        result = subprocess.run(["systemctl", "--user", "show", unit, "-p", "MainPID", "--value"],
+                                capture_output=True, text=True, check=True, timeout=5)
+        return int(result.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise UpdateError("service-handoff-failed") from None
+
+
+def adopt_service_child(unit, process):
+    # systemd-notify waits for the manager to consume the notification. Verify
+    # MainPID as well before allowing the still-live original owner to exit.
+    try:
+        subprocess.run(["systemd-notify", "--pid=" + str(process.pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=5)
+        if service_main_pid(unit) == process.pid:
+            return
+    except (OSError, subprocess.SubprocessError):
+        pass
+    raise UpdateError("service-handoff-failed")
+
+
 @contextlib.contextmanager
 def activation_signals():
     # Cancellation is immediate while downloading/preparing. Once the original
@@ -420,15 +455,15 @@ class Installation:
         if self.target.exists():
             raise UpdateError("release-exists")
 
-    def activate(self, arguments):
+    def activate(self, arguments, adopt=None):
         with activation_signals():
             try:
-                return self.activate_transaction(arguments)
+                return self.activate_transaction(arguments, adopt)
             finally:
                 # Cleanup and unlock before replaying a default-action signal too.
                 self.close()
 
-    def activate_transaction(self, arguments):
+    def activate_transaction(self, arguments, adopt=None):
         switched = False
         promoted = False
         snapshot = None
@@ -442,8 +477,14 @@ class Installation:
             switched = True
             replace_link(self.root, "current", str(self.target.relative_to(self.root)))
             process = launch(self.target, arguments)
+            if adopt:
+                try:
+                    adopt(process)
+                except BaseException:
+                    stop_child(process)
+                    raise
         except BaseException:
-            self.rollback(arguments, snapshot, promoted, switched)
+            self.rollback(arguments, snapshot, promoted, switched, adopt)
             raise
         # Acknowledged startup commits the new release. Optional bookkeeping can
         # no longer enter rollback or remove resources from this live process.
@@ -454,7 +495,7 @@ class Installation:
         with contextlib.suppress(OSError):
             (self.root / "update-status.log").write_text(text)
 
-    def rollback(self, arguments, snapshot, promoted, switched):
+    def rollback(self, arguments, snapshot, promoted, switched, adopt=None):
         errors = []
 
         def attempt(operation):
@@ -486,7 +527,13 @@ class Installation:
             # Repair failures are independent. Always attempt the known old binary
             # directly, even when current or a saved preference cannot be restored.
             try:
-                launch(self.old, arguments)
+                process = launch(self.old, arguments)
+                if adopt:
+                    try:
+                        adopt(process)
+                    except BaseException:
+                        stop_child(process)
+                        raise
             except BaseException:
                 self.write_status("Update failed; previous release could not restart.\n")
                 raise
@@ -535,6 +582,31 @@ def serve(peer, executable, current, arguments):
                     installation.prepare(selected, lambda phase: send("progress", phase=phase))
                     prepared_at = time.monotonic()
                     send("prepared")
+                elif command["op"] == "activate-supervised" and installation and prepared_at:
+                    # The explicit packet still follows full VR/input/lock cleanup.
+                    # Keep the original service MainPID alive throughout activation.
+                    unit = os.environ.get("FRAMEKEYBOARD_SERVICE", "")
+                    if not os.environ.get("NOTIFY_SOCKET") or service_main_pid(unit) != parent:
+                        raise UpdateError("service-handoff-failed")
+                    adopted = False
+
+                    def adopt(process):
+                        nonlocal adopted
+                        adopt_service_child(unit, process)
+                        adopted = True
+
+                    try:
+                        installation.activate(arguments, adopt)
+                    except (OSError, ValueError, UpdateError, subprocess.SubprocessError) as error:
+                        record_failure(executable, "install", failure_reason(error))
+                    finally:
+                        # Acknowledged adoption is final even if optional cleanup
+                        # or a deferred termination signal reports an error later.
+                        if adopted:
+                            send("activated")
+                        else:
+                            send("error", reason="service-handoff-failed")
+                    return
                 elif command["op"] == "activate" and installation and prepared_at:
                     # Explicit handoff is sent only after VR/input/settings cleanup. Parent
                     # death by itself is cancellation, never authorization to install.

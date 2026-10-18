@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
                     }
                 }
                 const auto start = monotonic_seconds();
-                while (monotonic_seconds() - start < 4) {
+                while (monotonic_seconds() - start < (std::getenv("FRAMEKEYBOARD_SERVICE") ? 20 : 4)) {
                     update_startup_ready(monotonic_seconds());
                     std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 }
@@ -161,7 +161,30 @@ while True:
         else:
             peer.send(b'{"state":"progress","phase":"verify"}')
             peer.send(b'{"state":"prepared"}')
+    elif command['op']=='activate-supervised':
+        assert mode in ('supervised','supervised-error')
+        peer.send(json.dumps({'state':'activated' if mode=='supervised' else 'error'}).encode())
+        break
 )PY";
+        for (const auto mode : {"supervised", "supervised-error"}) {
+            Updates updates("0.6.0", {mode}, helper);
+            updates.click(10);
+            wait_label(updates, "Download and install update", 20);
+            updates.click(21);
+            wait_label(updates, "Restarting keyboard...", 22);
+            const auto previous_service = std::getenv("FRAMEKEYBOARD_SERVICE");
+            const auto previous_notify = std::getenv("NOTIFY_SOCKET");
+            const std::string service = previous_service ? previous_service : "";
+            const std::string notify = previous_notify ? previous_notify : "";
+            setenv("FRAMEKEYBOARD_SERVICE", "framekeyboard-test.service", 1);
+            setenv("NOTIFY_SOCKET", "/not-a-real-notification-socket", 1);
+            const bool transferred = updates.handoff();
+            service.empty() ? unsetenv("FRAMEKEYBOARD_SERVICE")
+                            : setenv("FRAMEKEYBOARD_SERVICE", service.c_str(), 1);
+            notify.empty() ? unsetenv("NOTIFY_SOCKET") : setenv("NOTIFY_SOCKET", notify.c_str(), 1);
+            require(transferred == (std::string(mode) == "supervised"),
+                    "service handoff waits for verified adoption and rejects failed adoption");
+        }
         {
             const auto log = directory / "helper-output.log";
             {

@@ -22,6 +22,8 @@ The helper and any restarted app inherit the original app's stdout and stderr de
 
 The boot-only `--autostart` option is omitted from update, rollback and failed-handoff restarts. These are explicit user-requested launches, so turning off Start with SteamOS or replacement during a session cannot prevent them from starting. Saved startup preferences and the session unit are preserved.
 
+When running under the optional startup service, cleanup still releases VR, input and the instance lock before handoff, but the original service process stays alive. The helper verifies that the service owns that process, launches the candidate and waits for the same sustained startup confirmation. It then uses the user manager's local notification socket to transfer MainPID to the confirmed successor and checks that the manager accepted it. Only then does the original process exit. The startup unit accepts notifications from its own service processes; no network port is involved. A failed candidate is terminated and rollback applies the same adoption check to the previous release. If neither child can be adopted, both are stopped and the original main process restarts its own still-known binary. Manual launches retain the ordinary exit-then-launch protocol.
+
 ## Validation
 
 In-app updates preserve the existing launcher and desktop entry and restart with the current launch arguments. They do not apply changes in a newer install script. Release preparation must verify compatibility with older launchers; see the [release checklist](releasing.md#prepare). Manual installation refreshes the generated launcher and desktop entry.

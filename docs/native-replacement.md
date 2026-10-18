@@ -30,6 +30,8 @@ Settings Quit pauses the app until the next SteamVR start or SteamOS login if bo
 
 ## Coverage
 
+Service-started keyboards retain service supervision through an in-app update or rollback. The original process stays registered until systemd confirms the replacement's PID. Subsequent crashes and SteamVR shutdown still use the startup unit's recovery policy. A manual app launch remains independent of the startup service.
+
 Requests come from Steam's shared VR keyboard status, including Steam field focus and dashboard summons. Steam field takeover requires a matching window whose existing virtual-keyboard manager and native Show/Hide provider can restore that exact target. The main Steam UI is supported, including its minimal SteamVR-dispatched requests; a Steam bar/app popup requires its own matching manager and field callback.
 
 Frame-local Gamescope desktop/window requests are also supported when their metadata matches the dashboard's minimal, single-line request with flags 13 and SteamVR dispatch disabled. These use the ordinary local libei/Unicode backend. An app-scoped native guard must first resolve the exact requesting overlay and arm recovery. It can reopen native for that overlay through OpenVR, independently of Python and the Steam UI. If that guard is unavailable, the request stays native. Unknown targets, mismatched Steam owners, other external request modes and buffered SteamVR requests remain native. A native keyboard already open when the bridge connects stays native until dismissed. Streamed VR-app input remains outside the project scope.

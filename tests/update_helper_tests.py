@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("update_helper", Path(sys.argv.pop(1)))
 u = importlib.util.module_from_spec(spec)
@@ -229,6 +229,28 @@ class Transaction(unittest.TestCase):
         self.assertTrue(self.old.exists())
         self.assertEqual(u.restart_arguments(["--data-dir", "old", "--vr", "--config-dir", "custom"], self.installation.target), ["--data-dir", str(self.installation.target / "share/framekeyboard"), "--vr", "--config-dir", "custom"])
 
+    def test_failed_adoption_rolls_back_and_adopts_the_previous_release(self):
+        self.prepare()
+        candidate, previous = Mock(pid=1234), Mock(pid=1235)
+        adopt = Mock(side_effect=[u.UpdateError("service-handoff-failed"), None])
+        with patch.object(u, "launch", side_effect=[candidate, previous]), patch.object(u, "stop_child") as stop:
+            with self.assertRaises(u.UpdateError):
+                self.installation.activate([], adopt)
+        self.assertEqual([c.args[0] for c in adopt.call_args_list], [candidate, previous])
+        stop.assert_called_once_with(candidate)
+        self.assertEqual(os.readlink(self.root / "current"), "releases/old")
+        self.assertIn("previous release relaunched", (self.root / "update-status.log").read_text())
+
+    def test_failed_adoption_of_both_children_leaves_original_owner_to_restart(self):
+        self.prepare()
+        candidate, previous = Mock(pid=1234), Mock(pid=1235)
+        adopt = Mock(side_effect=u.UpdateError("service-handoff-failed"))
+        with patch.object(u, "launch", side_effect=[candidate, previous]), patch.object(u, "stop_child") as stop:
+            with self.assertRaises(u.UpdateError):
+                self.installation.activate([], adopt)
+        self.assertEqual([c.args[0] for c in stop.call_args_list], [candidate, previous])
+        self.assertEqual(os.readlink(self.root / "current"), "releases/old")
+
     def test_startup_failure_restores_post_close_preferences(self):
         config = Path(self.directory.name) / "preferences"
         config.mkdir()
@@ -435,6 +457,40 @@ raise SystemExit(child.wait(timeout=3))
 
 
 class Protocol(unittest.TestCase):
+    def test_supervised_activation_waits_for_adoption_without_parent_exit(self):
+        client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        selected = {"tag": "9.0.0", "parts": (9, 0, 0)}
+        process = Mock(pid=1234)
+        calls, errors = [], []
+        class FakeInstallation:
+            def __init__(self, executable): pass
+            def prepare(self, release, progress): pass
+            def close(self): pass
+            def activate(self, arguments, adopt):
+                calls.append("activate")
+                adopt(process)
+        def run():
+            try:
+                u.serve(server, "/unused", "0.6.0", [])
+            except BaseException as error:
+                errors.append(error)
+        with patch.dict(os.environ, FRAMEKEYBOARD_SERVICE="fixture.service", NOTIFY_SOCKET="/fixture"), patch.object(u, "release", return_value=selected), patch.object(u, "Installation", FakeInstallation), patch.object(u, "service_main_pid", return_value=os.getppid()), patch.object(u, "adopt_service_child") as adopted:
+            thread = threading.Thread(target=run)
+            thread.start()
+            client.settimeout(2)
+            try:
+                client.send(b'{"op":"install","version":"9.0.0"}')
+                self.assertEqual(json.loads(client.recv(2048))["state"], "prepared")
+                client.send(b'{"op":"activate-supervised"}')
+                self.assertEqual(json.loads(client.recv(2048)), {"state": "activated"})
+            finally:
+                client.close()
+                thread.join(timeout=3)
+            adopted.assert_called_once_with("fixture.service", process)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(calls, ["activate"])
+
     def test_failure_reasons_are_fixed_and_logged_before_restart(self):
         private = "https://private.example/secret"
         failures = [

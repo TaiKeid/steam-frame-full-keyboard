@@ -11,6 +11,7 @@
 #include <iostream>
 #include <json-c/json.h>
 #include <memory>
+#include <poll.h>
 #include <spawn.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -45,6 +46,7 @@ std::string failure_message(const std::string& code) {
         {"wrong-platform", "Updates require a Steam Frame ARM64 installation."},
         {"version-mismatch", "The package version does not match the release."},
         {"startup-failed", "The updated keyboard could not finish startup."},
+        {"service-handoff-failed", "The keyboard service could not take over the update."},
         {"validation-failed", "The update package could not run its validation."},
         {"invalid-release", "The release package or metadata is invalid."},
         {"disk-full", "Not enough disk space to install the update."},
@@ -265,8 +267,33 @@ bool Updates::tick(double now) {
     return before != label() || before_reason != failure_reason();
 }
 bool Updates::handoff() {
-    handed_off_ = prepared() && send("activate");
-    return handed_off_;
+    const bool supervised = std::getenv("FRAMEKEYBOARD_SERVICE") && std::getenv("NOTIFY_SOCKET");
+    handed_off_ = prepared() && send(supervised ? "activate-supervised" : "activate");
+    if (!handed_off_ || !supervised) {
+        return handed_off_;
+    }
+    // VR, input and the instance lock are already gone. Keep the registered
+    // MainPID alive until the helper verifies systemd has adopted its successor.
+    // Allow both 45-second startup windows plus termination and manager queries.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(150);
+    while (std::chrono::steady_clock::now() < deadline) {
+        pollfd descriptor{fd_, POLLIN, 0};
+        if (poll(&descriptor, 1, 250) < 0) {
+            return false;
+        }
+        if (!descriptor.revents) {
+            continue;
+        }
+        std::array<char, 2048> packet{};
+        const auto count = recv(fd_, packet.data(), packet.size(), MSG_DONTWAIT | MSG_TRUNC);
+        if (count <= 0 || count > static_cast<ssize_t>(packet.size())) {
+            return false;
+        }
+        const std::string text(packet.data(), static_cast<std::size_t>(count));
+        Json result(json_tokener_parse(text.c_str()), json_object_put);
+        return result && field(result.get(), "state") == "activated";
+    }
+    return false;
 }
 UpdateStartup::UpdateStartup() {
     if (const char* value = std::getenv("FRAMEKEYBOARD_UPDATE_READY_FD")) {
