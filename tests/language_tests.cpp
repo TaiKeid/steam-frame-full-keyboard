@@ -303,6 +303,18 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             std::vector<std::string> errors;
             require(load_settings(path, errors).active.language == id,
                     "startup fallback preserves the user's saved language");
+            for (const auto& control : restored.view().controls) {
+                if (control.id == "pin") {
+                    const auto x = control.bounds.x + control.bounds.width / 2;
+                    const auto y = control.bounds.y + control.bounds.height / 2;
+                    restored.down(0, x, y, 1);
+                    restored.up(0, x, y);
+                    break;
+                }
+            }
+            restored.flush_settings();
+            require(load_settings(path, errors).active.language == id,
+                    "pin save preserves the unavailable saved language");
             sink.events.clear();
             click(restored, "KeyA");
             require(sink.events == std::vector<std::string>{"a"},

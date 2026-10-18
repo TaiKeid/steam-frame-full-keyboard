@@ -70,14 +70,28 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
+    persisted_active_ = settings_.active;
+    if (!profiles_.themes.contains(settings_.active.theme)) {
+        profiles_.errors.push_back("Saved theme unavailable. Using Graphite.");
+        settings_.active.theme = "graphite";
+    }
     try {
-        validate_selection(profiles_, settings_.active);
+        keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
     } catch (const std::exception& error) {
         profiles_.errors.push_back(error.what());
-        settings_.active = {};
+        settings_.active.language = "en-us";
+        keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at("en-us"));
     }
-    keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
+    const auto layout = compatible_layout(profiles_, settings_.active);
+    if (layout != settings_.active.layout) {
+        profiles_.errors.push_back("Saved layout unavailable or incompatible. Using " + layout + ".");
+        settings_.active.layout = layout;
+    }
+    validate_selection_profiles(profiles_, settings_.active);
+    if (settings_.active != persisted_active_) {
+        startup_status_ = profiles_.errors.front();
+    }
     keyboard_.set_num(settings_.num_lock);
     pending_ = default_ = settings_.active;
     rebuild_cycle_entries();
@@ -289,7 +303,7 @@ PanelView App::view() const {
     }
     v.status = dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
                                                        : "Release trigger to place keyboard")
-                         : status_;
+                         : (status_.empty() ? startup_status_ : status_);
     if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
@@ -723,7 +737,7 @@ void App::activate(Selection selection) {
 void App::save() {
     try {
         auto saved = settings_;
-        saved.active = default_;
+        saved.active = persisted_active_;
         settings_writer_.enqueue(std::move(saved));
     } catch (const std::exception& error) {
         status_ = "Applied, but not saved: " + std::string(error.what());
@@ -757,6 +771,8 @@ void App::allow_slow_work() {
 void App::apply(Selection selection) {
     activate(std::move(selection));
     default_ = settings_.active;
+    persisted_active_ = settings_.active;
+    startup_status_.clear();
     rebuild_cycle_entries();
     save();
 }
@@ -1282,6 +1298,8 @@ void App::action(const std::string& id) {
         settings_.replace_native_keyboard = pending_replace_native_keyboard_;
         settings_.start_with_steamos = pending_start_with_steamos_;
         default_ = settings_.active;
+        persisted_active_ = settings_.active;
+        startup_status_.clear();
         rebuild_cycle_entries();
         save();
         settings_open_ = false;

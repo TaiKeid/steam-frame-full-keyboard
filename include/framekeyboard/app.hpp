@@ -164,6 +164,10 @@ class App {
     SettingsWriter settings_writer_;
     std::string save_status_;
     Selection pending_, default_;
+    // Only explicit Apply changes the saved choice. Startup fallback and
+    // favorite cycling affect the runtime selection/default independently.
+    Selection persisted_active_;
+    std::string startup_status_;
     std::vector<Selection> cycle_entries_;
     std::vector<Favorite> pending_favorites_;
     bool pending_hide_numpad_{};

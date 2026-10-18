@@ -199,6 +199,37 @@ void compact_toolbar() {
                 "compact toolbar action reaches its intended destination");
     }
 }
+void startup_profile_fallback() {
+    for (const auto& selection : {Selection{"missing-layout", "de-de", "graphite"},
+                                  Selection{"international-full", "de-de", "missing-theme"}}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.active = selection;
+        save_settings(directory.path, settings);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = "render";
+        CaptureSink sink;
+        App app(options, sink);
+        require(app.selection().language == "de-de" && app.selection().theme == "graphite",
+                "startup fallback preserves the usable language and theme");
+        require(selection.layout == "missing-layout" || app.selection().layout == selection.layout,
+                "missing theme preserves the saved layout");
+        const auto profiles = load_profiles({}, {});
+        validate_selection(profiles, app.selection());
+        click(app, "pin");
+        const auto [x, y] = key_point(app, "NumLock");
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        const auto persisted = saved(app);
+        require(persisted.active == selection && persisted.pinned && persisted.num_lock,
+                "ordinary saves retain unavailable saved profiles and update preferences");
+        require(!app.view().status.empty(), "fallback explanation survives ordinary saves");
+        app.show_settings();
+        click(app, "apply");
+        require(saved(app).active == app.selection(), "explicit Apply commits the displayed fallback");
+    }
+}
 void favorite_cache_reload() {
     TemporaryDirectory directory;
     Settings settings;
@@ -1151,6 +1182,7 @@ int main() {
     try {
         native_num_restore();
         compact_toolbar();
+        startup_profile_fallback();
         favorite_cache_reload();
         background_preferences();
         reload_startup();
