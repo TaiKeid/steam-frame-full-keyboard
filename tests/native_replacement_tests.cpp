@@ -333,6 +333,8 @@ void handoff_status() {
         app.tick(3);
         require(app.view().status.starts_with("Keyboard connection lost."),
                 "a real backend failure remains visible during the handoff");
+        require(app.view().status.find("Settings > Quit Full Keyboard") != std::string::npos,
+                "unrecoverable resident failure explains how to exit the instance");
         sink.ready = true;
         sink.text_ready = false;
         app.tick(4);

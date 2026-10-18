@@ -749,7 +749,7 @@ void connection_recovery_tests() {
             "disconnect while hidden reports connection loss instead of keymap mismatch");
     sink.recoverable = true;
     app.tick(2);
-    require(app.view().status.find("Waiting to resume") != std::string::npos,
+    require(app.view().status.find("Waiting for the compositor") != std::string::npos,
             "temporary pause has a distinct status");
     sink.ready = true;
     sink.reset = true;

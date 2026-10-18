@@ -34,13 +34,20 @@ struct Server {
     std::vector<std::pair<unsigned, bool>> keys;
     fs::path directory, socket;
     std::string keyboard_layout;
-    explicit Server(const std::string& socket_name = "input", const std::string& layout = "us")
+    explicit Server(const std::string& socket_name = "input", const std::string& layout = "us",
+                    const fs::path& existing_socket = {})
         : keyboard_layout(layout) {
-        std::string temporary = "/tmp/full-keyboard-eis-XXXXXX";
-        require(mkdtemp(temporary.data()), "temporary directory");
-        directory = temporary;
+        if (existing_socket.empty()) {
+            std::string temporary = "/tmp/full-keyboard-eis-XXXXXX";
+            require(mkdtemp(temporary.data()), "temporary directory");
+            directory = temporary;
+            socket = directory / socket_name;
+        } else {
+            socket = existing_socket;
+            directory = socket.parent_path();
+            fs::create_directories(directory);
+        }
         require(context && eis_set_flag(context, EIS_FLAG_DEVICE_READY) == 0, "device-ready protocol");
-        socket = directory / socket_name;
         require(eis_setup_backend_socket(context, socket.c_str()) == 0, "isolated EIS socket");
     }
     ~Server() {
@@ -309,10 +316,75 @@ void asynchronous_text() {
     require(text.connections == connections + 1, "text reconnect restores readiness");
 }
 #endif
+void reconnect() {
+    auto server = std::make_unique<Server>();
+    const auto socket = server->socket;
+    const auto text_socket = server->directory / "text";
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+    auto text = std::make_unique<TextServer>(text_socket);
+#endif
+    double now = 10;
+    auto connecting = std::async(std::launch::async, [&] {
+        return std::make_unique<EiSink>(socket, text_socket, [&] { return now; });
+    });
+    server->until([&] { return connecting.wait_for(0ms) == std::future_status::ready; });
+    auto sink = connecting.get();
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+    server->until([&] {
+        text->pump();
+        return sink->text_available();
+    });
+#endif
+    sink->take_input_reset();
+    sink->send(30, 1);
+    server->until([&] { return server->keys.size() == 1; });
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+    text.reset();
+#endif
+    server.reset();
+    for (int i = 0; i < 100 && sink->pump(); ++i) {
+        std::this_thread::sleep_for(1ms);
+    }
+    require(!sink->pump() && sink->can_resume() && sink->take_input_reset() && !sink->take_input_reset(),
+            "disconnect is recoverable and reports reset once");
+    now += 1;
+    const auto started = std::chrono::steady_clock::now();
+    require(!sink->pump(), "absent socket leaves reconnect pending");
+    require(std::chrono::steady_clock::now() - started < 16ms,
+            "reconnect never waits for a handshake or missing compositor");
+    sink->send(31, 1);
+    require(!sink->take_input_reset(), "failed reconnect does not replay reset or holds");
+    server = std::make_unique<Server>("input", "us", socket);
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+    text = std::make_unique<TextServer>(text_socket);
+#endif
+    now += 1.9;
+    require(!sink->pump(), "second attempt waits for the doubled delay");
+    now += .2;
+    const auto negotiating = std::chrono::steady_clock::now();
+    sink->pump();
+    require(std::chrono::steady_clock::now() - negotiating < 16ms,
+            "reconnect starts negotiation without waiting for the server");
+    server->until([&] { return sink->pump(); });
+    sink->send(30, 0);
+    sink->send(32, 1);
+    sink->send(32, 0);
+    server->until([&] { return server->keys.size() == 2; });
+    require(server->keys == std::vector<std::pair<unsigned, bool>>{{32, true}, {32, false}},
+            "replacement server receives only fresh keys");
+#ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
+    server->until([&] {
+        text->pump();
+        return sink->text_available();
+    });
+    require(text->connections == 1, "native reconnect also recreates Unicode connection");
+#endif
+}
 } // namespace
 int main() {
     try {
         socket_routing_tests();
+        reconnect();
 #ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
         asynchronous_text();
 #endif
@@ -371,7 +443,7 @@ int main() {
                 "output before interruption acknowledgement is suppressed");
         eis_client_disconnect(server.client);
         server.until([&] { return !sink->pump(); });
-        require(!sink->can_resume() && sink->take_input_reset(), "disconnect requires a new connection");
+        require(sink->can_resume() && sink->take_input_reset(), "disconnect schedules reconnect");
         std::cout << "Compositor socket routing, real libei pause/resume, stale-key suppression and "
                      "disconnect passed.\n";
     } catch (const std::exception& error) {

@@ -354,10 +354,12 @@ PanelView App::view() const {
         }
     }
     if (!backend_ready_) {
-        v.status = backend_can_resume_ ? "Keyboard paused by compositor. Waiting to resume."
-                                       : "Keyboard connection lost. Reopen the app to reconnect.";
+        v.status = backend_can_resume_ ? "Keyboard paused or disconnected. Waiting for the compositor."
+                   : resident_replacement()
+                       ? "Keyboard connection lost. Use Settings > Quit Full Keyboard, then relaunch."
+                       : "Keyboard connection lost. Reopen the app to reconnect.";
     } else if ((unicode_mode() || japanese() || cjk_) && options_.input != "none" && !text_ready_) {
-        v.status = "Text delivery unavailable. Reopen the app after the compositor connection recovers.";
+        v.status = "Text delivery unavailable. Waiting for the compositor connection to recover.";
     }
     for (const auto& [pointer, id] : hovered_) {
         (void)pointer;

@@ -151,6 +151,13 @@ updates. Ctrl/Alt letter shortcuts and dedicated Copy/Paste search that map for
 the intended Latin symbol, with a conventional physical fallback where metadata
 is absent. This lookup neither changes the system keymap nor reads app text.
 
+After a libei disconnect, `EiSink` clears held keys and reports one input reset.
+Reconnect uses nonblocking Unix sockets and frame-by-frame negotiation with a
+three-second deadline, retrying after 1, 2, 4 seconds up to 30 seconds. A ready
+keyboard resets the backoff. Reconnection also recreates the Unicode transport;
+old holds and text are never replayed. The initial launch alone may wait up to
+three seconds for the first keyboard.
+
 AUX head-cursor clicks use the existing OpenVR overlay mouse events. Laser movement accepts tracked HMD and controller poses. Grip reads and haptic output remain controller-specific. Device/cursor ownership prevents a controller reusing cursor zero from releasing an HMD capture. Tracking loss and dashboard hiding cancel either source. Handle-click logs contain source metadata only, with no key coordinates or typed text.
 
 While a controller owns a laser-line capture, `GrabInput` reads only that controller's thumbstick without querying or requiring grip. It supplies the calibrated tip ray at capture so depth follows the same laser direction as grip movement. The laser path polls no render components while idle; an AUX/HMD capture has no stick source and cannot borrow a controller's axis. Missing stick/model data returns zero depth while tracked pose movement remains available.

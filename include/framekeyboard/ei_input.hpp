@@ -18,7 +18,7 @@ class EiSink : public KeySink {
     void send(int code, int value) override;
     bool pump() override;
     bool take_input_reset() override;
-    bool can_resume() const override { return !disconnected_; }
+    bool can_resume() const override { return true; }
     bool text_available() override;
     bool commit_text(const std::string& text) override;
     bool text_pending() const override { return text_ && text_->pending(); }
@@ -35,14 +35,17 @@ class EiSink : public KeySink {
   private:
     void read_keymap();
     void service_text();
+    bool connect();
+    void connection_lost();
     std::unique_ptr<xkb_context, decltype(&xkb_context_unref)> xkb_{nullptr, xkb_context_unref};
     std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> keymap_{nullptr, xkb_keymap_unref};
     xkb_layout_index_t group_{};
     std::optional<bool> num_lock_;
-    fs::path text_socket_;
+    fs::path socket_, text_socket_;
     std::unique_ptr<GamescopeText> text_;
     GamescopeText::Clock clock_;
     double text_retry_at_{}, text_retry_delay_{1};
+    double retry_at_{}, retry_delay_{1}, connect_deadline_{};
     ei* context_{};
     ei_device* keyboard_{};
     bool resumed_{}, disconnected_{}, input_reset_{};

@@ -1,4 +1,5 @@
 #include "framekeyboard/ei_input.hpp"
+#include "framekeyboard/local_socket.hpp"
 #include <algorithm>
 #include <chrono>
 #include <poll.h>
@@ -25,18 +26,13 @@ fs::path gamescope_text_socket(const fs::path& input_socket, const fs::path& exp
     return input_socket.parent_path() / name.substr(0, name.size() - suffix.size());
 }
 EiSink::EiSink(const fs::path& socket, const fs::path& text_socket, GamescopeText::Clock clock)
-    : text_socket_(gamescope_text_socket(socket, text_socket)),
+    : socket_(socket), text_socket_(gamescope_text_socket(socket, text_socket)),
       clock_(clock ? std::move(clock) : GamescopeText::Clock([] {
           return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
               .count();
       })) {
-    context_ = ei_new_sender(nullptr);
-    if (!context_) {
-        throw std::runtime_error("Cannot allocate compositor input connection");
-    }
     try {
-        ei_configure_name(context_, "Full Keyboard");
-        if (ei_setup_backend_socket(context_, socket.c_str()) != 0) {
+        if (!connect()) {
             throw std::runtime_error("Cannot connect to compositor keyboard socket: " + socket.string());
         }
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -51,12 +47,58 @@ EiSink::EiSink(const fs::path& socket, const fs::path& text_socket, GamescopeTex
         if (keyboard_) {
             keyboard_ = ei_device_unref(keyboard_);
         }
-        context_ = ei_unref(context_);
+        if (context_) {
+            context_ = ei_unref(context_);
+        }
         throw;
     }
 }
+bool EiSink::connect() {
+    if (keyboard_) {
+        keyboard_ = ei_device_unref(keyboard_);
+    }
+    if (context_) {
+        context_ = ei_unref(context_);
+    }
+    keymap_.reset();
+    num_lock_.reset();
+    group_ = sequence_ = 0;
+    held_.clear();
+    resumed_ = false;
+    disconnected_ = true;
+    context_ = ei_new_sender(nullptr);
+    if (!context_) {
+        return false;
+    }
+    ei_configure_name(context_, "Full Keyboard");
+    const int fd = connect_local_socket(socket_);
+    if (fd < 0) {
+        return false;
+    }
+    // libei owns fd, including on setup failure. No handshake wait here;
+    // subsequent frames dispatch it, with a bounded negotiation deadline.
+    if (ei_setup_backend_fd(context_, fd) != 0) {
+        return false;
+    }
+    disconnected_ = false;
+    connect_deadline_ = clock_() + 3;
+    return true;
+}
+void EiSink::connection_lost() {
+    input_reset_ |= resumed_ || keyboard_;
+    disconnected_ = true;
+    resumed_ = false;
+    held_.clear();
+    num_lock_.reset();
+    keymap_.reset();
+    text_.reset();
+    text_retry_at_ = 0;
+    text_retry_delay_ = 1;
+    retry_at_ = clock_() + retry_delay_;
+    retry_delay_ = std::min(30.0, retry_delay_ * 2);
+}
 void EiSink::service_text() {
-    if (text_socket_.empty()) {
+    if (text_socket_.empty() || disconnected_ || !resumed_) {
         return; // Never let Wayland fall back to an unrelated default display.
     }
     if (text_ && text_->ready()) {
@@ -78,14 +120,21 @@ void EiSink::service_text() {
 }
 bool EiSink::text_available() {
     service_text();
-    return text_ && text_->ready();
+    return !disconnected_ && resumed_ && text_ && text_->ready();
 }
 bool EiSink::commit_text(const std::string& text) {
     return pump() && !input_reset_ && held_.empty() && text_available() && text_->commit(text);
 }
 bool EiSink::pump() {
     if (disconnected_) {
-        return false;
+        if (clock_() < retry_at_) {
+            return false;
+        }
+        if (!connect()) {
+            retry_at_ = clock_() + retry_delay_;
+            retry_delay_ = std::min(30.0, retry_delay_ * 2);
+            return false;
+        }
     }
     service_text();
     ei_dispatch(context_);
@@ -115,6 +164,8 @@ bool EiSink::pump() {
         case EI_EVENT_DEVICE_RESUMED:
             if (device == keyboard_ && !disconnected_) {
                 resumed_ = true;
+                connect_deadline_ = 0;
+                retry_delay_ = 1;
                 ei_device_start_emulating(keyboard_, ++sequence_);
             }
             break;
@@ -137,16 +188,15 @@ bool EiSink::pump() {
             }
             break;
         case EI_EVENT_DISCONNECT:
-            input_reset_ = true;
-            disconnected_ = true;
-            resumed_ = false;
-            held_.clear();
-            num_lock_.reset();
+            connection_lost();
             break;
         default:
             break;
         }
         ei_event_unref(event);
+    }
+    if (!disconnected_ && connect_deadline_ && clock_() >= connect_deadline_) {
+        connection_lost();
     }
     return resumed_ && !disconnected_;
 }

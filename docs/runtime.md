@@ -65,7 +65,7 @@ Copy/Paste send Ctrl+C/Ctrl+V. They do not synchronize clipboards between sessio
 | Keyboard is offscreen | Relaunch while it is running, or use the recenter icon |
 | App exits immediately | Run `~/.local/bin/framekeyboard` in a terminal and read the error; check that the VR session is running |
 | Keys do not reach a local app | Focus a harmless text field first; check the Unicode text connection and chosen profile |
-| Keyboard paused by compositor | Wait for the device to resume; old holds are cleared |
+| Keyboard paused or disconnected | Wait for the compositor; native and Unicode connections retry in the background and old holds are cleared |
 | Input connection was lost | Close and reopen the keyboard to reconnect |
 | Wrong characters | Check the selected app language and custom XKB profile; physical uinput/external-JIS modes additionally need a matching target keymap |
 | Copy/Paste fail in a terminal | This version sends Ctrl+C/Ctrl+V, not terminal Ctrl+Shift shortcuts |
