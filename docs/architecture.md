@@ -44,6 +44,8 @@ Preference snapshots go to a dedicated `SettingsWriter` worker. Atomic file writ
 
 VR startup queues one reconciliation of valid saved startup preferences on that worker. This refreshes owned service templates after an update without requiring Apply or Reload. Matching files skip manager reload; malformed settings preserve the existing unit. Previews never configure startup.
 
+Deliberate VR exits return 0 for manual launches and 3 for boot launches or processes carrying `FRAMEKEYBOARD_SERVICE`. The boot flag covers older units without the marker; the inherited marker covers service-managed update successors that omit the boot flag. Runtime shutdown and watchdog SIGTERM remain eligible for service restart.
+
 ## Input and focus
 
 The installed launcher uses libei through the running Gamescope socket. A keyboard seat is bound, output starts only after device resume, and a pause or removed device clears held state. Resuming or receiving a replacement keyboard can restore typing; a disconnected socket requires reopening. An interruption flag survives a pause/resume pair within one dispatch, and blocks backend output until the app clears its old UI holds. Connection state is tracked even while the dashboard disables typing. Existing evdev key mapping is shared with uinput; compositor repeat replaces synthetic EV_KEY repeat in the libei path. Development previews remain input-disabled. Apply/Reload releases held keys and restores typing only for a live backend, available text transport and an explicitly enabled launch. Physical-only modes additionally check their target declaration; no pause/resume button is needed.

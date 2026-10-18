@@ -1,4 +1,5 @@
 #include "framekeyboard/startup.hpp"
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -15,6 +16,21 @@ std::string read(const fs::path& path) {
 }
 int main(int argc, char** argv) {
     try {
+        const auto marker = std::getenv("FRAMEKEYBOARD_SERVICE");
+        const std::string saved_marker = marker ? marker : "";
+        const bool had_marker = marker != nullptr;
+        unsetenv("FRAMEKEYBOARD_SERVICE");
+        require(deliberate_exit_status(false) == 0,
+                "ordinary manual quit and recenter preserve successful exit status");
+        require(deliberate_exit_status(true) == 3,
+                "legacy boot units without the new marker still prevent restart on Quit");
+        setenv("FRAMEKEYBOARD_SERVICE", "framekeyboard-autostart.service", 1);
+        require(deliberate_exit_status(false) == 3,
+                "service-managed update successors retain deliberate exit behavior without boot flag");
+        setenv("FRAMEKEYBOARD_SERVICE", "", 1);
+        require(deliberate_exit_status(false) == 0, "an empty marker does not change manual exits");
+        had_marker ? setenv("FRAMEKEYBOARD_SERVICE", saved_marker.c_str(), 1)
+                   : unsetenv("FRAMEKEYBOARD_SERVICE");
         char pattern[] = "/tmp/full-keyboard-startup-XXXXXX";
         const fs::path base = argc == 2 ? fs::path(argv[1]) : fs::path(mkdtemp(pattern));
         const auto root = base / "install";

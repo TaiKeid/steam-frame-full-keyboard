@@ -98,6 +98,10 @@ void reload_manager() {
     throw std::runtime_error("Could not refresh SteamOS startup settings.");
 }
 } // namespace
+int deliberate_exit_status(bool autostart) {
+    const auto service = std::getenv("FRAMEKEYBOARD_SERVICE");
+    return autostart || (service && *service) ? 3 : 0;
+}
 void configure_startup(const Settings& settings, const fs::path& executable, const fs::path& config_dir,
                        fs::path unit_directory, std::function<void()> reload,
                        std::function<void()> persist) {

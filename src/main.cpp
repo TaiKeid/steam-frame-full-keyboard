@@ -122,6 +122,7 @@ int main(int argc, char** argv) {
         if (options.start_enabled && options.input == "none") {
             throw std::runtime_error("--start-enabled requires an input backend");
         }
+        const int deliberate_exit = fk::deliberate_exit_status(options.autostart);
         if (options.autostart) {
             if (options.mode != "vr") {
                 throw std::runtime_error("--autostart requires --vr");
@@ -132,7 +133,7 @@ int main(int argc, char** argv) {
             // A stale unit cannot start replacement after the user disables it.
             if (!errors.empty() || !settings.replace_native_keyboard || !settings.start_with_steamos) {
                 std::cout << "SteamOS keyboard startup is disabled.\n";
-                return fk::deliberate_exit_status;
+                return deliberate_exit;
             }
         }
         int result{};
@@ -144,7 +145,7 @@ int main(int argc, char** argv) {
                 if (!instance->is_owner()) {
                     std::cout << (options.autostart ? "Full Keyboard is already running.\n"
                                                     : "Recenter requested from the running keyboard.\n");
-                    return fk::deliberate_exit_status;
+                    return deliberate_exit;
                 }
             }
             auto profiles = fk::load_profiles(options.data_dir, options.config_dir);
@@ -221,16 +222,16 @@ int main(int argc, char** argv) {
             // A watchdog's SIGTERM must still permit service recovery. systemctl
             // stop already suppresses restart independently of our exit status.
             if (options.mode == "vr" && (app.quitting() || options.duration > 0)) {
-                result = fk::deliberate_exit_status;
+                result = deliberate_exit;
             }
             app.flush_settings();
         } // Destroy VR, replacement helpers, input and the instance lock before handoff.
         if (updates.prepared() && !fk::interrupted) {
             if (updates.handoff()) {
-                return fk::deliberate_exit_status;
+                return deliberate_exit;
             }
             if (fk::interrupted) {
-                return fk::deliberate_exit_status;
+                return deliberate_exit;
             }
             // If the prepared helper disappeared, restart the still-current build.
             auto arguments =
