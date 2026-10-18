@@ -44,6 +44,8 @@ Favorites use layout/language identity. App keeps the saved default separate fro
 
 Preference snapshots go to a dedicated `SettingsWriter` worker. Atomic file writes and fsync never run during key-down or pin clicks. One writer preserves ordering and coalesces pending snapshots to the newest state; completion errors return to App during its normal tick. Shutdown drains the final write after key cleanup. Explicit Reload waits for pending writes before reading edited configuration so an older save cannot overwrite the reloaded file later.
 
+The VR writer commits replacement/startup flags only after unit configuration succeeds. A unit failure saves the other snapshot fields while preserving the two prior saved flags, and returns a startup warning separately from storage errors. A JSON write failure still rolls the unit transaction back and reports unsaved preferences. Reconciliation remains a separate operation that never writes JSON.
+
 VR startup queues one reconciliation of valid saved startup preferences on that worker. This refreshes owned service templates after an update without requiring Apply or Reload. Matching files skip manager reload; malformed settings preserve the existing unit. Previews never configure startup.
 
 Deliberate VR exits return 0 for manual launches and 3 for boot launches or processes carrying `FRAMEKEYBOARD_SERVICE`. The boot flag covers older units without the marker; the inherited marker covers service-managed update successors that omit the boot flag. Runtime shutdown and watchdog SIGTERM remain eligible for service restart.

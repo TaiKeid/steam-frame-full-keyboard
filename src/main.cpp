@@ -200,8 +200,7 @@ int main(int argc, char** argv) {
                 preferences = [config = options.config_dir,
                                executable =
                                    fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
-                    fk::configure_startup(settings, executable, config, {}, {},
-                                          [&] { fk::save_settings(config, settings); });
+                    fk::save_preferences_with_startup(settings, executable, config);
                 };
                 reconcile_preferences =
                     [config = options.config_dir,

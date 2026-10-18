@@ -15,6 +15,7 @@ class SettingsWriter {
     using Write = std::function<void(const Settings&)>;
     struct Result {
         std::string error;
+        std::string startup_warning;
         bool reconcile{};
     };
     explicit SettingsWriter(fs::path directory, Write write = {}, Write reconcile = {});

@@ -782,7 +782,9 @@ void App::save() {
 }
 void App::update_save_status() {
     if (const auto result = settings_writer_.take_result()) {
-        if (result->error.empty()) {
+        if (!result->startup_warning.empty()) {
+            save_status_ = status_ = result->startup_warning;
+        } else if (result->error.empty()) {
             if (status_ == save_status_) {
                 status_.clear();
             }

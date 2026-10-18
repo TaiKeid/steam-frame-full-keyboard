@@ -102,6 +102,41 @@ int deliberate_exit_status(bool autostart) {
     const auto service = std::getenv("FRAMEKEYBOARD_SERVICE");
     return autostart || (service && *service) ? 3 : 0;
 }
+void save_preferences_with_startup(const Settings& settings, const fs::path& executable,
+                                   const fs::path& config_dir, fs::path unit_directory,
+                                   std::function<void()> reload) {
+    std::vector<std::string> errors;
+    const auto previous = load_settings(config_dir, errors);
+    if (!errors.empty()) {
+        throw std::runtime_error("Could not read saved preferences: " + errors.front());
+    }
+    bool persist_failed = false;
+    try {
+        configure_startup(settings, executable, config_dir, std::move(unit_directory), std::move(reload),
+                          [&] {
+                              try {
+                                  save_settings(config_dir, settings);
+                              } catch (...) {
+                                  persist_failed = true;
+                                  throw;
+                              }
+                          });
+    } catch (const std::exception& error) {
+        if (persist_failed) {
+            throw; // configure_startup already rolled the unit back after a storage error.
+        }
+        auto saved = settings;
+        saved.replace_native_keyboard = previous.replace_native_keyboard;
+        saved.start_with_steamos = previous.start_with_steamos;
+        save_settings(config_dir, saved); // A failure here is still a real unsaved-preferences error.
+        const bool changed = settings.replace_native_keyboard != previous.replace_native_keyboard ||
+                             settings.start_with_steamos != previous.start_with_steamos;
+        throw StartupPreferencesWarning(
+            std::string(changed ? "Other preferences saved. Replacement/startup changes not saved: "
+                                : "Preferences saved. SteamOS startup not configured: ") +
+            error.what());
+    }
+}
 void configure_startup(const Settings& settings, const fs::path& executable, const fs::path& config_dir,
                        fs::path unit_directory, std::function<void()> reload,
                        std::function<void()> persist) {

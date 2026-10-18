@@ -467,6 +467,91 @@ void background_preferences() {
     require(attempts == 2 && result && result->error.empty(),
             "newest successful snapshot supersedes an older failed write");
 }
+void preferences_with_broken_startup() {
+    TemporaryDirectory directory;
+    const auto config = directory.path / "config";
+    const auto root = directory.path / "install";
+    const auto binary = root / "releases/test/bin/framekeyboard";
+    const auto units = directory.path / "units";
+    const auto unit = units / "framekeyboard-autostart.service";
+    const auto link = units / "steamvr.service.wants/framekeyboard-autostart.service";
+    fs::create_directories(binary.parent_path());
+    std::ofstream(binary) << "#!/bin/sh\nexit 0\n";
+    fs::create_symlink("releases/test", root / "current");
+    fs::create_directories(units);
+    const std::string foreign = "# User-owned unit\n";
+    std::ofstream(unit) << foreign;
+    auto read = [](const fs::path& path) {
+        std::ifstream input(path);
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    Options options;
+    options.mode = "render";
+    options.config_dir = config;
+    CaptureSink sink;
+    App app(options, sink, [&](const Settings& settings) {
+        save_preferences_with_startup(settings, binary, config, units, [] {});
+    });
+    click(app, "pin");
+    require(saved(app).pinned && app.view().status.starts_with("Preferences saved."),
+            "foreign startup unit does not block a pin save and reports a separate warning");
+    const auto [x, y] = key_point(app, "NumLock");
+    app.down(0, x, y, 1);
+    app.up(0, x, y);
+    require(saved(app).num_lock, "Num Lock also saves despite a startup error");
+    app.show_settings();
+    click(app, "favorite");
+    click(app, "auto-leveling");
+    click(app, "replace-native-keyboard");
+    click(app, "start-with-steamos");
+    click(app, "apply");
+    const auto partial = saved(app);
+    require(partial.pinned && partial.num_lock && !partial.auto_leveling &&
+                partial.favorites.size() == 1 && !partial.replace_native_keyboard &&
+                !partial.start_with_steamos,
+            "unit failure saves unrelated edits but retains both prior startup flags");
+    require(app.view().status.starts_with("Other preferences saved.") && read(unit) == foreign &&
+                !fs::is_symlink(link),
+            "mixed-save warning identifies rejected startup changes without changing foreign unit");
+    fs::remove(unit);
+    app.show_settings();
+    click(app, "apply");
+    const auto complete = saved(app);
+    require(complete.replace_native_keyboard && complete.start_with_steamos && fs::is_symlink(link) &&
+                app.view().status.empty(),
+            "retry commits startup flags and unit together and clears the warning");
+
+    const auto previous_unit = read(unit);
+    fs::permissions(config, fs::perms::owner_read | fs::perms::owner_exec);
+    app.show_settings();
+    click(app, "start-with-steamos");
+    click(app, "apply");
+    app.flush_settings();
+    fs::permissions(config, fs::perms::owner_all);
+    require(app.view().status.starts_with("Applied, but not saved:") && saved(app).start_with_steamos &&
+                read(unit) == previous_unit && fs::is_symlink(link),
+            "storage failure still reports unsaved preferences and rolls startup back atomically");
+    require(sink.events.empty(), "startup/save fixtures never send desktop input");
+
+    // Development binaries also save ordinary edits when startup cannot be enabled.
+    const auto development = directory.path / "development/framekeyboard";
+    fs::create_directories(development.parent_path());
+    std::ofstream(development) << "fixture\n";
+    const auto private_config = directory.path / "development-config";
+    Settings requested;
+    requested.num_lock = requested.replace_native_keyboard = requested.start_with_steamos = true;
+    bool warned = false;
+    try {
+        save_preferences_with_startup(requested, development, private_config,
+                                      directory.path / "development-units", [] {});
+    } catch (const StartupPreferencesWarning&) {
+        warned = true;
+    }
+    const auto development_saved = saved(private_config);
+    require(warned && development_saved.num_lock && !development_saved.replace_native_keyboard &&
+                !development_saved.start_with_steamos,
+            "unsupported release layout cannot block ordinary saves or persist startup flags");
+}
 void reload_startup() {
     TemporaryDirectory directory;
     const auto config = directory.path / "config";
@@ -1306,6 +1391,7 @@ int main() {
         key_control_namespaces();
         favorite_cache_reload();
         background_preferences();
+        preferences_with_broken_startup();
         reload_startup();
         launch_startup();
         numpad_settings();

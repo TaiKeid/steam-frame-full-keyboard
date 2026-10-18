@@ -1,4 +1,5 @@
 #include "framekeyboard/settings_writer.hpp"
+#include "framekeyboard/startup.hpp"
 
 #include <stdexcept>
 
@@ -62,6 +63,8 @@ void SettingsWriter::run() {
         result.reconcile = request.reconcile;
         try {
             (request.reconcile ? reconcile_ : write_)(request.settings);
+        } catch (const StartupPreferencesWarning& warning) {
+            result.startup_warning = warning.what();
         } catch (const std::exception& error) {
             result.error = error.what();
         } catch (...) {
