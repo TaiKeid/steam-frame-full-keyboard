@@ -119,6 +119,69 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(message.get("op"), "state", "only status may precede a reply")
         self.fail("helper reply timed out")
 
+    def test_idle_cadence_requires_explicit_consistent_idle_metadata(self):
+        self.assertEqual(bridge.poll_interval(dict(idle=True)), .075)
+        for state in ({}, dict(idle=False), dict(idle=1), dict(idle="true")):
+            self.assertEqual(bridge.poll_interval(state), .035)
+        for field in ('open', 'eligible', 'active', 'external', 'externalCandidate', 'externalRestore'):
+            self.assertEqual(bridge.poll_interval(dict(idle=True, **{field: True})), .035)
+
+    def test_run_selects_idle_and_busy_polling_from_each_state(self):
+        states = [dict(idle=True), dict(idle=False, open=True),
+                  dict(idle=False, externalRestore={"request": 2}), dict(idle=True)]
+        class ChangingCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4):
+                if '.bridge.step(' in expression:
+                    return dict(version=1, request=2, **states.pop(0)) if states else dict(version=1)
+                return super().evaluate(expression, timeout)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        selected = []
+        original = bridge.poll_interval
+        def interval(state):
+            value = original(state)
+            selected.append(value)
+            return value
+        with patch.object(bridge, 'poll_interval', side_effect=interval):
+            worker = threading.Thread(target=bridge.run, args=(child, ChangingCDP, None, lambda: None))
+            worker.start()
+            try:
+                for _ in range(4):
+                    self.receive(parent, 'state')
+                parent.send(b'{"op":"stop"}')
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(selected[:4], [.075, .035, .035, .075])
+            finally:
+                parent.close()
+                worker.join(2)
+
+    def test_explicit_fallback_interrupts_an_idle_poll_wait(self):
+        fallback_seen = threading.Event()
+        class IdleCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4):
+                if '.bridge.step(' in expression:
+                    if '"fallback": true' in expression:
+                        fallback_seen.set()
+                    return dict(version=1, request=2, idle=True)
+                return super().evaluate(expression, timeout)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        # A long test-only wait makes this a wakeup test, not a timing comparison.
+        with patch.object(bridge, 'poll_interval', return_value=60):
+            worker = threading.Thread(target=bridge.run, args=(child, IdleCDP, None, lambda: None))
+            worker.start()
+            try:
+                self.receive(parent, 'state')
+                parent.send(json.dumps(dict(op='frame', progress=1, ready=False, ack=0,
+                                            sent=time.monotonic(), fallback=True,
+                                            fallbackRequest=2)).encode())
+                self.assertTrue(fallback_seen.wait(.5), 'explicit fallback bypasses the idle timer')
+            finally:
+                parent.close()
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+
     def test_slow_step_and_send_do_not_end_helper(self):
         class SlowCDP(FakeCDP):
             step_calls = 0

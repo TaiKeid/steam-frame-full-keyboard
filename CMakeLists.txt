@@ -149,6 +149,9 @@ if(BUILD_TESTING)
         add_test(NAME native-bridge-transport COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native_bridge_transport_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/bridge/native_bridge.py")
+        add_test(NAME replacement-measurement COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/replacement_measurement_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure-replacement.py")
         find_program(NODE_EXECUTABLE node)
         if(NODE_EXECUTABLE)
             add_test(NAME native-bridge COMMAND "${NODE_EXECUTABLE}"

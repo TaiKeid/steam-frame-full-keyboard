@@ -254,6 +254,18 @@ function externalOwned(f) {
     assert(f.step(s.request).active);
     return s.request;
 }
+
+{
+    const f = fixture();
+    assert.equal(f.bridge.diagnostics().idle, true, "a closed bridge explicitly identifies quiescence");
+    const request = owned(f);
+    assert.equal(f.bridge.diagnostics().idle, false, "a pending or active session must keep fast polling");
+    f.step(request, true, true);
+    assert.equal(f.bridge.diagnostics().idle, false, "native restoration keeps fast polling");
+    f.status({bIsOpen: false}); f.step();
+    assert.equal(f.bridge.diagnostics().idle, true, "fully closed restoration returns to idle");
+    f.bridge.dispose();
+}
 function domOwned(f, automatic = true) {
     f.step();
     if (automatic) f.manager.SetVirtualKeyboardShownInternal(true);

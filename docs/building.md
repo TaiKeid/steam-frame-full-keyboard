@@ -112,6 +112,17 @@ Output separates wall-clock painting and texture submission, with means, medians
 
 This isolates rendering: it excludes the production controller/pose/haptic/input loop and visible compositor drawing. Idle reports the benchmark's idle cost, not the complete installed app's cost. Deadline overruns mean the benchmark loop exceeded 16.667 ms, not that SteamVR dropped a displayed frame. These measurements alone cannot establish battery life or power consumption.
 
+### Measure replacement idle overhead
+
+`scripts/measure-replacement.py` reads Linux process counters for the current installed keyboard, its helper and its native guard. It also reads available battery status and raw sysfs power counters. It does not send input, contact CDP, change settings or restart anything. For a Frame measurement, copy only this probe from the development host:
+
+```sh
+scp scripts/measure-replacement.py "$FRAME_HOST:/tmp/framekeyboard-measure-replacement.py"
+ssh "$FRAME_HOST" 'python -B /tmp/framekeyboard-measure-replacement.py --seconds 20 --include-steam --label baseline' > baseline.json
+```
+
+Repeat with the same headset/dashboard state for a candidate build. A changed process identity invalidates the comparison. CPU percentages use one logical core as 100%. Context switches and read/write syscall counts do not identify CDP polls, and aggregate Steam webhelper CPU does not isolate `inspect()`. Short samples or charging cannot establish battery savings. Summon latency, native fallback and owner transitions need separate acceptance.
+
 ## Refresh the README image
 
 Render the bundled default profile using an empty temporary config directory:

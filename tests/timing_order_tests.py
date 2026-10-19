@@ -20,6 +20,8 @@ SPECS = (
     ("request acknowledgement", JS, r"\bREQUEST_MS\s*=\s*" + NUMBER, 1, .001),
     ("CDP call", PY, r"def evaluate\(self,\s*expression,\s*timeout\s*=\s*" + NUMBER, 1, 1),
     ("bridge install", PY, r"\bINSTALL_TIMEOUT\s*=\s*" + NUMBER, 1, 1),
+    ("active poll", PY, r"\bACTIVE_POLL\s*=\s*" + NUMBER, 1, 1),
+    ("idle poll", PY, r"\bIDLE_POLL\s*=\s*" + NUMBER, 1, 1),
     ("helper startup budget", CPP, r"install_until_\s*=\s*now\s*\+\s*" + NUMBER, 2, 1),
     ("bridge receipt freshness", PY, r"time\.monotonic\(\)\s*-\s*last_parent\s*>\s*" + NUMBER, 1, 1),
     ("bridge frame freshness", PY, r"time\.monotonic\(\)\s*-\s*frame_sent\s*<\s*" + NUMBER, 1, 1),
@@ -61,6 +63,8 @@ def check_ordering(sources):
         before(delivery, "helper reply freshness")
     before("helper reply freshness", "Steam lease")
     before("bridge install", "helper startup budget")
+    before("active poll", "idle poll")
+    before("idle poll", "request acknowledgement")
     before("Steam lease", "native guard")
     before("native guard", "parent recovery")
     before("parent recovery", "slow-work ceiling")

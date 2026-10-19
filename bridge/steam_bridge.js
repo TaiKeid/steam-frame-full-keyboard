@@ -458,9 +458,13 @@
             else restoreWindow();
         } finally { inspecting = false; }
     }
+    function idle() {
+        return !logical && !native.open && !handoff && !preparedExternal && !externalRestore &&
+            !restoringOwner && !restoringUntil && !expectedClose && !closingNative && !interceptedShow;
+    }
     function snapshot() {
         const eligible = !!logical && !closingNative && !ignoreOpen;
-        return {version: VERSION, request, open: !!logical || !!native.open || !!handoff, eligible,
+        return {version: VERSION, request, open: !!logical || !!native.open || !!handoff, eligible, idle: idle(),
             active: eligible && acknowledged === request && fresh(),
             local: !!logical?.owner.external,
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,

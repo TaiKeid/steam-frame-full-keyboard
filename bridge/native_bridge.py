@@ -21,6 +21,14 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 MAX_PACKET = 32768
 GLOBAL = "__fullKeyboardNativeV1"
 INSTALL_TIMEOUT = 2.0
+ACTIVE_POLL = 0.035
+IDLE_POLL = 0.075
+
+
+def poll_interval(state):
+    # Missing/new/inconsistent metadata must retain the ordinary fast cadence.
+    busy = ('open', 'eligible', 'active', 'external', 'externalCandidate', 'externalRestore')
+    return IDLE_POLL if state.get('idle') is True and not any(state.get(k) for k in busy) else ACTIVE_POLL
 
 
 def install_expression(source, token, external_supported, expires):
@@ -466,6 +474,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         guard.renew(frame)
                     if message.get("fallback") is True:
                         fallback_request = message.get("fallbackRequest", 0)
+                        next_poll = 0
                     last_parent = time.monotonic()
                     frame_sent = float(message["sent"])
                     watch_main_loop = message.get("watch") is True
@@ -572,11 +581,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 except TimeoutError:
                     # step is idempotent. Keep the last state/fallback request;
                     # the JS lease and C++ freshness timeout remain independent.
-                    next_poll = time.monotonic() + 0.035
+                    next_poll = time.monotonic() + ACTIVE_POLL
                     continue
                 fallback_request = None
                 send(parent, {"op": "state", **result})
-                next_poll = time.monotonic() + 0.035
+                next_poll = time.monotonic() + poll_interval(result)
     except (Exception, SystemExit) as error:
         # Errors are fixed status codes. Never echo CDP expressions, input packets or field values.
         try:
