@@ -247,6 +247,34 @@ function domOwned(f, automatic = true) {
     assert(s.eligible && !s.local && !f.nativeOpen());
     assert(f.step(s.request).active); return s.request;
 }
+for (const production of [false, true]) for (const field of [false, true]) {
+    const f = fixture(false, production, false, false, true), e = field ? f.dom.field() : null;
+    const generation = domOwned(f, field);
+    assert(f.bridge.send(generation, "VKClose") && f.step(generation).active,
+        "literal VKClose remains text rather than dismissing the DOM session");
+    if (e) assert.equal(f.dom.text(e), "VKClose");
+    const shows = f.calls.filter(c => c === "native-show").length;
+    assert(f.bridge.send(generation, "VKClose", true), "DOM Escape acknowledges dismissal");
+    const state = f.step(generation);
+    assert(!state.open && !state.active && !state.eligible && !f.nativeOpen(),
+        "Escape closes field and bare-dashboard sessions without native fallback");
+    assert(!f.manager.logicalOpen && !f.manager.m_currentVirtualKeyboardRef && !f.manager.m_ActiveElementProps,
+        "Escape clears Steam's logical keyboard state and retained target");
+    assert.equal(state.events.at(-1).code, "release-dismissed");
+    assert(!f.bridge.send(generation, "late"), "dismissed requests reject queued text");
+    assert.equal(f.calls.filter(c => c === "native-show").length, shows, "Escape never reopens native");
+    if (e) assert.equal(f.dom.text(e), "VKClose");
+    f.bridge.dispose();
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production), generation = owned(f);
+    assert(f.bridge.send(generation, "VKClose") && f.step(generation).active,
+        "literal VKClose remains text on the callback route");
+    assert.deepEqual(f.deliveries, ["VKClose"]);
+    assert(f.bridge.send(generation, "VKClose", true) && !f.step().open && !f.nativeOpen(),
+        "callback Escape retains its existing dismissal behavior");
+    f.bridge.dispose();
+}
 for (const production of [false, true]) {
     const f = fixture(false, production, true, false, true);
     f.selectFrame(1);

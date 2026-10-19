@@ -125,6 +125,7 @@
             // for a later field or forward it to a background application.
             return !element || d.execCommand("insertText", false, text) === true;
         }
+        if (text === "VKClose") { releaseLogical(false); return true; }
         const codes = {Backspace: 8, Enter: 13, Tab: 9, ArrowLeft: 37, ArrowUp: 38,
             ArrowRight: 39, ArrowDown: 40};
         if (!(text in codes)) return false;
