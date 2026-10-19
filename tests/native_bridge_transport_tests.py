@@ -804,7 +804,10 @@ class Lifecycle(unittest.TestCase):
                         packet(op="key-up", request=request, id=key_id)
                     client.resume.set()
                     self.assertEqual(self.receive(parent, "text-result")["id"], 90)
-                    expected = [2, 3, 4] if release else [1, 2, 3, 4]
+                    # Releasing a queued repeat must stop deletion AND settle
+                    # its outstanding delivery. Otherwise the parent times out
+                    # and replaces a healthy keyboard with native.
+                    expected = [1, 2, 3, 4]
                     for key_id in expected:
                         result = self.receive(parent, "key-result")
                         self.assertEqual(result, dict(op="key-result", id=key_id, ok=key_id != 4))

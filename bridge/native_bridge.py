@@ -485,9 +485,14 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     held = held_keys.get(key_id)
                     if held and held[0] == message["request"]:
                         del held_keys[key_id]
+                        cancelled_repeat = key_id in pending_repeats
                         pending_repeats.discard(key_id)
                         pending = deque(m for m in pending if not (
                             m["op"] == "key" and m["value"] == 2 and m["id"] == key_id))
+                        if cancelled_repeat:
+                            # No deletion after release, but the parent still
+                            # needs completion for the repeat it submitted.
+                            send(parent, {"op": "key-result", "id": key_id, "ok": True})
                 elif operation == "dismiss":
                     if type(message.get("request")) is not int:
                         raise ValueError("invalid-dismissal")

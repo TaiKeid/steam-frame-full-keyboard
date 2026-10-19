@@ -440,6 +440,9 @@ void NativeReplacement::poll(double now) {
             const auto id = json_object_get_uint64(field("id"));
             if (native_id_ && id == native_id_) {
                 native_result_ = json_object_get_boolean(field("ok")) != 0;
+                if (!*native_result_) {
+                    diagnostic("key-rejected", now, state_.request);
+                }
                 force_fallback_ |= !*native_result_;
             }
             const auto key = std::find_if(remote_keys_.begin(), remote_keys_.end(),
@@ -463,10 +466,12 @@ void NativeReplacement::poll(double now) {
         stop();
     }
     if (pending_id_ && !pending_result_ && now - pending_since_ > .6) {
+        diagnostic("text-timeout", now, state_.request);
         pending_result_ = false;
         force_fallback_ = true;
     }
     if (native_id_ && !native_result_ && now - native_since_ > .6) {
+        diagnostic("key-timeout", now, state_.request);
         native_result_ = false;
         force_fallback_ = true;
     }
