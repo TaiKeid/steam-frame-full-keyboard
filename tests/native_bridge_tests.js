@@ -7,6 +7,11 @@ const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden"]);
+const nativeSource = fs.readFileSync(require("node:path").join(__dirname, "../src/native_replacement.cpp"), "utf8");
+const sessionCodes = nativeSource.match(/const char\* session_code\([\s\S]*?\n\}/)?.[0];
+assert(sessionCodes, "native session-code parser anchor must match the production function");
+assert.deepEqual([...sessionCodes.matchAll(/"([a-z-]+)"/g)].map(m => m[1]).sort(), [...EVENT_CODES].sort(),
+    "JavaScript session diagnostics and the native log allow-list must stay in sync");
 
 function editingFixture(manager) {
     const fields = new Map(), events = [], listeners = {focus: new Set(), click: new Set()};

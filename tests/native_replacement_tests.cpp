@@ -306,12 +306,15 @@ void sanitized_diagnostics() {
     };
     update(100);
     const std::string events =
-        R"([{"id":1,"request":2,"code":"begin"},{"id":2,"request":2,"code":"acknowledged"},{"id":3,"request":2,"code":"PRIVATE_SENTINEL"}])";
+        R"([{"id":1,"request":2,"code":"begin"},{"id":2,"request":2,"code":"acknowledged"},{"id":3,"request":3,"code":"owner-changed"},{"id":4,"request":4,"code":"owner-hidden"},{"id":5,"request":4,"code":"PRIVATE_SENTINEL"}])";
     state(100, events);
     const auto first = output.str();
+    require(first.find("[native-replacement] owner-changed") != std::string::npos &&
+                first.find("[native-replacement] owner-hidden") != std::string::npos,
+            "frame-switch session events reach the sanitized diagnostic log");
     state(100.1, events);
     require(output.str() == first, "repeated event sequences log each transition once");
-    state(100.1, R"([null,42,"PRIVATE_SENTINEL",{"id":4,"request":2,"code":"PRIVATE_SENTINEL"}])");
+    state(100.1, R"([null,42,"PRIVATE_SENTINEL",{"id":6,"request":4,"code":"PRIVATE_SENTINEL"}])");
     require(output.str() == first, "unknown and malformed diagnostic events are ignored");
     for (int i = 0; i < 3; ++i) {
         put(peer, R"({"op":"unavailable","reason":"debugger-unavailable","text":"PRIVATE_SENTINEL"})");
@@ -350,7 +353,8 @@ void sanitized_diagnostics() {
         fields >> prefix >> code;
         require(prefix == "[native-replacement]" &&
                     std::set<std::string>{"helper-start", "available", "begin", "acknowledged",
-                                          "debugger-unavailable", "helper-unavailable"}
+                                          "owner-changed", "owner-hidden", "debugger-unavailable",
+                                          "helper-unavailable"}
                         .contains(code),
                 "every logged code belongs to the fixed diagnostic set");
         ++count;

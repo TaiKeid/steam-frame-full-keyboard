@@ -51,7 +51,7 @@ const char* session_code(const char* code) {
         for (const auto* allowed :
              {"begin", "acknowledged", "release-dismissed", "release-fallback", "competing-owner",
               "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
-              "restore-complete", "restore-failed"}) {
+              "restore-complete", "restore-failed", "owner-changed", "owner-hidden"}) {
             if (std::string_view(code) == allowed) {
                 return allowed;
             }
