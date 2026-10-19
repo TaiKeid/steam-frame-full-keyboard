@@ -6,7 +6,8 @@ const factory = vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"));
 const MAIN = "valve.steam.gamepadui.main";
 
 function fixture(open = false, production = false, external = false, sharedApi = false) {
-    let time = 0, tick, observer, progress = 0, deferHide = false;
+    let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false;
+    const pendingCloses = [];
     const calls = [], deliveries = [], nodes = new Set();
     const status = {bIsOpen: open, bMinimal: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false};
     Object.defineProperty(status, "sInitialText", {get() { throw Error("must not read field text"); }});
@@ -50,7 +51,9 @@ function fixture(open = false, production = false, external = false, sharedApi =
             const open = status.bIsOpen && status.sOverlayKey === reaction.key;
             if (open === reaction.previous) continue;
             reaction.previous = open;
-            reaction.manager.SetVRKeyboardOpenForThisInstance(open);
+            if (!open && deferClose)
+                pendingCloses.push(() => reaction.manager.SetVRKeyboardOpenForThisInstance(false));
+            else reaction.manager.SetVRKeyboardOpenForThisInstance(open);
         }
         observer?.(); tick?.();
     }
@@ -103,6 +106,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
         advance(ms, inspect = true) { time += ms; if (inspect) tick?.(); },
         newTarget() { manager.m_currentVirtualKeyboardRef = {}; manager.m_ActiveElementProps = {}; tick?.(); },
         deferHide(value) { deferHide = value; },
+        deferClose(value) { deferClose = value; },
+        flushCloses() { while (pendingCloses.length) pendingCloses.shift()(); tick?.(); },
         alive() { return tick !== null; },
         observing() { return !!observer; }};
 }
@@ -135,6 +140,23 @@ for (const deferred of [false, true]) {
     assert(f.nativeOpen() && !f.step().eligible);
     f.bridge.dispose();
     assert(!f.manager.logicalOpen && f.nativeOpen(), "dispose preserves only the newer native owner");
+}
+for (const deferred of [false, true]) {
+    const f = fixture(); f.newTarget(); f.deferClose(deferred);
+    f.step(); f.status({bIsOpen: true});
+    if (deferred) {
+        assert(!f.step().eligible, "wait for our delayed physical close reaction");
+        f.flushCloses();
+    }
+    const s = f.step();
+    assert(f.step(s.request).active && f.manager.logicalOpen && f.manager.m_currentVirtualKeyboardRef,
+        "our single close acknowledgement preserves the Steam field in either callback order");
+    f.manager.SetVRKeyboardOpenForThisInstance(false);
+    assert(!f.manager.logicalOpen && !f.manager.m_currentVirtualKeyboardRef && !f.step().eligible,
+        "a subsequent Steam close passes through and ends replacement without native restore");
+    assert(!f.nativeOpen() && !f.calls.includes("native-show"));
+    assert(!f.bridge.diagnostics().expectedClose, "the close marker cannot outlive its request");
+    f.bridge.dispose();
 }
 {
     const f = fixture(false, false, true), request = externalOwned(f);
@@ -520,6 +542,8 @@ for (let seed = 1; seed <= 128; ++seed) {
         f.advance(ms);
         if (due) {
             const s = f.bridge.diagnostics();
+            assert(!s.expectedClose || s.closingNative,
+                "the one-shot close marker belongs only to an acquiring request");
             assert(!s.eligible && !s.closingNative && (f.nativeOpen() || s.externalRestore),
                 "every unacknowledged request reaches native or exact-overlay recovery by its deadline");
             ++deadlineChecks;
@@ -566,6 +590,8 @@ for (let seed = 1; seed <= 128; ++seed) {
             }
             const s = f.bridge.diagnostics();
             assert(s.request >= previousRequest, "request identities never go backwards");
+            assert(!s.expectedClose || s.closingNative,
+                "the one-shot close marker belongs only to an acquiring request");
             previousRequest = s.request;
             assert(!s.active || s.eligible && !f.nativeOpen(), "takeover never overlaps native presentation");
             if (f.bridge.expired()) assert.equal(f.nodes.size, 0, "expired leases leave nothing hidden");
@@ -581,6 +607,7 @@ for (let seed = 1; seed <= 128; ++seed) {
             observeRequest();
         }
         f.bridge.dispose();
+        assert(!f.bridge.diagnostics().expectedClose, "dispose cancels any expected close");
         assert.equal(f.nodes.size, 0);
         assert(!f.alive() && !f.observing());
         assert.equal(f.manager.HandleVirtualKeyDown, f.oldKey);

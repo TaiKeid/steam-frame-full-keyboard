@@ -72,6 +72,7 @@
     let native = nativeStatus(), previousOpen = native.open, previousKey = native.key;
     let ignoreOpen = native.open, rawDeadline = 0, restoringUntil = 0;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
+    let expectedClose = null;
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
     let lastClock = now(), lastStep = now(), timer, subscription;
     const oldWindowShow = windowApi.ShowWindow;
@@ -120,9 +121,10 @@
         if (interceptedShow && native.open) oldWindowShow.call(windowApi);
         interceptedShow = false;
     }
-    function releaseLogical(restore) {
+    function releaseLogical(restore, closeNative = true) {
         const session = logical;
         logical = null;
+        expectedClose = null;
         closingNative = false;
         acknowledged = 0;
         ++request;
@@ -146,7 +148,7 @@
             session.owner.setOpen.call(session.owner.manager, false);
             // A missing field cannot justify closing another provider's newer
             // native request while fallback withdraws the old session.
-            if (!restore || !native.open || native.key === session.owner.key)
+            if (closeNative && (!restore || !native.open || native.key === session.owner.key))
                 session.owner.hide.call(session.owner.api);
         }
     }
@@ -157,6 +159,7 @@
         acknowledged = 0;
         deadline = now() + REQUEST_MS;
         closingNative = true;
+        expectedClose = owner.external ? null : {owner, request};
         owner.fieldIntent = null;
         if (!owner.external) owner.setOpen.call(owner.manager, true);
         // Window.HideWindow leaves dashboard scene/hit geometry alive and can
@@ -189,6 +192,7 @@
                 } else if (newOpen && !closingNative && fieldRequest(native)) {
                     const owner = fieldRequest(native), previous = logical.owner;
                     logical = null;
+                    expectedClose = null;
                     preparedExternal = null;
                     if (!previous.external && previous !== owner)
                         previous.setOpen.call(previous.manager, false);
@@ -198,6 +202,7 @@
                     // Its native session must survive; never reopen the old owner over it.
                     const previous = logical.owner;
                     logical = null;
+                    expectedClose = null;
                     if (!previous.external) previous.setOpen.call(previous.manager, false);
                     closingNative = false;
                     acknowledged = 0;
@@ -205,7 +210,7 @@
                     ignoreOpen = true;
                     preparedExternal = null;
                 } else if (closingNative) {
-                    if (!native.open) closingNative = false;
+                    if (!native.open && !expectedClose) closingNative = false;
                 } else if (newOpen) {
                     const owner = candidate(native);
                     const changedTarget = owner !== logical.owner ||
@@ -213,6 +218,7 @@
                     if (changedTarget) {
                         const previous = logical.owner;
                         logical = null;
+                        expectedClose = null;
                         if (!previous.external && previous !== owner)
                             previous.setOpen.call(previous.manager, false);
                         if (owner) begin(owner);
@@ -300,9 +306,18 @@
                 });
             }
             owner.setOpen = hook(manager, "SetVRKeyboardOpenForThisInstance", original => function(open) {
-                // Ignore only our physical close acknowledgement. A new native
-                // target must still run Steam's ordinary target cleanup.
-                if (!open && logical?.owner.manager === this && !logical.dashboard && !nativeStatus().open) return;
+                if (!open && logical?.owner.manager === this) {
+                    // Consume exactly the close reaction caused by this request's
+                    // Hide. Keep acquisition pending if status arrives first.
+                    if (closingNative && expectedClose?.owner === owner &&
+                        expectedClose.request === request && !nativeStatus().open) {
+                        expectedClose = null;
+                        inspect();
+                        return;
+                    }
+                    // Steam has independently closed its field. Never restore it.
+                    releaseLogical(false, false);
+                }
                 return original.call(this, open);
             });
             owner.keyDown = hook(manager, "HandleVirtualKeyDown", original => function(...args) {
@@ -340,7 +355,8 @@
     return {
         version: VERSION,
         expired() { return !fresh(); },
-        diagnostics() { return {...snapshot(), nativeOpen: !!native.open, closingNative}; },
+        diagnostics() { return {...snapshot(), nativeOpen: !!native.open, closingNative,
+            expectedClose: !!expectedClose}; },
         step(frame) {
             if (disposed) return {version: VERSION, unavailable: true};
             lastStep = now();
