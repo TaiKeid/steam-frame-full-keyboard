@@ -500,7 +500,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             pending_repeats.discard(message["id"])
                         # The JS side checks the target and lease again at delivery.
                         ok = evaluate(f"{reference}?.bridge.send({message['request']},"
-                                      f"{json.dumps(message['text'], ensure_ascii=True)}) === true")
+                                      f"{json.dumps(message['text'], ensure_ascii=True)},"
+                                      f"{str(operation == 'key').lower()}) === true")
                 except TimeoutError:
                     ok = False  # Unknown delivery fails this request closed.
                 if operation != "dismiss":

@@ -21,6 +21,7 @@ class FakeCDP:
     def __init__(self):
         self.installed = self.disposed = self.closed = False
         self.dismissed = threading.Event()
+        self.sent = []
 
     def evaluate(self, expression):
         if "const bridge =" in expression:
@@ -32,6 +33,8 @@ class FakeCDP:
         if ".bridge.step(" in expression:
             return dict(version=1, request=2, open=True, eligible=True, active=False)
         if ".bridge.send(" in expression:
+            arguments = expression.split(".bridge.send(", 1)[1].rsplit(") === true", 1)[0]
+            self.sent.append(json.loads("[" + arguments + "]"))
             return True
         if ".bridge.dismiss(" in expression:
             self.dismissed.set()
@@ -558,13 +561,14 @@ class Lifecycle(unittest.TestCase):
                     def evaluate(self, expression):
                         if ".bridge.send(" in expression:
                             arguments = expression.split(".bridge.send(", 1)[1].rsplit(") === true", 1)[0]
-                            request, text = json.loads("[" + arguments + "]")
+                            request, text, key = json.loads("[" + arguments + "]")
+                            assert type(key) is bool
                             if text == "fixture barrier":
                                 self.blocked.set()
                                 assert self.resume.wait(1), "fixture dispatch unblocked"
                             if request != 2:
                                 return False
-                            self.deliveries.append(text)
+                            self.deliveries.append((text, key))
                             return True
                         return super().evaluate(expression)
 
@@ -599,8 +603,9 @@ class Lifecycle(unittest.TestCase):
                         result = self.receive(parent, "key-result")
                         self.assertEqual(result, dict(op="key-result", id=key_id, ok=key_id != 4))
                     self.assertEqual(client.deliveries,
-                                     ["Backspace", "fixture barrier"] +
-                                     ([] if release else ["Backspace"]) + ["ArrowLeft", "ArrowLeft"],
+                                     [("Backspace", True), ("fixture barrier", False)] +
+                                     ([] if release else [("Backspace", True)]) +
+                                     [("ArrowLeft", True), ("ArrowLeft", True)],
                                      "release drops repeats, retains distinct clicks and rejects stale targets")
                 finally:
                     client.resume.set()
@@ -709,6 +714,11 @@ class Lifecycle(unittest.TestCase):
             parent.send(json.dumps(dict(op="text", request=2, id=7, text="café 世界")).encode())
             result = self.receive(parent, "text-result")
             self.assertEqual(result, dict(op="text-result", id=7, ok=True))
+            for operation in ("text", "key"):
+                parent.send(json.dumps(dict(op=operation, request=2, id=8, text="Enter", value=1)).encode())
+                self.assertTrue(self.receive(parent, operation + "-result")["ok"])
+            self.assertEqual(client.sent, [[2, "café 世界", False], [2, "Enter", False], [2, "Enter", True]],
+                             "literal key names remain text; controls carry an explicit key flag")
             parent.send(json.dumps(dict(op="dismiss", request=2)).encode())
             self.assertTrue(client.dismissed.wait(1), "dismissal reaches Steam without ending the helper")
             self.assertTrue(worker.is_alive())

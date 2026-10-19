@@ -8,7 +8,51 @@ const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "rele
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed"]);
 
-function fixture(open = false, production = false, external = false, sharedApi = false) {
+function editingFixture(manager) {
+    const fields = new Map(), events = [];
+    const body = {tagName: "DIV", dispatchEvent() { return true; }, focus() { doc.activeElement = body; }};
+    const doc = {activeElement: body, body, defaultView: {KeyboardEvent: class {
+        constructor(type, options) { Object.assign(this, {type, defaultPrevented: false}, options); }
+        preventDefault() { this.defaultPrevented = true; }
+    }}, queryCommandSupported: key => ["insertText", "delete"].includes(key),
+        querySelectorAll: () => [...fields.keys()],
+        execCommand(command, _ui, text) {
+            const e = this.activeElement, f = fields.get(e);
+            if (!f || e.disabled || e.readOnly) return false;
+            let start = e.selectionStart, end = e.selectionEnd;
+            if (command === "delete" && start === end)
+                start -= [...f.text.slice(0, start)].at(-1)?.length || 0;
+            if (command === "delete") text = "";
+            f.text = f.text.slice(0, start) + text + f.text.slice(end);
+            e.selectionStart = e.selectionEnd = start + text.length;
+            events.push("input"); f.onInput?.(); return true;
+        }, getSelection() { return {modify(_action, direction, unit) {
+            const e = doc.activeElement, f = fields.get(e);
+            if (!f) return;
+            let pos = e.selectionStart;
+            if (unit === "line") pos = direction === "backward" ? 0 : f.text.length;
+            else if (direction === "backward") pos -= [...f.text.slice(0, pos)].at(-1)?.length || 0;
+            else pos += [...f.text.slice(pos)][0]?.length || 0;
+            e.selectionStart = e.selectionEnd = pos;
+        }}; }};
+    return {doc, events, text: element => fields.get(element).text,
+        onInput(element, fn) { fields.get(element).onInput = fn; },
+        field() {
+            const e = {ownerDocument: doc, isConnected: true, tagName: "INPUT", type: "search",
+                disabled: false, readOnly: false, selectionStart: 0, selectionEnd: 0, tabIndex: 0,
+                getClientRects: () => [{}],
+                dispatchEvent(event) { events.push(event.type + ":" + event.key); return !event.defaultPrevented; },
+                focus() { doc.activeElement = e; ref.SetAsCurrentVirtualKeyboardTarget(); }};
+            Object.defineProperty(e, "value", {get() { throw Error("must not read existing field text"); }});
+            const props = {BIsElementValidForInput: () => doc.activeElement === e};
+            const ref = {BIsElementValidForInput: props.BIsElementValidForInput,
+                SetAsCurrentVirtualKeyboardTarget() {
+                    manager.m_currentVirtualKeyboardRef = ref; manager.m_ActiveElementProps = props;
+                }};
+            fields.set(e, {text: ""}); e.focus(); return e;
+        }};
+}
+function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -34,7 +78,10 @@ function fixture(open = false, production = false, external = false, sharedApi =
         SetVRKeyboardOpenForThisInstance(value) {
             if (this.logicalOpen === value) return;
             this.logicalOpen = value;
-            if (!value) { this.m_currentVirtualKeyboardRef = null; this.m_ActiveElementProps = null; }
+            if (!value) {
+                this.m_lastActiveVirtualKeyboardRef = this.m_currentVirtualKeyboardRef;
+                this.m_currentVirtualKeyboardRef = null; this.m_ActiveElementProps = null;
+            }
         },
         SetVirtualKeyboardHidden() {
             this.m_currentVirtualKeyboardRef = null; this.m_ActiveElementProps = null;
@@ -69,6 +116,11 @@ function fixture(open = false, production = false, external = false, sharedApi =
         RegisterForStatus(fn) { observer = fn; return {unregister() { observer = null; }}; }
     };
     manager.m_ownerWindow = {SteamClient: {OpenVR: {Keyboard: keyboard}}};
+    const dom = withDom ? editingFixture(manager) : null;
+    if (dom) {
+        manager.m_ownerWindow.document = dom.doc;
+        manager.m_currentVirtualKeyboardRef = null; manager.m_ActiveElementProps = null;
+    }
     const api = {ShowWindow() { calls.push("window-show"); }, HideWindow() {
         calls.push("window-hide"); update({bIsOpen: false}); update({bIsOpen: true});
     }, BringToFront() { calls.push("focus"); }};
@@ -120,7 +172,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             assert.equal(manager.logicalOpen, status.bIsOpen && status.sOverlayKey === key,
                 "without a session or restore, each Steam flag matches its native owner");
     }
-    return {bridge, calls, deliveries, wrongTarget, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
+    return {bridge, calls, deliveries, wrongTarget, nodes, manager, other, dom, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true) {
@@ -168,6 +220,90 @@ function externalOwned(f) {
     assert(s.local && s.eligible && !f.nativeOpen(), "close the complete external native presentation");
     assert(f.step(s.request).active);
     return s.request;
+}
+function domOwned(f, automatic = true) {
+    f.step();
+    if (automatic) f.manager.SetVirtualKeyboardShownInternal(true);
+    else f.status({bIsOpen: true});
+    const s = f.step();
+    assert(s.eligible && !s.local && !f.nativeOpen());
+    assert(f.step(s.request).active); return s.request;
+}
+for (const production of [false, true]) for (const automatic of [false, true]) {
+    const f = fixture(false, production, false, false, true), e = f.dom.field();
+    const generation = domOwned(f, automatic);
+    assert(f.bridge.send(generation, "a🧪b"));
+    assert(f.bridge.send(generation, "ArrowLeft", true));
+    assert(f.bridge.send(generation, "Backspace", true));
+    assert(f.bridge.send(generation, "é"));
+    assert.equal(f.dom.text(e), "aéb", "DOM route edits the retained field including surrogate pairs");
+    f.dom.onInput(e, () => {
+        f.manager.m_ActiveElementProps = {...f.manager.m_ActiveElementProps};
+    });
+    assert(f.bridge.send(generation, "ArrowLeft"));
+    assert.equal(f.dom.text(e), "aéArrowLeftb", "text spelling a control name remains ordinary text");
+    assert.equal(f.step(generation).request, generation, "React prop refresh keeps the same DOM generation");
+    assert.equal(f.wrongTarget.length, 0, "Steam input cannot escape to a background app");
+    assert.equal(f.deliveries.length, 0, "DOM delivery never uses the global/native text routes");
+    const next = f.dom.field(), changed = f.step(generation);
+    assert(changed.request !== generation && !changed.active);
+    assert(!f.bridge.send(generation, "stale"), "a changed DOM target rejects old queued text");
+    assert(f.step(changed.request).active && f.bridge.send(changed.request, "new"));
+    assert.equal(f.dom.text(next), "new");
+    const shows = f.calls.filter(x => x === "native-show").length;
+    f.dom.doc.activeElement = f.dom.doc.body;
+    const blurred = f.step(changed.request);
+    assert(!blurred.open && !blurred.active && !f.nativeOpen(), "DOM blur dismisses instead of restoring a stale field");
+    assert(!f.bridge.send(changed.request, "late") &&
+        f.calls.filter(x => x === "native-show").length === shows);
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, false, false, true), e = f.dom.field();
+    let generation = domOwned(f);
+    assert(f.bridge.dismiss(generation));
+    assert(!f.manager.m_currentVirtualKeyboardRef && f.manager.m_lastActiveVirtualKeyboardRef);
+    generation = domOwned(f, false);
+    assert(f.bridge.send(generation, "reopened") && f.dom.text(e) === "reopened",
+        "button summon restores only Steam's still-valid last field after X");
+    f.manager.m_ActiveElementProps.onEnterKeyPress = () => "VKClose";
+    assert(f.bridge.send(generation, "Enter") && f.step(generation).active,
+        "literal Enter text does not invoke a Steam action");
+    assert(f.bridge.send(generation, "Enter", true) && !f.step(generation).open,
+        "real Enter preserves the owning field's action and dismissal");
+    f.bridge.dispose();
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true);
+    let generation = domOwned(f, false);
+    assert(f.bridge.send(generation, "no recipient") && !f.dom.events.includes("input"),
+        "dashboard button opens ours without a field and cannot send text to any app");
+    assert(f.bridge.send(generation, "ArrowDown", true));
+    const e = f.dom.field(); f.manager.SetVirtualKeyboardShownInternal(true);
+    const next = f.step(generation);
+    assert(next.request !== generation && next.eligible && !next.active);
+    generation = next.request;
+    assert(f.step(generation).active && f.bridge.send(generation, "field"));
+    assert.equal(f.dom.text(e), "field", "search focus transfers the bare dashboard session to its own field");
+    f.bridge.dispose();
+}
+for (const dispose of [false, true]) {
+    const f = fixture(false, false, false, false, true); f.dom.field();
+    const request = domOwned(f), shows = f.calls.filter(x => x === "native-show").length;
+    f.dom.doc.activeElement = f.dom.doc.body;
+    if (dispose) f.bridge.dispose(); else { f.advance(901, false); f.step(request); }
+    assert(!f.nativeOpen() && f.calls.filter(x => x === "native-show").length === shows,
+        "expiry and shutdown cannot restore a blurred DOM field before Steam clears its ref");
+    f.checkOwnership(); f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, false, false, true), e = f.dom.field();
+    f.manager.m_ActiveElementProps.BIsElementValidForInput = () => false;
+    // The actual field ref is authoritative; a stale or foreign ref cannot bind text.
+    f.manager.m_currentVirtualKeyboardRef.BIsElementValidForInput = () => false;
+    f.step(); f.manager.SetVirtualKeyboardShownInternal(true);
+    assert(f.nativeOpen() && !f.step().eligible && !f.bridge.send(1, "no"));
+    assert.equal(f.dom.text(e), ""); f.bridge.dispose();
 }
 for (const production of [false, true]) {
     const f = fixture(false, production); f.newTarget();
@@ -467,7 +603,7 @@ for (const production of [false, true]) {
 {
     const f = fixture(false, true); f.status({bDispatchEventsToSteamVR: true});
     const generation = owned(f);
-    assert(f.bridge.send(generation, "a") && f.bridge.send(generation, "Backspace"));
+    assert(f.bridge.send(generation, "a") && f.bridge.send(generation, "Backspace", true));
     assert.deepEqual(f.deliveries, ["a", "Backspace"],
         "native-button requests with a field callback retain target-bound text delivery");
     f.bridge.dispose();
@@ -477,7 +613,7 @@ for (const production of [false, true]) {
     f.manager.m_ActiveElementProps.onTextEntered = value => field.push(value);
     const original = f.manager.m_fnVROnTextEnteredOverride;
     f.status({bDispatchEventsToSteamVR: true}); const generation = owned(f);
-    assert(f.bridge.send(generation, "café 世界") && f.bridge.send(generation, "ArrowLeft"));
+    assert(f.bridge.send(generation, "café 世界") && f.bridge.send(generation, "ArrowLeft", true));
     assert.deepEqual(field, ["café 世界", "ArrowLeft"], "retained Steam field receives direct logical keys");
     assert.equal(f.deliveries.length, 0, "field dispatch cannot leak to another focused input route");
     assert.equal(f.manager.m_fnVROnTextEnteredOverride, original, "restore renderer override after each dispatch");
@@ -572,7 +708,7 @@ for (const production of [false, true]) {
     assert(f.step(generation, true, true).eligible, "old escape cannot affect new target");
     generation = s.request; assert(f.step(generation).active);
     f.manager.m_ActiveElementProps.onEnterKeyPress = () => "VKClose";
-    assert(f.bridge.send(generation, "Enter"));
+    assert(f.bridge.send(generation, "Enter", true));
     assert(!f.step(generation).open && !f.nativeOpen(), "Steam field Enter can close the retained session");
     f.bridge.dispose();
 }

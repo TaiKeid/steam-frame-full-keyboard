@@ -1,5 +1,5 @@
 // Evaluated only in Steam's SharedJSContext. Never read field or clipboard text.
-// Native presentation is closed; the owning Steam manager retains the typing target.
+// Native presentation is closed; input stays bound to the owning Steam window.
 (function installNativeBridge(root, testStore, externalSupported) {
     "use strict";
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400;
@@ -84,10 +84,75 @@
         if (!hidden && styled) { style.remove(); styled = false; }
     }
     const fresh = () => !disposed && now() < lease;
-    function routeReady(owner) {
-        // ControllerKeyboardSendText follows global app focus. Closing native
-        // presentation makes it unsafe even while Steam retains a field ref.
-        return typeof owner.manager.m_ActiveElementProps?.onTextEntered === "function";
+    function editingDocument(manager) {
+        const d = manager.m_ownerWindow?.document;
+        return d && typeof d.execCommand === "function" &&
+            typeof d.getSelection?.()?.modify === "function" &&
+            typeof d.defaultView?.KeyboardEvent === "function" &&
+            d.queryCommandSupported?.("insertText") && d.queryCommandSupported?.("delete") ? d : null;
+    }
+    function routeFor(owner) {
+        const m = owner.manager;
+        if (typeof m.m_ActiveElementProps?.onTextEntered === "function") return {kind: "callback"};
+        const d = owner.document;
+        if (!d || m.m_ownerWindow?.document !== d) return null;
+        const e = d.activeElement;
+        const editable = e?.isConnected && e.ownerDocument === d && !e.disabled && !e.readOnly &&
+            (e.tagName === "TEXTAREA" || e.tagName === "INPUT" &&
+                ["text", "search", "password", "tel", "url"].includes(e.type));
+        const ref = m.m_currentVirtualKeyboardRef || m.m_lastActiveVirtualKeyboardRef;
+        if (editable && typeof ref?.BIsElementValidForInput === "function" &&
+            ref.BIsElementValidForInput() === true && (m.m_currentVirtualKeyboardRef ||
+                typeof ref.SetAsCurrentVirtualKeyboardTarget === "function"))
+            return {kind: "dom", element: e, ref};
+        // A button can summon the panel without a field. Such a session can
+        // navigate this window but never sends text to global compositor focus.
+        return !m.m_currentVirtualKeyboardRef && !m.m_ActiveElementProps ? {kind: "dashboard"} : null;
+    }
+    const routeReady = owner => !!routeFor(owner);
+    function sendDom(session, text, key) {
+        const d = session.owner.document, element = session.route.element;
+        if (!key) {
+            // With no field, ordinary typing has no recipient. Never queue it
+            // for a later field or forward it to a background application.
+            return !element || d.execCommand("insertText", false, text) === true;
+        }
+        const codes = {Backspace: 8, Enter: 13, Tab: 9, ArrowLeft: 37, ArrowUp: 38,
+            ArrowRight: 39, ArrowDown: 40};
+        if (!(text in codes)) return false;
+        if (element && text === "Enter" && session.props?.onEnterKeyPress != null) {
+            const enter = session.props.onEnterKeyPress;
+            const action = typeof enter === "function" ? enter.call(session.props) : enter;
+            if (!action) return true;
+            if (action === "VKClose") { releaseLogical(false); return true; }
+            if (action !== "Enter") return false;
+        }
+        const target = element || d.activeElement || d.body;
+        const event = type => new d.defaultView.KeyboardEvent(type,
+            {key: text, code: text, keyCode: codes[text], which: codes[text],
+                bubbles: true, cancelable: true});
+        const accepted = target.dispatchEvent(event("keydown"));
+        try {
+            if (!accepted || element && d.activeElement !== element) return true;
+            if (text === "Tab") {
+                const items = [...d.querySelectorAll("input,textarea,button,a[href],[tabindex]")]
+                    .filter(e => !e.disabled && e.tabIndex >= 0 && e.getClientRects().length)
+                    .sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity));
+                const next = items[(items.indexOf(d.activeElement) + 1) % items.length];
+                next?.focus();
+            } else if (element) {
+                if (text === "Backspace") d.execCommand("delete", false, null);
+                else if (text.startsWith("Arrow")) {
+                    const backward = text === "ArrowLeft" || text === "ArrowUp";
+                    d.getSelection().modify("move", backward ? "backward" : "forward",
+                        text === "ArrowLeft" || text === "ArrowRight" ? "character" : "line");
+                } else if (text === "Enter") {
+                    if (element.tagName === "TEXTAREA") d.execCommand("insertText", false, "\n");
+                    else element.form?.requestSubmit?.();
+                }
+            }
+            return true;
+        } finally { target.dispatchEvent(event("keyup")); }
     }
     function potential(s) {
         return localTarget(s) || ownSteam(s.key) && (s.dispatch === false || (s.flags & 1) !== 0) &&
@@ -95,8 +160,11 @@
     }
     function candidate(s) {
         if (localTarget(s)) return preparedExternal?.key === s.key ? preparedExternal : null;
-        const choices = owners.filter(o => o.key === s.key && routeReady(o) &&
-            typeof o.manager.m_fnVROnTextEnteredOverride === "function");
+        const choices = owners.filter(o => {
+            const route = routeFor(o);
+            return o.key === s.key && route && (route.kind !== "callback" ||
+                typeof o.manager.m_fnVROnTextEnteredOverride === "function");
+        });
         return potential(s) && choices.length === 1 ? choices[0] : null;
     }
     const targetOf = manager => manager.m_currentVirtualKeyboardRef || manager.m_ActiveElementProps || null;
@@ -152,6 +220,16 @@
             native = {open: false};
             restore = closeNative = false;
         }
+        if (restore && session?.route?.kind === "dom") {
+            const current = routeFor(session.owner);
+            if (current?.kind !== "dom" || current.element !== session.route.element ||
+                targetOf(session.owner.manager) !== session.target) {
+                // Blur can precede Steam clearing its ref, even on expiry or
+                // helper shutdown. Do not revive that field or hide a newer one.
+                restore = closeNative = false;
+                reason = "target-cleared";
+            }
+        }
         logical = null;
         expectedClose = null;
         closingNative = false;
@@ -200,8 +278,13 @@
         }
     }
     function begin(owner) {
+        const route = owner.external ? null : routeFor(owner);
+        // Steam clears its current ref on X. Restore only its own still-valid
+        // last field, in response to this new explicit native summon.
+        if (route?.kind === "dom" && !owner.manager.m_currentVirtualKeyboardRef)
+            route.ref.SetAsCurrentVirtualKeyboardTarget();
         logical = {owner, target: owner.external ? owner.key : targetOf(owner.manager),
-            props: owner.manager?.m_ActiveElementProps};
+            props: owner.manager?.m_ActiveElementProps, route};
         ++request;
         record("begin");
         acknowledged = 0;
@@ -282,23 +365,25 @@
                     }
                 } else if (logical.owner.external) {
                     // Gamescope input stays on the existing local libei/Unicode backend.
-                } else if (typeof logical.owner.manager.m_fnVROnTextEnteredOverride !== "function") {
-                    releaseLogical(true);
                 } else {
                     const m = logical.owner.manager;
                     // React can replace props after every character while the field
                     // reference stays stable. Refresh callbacks without retargeting.
                     logical.props = m.m_ActiveElementProps;
-                    const target = targetOf(m);
-                    if (!target && target !== logical.target) {
+                    const target = targetOf(m), route = routeFor(logical.owner);
+                    if (!target && target !== logical.target || logical.route?.kind === "dom" &&
+                        (!route || route.kind === "dashboard")) {
                         // Field loss proves only that Steam no longer owns
                         // this target. It cannot authorize libei input into
                         // whichever local app currently has compositor focus.
                         releaseLogical(false, true, "target-cleared");
-                    } else if (!routeReady(logical.owner)) {
+                    } else if (!route || route.kind === "callback" &&
+                        typeof m.m_fnVROnTextEnteredOverride !== "function") {
                         releaseLogical(true);
-                    } else if (target !== logical.target) {
+                    } else if (target !== logical.target || route.kind !== logical.route?.kind ||
+                        route.element !== logical.route?.element) {
                         logical.target = target;
+                        logical.route = route;
                         ++request;
                         acknowledged = 0;
                         deadline = time + REQUEST_MS;
@@ -348,7 +433,7 @@
             if (!ownSteam(key) || typeof api?.Show !== "function" || typeof api?.Hide !== "function" ||
                 typeof manager.SetVRKeyboardOpenForThisInstance !== "function") continue;
             const originals = hookedApis.get(api) || {show: api.Show, hide: api.Hide};
-            const owner = {manager, api, key, ...originals};
+            const owner = {manager, api, key, document: editingDocument(manager), ...originals};
             if (typeof manager.SetVirtualKeyboardShownInternal === "function") {
                 owner.fieldHook = true;
                 hook(manager, "SetVirtualKeyboardShownInternal", original => function(open, ...args) {
@@ -408,7 +493,8 @@
     return {
         version: VERSION,
         expired() { return !fresh(); },
-        diagnostics() { return {...snapshot(), nativeOpen: !!native.open, closingNative,
+        diagnostics() { return {...snapshot(), route: logical?.route?.kind || null,
+            nativeOpen: !!native.open, closingNative,
             expectedClose: !!expectedClose, session: !!logical, restoring: !!restoringOwner}; },
         step(frame) {
             if (disposed) return {version: VERSION, unavailable: true};
@@ -430,13 +516,20 @@
                 return snapshot();
             } catch (_) { dispose(); return {version: VERSION, unavailable: true}; }
         },
-        send(generation, text) {
+        send(generation, text, key = false) {
             inspect();
-            if (!snapshot().active || generation !== request || typeof text !== "string" || text.length > 8192)
+            if (!snapshot().active || generation !== request || typeof text !== "string" ||
+                text.length > 8192 || typeof key !== "boolean" || key &&
+                !["Backspace", "Enter", "Tab", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "VKClose"].includes(text))
                 return false;
             const session = logical, manager = session.owner.manager;
             if (session.owner.external) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
+            if (session.route?.kind !== "callback") {
+                const ok = sendDom(session, text, key);
+                inspect();
+                return ok;
+            }
             const targetText = session.props?.onTextEntered;
             if (typeof targetText !== "function") return false;
             // The renderer's override can call VRKeyboard.SendText, which requires
@@ -444,7 +537,10 @@
             // dispatch this one call only to its retained field callback.
             const override = value => targetText(value);
             manager.m_fnVROnTextEnteredOverride = override;
-            try { session.owner.keyDown.call(manager, text, false); }
+            try {
+                if (key) session.owner.keyDown.call(manager, text, false);
+                else targetText(text);
+            }
             finally {
                 if (manager.m_fnVROnTextEnteredOverride === override)
                     manager.m_fnVROnTextEnteredOverride = previous;
