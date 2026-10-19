@@ -54,6 +54,8 @@ The bridge closes native presentation through its owning provider and temporaril
 
 The dashboard keyboard button can also open our panel before a field is selected. Plain text then has no recipient and is discarded rather than saved for a later field. Selecting a supported Steam field creates a new request and routes subsequent typing to it. A new button summon can restore Steam's last field only when Steam still considers it valid; idle polling never restores a dismissed field.
 
+PgUp and PgDn are unsupported in Steam replacement sessions, including a dashboard summon with no field selected. They show the control-unavailable notice in either case. Use the normal controller controls to scroll the dashboard. This limitation does not indicate that a blurred search field still owns input; clicking outside search must end its session and dismiss the panel.
+
 Some Steam field predicates check the shared context's document instead of the owner's document. The bridge also records a field reference when Steam selects it synchronously during that owner's DOM focus or click event. This association remains valid only for the same connected, editable, active element and reference. A ref selected outside that event cannot acquire an association merely because an input is focused.
 
 ## Presentation and fallback
