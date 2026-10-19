@@ -672,6 +672,14 @@ bool App::tick(double now) {
         }
     }
     update_save_status();
+    if (reload_requested_ && !quit_ && settings_writer_.idle()) {
+        try {
+            reload();
+        } catch (const std::exception& error) {
+            status_ = error.what();
+            dirty = true;
+        }
+    }
     refresh_typing();
     dirty |= output_.tick(now);
     update_output_status();
@@ -779,12 +787,19 @@ void App::update_save_status() {
     if (const auto result = settings_writer_.take_result()) {
         if (!result->startup_warning.empty()) {
             save_status_ = status_ = result->startup_warning;
+            save_status_is_startup_ = true;
         } else if (result->error.empty()) {
-            if (status_ == save_status_) {
-                status_.clear();
+            // Reconciliation does not save JSON, so it cannot resolve a prior
+            // storage failure merely because Reload configured startup.
+            if (!result->reconcile || save_status_is_startup_) {
+                if (status_ == save_status_) {
+                    status_.clear();
+                }
+                save_status_.clear();
+                save_status_is_startup_ = false;
             }
-            save_status_.clear();
         } else {
+            save_status_is_startup_ = result->reconcile;
             save_status_ =
                 (result->reconcile ? "SteamOS startup not configured: " : "Applied, but not saved: ") +
                 result->error;
@@ -843,10 +858,19 @@ void App::rebuild_cycle_entries() {
     cycle_entries_ = std::move(entries);
 }
 void App::reload() {
+    if (!settings_writer_.idle()) {
+        reload_requested_ = true;
+        status_ = "Waiting for settings to finish saving.";
+        dirty = true;
+        return;
+    }
+    // Only App's thread queues snapshots, so none can appear between the idle
+    // check and this read. A newer save while waiting also stays ahead of Reload.
+    // Clear the request before preparation so a failed profile is not retried
+    // every frame, and consume completion errors before reconciliation queues.
+    reload_requested_ = false;
+    update_save_status();
     allow_slow_work();
-    // A pending preference write must finish before reading an edited config;
-    // otherwise an older snapshot could overwrite it after Reload returns.
-    flush_settings();
     auto candidate = load_profiles(options_.data_dir, options_.config_dir, &profiles_);
     validate_selection_profiles(candidate, settings_.active);
     // Preparing a keymap can fail. Finish that work before releasing the old model.
@@ -882,7 +906,7 @@ void App::reload() {
     update_settings_ui();
     settings_ui_.reset();
     refresh_typing();
-    status_ = profiles_.errors.empty() ? "" : profiles_.errors.front();
+    status_ = profiles_.errors.empty() ? save_status_ : profiles_.errors.front();
 }
 bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");

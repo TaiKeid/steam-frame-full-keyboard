@@ -87,6 +87,8 @@ class App {
     void report_status(const std::string& message);
     std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
+    // Reload immediately when storage is idle, otherwise coalesce the request
+    // and complete it from tick() after the newest pending snapshot is saved.
     void reload();
     void flush_settings();
     // Only explicit profile/storage work gets extra time. The deadline stays
@@ -128,6 +130,8 @@ class App {
     Settings settings_;
     SettingsWriter settings_writer_;
     std::string save_status_;
+    bool save_status_is_startup_{};
+    bool reload_requested_{};
     Selection pending_, default_;
     // Only explicit Apply changes the saved choice. Startup fallback and
     // favorite cycling affect the runtime selection/default independently.

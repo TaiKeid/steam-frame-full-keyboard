@@ -44,6 +44,10 @@ std::optional<SettingsWriter::Result> SettingsWriter::take_result() {
     result_.reset();
     return result;
 }
+bool SettingsWriter::idle() {
+    std::lock_guard lock(mutex_);
+    return !pending_ && !writing_;
+}
 void SettingsWriter::flush() {
     std::unique_lock lock(mutex_);
     changed_.wait(lock, [&] { return !pending_ && !writing_; });

@@ -26,7 +26,10 @@ class SettingsWriter {
     // Startup/Reload reconcile saved settings without writing JSON or changing profiles.
     void reconcile(Settings settings);
     std::optional<Result> take_result();
-    // Explicit durability barrier for shutdown, config reload and tests.
+    // Queueing belongs to App's thread. It can defer Reload until all older
+    // snapshots finish without waiting for the worker's I/O or startup work.
+    bool idle();
+    // Explicit durability barrier for shutdown and tests, never a UI action.
     void flush();
 
   private:

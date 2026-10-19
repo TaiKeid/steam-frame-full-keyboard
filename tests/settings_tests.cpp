@@ -2,6 +2,7 @@
 #include "framekeyboard/startup.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -369,6 +370,7 @@ void favorite_cache_reload() {
     click(app, "language-cycle");
     require(app.selection().layout == "later", "reload adds newly valid cached favorite");
     app.apply({});
+    app.flush_settings(); // This fixture exercises an immediate, idle Reload.
     fs::remove(directory.path / "layouts/later.json");
     app.reload();
     click(app, "language-cycle");
@@ -466,6 +468,138 @@ void background_preferences() {
     const auto result = writer.take_result();
     require(attempts == 2 && result && result->error.empty(),
             "newest successful snapshot supersedes an older failed write");
+}
+void deferred_reload() {
+    using namespace std::chrono_literals;
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    CaptureSink sink;
+    std::promise<void> first_started, first_release, last_started, last_release;
+    auto first_writing = first_started.get_future();
+    auto first_unblock = first_release.get_future();
+    auto last_writing = last_started.get_future();
+    auto last_unblock = last_release.get_future();
+    std::atomic<bool> timed_out{};
+    std::atomic<int> writes{}, reconciliations{};
+    App app(
+        options, sink,
+        [&](const Settings& settings) {
+            const auto count = ++writes;
+            if (count == 1) {
+                first_started.set_value();
+                if (first_unblock.wait_for(2s) != std::future_status::ready) {
+                    timed_out = true;
+                }
+            } else if (count == 2) {
+                last_started.set_value();
+                if (last_unblock.wait_for(2s) != std::future_status::ready) {
+                    timed_out = true;
+                }
+            }
+            save_settings(directory.path, settings);
+        },
+        nullptr, [&](const Settings&) { ++reconciliations; });
+    app.flush_settings();
+    require(reconciliations == 1, "startup reconciliation completed before the reload fixture");
+    app.apply({});
+    require(first_writing.wait_for(2s) == std::future_status::ready, "first save started");
+    app.frame_completed();
+    app.show_settings();
+    click(app, "reload");
+    require(!timed_out, "Reload returns while the preference writer is blocked");
+    for (int i = 0; i < 3; ++i) {
+        app.tick(monotonic_seconds());
+        app.paint(monotonic_seconds());
+        require(app.slow_work_deadline() == 0,
+                "waiting Reload keeps frames running without a slow-work allowance");
+        app.frame_completed();
+    }
+    app.reload();
+    app.reload(); // Repeated clicks coalesce while waiting.
+    require(reconciliations == 1, "waiting reload never reconciles stale settings");
+    app.back();
+    click(app, "pin");
+    app.apply({"en-us-full", "en-us", "midnight"});
+    first_release.set_value();
+    require(last_writing.wait_for(2s) == std::future_status::ready, "newest save started");
+    app.frame_completed();
+    app.tick(monotonic_seconds());
+    require(!timed_out && reconciliations == 1 && app.slow_work_deadline() == 0,
+            "Reload also waits without blocking for a newer queued snapshot");
+    last_release.set_value();
+    app.flush_settings();
+    app.frame_completed();
+    app.tick(monotonic_seconds());
+    app.flush_settings();
+    require(writes == 2 && reconciliations == 2,
+            "all queued reload requests complete once after the newest save");
+    require(app.pinned() && saved(directory.path).pinned &&
+                saved(directory.path).active.theme == "midnight" && app.selection().theme == "midnight",
+            "deferred Reload reads the final snapshot and preserves the active profile");
+    app.frame_completed();
+    app.tick(monotonic_seconds());
+    app.flush_settings();
+    require(reconciliations == 2 && !timed_out && sink.events.empty(),
+            "completed Reload is not retried and sends no input");
+}
+void deferred_reload_errors() {
+    using namespace std::chrono_literals;
+    for (const bool storage_failure : {true, false}) {
+        TemporaryDirectory directory;
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        CaptureSink sink;
+        std::promise<void> entered, release;
+        auto started = entered.get_future();
+        auto unblock = release.get_future();
+        std::atomic<bool> timed_out{};
+        App app(
+            options, sink,
+            [&](const Settings& settings) {
+                entered.set_value();
+                timed_out = unblock.wait_for(2s) != std::future_status::ready;
+                if (storage_failure) {
+                    throw std::runtime_error("test deferred storage failure");
+                }
+                save_settings(directory.path, settings);
+            },
+            nullptr, [](const Settings&) {});
+        app.flush_settings();
+        app.apply({});
+        require(started.wait_for(2s) == std::future_status::ready, "error fixture save started");
+        app.reload();
+        require(!timed_out, "error fixture Reload remains nonblocking");
+        if (!storage_failure) {
+            fs::create_directories(directory.path / "languages");
+            std::ofstream(directory.path / "languages/en-us.json")
+                << R"({"schema_version":1,"id":"en-us","name":"Missing physical key",
+                       "locale":"en-US","keymap":{"rules":"evdev","model":"pc105",
+                       "layout":"us","variant":"","options":[]},
+                       "legends":{"source":"keymap","overrides":{}},
+                       "font_families":["sans-serif"],
+                       "required_keys":["IntlYen"]})";
+        }
+        release.set_value();
+        app.flush_settings();
+        app.frame_completed();
+        app.tick(monotonic_seconds());
+        app.flush_settings(); // A successful startup reconciliation is not a successful save.
+        const auto status = app.view().status;
+        require(status.find(storage_failure
+                                ? "test deferred storage failure"
+                                : "Language needs physical key IntlYen") != std::string::npos,
+                "deferred Reload preserves save errors and reports preparation failures");
+        app.paint(monotonic_seconds());
+        app.frame_completed();
+        app.tick(monotonic_seconds());
+        require(!app.dirty && app.slow_work_deadline() == 0 && app.view().status == status &&
+                    app.selection().language == "en-us" &&
+                    app.view().language->name != "Missing physical key" && sink.events.empty(),
+                "failed Reload keeps the old model and is not retried every frame");
+    }
 }
 void preferences_with_broken_startup() {
     TemporaryDirectory directory;
@@ -1391,6 +1525,8 @@ int main() {
         key_control_namespaces();
         favorite_cache_reload();
         background_preferences();
+        deferred_reload();
+        deferred_reload_errors();
         preferences_with_broken_startup();
         reload_startup();
         launch_startup();

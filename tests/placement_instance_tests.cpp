@@ -877,6 +877,7 @@ void language_recovery_tests() {
     reopened.apply({"en-us-full", "en-us", "midnight"});
     type_a(reopened);
     require(sink.events.size() == 2, "Reload and Apply cannot redefine the launch target keymap");
+    reopened.flush_settings(); // The following Reload exercises idle profile preparation.
     {
         std::ofstream file(path);
         file << original;
