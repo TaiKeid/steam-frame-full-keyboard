@@ -1,5 +1,6 @@
 """Actual ARM64 package validation, app handoff, startup and rollback in temporary roots."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,9 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-update-integration-") as 
         package.extractall(base, filter="data")
     package = base / f"framekeyboard-{number}-aarch64"
     helper = package / "share/framekeyboard/update/update_helper.py"
+    specification = importlib.util.spec_from_file_location("package_updates", helper)
+    package_updates = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(package_updates)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     name = archive.name
     selected = dict(tag=number, number=number, parts=list(map(int, number.split("."))), archive=name,
@@ -45,10 +49,21 @@ def download(url,output,limit,expected_size=None):
     with open({str(archive)!r},"rb") as source: shutil.copyfileobj(source,output)
     return {digest!r}
 u.download=download
+original_launch=u.launch
+def observed_launch(package,arguments,timeout=45):
+    if package.name=='old':return original_launch(package,arguments,timeout)
+    root=package.parent.parent
+    old=root/'releases/old'
+    assert old.is_dir(), 'keep the old release while the successor starts'
+    process=original_launch(package,arguments,timeout)
+    assert old.is_dir(), 'keep the old release until startup is confirmed'
+    (root/'startup-confirmed').touch()
+    return process
+u.launch=observed_launch
 raise SystemExit(u.main())
 ''')
     shim_source = shim.read_text()
-    for mode in ("success", "rollback", "early-exit", "post-ack-term"):
+    for mode in ("success", "marked-success", "rollback", "early-exit", "post-ack-term"):
         active_shim = base / (mode + "-helper.py")
         hook = """write_status=u.Installation.write_status
 def status(installation,text):
@@ -69,8 +84,10 @@ u.launch=early_exit
         old = root / "releases/old"
         shutil.copytree(package, old)
         shutil.copy2(fixture, old / "bin/framekeyboard")
+        if mode == "marked-success":
+            package_updates.mark_production_release(root, old, old.name)
         (root / "current").symlink_to("releases/old")
-        (root / "previous").symlink_to("releases/older")
+        (root / "previous").symlink_to("releases/old" if mode == "marked-success" else "releases/older")
         config = install / ".config/framekeyboard"
         config.mkdir(parents=True)
         runtime = install / "runtime"
@@ -95,7 +112,13 @@ u.launch=early_exit
         if mode not in ("rollback", "early-exit"):
             assert "installed" in result.read_text()
             assert (root / "current").resolve() != old
-            assert os.readlink(root / "previous") == "releases/old"
+            assert (root / "startup-confirmed").exists(), "cleanup follows real startup confirmation"
+            if mode == "marked-success":
+                assert not old.exists(), "remove only the replaced marked production release"
+                assert not (root / "previous").is_symlink(), "remove a link to that deleted release"
+            else:
+                assert old.is_dir(), "preserve an unmarked development release"
+                assert os.readlink(root / "previous") == "releases/older", "preserve an unrelated previous link"
         else:
             assert "failed" in result.read_text()
             assert os.readlink(root / "current") == "releases/old"
