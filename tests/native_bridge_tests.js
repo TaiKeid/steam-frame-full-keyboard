@@ -49,7 +49,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             else { calls.push(text); this.m_fnVROnTextEnteredOverride(text); }
         }};
     const reactions = [];
-    function update(values) {
+    function update(values, notify = true) {
         Object.assign(status, values); raw();
         // Steam's MobX reaction runs only when this owner's computed value changes.
         for (const reaction of reactions) {
@@ -60,7 +60,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
                 pendingCloses.push(() => reaction.manager.SetVRKeyboardOpenForThisInstance(false));
             else reaction.manager.SetVRKeyboardOpenForThisInstance(open);
         }
-        observer?.(); tick?.();
+        if (notify) { observer?.(); tick?.(); }
     }
     const keyboard = {
         Show() { calls.push("native-show"); if (showKey) update({bIsOpen: true, sOverlayKey: showKey}); },
@@ -125,7 +125,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             const s = bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
             checkOwnership(); return s;
         },
-        status(values) { update(values); checkOwnership(); },
+        status(values, notify = true) { update(values, notify); checkOwnership(); },
         now() { return time; },
         advance(ms, inspect = true) {
             time += ms;
@@ -136,6 +136,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             checkOwnership();
         },
         restoreAs(key) { showKey = key; },
+        breakStatus() { store.m_VRKeyboardState.m_bIsOpen = undefined; },
         checkOwnership,
         newTarget() { manager.m_currentVirtualKeyboardRef = {}; manager.m_ActiveElementProps = {}; tick?.(); },
         deferHide(value) { deferHide = value; },
@@ -173,6 +174,40 @@ for (const deferred of [false, true]) {
     assert(f.nativeOpen() && !f.step().eligible);
     f.bridge.dispose();
     assert(!f.manager.logicalOpen && f.nativeOpen(), "dispose preserves only the newer native owner");
+}
+for (const external of [false, true]) for (const shutdown of [false, true]) {
+    const f = fixture(false, false, external); f.newTarget();
+    if (external) externalOwned(f); else owned(f);
+    if (!shutdown) f.advance(901, false);
+    // Native metadata can change before its status notification is delivered.
+    f.status({bIsOpen: true, sOverlayKey: "unknown.overlay"}, !shutdown);
+    if (shutdown) f.bridge.dispose();
+    const s = f.bridge.diagnostics();
+    assert(!s.eligible && !s.externalRestore && !f.manager.logicalOpen,
+        "expiry or shutdown abandons the old owner when a newer native request already exists");
+    assert(f.nativeOpen() && !f.calls.includes("native-show"),
+        "fallback cannot restore the old Steam provider over a newer native request");
+    f.checkOwnership(); f.bridge.dispose();
+}
+for (const external of [false, true]) {
+    const f = fixture(false, true, external); f.newTarget();
+    if (external) externalOwned(f); else owned(f);
+    f.breakStatus();
+    assert(f.step().unavailable && !f.manager.logicalOpen,
+        "incompatible native status cannot prevent retained Steam ownership cleanup");
+    if (!external) assert(!f.manager.m_currentVirtualKeyboardRef);
+    assert(!f.calls.includes("native-show") && !f.alive() && !f.observing());
+    assert.equal(f.calls.filter(c => c === "native-hide").length, 1,
+        "unknown presentation cannot authorize another native Hide during cleanup");
+}
+{
+    const f = fixture(); f.newTarget(); const target = f.manager.m_currentVirtualKeyboardRef;
+    owned(f);
+    f.status({bIsOpen: true, bMinimal: false, bDispatchEventsToSteamVR: true});
+    assert(!f.step().eligible && f.nativeOpen() && f.manager.logicalOpen &&
+        f.manager.m_currentVirtualKeyboardRef === target,
+        "an unsupported native mode for the same owner retains its native field and flag");
+    f.bridge.dispose(); f.checkOwnership();
 }
 for (const dispose of [false, true]) for (const key of [null, "unknown.overlay", MAIN]) {
     const f = fixture(); f.newTarget(); const target = f.manager.m_currentVirtualKeyboardRef;

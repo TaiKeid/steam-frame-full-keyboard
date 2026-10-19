@@ -151,6 +151,14 @@
     function releaseLogical(restore, closeNative = true,
         reason = restore ? "release-fallback" : "release-dismissed") {
         const session = logical;
+        // Expiry runs before ordinary competing-owner inspection, and disposal
+        // may precede a status callback. Always check the current provider here.
+        try { native = nativeStatus(); } catch (_) {
+            // Unknown presentation cannot authorize Show/Hide. Still release
+            // our retained manager even if Steam's status interface changed.
+            native = {open: false};
+            restore = closeNative = false;
+        }
         logical = null;
         expectedClose = null;
         closingNative = false;
@@ -160,12 +168,18 @@
         if (!restore) interceptedShow = false;
         restoreWindow();
         if (!session) return;
+        if (restore && native.open && native.key !== session.owner.key) {
+            record("competing-owner");
+            if (!session.owner.external) session.owner.setOpen.call(session.owner.manager, false);
+            preparedExternal = null;
+            return;
+        }
         record(reason);
         if (session.owner.external) {
             if (restore) {
                 externalRestore = {key: session.owner.key, request};
                 restoringUntil = now() + REQUEST_MS;
-            } else session.owner.hide.call(keyboardApi);
+            } else if (closeNative) session.owner.hide.call(keyboardApi);
             preparedExternal = null;
         } else if (restore &&
             (!session.target || targetOf(session.owner.manager))) {
@@ -186,8 +200,9 @@
                 session.owner.hide.call(session.owner.api);
             // Hide can fail or complete asynchronously. An already-open native
             // keyboard for this owner must retain its ordinary Steam state.
-            const status = nativeStatus();
-            if (!status.open || status.key !== session.owner.key)
+            let status;
+            try { status = nativeStatus(); } catch (_) { /* Ownership must still be released. */ }
+            if (!status?.open || status.key !== session.owner.key)
                 session.owner.setOpen.call(session.owner.manager, false);
         }
     }
@@ -245,7 +260,8 @@
                     const previous = logical.owner;
                     logical = null;
                     expectedClose = null;
-                    if (!previous.external) previous.setOpen.call(previous.manager, false);
+                    if (!previous.external && native.key !== previous.key)
+                        previous.setOpen.call(previous.manager, false);
                     closingNative = false;
                     acknowledged = 0;
                     ++request;
