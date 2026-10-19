@@ -270,7 +270,6 @@ void OutputController::drain() {
             }
         }
         if (!entry->started && target_.output_blocked()) {
-            status("Sending text to Steam...");
             return;
         }
         if (!entry->text.empty()) {
@@ -281,7 +280,6 @@ void OutputController::drain() {
             entry->started = true;
             if (!target_.commit_text(entry->text)) {
                 if (target_.text_pending()) {
-                    status("Sending text to Steam...");
                     return;
                 }
                 fail();

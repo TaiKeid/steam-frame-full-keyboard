@@ -67,6 +67,7 @@ void ordering() {
     output.set_enabled(true);
     character(output, 0, "a");
     character(output, 1, "b");
+    require(!output.take_status(), "normal pending text and queued presses stay silent");
     require(output.admit(true), "Backspace admitted behind characters");
     output.native_press(2, {KEY_BACKSPACE}, KEY_BACKSPACE, 1);
     output.release(2);
@@ -74,6 +75,7 @@ void ordering() {
     require(sink.events == std::vector<std::string>{"a"}, "later output waits for the first result");
     sink.done = true;
     output.tick(2);
+    require(!output.take_status(), "the next pending delivery stays silent");
     require(sink.events == std::vector<std::string>{"a", "b"}, "second character follows first ack");
     sink.done = true;
     output.tick(3);
@@ -82,6 +84,7 @@ void ordering() {
     sink.done = true;
     output.tick(4);
     require(!output.text_pending(), "last result consumed after release");
+    require(!output.take_status(), "successful delivery does not flash the status area");
 }
 void failure_and_retry() {
     Transport sink;
