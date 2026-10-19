@@ -2,7 +2,7 @@
 // Native presentation is closed; input stays bound to the owning Steam window.
 (function installNativeBridge(root, testStore, externalSupported) {
     "use strict";
-    const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400;
+    const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100;
     const now = () => root.performance.now();
     let store = testStore;
     if (!store) {
@@ -82,7 +82,7 @@
         if (events.length > 32) events.shift();
     }
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
-    let lastClock = now(), lastStep = now(), timer, subscription;
+    let lastClock = now(), lastStep = now(), lastInspection = now(), timer, subscription;
     const oldWindowShow = windowApi.ShowWindow;
     const style = win.document.createElement("style");
     style.setAttribute("data-framekeyboard-native", "1");
@@ -325,6 +325,7 @@
         inspecting = true;
         try {
             const time = now();
+            lastInspection = time;
             if (time - lastClock > LEASE_MS || time < lastClock) lease = 0;
             lastClock = time;
             if (win.closed || root.g_PopupManager.GetPopupForVROverlayKey("valve.steam.gamepadui.keyboard") !== popup)
@@ -570,7 +571,12 @@
         inspect();
         timer = root.setInterval(() => {
             try {
-                inspect();
+                const time = now();
+                // Keep the independent 50 ms watchdog. Only an idle full scan
+                // can be coalesced with a recent helper/event inspection. Lease
+                // expiry must still remove suppression at the ordinary deadline.
+                if (!idle() || time < lastClock || (styled && !fresh()) ||
+                    time - lastInspection >= IDLE_INSPECT_MS) inspect();
                 if (!fresh() && now() - lastStep > 1500) dispose();
             } catch (_) { dispose(); }
         }, 50);

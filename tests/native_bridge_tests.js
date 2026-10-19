@@ -73,7 +73,7 @@ function editingFixture(manager) {
 }
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
     discoveryProbe = false) {
-    let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false;
+    let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
     let nextTimer = 1, showKey = MAIN;
@@ -159,7 +159,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         setTimeout(fn, ms) { const id = nextTimer++; timeouts.set(id, {fn, until: time + ms}); return id; },
         clearTimeout(id) { timeouts.delete(id); },
         SteamUIStore: {WindowStore: {SteamUIWindows: [{VirtualKeyboardManager: manager}]}},
-        g_PopupManager: {GetPopupForVROverlayKey() { return popup; }}};
+        g_PopupManager: {GetPopupForVROverlayKey() { ++inspectionCalls; return popup; }}};
     if (production) {
         const require = key => key === "store" ? {store} : key === "decoy" ?
             {store: {VRKeyboardStatus: {}}} : {controllerText};
@@ -230,7 +230,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         deferClose(value) { deferClose = value; },
         flushCloses() { while (pendingCloses.length) pendingCloses.shift()(); tick?.(); },
         alive() { return tick !== null; },
-        observing() { return !!observer; }};
+        observing() { return !!observer; }, inspections() { return inspectionCalls; }};
 }
 {
     const f = fixture(false, true, false, false, false, true);
@@ -264,6 +264,49 @@ function externalOwned(f) {
     assert.equal(f.bridge.diagnostics().idle, false, "native restoration keeps fast polling");
     f.status({bIsOpen: false}); f.step();
     assert.equal(f.bridge.diagnostics().idle, true, "fully closed restoration returns to idle");
+    f.bridge.dispose();
+}
+
+{
+    const f = fixture(); f.step();
+    for (let i = 0; i < 8; ++i) {
+        const before = f.inspections();
+        f.advance(75);
+        assert.equal(f.inspections(), before, "idle watchdog coalesces a recent helper inspection");
+        f.step();
+        assert(f.inspections() > before, "helper polls still perform full inspection");
+    }
+    f.bridge.dispose();
+}
+{
+    const f = fixture(); f.step();
+    assert(f.nodes.size > 0, "idle readiness can mask native presentation before a summon");
+    f.advance(850); // A recent full scan must not postpone the 900 ms lease expiry.
+    f.advance(51);
+    assert.equal(f.nodes.size, 0, "lease expiry removes idle suppression without a helper poll");
+    f.advance(600);
+    assert(!f.alive(), "the independent orphan timer still disposes an unstepped idle bridge");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(); f.step();
+    f.status({bIsOpen: true}, false);
+    f.advance(100);
+    assert(f.bridge.diagnostics().session, "periodic inspection discovers status when callbacks are absent");
+    f.advance(401);
+    assert(f.nativeOpen(), "an unacknowledged request still reaches independent native fallback");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(); owned(f);
+    const before = f.inspections(); f.advance(50);
+    assert(f.inspections() > before, "busy sessions keep full watchdog inspections");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(); f.step(); f.advance(500); f.step();
+    f.advance(-100);
+    assert(f.bridge.expired() && f.nodes.size === 0, "an idle clock reversal withdraws suppression immediately");
     f.bridge.dispose();
 }
 function domOwned(f, automatic = true) {

@@ -22,6 +22,8 @@ SPECS = (
     ("bridge install", PY, r"\bINSTALL_TIMEOUT\s*=\s*" + NUMBER, 1, 1),
     ("active poll", PY, r"\bACTIVE_POLL\s*=\s*" + NUMBER, 1, 1),
     ("idle poll", PY, r"\bIDLE_POLL\s*=\s*" + NUMBER, 1, 1),
+    ("idle inspection", JS, r"\bIDLE_INSPECT_MS\s*=\s*" + NUMBER, 1, .001),
+    ("inspection watchdog", JS, r"timer\s*=\s*root\.setInterval\([\s\S]*?\},\s*" + NUMBER, 1, .001),
     ("helper startup budget", CPP, r"install_until_\s*=\s*now\s*\+\s*" + NUMBER, 2, 1),
     ("bridge receipt freshness", PY, r"time\.monotonic\(\)\s*-\s*last_parent\s*>\s*" + NUMBER, 1, 1),
     ("bridge frame freshness", PY, r"time\.monotonic\(\)\s*-\s*frame_sent\s*<\s*" + NUMBER, 1, 1),
@@ -65,6 +67,9 @@ def check_ordering(sources):
     before("bridge install", "helper startup budget")
     before("active poll", "idle poll")
     before("idle poll", "request acknowledgement")
+    before("idle poll", "idle inspection")
+    before("inspection watchdog", "idle inspection")
+    before("idle inspection", "request acknowledgement")
     before("Steam lease", "native guard")
     before("native guard", "parent recovery")
     before("parent recovery", "slow-work ceiling")
@@ -107,6 +112,13 @@ class TimingOrdering(unittest.TestCase):
         sources[PY] = re.sub(r"(INSTALL_TIMEOUT\s*=\s*)" + NUMBER,
                              lambda match: match[1] + "4", sources[PY], flags=re.MULTILINE)
         with self.assertRaisesRegex(AssertionError, "bridge install < helper startup budget"):
+            check_ordering(sources)
+
+    def test_idle_inspection_cannot_outlive_request_acknowledgement(self):
+        sources = dict(self.sources)
+        sources[JS] = re.sub(r"(IDLE_INSPECT_MS\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "400", sources[JS], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "idle inspection < request acknowledgement"):
             check_ordering(sources)
 
     def test_both_guard_deadlines_are_checked(self):
