@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1: Update handoff fix
+
+- Fixed in-app update shutdown reopening Steam's native keyboard. The old typing session and queued input now end before the updated keyboard starts, while Quit and failure recovery still restore native.
+- Kept background replacement updates hidden until a fresh keyboard request, even if Start with SteamOS was disabled during the session. Manual updates and updates with replacement disabled still show the panel normally.
+
+When updating from 0.7.0 or 0.8.0, Steam's native keyboard may still open once because the old version handles its own shutdown. Dismiss it; the next keyboard request can open Full Keyboard.
+
 ## 0.8.0: Typing reliability and Steam dashboard fixes
 
 - Added an ordered output queue so rapid two-controller typing, Backspace and arrow keys keep their press order while delivery is pending. Hiding, dismissal, target changes and native handoff discard old queued input and ignore late results.
