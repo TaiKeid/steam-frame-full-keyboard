@@ -46,6 +46,15 @@ The bridge closes native presentation through its owning provider and temporaril
 
 While the app's render/input loop is healthy, the bridge prepares a transparent, noninteractive native popup texture and gates its show/focus calls. A supported request closes native presentation through the original provider. Our panel becomes eligible only after that close is confirmed, removing the native scene's collision and movement line before takeover. Each new request or field target still needs acknowledgement from our visible, input-ready panel within 400 ms. A failed native close or late acknowledgement leaves or restores the stock keyboard. Browser HideWindow is never used because it leaves separate dashboard geometry alive and can trigger focus-driven reopening. Stock controller keyboard actions are blocked while replacement owns the retained session.
 
+When Steam clears a field in its main dashboard, the panel returns to ordinary
+compositor input and clears Steam's retained keyboard-open state. The route
+change advances the request generation, cancelling queued text and holds before
+dashboard controls resume. Focusing another field needs fresh acknowledgement.
+Other Steam windows end a cleared field session rather than redirecting it to
+the compositor. Fallback closes a field session whose target has disappeared;
+it never reopens a native keyboard for that missing field, including when the
+lease expires before the next field-change poll.
+
 The stock dashboard handle is owned separately by SteamVR. Closing the actual presentation is required to remove it; CSS alone cannot do that. Native show/close ordering can still change. Confirm no flash, stale texture, collision or remaining handle in the headset before treating the prototype as complete visual replacement.
 
 An independent watchdog in Steam's SharedJSContext expires the lease after 900 ms without new render-loop progress. Traffic from the helper alone cannot renew it. Readiness timeout, unsupported targets, backend loss, explicit escape, helper disconnect or app failure restore native presentation. An in-process watchdog hides our overlay after a 700 ms main-loop stall so it cannot cover native recovery. Its private health pipe reports watchdog progress independently of rendering; that health never renews the native takeover lease.

@@ -397,6 +397,9 @@ void app_commit() {
             throw std::runtime_error("fixture key missing");
         };
         require(!app.replace_native_keyboard(), "replacement defaults off");
+        require(press("AltLeft", .5) && press("AltLeft", .6), "tap and unlatch Left Alt");
+        require(sink.keys.empty() && sink.deliveries == 0 && !app.take_native_fallback(),
+                "Left Alt alone emits no input and does not request native fallback");
         require(press("KeyA", 1) && sink.held == "a", "App queues printable Unicode");
         require(press("KeyB", 1.1) && sink.deliveries == 1,
                 "another key is accepted without overtaking pending text");

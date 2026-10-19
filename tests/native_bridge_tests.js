@@ -89,7 +89,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         },
         status: update,
         now() { return time; },
-        advance(ms) { time += ms; tick?.(); },
+        advance(ms, inspect = true) { time += ms; if (inspect) tick?.(); },
         newTarget() { manager.m_currentVirtualKeyboardRef = {}; manager.m_ActiveElementProps = {}; tick?.(); },
         deferHide(value) { deferHide = value; },
         alive() { return tick !== null; },
@@ -241,6 +241,17 @@ for (const production of [false, true]) {
     }
 }
 {
+    const f = fixture(); f.newTarget(); const previous = owned(f);
+    f.manager.m_currentVirtualKeyboardRef = null;
+    f.manager.m_ActiveElementProps = null;
+    f.advance(901, false);
+    f.status({bIsOpen: true, sOverlayKey: "unknown.overlay"});
+    assert(f.nativeOpen() && !f.step(previous).eligible,
+        "expired missing-field fallback preserves a newer unrelated native request");
+    assert(!f.calls.includes("native-show"));
+    f.bridge.dispose();
+}
+{
     const f = fixture(); const generation = owned(f);
     f.api.ShowWindow();
     assert(f.bridge.dismiss(generation));
@@ -300,6 +311,53 @@ for (const production of [false, true]) {
     assert.throws(() => f.bridge.send(generation, "unsent"));
     assert.equal(f.manager.m_fnVROnTextEnteredOverride, original, "dispatch errors also restore the renderer override");
     f.bridge.dispose();
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production); f.newTarget(); const previous = owned(f);
+    f.manager.m_currentVirtualKeyboardRef = null;
+    f.manager.m_ActiveElementProps = null;
+    const dashboard = f.step(previous);
+    assert(dashboard.request !== previous && dashboard.open && dashboard.eligible && dashboard.local,
+        "cleared Steam field returns the visible main dashboard panel to local input");
+    assert(!dashboard.active && !f.bridge.send(previous, "stale"),
+        "field loss invalidates old delivery and requires a fresh acknowledgement");
+    assert(f.step(dashboard.request).active && f.step(dashboard.request).local);
+    assert(!f.manager.logicalOpen, "field loss clears Steam's retained keyboard-open state");
+    assert(!f.bridge.send(dashboard.request, "dashboard"),
+        "dashboard input cannot use the former Steam field or controller callback");
+    assert.equal(f.deliveries.length, 0);
+    const stock = [];
+    f.manager.m_fnVROnTextEnteredOverride = value => stock.push(value);
+    f.manager.HandleVirtualKeyDown("ArrowDown");
+    assert.deepEqual(stock, ["ArrowDown"], "dashboard navigation is no longer suppressed as field input");
+    f.manager.m_currentVirtualKeyboardRef = undefined;
+    f.manager.m_ActiveElementProps = undefined;
+    assert.equal(f.step(dashboard.request).request, dashboard.request,
+        "missing field metadata cannot repeatedly change the dashboard generation");
+    f.newTarget(); f.manager.SetVirtualKeyboardShownInternal(true);
+    const next = f.step();
+    assert(next.request !== dashboard.request && next.eligible && !next.local && !next.active,
+        "a new field focus restores Steam routing with fresh acknowledgement");
+    assert(f.step(next.request).active && f.bridge.send(next.request, "new field"));
+    f.bridge.dispose();
+}
+for (const production of [false, true]) {
+    for (const beforePoll of [false, true]) {
+        const f = fixture(false, production); f.newTarget(); const previous = owned(f);
+        f.manager.m_currentVirtualKeyboardRef = null;
+        f.manager.m_ActiveElementProps = null;
+        if (!beforePoll) {
+            const dashboard = f.step(previous);
+            assert(f.step(dashboard.request).active && dashboard.local);
+        }
+        // A UI hitch can expire the lease before inspect observes the lost
+        // field. The fallback must not restore an empty, modal native session.
+        f.advance(901);
+        assert(!f.nativeOpen() && !f.manager.logicalOpen && !f.bridge.diagnostics().eligible,
+            "expired field ownership closes instead of restoring a missing target");
+        assert(!f.calls.includes("native-show") && !f.calls.includes("window-show"));
+        f.bridge.dispose();
+    }
 }
 {
     const f = fixture(); f.newTarget(); const target = f.manager.m_currentVirtualKeyboardRef;

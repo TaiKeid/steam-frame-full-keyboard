@@ -98,7 +98,7 @@
             typeof o.manager.m_fnVROnTextEnteredOverride === "function");
         return potential(s) && choices.length === 1 ? choices[0] : null;
     }
-    const targetOf = manager => manager.m_currentVirtualKeyboardRef || manager.m_ActiveElementProps;
+    const targetOf = manager => manager.m_currentVirtualKeyboardRef || manager.m_ActiveElementProps || null;
     function fieldRequest(s) {
         const owner = candidate(s), intent = owner?.fieldIntent;
         return owner && !owner.external && intent && now() < intent.until &&
@@ -136,14 +136,18 @@
                 restoringUntil = now() + REQUEST_MS;
             } else session.owner.hide.call(keyboardApi);
             preparedExternal = null;
-        } else if (restore) {
+        } else if (restore && !session.dashboard &&
+            (!session.target || targetOf(session.owner.manager))) {
             // Preserve the field while the exact owning window's original provider opens again.
             restoringUntil = now() + REQUEST_MS;
             session.owner.show.call(session.owner.api);
             oldWindowShow.call(windowApi);
         } else {
             session.owner.setOpen.call(session.owner.manager, false);
-            session.owner.hide.call(session.owner.api);
+            // A missing field cannot justify closing another provider's newer
+            // native request while fallback withdraws the old session.
+            if (!restore || !native.open || native.key === session.owner.key)
+                session.owner.hide.call(session.owner.api);
         }
     }
     function begin(owner) {
@@ -222,11 +226,22 @@
                     // React can replace props after every character while the field
                     // reference stays stable. Refresh callbacks without retargeting.
                     logical.props = m.m_ActiveElementProps;
-                    if (targetOf(m) !== logical.target) {
-                        logical.target = targetOf(m);
-                        ++request;
-                        acknowledged = 0;
-                        deadline = time + REQUEST_MS;
+                    const target = targetOf(m);
+                    if (target !== logical.target) {
+                        if (!target && logical.owner.key !== "valve.steam.gamepadui.main") {
+                            releaseLogical(false);
+                        } else {
+                            // A cleared main-window field returns to ordinary dashboard
+                            // input. Do not retain Steam's field route or keyboard-open
+                            // flag after its target is gone. The new generation cancels
+                            // queued output before the native app changes routes.
+                            logical.dashboard = !target;
+                            logical.target = target;
+                            ++request;
+                            acknowledged = 0;
+                            deadline = time + REQUEST_MS;
+                            if (logical.dashboard) logical.owner.setOpen.call(m, false);
+                        }
                     }
                 }
             } else if (native.open && !ignoreOpen && !restoringUntil) {
@@ -243,7 +258,8 @@
     function snapshot() {
         const eligible = !!logical && !closingNative && !ignoreOpen;
         return {version: VERSION, request, open: !!logical || !!native.open, eligible,
-            active: eligible && acknowledged === request && fresh(), local: !!logical?.owner.external,
+            active: eligible && acknowledged === request && fresh(),
+            local: !!(logical?.owner.external || logical?.dashboard),
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: !logical && !ignoreOpen && native.open && localTarget(native) &&
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
@@ -281,11 +297,11 @@
             owner.setOpen = hook(manager, "SetVRKeyboardOpenForThisInstance", original => function(open) {
                 // Ignore only our physical close acknowledgement. A new native
                 // target must still run Steam's ordinary target cleanup.
-                if (!open && logical?.owner.manager === this && !nativeStatus().open) return;
+                if (!open && logical?.owner.manager === this && !logical.dashboard && !nativeStatus().open) return;
                 return original.call(this, open);
             });
             owner.keyDown = hook(manager, "HandleVirtualKeyDown", original => function(...args) {
-                if (logical?.owner.manager === this && fresh()) return;
+                if (logical?.owner.manager === this && !logical.dashboard && fresh()) return;
                 return original.apply(this, args);
             });
             owners.push(owner);
@@ -342,7 +358,7 @@
             if (!snapshot().active || generation !== request || typeof text !== "string" || text.length > 8192)
                 return false;
             const session = logical, manager = session.owner.manager;
-            if (session.owner.external) return false;
+            if (session.owner.external || session.dashboard) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
             const targetText = session.props?.onTextEntered;
             const deliver = typeof targetText === "function" ? targetText : controllerText;
