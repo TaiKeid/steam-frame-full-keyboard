@@ -430,11 +430,12 @@ for (const production of [false, true]) {
     f.manager.m_currentVirtualKeyboardRef = null;
     f.manager.m_ActiveElementProps = null;
     const dashboard = f.step(previous);
-    assert(dashboard.request !== previous && dashboard.open && dashboard.eligible && dashboard.local,
-        "cleared Steam field returns the visible main dashboard panel to local input");
+    assert(dashboard.request !== previous && !dashboard.open && !dashboard.eligible && !dashboard.local,
+        "a cleared Steam field ends its session instead of guessing compositor focus");
     assert(!dashboard.active && !f.bridge.send(previous, "stale"),
         "field loss invalidates old delivery and requires a fresh acknowledgement");
-    assert(f.step(dashboard.request).active && f.step(dashboard.request).local);
+    assert(!f.step(dashboard.request).active && !f.step(dashboard.request).local,
+        "a fresh acknowledgement cannot revive input without a new native request");
     assert(!f.manager.logicalOpen, "field loss clears Steam's retained keyboard-open state");
     assert(!f.bridge.send(dashboard.request, "dashboard"),
         "dashboard input cannot use the former Steam field or controller callback");
@@ -461,7 +462,7 @@ for (const production of [false, true]) {
         f.manager.m_ActiveElementProps = null;
         if (!beforePoll) {
             const dashboard = f.step(previous);
-            assert(f.step(dashboard.request).active && dashboard.local);
+            assert(!f.step(dashboard.request).active && !dashboard.local && !dashboard.open);
         }
         // A UI hitch can expire the lease before inspect observes the lost
         // field. The fallback must not restore an empty, modal native session.

@@ -220,6 +220,11 @@ Supported Steam sessions deliver Unicode and plain Enter/Backspace/Tab/arrows th
 
 `ReplacementPresentation` separates resident panel visibility from process lifetime. In VR replacement mode, X releases input and emits a request-scoped dismissal that clears the retained target without reopening native presentation. Only semantic target/open changes create new generations; duplicate provider callbacks cannot create a reopen loop. A supported native keyboard button toggles an acknowledged panel off across owners, including after returning from a closed app. Explicit Steam field shows are tracked through the manager and transfer the target instead. The helper and lease remain active while hidden. A later eligible request follows the normal visible-panel readiness handshake. Explicit Settings Quit, signals and runtime shutdown still exit and withdraw replacement. Ordinary mode and desktop preview retain X-to-exit.
 
+Losing a Steam field ends its replacement session and hides the panel. It never
+authorizes a switch to compositor input, because field loss does not establish
+local focus. The new request generation cancels old output and holds before a
+later summon or field focus can acquire another session.
+
 ## Manual release updates
 
 `Updates` owns a private Python child and polls bounded nonblocking status packets. Settings retains the offer in process memory and resets the latest-version message after five seconds. `update/update_helper.py` verifies fixed-repository HTTPS assets, SHA-256, safe archive paths, AArch64 binaries and copied profiles before requesting restart. `main` destroys App, VR/input/replacement and the instance owner before sending activation. The helper switches versioned links under the installation lock, launches the new build with preserved arguments and waits for three seconds of completed-loop progress through a private startup socket. Startup failure restores and relaunches the prior release. A service-managed original process remains alive after cleanup until the helper verifies the successor has become systemd's MainPID; rollback transfers ownership the same way. Manual launches use the existing parent-exit protocol. Downloads and validation never run on the VR thread. See [updates](updates.md).

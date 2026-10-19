@@ -599,6 +599,14 @@ void handoff_status() {
                 "acknowledged handoff enables typing without changing the notice");
         app.up(1, x, y);
         require(sink.text == std::vector<std::string>{"a"}, "typing resumes after acknowledgement");
+        state = {state.request + 1, false, false, false, true, false};
+        presentation.update(true, state);
+        app.set_interaction_active(presentation.interactive());
+        require(!presentation.show() && !presentation.interactive() && !presentation.remote(),
+                "cleared Steam targets hide the managed panel without selecting local input");
+        require(!app.down(1, x, y, 2.1) && sink.keys.empty() &&
+                    sink.text == std::vector<std::string>{"a"},
+                "field loss cannot deliver text or controls into the focused local receiver");
         app.set_interaction_active(false);
         sink.ready = false;
         app.tick(3);

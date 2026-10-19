@@ -167,7 +167,7 @@
                 restoringUntil = now() + REQUEST_MS;
             } else session.owner.hide.call(keyboardApi);
             preparedExternal = null;
-        } else if (restore && !session.dashboard &&
+        } else if (restore &&
             (!session.target || targetOf(session.owner.manager))) {
             // Preserve the field while the exact owning window's original provider opens again.
             restoringUntil = now() + REQUEST_MS;
@@ -282,20 +282,17 @@
                     logical.props = m.m_ActiveElementProps;
                     const target = targetOf(m);
                     if (target !== logical.target) {
-                        if (!target && logical.owner.key !== "valve.steam.gamepadui.main") {
-                            releaseLogical(false);
+                        if (!target) {
+                            // Field loss proves only that Steam no longer owns
+                            // this target. It cannot authorize libei input into
+                            // whichever local app currently has compositor focus.
+                            releaseLogical(false, true, "target-cleared");
                         } else {
-                            // A cleared main-window field returns to ordinary dashboard
-                            // input. Do not retain Steam's field route or keyboard-open
-                            // flag after its target is gone. The new generation cancels
-                            // queued output before the native app changes routes.
-                            logical.dashboard = !target;
                             logical.target = target;
                             ++request;
                             acknowledged = 0;
                             deadline = time + REQUEST_MS;
-                            if (logical.dashboard) logical.owner.setOpen.call(m, false);
-                            record(target ? "target-changed" : "target-cleared");
+                            record("target-changed");
                         }
                     }
                 }
@@ -314,7 +311,7 @@
         const eligible = !!logical && !closingNative && !ignoreOpen;
         return {version: VERSION, request, open: !!logical || !!native.open, eligible,
             active: eligible && acknowledged === request && fresh(),
-            local: !!(logical?.owner.external || logical?.dashboard),
+            local: !!logical?.owner.external,
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: !logical && !ignoreOpen && native.open && localTarget(native) &&
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
@@ -368,7 +365,7 @@
                 return original.call(this, open);
             });
             owner.keyDown = hook(manager, "HandleVirtualKeyDown", original => function(...args) {
-                if (logical?.owner.manager === this && !logical.dashboard && fresh()) return;
+                if (logical?.owner.manager === this && fresh()) return;
                 return original.apply(this, args);
             });
             owners.push(owner);
@@ -429,7 +426,7 @@
             if (!snapshot().active || generation !== request || typeof text !== "string" || text.length > 8192)
                 return false;
             const session = logical, manager = session.owner.manager;
-            if (session.owner.external || session.dashboard) return false;
+            if (session.owner.external) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
             const targetText = session.props?.onTextEntered;
             const deliver = typeof targetText === "function" ? targetText : controllerText;
