@@ -65,6 +65,8 @@ VR startup queues one reconciliation of valid saved startup preferences on that 
 
 Deliberate VR exits return 0 for manual launches and 3 for boot launches or processes carrying `FRAMEKEYBOARD_SERVICE`. The boot flag covers older units without the marker; the inherited marker covers service-managed update successors that omit the boot flag. Runtime shutdown and watchdog SIGTERM remain eligible for service restart.
 
+`UpdateStartup` captures background-update intent from a valid inherited acknowledgement socket and a nonempty service marker before consuming the descriptor environment. Main passes that intent separately from the boot-only `--autostart` flag. With replacement enabled, App uses it for hidden presentation without rechecking boot opt-in; without replacement it opens normally. Prepared-update shutdown explicitly disposes the bridge without restoration and cancels the exact-overlay guard. Default stop and EOF still restore native. The helper drops queued input before applying the stop disposition, and the replacement destructor waits for helper cleanup before update activation.
+
 ## Input and focus
 
 `OutputController` owns the enabled gate, ordered output queue, delivered-key

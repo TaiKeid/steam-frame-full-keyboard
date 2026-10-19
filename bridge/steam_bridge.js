@@ -476,10 +476,22 @@
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
             externalRestore, events: events.slice()};
     }
-    function dispose() {
+    function dispose(restore = true) {
         if (disposed) return;
         lease = 0;
-        try { releaseLogical(true); restoreWindow(); } finally {
+        try {
+            let closeNative = true;
+            if (restore === false) {
+                // Update cleanup can race a new owner's native request. Release
+                // our logical flag without hiding that unrelated presentation.
+                try {
+                    const current = nativeStatus();
+                    closeNative = !current.open || current.key === logical?.owner.key;
+                } catch (_) { closeNative = false; }
+            }
+            releaseLogical(restore !== false, closeNative);
+            restoreWindow();
+        } finally {
             disposed = true;
             root.clearInterval(timer);
             // Observe a pending restore until its bounded check completes. A

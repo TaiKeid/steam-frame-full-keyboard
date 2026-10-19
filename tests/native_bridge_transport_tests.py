@@ -24,13 +24,15 @@ class FakeCDP:
         self.installed = self.disposed = self.closed = False
         self.dismissed = threading.Event()
         self.sent = []
+        self.restored = False
 
     def evaluate(self, expression, timeout=.4):
         if "const bridge =" in expression:
             self.installed = True
             return True
-        if ".bridge.dispose()" in expression:
+        if ".bridge.dispose(" in expression:
             self.disposed = True
+            self.restored = ".bridge.dispose(false)" not in expression
             return None
         if ".bridge.step(" in expression:
             return dict(version=1, request=2, open=True, eligible=True, active=False)
@@ -73,6 +75,9 @@ class FakeGuard(bridge.NativeGuard):
 
     def close(self):
         self.closed = True
+        if self.native_armed:
+            self.restored += 1  # The real independent guard restores on EOF.
+            self.native_armed = self.armed = False
 
 
 class ExternalCDP(FakeCDP):
@@ -824,6 +829,104 @@ class Lifecycle(unittest.TestCase):
 
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)
+
+    def test_update_shutdown_discards_queued_input_without_summoning_native(self):
+        for local in (False, True):
+            with self.subTest(local=local):
+                guard = FakeGuard()
+                base = ExternalCDP if local else FakeCDP
+
+                class PausedCDP(base):
+                    def __init__(self):
+                        super().__init__(guard) if local else super().__init__()
+                        self.pause = False
+                        self.waiting, self.resume = threading.Event(), threading.Event()
+
+                    def evaluate(self, expression, timeout=.4):
+                        if self.pause and '.bridge.step(' in expression:
+                            self.waiting.set()
+                            assert self.resume.wait(2), 'fixture poll was not released'
+                        return super().evaluate(expression, timeout)
+
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                parent.settimeout(1)
+                client = PausedCDP()
+                worker = threading.Thread(target=bridge.run,
+                    args=(child, lambda: client, None, lambda: guard))
+                worker.start()
+                try:
+                    parent.send(json.dumps(dict(op='frame', progress=1, ready=True, ack=2,
+                                                sent=time.monotonic())).encode())
+                    while not self.receive(parent, 'state').get('local', not local):
+                        pass
+                    client.pause = True
+                    self.assertTrue(client.waiting.wait(1))
+                    for message in (dict(op='dismiss', request=2),
+                                    dict(op='text', request=2, id=1, text='retired input'),
+                                    dict(op='stop', restore=False)):
+                        parent.send(json.dumps(message).encode())
+                    client.resume.set()
+                    worker.join(2)
+                    self.assertFalse(worker.is_alive())
+                    self.assertEqual(client.sent, [], 'update cannot deliver queued input')
+                    self.assertFalse(client.restored, 'update cannot reopen Steam native')
+                    self.assertEqual(guard.restored, 0, 'update cannot reopen local native')
+                    self.assertFalse(guard.native_armed, 'guard EOF must not reopen native later')
+                    self.assertTrue(client.disposed and client.closed and guard.closed)
+                finally:
+                    client.resume.set()
+                    parent.close()
+                    worker.join(2)
+
+    def test_only_explicit_update_shutdown_suppresses_native_recovery(self):
+        for stop in (dict(op='stop'), dict(op='stop', restore=True),
+                     dict(op='stop', restore=0), dict(op='stop', restore='false')):
+            with self.subTest(stop=stop):
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                client = FakeCDP()
+                parent.send(json.dumps(stop).encode())
+                worker = threading.Thread(target=bridge.run,
+                    args=(child, lambda: client, None, FakeGuard))
+                worker.start()
+                worker.join(2)
+                parent.close()
+                self.assertFalse(worker.is_alive())
+                self.assertTrue(client.disposed and client.closed and client.restored,
+                                'ordinary stop and invalid dispositions retain safe recovery')
+
+    def test_failed_update_cleanup_retains_independent_native_recovery(self):
+        for failure in ('steam-disconnected', 'guard-cancel-failed'):
+            with self.subTest(failure=failure):
+                guard = FakeGuard()
+                if failure == 'guard-cancel-failed':
+                    guard.reject.add('cancel')
+
+                class FailingCDP(ExternalCDP):
+                    def evaluate(self, expression, timeout=.4):
+                        if failure == 'steam-disconnected' and '.bridge.dispose(false)' in expression:
+                            raise ConnectionError('fixture cleanup failure')
+                        return super().evaluate(expression, timeout)
+
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                parent.settimeout(1)
+                client = FailingCDP(guard)
+                worker = threading.Thread(target=bridge.run,
+                    args=(child, lambda: client, None, lambda: guard))
+                worker.start()
+                try:
+                    parent.send(json.dumps(dict(op='frame', progress=1, ready=True, ack=2,
+                                                sent=time.monotonic())).encode())
+                    while not self.receive(parent, 'state').get('local'):
+                        pass
+                    parent.send(b'{"op":"stop","restore":false}')
+                    worker.join(2)
+                    self.assertFalse(worker.is_alive())
+                    self.assertEqual(guard.restored, 1,
+                                     'failed update cleanup must leave native usable')
+                    self.assertTrue(client.closed and guard.closed)
+                finally:
+                    parent.close()
+                    worker.join(2)
 
     def test_guard_state_changes_only_after_acknowledged_commands(self):
         guard = FakeGuard()

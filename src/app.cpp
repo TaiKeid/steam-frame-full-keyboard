@@ -11,6 +11,9 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace framekeyboard {
+bool App::updating() const {
+    return updates_ && updates_->prepared();
+}
 volatile std::sig_atomic_t interrupted = 0;
 double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();

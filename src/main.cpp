@@ -135,6 +135,8 @@ int main(int argc, char** argv) {
         if (options.start_enabled && options.input == fk::InputBackend::None) {
             throw std::runtime_error("--start-enabled requires an input backend");
         }
+        options.background_update = options.mode == fk::Mode::Vr && startup.background_start();
+        const bool start_hidden = options.autostart || options.background_update;
         const int deliberate_exit = fk::deliberate_exit_status(options.autostart);
         if (options.autostart) {
             if (options.mode != fk::Mode::Vr) {
@@ -153,11 +155,11 @@ int main(int argc, char** argv) {
         {
             std::unique_ptr<fk::VrInstance> instance;
             if (options.mode == fk::Mode::Vr) {
-                instance = std::make_unique<fk::VrInstance>(fk::VrInstance::runtime_directory(),
-                                                            !options.autostart);
+                instance =
+                    std::make_unique<fk::VrInstance>(fk::VrInstance::runtime_directory(), !start_hidden);
                 if (!instance->is_owner()) {
-                    std::cout << (options.autostart ? "Full Keyboard is already running.\n"
-                                                    : "Recenter requested from the running keyboard.\n");
+                    std::cout << (start_hidden ? "Full Keyboard is already running.\n"
+                                               : "Recenter requested from the running keyboard.\n");
                     return deliberate_exit;
                 }
                 fk::require_steamvr();

@@ -46,6 +46,28 @@ void activate(int fd, NativeReplacement& replacement, double now = 10) {
             "versioned session metadata");
     replacement.route(true);
 }
+void update_shutdown() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+            "private replacement shutdown transport");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        activate(pair[1], replacement);
+        replacement.shutdown_for_update();
+        const auto packet = take(pair[1]);
+        json_object* message = json_tokener_parse(packet.c_str());
+        require(message, "shutdown control is a valid protocol message");
+        require(std::string(json_object_get_string(json_object_object_get(message, "op"))) == "stop" &&
+                    json_object_object_get(message, "restore") &&
+                    !json_object_get_boolean(json_object_object_get(message, "restore")),
+                "prepared update must explicitly close the old session without native recovery");
+        json_object_put(message);
+        require(!replacement.state().open && !replacement.state().active,
+                "retired replacement no longer owns a typing session");
+    }
+    close(pair[1]);
+}
 void hidden_session_wakeup() {
     using namespace std::chrono_literals;
     using Clock = std::chrono::steady_clock;
@@ -1143,6 +1165,7 @@ int main(int argc, char** argv) {
                                      replacement.unavailable_reason());
         }
         require(argc == 1, "unknown test option");
+        update_shutdown();
         hidden_session_wakeup();
         transport();
         ordered_transport();

@@ -255,6 +255,29 @@ function externalOwned(f) {
     return s.request;
 }
 
+// Updating ends the old typing session. It must not summon either keyboard,
+// retain Steam's logical-open flag, or deliver work to that retired request.
+for (const local of [false, true]) {
+    const f = fixture(false, false, local);
+    const request = local ? externalOwned(f) : owned(f);
+    const shown = f.calls.filter(c => c === "native-show").length;
+    f.bridge.dispose(false);
+    assert(!f.nativeOpen(), "update shutdown leaves native presentation closed");
+    assert(!f.manager.logicalOpen, "update shutdown clears Steam's keyboard-open flag");
+    assert.equal(f.calls.filter(c => c === "native-show").length, shown);
+    assert(!f.bridge.send(request, "retired input"), "the retired request cannot receive input");
+    assert(!f.alive() && !f.observing(), "the outgoing bridge relinquishes its hooks");
+    f.bridge.dispose();
+    assert(!f.nativeOpen(), "later ordinary cleanup cannot undo update dismissal");
+}
+{
+    const f = fixture(); owned(f);
+    f.status({bIsOpen: true, sOverlayKey: "valve.steam.gamepadui.barpopup"}, false);
+    f.bridge.dispose(false);
+    assert(f.nativeOpen(), "update shutdown cannot close a competing native keyboard");
+    assert(!f.manager.logicalOpen, "the outgoing owner still releases its own Steam flag");
+}
+
 {
     const f = fixture();
     assert.equal(f.bridge.diagnostics().idle, true, "a closed bridge explicitly identifies quiescence");

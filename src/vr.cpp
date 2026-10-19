@@ -1033,7 +1033,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     hide_panel();
     replacement_watched.store(false);
-    replacement.update(false, false, 0, false, monotonic_seconds());
+    if (app.updating() && !interrupted) {
+        replacement.shutdown_for_update();
+    } else {
+        replacement.update(false, false, 0, false, monotonic_seconds());
+    }
     app.cancel();
     if (displayed.ready()) {
         try {

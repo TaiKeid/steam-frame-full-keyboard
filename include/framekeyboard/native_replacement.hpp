@@ -33,6 +33,9 @@ class NativeReplacement : public KeySink {
     void route(bool remote) { remote_ = remote; }
     bool remote() const { return remote_; }
     void dismiss_request();
+    // A prepared update closes the current request instead of reopening native.
+    // All other shutdowns retain independent native recovery.
+    void shutdown_for_update();
     void retry_now(double now);
     bool take_unsupported_control();
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
@@ -77,7 +80,7 @@ class NativeReplacement : public KeySink {
     const char* failure_code() const;
     void diagnostic(const char* code, double now, std::uint64_t request = 0, int retry = 0);
     void schedule_retry(double now);
-    void stop();
+    void stop(bool restore_native = true);
     KeySink& local_;
     Connect connect_;
     int fd_{-1};

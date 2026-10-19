@@ -26,6 +26,7 @@ struct Options {
     double duration{};
     bool start_enabled{false};
     bool autostart{};
+    bool background_update{};
 };
 
 class App {
@@ -57,7 +58,9 @@ class App {
     bool start_with_steamos() const {
         return settings_.replace_native_keyboard && settings_.start_with_steamos;
     }
-    bool background_start() const { return options_.autostart; }
+    bool background_start() const {
+        return options_.autostart || (options_.background_update && settings_.replace_native_keyboard);
+    }
     bool replacement_ready() const;
     bool take_native_fallback();
     bool resident_replacement() const {
@@ -97,6 +100,7 @@ class App {
     void frame_completed() { slow_work_deadline_.store(0); }
     const fs::path& config_dir() const { return options_.config_dir; }
     bool quitting() const { return quit_; }
+    bool updating() const;
     bool take_recenter();
     bool dirty{true};
     PanelRenderer renderer;

@@ -26,6 +26,10 @@ The helper and any restarted app inherit the original app's stdout and stderr de
 
 The boot-only `--autostart` option is omitted from update, rollback and failed-handoff restarts. These are explicit user-requested launches, so turning off Start with SteamOS or replacement during a session cannot prevent them from starting. Saved startup preferences and the session unit are preserved.
 
+A prepared update closes the outgoing replacement request without reopening Steam's keyboard. A service-managed successor starts hidden while replacement remains enabled, confirms startup in the background and waits for a fresh keyboard request. This presentation policy is separate from boot opt-in, so disabling Start with SteamOS does not block an update or rollback. Manual updates, and updates with replacement disabled, still show the panel. Quit, disable and failures retain native recovery.
+
+Updates initiated by published 0.8.0 or earlier still use that version's outgoing cleanup, which can reopen native once. Dismiss it; the next request can summon Full Keyboard. Installing a fixed successor cannot change the code that the old version already ran.
+
 When running under the optional startup service, cleanup still releases VR, input and the instance lock before handoff, but the original service process stays alive. The helper verifies that the service owns that process, launches the candidate and waits for the same sustained startup confirmation. It then uses the user manager's local notification socket to transfer MainPID to the confirmed successor and checks that the manager accepted it. Only then does the original process exit. The startup unit accepts notifications from its own service processes; no network port is involved. A failed candidate is terminated and rollback applies the same adoption check to the previous release. If neither child can be adopted, both are stopped and the original main process restarts its own still-known binary. Manual launches retain the ordinary exit-then-launch protocol.
 
 ## Validation

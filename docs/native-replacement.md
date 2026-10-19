@@ -60,6 +60,8 @@ Some Steam field predicates check the shared context's document instead of the o
 
 ## Presentation and fallback
 
+A prepared in-app update explicitly closes its retained request and cancels the local-app recovery guard before handing off. It discards queued input and does not reopen native. Ordinary Quit, disable, helper loss and timeouts keep native recovery. An unrelated native keyboard already opened by another owner is preserved.
+
 While the app's render/input loop is healthy, the bridge prepares a transparent, noninteractive native popup texture and gates its show/focus calls. A supported request closes native presentation through the original provider. Our panel becomes eligible only after that close is confirmed, removing the native scene's collision and movement line before takeover. Each new request or field target still needs acknowledgement from our visible, input-ready panel within 400 ms. A failed native close or late acknowledgement leaves or restores the stock keyboard. Browser HideWindow is never used because it leaves separate dashboard geometry alive and can trigger focus-driven reopening. Stock controller keyboard actions are blocked while replacement owns the retained session.
 
 Background startup prepares our hidden texture before takeover readiness. Changed helper session metadata wakes the hidden frame sleep, including while native close is still pending. Ordinary idle replies retain the original frame deadline. Waiting alone cannot renew readiness or acknowledge a panel; only a completed render/input frame can do that.

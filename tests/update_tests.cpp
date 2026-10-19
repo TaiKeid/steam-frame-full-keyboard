@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/updates.hpp"
 
 #include <algorithm>
@@ -51,6 +52,75 @@ void wait_label(Updates& updates, const std::string& label, double now) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     throw std::runtime_error("unexpected update label: " + updates.label());
+}
+void update_presentation() {
+    const auto previous = std::getenv("FRAMEKEYBOARD_SERVICE");
+    const std::string service = previous ? previous : "";
+    const bool had_service = previous != nullptr;
+    char temporary[] = "/tmp/full-keyboard-update-startup-XXXXXX";
+    const std::filesystem::path config = mkdtemp(temporary);
+    for (const bool managed : {false, true}) {
+        managed ? setenv("FRAMEKEYBOARD_SERVICE", "framekeyboard-test.service", 1)
+                : unsetenv("FRAMEKEYBOARD_SERVICE");
+        for (const bool replacement : {false, true}) {
+            for (const bool boot_enabled : {false, true}) {
+                int sockets[2];
+                require(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sockets) == 0,
+                        "private successor acknowledgement socket");
+                setenv("FRAMEKEYBOARD_UPDATE_READY_FD", std::to_string(sockets[1]).c_str(), 1);
+                {
+                    UpdateStartup startup;
+                    Settings preferences;
+                    preferences.replace_native_keyboard = replacement;
+                    preferences.start_with_steamos = boot_enabled;
+                    save_settings(config, preferences);
+                    Options options;
+                    options.mode = Mode::Vr;
+                    options.config_dir = config;
+                    options.background_update = startup.background_start();
+                    NullSink sink;
+                    auto no_write = [](const Settings&) {};
+                    App app(options, sink, no_write, nullptr, no_write);
+                    ReplacementPresentation panel(app.background_start());
+                    panel.update(preferences.replace_native_keyboard, {.available = true});
+                    require(
+                        panel.show() == !(managed && preferences.replace_native_keyboard),
+                        "managed replacement waits for a request; manual/nonreplacement updates open");
+                    require(app.start_with_steamos() ==
+                                (preferences.replace_native_keyboard && preferences.start_with_steamos),
+                            "an explicit update starts without changing boot preferences");
+                    for (double now = 10; now <= 13; now += .25) {
+                        update_startup_ready(now);
+                    }
+                    char byte{};
+                    require(recv(sockets[0], &byte, 1, MSG_DONTWAIT) == 1 && byte == '1',
+                            "a hidden successor confirms healthy startup with boot disabled too");
+                    panel.update(preferences.replace_native_keyboard, {.request = 2,
+                                                                       .open = true,
+                                                                       .eligible = true,
+                                                                       .active = true,
+                                                                       .available = true});
+                    require(panel.show() && panel.interactive(),
+                            "the first fresh request can summon and use the updated keyboard");
+                }
+                close(sockets[0]);
+            }
+        }
+    }
+    setenv("FRAMEKEYBOARD_SERVICE", "framekeyboard-test.service", 1);
+    for (const char* descriptor : {"", "invalid", "999999"}) {
+        setenv("FRAMEKEYBOARD_UPDATE_READY_FD", descriptor, 1);
+        UpdateStartup startup;
+        require(!startup.background_start(), "a normal service-marked manual launch still opens");
+    }
+    unsetenv("FRAMEKEYBOARD_UPDATE_READY_FD");
+    {
+        UpdateStartup startup;
+        require(!startup.background_start(), "service environment alone cannot hide a manual launch");
+    }
+    had_service ? setenv("FRAMEKEYBOARD_SERVICE", service.c_str(), 1)
+                : unsetenv("FRAMEKEYBOARD_SERVICE");
+    std::filesystem::remove_all(config);
 }
 } // namespace
 int main(int argc, char** argv) {
@@ -111,6 +181,7 @@ int main(int argc, char** argv) {
                 return 0;
             }
         }
+        update_presentation();
         {
             int sockets[2];
             require(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sockets) == 0,
@@ -223,6 +294,14 @@ while True:
             require(updates.busy(), "install is asynchronous");
             wait_label(updates, "Restarting keyboard...", 100002);
             require(updates.prepared(), "only a validated preparation requests restart");
+            NullSink sink;
+            Options options;
+            options.mode = Mode::Preview;
+            options.config_dir = directory / "prepared-config";
+            App app(options, sink, {}, &updates);
+            app.tick(100003);
+            require(app.quitting() && app.updating(),
+                    "prepared-update exit is distinguishable from ordinary Quit for native cleanup");
         } // Cancellation here stops only the disposable helper, without activating anything.
         {
             Updates updates("0.6.0", {"available"}, helper);
@@ -231,6 +310,7 @@ while True:
             options.mode = Mode::Preview;
             options.config_dir = directory / "config";
             App app(options, sink, {}, &updates);
+            require(!app.updating(), "ordinary operation retains native recovery on exit");
             app.show_settings();
             app.down(0, 800, 30, monotonic_seconds());
             app.up(0, 800, 30);

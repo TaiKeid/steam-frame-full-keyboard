@@ -43,6 +43,11 @@ class UpdateStartup {
   public:
     UpdateStartup();
     ~UpdateStartup();
+    // Update/rollback is explicit; hidden presentation does not recheck boot opt-in.
+    bool background_start() const { return background_; }
+
+  private:
+    bool background_{};
 };
 void update_startup_ready(double now);
 } // namespace framekeyboard

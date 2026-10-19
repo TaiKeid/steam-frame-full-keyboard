@@ -311,8 +311,11 @@ bool NativeReplacement::start(double now) {
     diagnostic("helper-start", now);
     return true;
 }
-void NativeReplacement::stop() {
-    packet("{\"op\":\"stop\"}");
+void NativeReplacement::shutdown_for_update() {
+    stop(false);
+}
+void NativeReplacement::stop(bool restore_native) {
+    packet(restore_native ? "{\"op\":\"stop\"}" : "{\"op\":\"stop\",\"restore\":false}");
     if (fd_ >= 0) {
         close(std::exchange(fd_, -1));
     }

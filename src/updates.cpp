@@ -307,6 +307,8 @@ UpdateStartup::UpdateStartup() {
             startup_fd = fd;
             startup_started = startup_last = -1;
             fcntl(fd, F_SETFD, FD_CLOEXEC);
+            const auto service = std::getenv("FRAMEKEYBOARD_SERVICE");
+            background_ = service && *service;
         }
     }
 }

@@ -43,10 +43,11 @@ def install_expression(source, token, external_supported, expires):
             f"{reference} = {{token: {json.dumps(token)}, bridge}}; return true; }})()")
 
 
-def cleanup_expression(token):
+def cleanup_expression(token, restore=True):
     reference = f"globalThis.{GLOBAL}"
+    argument = "" if restore else "false"
     return (f"(() => {{ const b = {reference}; if (b?.token === {json.dumps(token)}) {{"
-            f"b.bridge.dispose(); delete {reference}; }} }})()")
+            f"b.bridge.dispose({argument}); delete {reference}; }} }})()")
 
 
 class BridgeUnavailable(ValueError):
@@ -396,6 +397,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
     token = os.urandom(16).hex()
     reference = f"globalThis.{GLOBAL}"
     failure_reason = "debugger-unavailable"
+    restore_native = True
     try:
         client = client_factory()
         try:
@@ -462,6 +464,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 message = json.loads(packet)
                 operation = message.get("op")
                 if operation == "stop":
+                    # Only an explicit prepared-update shutdown may suppress
+                    # recovery. EOF, signals and malformed packets still restore.
+                    restore_native = message.get("restore") is not False
                     stopping = True
                     break
                 if operation == "frame":
@@ -606,9 +611,12 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 try:
                     # A lost reply does not prove the install failed. The token
                     # prevents this attempt's cleanup from removing a successor.
-                    client.evaluate(cleanup_expression(token))
+                    client.evaluate(cleanup_expression(token, restore_native))
                     if guard and guard.armed:
-                        guard.restore()
+                        if restore_native:
+                            guard.restore()
+                        else:
+                            guard.cancel()
                 except Exception:
                     pass  # Steam-side watchdog restores presentation even if CDP disappeared.
             client.close()
