@@ -71,6 +71,7 @@
         key === "valve.steam.gamepadui.barpopup" || key.startsWith("valve.steam.gamepadui.appoverlay."));
     let native = nativeStatus(), previousOpen = native.open, previousKey = native.key;
     let ignoreOpen = native.open, rawDeadline = 0, restoringUntil = 0;
+    let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
@@ -121,6 +122,25 @@
         if (interceptedShow && native.open) oldWindowShow.call(windowApi);
         interceptedShow = false;
     }
+    function unsubscribe() {
+        if (typeof subscription === "function") subscription();
+        else subscription?.unregister?.();
+        subscription = null;
+    }
+    function finishRestore(success) {
+        const owner = restoringOwner;
+        restoringOwner = null;
+        restoringUntil = 0;
+        root.clearTimeout(restoreTimer);
+        if (disposed) unsubscribe();
+        if (owner && !success) owner.setOpen.call(owner.manager, false);
+    }
+    function checkRestore(final = false) {
+        if (!restoringOwner) return;
+        const status = nativeStatus();
+        if (status.open && status.key === restoringOwner.key) finishRestore(true);
+        else if (status.open || final || now() >= restoringUntil) finishRestore(false);
+    }
     function releaseLogical(restore, closeNative = true) {
         const session = logical;
         logical = null;
@@ -142,14 +162,24 @@
             (!session.target || targetOf(session.owner.manager))) {
             // Preserve the field while the exact owning window's original provider opens again.
             restoringUntil = now() + REQUEST_MS;
+            restoringOwner = session.owner;
+            // Disposal removes the hooks and regular timer. This bounded check
+            // still clears a failed restore without touching a newer provider.
+            restoreTimer = root.setTimeout(() => {
+                try { checkRestore(true); } catch (_) { finishRestore(false); }
+            }, REQUEST_MS);
             session.owner.show.call(session.owner.api);
             oldWindowShow.call(windowApi);
         } else {
-            session.owner.setOpen.call(session.owner.manager, false);
             // A missing field cannot justify closing another provider's newer
             // native request while fallback withdraws the old session.
             if (closeNative && (!restore || !native.open || native.key === session.owner.key))
                 session.owner.hide.call(session.owner.api);
+            // Hide can fail or complete asynchronously. An already-open native
+            // keyboard for this owner must retain its ordinary Steam state.
+            const status = nativeStatus();
+            if (!status.open || status.key !== session.owner.key)
+                session.owner.setOpen.call(session.owner.manager, false);
         }
     }
     function begin(owner) {
@@ -176,7 +206,8 @@
             if (win.closed || root.g_PopupManager.GetPopupForVROverlayKey("valve.steam.gamepadui.keyboard") !== popup)
                 throw Error("steam-popup-changed");
             native = nativeStatus();
-            if (restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
+            checkRestore();
+            if (!restoringOwner && restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
             if (!native.open && !restoringUntil) ignoreOpen = false;
             const newOpen = native.open && (!previousOpen || native.key !== previousKey);
             if (newOpen) rawDeadline = time + REQUEST_MS;
@@ -282,8 +313,11 @@
         try { releaseLogical(true); restoreWindow(); } finally {
             disposed = true;
             root.clearInterval(timer);
-            if (typeof subscription === "function") subscription();
-            else subscription?.unregister?.();
+            // Observe a pending restore until its bounded check completes. A
+            // later summon for this owner must cancel cleanup before another
+            // bridge can take it over and close native again.
+            if (!restoringOwner) unsubscribe();
+            else if (!subscription) checkRestore(true);
             for (const undo of hooks.reverse()) undo();
         }
     }
@@ -342,7 +376,7 @@
         // Ignore every callback argument, including initial field text.
         const keyboard = root.SteamClient?.OpenVR?.Keyboard;
         if (typeof keyboard?.RegisterForStatus === "function") subscription = keyboard.RegisterForStatus(() => {
-            try { inspect(); } catch (_) { dispose(); }
+            try { if (disposed) checkRestore(); else inspect(); } catch (_) { dispose(); }
         });
         inspect();
         timer = root.setInterval(() => {
@@ -356,7 +390,7 @@
         version: VERSION,
         expired() { return !fresh(); },
         diagnostics() { return {...snapshot(), nativeOpen: !!native.open, closingNative,
-            expectedClose: !!expectedClose}; },
+            expectedClose: !!expectedClose, session: !!logical, restoring: !!restoringOwner}; },
         step(frame) {
             if (disposed) return {version: VERSION, unavailable: true};
             lastStep = now();

@@ -8,6 +8,8 @@ const MAIN = "valve.steam.gamepadui.main";
 function fixture(open = false, production = false, external = false, sharedApi = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false;
     const pendingCloses = [];
+    const timeouts = new Map();
+    let nextTimer = 1, showKey = MAIN;
     const calls = [], deliveries = [], nodes = new Set();
     const status = {bIsOpen: open, bMinimal: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false};
     Object.defineProperty(status, "sInitialText", {get() { throw Error("must not read field text"); }});
@@ -58,7 +60,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         observer?.(); tick?.();
     }
     const keyboard = {
-        Show() { calls.push("native-show"); update({bIsOpen: true, sOverlayKey: MAIN}); },
+        Show() { calls.push("native-show"); if (showKey) update({bIsOpen: true, sOverlayKey: showKey}); },
         Hide() { calls.push("native-hide"); if (!deferHide) update({bIsOpen: false}); },
         RegisterForStatus(fn) { observer = fn; return {unregister() { observer = null; }}; }
     };
@@ -77,6 +79,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
         ControllerKeyboardSendText(value) { deliveries.push(value); }
     }}, performance: {now: () => time},
         setInterval(fn) { tick = fn; return 1; }, clearInterval() { tick = null; },
+        setTimeout(fn, ms) { const id = nextTimer++; timeouts.set(id, {fn, until: time + ms}); return id; },
+        clearTimeout(id) { timeouts.delete(id); },
         SteamUIStore: {WindowStore: {SteamUIWindows: [{VirtualKeyboardManager: manager}]}},
         g_PopupManager: {GetPopupForVROverlayKey() { return popup; }}};
     if (production) {
@@ -95,15 +99,32 @@ function fixture(open = false, production = false, external = false, sharedApi =
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
     }
     const bridge = factory(root, production ? undefined : store, external);
+    function checkOwnership() {
+        const s = bridge.diagnostics();
+        if (s.session || s.restoring) return;
+        for (const {manager, key} of reactions)
+            assert.equal(manager.logicalOpen, status.bIsOpen && status.sOverlayKey === key,
+                "without a session or restore, each Steam flag matches its native owner");
+    }
     return {bridge, calls, deliveries, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true) {
-            return bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
+            const s = bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
+            checkOwnership(); return s;
         },
-        status: update,
+        status(values) { update(values); checkOwnership(); },
         now() { return time; },
-        advance(ms, inspect = true) { time += ms; if (inspect) tick?.(); },
+        advance(ms, inspect = true) {
+            time += ms;
+            for (const [id, timeout] of timeouts) if (time >= timeout.until) {
+                timeouts.delete(id); timeout.fn();
+            }
+            if (inspect) tick?.();
+            checkOwnership();
+        },
+        restoreAs(key) { showKey = key; },
+        checkOwnership,
         newTarget() { manager.m_currentVirtualKeyboardRef = {}; manager.m_ActiveElementProps = {}; tick?.(); },
         deferHide(value) { deferHide = value; },
         deferClose(value) { deferClose = value; },
@@ -140,6 +161,38 @@ for (const deferred of [false, true]) {
     assert(f.nativeOpen() && !f.step().eligible);
     f.bridge.dispose();
     assert(!f.manager.logicalOpen && f.nativeOpen(), "dispose preserves only the newer native owner");
+}
+for (const dispose of [false, true]) for (const key of [null, "unknown.overlay", MAIN]) {
+    const f = fixture(); f.newTarget(); const target = f.manager.m_currentVirtualKeyboardRef;
+    const request = owned(f);
+    f.restoreAs(key);
+    if (dispose) f.bridge.dispose();
+    else f.step(request, true, true);
+    f.advance(401);
+    assert.equal(f.manager.logicalOpen, key === MAIN, "restore retains Steam state only for the exact native owner");
+    assert.equal(!!f.manager.m_currentVirtualKeyboardRef, key === MAIN);
+    if (key === MAIN) assert.equal(f.manager.m_currentVirtualKeyboardRef, target);
+    assert.equal(f.nativeOpen(), key !== null, "failed restore cannot close another native provider");
+    f.checkOwnership();
+    f.bridge.dispose();
+}
+{
+    const f = fixture(); f.newTarget(); owned(f); f.restoreAs(null);
+    f.bridge.dispose();
+    assert(f.observing(), "shutdown observes a pending restore for its bounded verification window");
+    f.status({bIsOpen: true, sOverlayKey: MAIN});
+    const nextTarget = {};
+    f.manager.m_currentVirtualKeyboardRef = nextTarget;
+    f.advance(401);
+    assert(!f.observing() && f.manager.logicalOpen && f.manager.m_currentVirtualKeyboardRef === nextTarget,
+        "a later same-owner native summon cancels old cleanup and releases the temporary observer");
+}
+{
+    const f = fixture(); f.newTarget(); const request = owned(f);
+    f.deferHide(true); f.status({bIsOpen: true});
+    assert(f.nativeOpen() && f.manager.logicalOpen && !f.step(request).eligible,
+        "a failed dismissal retains state for the native keyboard that is still open");
+    f.checkOwnership(); f.bridge.dispose();
 }
 for (const deferred of [false, true]) {
     const f = fixture(); f.newTarget(); f.deferClose(deferred);
@@ -544,6 +597,7 @@ for (let seed = 1; seed <= 128; ++seed) {
             const s = f.bridge.diagnostics();
             assert(!s.expectedClose || s.closingNative,
                 "the one-shot close marker belongs only to an acquiring request");
+            f.checkOwnership();
             assert(!s.eligible && !s.closingNative && (f.nativeOpen() || s.externalRestore),
                 "every unacknowledged request reaches native or exact-overlay recovery by its deadline");
             ++deadlineChecks;
@@ -590,6 +644,7 @@ for (let seed = 1; seed <= 128; ++seed) {
             }
             const s = f.bridge.diagnostics();
             assert(s.request >= previousRequest, "request identities never go backwards");
+            f.checkOwnership();
             assert(!s.expectedClose || s.closingNative,
                 "the one-shot close marker belongs only to an acquiring request");
             previousRequest = s.request;
@@ -608,6 +663,7 @@ for (let seed = 1; seed <= 128; ++seed) {
         }
         f.bridge.dispose();
         assert(!f.bridge.diagnostics().expectedClose, "dispose cancels any expected close");
+        f.checkOwnership();
         assert.equal(f.nodes.size, 0);
         assert(!f.alive() && !f.observing());
         assert.equal(f.manager.HandleVirtualKeyDown, f.oldKey);
@@ -617,8 +673,7 @@ for (let seed = 1; seed <= 128; ++seed) {
         assert.equal(f.api.ShowWindow, f.oldShow);
         assert.equal(f.api.BringToFront, f.oldFront);
     } catch (error) {
-        error.message += ` (seed ${seed}, events ${trace.join(",")})`;
-        throw error;
+        throw new Error(`seed ${seed}, events ${trace.join(",")}: ${error.message}`, {cause: error});
     } finally { f.bridge.dispose(); }
 }
 assert(laterDeadlineChecks > 0, "random walks must exercise deadlines after their initial request");
