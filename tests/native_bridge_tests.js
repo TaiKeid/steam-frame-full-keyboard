@@ -6,12 +6,12 @@ const factory = vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"));
 const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
-    "steam-closed", "restore-complete", "restore-failed"]);
+    "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden"]);
 
 function editingFixture(manager) {
     const fields = new Map(), events = [], listeners = {focus: new Set(), click: new Set()};
     const body = {tagName: "DIV", dispatchEvent() { return true; }, focus() { doc.activeElement = body; }};
-    const doc = {activeElement: body, body, defaultView: {KeyboardEvent: class {
+    const doc = {activeElement: body, body, visibilityState: "visible", defaultView: {KeyboardEvent: class {
         constructor(type, options) { Object.assign(this, {type, defaultPrevented: false}, options); }
         preventDefault() { this.defaultPrevented = true; }
     }}, queryCommandSupported: key => ["insertText", "delete"].includes(key),
@@ -205,6 +205,9 @@ function fixture(open = false, production = false, external = false, sharedApi =
             checkOwnership();
         },
         restoreAs(key) { showKey = key; },
+        selectFrame(id, keys = []) {
+            root.vrFrameStore = {activeFrame: {frameID: id, isVisible: true, steamUIVROverlayKeysInPages: keys}};
+        },
         breakStatus() { store.m_VRKeyboardState.m_bIsOpen = undefined; },
         checkOwnership,
         newTarget() {
@@ -243,6 +246,81 @@ function domOwned(f, automatic = true) {
     const s = f.step();
     assert(s.eligible && !s.local && !f.nativeOpen());
     assert(f.step(s.request).active); return s.request;
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production, true, false, true);
+    f.selectFrame(1);
+    let generation = externalOwned(f);
+    f.selectFrame(2, [MAIN]);
+    const e = f.dom.field(false);
+    let state = f.step(generation);
+    assert(state.eligible && !state.local && state.request !== generation);
+    generation = state.request;
+    assert(f.step(generation).active && f.bridge.send(generation, "search"));
+    for (let cycle = 0; cycle < 4; ++cycle) {
+        // The hidden Steam document keeps exactly the same active input/ref.
+        f.dom.doc.visibilityState = "hidden";
+        f.selectFrame(1);
+        assert(!f.bridge.send(generation, "wrong owner"));
+        state = f.step(generation);
+        assert(!state.active && !state.local && state.externalCandidate?.requireActive === true,
+            "a remembered local frame needs a fresh independent active-overlay guard");
+        const pending = state.externalCandidate;
+        assert(!f.bridge.send(pending.request, "before guard"));
+        state = f.bridge.prepareExternal(pending.request, pending.key);
+        generation = state.request;
+        assert(state.local && f.step(generation).active,
+            "verified local ownership follows the selected frame without a native summon");
+        f.dom.doc.visibilityState = "visible";
+        f.selectFrame(2, [MAIN]);
+        state = f.step(generation);
+        assert(state.eligible && !state.local && !state.externalRestore);
+        generation = state.request;
+        assert(f.step(generation).active && f.bridge.send(generation, "!"));
+    }
+    assert.equal(f.dom.text(e), "search!!!!", "only Steam-owned generations can edit search");
+    f.bridge.dismiss(generation);
+    f.selectFrame(1);
+    assert(!f.step().open && !f.step().externalCandidate, "X prevents selection-driven reopening");
+    f.bridge.dispose();
+}
+for (const expire of [false, true]) {
+    const f = fixture(false, false, true, false, true);
+    f.selectFrame(1); externalOwned(f);
+    f.selectFrame(2, [MAIN]); f.dom.field();
+    let state = f.step(); f.step(state.request);
+    f.dom.doc.visibilityState = "hidden"; f.selectFrame(1);
+    state = f.step(); const pending = state.externalCandidate;
+    assert(pending?.requireActive);
+    if (expire) f.advance(401);
+    else f.selectFrame(3); // Unknown/streaming frames must not inherit local input.
+    assert(!f.bridge.prepareExternal(pending.request, pending.key).active && !f.step().external,
+        "a late guard reply cannot revive an expired or superseded selection");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, true, false, true);
+    f.selectFrame(1); externalOwned(f);
+    f.selectFrame(2, [MAIN]); const e = f.dom.field();
+    let state = f.step(); const request = state.request; f.step(request);
+    f.dom.doc.visibilityState = "hidden";
+    assert(!f.bridge.send(request, "stale"), "owner visibility loss stops input before tab metadata catches up");
+    assert(f.step().open && !f.step().active && !f.step().externalCandidate);
+    f.advance(50); f.selectFrame(1);
+    state = f.step(); const candidate = state.externalCandidate;
+    assert(candidate?.requireActive, "the selected-frame update completes the bounded handoff");
+    state = f.bridge.prepareExternal(candidate.request, candidate.key);
+    assert(f.step(state.request).active && f.step(state.request).local && f.dom.text(e) === "");
+    f.bridge.dispose();
+}
+for (const dispose of [false, true]) {
+    const f = fixture(false, false, false, false, true), e = f.dom.field();
+    const generation = domOwned(f);
+    f.dom.doc.visibilityState = "hidden";
+    if (dispose) f.bridge.dispose();
+    else assert(!f.bridge.send(generation, "hidden"));
+    assert(!f.nativeOpen() && f.dom.text(e) === "", "a hidden owner is never typed into or restored");
+    f.bridge.dispose();
 }
 for (const production of [false, true]) for (const automatic of [false, true]) {
     const f = fixture(false, production, false, false, true), e = f.dom.field();

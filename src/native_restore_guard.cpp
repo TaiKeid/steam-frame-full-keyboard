@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
         return 3;
     }
     bool connected = reply(fd, true), armed = false, restored = false, saw_open = false;
+    bool require_active = false;
     bool quitting = false;
     vr::VROverlayHandle_t target = vr::k_ulOverlayHandleInvalid;
     std::uint64_t progress = 0;
@@ -59,6 +60,9 @@ int main(int argc, char** argv) {
         events();
         if (quitting) {
             return; // SteamVR is exiting; reopening its keyboard cannot recover anything.
+        }
+        if (require_active && !vr::VROverlay()->IsActiveDashboardOverlay(target)) {
+            return; // A selected-frame handoff cannot restore an app left behind.
         }
         const auto result = vr::VROverlay()->ShowKeyboardForOverlay(
             target, vr::k_EGamepadTextInputModeNormal, vr::k_EGamepadTextInputLineModeSingleLine,
@@ -105,8 +109,11 @@ int main(int argc, char** argv) {
             const std::regex local("gamescope\\.gamescope-[0-9]+(\\.window\\.[0-9]+)?");
             ok = !armed && key && std::regex_match(key, local) && fresh &&
                  json_object_get_boolean(field("ready")) && json_object_get_int(field("flags")) == 13 &&
-                 vr::VROverlay()->FindOverlay(key, &target) == vr::VROverlayError_None;
+                 vr::VROverlay()->FindOverlay(key, &target) == vr::VROverlayError_None &&
+                 (!json_object_get_boolean(field("requireActive")) ||
+                  vr::VROverlay()->IsActiveDashboardOverlay(target));
             if (ok) {
+                require_active = json_object_get_boolean(field("requireActive"));
                 armed = true;
                 deadline = sent + 1.2;
                 progress = next;

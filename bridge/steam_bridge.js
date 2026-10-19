@@ -45,7 +45,14 @@
     const externalHide = keyboardApi?.Hide;
     const localTarget = s => externalSupported && s.dispatch === false && s.flags === 13 &&
         /^gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?$/.test(s.key) && typeof externalHide === "function";
-    let preparedExternal = null, externalRestore = null;
+    let preparedExternal = null, externalRestore = null, handoff = null;
+    const localFrames = new Map();
+    function selectedFrame() {
+        const f = root.vrFrameStore?.activeFrame;
+        if (!f || !Number.isSafeInteger(f.frameID)) return null;
+        return {id: f.frameID, visible: f.isVisible === true,
+            keys: Array.from(f.steamUIVROverlayKeysInPages || []).filter(key => ownSteam(key))};
+    }
     function hook(object, key, wrap) {
         const descriptor = Object.getOwnPropertyDescriptor(object, key), original = object[key];
         if (typeof original !== "function" || descriptor && !descriptor.configurable && !descriptor.writable)
@@ -96,6 +103,7 @@
             ["text", "search", "password", "tel", "url"].includes(e.type));
     function routeFor(owner) {
         const m = owner.manager;
+        if (owner.document?.visibilityState === "hidden") return null;
         if (typeof m.m_ActiveElementProps?.onTextEntered === "function") return {kind: "callback"};
         const d = owner.document;
         if (!d || m.m_ownerWindow?.document !== d) return null;
@@ -220,7 +228,11 @@
             native = {open: false};
             restore = closeNative = false;
         }
-        if (restore && session?.route?.kind === "dom") {
+        if (restore && session && !session.owner.external &&
+            session.owner.document?.visibilityState === "hidden") {
+            restore = closeNative = false;
+            reason = "owner-hidden";
+        } else if (restore && session?.route?.kind === "dom") {
             const current = routeFor(session.owner);
             if (current?.kind !== "dom" || current.element !== session.route.element ||
                 targetOf(session.owner.manager) !== session.target) {
@@ -231,6 +243,7 @@
             }
         }
         logical = null;
+        handoff = null;
         expectedClose = null;
         closingNative = false;
         acknowledged = 0;
@@ -283,19 +296,26 @@
         // last field, in response to this new explicit native summon.
         if (route?.kind === "dom" && !owner.manager.m_currentVirtualKeyboardRef)
             route.ref.SetAsCurrentVirtualKeyboardTarget();
+        const frame = selectedFrame();
         logical = {owner, target: owner.external ? owner.key : targetOf(owner.manager),
-            props: owner.manager?.m_ActiveElementProps, route};
+            props: owner.manager?.m_ActiveElementProps, route, frame: frame?.id};
+        handoff = null;
+        if (owner.external && frame?.visible && frame.keys.length === 0) {
+            localFrames.delete(frame.id);
+            localFrames.set(frame.id, owner.key);
+            if (localFrames.size > 16) localFrames.delete(localFrames.keys().next().value);
+        }
         ++request;
         record("begin");
         acknowledged = 0;
         deadline = now() + REQUEST_MS;
-        closingNative = true;
-        expectedClose = owner.external ? null : {owner, request};
+        closingNative = !!native.open;
+        expectedClose = !native.open || owner.external ? null : {owner, request};
         owner.fieldIntent = null;
         if (!owner.external) owner.setOpen.call(owner.manager, true);
         // Window.HideWindow leaves dashboard scene/hit geometry alive and can
         // trigger focus-driven reopening. Close presentation through its provider.
-        owner.hide.call(owner.external ? keyboardApi : owner.api);
+        if (native.open) owner.hide.call(owner.external ? keyboardApi : owner.api);
     }
     function inspect() {
         if (inspecting || disposed) return;
@@ -314,6 +334,40 @@
             if (newOpen) rawDeadline = time + REQUEST_MS;
             previousOpen = native.open;
             previousKey = native.key;
+            const frame = selectedFrame();
+            if (logical && frame && logical.frame != null && logical.frame !== frame.id && !native.open) {
+                // Frame selection can leave a hidden Steam input active in its
+                // document. It is not the typing owner after an app switch.
+                const key = frame.keys.length === 1 ? frame.keys[0] : localFrames.get(frame.id);
+                releaseLogical(false, false, "owner-changed");
+                if (fresh() && frame.visible && key) {
+                    handoff = {key, frame: frame.id, until: time + REQUEST_MS};
+                    ignoreOpen = false;
+                }
+            }
+            if (handoff) {
+                if (!fresh() || time >= handoff.until || native.open)
+                    handoff = null;
+                else if (handoff.previous != null) {
+                    // Visibility and selected-tab metadata arrive separately.
+                    // Stop old input immediately, then wait within the same
+                    // bounded handoff for the new visible selected frame.
+                    if (frame?.visible && frame.id !== handoff.previous) {
+                        const key = frame.keys.length === 1 ? frame.keys[0] : localFrames.get(frame.id);
+                        handoff = key ? {...handoff, key, frame: frame.id, previous: null} : null;
+                    }
+                } else if (!frame?.visible || frame.id !== handoff.frame) handoff = null;
+            }
+            if (handoff && ownSteam(handoff.key)) {
+                const choices = owners.filter(o => o.key === handoff.key && routeReady(o));
+                if (choices.length === 1) begin(choices[0]);
+            }
+            if (logical && !logical.owner.external && logical.owner.document?.visibilityState === "hidden") {
+                const previous = logical.frame;
+                releaseLogical(false, false, "owner-hidden");
+                if (fresh() && previous != null)
+                    handoff = {previous, until: time + REQUEST_MS};
+            }
             if (logical) {
                 if (!fresh() || time >= deadline && acknowledged !== request) {
                     releaseLogical(true, true, fresh() ? "request-timeout" : "lease-expired");
@@ -403,11 +457,14 @@
     }
     function snapshot() {
         const eligible = !!logical && !closingNative && !ignoreOpen;
-        return {version: VERSION, request, open: !!logical || !!native.open, eligible,
+        return {version: VERSION, request, open: !!logical || !!native.open || !!handoff, eligible,
             active: eligible && acknowledged === request && fresh(),
             local: !!logical?.owner.external,
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
-            externalCandidate: !logical && !ignoreOpen && native.open && localTarget(native) &&
+            externalCandidate: handoff && !native.open && externalSupported &&
+                /^gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?$/.test(handoff.key) ?
+                {key: handoff.key, flags: 13, request, requireActive: true} :
+                !logical && !ignoreOpen && native.open && localTarget(native) &&
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
             externalRestore, events: events.slice()};
     }
@@ -581,6 +638,7 @@
             const pending = snapshot().externalCandidate;
             if (!pending || pending.request !== generation || pending.key !== key) return snapshot();
             preparedExternal = {external: true, key, api: keyboardApi, hide: externalHide};
+            if (handoff && !native.open) begin(preparedExternal);
             inspect();
             return snapshot();
         },

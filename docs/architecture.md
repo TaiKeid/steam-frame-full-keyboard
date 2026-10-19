@@ -236,6 +236,16 @@ authorizes a switch to compositor input, because field loss does not establish
 local focus. The new request generation cancels old output and holds before a
 later summon or field focus can acquire another session.
 
+Dashboard frame selection is separate from DOM field focus. A hidden Steam
+document cannot remain an input owner. A selected-frame change invalidates the
+old request before another dispatch. While the panel is open, it follows a
+supported Steam frame or a local frame whose exact overlay was acquired through
+a native request earlier in this bridge lifetime. The map is bounded to 16
+frames. Local handoff needs a fresh independent guard acknowledgement and an
+OpenVR active-dashboard-overlay check; its recovery also rejects abandoned
+targets. Unknown frames close the old session. X, fallback and expiry do not
+create new handoffs.
+
 ## Manual release updates
 
 `Updates` owns a private Python child and polls bounded nonblocking status packets. Settings retains the offer in process memory and resets the latest-version message after five seconds. `update/update_helper.py` verifies fixed-repository HTTPS assets, SHA-256, safe archive paths, AArch64 binaries and copied profiles before requesting restart. `main` destroys App, VR/input/replacement and the instance owner before sending activation. The helper switches versioned links under the installation lock, launches the new build with preserved arguments and waits for three seconds of completed-loop progress through a private startup socket. Startup failure restores and relaunches the prior release. A service-managed original process remains alive after cleanup until the helper verifies the successor has become systemd's MainPID; rollback transfers ownership the same way. Manual launches use the existing parent-exit protocol. Downloads and validation never run on the VR thread. See [updates](updates.md).

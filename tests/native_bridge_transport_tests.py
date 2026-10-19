@@ -631,6 +631,16 @@ class Lifecycle(unittest.TestCase):
             self.assertTrue(guard.armed and guard.native_armed)
             guard.reject.clear()
 
+    def test_selection_handoff_requires_native_active_overlay_check(self):
+        guard = FakeGuard()
+        frame = dict(progress=1, sent=time.monotonic(), ready=True)
+        for active in (False, True):
+            guard.command = unittest.mock.Mock(return_value=True)
+            self.assertTrue(guard.prepare(dict(key="gamescope.gamescope-0.window.62", flags=13,
+                                              requireActive=active), frame))
+            self.assertIs(guard.command.call_args.kwargs["requireActive"], active,
+                          "selection candidates must retain their independent active-target requirement")
+
     def test_external_resummon_between_polls_rearms_guard(self):
         guard = FakeGuard()
 

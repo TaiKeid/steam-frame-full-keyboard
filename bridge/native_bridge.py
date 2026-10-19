@@ -95,6 +95,7 @@ class NativeGuard:
 
     def prepare(self, candidate, frame):
         ok = self.command("prepare", key=candidate["key"], flags=candidate["flags"],
+                          requireActive=candidate.get("requireActive") is True,
                           progress=frame["progress"], sent=frame["sent"], ready=frame["ready"])
         if ok:
             self.armed = True

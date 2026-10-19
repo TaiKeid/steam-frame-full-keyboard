@@ -61,6 +61,17 @@ Some Steam field predicates check the shared context's document instead of the o
 While the app's render/input loop is healthy, the bridge prepares a transparent, noninteractive native popup texture and gates its show/focus calls. A supported request closes native presentation through the original provider. Our panel becomes eligible only after that close is confirmed, removing the native scene's collision and movement line before takeover. Each new request or field target still needs acknowledgement from our visible, input-ready panel within 400 ms. A failed native close or late acknowledgement leaves or restores the stock keyboard. Browser HideWindow is never used because it leaves separate dashboard geometry alive and can trigger focus-driven reopening. Stock controller keyboard actions are blocked while replacement owns the retained session.
 
 When Steam clears a field, its replacement session ends and the panel hides.
+Selecting another dashboard frame also invalidates the old request, even if
+its hidden document retains an active input. While the panel is open, it follows
+the selected Steam frame or a previously acquired local-app frame. Local targets
+are remembered only for this bridge lifetime, with a bounded frame-to-overlay
+map. Returning to one creates a fresh request, cancels queued input and requires
+the independent native guard to verify that exact overlay is active before local
+input resumes. A first request in a local app still comes through its normal
+keyboard button. Unknown or unsupported frames cannot inherit another app's
+typing route. Dismissal, native fallback and lease expiry prevent automatic
+reopening. The guard never restores a followed local app after it ceases to be
+the active dashboard overlay.
 Clearing a field does not prove which app has compositor focus, so the bridge
 never changes that session into local input. Ending the session advances the
 request generation and cancels queued text and holds. Focus another Steam field
