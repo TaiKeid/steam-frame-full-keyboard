@@ -25,4 +25,12 @@ void require_steamvr() {
         throw std::runtime_error("SteamVR must already be running");
     }
 }
+bool TrackingReadiness::should_sample(bool dashboard_visible, bool panel_requested, bool panel_visible,
+                                      double now) const {
+    return dashboard_visible && (panel_requested || waiting_) && (panel_visible || now >= next_check_);
+}
+void TrackingReadiness::sampled(bool valid, double now) {
+    waiting_ = !valid;
+    next_check_ = now + .25;
+}
 } // namespace framekeyboard

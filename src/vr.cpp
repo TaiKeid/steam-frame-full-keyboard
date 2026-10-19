@@ -561,7 +561,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     bool recenter_pending = !saved, transform_dirty = false, show_pending = false;
     std::uint64_t placement_universe = 0;
-    bool waiting_for_tracking = false;
+    TrackingReadiness tracking;
     PanelPlacement placement, displayed;
     if (saved) {
         // Size survives tracking-space changes, including a reset event before
@@ -615,7 +615,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
     };
     std::vector<PlacementAction> adjustments;
-    double next_tracking_check = 0;
     ReplacementPresentation presentation(app.background_start());
     if (app.background_start()) {
         std::cout << "Full Keyboard started in background.\n" << std::flush;
@@ -897,12 +896,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             recenter_pending = true;
             adjustments.clear();
             show_pending = true;
-            next_tracking_check = 0;
+            tracking.request_sample();
         }
         const auto actions = app.take_placement_actions();
         adjustments.insert(adjustments.end(), actions.begin(), actions.end());
         if (!actions.empty()) {
-            next_tracking_check = 0;
+            tracking.request_sample();
         }
         if (drag.active()) {
             double stick_y = 0;
@@ -921,17 +920,21 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 stop_drag();
             }
         }
-        if (dashboard_visible && presentation.show() && (visible || now >= next_tracking_check)) {
+        const bool panel_requested = presentation.show();
+        if (tracking.should_sample(dashboard_visible, panel_requested, visible, now)) {
             Transform head{};
-            if (!panel.read_head(head)) {
-                if (recenter_pending && !waiting_for_tracking) {
+            const bool was_waiting = tracking.waiting();
+            const bool valid_head = panel.read_head(head);
+            tracking.sampled(valid_head, now);
+            if (!valid_head) {
+                if (recenter_pending && !was_waiting) {
                     std::cout << "Waiting for valid headset pose before recentering.\n" << std::flush;
                 }
-                waiting_for_tracking = true;
                 // Retain the dashboard-relative placement through brief tracking loss.
                 hide_panel();
-            } else {
-                waiting_for_tracking = false;
+            } else if (panel_requested) {
+                // A hidden recovery probe only restores readiness. Placement and
+                // presentation still require a fresh summon or manual launch.
                 if (recenter_pending) {
                     dashboard_anchor = {}; // Recalibrate the mount only on an explicit reset.
                 }
@@ -1000,7 +1003,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     std::cout << "Full Keyboard overlay visible.\n" << std::flush;
                 }
             }
-            next_tracking_check = now + .25;
         }
         if (visible && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
@@ -1024,7 +1026,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         // A hidden resident must remain ready for the next summon, including one that
         // opens the dashboard. Presentation is acknowledged separately for each request.
-        const bool ready = app.replacement_ready() && (!dashboard_visible || !waiting_for_tracking);
+        const bool ready = app.replacement_ready() && (!dashboard_visible || !tracking.waiting());
         const bool presented =
             ready && dashboard_visible && visible && vr_overlay()->IsOverlayVisible(panel.handle());
         const auto completed = monotonic_seconds();

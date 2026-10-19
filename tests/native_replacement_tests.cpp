@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/vr_runtime.hpp"
 #include <cerrno>
 #include <chrono>
 #include <iostream>
@@ -709,6 +710,55 @@ void resident_visibility() {
     view.update(true, {5, true, false, false, true});
     require(!view.show(), "unknown requests stay native");
 }
+void tracking_recovery() {
+    TrackingReadiness tracking;
+    ReplacementPresentation view;
+    require(!tracking.should_sample(true, false, false, 0),
+            "idle resident does not poll tracking without a request or tracking loss");
+    view.update(true, {2, true, true, true, true, true});
+    require(tracking.should_sample(true, view.show(), true, 10), "visible replacement checks tracking");
+    tracking.sampled(false, 10);
+    // A lost pose withdraws readiness. The lease expires and native takes over.
+    view.update(true, {3, false, false, false, true});
+    require(tracking.waiting() && !view.show(), "tracking loss survives native fallback");
+    require(!tracking.should_sample(true, view.show(), false, 10.1),
+            "hidden recovery retains the bounded tracking cadence");
+    require(!tracking.should_sample(false, view.show(), false, 11),
+            "closed dashboard does not poll tracking");
+    require(tracking.should_sample(true, view.show(), false, 11),
+            "hidden replacement still checks whether tracking recovered after lease expiry");
+    tracking.sampled(false, 11);
+    require(tracking.waiting(), "another invalid pose cannot restore readiness");
+    require(tracking.should_sample(true, view.show(), false, 11.25),
+            "hidden replacement keeps checking after another invalid pose");
+    tracking.sampled(true, 11.25);
+    require(!tracking.waiting() && !view.show() && !view.interactive(),
+            "valid tracking restores readiness without reopening the expired request");
+    view.update(true, {4, true, true, false, true, true});
+    require(view.show() && !view.interactive(), "fresh summon still needs acknowledgement");
+    view.update(true, {4, true, true, true, true, true});
+    require(view.interactive(), "a new request can type after tracking recovers");
+    for (bool fallback : {false, true}) {
+        ReplacementPresentation hidden;
+        hidden.update(true, {5, true, true, true, true, true});
+        if (fallback) {
+            hidden.fallback();
+        } else {
+            hidden.dismiss();
+        }
+        tracking.sampled(false, 12);
+        require(tracking.should_sample(true, hidden.show(), false, 13),
+                "dismissal and explicit fallback allow tracking recovery");
+        tracking.sampled(true, 13);
+        require(!hidden.show() && !hidden.interactive(),
+                "tracking recovery preserves dismissal and explicit native fallback");
+    }
+    tracking.sampled(false, 20);
+    require(!tracking.should_sample(true, true, false, 20.1), "hidden checks remain throttled");
+    tracking.request_sample();
+    require(tracking.should_sample(true, true, false, 20.1) && tracking.waiting(),
+            "recenter can request an immediate check without inventing a valid pose");
+}
 void resident_close() {
     const auto directory =
         fs::temp_directory_path() / ("framekeyboard-resident-tests-" + std::to_string(getpid()));
@@ -998,6 +1048,7 @@ int main(int argc, char** argv) {
         app_commit();
         handoff_status();
         resident_visibility();
+        tracking_recovery();
         resident_close();
         slow_work_allowance();
         unavailable_reasons();
