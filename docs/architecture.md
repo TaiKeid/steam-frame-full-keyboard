@@ -220,6 +220,9 @@ Supported Steam sessions deliver Unicode and plain Enter/Backspace/Tab/arrows th
 
 Steam field takeover requires a direct callback or a connected editable input
 in the manager's own document, validated by Steam's current or last field ref.
+When Steam's validity predicate checks the wrong document, a ref selected
+synchronously during the owner's DOM focus or click event establishes the association.
+Polling or an unrelated ref change cannot establish it.
 DOM edits and caret operations stay in that document without reading its text
 or relying on compositor focus. Target loss ends the session; target changes
 invalidate queued input. A dashboard button request without a field may show

@@ -54,6 +54,8 @@ The bridge closes native presentation through its owning provider and temporaril
 
 The dashboard keyboard button can also open our panel before a field is selected. Plain text then has no recipient and is discarded rather than saved for a later field. Selecting a supported Steam field creates a new request and routes subsequent typing to it. A new button summon can restore Steam's last field only when Steam still considers it valid; idle polling never restores a dismissed field.
 
+Some Steam field predicates check the shared context's document instead of the owner's document. The bridge also records a field reference when Steam selects it synchronously during that owner's DOM focus or click event. This association remains valid only for the same connected, editable, active element and reference. A ref selected outside that event cannot acquire an association merely because an input is focused.
+
 ## Presentation and fallback
 
 While the app's render/input loop is healthy, the bridge prepares a transparent, noninteractive native popup texture and gates its show/focus calls. A supported request closes native presentation through the original provider. Our panel becomes eligible only after that close is confirmed, removing the native scene's collision and movement line before takeover. Each new request or field target still needs acknowledgement from our visible, input-ready panel within 400 ms. A failed native close or late acknowledgement leaves or restores the stock keyboard. Browser HideWindow is never used because it leaves separate dashboard geometry alive and can trigger focus-driven reopening. Stock controller keyboard actions are blocked while replacement owns the retained session.

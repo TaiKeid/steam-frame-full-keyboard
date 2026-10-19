@@ -9,13 +9,15 @@ const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "rele
     "steam-closed", "restore-complete", "restore-failed"]);
 
 function editingFixture(manager) {
-    const fields = new Map(), events = [];
+    const fields = new Map(), events = [], listeners = {focus: new Set(), click: new Set()};
     const body = {tagName: "DIV", dispatchEvent() { return true; }, focus() { doc.activeElement = body; }};
     const doc = {activeElement: body, body, defaultView: {KeyboardEvent: class {
         constructor(type, options) { Object.assign(this, {type, defaultPrevented: false}, options); }
         preventDefault() { this.defaultPrevented = true; }
     }}, queryCommandSupported: key => ["insertText", "delete"].includes(key),
         querySelectorAll: () => [...fields.keys()],
+        addEventListener(type, fn) { listeners[type].add(fn); },
+        removeEventListener(type, fn) { listeners[type].delete(fn); },
         execCommand(command, _ui, text) {
             const e = this.activeElement, f = fields.get(e);
             if (!f || e.disabled || e.readOnly) return false;
@@ -37,19 +39,31 @@ function editingFixture(manager) {
         }}; }};
     return {doc, events, text: element => fields.get(element).text,
         onInput(element, fn) { fields.get(element).onInput = fn; },
-        field() {
+        field(validPredicate = true, focusEvent = true) {
             const e = {ownerDocument: doc, isConnected: true, tagName: "INPUT", type: "search",
                 disabled: false, readOnly: false, selectionStart: 0, selectionEnd: 0, tabIndex: 0,
                 getClientRects: () => [{}],
                 dispatchEvent(event) { events.push(event.type + ":" + event.key); return !event.defaultPrevented; },
-                focus() { doc.activeElement = e; ref.SetAsCurrentVirtualKeyboardTarget(); }};
+                focus() {
+                    doc.activeElement = e;
+                    const event = {target: e, eventPhase: 1};
+                    for (const listener of listeners.focus) listener(event);
+                    event.eventPhase = 2; ref.SetAsCurrentVirtualKeyboardTarget(); event.eventPhase = 0;
+                }, click() {
+                    const event = {target: e, eventPhase: 1};
+                    for (const listener of listeners.click) listener(event);
+                    event.eventPhase = 2; ref.SetAsCurrentVirtualKeyboardTarget(); event.eventPhase = 0;
+                }};
             Object.defineProperty(e, "value", {get() { throw Error("must not read existing field text"); }});
-            const props = {BIsElementValidForInput: () => doc.activeElement === e};
+            const props = {BIsElementValidForInput: () => validPredicate && doc.activeElement === e};
             const ref = {BIsElementValidForInput: props.BIsElementValidForInput,
                 SetAsCurrentVirtualKeyboardTarget() {
-                    manager.m_currentVirtualKeyboardRef = ref; manager.m_ActiveElementProps = props;
+                    manager.m_ActiveElementProps = props; manager.SetVirtualKeyboardActiveRef(ref);
                 }};
-            fields.set(e, {text: ""}); e.focus(); return e;
+            fields.set(e, {text: ""});
+            if (focusEvent) e.focus();
+            else { doc.activeElement = e; ref.SetAsCurrentVirtualKeyboardTarget(); }
+            return e;
         }};
 }
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false) {
@@ -120,6 +134,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     if (dom) {
         manager.m_ownerWindow.document = dom.doc;
         manager.m_currentVirtualKeyboardRef = null; manager.m_ActiveElementProps = null;
+        manager.SetVirtualKeyboardActiveRef = function(ref) { this.m_currentVirtualKeyboardRef = ref; };
     }
     const api = {ShowWindow() { calls.push("window-show"); }, HideWindow() {
         calls.push("window-hide"); update({bIsOpen: false}); update({bIsOpen: true});
@@ -287,6 +302,17 @@ for (const production of [false, true]) {
     assert.equal(f.dom.text(e), "field", "search focus transfers the bare dashboard session to its own field");
     f.bridge.dispose();
 }
+{
+    // A field whose focus predates bridge installation still emits a click.
+    const g = fixture(false, false, false, false, true), input = g.dom.field(false, false);
+    const ref = g.manager.m_currentVirtualKeyboardRef;
+    g.manager.m_currentVirtualKeyboardRef = {BIsElementValidForInput: () => false};
+    input.click();
+    assert.equal(g.manager.m_currentVirtualKeyboardRef, ref);
+    const request = domOwned(g);
+    assert(g.bridge.send(request, "click") && g.dom.text(input) === "click");
+    g.bridge.dispose();
+}
 for (const dispose of [false, true]) {
     const f = fixture(false, false, false, false, true); f.dom.field();
     const request = domOwned(f), shows = f.calls.filter(x => x === "native-show").length;
@@ -296,11 +322,29 @@ for (const dispose of [false, true]) {
         "expiry and shutdown cannot restore a blurred DOM field before Steam clears its ref");
     f.checkOwnership(); f.bridge.dispose();
 }
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true), e = f.dom.field(false);
+    assert(!f.manager.m_currentVirtualKeyboardRef.BIsElementValidForInput(),
+        "Steam's shared-context document can make its predicate false for an owner-window field");
+    const request = domOwned(f);
+    assert(f.bridge.send(request, "bound") && f.dom.text(e) === "bound",
+        "synchronous owner-document focus binds the exact Steam ref despite the wrong-document predicate");
+    const ref = f.manager.m_currentVirtualKeyboardRef;
+    f.bridge.dismiss(request);
+    const next = domOwned(f, false);
+    assert(f.bridge.send(next, " again") && f.dom.text(e) === "bound again");
+    // Merely polling another active input or calling SetActiveRef outside its
+    // focus event cannot attach a stale field ref to that input.
+    const other = f.dom.field(false);
+    f.manager.SetVirtualKeyboardActiveRef(ref);
+    assert(!f.bridge.send(next, "stale") && f.dom.text(other) === "");
+    f.bridge.dispose();
+}
 {
     const f = fixture(false, false, false, false, true), e = f.dom.field();
     f.manager.m_ActiveElementProps.BIsElementValidForInput = () => false;
     // The actual field ref is authoritative; a stale or foreign ref cannot bind text.
-    f.manager.m_currentVirtualKeyboardRef.BIsElementValidForInput = () => false;
+    f.manager.m_currentVirtualKeyboardRef = {BIsElementValidForInput: () => false};
     f.step(); f.manager.SetVirtualKeyboardShownInternal(true);
     assert(f.nativeOpen() && !f.step().eligible && !f.bridge.send(1, "no"));
     assert.equal(f.dom.text(e), ""); f.bridge.dispose();

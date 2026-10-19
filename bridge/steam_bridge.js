@@ -91,18 +91,18 @@
             typeof d.defaultView?.KeyboardEvent === "function" &&
             d.queryCommandSupported?.("insertText") && d.queryCommandSupported?.("delete") ? d : null;
     }
+    const editableIn = (e, d) => e?.isConnected && e.ownerDocument === d && !e.disabled && !e.readOnly &&
+        (e.tagName === "TEXTAREA" || e.tagName === "INPUT" &&
+            ["text", "search", "password", "tel", "url"].includes(e.type));
     function routeFor(owner) {
         const m = owner.manager;
         if (typeof m.m_ActiveElementProps?.onTextEntered === "function") return {kind: "callback"};
         const d = owner.document;
         if (!d || m.m_ownerWindow?.document !== d) return null;
         const e = d.activeElement;
-        const editable = e?.isConnected && e.ownerDocument === d && !e.disabled && !e.readOnly &&
-            (e.tagName === "TEXTAREA" || e.tagName === "INPUT" &&
-                ["text", "search", "password", "tel", "url"].includes(e.type));
         const ref = m.m_currentVirtualKeyboardRef || m.m_lastActiveVirtualKeyboardRef;
-        if (editable && typeof ref?.BIsElementValidForInput === "function" &&
-            ref.BIsElementValidForInput() === true && (m.m_currentVirtualKeyboardRef ||
+        if (editableIn(e, d) && typeof ref?.BIsElementValidForInput === "function" &&
+            (owner.focusRefs.get(ref) === e || ref.BIsElementValidForInput() === true) && (m.m_currentVirtualKeyboardRef ||
                 typeof ref.SetAsCurrentVirtualKeyboardTarget === "function"))
             return {kind: "dom", element: e, ref};
         // A button can summon the panel without a field. Such a session can
@@ -433,7 +433,28 @@
             if (!ownSteam(key) || typeof api?.Show !== "function" || typeof api?.Hide !== "function" ||
                 typeof manager.SetVRKeyboardOpenForThisInstance !== "function") continue;
             const originals = hookedApis.get(api) || {show: api.Show, hide: api.Hide};
-            const owner = {manager, api, key, document: editingDocument(manager), ...originals};
+            const owner = {manager, api, key, document: editingDocument(manager), focusRefs: new WeakMap(), ...originals};
+            const d = owner.document;
+            if (d && typeof d.addEventListener === "function" && typeof d.removeEventListener === "function" &&
+                typeof manager.SetVirtualKeyboardActiveRef === "function") {
+                // Steam's shared-context predicate can consult the wrong document.
+                // Associate a ref only when Steam selects it synchronously inside
+                // this owner's actual DOM focus/click event. Never infer it from polling.
+                const focused = event => { owner.focusEvent = event; };
+                d.addEventListener("focus", focused, true);
+                d.addEventListener("click", focused, true);
+                hooks.push(() => {
+                    d.removeEventListener("focus", focused, true);
+                    d.removeEventListener("click", focused, true);
+                    owner.focusEvent = null;
+                });
+                hook(manager, "SetVirtualKeyboardActiveRef", original => function(ref, ...args) {
+                    const event = owner.focusEvent, e = event?.target;
+                    if (event?.eventPhase && e === d.activeElement && editableIn(e, d) &&
+                        ref && typeof ref === "object") owner.focusRefs.set(ref, e);
+                    return original.call(this, ref, ...args);
+                });
+            }
             if (typeof manager.SetVirtualKeyboardShownInternal === "function") {
                 owner.fieldHook = true;
                 hook(manager, "SetVirtualKeyboardShownInternal", original => function(open, ...args) {
