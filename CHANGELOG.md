@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0: Typing reliability and Steam dashboard fixes
+
+- Added an ordered output queue so rapid two-controller typing, Backspace and arrow keys keep their press order while delivery is pending. Hiding, dismissal, target changes and native handoff discard old queued input and ignore late results.
+- Made local-app text delivery asynchronous so a slow compositor does not block the keyboard. Input connections recover in the background without replaying old keys or text. Bundled the fixed libei 1.6.0 client to prevent crashes during interrupted input negotiation, without changing system libraries.
+- Fixed Steam search typing reaching a local app behind the dashboard. Text stays bound to the selected Steam field, follows switches between supported Steam and local-app targets, and stops when the field loses focus or disappears.
+- Improved native keyboard handoff and cleanup when owners change, the helper fails, or Steam's UI stalls. Abandoned installation attempts are cleaned up, native restoration is checked, and repeated failures use bounded retries.
+- Fixed the first keyboard request after background startup and SteamVR session restart, and restored replacement readiness after headset sleep or tracking loss without requiring an app relaunch.
+- Fixed Escape dismissal in Steam fields and dashboard sessions. Releasing a queued Backspace repeat now completes its delivery without another deletion, preventing a missing acknowledgement from forcing native fallback.
+- Removed the routine pending-text notice that flashed during typing. Reduced bridge polling and inspection work while idle, retaining independent recovery checks and bounded diagnostics that never include typed text.
+- Preserved saved profile selections when startup temporarily falls back to another supported profile. Missing or incompatible profiles now produce a useful fallback reason, and custom key IDs no longer collide with toolbar controls.
+- Fixed Japanese Romaji input depending on cosmetic key labels instead of resolved key symbols, and stopped idle Space from incorrectly starting composition.
+- Made Reload wait for pending settings work while the VR loop stays responsive. Unrelated preference changes can still save when startup configuration fails, and storage errors remain visible.
+- Manual reinstalls and downgrades now use fresh release directories. Replacement removes only the old marked production release after successful activation, or startup confirmation for in-app updates, while preserving settings and unmarked development releases.
+- Refactored VR lifecycle coordination and expanded requirements-based tests for routing, queued cancellation, dismissal, native fallback, recovery and controller ownership.
+
 ## 0.7.0: Movement, native replacement and updates
 
 - Added a movement line below the keyboard with native-style colors and hover feedback. Hold it with the controller laser or AUX head cursor to move the keyboard; the same controller's thumbstick adjusts distance.
