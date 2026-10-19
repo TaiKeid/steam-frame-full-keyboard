@@ -12,6 +12,7 @@ Full Keyboard for Steam Frame is a native, manually launched overlay for dashboa
 | Key state | Pointer capture, key transitions, modifiers, repeat and cancellation | C++20, independent of renderer/backend |
 | Renderer | Draw key faces/sides/legends and animations | Cairo/Pango |
 | VR panel | Own overlay, pose, size, pointer events and texture submission | OpenVR + Vulkan |
+| VR lifecycle | Coordinate presentation, routing, cancellation and readiness | Host-testable `VrLifecycle` with runtime effect callbacks |
 | Input backend | Translate physical actions into press/release events | Gamescope Unicode characters plus native libei controls; physical uinput remains available |
 
 ## Rendering choice
@@ -19,6 +20,15 @@ Full Keyboard for Steam Frame is a native, manually launched overlay for dashboa
 Cairo/Pango draw into a CPU image, and the vendored Vulkan texture transport keeps a persistent OpenVR-compatible texture. Provenance and licenses are recorded in [third-party sources](../third_party/README.md).
 
 The renderer draws an image, then updates the GPU texture. The compositor reuses the submitted texture between updates. Short press animations need a bounded redraw loop; idle keys do not require a continuous CPU paint loop. The VR event loop targets a 16.667 ms period while visible, including its processing time, and 250 ms while hidden. A changed replacement session wakes the hidden sleep early so native-close confirmation does not consume another idle period. Identical helper replies keep the original sleep deadline without renewing render-loop progress. Background startup prepares the hidden texture before advertising takeover readiness. It reads the dashboard pose every visible iteration; hidden tracking retries remain limited to 4 Hz. Hidden panels skip native controller-component queries. Stationary, fully aligned panels skip transform updates. These intervals control polling, not compositor presentation; SteamVR presents the existing texture independently.
+
+`VrLifecycle` combines the existing replacement-presentation and tracking policies.
+It orders cancellation before route changes, isolates dismissed/fallback requests,
+retains pending shows and reports readiness only from runtime observations. The
+OpenVR shell supplies effects for App input, overlay presentation and device
+cancellation. Geometry, rendering, raw pointer events and independent watchdogs
+stay outside the coordinator. [Lifecycle requirements](vr-lifecycle.md) define
+private-receiver acceptance scenarios, including actual App holds, queued text
+and two-controller ownership. Host tests do not establish physical VR behavior.
 
 The image is retained between paints. Hover/press/release updates clear and redraw only damaged key regions, including overlapping neighboring ink in the original drawing order. Cairo recording surfaces measure ink bounds when the visual model changes; the bounds cover the entire press travel and include text outside the face rectangle. Profile snapshots compare values rather than pointer addresses so Reload cannot reuse stale geometry. Modifier/lock legends, composition/candidates, settings, status, and profile changes use full redraws. Pixel-comparison tests run the same interaction sequence against an always-full renderer.
 

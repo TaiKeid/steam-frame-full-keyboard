@@ -4,6 +4,7 @@
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_haptics.hpp"
+#include "framekeyboard/vr_lifecycle.hpp"
 #include "framekeyboard/vr_runtime.hpp"
 #include "framekeyboard/vr_texture.hpp"
 #include "openvr.h"
@@ -551,7 +552,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
     } release{app};
     const double start = monotonic_seconds();
-    bool done = false, visible = false;
+    bool done = false;
     const auto placement_path = app.config_dir() / "placement.json";
     std::optional<SavedPlacement> saved;
     try {
@@ -559,9 +560,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     } catch (const std::exception& error) {
         std::cerr << "Saved placement ignored: " << error.what() << '\n';
     }
-    bool recenter_pending = !saved, transform_dirty = false, show_pending = false;
+    bool recenter_pending = !saved, transform_dirty = false;
     std::uint64_t placement_universe = 0;
-    TrackingReadiness tracking;
     PanelPlacement placement, displayed;
     if (saved) {
         // Size survives tracking-space changes, including a reset event before
@@ -594,17 +594,37 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             horizon.reset();
         }
     };
-    auto hide_panel = [&] {
-        app.set_interaction_active(false);
-        stop_drag();
-        hovered_devices.fill(false);
-        pointer_devices.clear();
-        grip_input.reset();
-        if (visible) {
-            check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard");
-            visible = false;
-        }
-    };
+    VrLifecycle lifecycle(
+        app.background_start(),
+        {
+            .stop_drag = [&] { stop_drag(); },
+            .cancel_input = [&] { app.cancel(); },
+            .clear_pointers =
+                [&] {
+                    hovered_devices.fill(false);
+                    pointer_devices.clear();
+                    grip_input.reset();
+                },
+            .hide_overlay = [&] { check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard"); },
+            .route_input = [&](bool remote) { replacement.route(remote); },
+            .set_interaction = [&](bool active) { app.set_interaction_active(active); },
+            .show_overlay =
+                [&](double now) {
+                    app.paint(now);
+                    panel.submit(app.renderer, app.view());
+                    check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
+                    std::cout << "Full Keyboard overlay visible.\n" << std::flush;
+                },
+            .retry_bridge = [&](double now) { replacement.retry_now(now); },
+            .summon =
+                [&] {
+                    std::cout << "Launch request received.\n" << std::flush;
+                    app.summon();
+                },
+            .dismiss_request = [&] { replacement.dismiss_request(); },
+            .cancel_device = [&](std::uint32_t device) { cancel_device(device); },
+        });
+    auto hide_panel = [&] { lifecycle.hide(); };
     auto place_panel = [&](double now) {
         const auto aligned = horizon.update(placement.transform(), now, drag.active(), auto_leveling);
         if (!displayed.ready() || aligned != displayed.transform() ||
@@ -615,7 +635,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
     };
     std::vector<PlacementAction> adjustments;
-    ReplacementPresentation presentation(app.background_start());
     if (app.background_start()) {
         // The first texture upload can consume much of the summon deadline.
         // Prepare it while hidden, before the helper can advertise readiness.
@@ -623,13 +642,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         panel.submit(app.renderer, app.view());
         std::cout << "Full Keyboard started in background.\n" << std::flush;
     }
-    std::uint64_t last_request = 0;
     auto dismiss_panel = [&] {
         if (app.take_dismissal()) {
-            hide_panel();
-            presentation.dismiss();
-            replacement.dismiss_request();
-            show_pending = false;
+            lifecycle.dismiss();
         }
     };
     replacement.frame_completed();
@@ -647,41 +662,21 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.set_replacement_available(native.available, replacement.unavailable_reason());
         app.set_native_session(native.open);
         const bool replace = app.replace_native_keyboard();
-        presentation.update(replace, native);
-        if (replacement_stalled.exchange(false)) {
-            presentation.fallback();
-        }
-        if (instance.poll_recenter()) {
-            replacement.retry_now(now);
-            stop_drag();
-            std::cout << "Launch request received.\n" << std::flush;
-            app.summon();
-            show_pending = true;
-            presentation.summon();
-        }
-        const bool remote = presentation.remote();
-        if (last_request != native.request || remote != replacement.remote()) {
-            stop_drag();
-            app.cancel();
-            replacement.route(remote);
-            last_request = native.request;
-        }
-        if (!presentation.show()) {
-            hide_panel();
-        } else if (visible) {
-            app.set_interaction_active(presentation.interactive());
-        }
+        lifecycle.begin_frame({.replacement_enabled = replace,
+                               .native = native,
+                               .routed_remote = replacement.remote(),
+                               .watchdog_stalled = replacement_stalled.exchange(false),
+                               .relaunch = instance.poll_recenter(),
+                               .now = now});
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
-        if (!dashboard_visible) {
-            hide_panel();
-        }
+        lifecycle.dashboard_visibility(dashboard_visible);
         // Hidden panels cannot be grabbed. Do not query both render models in
         // standby; require a released grip sample again when the panel returns.
-        if (!visible) {
+        if (!lifecycle.visible()) {
             grip_input.reset();
         }
-        const auto grips =
-            visible && app.use_drag_to_move() ? grip_input.poll() : std::array<GrabSample, 2>{};
+        const auto grips = lifecycle.visible() && app.use_drag_to_move() ? grip_input.poll()
+                                                                         : std::array<GrabSample, 2>{};
         if (!app.use_drag_to_move()) {
             grip_input.reset();
         }
@@ -696,22 +691,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             if (event.eventType == vr::VREvent_SeatedZeroPoseReset ||
                 event.eventType == vr::VREvent_ChaperoneUniverseHasChanged) {
-                stop_drag();
-                app.cancel();
+                lifecycle.focus_lost();
                 recenter_pending = true;
                 saved.reset();
                 previous_dashboard.reset();
                 dashboard_anchor = {};
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
-                stop_drag();
-                app.cancel();
+                lifecycle.focus_lost();
             }
             if (event.eventType == vr::VREvent_TrackedDeviceDeactivated) {
-                cancel_device(event.trackedDeviceIndex);
-                if (drag.active() && event.trackedDeviceIndex == drag.device()) {
-                    stop_drag();
-                }
+                lifecycle.device_lost(event.trackedDeviceIndex,
+                                      drag.active() ? std::optional{drag.device()} : std::nullopt);
             }
         }
         while (vr_overlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
@@ -728,7 +719,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     break;
                 }
             }
-            if (!visible) {
+            if (!lifecycle.visible()) {
                 continue;
             }
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
@@ -816,18 +807,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 } else {
                     hovered_devices.fill(false);
                 }
-                if (!drag.active()) {
-                    // Focus events do not contain mouse cursorIndex. Use the
-                    // controller-to-pointer association from actual mouse events.
-                    // An unidentified laser leave must not release the other hand.
-                    cancel_device(device);
-                }
+                // Focus events do not contain cursorIndex. The runtime adapter
+                // resolves the device through actual pointer events only.
+                lifecycle.pointer_left(device, drag.active());
                 break;
             case vr::VREvent_OverlayHidden:
             case vr::VREvent_Modal_Cancel:
                 hovered_devices.fill(false);
-                stop_drag();
-                app.cancel();
+                lifecycle.focus_lost();
                 break;
             default:
                 break;
@@ -857,7 +844,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         for (const auto device : lost_devices) {
-            cancel_device(device);
+            lifecycle.device_lost(device, std::nullopt);
         }
         if (drag.active() && !app.allows_movement(*drag.source())) {
             stop_drag();
@@ -872,7 +859,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (!held) {
                 stop_drag(true);
             }
-        } else if (!drag.active() && visible && placement.ready() &&
+        } else if (!drag.active() && lifecycle.visible() && placement.ready() &&
                    app.allows_movement(MoveSource::Grip)) {
             for (const auto& grip : grips) {
                 if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
@@ -888,7 +875,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         for (const auto& [device, kind] : feedback.take(now)) {
-            if (!drag.active() && visible) {
+            if (!drag.active() && lifecycle.visible()) {
                 RuntimeWait runtime_wait;
                 haptics.send(device, kind);
             }
@@ -899,13 +886,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             saved.reset();
             recenter_pending = true;
             adjustments.clear();
-            show_pending = true;
-            tracking.request_sample();
+            lifecycle.request_recenter();
         }
         const auto actions = app.take_placement_actions();
         adjustments.insert(adjustments.end(), actions.begin(), actions.end());
         if (!actions.empty()) {
-            tracking.request_sample();
+            lifecycle.request_tracking_sample();
         }
         if (drag.active()) {
             double stick_y = 0;
@@ -924,18 +910,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 stop_drag();
             }
         }
-        const bool panel_requested = presentation.show();
-        if (tracking.should_sample(dashboard_visible, panel_requested, visible, now)) {
+        const bool panel_requested = lifecycle.panel_requested();
+        if (lifecycle.should_sample_tracking(dashboard_visible, now)) {
             Transform head{};
-            const bool was_waiting = tracking.waiting();
+            const bool was_waiting = lifecycle.waiting_for_tracking();
             const bool valid_head = panel.read_head(head);
-            tracking.sampled(valid_head, now);
+            lifecycle.tracking_sampled(valid_head, now);
             if (!valid_head) {
                 if (recenter_pending && !was_waiting) {
                     std::cout << "Waiting for valid headset pose before recentering.\n" << std::flush;
                 }
-                // Retain the dashboard-relative placement through brief tracking loss.
-                hide_panel();
+                // Lifecycle hides input; retain placement through brief tracking loss.
             } else if (panel_requested) {
                 // A hidden recovery probe only restores readiness. Placement and
                 // presentation still require a fresh summon or manual launch.
@@ -996,19 +981,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // Read actual compositor visibility rather than trusting our cached flag.
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
-                if (placement.ready() && vr_overlay()->IsDashboardVisible() &&
-                    (show_pending || !visible || !compositor_visible)) {
-                    app.paint(now);
-                    panel.submit(app.renderer, app.view());
-                    check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
-                    visible = true;
-                    app.set_interaction_active(presentation.interactive());
-                    show_pending = false;
-                    std::cout << "Full Keyboard overlay visible.\n" << std::flush;
-                }
+                lifecycle.present(placement.ready(), vr_overlay()->IsDashboardVisible(),
+                                  compositor_visible, now);
             }
         }
-        if (visible && placement.ready() && (transform_dirty || horizon.animating())) {
+        if (lifecycle.visible() && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
         }
         // Repeat and text commits share the same gate as pointer presses.
@@ -1016,7 +993,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             hide_panel();
         }
         const bool repaint = app.tick(now);
-        if (visible && repaint) {
+        if (lifecycle.visible() && repaint) {
             app.paint(now);
             panel.submit(app.renderer, app.view());
         }
@@ -1025,29 +1002,30 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             fallback = true;
         }
         if (fallback) {
-            presentation.fallback();
-            hide_panel();
+            lifecycle.fallback();
         }
         // A hidden resident must remain ready for the next summon, including one that
         // opens the dashboard. Presentation is acknowledged separately for each request.
-        const bool ready = app.replacement_ready() && (!dashboard_visible || !tracking.waiting());
-        const bool presented =
-            ready && dashboard_visible && visible && vr_overlay()->IsOverlayVisible(panel.handle());
+        const bool backend_ready = app.replacement_ready();
+        const bool compositor_visible = lifecycle.ready(backend_ready, dashboard_visible) &&
+                                        dashboard_visible && lifecycle.visible() &&
+                                        vr_overlay()->IsOverlayVisible(panel.handle());
+        const auto report = lifecycle.frame_report(backend_ready, dashboard_visible, compositor_visible);
         const auto completed = monotonic_seconds();
-        replacement.update(replace, ready, presented && presentation.show() ? native.request : 0,
-                           fallback || presentation.fallback_requested(), completed, true);
+        replacement.update(replace, report.ready, report.acknowledgement, fallback || report.fallback,
+                           completed, true);
         replacement_progress.store(completed);
         app.frame_completed();
         if (!done && !app.quitting() && !interrupted) {
             update_startup_ready(completed);
         }
         replacement.frame_completed();
-        replacement_watched.store(replace && visible);
+        replacement_watched.store(replace && lifecycle.visible());
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
-        const auto period = std::chrono::microseconds(visible ? 16667 : 250000);
-        if (visible) {
+        const auto period = std::chrono::microseconds(lifecycle.visible() ? 16667 : 250000);
+        if (lifecycle.visible()) {
             std::this_thread::sleep_until(frame_started + period);
         } else {
             replacement.wait_until(frame_started + period);
