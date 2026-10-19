@@ -10,6 +10,16 @@ The bridge checks that its debugger endpoint on port 8080 is bound only to loopb
 
 When replacement cannot run, Settings reports a fixed reason: unavailable debugger, blocked local debugger access, incompatible Steam keyboard interfaces, another active replacement, unavailable helper, or lost connection. It also confirms that Steam's keyboard remains available. No raw exception, field value or input packet is displayed. A successful reconnection clears the notice.
 
+Replacement writes `[native-replacement]` diagnostics to the app's stdout. Launcher
+starts appear in Steam's `steam_output.log`; boot starts appear in
+`journalctl --user -u framekeyboard-autostart.service`. Lines contain only fixed
+helper/session codes, request numbers and retry delays. Install and repeated
+reply timeouts have distinct codes. Field values, typed keys, input packets and
+helper stderr are never forwarded. The bridge retains the latest 32 sequenced
+transitions so multiple changes between polls can be reported once. Output is
+limited to eight lines per second. An unchanged failure and retry delay is
+reported at most once per minute.
+
 ## When it runs
 
 Checking the option and choosing Apply and save starts the bundled helper and a temporary watchdog inside the running Steam UI. It does not install a background service. Unchecking it and applying stops the helper, removes the Steam hooks/watchdog, and restores native presentation. The app's internal safety thread stays idle while replacement is off and ends when the app exits.

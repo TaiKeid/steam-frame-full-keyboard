@@ -100,10 +100,18 @@ result.replace(result.with_name("result.json"))
     # Its separate production helper must bypass the 30-second allowance.
     (root / "bridge/result.json").unlink(missing_ok=True)
     stopped = subprocess.Popen([str(binary), "--stopped-runtime-fixture", str(root / "stopped-instance")],
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               bufsize=0)
     try:
-        assert select.select([stopped.stdout], [], [], 3)[0], "runtime fixture did not become ready"
-        assert stopped.stdout.readline() == b"Runtime wait ready.\n"
+        deadline = time.monotonic() + 3
+        for _ in range(9):
+            assert select.select([stopped.stdout], [], [], max(0, deadline - time.monotonic()))[0], "runtime fixture did not become ready"
+            line = stopped.stdout.readline()
+            if line == b"Runtime wait ready.\n":
+                break
+            assert line in (b"[native-replacement] helper-start\n", b"[native-replacement] available\n"), line
+        else:
+            raise AssertionError("runtime fixture did not publish readiness")
         stopped_at = time.monotonic()
         os.kill(stopped.pid, signal.SIGSTOP)
         assert stopped.wait(timeout=2) == -signal.SIGKILL, "a stopped app must not retain runtime grace"

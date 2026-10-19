@@ -74,6 +74,12 @@
     let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
+    let eventSequence = 0;
+    const events = [];
+    function record(code) {
+        events.push({id: ++eventSequence, request, code});
+        if (events.length > 32) events.shift();
+    }
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
     let lastClock = now(), lastStep = now(), timer, subscription;
     const oldWindowShow = windowApi.ShowWindow;
@@ -133,6 +139,7 @@
         restoringUntil = 0;
         root.clearTimeout(restoreTimer);
         if (disposed) unsubscribe();
+        if (owner) record(success ? "restore-complete" : "restore-failed");
         if (owner && !success) owner.setOpen.call(owner.manager, false);
     }
     function checkRestore(final = false) {
@@ -141,7 +148,8 @@
         if (status.open && status.key === restoringOwner.key) finishRestore(true);
         else if (status.open || final || now() >= restoringUntil) finishRestore(false);
     }
-    function releaseLogical(restore, closeNative = true) {
+    function releaseLogical(restore, closeNative = true,
+        reason = restore ? "release-fallback" : "release-dismissed") {
         const session = logical;
         logical = null;
         expectedClose = null;
@@ -152,6 +160,7 @@
         if (!restore) interceptedShow = false;
         restoreWindow();
         if (!session) return;
+        record(reason);
         if (session.owner.external) {
             if (restore) {
                 externalRestore = {key: session.owner.key, request};
@@ -186,6 +195,7 @@
         logical = {owner, target: owner.external ? owner.key : targetOf(owner.manager),
             props: owner.manager?.m_ActiveElementProps};
         ++request;
+        record("begin");
         acknowledged = 0;
         deadline = now() + REQUEST_MS;
         closingNative = true;
@@ -215,7 +225,7 @@
             previousKey = native.key;
             if (logical) {
                 if (!fresh() || time >= deadline && acknowledged !== request) {
-                    releaseLogical(true);
+                    releaseLogical(true, true, fresh() ? "request-timeout" : "lease-expired");
                 } else if (newOpen && !closingNative && acknowledged === request && buttonRequest(native)) {
                     // The resident panel is already open, even if its previous app
                     // was closed. Consume this button toggle across supported owners.
@@ -228,6 +238,7 @@
                     if (!previous.external && previous !== owner)
                         previous.setOpen.call(previous.manager, false);
                     begin(owner);
+                    record("target-changed");
                 } else if (native.open && (native.key !== logical.owner.key || !potential(native))) {
                     // A different provider can open before our close acknowledgement.
                     // Its native session must survive; never reopen the old owner over it.
@@ -238,6 +249,7 @@
                     closingNative = false;
                     acknowledged = 0;
                     ++request;
+                    record("competing-owner");
                     ignoreOpen = true;
                     preparedExternal = null;
                 } else if (closingNative) {
@@ -283,6 +295,7 @@
                             acknowledged = 0;
                             deadline = time + REQUEST_MS;
                             if (logical.dashboard) logical.owner.setOpen.call(m, false);
+                            record(target ? "target-changed" : "target-cleared");
                         }
                     }
                 }
@@ -305,7 +318,7 @@
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: !logical && !ignoreOpen && native.open && localTarget(native) &&
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
-            externalRestore};
+            externalRestore, events: events.slice()};
     }
     function dispose() {
         if (disposed) return;
@@ -350,7 +363,7 @@
                         return;
                     }
                     // Steam has independently closed its field. Never restore it.
-                    releaseLogical(false, false);
+                    releaseLogical(false, false, "steam-closed");
                 }
                 return original.call(this, open);
             });
@@ -403,7 +416,10 @@
                 if (externalRestore && frame.externalRestored === externalRestore.request) externalRestore = null;
                 if (frame.fallback && frame.fallbackRequest === request) releaseLogical(true);
                 if (snapshot().eligible && fresh() && frame.ack === request &&
-                    (acknowledged === request || now() < deadline)) acknowledged = request;
+                    (acknowledged === request || now() < deadline)) {
+                    if (acknowledged !== request) record("acknowledged");
+                    acknowledged = request;
+                }
                 inspect();
                 return snapshot();
             } catch (_) { dispose(); return {version: VERSION, unavailable: true}; }

@@ -26,7 +26,7 @@ class BridgeUnavailable(ValueError):
     """Only fixed, non-sensitive codes may cross the private status channel."""
     def __init__(self, reason):
         self.reason = reason if reason in {"debugger-blocked", "steam-incompatible",
-                                          "replacement-busy"} else "helper-unavailable"
+                                          "replacement-busy", "reply-timeout"} else "helper-unavailable"
         super().__init__(self.reason)
 
 
@@ -405,7 +405,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             except TimeoutError:
                 consecutive_timeouts += 1
                 if consecutive_timeouts >= 3:
-                    raise ConnectionError("debugger-reply-timeouts")
+                    raise BridgeUnavailable("reply-timeout") from None
                 raise
             consecutive_timeouts = 0
             return result
@@ -557,6 +557,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         # Errors are fixed status codes. Never echo CDP expressions, input packets or field values.
         try:
             reason = error.reason if isinstance(error, BridgeUnavailable) else failure_reason
+            if isinstance(error, TimeoutError) and failure_reason == "steam-incompatible":
+                reason = "install-timeout"
             report_unavailable(parent, reason)
         except Exception:
             pass

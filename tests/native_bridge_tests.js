@@ -4,6 +4,9 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const factory = vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"));
 const MAIN = "valve.steam.gamepadui.main";
+const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
+    "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
+    "steam-closed", "restore-complete", "restore-failed"]);
 
 function fixture(open = false, production = false, external = false, sharedApi = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false;
@@ -101,6 +104,15 @@ function fixture(open = false, production = false, external = false, sharedApi =
     const bridge = factory(root, production ? undefined : store, external);
     function checkOwnership() {
         const s = bridge.diagnostics();
+        assert(s.events.length <= 32, "session diagnostics have bounded storage");
+        let id = 0;
+        for (const event of s.events) {
+            assert(EVENT_CODES.has(event.code) && Number.isSafeInteger(event.id) && event.id > id &&
+                Number.isSafeInteger(event.request) && event.request > 0,
+                "session diagnostics contain only ordered fixed codes and numeric metadata");
+            assert.deepEqual(Object.keys(event).sort(), ["code", "id", "request"]);
+            id = event.id;
+        }
         if (s.session || s.restoring) return;
         for (const {manager, key} of reactions)
             assert.equal(manager.logicalOpen, status.bIsOpen && status.sOverlayKey === key,
@@ -209,6 +221,8 @@ for (const deferred of [false, true]) {
         "a subsequent Steam close passes through and ends replacement without native restore");
     assert(!f.nativeOpen() && !f.calls.includes("native-show"));
     assert(!f.bridge.diagnostics().expectedClose, "the close marker cannot outlive its request");
+    assert.deepEqual(Array.from(f.bridge.diagnostics().events, e => e.code),
+        ["begin", "acknowledged", "steam-closed"], "events retain transitions that happen between polls");
     f.bridge.dispose();
 }
 {

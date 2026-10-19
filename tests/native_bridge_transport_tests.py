@@ -161,12 +161,31 @@ class Lifecycle(unittest.TestCase):
         worker.start()
         try:
             self.assertEqual(self.receive(parent, "unavailable"),
-                             dict(op="unavailable", reason="connection-lost"))
+                             dict(op="unavailable", reason="reply-timeout"))
             worker.join(1)
             self.assertFalse(worker.is_alive())
         finally:
             parent.close()
             worker.join(2)
+
+    def test_install_timeout_has_a_fixed_phase_specific_reason(self):
+        class SlowInstall(FakeCDP):
+            def evaluate(self, expression):
+                if "const bridge =" in expression:
+                    raise TimeoutError("private field text must never be reported")
+                return super().evaluate(expression)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        client = SlowInstall()
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None))
+        worker.start()
+        try:
+            self.assertEqual(self.receive(parent, "unavailable"),
+                             dict(op="unavailable", reason="install-timeout"))
+        finally:
+            parent.close()
+            worker.join(1)
+        self.assertTrue(client.closed)
 
     def test_cdp_reply_deadline_and_late_partial_frame(self):
         for partial in (False, True):

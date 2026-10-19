@@ -62,12 +62,16 @@ class NativeReplacement : public KeySink {
         DebuggerUnavailable,
         DebuggerBlocked,
         SteamIncompatible,
+        InstallTimeout,
+        ReplyTimeout,
         ReplacementBusy,
         HelperUnavailable,
         ConnectionLost
     };
     bool packet(const std::string& data);
     bool start(double now);
+    const char* failure_code() const;
+    void diagnostic(const char* code, double now, std::uint64_t request = 0, int retry = 0);
     void schedule_retry(double now);
     void stop();
     KeySink& local_;
@@ -83,6 +87,10 @@ class NativeReplacement : public KeySink {
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
     double last_reply_{}, next_start_{}, now_{}, pending_since_{};
     double retry_delay_{5};
+    double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
+    unsigned log_lines_{};
+    Failure logged_failure_{Failure::None};
+    std::uint64_t event_sequence_{};
     bool enabled_{};
     std::uint64_t progress_{}, sequence_{}, pending_id_{};
     std::string pending_text_;

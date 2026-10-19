@@ -4,9 +4,11 @@
 #include <chrono>
 #include <csignal>
 #include <fcntl.h>
+#include <iostream>
 #include <json-c/json.h>
 #include <linux/input-event-codes.h>
 #include <spawn.h>
+#include <string_view>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
@@ -43,6 +45,19 @@ std::string named_key(int code) {
     default:
         return {};
     }
+}
+const char* session_code(const char* code) {
+    if (code) {
+        for (const auto* allowed :
+             {"begin", "acknowledged", "release-dismissed", "release-fallback", "competing-owner",
+              "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
+              "restore-complete", "restore-failed"}) {
+            if (std::string_view(code) == allowed) {
+                return allowed;
+            }
+        }
+    }
+    return nullptr;
 }
 } // namespace
 NativeReplacement::~NativeReplacement() {
@@ -119,6 +134,10 @@ const char* NativeReplacement::unavailable_reason() const {
         return "Local Steam debugger access is blocked.";
     case Failure::SteamIncompatible:
         return "Steam keyboard interfaces are incompatible.";
+    case Failure::InstallTimeout:
+        return "Steam keyboard bridge installation timed out.";
+    case Failure::ReplyTimeout:
+        return "Steam debugger stopped responding.";
     case Failure::ReplacementBusy:
         return "Another keyboard replacement is active.";
     case Failure::HelperUnavailable:
@@ -130,6 +149,46 @@ const char* NativeReplacement::unavailable_reason() const {
     }
     return "";
 }
+const char* NativeReplacement::failure_code() const {
+    switch (failure_) {
+    case Failure::DebuggerUnavailable:
+        return "debugger-unavailable";
+    case Failure::DebuggerBlocked:
+        return "debugger-blocked";
+    case Failure::SteamIncompatible:
+        return "steam-incompatible";
+    case Failure::InstallTimeout:
+        return "install-timeout";
+    case Failure::ReplyTimeout:
+        return "reply-timeout";
+    case Failure::ReplacementBusy:
+        return "replacement-busy";
+    case Failure::ConnectionLost:
+        return "connection-lost";
+    default:
+        return "helper-unavailable";
+    }
+}
+void NativeReplacement::diagnostic(const char* code, double now, std::uint64_t request, int retry) {
+    if (now < log_window_ || now - log_window_ >= 1) {
+        log_window_ = now;
+        log_lines_ = 0;
+    }
+    if (log_lines_ >= 8) {
+        return;
+    }
+    ++log_lines_;
+    // Callers pass only literal allowlisted codes and numeric metadata. Never
+    // forward helper stderr, packet text, field data or arbitrary exceptions.
+    std::cout << "[native-replacement] " << code;
+    if (request) {
+        std::cout << " request=" << request;
+    }
+    if (retry) {
+        std::cout << " retry=" << retry << 's';
+    }
+    std::cout << std::endl;
+}
 void NativeReplacement::retry_now(double now) {
     retry_delay_ = 5;
     next_start_ = now;
@@ -138,8 +197,17 @@ void NativeReplacement::schedule_retry(double now) {
     const bool persistent =
         !state_.available &&
         (failure_ == Failure::DebuggerUnavailable || failure_ == Failure::DebuggerBlocked ||
-         failure_ == Failure::SteamIncompatible || failure_ == Failure::HelperUnavailable);
+         failure_ == Failure::SteamIncompatible || failure_ == Failure::InstallTimeout ||
+         failure_ == Failure::HelperUnavailable);
     next_start_ = now + (persistent ? retry_delay_ : 5);
+    const auto delay = next_start_ - now;
+    if (failure_ != logged_failure_ || delay != logged_retry_ || now - last_failure_log_ >= 60 ||
+        now < last_failure_log_) {
+        diagnostic(failure_code(), now, 0, static_cast<int>(delay));
+        logged_failure_ = failure_;
+        logged_retry_ = delay;
+        last_failure_log_ = now;
+    }
     retry_delay_ = persistent ? std::min(60.0, retry_delay_ * 2) : 5;
 }
 bool NativeReplacement::start(double now) {
@@ -153,6 +221,8 @@ bool NativeReplacement::start(double now) {
         }
         failure_ = previous_failure;
         last_reply_ = now;
+        event_sequence_ = 0;
+        diagnostic("helper-start", now);
         return true;
     }
     if (watchdog_read_ < 0) {
@@ -206,6 +276,8 @@ bool NativeReplacement::start(double now) {
     fd_ = pair[0];
     failure_ = previous_failure;
     last_reply_ = now;
+    event_sequence_ = 0;
+    diagnostic("helper-start", now);
     return true;
 }
 void NativeReplacement::stop() {
@@ -258,6 +330,9 @@ void NativeReplacement::poll(double now) {
         }
         const std::string op(operation);
         if (op == "state" && json_object_get_int(field("version")) == 1) {
+            if (!state_.available) {
+                diagnostic("available", now);
+            }
             state_ = {json_object_get_uint64(field("request")),
                       json_object_get_boolean(field("open")) != 0,
                       json_object_get_boolean(field("eligible")) != 0,
@@ -266,8 +341,32 @@ void NativeReplacement::poll(double now) {
                       json_object_get_boolean(field("local")) != 0};
             last_reply_ = now;
             failure_ = Failure::None;
+            logged_failure_ = Failure::None;
             retry_delay_ = 5;
             next_start_ = now + 5;
+            const auto* events = field("events");
+            if (events && json_object_get_type(events) == json_type_array) {
+                for (std::size_t i = 0; i < std::min<std::size_t>(32, json_object_array_length(events));
+                     ++i) {
+                    auto* event = json_object_array_get_idx(events, i);
+                    if (!event || json_object_get_type(event) != json_type_object) {
+                        continue;
+                    }
+                    auto* id = json_object_object_get(event, "id");
+                    auto* request = json_object_object_get(event, "request");
+                    const auto* code =
+                        session_code(json_object_get_string(json_object_object_get(event, "code")));
+                    if (!code || !id || json_object_get_type(id) != json_type_int ||
+                        json_object_get_int64(id) <= 0 ||
+                        json_object_get_uint64(id) <= event_sequence_ || !request ||
+                        json_object_get_type(request) != json_type_int ||
+                        json_object_get_int64(request) <= 0) {
+                        continue;
+                    }
+                    event_sequence_ = json_object_get_uint64(id);
+                    diagnostic(code, now, json_object_get_uint64(request));
+                }
+            }
         } else if (op == "unavailable") {
             // Map only known codes. Never display arbitrary helper/exception text.
             const char* code = json_object_get_string(field("reason"));
@@ -278,6 +377,10 @@ void NativeReplacement::poll(double now) {
                 failure_ = Failure::DebuggerBlocked;
             } else if (reason == "steam-incompatible") {
                 failure_ = Failure::SteamIncompatible;
+            } else if (reason == "install-timeout") {
+                failure_ = Failure::InstallTimeout;
+            } else if (reason == "reply-timeout") {
+                failure_ = Failure::ReplyTimeout;
             } else if (reason == "replacement-busy") {
                 failure_ = Failure::ReplacementBusy;
             } else if (reason == "connection-lost") {
@@ -353,6 +456,8 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
                        ",\"fallback\":" + (use_fallback ? "true}" : "false}");
     // Dropped heartbeats never extend a lease. A dropped explicit fallback closes IPC.
     if (!packet(frame) && use_fallback) {
+        failure_ = Failure::ConnectionLost;
+        schedule_retry(now);
         stop();
     }
 }
@@ -379,6 +484,8 @@ void NativeReplacement::send(int code, int value) {
         if (!packet(release)) {
             // A lost release must not leave queued repeats in a live helper.
             force_fallback_ = reset_ = true;
+            failure_ = Failure::ConnectionLost;
+            schedule_retry(now_);
             stop();
         }
         return;

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <json-c/json.h>
 #include <linux/input-event-codes.h>
+#include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <thread>
@@ -276,6 +277,86 @@ void helper_retry_backoff() {
     require(failures == 2, "consecutive spawn failures also back off");
     missing.update(true, false, 0, false, 15);
     require(failures == 3, "spawn failure retry uses doubled delay");
+}
+void sanitized_diagnostics() {
+    std::ostringstream output;
+    struct Capture {
+        std::streambuf* previous;
+        explicit Capture(std::ostream& out) : previous(std::cout.rdbuf(out.rdbuf())) {}
+        ~Capture() { std::cout.rdbuf(previous); }
+    } capture(output);
+    Local local;
+    int peer = -1;
+    NativeReplacement replacement(local, -1, [&] {
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                "diagnostic fixture socketpair");
+        if (peer >= 0) {
+            close(peer);
+        }
+        peer = pair[1];
+        return pair[0];
+    });
+    auto update = [&](double now) { replacement.update(true, false, 0, false, now); };
+    auto state = [&](double now, const std::string& events) {
+        put(peer,
+            "{\"op\":\"state\",\"version\":1,\"events\":" + events + ",\"text\":\"PRIVATE_SENTINEL\"}");
+        replacement.poll(now);
+    };
+    update(100);
+    const std::string events =
+        R"([{"id":1,"request":2,"code":"begin"},{"id":2,"request":2,"code":"acknowledged"},{"id":3,"request":2,"code":"PRIVATE_SENTINEL"}])";
+    state(100, events);
+    const auto first = output.str();
+    state(100.1, events);
+    require(output.str() == first, "repeated event sequences log each transition once");
+    state(100.1, R"([null,42,"PRIVATE_SENTINEL",{"id":4,"request":2,"code":"PRIVATE_SENTINEL"}])");
+    require(output.str() == first, "unknown and malformed diagnostic events are ignored");
+    for (int i = 0; i < 3; ++i) {
+        put(peer, R"({"op":"unavailable","reason":"debugger-unavailable","text":"PRIVATE_SENTINEL"})");
+        replacement.poll(100.2);
+        replacement.retry_now(100.2);
+        update(100.2);
+    }
+    const auto failed = output.str();
+    const auto failure = failed.find("debugger-unavailable retry=5s");
+    require(failure != std::string::npos &&
+                failed.find("debugger-unavailable", failure + 1) == std::string::npos,
+            "identical failures and retry delays are logged once within the repeat window");
+    std::string flood = "[";
+    for (int i = 1; i <= 100; ++i) {
+        if (i > 1) {
+            flood += ',';
+        }
+        flood += "{\"id\":" + std::to_string(i) + ",\"request\":2,\"code\":\"begin\"}";
+    }
+    flood += ']';
+    state(101.5, flood);
+    const auto limited = output.str();
+    state(101.6, flood);
+    require(output.str() == limited, "event replays cannot bypass the per-second log limit");
+    put(peer, R"({"op":"unavailable","reason":"PRIVATE_SENTINEL"})");
+    replacement.poll(103);
+    const auto all = output.str();
+    require(all.find("PRIVATE_SENTINEL") == std::string::npos,
+            "diagnostics never echo packet text or unknown codes");
+    std::istringstream lines(all);
+    std::string line;
+    std::size_t count = 0;
+    while (std::getline(lines, line)) {
+        std::istringstream fields(line);
+        std::string prefix, code;
+        fields >> prefix >> code;
+        require(prefix == "[native-replacement]" &&
+                    std::set<std::string>{"helper-start", "available", "begin", "acknowledged",
+                                          "debugger-unavailable", "helper-unavailable"}
+                        .contains(code),
+                "every logged code belongs to the fixed diagnostic set");
+        ++count;
+    }
+    require(count <= 17, "rapid event and failure bursts produce bounded log output");
+    replacement.update(false, false, 0, false, 104);
+    close(peer);
 }
 void named_key_repeats() {
     Local local;
@@ -747,6 +828,8 @@ void unavailable_reasons() {
                  {"debugger-unavailable", "Steam debugger is unavailable."},
                  {"debugger-blocked", "Local Steam debugger access is blocked."},
                  {"steam-incompatible", "Steam keyboard interfaces are incompatible."},
+                 {"install-timeout", "Steam keyboard bridge installation timed out."},
+                 {"reply-timeout", "Steam debugger stopped responding."},
                  {"replacement-busy", "Another keyboard replacement is active."},
                  {"connection-lost", "Replacement connection was lost."},
                  {"private fixture", "Replacement helper is unavailable."}}) {
@@ -902,6 +985,7 @@ int main(int argc, char** argv) {
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();
+        sanitized_diagnostics();
         named_key_repeats();
         app_commit();
         handoff_status();
