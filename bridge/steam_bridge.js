@@ -196,7 +196,9 @@
                 } else if (native.open && (native.key !== logical.owner.key || !potential(native))) {
                     // A different provider can open before our close acknowledgement.
                     // Its native session must survive; never reopen the old owner over it.
+                    const previous = logical.owner;
                     logical = null;
+                    if (!previous.external) previous.setOpen.call(previous.manager, false);
                     closingNative = false;
                     acknowledged = 0;
                     ++request;
@@ -209,7 +211,10 @@
                     const changedTarget = owner !== logical.owner ||
                         owner && !owner.external && targetOf(owner.manager) !== logical.target;
                     if (changedTarget) {
+                        const previous = logical.owner;
                         logical = null;
+                        if (!previous.external && previous !== owner)
+                            previous.setOpen.call(previous.manager, false);
                         if (owner) begin(owner);
                         else { acknowledged = 0; ++request; ignoreOpen = true; }
                     } else {

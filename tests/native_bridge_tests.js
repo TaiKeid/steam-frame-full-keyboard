@@ -42,9 +42,16 @@ function fixture(open = false, production = false, external = false, sharedApi =
                 this.SetVirtualKeyboardHidden();
             else { calls.push(text); this.m_fnVROnTextEnteredOverride(text); }
         }};
+    const reactions = [];
     function update(values) {
         Object.assign(status, values); raw();
-        manager.SetVRKeyboardOpenForThisInstance(status.bIsOpen && status.sOverlayKey === MAIN);
+        // Steam's MobX reaction runs only when this owner's computed value changes.
+        for (const reaction of reactions) {
+            const open = status.bIsOpen && status.sOverlayKey === reaction.key;
+            if (open === reaction.previous) continue;
+            reaction.previous = open;
+            reaction.manager.SetVRKeyboardOpenForThisInstance(open);
+        }
         observer?.(); tick?.();
     }
     const keyboard = {
@@ -80,6 +87,10 @@ function fixture(open = false, production = false, external = false, sharedApi =
     const other = sharedApi ? {...manager, m_Instance: {GetVROverlayKey() { return otherKey; }},
         m_ActiveElementProps: {onTextEntered(value) { deliveries.push(value); }}} : null;
     if (other) root.SteamUIStore.WindowStore.SteamUIWindows.push({VirtualKeyboardManager: other});
+    for (const owner of [manager, other].filter(Boolean)) {
+        const key = owner.m_Instance.GetVROverlayKey();
+        reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
+    }
     const bridge = factory(root, production ? undefined : store, external);
     return {bridge, calls, deliveries, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
@@ -111,6 +122,19 @@ function externalOwned(f) {
     assert(s.local && s.eligible && !f.nativeOpen(), "close the complete external native presentation");
     assert(f.step(s.request).active);
     return s.request;
+}
+for (const deferred of [false, true]) {
+    const f = fixture(); f.newTarget();
+    f.deferHide(deferred);
+    f.step(); f.status({bIsOpen: true});
+    const s = f.step();
+    if (!deferred) assert(f.step(s.request).active);
+    f.status({bIsOpen: true, sOverlayKey: "unknown.overlay"});
+    assert(!f.manager.logicalOpen && !f.manager.m_currentVirtualKeyboardRef,
+        "a competing provider clears the former owner's retained Steam state");
+    assert(f.nativeOpen() && !f.step().eligible);
+    f.bridge.dispose();
+    assert(!f.manager.logicalOpen && f.nativeOpen(), "dispose preserves only the newer native owner");
 }
 {
     const f = fixture(false, false, true), request = externalOwned(f);
