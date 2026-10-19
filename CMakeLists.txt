@@ -18,7 +18,10 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo xkbcommon json-c)
-pkg_check_modules(EI REQUIRED IMPORTED_TARGET libei-1.0 wayland-client)
+pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+# SteamOS libei 1.4.1 crashes on an aborted negotiation. Keep the fixed client
+# inside this app; never replace the runtime library used by Steam itself.
+add_subdirectory(third_party/libei)
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 set(IME_XML "${CMAKE_CURRENT_SOURCE_DIR}/third_party/gamescope/gamescope-input-method.xml")
 set(IME_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/gamescope-input-method-client.h")
@@ -43,7 +46,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
     VERBATIM)
 add_library(keyboard_core src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::EI ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 # Frame already supplies these engines. Minimal host builds can still run the
 # ordinary keyboard; unsupported composition profiles fail explicitly on Apply.
@@ -115,6 +118,9 @@ file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/update")
 configure_file(update/update_helper.py update/update_helper.py COPYONLY)
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(ei-handshake-tests tests/ei_handshake_tests.cpp)
+    target_link_libraries(ei-handshake-tests PRIVATE framekeyboard_ei)
+    add_test(NAME ei-handshake COMMAND ei-handshake-tests)
     add_executable(output-tests tests/output_tests.cpp)
     target_link_libraries(output-tests PRIVATE keyboard_core)
     add_test(NAME ordered-output COMMAND output-tests)
@@ -247,6 +253,7 @@ install(FILES update/update_helper.py DESTINATION share/framekeyboard/update)
 install(FILES third_party/README.md DESTINATION third_party)
 install(FILES third_party/openvr/LICENSE DESTINATION third_party/openvr)
 install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overlay_texture)
+install(FILES third_party/libei/COPYING third_party/libei/README.md third_party/libei/provenance.json DESTINATION third_party/libei)
 
 install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
 

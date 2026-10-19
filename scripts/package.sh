@@ -22,6 +22,10 @@ if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*(libpyzy|libha
     echo 'Optional language libraries must not be startup dependencies.' >&2
     exit 1
 fi
+if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*libei\.so'; then
+    echo 'The release must use its pinned libei client, not the system library.' >&2
+    exit 1
+fi
 cp scripts/install-local.sh "$package_dir/install.sh"
 tar -C out -czf "out/framekeyboard-$version-aarch64.tar.gz" "framekeyboard-$version-aarch64"
 (cd out && sha256sum "framekeyboard-$version-aarch64.tar.gz" > SHA256SUMS)

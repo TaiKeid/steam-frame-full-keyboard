@@ -1,5 +1,17 @@
 # Third-party sources
 
+## libei client
+
+`libei/` contains the client and shared utility sources from libei 1.6.0,
+commit `8a46bf3d4b6af7f25a61be53386cf618218114ef`, under the adjacent MIT
+`COPYING`. See `libei/README.md` and `provenance.json` for the official archive,
+checksum, selected files and protocol regeneration commands. The fixed client
+is compiled into Full Keyboard; SteamOS libraries are unchanged. This avoids
+libei 1.4.1's null connection cleanup when a peer aborts negotiation. No libeis
+server or portal helper is bundled.
+
+## Overlay texture and OpenVR
+
 `overlay_texture/vk_texture.{h,cpp}` comes from
 https://github.com/sasaken1102r/frame-perf-overlay at commit
 `61c597c4f57624339c222094582f15da32016716`, under its MIT license.
