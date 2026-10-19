@@ -279,6 +279,43 @@ void helper_retry_backoff() {
     missing.update(true, false, 0, false, 15);
     require(failures == 3, "spawn failure retry uses doubled delay");
 }
+void installation_budget() {
+    for (bool complete : {false, true}) {
+        Local local;
+        int peer = -1;
+        NativeReplacement replacement(local, -1, [&] {
+            int pair[2];
+            require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                    "installation fixture socketpair");
+            peer = pair[1];
+            return pair[0];
+        });
+        replacement.update(true, false, 0, false, 100);
+        take(peer);
+        const std::string waiting = replacement.unavailable_reason();
+        replacement.poll(102.2);
+        require(replacement.unavailable_reason() == waiting && !replacement.state().available,
+                "startup survives ordinary freshness timeout without claiming availability");
+        if (complete) {
+            put(peer, R"({"op":"state","version":1,"open":false})");
+            replacement.poll(102.3);
+            require(replacement.state().available, "slow installation reaches normal operation");
+            replacement.poll(103.11);
+            require(!replacement.state().available,
+                    "first state restores the ordinary 800 ms freshness limit");
+        } else {
+            replacement.update(true, false, 0, false, 102.9);
+            put(peer, R"({"op":"state","version":1,"open":false})");
+            replacement.poll(103.01);
+            require(!replacement.state().available &&
+                        std::string(replacement.unavailable_reason()) ==
+                            "Steam keyboard bridge installation timed out.",
+                    "startup has a fixed deadline, including late state and repeated updates");
+        }
+        replacement.update(false, false, 0, false, 104);
+        close(peer);
+    }
+}
 void sanitized_diagnostics() {
     std::ostringstream output;
     struct Capture {
@@ -1047,6 +1084,7 @@ int main(int argc, char** argv) {
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();
+        installation_budget();
         sanitized_diagnostics();
         named_key_repeats();
         app_commit();

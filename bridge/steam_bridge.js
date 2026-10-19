@@ -16,8 +16,10 @@
         for (const key of Object.keys(require?.m || {})) {
             if (!String(require.m[key]).includes("get VRKeyboardStatus()")) continue;
             for (const value of Object.values(require(key))) {
-                if (value && typeof value === "object" && "VRKeyboardStatus" in value) store = value;
+                if (value && typeof value === "object" && "VRKeyboardStatus" in value &&
+                    value.m_VRKeyboardState) { store = value; break; }
             }
+            if (store) break;
         }
     }
     const popup = root.g_PopupManager?.GetPopupForVROverlayKey?.("valve.steam.gamepadui.keyboard");

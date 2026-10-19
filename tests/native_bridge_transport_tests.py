@@ -4,7 +4,9 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
+import subprocess
 import struct
 import sys
 import threading
@@ -23,7 +25,7 @@ class FakeCDP:
         self.dismissed = threading.Event()
         self.sent = []
 
-    def evaluate(self, expression):
+    def evaluate(self, expression, timeout=.4):
         if "const bridge =" in expression:
             self.installed = True
             return True
@@ -80,7 +82,7 @@ class ExternalCDP(FakeCDP):
         self.external = False
         self.fallback = False
 
-    def evaluate(self, expression):
+    def evaluate(self, expression, timeout=.4):
         if ".bridge.prepareExternal(" in expression:
             assert self.guard.armed, "native may close only after independent recovery is armed"
             self.external = True
@@ -98,7 +100,7 @@ class ExternalCDP(FakeCDP):
                               externalRestore=dict(request=3, key="gamescope.gamescope-0.window.62"))
                 self.fallback = False
             return result
-        return super().evaluate(expression)
+        return super().evaluate(expression, timeout)
 
 
 class Lifecycle(unittest.TestCase):
@@ -120,14 +122,14 @@ class Lifecycle(unittest.TestCase):
     def test_slow_step_and_send_do_not_end_helper(self):
         class SlowCDP(FakeCDP):
             step_calls = 0
-            def evaluate(self, expression):
+            def evaluate(self, expression, timeout=.4):
                 if ".bridge.step(" in expression:
                     self.step_calls += 1
                     if self.step_calls == 1:
                         raise TimeoutError()
                 if ".bridge.send(" in expression or ".bridge.dismiss(" in expression:
                     raise TimeoutError()
-                return super().evaluate(expression)
+                return super().evaluate(expression, timeout)
 
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         parent.settimeout(1)
@@ -153,10 +155,10 @@ class Lifecycle(unittest.TestCase):
 
     def test_three_consecutive_poll_timeouts_end_helper(self):
         class SlowCDP(FakeCDP):
-            def evaluate(self, expression):
+            def evaluate(self, expression, timeout=.4):
                 if ".bridge.step(" in expression:
                     raise TimeoutError()
-                return super().evaluate(expression)
+                return super().evaluate(expression, timeout)
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         parent.settimeout(1)
         client = SlowCDP()
@@ -173,10 +175,10 @@ class Lifecycle(unittest.TestCase):
 
     def test_install_timeout_has_a_fixed_phase_specific_reason(self):
         class SlowInstall(FakeCDP):
-            def evaluate(self, expression):
+            def evaluate(self, expression, timeout=.4):
                 if "const bridge =" in expression:
                     raise TimeoutError("private field text must never be reported")
-                return super().evaluate(expression)
+                return super().evaluate(expression, timeout)
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         parent.settimeout(1)
         client = SlowInstall()
@@ -188,7 +190,7 @@ class Lifecycle(unittest.TestCase):
         finally:
             parent.close()
             worker.join(1)
-        self.assertTrue(client.closed)
+        self.assertTrue(client.closed and client.disposed, "unconfirmed installation is cleaned up")
 
     def test_cdp_reply_deadline_and_late_partial_frame(self):
         for partial in (False, True):
@@ -252,6 +254,147 @@ class Lifecycle(unittest.TestCase):
                     client.close()
                     peer.close()
                     worker.join(2)
+
+    def test_slow_install_gets_its_own_budget_and_stop_never_renews_it(self):
+        for stop_early in (False, True):
+            with self.subTest(stop_early=stop_early):
+                class SlowInstall(FakeCDP):
+                    def __init__(self):
+                        super().__init__()
+                        self.started = threading.Event()
+                        self.calls = []
+
+                    def evaluate(self, expression, timeout=.4):
+                        self.calls.append((expression, timeout))
+                        if "const bridge =" in expression:
+                            self.started.set()
+                            time.sleep(.6)
+                        return super().evaluate(expression, timeout)
+
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                parent.settimeout(2)
+                client = SlowInstall()
+                worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None))
+                worker.start()
+                try:
+                    self.assertTrue(client.started.wait(1))
+                    if not stop_early:
+                        self.receive(parent, "state")
+                    parent.send(b'{"op":"stop"}')
+                    worker.join(2)
+                    self.assertFalse(worker.is_alive())
+                    self.assertTrue(client.installed and client.disposed and client.closed)
+                    install = [limit for expression, limit in client.calls if "const bridge =" in expression]
+                    self.assertEqual(install, [2.0])
+                    ordinary = [limit for expression, limit in client.calls if "const bridge =" not in expression]
+                    self.assertTrue(ordinary and all(limit == .4 for limit in ordinary))
+                    if stop_early:
+                        self.assertFalse(any(".bridge.step(" in expression for expression, _ in client.calls))
+                finally:
+                    parent.close()
+                    worker.join(2)
+
+    def test_cdp_install_deadline_is_longer_but_ordinary_deadline_is_unchanged(self):
+        for timeout, delay, succeeds in ((2.0, .6, True), (.4, .6, False), (2.0, 2.2, False)):
+            with self.subTest(timeout=timeout):
+                local, peer = socket.socketpair()
+                client = bridge.CDP.__new__(bridge.CDP)
+                client.socket, client.pending, client.sequence = local, b"", 0
+                client.network_checked = time.monotonic()
+                peer.settimeout(2)
+                errors = []
+
+                def server():
+                    try:
+                        peer.recv(65536)  # One small masked CDP request.
+                        time.sleep(delay)
+                        payload = json.dumps(dict(id=1, result=dict(result=dict(value=True)))).encode()
+                        peer.sendall(bytes([0x81, len(payload)]) + payload)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass  # The bounded client may close before the late response.
+                    except Exception as error:
+                        errors.append(error)
+                worker = threading.Thread(target=server)
+                worker.start()
+                started = time.monotonic()
+                try:
+                    if succeeds:
+                        self.assertTrue(client.evaluate("fixture install", timeout=timeout))
+                    else:
+                        with self.assertRaises(TimeoutError):
+                            if timeout == .4:
+                                client.evaluate("ordinary fixture")
+                            else:
+                                client.evaluate("fixture install", timeout=timeout)
+                        self.assertLess(time.monotonic() - started, timeout + .15)
+                finally:
+                    client.close()
+                    worker.join(2)
+                    peer.close()
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(errors, [])
+
+    def test_partial_write_failure_closes_cdp_before_install_cleanup(self):
+        class PartialWrite:
+            closed = False
+            def settimeout(self, timeout):
+                pass
+            def sendall(self, data):
+                raise TimeoutError()
+            def close(self):
+                self.closed = True
+        client = bridge.CDP.__new__(bridge.CDP)
+        broken = client.socket = PartialWrite()
+        with self.assertRaises(ConnectionError):
+            client.frame(1, b"fixture install", time.monotonic() + 2)
+        self.assertTrue(broken.closed)
+        self.assertIsNone(client.socket, "token cleanup cannot reuse a partially written stream")
+
+    @unittest.skipUnless(shutil.which("node"), "Node required for production install-expression regression")
+    def test_install_expressions_reject_late_attempts_and_cleanup_only_their_token(self):
+        source = """(function(root) {
+            ++root.created; root.hooks++;
+            root.clock += root.cost;
+            let disposed = false;
+            return {expired: () => root.expired, dispose() {
+                if (!disposed) { disposed = true; root.hooks--; root.disposed++; }
+            }};
+        })"""
+        payload = {
+            "first": bridge.install_expression(source, "first", True, 2000),
+            "second": bridge.install_expression(source, "second", True, 4000),
+            "cleanupFirst": bridge.cleanup_expression("first"),
+            "cleanupSecond": bridge.cleanup_expression("second"),
+            "global": bridge.GLOBAL,
+        }
+        script = r"""
+            const assert = require('node:assert/strict'), vm = require('node:vm');
+            const p = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+            const root = {clock: 0, cost: 0, created: 0, disposed: 0, hooks: 0, expired: false};
+            root.Date = {now: () => root.clock};
+            const context = vm.createContext(root), run = s => vm.runInContext(s, context);
+            assert.equal(run(p.first), true); // Reply could be lost after hooks were installed.
+            assert.equal(root.hooks, 1);
+            run(p.cleanupFirst); assert.equal(root.hooks, 0);
+            assert.equal(root[p.global], undefined);
+            assert.equal(run(p.first), true);
+            assert.equal(run(p.second), false, 'a live owner stays intact');
+            root.expired = true;
+            assert.equal(run(p.second), true);
+            root.expired = false;
+            run(p.cleanupFirst);
+            assert.equal(root.hooks, 1); assert.equal(root[p.global].token, 'second');
+            root.clock = 2500;
+            const created = root.created, disposed = root.disposed;
+            assert.equal(run(p.first), null, 'queued expired attempt never touches a newer owner');
+            assert.equal(root.created, created); assert.equal(root.disposed, disposed);
+            run(p.cleanupSecond); assert.equal(root.hooks, 0);
+            root.clock = 0; root.cost = 2100;
+            assert.equal(run(p.first), null, 'an installation that finishes late disposes itself');
+            assert.equal(root.hooks, 0); assert.equal(root[p.global], undefined);
+        """
+        subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(payload), text=True,
+                       check=True, timeout=5)
 
     def test_debugger_must_be_bound_to_loopback_before_any_connection(self):
         def tables(address, port):
@@ -558,7 +701,7 @@ class Lifecycle(unittest.TestCase):
                         self.resume = threading.Event()
                         self.deliveries = []
 
-                    def evaluate(self, expression):
+                    def evaluate(self, expression, timeout=.4):
                         if ".bridge.send(" in expression:
                             arguments = expression.split(".bridge.send(", 1)[1].rsplit(") === true", 1)[0]
                             request, text, key = json.loads("[" + arguments + "]")
@@ -570,7 +713,7 @@ class Lifecycle(unittest.TestCase):
                                 return False
                             self.deliveries.append((text, key))
                             return True
-                        return super().evaluate(expression)
+                        return super().evaluate(expression, timeout)
 
                 parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
                 parent.settimeout(1)
@@ -648,12 +791,12 @@ class Lifecycle(unittest.TestCase):
             generation = 2
             resummon = threading.Event()
 
-            def evaluate(self, expression):
+            def evaluate(self, expression, timeout=.4):
                 if self.resummon.is_set() and ".bridge.step(" in expression:
                     self.resummon.clear()
                     self.external = False
                     self.generation += 2
-                result = super().evaluate(expression)
+                result = super().evaluate(expression, timeout)
                 if isinstance(result, dict):
                     result["request"] = self.generation
                     for name in ("external", "externalCandidate"):

@@ -20,6 +20,25 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
 MAX_PACKET = 32768
 GLOBAL = "__fullKeyboardNativeV1"
+INSTALL_TIMEOUT = 2.0
+
+
+def install_expression(source, token, external_supported, expires):
+    reference = f"globalThis.{GLOBAL}"
+    # Python and CEF run on the same device. A command queued beyond its local
+    # deadline must not install hooks later, even if CDP cleanup cannot get through.
+    return (f"(() => {{ if (Date.now() >= {expires}) return null; "
+            f"if ({reference}) {{ if (!{reference}.bridge.expired()) return false; "
+            f"{reference}.bridge.dispose(); delete {reference}; }} "
+            f"const bridge = ({source})(globalThis, undefined, {str(external_supported).lower()}); "
+            f"if (Date.now() >= {expires}) {{ bridge.dispose(); return null; }} "
+            f"{reference} = {{token: {json.dumps(token)}, bridge}}; return true; }})()")
+
+
+def cleanup_expression(token):
+    reference = f"globalThis.{GLOBAL}"
+    return (f"(() => {{ const b = {reference}; if (b?.token === {json.dumps(token)}) {{"
+            f"b.bridge.dispose(); delete {reference}; }} }})()")
 
 
 class BridgeUnavailable(ValueError):
@@ -213,18 +232,19 @@ class CDP:
         self.socket.settimeout(max(0.001, deadline - time.monotonic()))
         try:
             self.socket.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
-        except TimeoutError as error:
+        except OSError as error:
             # A partial write cannot safely be retried on the same stream.
+            self.close()
             raise ConnectionError("debugger-write-failed") from error
 
-    def evaluate(self, expression):
+    def evaluate(self, expression, timeout=0.4):
         if time.monotonic() - self.network_checked >= 1:
             require_loopback_debugger()
             self.network_checked = time.monotonic()
         self.sequence += 1
         command = {"id": self.sequence, "method": "Runtime.evaluate", "params": {
             "expression": expression, "returnByValue": True, "silent": True}}
-        deadline = time.monotonic() + 0.4
+        deadline = time.monotonic() + timeout
         self.frame(1, json.dumps(command, ensure_ascii=True).encode(), deadline)
         while time.monotonic() < deadline:
             opcode, payload = self.receive_frame(deadline)
@@ -362,7 +382,7 @@ class ParentRecovery:
 def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, health_fd=None):
     client = None
     guard = None
-    installed = False
+    install_attempted = False
     watchdog = WatchdogProgress(health_fd)
     recovery_watchdog = ParentRecovery()
     token = os.urandom(16).hex()
@@ -378,12 +398,14 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         source = Path(__file__).with_name("steam_bridge.js").read_text()
         failure_reason = "steam-incompatible"
         # Never displace another live instance. A dead owner's lease must expire first.
-        result = client.evaluate(f"(() => {{ if ({reference}) {{ if (!{reference}.bridge.expired()) return false; {reference}.bridge.dispose(); delete {reference}; }} "
-                                 f"const bridge = ({source})(globalThis, undefined, {str(guard is not None).lower()}); "
-                                 f"{reference} = {{token: {json.dumps(token)}, bridge}}; return true; }})()")
+        install_attempted = True
+        result = client.evaluate(install_expression(source, token, guard is not None,
+                                                   int((time.time() + INSTALL_TIMEOUT) * 1000)),
+                                 timeout=INSTALL_TIMEOUT)
+        if result is None:
+            raise TimeoutError()  # The expression itself rejected a late installation.
         if result is not True:
             raise BridgeUnavailable("replacement-busy")
-        installed = True
         failure_reason = "connection-lost"
         frame = {"progress": 0, "ready": False, "ack": 0, "fallback": False,
                  "sent": time.monotonic()}
@@ -566,10 +588,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             pass
     finally:
         if client:
-            if installed:
+            if install_attempted:
                 try:
-                    client.evaluate(f"(() => {{ const b = {reference}; if (b?.token === {json.dumps(token)}) {{"
-                                     f"b.bridge.dispose(); delete {reference}; }} }})()")
+                    # A lost reply does not prove the install failed. The token
+                    # prevents this attempt's cleanup from removing a successor.
+                    client.evaluate(cleanup_expression(token))
                     if guard and guard.armed:
                         guard.restore()
                 except Exception:

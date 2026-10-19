@@ -71,7 +71,8 @@ function editingFixture(manager) {
             return e;
         }};
 }
-function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false) {
+function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
+    discoveryProbe = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -160,9 +161,14 @@ function fixture(open = false, production = false, external = false, sharedApi =
         SteamUIStore: {WindowStore: {SteamUIWindows: [{VirtualKeyboardManager: manager}]}},
         g_PopupManager: {GetPopupForVROverlayKey() { return popup; }}};
     if (production) {
-        const require = key => key === "store" ? {store} : {controllerText};
-        require.m = {store: function() { return "get VRKeyboardStatus()"; },
+        const require = key => key === "store" ? {store} : key === "decoy" ?
+            {store: {VRKeyboardStatus: {}}} : {controllerText};
+        require.m = {...(discoveryProbe ? {decoy: function() { return "get VRKeyboardStatus()"; }} : {}),
+            store: function() { return "get VRKeyboardStatus()"; },
             keyboard: function() { return "SetVirtualKeyboardShownInternal ControllerKeyboardSendText"; }};
+        if (discoveryProbe) require.m.unused = {toString() {
+            throw Error("discovery must stop once a valid keyboard store is found");
+        }};
         root.webpackChunksteamui = [];
         root.webpackChunksteamui.push = function(chunk) { Array.prototype.push.call(this, chunk); chunk[2](require); };
     }
@@ -225,6 +231,10 @@ function fixture(open = false, production = false, external = false, sharedApi =
         flushCloses() { while (pendingCloses.length) pendingCloses.shift()(); tick?.(); },
         alive() { return tick !== null; },
         observing() { return !!observer; }};
+}
+{
+    const f = fixture(false, true, false, false, false, true);
+    f.bridge.dispose();
 }
 function owned(f) {
     if (typeof f.manager.m_ActiveElementProps?.onTextEntered !== "function") f.newTarget();

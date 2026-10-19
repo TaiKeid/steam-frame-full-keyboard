@@ -221,6 +221,7 @@ bool NativeReplacement::start(double now) {
         }
         failure_ = previous_failure;
         last_reply_ = now;
+        install_until_ = now + 3;
         event_sequence_ = 0;
         diagnostic("helper-start", now);
         return true;
@@ -276,6 +277,7 @@ bool NativeReplacement::start(double now) {
     fd_ = pair[0];
     failure_ = previous_failure;
     last_reply_ = now;
+    install_until_ = now + 3;
     event_sequence_ = 0;
     diagnostic("helper-start", now);
     return true;
@@ -286,6 +288,7 @@ void NativeReplacement::stop() {
         close(std::exchange(fd_, -1));
     }
     state_ = {};
+    install_until_ = 0;
     if (remote_) {
         reset_ = true;
     }
@@ -298,6 +301,14 @@ void NativeReplacement::poll(double now) {
         child_ = -1;
     }
     if (fd_ < 0) {
+        return;
+    }
+    // Startup includes connection/guard setup and a bounded two-second install.
+    // Neither queued frames nor a state arriving after this deadline can extend it.
+    if (install_until_ > 0 && now >= install_until_) {
+        failure_ = Failure::InstallTimeout;
+        schedule_retry(now);
+        stop();
         return;
     }
     for (int count = 0; count < 64; ++count) {
@@ -340,6 +351,7 @@ void NativeReplacement::poll(double now) {
                       true,
                       json_object_get_boolean(field("local")) != 0};
             last_reply_ = now;
+            install_until_ = 0;
             failure_ = Failure::None;
             logged_failure_ = Failure::None;
             retry_delay_ = 5;
@@ -416,7 +428,7 @@ void NativeReplacement::poll(double now) {
             break;
         }
     }
-    if (fd_ >= 0 && (child_exited || now - last_reply_ > .8)) {
+    if (fd_ >= 0 && (child_exited || (install_until_ == 0 && now - last_reply_ > .8))) {
         failure_ = Failure::ConnectionLost;
         schedule_retry(now);
         stop();

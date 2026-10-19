@@ -18,7 +18,9 @@ GUARD = "src/native_restore_guard.cpp"
 SPECS = (
     ("Steam lease", JS, r"\bLEASE_MS\s*=\s*" + NUMBER, 1, .001),
     ("request acknowledgement", JS, r"\bREQUEST_MS\s*=\s*" + NUMBER, 1, .001),
-    ("CDP call", PY, r"deadline\s*=\s*time\.monotonic\(\)\s*\+\s*" + NUMBER, 1, 1),
+    ("CDP call", PY, r"def evaluate\(self,\s*expression,\s*timeout\s*=\s*" + NUMBER, 1, 1),
+    ("bridge install", PY, r"\bINSTALL_TIMEOUT\s*=\s*" + NUMBER, 1, 1),
+    ("helper startup budget", CPP, r"install_until_\s*=\s*now\s*\+\s*" + NUMBER, 2, 1),
     ("bridge receipt freshness", PY, r"time\.monotonic\(\)\s*-\s*last_parent\s*>\s*" + NUMBER, 1, 1),
     ("bridge frame freshness", PY, r"time\.monotonic\(\)\s*-\s*frame_sent\s*<\s*" + NUMBER, 1, 1),
     ("text confirmation", CPP, r"now\s*-\s*pending_since_\s*>\s*" + NUMBER, 1, 1),
@@ -58,6 +60,7 @@ def check_ordering(sources):
         before("CDP call", delivery)
         before(delivery, "helper reply freshness")
     before("helper reply freshness", "Steam lease")
+    before("bridge install", "helper startup budget")
     before("Steam lease", "native guard")
     before("native guard", "parent recovery")
     before("parent recovery", "slow-work ceiling")
@@ -94,6 +97,13 @@ class TimingOrdering(unittest.TestCase):
             sources = dict(self.sources, **{JS: altered})
             with self.assertRaisesRegex(AssertionError, "Steam lease: expected 1 timing literal"):
                 check_ordering(sources)
+
+    def test_installation_must_fit_the_parent_startup_budget(self):
+        sources = dict(self.sources)
+        sources[PY] = re.sub(r"(INSTALL_TIMEOUT\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "4", sources[PY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "bridge install < helper startup budget"):
+            check_ordering(sources)
 
     def test_both_guard_deadlines_are_checked(self):
         sources = dict(self.sources)

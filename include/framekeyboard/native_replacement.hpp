@@ -85,7 +85,7 @@ class NativeReplacement : public KeySink {
     State state_;
     Failure failure_{Failure::None};
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
-    double last_reply_{}, next_start_{}, now_{}, pending_since_{};
+    double last_reply_{}, install_until_{}, next_start_{}, now_{}, pending_since_{};
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
     unsigned log_lines_{};

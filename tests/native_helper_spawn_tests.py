@@ -65,7 +65,7 @@ from pathlib import Path
 spec=importlib.util.spec_from_file_location("production_bridge", SOURCE)
 bridge=importlib.util.module_from_spec(spec);spec.loader.exec_module(bridge)
 class FakeCDP:
-    def evaluate(self,expression):
+    def evaluate(self,expression,timeout=.4):
         if "const bridge =" in expression: return True
         if ".bridge.step(" in expression:
             return dict(version=1,request=1,open=False,eligible=False,active=False)
