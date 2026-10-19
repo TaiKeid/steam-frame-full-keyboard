@@ -617,6 +617,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::vector<PlacementAction> adjustments;
     ReplacementPresentation presentation(app.background_start());
     if (app.background_start()) {
+        // The first texture upload can consume much of the summon deadline.
+        // Prepare it while hidden, before the helper can advertise readiness.
+        app.paint(monotonic_seconds());
+        panel.submit(app.renderer, app.view());
         std::cout << "Full Keyboard started in background.\n" << std::flush;
     }
     std::uint64_t last_request = 0;
@@ -1043,7 +1047,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
         const auto period = std::chrono::microseconds(visible ? 16667 : 250000);
-        std::this_thread::sleep_until(frame_started + period);
+        if (visible) {
+            std::this_thread::sleep_until(frame_started + period);
+        } else {
+            replacement.wait_until(frame_started + period);
+        }
     }
     hide_panel();
     replacement_watched.store(false);

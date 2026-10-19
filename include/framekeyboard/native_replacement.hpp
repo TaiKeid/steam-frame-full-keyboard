@@ -1,6 +1,7 @@
 #pragma once
 #include "input.hpp"
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <sys/types.h>
@@ -8,7 +9,8 @@
 
 namespace framekeyboard {
 // Version 1: one app-scoped helper, private SOCK_SEQPACKET IPC, metadata-only status.
-// No IPC or CDP wait runs on the VR thread. Steam restores its own fields; an
+// Frame IPC is nonblocking; hidden idle sleep can wake on session metadata.
+// CDP waits stay in the helper. Steam restores its own fields; an
 // app-scoped OpenVR guard restores exact Gamescope overlays independently.
 class NativeReplacement : public KeySink {
   public:
@@ -22,6 +24,8 @@ class NativeReplacement : public KeySink {
         bool open{}, eligible{}, active{}, available{}, local{};
     };
     void poll(double now);
+    // Between hidden frames, wake the idle sleep when session metadata changes.
+    void wait_until(std::chrono::steady_clock::time_point deadline);
     void update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback, double now,
                 bool watch_main_loop = false);
     const State& state() const { return state_; }

@@ -46,6 +46,69 @@ void activate(int fd, NativeReplacement& replacement, double now = 10) {
             "versioned session metadata");
     replacement.route(true);
 }
+void hidden_session_wakeup() {
+    using namespace std::chrono_literals;
+    using Clock = std::chrono::steady_clock;
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "wakeup socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        const std::string idle =
+            R"({"op":"state","version":1,"request":1,"open":false,"eligible":false,"active":false})";
+        put(pair[1], idle);
+        replacement.poll(monotonic_seconds());
+        {
+            std::jthread helper([&] {
+                std::this_thread::sleep_for(20ms);
+                put(pair[1], idle);
+                std::this_thread::sleep_for(40ms);
+                put(pair[1],
+                    R"({"op":"state","version":1,"request":2,"open":true,"eligible":false,"active":false})");
+            });
+            const auto start = Clock::now();
+            replacement.wait_until(start + 250ms);
+            require(replacement.state().open && !replacement.state().eligible,
+                    "pending native close wakes the hidden loop before eligibility");
+            require(Clock::now() - start < 200ms,
+                    "summon cannot consume a second 250 ms idle sleep from its 400 ms ack budget");
+        }
+        {
+            std::jthread helper([&] {
+                std::this_thread::sleep_for(20ms);
+                put(pair[1],
+                    R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":false})");
+            });
+            replacement.wait_until(Clock::now() + 250ms);
+            require(replacement.state().eligible, "native close completion also wakes the hidden loop");
+        }
+        char byte;
+        require(recv(pair[1], &byte, 1, MSG_DONTWAIT) < 0 && errno == EAGAIN,
+                "idle waiting never renews progress, readiness or presentation acknowledgements");
+        put(pair[1], idle);
+        replacement.poll(monotonic_seconds());
+        {
+            std::jthread helper([&] {
+                std::this_thread::sleep_for(20ms);
+                put(pair[1], idle);
+            });
+            const auto start = Clock::now();
+            replacement.wait_until(start + 100ms);
+            require(Clock::now() - start >= 100ms,
+                    "unchanged idle replies retain the original frame deadline");
+        }
+        {
+            std::jthread helper([&] {
+                std::this_thread::sleep_for(20ms);
+                put(pair[1], R"({"op":"unavailable","reason":"reply-timeout"})");
+            });
+            replacement.wait_until(Clock::now() + 250ms);
+            require(!replacement.state().available, "helper loss wakes the idle loop for fallback");
+        }
+        require(local.keys.empty() && local.text.empty(), "idle wakeup never delivers input");
+    }
+    close(pair[1]);
+}
 void transport() {
     Local local;
     int pair[2];
@@ -1080,6 +1143,7 @@ int main(int argc, char** argv) {
                                      replacement.unavailable_reason());
         }
         require(argc == 1, "unknown test option");
+        hidden_session_wakeup();
         transport();
         ordered_transport();
         delivered_local_route();

@@ -7,6 +7,7 @@
 #include <iostream>
 #include <json-c/json.h>
 #include <linux/input-event-codes.h>
+#include <poll.h>
 #include <spawn.h>
 #include <string_view>
 #include <sys/socket.h>
@@ -60,6 +61,34 @@ const char* session_code(const char* code) {
     return nullptr;
 }
 } // namespace
+void NativeReplacement::wait_until(std::chrono::steady_clock::time_point deadline) {
+    const auto previous = state_;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (fd_ < 0) {
+            std::this_thread::sleep_until(deadline);
+            return;
+        }
+        const auto remaining =
+            std::chrono::ceil<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (remaining.count() <= 0) {
+            return;
+        }
+        pollfd endpoint{fd_, POLLIN, 0};
+        if (::poll(&endpoint, 1, static_cast<int>(remaining.count())) <= 0) {
+            return;
+        }
+        const auto now =
+            std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        poll(now);
+        if (fd_ < 0 || state_.request != previous.request || state_.open != previous.open ||
+            state_.eligible != previous.eligible || state_.active != previous.active ||
+            state_.available != previous.available || state_.local != previous.local) {
+            return;
+        }
+        // Ordinary idle replies may arrive faster than hidden frames. Drain
+        // them without starting another frame or extending the sleep deadline.
+    }
+}
 NativeReplacement::~NativeReplacement() {
     stop();
     // Waits are permitted during shutdown, never during a VR frame.
