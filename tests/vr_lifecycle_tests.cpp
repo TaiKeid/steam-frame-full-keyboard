@@ -283,6 +283,12 @@ void closing_and_native_fallback_have_different_meanings() {
         Headset h;
         h.request(30);
         h.display();
+        h.receiver.slow_text = true;
+        h.click(1, "KeyA");
+        h.click(2, "Backspace");
+        h.click(3, "KeyB");
+        require(h.receiver.pending && h.receiver.downs.empty(),
+                "dismissal and native handoff begin with text and edits still queued");
         h.lifecycle->request_recenter();
         if (use_native) {
             h.lifecycle->fallback();
@@ -295,6 +301,11 @@ void closing_and_native_fallback_have_different_meanings() {
                 "closing or fallback leaves the resident process alive without typing");
         require(h.dismissals == (use_native ? 0 : 1) && h.report().fallback == use_native,
                 "native fallback preserves the native request; X dismisses it");
+        h.receiver.reply = true;
+        h.tick();
+        require(h.receiver.text.empty() && h.receiver.downs.empty(),
+                "late completion after dismissal or native handoff must discard queued input");
+        h.receiver.slow_text = false;
         h.request(30);
         h.display();
         require(!h.compositor && h.report().acknowledgement == 0,
@@ -302,7 +313,8 @@ void closing_and_native_fallback_have_different_meanings() {
         h.request(31);
         h.display();
         h.click(2, "KeyA");
-        require(h.report().acknowledgement == 31 && h.receiver.text.size() == 1,
+        require(h.report().acknowledgement == 31 &&
+                    h.receiver.text == std::vector<std::pair<int, std::string>>{{31, "a"}},
                 "a new request restores presentation and typing without relaunch");
     }
 }
