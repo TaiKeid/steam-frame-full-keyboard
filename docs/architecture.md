@@ -218,6 +218,11 @@ The CDP client connects to Steam's existing `127.0.0.1:8080` endpoint, bypasses 
 
 Supported Steam sessions deliver Unicode and plain Enter/Backspace/Tab/arrows through the existing virtual-keyboard manager. The bridge closes native presentation completely and preserves only the corresponding manager's logical open state and typing target. It accepts requests only when that owner's provider can restore the same Steam target independently. Minimal Frame-local Gamescope requests use the local backend after an independent native guard resolves the exact overlay and arms recovery. Other external modes, buffered, mismatched and unknown requests stay native. Steam sessions block unsupported physical controls and shortcuts so they cannot reach another local app; local-app sessions retain libei routing. Asynchronous text commits are retained until acknowledged; a failed commit stays available for explicit retry, while cancellation invalidates late acknowledgements. Runtime details, compatibility and acceptance checks are in [native replacement](native-replacement.md).
 
+Steam takeover also requires a direct field text callback. Ordinary Steam fields
+without that callback remain native. The global controller-text route follows
+app focus and cannot guarantee delivery to the retained Steam target. Losing a
+callback ends replacement and restores native before another dispatch.
+
 `ReplacementPresentation` separates resident panel visibility from process lifetime. In VR replacement mode, X releases input and emits a request-scoped dismissal that clears the retained target without reopening native presentation. Only semantic target/open changes create new generations; duplicate provider callbacks cannot create a reopen loop. A supported native keyboard button toggles an acknowledged panel off across owners, including after returning from a closed app. Explicit Steam field shows are tracked through the manager and transfer the target instead. The helper and lease remain active while hidden. A later eligible request follows the normal visible-panel readiness handshake. Explicit Settings Quit, signals and runtime shutdown still exit and withdraw replacement. Ordinary mode and desktop preview retain X-to-exit.
 
 Losing a Steam field ends its replacement session and hides the panel. It never

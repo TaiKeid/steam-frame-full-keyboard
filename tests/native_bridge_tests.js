@@ -13,7 +13,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     const pendingCloses = [];
     const timeouts = new Map();
     let nextTimer = 1, showKey = MAIN;
-    const calls = [], deliveries = [], nodes = new Set();
+    const calls = [], deliveries = [], wrongTarget = [], nodes = new Set();
     const status = {bIsOpen: open, bMinimal: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false};
     Object.defineProperty(status, "sInitialText", {get() { throw Error("must not read field text"); }});
     const controllerText = value => { // Backspace uses Steam's existing ControllerKeyboardSendText mapping.
@@ -29,6 +29,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     }
     raw();
     const manager = {logicalOpen: open, m_fnVROnTextEnteredOverride() { throw Error("native text route must stay unused"); },
+        m_ActiveElementProps: {onTextEntered(value) { deliveries.push(value); }},
         m_Instance: {GetVROverlayKey() { return MAIN; }},
         SetVRKeyboardOpenForThisInstance(value) {
             if (this.logicalOpen === value) return;
@@ -79,7 +80,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         createElement() { return {setAttribute() {}, remove() { nodes.delete(this); }}; }
     }}};
     const root = {SteamClient: {OpenVR: {Keyboard: keyboard}, Input: {
-        ControllerKeyboardSendText(value) { deliveries.push(value); }
+        ControllerKeyboardSendText(value) { wrongTarget.push(value); deliveries.push(value); }
     }}, performance: {now: () => time},
         setInterval(fn) { tick = fn; return 1; }, clearInterval() { tick = null; },
         setTimeout(fn, ms) { const id = nextTimer++; timeouts.set(id, {fn, until: time + ms}); return id; },
@@ -104,6 +105,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     const bridge = factory(root, production ? undefined : store, external);
     function checkOwnership() {
         const s = bridge.diagnostics();
+        assert.equal(wrongTarget.length, 0, "replacement input never reaches the global background-app sink");
         assert(s.events.length <= 32, "session diagnostics have bounded storage");
         let id = 0;
         for (const event of s.events) {
@@ -118,7 +120,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             assert.equal(manager.logicalOpen, status.bIsOpen && status.sOverlayKey === key,
                 "without a session or restore, each Steam flag matches its native owner");
     }
-    return {bridge, calls, deliveries, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
+    return {bridge, calls, deliveries, wrongTarget, nodes, manager, other, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true) {
@@ -138,7 +140,11 @@ function fixture(open = false, production = false, external = false, sharedApi =
         restoreAs(key) { showKey = key; },
         breakStatus() { store.m_VRKeyboardState.m_bIsOpen = undefined; },
         checkOwnership,
-        newTarget() { manager.m_currentVirtualKeyboardRef = {}; manager.m_ActiveElementProps = {}; tick?.(); },
+        newTarget() {
+            manager.m_currentVirtualKeyboardRef = {};
+            manager.m_ActiveElementProps = {onTextEntered(value) { deliveries.push(value); }};
+            tick?.();
+        },
         deferHide(value) { deferHide = value; },
         deferClose(value) { deferClose = value; },
         flushCloses() { while (pendingCloses.length) pendingCloses.shift()(); tick?.(); },
@@ -146,6 +152,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         observing() { return !!observer; }};
 }
 function owned(f) {
+    if (typeof f.manager.m_ActiveElementProps?.onTextEntered !== "function") f.newTarget();
     f.step(); f.status({bIsOpen: true}); const s = f.step();
     assert(s.open && s.eligible && !s.active);
     assert(!f.nativeOpen(), "takeover closes native scene, collision and move handle");
@@ -161,6 +168,30 @@ function externalOwned(f) {
     assert(s.local && s.eligible && !f.nativeOpen(), "close the complete external native presentation");
     assert(f.step(s.request).active);
     return s.request;
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production); f.newTarget();
+    // Ordinary Steam search has Enter handling but no field-bound text callback.
+    // Its global controller route can still target the app behind the dashboard.
+    f.manager.m_ActiveElementProps = {onEnterKeyPress() {}};
+    f.step(); f.status({bIsOpen: true}); const s = f.step(); f.step(s.request);
+    f.bridge.send(s.request, "private fixture");
+    assert.equal(f.wrongTarget.length, 0, "Steam fields cannot deliver through the global app-targeted controller route");
+    assert(f.nativeOpen() && !f.step().eligible,
+        "leave native available when no field-bound text delivery exists");
+    f.bridge.dispose();
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production); f.newTarget(); const request = owned(f);
+    const target = f.manager.m_currentVirtualKeyboardRef;
+    f.manager.m_ActiveElementProps = {onEnterKeyPress() {}};
+    assert(!f.bridge.send(request, "late private fixture"),
+        "losing the bound callback cancels stale delivery before any global dispatch");
+    assert(f.nativeOpen() && !f.step().eligible && f.manager.m_currentVirtualKeyboardRef === target,
+        "callback loss restores the same native field without losing its target");
+    assert.equal(f.wrongTarget.length, 0);
+    assert.equal(f.deliveries.length, 0);
+    f.bridge.dispose();
 }
 for (const deferred of [false, true]) {
     const f = fixture(); f.newTarget();
@@ -324,8 +355,8 @@ for (const staleField of [false, true]) {
     assert(!f.calls.includes("native-show"));
     f.status({bIsOpen: true, sOverlayKey: MAIN});
     const next = f.step();
-    assert(next.eligible && f.step(next.request).active,
-        "a later dashboard button summon must open ours normally");
+    assert(f.nativeOpen() && !next.eligible && !f.step(next.request).active,
+        "a later dashboard summon without a field callback stays native");
     f.bridge.dispose();
 }
 {
@@ -438,7 +469,7 @@ for (const production of [false, true]) {
     const generation = owned(f);
     assert(f.bridge.send(generation, "a") && f.bridge.send(generation, "Backspace"));
     assert.deepEqual(f.deliveries, ["a", "Backspace"],
-        "native-button Steam requests use the existing controller route after native presentation closes");
+        "native-button requests with a field callback retain target-bound text delivery");
     f.bridge.dispose();
 }
 {
@@ -518,6 +549,7 @@ for (const production of [false, true]) {
     assert.equal(f.manager.m_currentVirtualKeyboardRef, null, "explicit X runs target cleanup");
     for (let i = 0; i < 15; ++i) { f.status({bIsOpen: false}); assert(!f.step(generation).open); }
     assert(!f.calls.includes("native-show"), "X cannot start a show/hide loop");
+    f.newTarget(); // A newly focused supported field can acquire another request.
     f.status({bIsOpen: true}); let s = f.step();
     assert(s.request !== generation && f.step(s.request).active);
     assert(!f.bridge.dismiss(generation), "stale dismissal cannot close a later request");
@@ -528,7 +560,8 @@ for (const production of [false, true]) {
     f.status({bIsOpen: true}); // Same-target native keyboard button toggles ours off.
     assert(!f.step(generation).open && !f.nativeOpen());
     f.status({bIsOpen: true}); const s = f.step();
-    assert(s.request !== generation && f.step(s.request).active, "next button press opens ours again");
+    assert(s.request !== generation && !f.step(s.request).active && f.nativeOpen(),
+        "a button press without a new field callback leaves the keyboard native");
     f.bridge.dispose();
 }
 {
@@ -589,7 +622,7 @@ for (const values of [
 {
     const f = fixture(true);
     assert(!f.step().eligible && f.nativeOpen(), "leave an already-open native session alone");
-    f.status({bIsOpen: false}); f.status({bIsOpen: true}); const s = f.step();
+    f.status({bIsOpen: false}); f.newTarget(); f.status({bIsOpen: true}); const s = f.step();
     assert(f.step(s.request).active);
     f.bridge.dispose();
 }

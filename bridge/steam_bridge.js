@@ -5,7 +5,6 @@
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400;
     const now = () => root.performance.now();
     let store = testStore;
-    let controllerText = testStore?.controllerText;
     if (!store) {
         let require;
         const chunks = root.webpackChunksteamui;
@@ -19,13 +18,6 @@
             for (const value of Object.values(require(key))) {
                 if (value && typeof value === "object" && "VRKeyboardStatus" in value) store = value;
             }
-        }
-        for (const key of Object.keys(require?.m || {})) {
-            const source = String(require.m[key]);
-            if (!source.includes("SetVirtualKeyboardShownInternal") || !source.includes("ControllerKeyboardSendText")) continue;
-            const choices = Object.values(require(key)).filter(value => typeof value === "function" &&
-                String(value).includes("ControllerKeyboardSendText") && String(value).includes("Backspace"));
-            if (choices.length === 1) controllerText = choices[0];
         }
     }
     const popup = root.g_PopupManager?.GetPopupForVROverlayKey?.("valve.steam.gamepadui.keyboard");
@@ -93,8 +85,9 @@
     }
     const fresh = () => !disposed && now() < lease;
     function routeReady(owner) {
-        return typeof owner.manager.m_ActiveElementProps?.onTextEntered === "function" ||
-            owner.key === "valve.steam.gamepadui.main" && typeof controllerText === "function";
+        // ControllerKeyboardSendText follows global app focus. Closing native
+        // presentation makes it unsafe even while Steam retains a field ref.
+        return typeof owner.manager.m_ActiveElementProps?.onTextEntered === "function";
     }
     function potential(s) {
         return localTarget(s) || ownSteam(s.key) && (s.dispatch === false || (s.flags & 1) !== 0) &&
@@ -297,19 +290,19 @@
                     // reference stays stable. Refresh callbacks without retargeting.
                     logical.props = m.m_ActiveElementProps;
                     const target = targetOf(m);
-                    if (target !== logical.target) {
-                        if (!target) {
-                            // Field loss proves only that Steam no longer owns
-                            // this target. It cannot authorize libei input into
-                            // whichever local app currently has compositor focus.
-                            releaseLogical(false, true, "target-cleared");
-                        } else {
-                            logical.target = target;
-                            ++request;
-                            acknowledged = 0;
-                            deadline = time + REQUEST_MS;
-                            record("target-changed");
-                        }
+                    if (!target && target !== logical.target) {
+                        // Field loss proves only that Steam no longer owns
+                        // this target. It cannot authorize libei input into
+                        // whichever local app currently has compositor focus.
+                        releaseLogical(false, true, "target-cleared");
+                    } else if (!routeReady(logical.owner)) {
+                        releaseLogical(true);
+                    } else if (target !== logical.target) {
+                        logical.target = target;
+                        ++request;
+                        acknowledged = 0;
+                        deadline = time + REQUEST_MS;
+                        record("target-changed");
                     }
                 }
             } else if (native.open && !ignoreOpen && !restoringUntil) {
@@ -445,12 +438,11 @@
             if (session.owner.external) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
             const targetText = session.props?.onTextEntered;
-            const deliver = typeof targetText === "function" ? targetText : controllerText;
-            if (typeof deliver !== "function") return false;
+            if (typeof targetText !== "function") return false;
             // The renderer's override can call VRKeyboard.SendText, which requires
             // an open native session. Keep Enter/Done handling in the manager, but
-            // dispatch this one call directly to its retained field/controller route.
-            const override = value => deliver(value);
+            // dispatch this one call only to its retained field callback.
+            const override = value => targetText(value);
             manager.m_fnVROnTextEnteredOverride = override;
             try { session.owner.keyDown.call(manager, text, false); }
             finally {
