@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2: Fewer background wakeups
+
+- Reduced background CPU wakeups while **Replace native keyboard** is enabled and no keyboard is open. The native recovery guard now checks for events every 250 ms instead of every 25 ms while idle, and the replacement helper no longer contacts it on every frame unless a local-app request needs recovery.
+- The internal safety thread no longer wakes up periodically while native replacement is disabled.
+- Native keyboard recovery, request deadlines and Steam-side polling are unchanged. Battery-life impact has not been measured.
+
 ## 0.8.1: Update handoff fix
 
 - Fixed in-app update shutdown reopening Steam's native keyboard. The old typing session and queued input now end before the updated keyboard starts, while Quit and failure recovery still restore native.
