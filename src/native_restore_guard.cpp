@@ -1,4 +1,5 @@
 // App-scoped recovery for minimal Frame-local Gamescope requests. No input is read or sent.
+#include "framekeyboard/native_guard.hpp"
 #include "openvr.h"
 #include <chrono>
 #include <cstdint>
@@ -83,7 +84,7 @@ int main(int argc, char** argv) {
             restore();
         }
         pollfd item{connected ? fd : -1, POLLIN, 0};
-        const int ready = poll(&item, 1, 25);
+        const int ready = poll(&item, 1, framekeyboard::native_guard_poll_ms(armed, restored));
         if (ready <= 0) {
             continue;
         }

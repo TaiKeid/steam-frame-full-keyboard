@@ -54,6 +54,7 @@ class FakeGuard(bridge.NativeGuard):
         self.armed = self.closed = False
         self.native_armed = False
         self.prepared = self.cancelled = self.restored = 0
+        self.renewals = []  # Guard lease state at each renewal.
         self.reject = set()
 
     def command(self, op, **fields):
@@ -71,6 +72,8 @@ class FakeGuard(bridge.NativeGuard):
         elif op == "restore":
             self.restored += 1
             self.native_armed = False
+        elif op == "renew":
+            self.renewals.append(self.native_armed)
         return True
 
     def close(self):
@@ -829,6 +832,46 @@ class Lifecycle(unittest.TestCase):
 
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)
+
+    def test_guard_renews_only_while_armed(self):
+        # An unarmed guard ignores renewals, so frames must not cost a guard
+        # round trip until a local request arms it, nor after it is cancelled.
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        guard = FakeGuard()
+        client = ExternalCDP(guard)
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard))
+        worker.start()
+
+        def frames(first, ready, barrier):
+            for progress in range(first, first + 3):
+                parent.send(json.dumps(dict(op="frame", progress=progress, ready=ready, ack=0,
+                                            sent=time.monotonic())).encode())
+            # Packets are handled in order; the result proves the frames were read.
+            parent.send(json.dumps(dict(op="text", request=2, id=barrier, text="barrier")).encode())
+            self.assertEqual(self.receive(parent, "text-result")["id"], barrier)
+
+        try:
+            frames(1, False, 1)
+            self.assertEqual(guard.renewals, [], "unarmed guard receives no per-frame renewals")
+            parent.send(json.dumps(dict(op="frame", progress=4, ready=True, ack=0,
+                                        sent=time.monotonic())).encode())
+            while not self.receive(parent, "state").get("local"):
+                pass
+            self.assertEqual(guard.prepared, 1)
+            frames(5, True, 2)
+            self.assertEqual(guard.renewals, [True] * 3, "armed guard renews on every frame")
+            parent.send(json.dumps(dict(op="dismiss", request=2)).encode())
+            while self.receive(parent, "state")["open"]:
+                pass
+            self.assertEqual(guard.cancelled, 1)
+            frames(8, True, 3)
+            self.assertEqual(guard.renewals, [True] * 3, "cancelled guard receives no renewals")
+        finally:
+            parent.close()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(guard.restored, 0)
 
     def test_update_shutdown_discards_queued_input_without_summoning_native(self):
         for local in (False, True):

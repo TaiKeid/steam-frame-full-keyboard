@@ -475,7 +475,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     frame = {k: message[k] for k in ("progress", "ready", "ack", "sent")}
                     # Restoration acknowledgements must survive subsequent frame packets.
                     frame["externalRestored"] = external_ack
-                    if guard:
+                    # An unarmed guard ignores renewals; prepare carries the
+                    # current frame, so skip the per-frame round trip until then.
+                    if guard and guard.armed:
                         guard.renew(frame)
                     if message.get("fallback") is True:
                         fallback_request = message.get("fallbackRequest", 0)

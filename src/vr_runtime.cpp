@@ -33,4 +33,23 @@ void TrackingReadiness::sampled(bool valid, double now) {
     waiting_ = !valid;
     next_check_ = now + .25;
 }
+void WatchdogSchedule::set_enabled(bool enabled) {
+    {
+        std::lock_guard lock(mutex_);
+        if (enabled_ == enabled) {
+            return;
+        }
+        enabled_ = enabled;
+    }
+    changed_.notify_all();
+}
+bool WatchdogSchedule::wait(std::stop_token stop, std::chrono::milliseconds period) {
+    std::unique_lock lock(mutex_);
+    if (!enabled_) {
+        changed_.wait(lock, stop, [&] { return enabled_; });
+    } else {
+        changed_.wait_for(lock, stop, period, [] { return false; });
+    }
+    return !stop.stop_requested();
+}
 } // namespace framekeyboard

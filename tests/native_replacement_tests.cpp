@@ -1,8 +1,10 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/native_guard.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/vr_runtime.hpp"
 #include <cerrno>
 #include <chrono>
+#include <future>
 #include <iostream>
 #include <json-c/json.h>
 #include <linux/input-event-codes.h>
@@ -836,6 +838,44 @@ void resident_visibility() {
     view.update(true, {5, true, false, false, true});
     require(!view.show(), "unknown requests stay native");
 }
+void idle_wakeups() {
+    require(native_guard_poll_ms(true, false) == 25 && native_guard_poll_ms(false, true) == 25,
+            "armed or restored guards keep their short deadline/event timer");
+    require(native_guard_poll_ms(false, false) == 250, "an idle guard does not wake at 40 Hz");
+
+    using namespace std::chrono;
+    WatchdogSchedule schedule;
+    {
+        // Disabled: block until enabled, regardless of the period.
+        std::stop_source stop;
+        auto waiting = std::async(std::launch::async,
+                                  [&] { return schedule.wait(stop.get_token(), milliseconds(1)); });
+        require(waiting.wait_for(milliseconds(150)) == std::future_status::timeout,
+                "disabled watchdog does not poll");
+        schedule.set_enabled(true);
+        require(waiting.wait_for(seconds(2)) == std::future_status::ready && waiting.get(),
+                "enabling replacement wakes the watchdog");
+    }
+    {
+        // Enabled: wait one period, then tick again.
+        std::stop_source stop;
+        const auto started = steady_clock::now();
+        require(schedule.wait(stop.get_token(), milliseconds(30)), "enabled watchdog keeps ticking");
+        require(steady_clock::now() - started >= milliseconds(25), "enabled watchdog keeps its period");
+    }
+    schedule.set_enabled(false);
+    for (const milliseconds period : {milliseconds(1), milliseconds(seconds(60))}) {
+        // Shutdown interrupts both a disabled block and a long enabled period.
+        schedule.set_enabled(period == seconds(60));
+        std::stop_source stop;
+        auto waiting =
+            std::async(std::launch::async, [&] { return schedule.wait(stop.get_token(), period); });
+        std::this_thread::sleep_for(milliseconds(20));
+        stop.request_stop();
+        require(waiting.wait_for(seconds(2)) == std::future_status::ready && !waiting.get(),
+                "stop ends the watchdog wait");
+    }
+}
 void tracking_recovery() {
     TrackingReadiness tracking;
     ReplacementPresentation view;
@@ -1178,6 +1218,7 @@ int main(int argc, char** argv) {
         handoff_status();
         resident_visibility();
         tracking_recovery();
+        idle_wakeups();
         resident_close();
         slow_work_allowance();
         unavailable_reasons();

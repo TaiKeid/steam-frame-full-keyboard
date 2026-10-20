@@ -507,14 +507,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // Steam restores stock independently. This thread removes a frozen panel that could
     // otherwise cover or intercept the recovered native keyboard. Apart from the
     // atomic slow-work deadline, it never touches App/input state.
+    // Declared before the thread so it outlives the thread's final wait.
+    WatchdogSchedule watchdog_schedule;
     std::jthread replacement_watchdog([&](std::stop_token stop) {
-        while (!stop.stop_requested()) {
+        while (watchdog_schedule.wait(stop, std::chrono::milliseconds(50))) {
             replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
                 vr_overlay()->HideOverlay(panel.handle());
                 replacement_stalled.store(true);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
     VrHaptics haptics;
@@ -662,6 +663,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.set_replacement_available(native.available, replacement.unavailable_reason());
         app.set_native_session(native.open);
         const bool replace = app.replace_native_keyboard();
+        // Wake the watchdog before this frame can start the helper that reads its health.
+        watchdog_schedule.set_enabled(replace);
         lifecycle.begin_frame({.replacement_enabled = replace,
                                .native = native,
                                .routed_remote = replacement.remote(),

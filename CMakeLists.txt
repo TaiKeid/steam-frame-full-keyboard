@@ -95,7 +95,7 @@ target_include_directories(overlay_texture PUBLIC third_party/overlay_texture th
 target_link_libraries(overlay_texture PUBLIC PkgConfig::VULKAN "${OPENVR_LIBRARY}")
 add_executable(framekeyboard src/main.cpp src/preview.cpp src/vr.cpp)
 add_executable(framekeyboard-native-guard src/native_restore_guard.cpp)
-target_include_directories(framekeyboard-native-guard PRIVATE third_party/openvr)
+target_include_directories(framekeyboard-native-guard PRIVATE include third_party/openvr)
 target_link_libraries(framekeyboard-native-guard PRIVATE PkgConfig::NATIVE "${OPENVR_LIBRARY}")
 set_target_properties(framekeyboard-native-guard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
 add_dependencies(framekeyboard framekeyboard-native-guard)
