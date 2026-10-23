@@ -7,6 +7,9 @@ namespace framekeyboard {
 namespace {
 // Three production cards fit without a scrollbar for a two-pixel overflow.
 constexpr double card_width = 509, card_gap = 18, row_height = 76, menu_row_height = 52;
+// Rows are space-between: labels start at the left inset, controls end at the
+// right inset, clear of the card's vertical scrollbar.
+constexpr double row_left = 30, row_right = 24, label_gap = 14, dropdown_width = 318, checkbox_size = 56;
 constexpr int visible_choices = 5;
 bool intersects(Rect a, Rect b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
@@ -41,12 +44,10 @@ Rect SettingsUi::body(std::size_t i) const {
 }
 Rect SettingsUi::field_bounds(std::size_t i, std::size_t field) const {
     const auto r = card_bounds(i);
-    if (cards_[i].fields[field].inline_label_width > 0) {
-        return {r.x + 30 + cards_[i].fields[field].inline_label_width + 14,
-                r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id), 56, 56};
-    }
-    return {r.x + 164, r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id),
-            318, 56};
+    const double width =
+        cards_[i].fields[field].style == ControlStyle::Checkbox ? checkbox_size : dropdown_width;
+    return {r.x + r.width - row_right - width,
+            r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id), width, 56};
 }
 double SettingsUi::vertical_limit(std::size_t i) const {
     return std::max(0.0, 32 + static_cast<double>(cards_[i].fields.size()) * row_height -
@@ -150,21 +151,18 @@ void SettingsUi::append(PanelView& view) const {
         const auto clip = body(i);
         for (std::size_t j = 0; j < cards_[i].fields.size(); ++j) {
             const auto& field = cards_[i].fields[j];
-            auto bounds = field_bounds(i, j);
-            if (field.style == ControlStyle::Checkbox) {
-                bounds.width = bounds.height;
-            }
-            const Rect text =
-                field.inline_label_width > 0
-                    ? Rect{r.x + 30, bounds.y, field.inline_label_width, bounds.height}
-                : field.label_after
-                    ? Rect{bounds.x + bounds.width + 14, bounds.y,
-                           r.x + r.width - 12 - (bounds.x + bounds.width + 14), bounds.height}
-                    : Rect{r.x + 12, bounds.y, 142, bounds.height};
+            const auto bounds = field_bounds(i, j);
+            const Rect text{r.x + row_left, bounds.y, bounds.x - label_gap - (r.x + row_left),
+                            bounds.height};
             if (intersects(text, clip)) {
-                view.field_labels.push_back({field.label, text, clip,
-                                             field.label_after || field.inline_label_width > 0,
-                                             field.enabled});
+                view.field_labels.push_back({field.label, text, clip, true, field.enabled});
+            }
+            if (!field.note.empty()) {
+                const Rect note{r.x + row_left, bounds.y + bounds.height + 4,
+                                r.width - row_left - row_right, 24};
+                if (intersects(note, clip)) {
+                    view.field_labels.push_back({field.note, note, clip, true, field.enabled, 16});
+                }
             }
             if (intersects(bounds, clip)) {
                 const auto selected =

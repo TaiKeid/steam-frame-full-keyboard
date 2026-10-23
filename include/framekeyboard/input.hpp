@@ -33,6 +33,10 @@ class KeySink {
     virtual bool can_resume() const { return false; }
     virtual bool text_available() { return false; }
     virtual bool commit_text(const std::string&) { return false; }
+    // Delete characters before the cursor, then insert text, as one ordered
+    // transport request. Only transports that order both actions offer it.
+    virtual bool replaces_text() { return false; }
+    virtual bool replace_text(std::size_t, const std::string&) { return false; }
     // Optional asynchronous transports retain one commit until the caller consumes its result.
     virtual bool text_pending() const { return false; }
     virtual void cancel_text() {}

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added experimental swipe typing for English (US), German and Spanish, off by default. Enable **Swipe typing** in Settings → Languages and Layouts; it is disabled for languages without a word list. Hold the trigger on a letter, trace the word and release. The best match is typed, with a space between consecutive swiped words, and up to five alternatives appear in the toolbar; choosing one replaces the swiped word. Taps still type single letters, on release while swipe is enabled. Swipe typing is powered by "FUTO Swipe" technology.
+
 ## 0.8.2: Fewer background wakeups
 
 - Reduced background CPU wakeups while **Replace native keyboard** is enabled and no keyboard is open. The native recovery guard now checks for events every 250 ms instead of every 25 ms while idle, and the replacement helper no longer contacts it on every frame unless a local-app request needs recovery.

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <glib.h>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
@@ -129,6 +130,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
+    pending_swipe_typing_ = settings_.swipe_typing;
+    prepare_swipe();
     update_settings_ui();
     status_ = !startup_status_.empty()   ? startup_status_
               : profiles_.errors.empty() ? ""
@@ -263,6 +266,13 @@ std::vector<Control> App::controls() const {
             }
         }
     }
+    for (std::size_t i = 0; i < swipe_candidates_.size(); ++i) {
+        add({ControlKind::SwipeCandidate, static_cast<int>(i)},
+            {"swipe-candidate-" + std::to_string(i),
+             swipe_candidates_[i],
+             {610.0 + static_cast<double>(i) * 180, 12, 170, 42},
+             static_cast<int>(i) == swipe_selected_});
+    }
     // Composition controls use the available case width; the main toolbar keeps
     // its button sizes and order when the numpad is hidden.
     for (std::size_t i = ime_start; i < result.size(); ++i) {
@@ -287,61 +297,48 @@ void App::update_settings_ui() {
     const bool favorite =
         std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
                     [&](const Favorite& f) { return same_pair(f.selection, pending_); });
+    // Labels have no trailing colon: every row reads label left, control right.
+    auto dropdown = [](std::string id, std::string label, std::string value,
+                       std::vector<SettingChoice> list) {
+        return SettingField{std::move(id), std::move(label), std::move(value), ControlStyle::Dropdown,
+                            false,         std::move(list)};
+    };
+    auto checkbox = [](std::string id, std::string label, bool checked, bool enabled = true,
+                       std::string note = {}) {
+        return SettingField{
+            std::move(id),  std::move(label), "", ControlStyle::Checkbox, checked, {}, enabled, {},
+            std::move(note)};
+    };
+    const bool swipe = swipe_supported(pending_.language);
     settings_ui_.set_cards(
         {{"languages",
           "Languages and Layouts",
-          {field(ControlKind::ChooseLayout, {"layout", "Layout:", pending_.layout,
-                                             ControlStyle::Dropdown, false, choices(profiles_.layouts)}),
+          {field(ControlKind::ChooseLayout,
+                 dropdown("layout", "Layout", pending_.layout, choices(profiles_.layouts))),
            field(ControlKind::ChooseLanguage,
-                 {"language", "Language:", pending_.language, ControlStyle::Dropdown, false,
-                  choices(profiles_.languages)}),
-           field(ControlKind::Favorite,
-                 {"favorite", "Favorite:", "", ControlStyle::Checkbox, favorite, {}})}},
+                 dropdown("language", "Language", pending_.language, choices(profiles_.languages))),
+           field(ControlKind::Favorite, checkbox("favorite", "Favorite", favorite)),
+           field(ControlKind::SwipeTyping,
+                 checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
+                          "Swipe typing powered by FUTO Swipe"))}},
          {"general",
           "General",
-          {field(ControlKind::ChooseTheme, {"theme", "Theme:", pending_.theme, ControlStyle::Dropdown,
-                                            false, choices(profiles_.themes)}),
-           field(ControlKind::HideNumpad, {"hide-numpad",
-                                           "Hide numpad",
-                                           "",
-                                           ControlStyle::Checkbox,
-                                           pending_hide_numpad_,
-                                           {},
-                                           true}),
-           field(ControlKind::UseDragToMove, {"use-drag-to-move",
-                                              "Use Drag to Move",
-                                              "",
-                                              ControlStyle::Checkbox,
-                                              pending_use_drag_to_move_,
-                                              {},
-                                              true}),
-           field(ControlKind::AutoLeveling, {"auto-leveling",
-                                             "Auto leveling",
-                                             "",
-                                             ControlStyle::Checkbox,
-                                             pending_auto_leveling_,
-                                             {},
-                                             true})}},
+          {field(ControlKind::ChooseTheme,
+                 dropdown("theme", "Theme", pending_.theme, choices(profiles_.themes))),
+           field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
+           field(ControlKind::UseDragToMove,
+                 checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
+           field(ControlKind::AutoLeveling,
+                 checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))}},
          {"experimental",
           "Experimental",
-          {field(ControlKind::ReplaceNativeKeyboard, {"replace-native-keyboard",
-                                                      "Replace native keyboard:",
-                                                      "",
-                                                      ControlStyle::Checkbox,
-                                                      pending_replace_native_keyboard_,
-                                                      {},
-                                                      false,
-                                                      300}),
+          {field(ControlKind::ReplaceNativeKeyboard,
+                 checkbox("replace-native-keyboard", "Replace native keyboard",
+                          pending_replace_native_keyboard_)),
            field(ControlKind::StartWithSteamos,
-                 {"start-with-steamos",
-                  "Start with SteamOS",
-                  "",
-                  ControlStyle::Checkbox,
-                  pending_start_with_steamos_ && pending_replace_native_keyboard_,
-                  {},
-                  false,
-                  300,
-                  pending_replace_native_keyboard_})}}});
+                 checkbox("start-with-steamos", "Start with SteamOS",
+                          pending_start_with_steamos_ && pending_replace_native_keyboard_,
+                          pending_replace_native_keyboard_))}}});
 }
 PanelView App::view() const {
     PanelView v;
@@ -416,6 +413,9 @@ PanelView App::view() const {
                !text_ready_) {
         v.status = "Text delivery unavailable. Waiting for the compositor connection to recover.";
     }
+    if (swipe_track_ && swipe_track_->swiping) {
+        v.swipe_trail = swipe_track_->trail;
+    }
     for (const auto& [pointer, target] : hovered_) {
         (void)pointer;
         if (target.kind == HoverTarget::Kind::Key) {
@@ -445,6 +445,9 @@ bool App::move(unsigned pointer, double x, double y) {
         return false;
     }
     pointer_positions_[pointer] = {x, y};
+    if (swipe_track_ && swipe_track_->pointer == pointer) {
+        swipe_move(x, y);
+    }
     if (settings_open_ && settings_ui_.move(pointer, x, y)) {
         pressed_controls_.clear();
         hovered_.clear();
@@ -506,6 +509,19 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         const auto modifiers = keyboard_.modifiers();
+        if (swipe_enabled() && swipe_keyboard_->key_index.contains(key->id) && !keymap_->composing() &&
+            std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
+                return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
+            })) {
+            return swipe_down(pointer, *key, x, y, now, modifiers);
+        }
+        // Any other key ends the swiped word: deliver it first, then forget its alternatives.
+        if (swipe_track_ && swipe_track_->pointer != pointer) {
+            return false; // Only one pointer types while another is swiping.
+        }
+        finish_swipe(true);
+        discard_swipe();
+        swipe_space_ = false;
         const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
         const bool text_local = !ime_local && text_key(*key, modifiers);
         const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
@@ -617,6 +633,9 @@ bool App::up(unsigned pointer, double x, double y) {
         dirty = true;
         return false;
     }
+    if (swipe_track_ && swipe_track_->pointer == pointer) {
+        return swipe_up(pointer, x, y);
+    }
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
@@ -636,6 +655,11 @@ bool App::up(unsigned pointer, double x, double y) {
 }
 
 void App::cancel_pointer(unsigned pointer) {
+    if (swipe_track_ && swipe_track_->pointer == pointer) {
+        swipe_track_.reset();
+    }
+    // The laser may now click elsewhere in the target, so replacing is unsafe.
+    discard_swipe();
     settings_ui_.cancel_pointer(pointer);
     pointer_positions_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
@@ -646,6 +670,12 @@ void App::cancel_pointer(unsigned pointer) {
 void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
     pointer_positions_.clear();
+    // An unfinished swipe and an undelivered decode are discarded like preedit.
+    swipe_track_.reset();
+    swipe_waiting_ = false;
+    ++swipe_request_;
+    discard_swipe();
+    swipe_space_ = false;
     if (discard_composition) {
         if (keymap_) {
             keymap_->cancel_compose();
@@ -684,6 +714,7 @@ bool App::tick(double now) {
         }
     }
     refresh_typing();
+    finish_swipe(false);
     dirty |= output_.tick(now);
     update_output_status();
     return dirty || renderer.animating();
@@ -731,6 +762,7 @@ void App::show_settings() {
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
+    pending_swipe_typing_ = settings_.swipe_typing;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -772,6 +804,7 @@ void App::activate(Selection selection) {
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
     pending_ = settings_.active;
+    prepare_swipe();
     refresh_typing();
     status_.clear();
     update_settings_ui();
@@ -894,6 +927,7 @@ void App::reload() {
         settings_.auto_leveling = updated_settings.auto_leveling;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
+        settings_.swipe_typing = updated_settings.swipe_typing;
         settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
@@ -905,6 +939,9 @@ void App::reload() {
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
+    pending_swipe_typing_ = settings_.swipe_typing;
+    swipe_prepared_.clear(); // Reread an edited word list.
+    prepare_swipe();
     rebuild_cycle_entries();
     update_settings_ui();
     settings_ui_.reset();
@@ -1373,6 +1410,8 @@ void App::action(const ControlAction& command) {
         settings_.auto_leveling = pending_auto_leveling_;
         settings_.replace_native_keyboard = pending_replace_native_keyboard_;
         settings_.start_with_steamos = pending_start_with_steamos_;
+        settings_.swipe_typing = pending_swipe_typing_;
+        prepare_swipe();
         default_ = settings_.active;
         persisted_active_ = settings_.active;
         startup_status_.clear();
@@ -1417,6 +1456,11 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::NativeFallback) {
         cancel();
         native_fallback_ = true;
+    } else if (kind == ControlKind::SwipeTyping && swipe_supported(pending_.language)) {
+        pending_swipe_typing_ = !pending_swipe_typing_;
+        update_settings_ui();
+    } else if (kind == ControlKind::SwipeCandidate) {
+        choose_swipe(command.index);
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
         update_settings_ui();
@@ -1444,6 +1488,231 @@ void App::action(const ControlAction& command) {
         }
         update_settings_ui();
     }
+}
+bool App::swipe_supported(const std::string& language_id) const {
+    const auto language = profiles_.languages.find(language_id);
+    if (language == profiles_.languages.end() || language->second.swipe_lexicon.empty() ||
+        language->second.input_method != "xkb" || language->second.keymap == "jp" ||
+        options_.input == InputBackend::Uinput) {
+        return false; // Swipe words are Unicode text; physical-key modes cannot send them.
+    }
+    if (!options_.swipe_encoder && !swipe_engine_installed(options_.data_dir)) {
+        return false;
+    }
+    return !swipe_lexicon_path(options_.data_dir, options_.config_dir, language->second.swipe_lexicon)
+                .empty();
+}
+void App::prepare_swipe() {
+    swipe_track_.reset();
+    discard_swipe();
+    if (!settings_.swipe_typing || !swipe_supported(settings_.active.language)) {
+        swipe_keyboard_.reset(); // The service stays idle; re-enabling reuses its encoder.
+        return;
+    }
+    const auto& layout = profiles_.layouts.at(settings_.active.layout);
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    const auto lexicon =
+        swipe_lexicon_path(options_.data_dir, options_.config_dir, language.swipe_lexicon);
+    const auto prepared = layout.id + '\n' + language.id + '\n' + lexicon.string();
+    if (swipe_keyboard_ && prepared == swipe_prepared_) {
+        return;
+    }
+    auto keyboard = build_swipe_keyboard(layout, *keymap_);
+    if (!keyboard) {
+        swipe_keyboard_.reset();
+        return;
+    }
+    swipe_keyboard_ = std::make_shared<const SwipeKeyboard>(std::move(*keyboard));
+    swipe_prepared_ = prepared;
+    if (!swipe_) {
+        auto factory = options_.swipe_encoder;
+        if (!factory) {
+            factory = [data_dir = options_.data_dir] {
+                return load_swipe_encoder(swipe_model_path(data_dir));
+            };
+        }
+        swipe_ = std::make_unique<SwipeService>(std::move(factory));
+    }
+    swipe_->prepare(swipe_keyboard_, lexicon);
+}
+bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
+                     const std::set<int>& mods) {
+    if (!backend_ready_ || keyboard_.pointer_pressed(pointer) || swipe_track_) {
+        return false;
+    }
+    finish_swipe(true);
+    discard_swipe();
+    if (!output_.admit(true, now)) {
+        update_output_status();
+        dirty = true;
+        return false;
+    }
+    SwipeTrack track;
+    track.pointer = pointer;
+    // Capture the tap's character before down() consumes a latched Shift.
+    track.symbol = keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num());
+    track.shifted = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    // A local press shows the key and owns the pointer; nothing is sent until release.
+    if (!keyboard_.down(pointer, key, now, true, 0)) {
+        return false;
+    }
+    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    track.points.push_back({lx, ly, monotonic_seconds()});
+    track.trail.emplace_back(x, y);
+    swipe_track_ = std::move(track);
+    dirty = true;
+    return true;
+}
+void App::swipe_move(double x, double y) {
+    auto& track = *swipe_track_;
+    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    track.points.push_back({lx, ly, monotonic_seconds()});
+    track.trail.emplace_back(x, y);
+    const auto& start = track.points.front();
+    if (!track.swiping && std::hypot(lx - start.x, ly - start.y) > swipe_keyboard_->key_width / 2) {
+        // Leaving the start key turns the press into a swipe. Release only the
+        // local visual press; it never sent anything.
+        track.swiping = true;
+        keyboard_.cancel_pointer(track.pointer);
+    }
+    if (track.swiping) {
+        dirty = true;
+    }
+}
+bool App::swipe_up(unsigned pointer, double x, double y) {
+    auto track = std::move(*swipe_track_);
+    swipe_track_.reset();
+    if (!track.swiping) {
+        keyboard_.up(pointer);
+        const auto text = keymap_->compose(track.symbol);
+        if (!text.empty() && options_.input != InputBackend::None && !output_.commit_text(text)) {
+            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        }
+        swipe_space_ = false;
+    } else {
+        const auto [lx, ly] = renderer.layout_point(view(), x, y);
+        track.points.push_back({lx, ly, monotonic_seconds()});
+        swipe_shifted_ = track.shifted;
+        swipe_caps_ = keyboard_.caps();
+        swipe_->decode(++swipe_request_, std::move(track.points));
+        swipe_waiting_ = true;
+    }
+    move(pointer, x, y);
+    dirty = true;
+    return true;
+}
+void App::finish_swipe(bool wait) {
+    if (!swipe_waiting_ || !swipe_) {
+        return;
+    }
+    const auto result = wait ? swipe_->wait_result() : swipe_->take_result();
+    if (!result) {
+        if (wait) {
+            swipe_waiting_ = false;
+        }
+        return;
+    }
+    if (result->id != swipe_request_) {
+        return; // A cancelled request; the current one is still outstanding.
+    }
+    swipe_waiting_ = false;
+    apply_swipe(*result);
+}
+void App::apply_swipe(const SwipeService::Result& result) {
+    dirty = true;
+    if (!result.error.empty()) {
+        status_ = "Swipe typing unavailable: " + result.error;
+        return;
+    }
+    if (result.words.empty()) {
+        status_ = "No word matched the swipe.";
+        return;
+    }
+    swipe_candidates_.clear();
+    for (const auto& word : result.words) {
+        std::string cased = word;
+        if (swipe_caps_) {
+            auto* upper = g_utf8_strup(word.c_str(), -1);
+            cased = upper;
+            g_free(upper);
+        } else if (swipe_shifted_) {
+            char first[8]{};
+            g_unichar_to_utf8(g_unichar_toupper(g_utf8_get_char(word.c_str())), first);
+            cased = first + std::string(g_utf8_next_char(word.c_str()));
+        }
+        // Case variants of one word (help/Help) are a single choice; keep the better one.
+        auto* folded = g_utf8_casefold(cased.c_str(), -1);
+        const bool duplicate = std::any_of(swipe_candidates_.begin(), swipe_candidates_.end(),
+                                           [&](const std::string& other) {
+                                               auto* other_folded = g_utf8_casefold(other.c_str(), -1);
+                                               const bool same = g_strcmp0(folded, other_folded) == 0;
+                                               g_free(other_folded);
+                                               return same;
+                                           });
+        g_free(folded);
+        if (!duplicate) {
+            swipe_candidates_.push_back(std::move(cased));
+        }
+    }
+    swipe_selected_ = 0;
+    const auto text = (swipe_space_ ? " " : "") + swipe_candidates_.front();
+    if (options_.input != InputBackend::None && !(output_.admit(true) && output_.commit_text(text))) {
+        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        swipe_candidates_.clear();
+        return;
+    }
+    status_.clear();
+    swipe_committed_ = swipe_candidates_.front();
+    swipe_space_ = true;
+}
+void App::choose_swipe(int index) {
+    if (index < 0 || index >= static_cast<int>(swipe_candidates_.size()) || index == swipe_selected_) {
+        return;
+    }
+    const auto& word = swipe_candidates_[static_cast<std::size_t>(index)];
+    if (options_.input != InputBackend::None) {
+        // Replace exactly the characters this keyboard just sent.
+        const auto count = static_cast<std::size_t>(g_utf8_strlen(swipe_committed_.c_str(), -1));
+        if (output_.replaces_text()) {
+            // Gamescope types text through a temporary keymap. Separate libei
+            // Backspace keys could interleave with it and type wrong characters,
+            // so deletion travels in the same ordered text request.
+            if (!output_.admit(true) || !output_.replace_text(count, word)) {
+                status_ = "Text was not sent. Release other keys and check the target/input connection.";
+                discard_swipe();
+                return;
+            }
+            swipe_committed_ = word;
+            swipe_selected_ = index;
+            dirty = true;
+            return;
+        }
+        // Steam fields acknowledge each Backspace before the text. Each is one
+        // queue entry; refuse rather than leave a partial deletion.
+        if (!output_.can_queue(count + 1)) {
+            status_ = "Wait for typing to finish, then choose again.";
+            return;
+        }
+        for (std::size_t i = 0; i < count; ++i) {
+            output_.send(KEY_BACKSPACE, 1);
+            output_.send(KEY_BACKSPACE, 0);
+        }
+        if (!output_.commit_text(word)) {
+            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+            discard_swipe();
+            return;
+        }
+    }
+    swipe_committed_ = word;
+    swipe_selected_ = index;
+    dirty = true;
+}
+void App::discard_swipe() {
+    if (!swipe_candidates_.empty()) {
+        dirty = true;
+    }
+    swipe_candidates_.clear();
+    swipe_committed_.clear();
 }
 bool App::replacement_ready() const {
     const auto& language = profiles_.languages.at(settings_.active.language);

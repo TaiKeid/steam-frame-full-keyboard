@@ -117,6 +117,14 @@ bool OutputController::text_press(unsigned pointer, const std::string& text, dou
     }
     return enqueue_text(text, entry);
 }
+bool OutputController::replace_text(std::size_t delete_before, const std::string& text) {
+    if (failed_ || (queue_.empty() && target_.output_blocked())) {
+        return false;
+    }
+    auto entry = std::make_shared<Entry>();
+    entry->delete_before = delete_before;
+    return enqueue_text(text, entry);
+}
 bool OutputController::commit_text(const std::string& text) {
     if (failed_) {
         return false;
@@ -243,6 +251,7 @@ void OutputController::fail() {
         if (!boundary && (!entry->repeat || entry == queue_.front())) {
             auto saved = std::make_shared<Entry>();
             saved->text = entry->text;
+            saved->delete_before = entry->delete_before; // A retry repeats the same request.
             retry_.push_back(saved);
         } else {
             discarded = true;
@@ -278,7 +287,8 @@ void OutputController::drain() {
                 return;
             }
             entry->started = true;
-            if (!target_.commit_text(entry->text)) {
+            if (!(entry->delete_before ? target_.replace_text(entry->delete_before, entry->text)
+                                       : target_.commit_text(entry->text))) {
                 if (target_.text_pending()) {
                     return;
                 }

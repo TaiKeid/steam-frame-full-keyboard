@@ -55,6 +55,11 @@ class NativeReplacement : public KeySink {
     bool can_resume() const override { return local_.can_resume(); }
     bool text_available() override { return local_.text_available(); }
     bool commit_text(const std::string& text) override;
+    // Steam fields order Backspace through acknowledged helper keys instead.
+    bool replaces_text() override { return !remote_ && local_.replaces_text(); }
+    bool replace_text(std::size_t delete_before, const std::string& text) override {
+        return !remote_ && !pending_id_ && local_.replace_text(delete_before, text);
+    }
     bool text_pending() const override { return pending_id_ != 0 || local_.text_pending(); }
     void cancel_text() override;
     bool output_blocked() const override { return !remote_ && local_.output_blocked(); }

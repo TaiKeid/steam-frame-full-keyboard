@@ -11,12 +11,13 @@ struct SettingField {
     ControlStyle style{ControlStyle::Dropdown};
     bool checked{};
     std::vector<SettingChoice> choices{};
-    bool label_after{};
-    // An inline label has a small row inset and precedes its checkbox.
-    double inline_label_width{};
+    // Every row puts its label at the left edge and its control at the right edge.
     bool enabled{true};
     // Dropdowns use this kind for choosing a value; their row opens generically.
     ControlAction action{};
+    // A small line under the field, dimmed with it. It occupies the gap below the
+    // row, so only the last field of a card may have one.
+    std::string note{};
 };
 struct SettingsCard {
     std::string id, title;

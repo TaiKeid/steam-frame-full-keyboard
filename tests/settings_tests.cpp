@@ -1149,13 +1149,17 @@ void behavior_settings() {
     require(numpad_bounds.x == movement_bounds.x && movement_bounds.x == leveling_bounds.x &&
                 movement_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y,
             "General checkboxes form one evenly spaced vertical column");
-    for (const auto* text : {"Hide numpad", "Use Drag to Move", "Auto leveling"}) {
+    const auto theme_bounds = control(settings_view, "theme").bounds;
+    require(movement_bounds.x + movement_bounds.width == theme_bounds.x + theme_bounds.width,
+            "General controls share one right edge");
+    for (const auto* text : {"Theme", "Hide numpad", "Use Drag to Move", "Auto leveling"}) {
         require(std::any_of(settings_view.field_labels.begin(), settings_view.field_labels.end(),
                             [&](const FieldLabel& field) {
                                 return field.text == text && field.left &&
-                                       field.bounds.x > movement_bounds.x + movement_bounds.width;
+                                       field.bounds.x == settings_view.cards[1].bounds.x + 30 &&
+                                       field.bounds.x + field.bounds.width < movement_bounds.x;
                             }),
-                "General checkbox labels are on the right");
+                "General labels start at the left inset, before their controls");
     }
     app.paint(2);
     app.renderer.write_png("/tmp/framekeyboard-behavior-settings.png");
@@ -1300,12 +1304,13 @@ void native_replacement_settings() {
     const auto checkbox = control(view, "replace-native-keyboard").bounds;
     const auto label =
         std::find_if(view.field_labels.begin(), view.field_labels.end(),
-                     [](const FieldLabel& f) { return f.text == "Replace native keyboard:"; });
+                     [](const FieldLabel& f) { return f.text == "Replace native keyboard"; });
     require(view.cards.back().title == "Experimental" && label != view.field_labels.end(),
             "replacement belongs to Experimental");
     require(label->left && label->bounds.x == experimental.x + 30 &&
-                checkbox.x > label->bounds.x + label->bounds.width,
-            "experimental label has a small inset and precedes checkbox");
+                checkbox.x > label->bounds.x + label->bounds.width &&
+                checkbox.x + checkbox.width == experimental.x + experimental.width - 24,
+            "experimental label is at the left inset and its checkbox at the right edge");
     click(app, "replace-native-keyboard");
     require(!app.replace_native_keyboard(), "replacement edit stays pending");
     require(control(app.view(), "start-with-steamos").enabled,

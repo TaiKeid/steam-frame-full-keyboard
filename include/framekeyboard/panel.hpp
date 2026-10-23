@@ -55,7 +55,9 @@ enum class ControlKind {
     CjkCancel,
     CjkNext,
     CjkPrev,
-    CjkCandidate
+    CjkCandidate,
+    SwipeTyping,
+    SwipeCandidate
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -86,6 +88,7 @@ struct FieldLabel {
     Rect bounds, clip;
     bool left{};
     bool enabled{true};
+    double size{22};
 };
 struct PanelView {
     const Layout* layout{};
@@ -104,6 +107,8 @@ struct PanelView {
     std::string preedit;
     std::map<std::string, std::string> key_labels;
     std::set<std::string> hovered_keys, hovered_controls;
+    // Case coordinates of the swipe in progress, drawn above the keys.
+    std::vector<std::pair<double, double>> swipe_trail;
 };
 
 bool hidden_key(const PanelView& view, const Key& key);
@@ -122,6 +127,8 @@ class PanelRenderer {
     // force_full is used by pixel-equivalence tests and rendering benchmarks.
     void paint(const PanelView& view, double now, bool force_full = false);
     const Key* hit_key(const PanelView& view, double x, double y) const;
+    // Case coordinates to the layout's own key coordinates, as hit_key uses.
+    std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }
     cairo_surface_t* surface() const { return surface_; }
     std::vector<unsigned char> rgba() const;

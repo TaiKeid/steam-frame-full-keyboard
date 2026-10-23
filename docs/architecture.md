@@ -155,6 +155,12 @@ When an app tab such as Brave is active, Steam's hidden main dashboard overlay r
 
 The renderer reserves space for preedit/candidates during Japanese, Chinese and Korean composition. Kana/shift labels come from the selected language profile. Settings, profile changes, target-focus loss, hiding, dragging and recentering discard unfinished composition. Laser FocusLeave releases only the identified controller's keys and retains composition because it does not change application focus. Failed text submission keeps the preedit for recovery. The protocol reports submission availability, not application acceptance; application coverage needs separate tests.
 
+## Swipe typing
+
+`SwipeKeyboard` derives swipe letters from the active layout and the keymap's unshifted characters, so geometry and language stay independent. `SwipeLexicon` maps a word list onto those keys as a trie of collapsed key paths, folding letters without their own key to their base. `SwipeService` owns the encoder and the lexicon on one worker thread: module loading, list parsing, resampling, inference and the CTC prefix beam search never run on the VR loop. Results carry a request ID; cancellation bumps it so late results are ignored. App alone sends text. A later key press first waits for an outstanding swipe so the word cannot be overtaken. The trail repaints one pixel-aligned rectangle grown to whole keys: fractional clip edges leave translucent seams, and clips through a key can drop legend glyph fragments.
+
+The encoder is FUTO Swipe's `honorable_sturgeon` export, run by ExecuTorch with XNNPACK inside the optional `framekeyboard-swipe.so`, loaded with `dlopen` from beside the executable like the CJK adapters. ExecuTorch symbols stay private to that module, and its thread pool is limited to one thread. The beam search and scoring are this project's own (FUTO's GPL-3 library is not used); weights of 0.8 for log-frequency and 1.0 per letter were tuned on held-out FUTO swipes mapped onto these layouts. See [swipe typing](swipe-typing.md) for measurements and remaining work.
+
 ## Code map
 
 | Area | Files |
@@ -166,6 +172,7 @@ The renderer reserves space for preedit/candidates during Japanese, Chinese and 
 | Native rendering and hit regions | `src/panel.cpp` |
 | Settings, profile changes and composition dispatch | `src/app.cpp`, `src/settings_ui.cpp` |
 | Japanese reading and conversion | `src/japanese.cpp` |
+| Swipe keys, word lists, decoding and worker | `src/swipe.cpp`, `include/framekeyboard/swipe.hpp`; encoder module `src/swipe_engine.cpp` |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |

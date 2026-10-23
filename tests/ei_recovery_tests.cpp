@@ -188,7 +188,8 @@ struct TextServer {
     wl_display* display{wl_display_create()};
     wl_resource* input{};
     std::string pending;
-    std::vector<std::string> commits;
+    std::uint32_t action{};
+    std::vector<std::string> commits; // A delete_left action commit is recorded as "\b".
     unsigned connections{};
     explicit TextServer(const fs::path& socket) {
         require(display && wl_display_add_socket(display, socket.c_str()) == 0,
@@ -214,14 +215,21 @@ struct TextServer {
                             [](wl_client*, wl_resource* resource, std::uint32_t) {
                                 auto& self =
                                     *static_cast<TextServer*>(wl_resource_get_user_data(resource));
-                                self.commits.push_back(self.pending);
+                                self.commits.push_back(self.action ==
+                                                               GAMESCOPE_INPUT_METHOD_ACTION_DELETE_LEFT
+                                                           ? "\b"
+                                                           : self.pending);
                                 self.pending.clear();
+                                self.action = 0;
                             },
                             [](wl_client*, wl_resource* resource, const char* text) {
                                 static_cast<TextServer*>(wl_resource_get_user_data(resource))->pending =
                                     text;
                             },
-                            [](wl_client*, wl_resource*, std::uint32_t) {},
+                            [](wl_client*, wl_resource* resource, std::uint32_t action) {
+                                static_cast<TextServer*>(wl_resource_get_user_data(resource))->action =
+                                    action;
+                            },
                             nullptr,
                             nullptr,
                             nullptr,
@@ -289,6 +297,17 @@ void asynchronous_text() {
         return wrapper.commit_text("retry");
     });
     require(text.commits == std::vector<std::string>{"slow", "retry"}, "no automatic duplicate commit");
+    // A swipe alternative deletes and inserts through the same ordered stream.
+    require(wrapper.replaces_text(), "local Gamescope text can replace a word");
+    require(!wrapper.replace_text(3, "help") && wrapper.text_pending(), "replacement is asynchronous");
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return wrapper.replace_text(3, "help");
+    });
+    require(text.commits == std::vector<std::string>{"slow", "retry", "\b", "\b", "\b", "help"},
+            "deletions precede the replacement text in one request stream");
+    text.commits.resize(2);
     sink->send(32, 1);
     sink->send(32, 0);
     server.until([&] { return server.keys.size() == 2; });

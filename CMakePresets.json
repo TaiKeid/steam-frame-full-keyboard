@@ -7,7 +7,8 @@
       "displayName": "Host development build",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/host",
-      "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"}
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug",
+                         "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}"}
     },
     {
       "name": "frame-arm64",
@@ -15,7 +16,8 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/frame-arm64",
       "toolchainFile": "${sourceDir}/cmake/steam-frame-aarch64.cmake",
-      "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo"}
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                         "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_FRAME}"}
     }
   ],
   "buildPresets": [

@@ -44,7 +44,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -78,6 +78,46 @@ foreach(engine PYZY HANGUL)
     else()
         message(STATUS "${engine} unavailable: this host build cannot compose that language")
     endif()
+endforeach()
+
+# Optional swipe typing engine: the FUTO Swipe encoder through a pinned
+# ExecuTorch build (tools/build-executorch.sh). Without it the build still
+# works and Settings keeps swipe typing disabled.
+set(FRAMEKEYBOARD_EXECUTORCH_DIR "" CACHE PATH "ExecuTorch install prefix for the swipe engine")
+set(FRAMEKEYBOARD_SWIPE_ENGINE OFF)
+if(FRAMEKEYBOARD_EXECUTORCH_DIR)
+    set(executorch_DIR "${FRAMEKEYBOARD_EXECUTORCH_DIR}/lib/cmake/ExecuTorch")
+    find_package(executorch REQUIRED CONFIG NO_CMAKE_FIND_ROOT_PATH)
+    add_library(swipe_engine MODULE src/swipe_engine.cpp)
+    target_include_directories(swipe_engine PRIVATE include)
+    target_link_libraries(swipe_engine PRIVATE executorch extension_module_static extension_tensor
+        extension_threadpool xnnpack_backend portable_ops_lib portable_kernels)
+    target_compile_options(swipe_engine PRIVATE -Wall -Wextra)
+    # Keep ExecuTorch/XNNPACK symbols private to the module.
+    target_link_options(swipe_engine PRIVATE "-Wl,--exclude-libs,ALL")
+    if(CMAKE_CROSSCOMPILING)
+        target_link_options(swipe_engine PRIVATE -fuse-ld=lld)
+    endif()
+    set_target_properties(swipe_engine PROPERTIES
+        PREFIX "" OUTPUT_NAME "framekeyboard-swipe"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/engines"
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(keyboard_core swipe_engine)
+    install(TARGETS swipe_engine LIBRARY DESTINATION lib/framekeyboard)
+    install(FILES third_party/futo-swipe/model_fp32.pte third_party/futo-swipe/LICENSE.md
+            DESTINATION share/framekeyboard/swipe/futo-swipe)
+    set(FRAMEKEYBOARD_SWIPE_ENGINE ON)
+    # Development binaries find the model beside themselves, as for the VR manifests.
+    configure_file(third_party/futo-swipe/model_fp32.pte swipe/futo-swipe/model_fp32.pte COPYONLY)
+elseif(CMAKE_CROSSCOMPILING)
+    message(WARNING "FRAMEKEYBOARD_EXECUTORCH_DIR is unset: this release cannot offer swipe typing")
+else()
+    message(STATUS "Swipe engine unavailable: set FRAMEKEYBOARD_EXECUTORCH_DIR to build it")
+endif()
+file(GLOB SWIPE_LEXICONS CONFIGURE_DEPENDS swipe/lexicons/*.tsv)
+foreach(lexicon ${SWIPE_LEXICONS})
+    get_filename_component(name "${lexicon}" NAME)
+    configure_file("${lexicon}" "swipe/lexicons/${name}" COPYONLY)
 endforeach()
 
 # Link the matching architecture from the sysroot; embed only the device runtime path.
@@ -188,6 +228,13 @@ if(BUILD_TESTING)
     add_executable(japanese-tests tests/japanese_tests.cpp)
     target_link_libraries(japanese-tests PRIVATE keyboard_core)
     add_test(NAME japanese-input COMMAND japanese-tests)
+    add_executable(swipe-tests tests/swipe_tests.cpp)
+    target_link_libraries(swipe-tests PRIVATE keyboard_core)
+    target_compile_options(swipe-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME swipe COMMAND swipe-tests --core)
+    # Real encoder and bundled English list; skipped when the engine is not built.
+    add_test(NAME swipe-model COMMAND swipe-tests --model)
+    set_tests_properties(swipe-model PROPERTIES SKIP_RETURN_CODE 77)
     add_executable(settings-tests tests/settings_tests.cpp)
     target_link_libraries(settings-tests PRIVATE keyboard_core)
     target_compile_options(settings-tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -252,6 +299,7 @@ endif()
 install(TARGETS framekeyboard framekeyboard-native-guard RUNTIME DESTINATION bin)
 install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
+install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
 install(FILES bridge/native_bridge.py bridge/steam_bridge.js DESTINATION share/framekeyboard/bridge)
 install(FILES update/update_helper.py DESTINATION share/framekeyboard/update)
 install(FILES third_party/README.md DESTINATION third_party)
@@ -260,5 +308,10 @@ install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overla
 install(FILES third_party/libei/COPYING third_party/libei/README.md third_party/libei/provenance.json DESTINATION third_party/libei)
 
 install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
+if(FRAMEKEYBOARD_SWIPE_ENGINE)
+    install(FILES third_party/futo-swipe/LICENSE.md third_party/futo-swipe/README.md
+            DESTINATION third_party/futo-swipe)
+    install(DIRECTORY third_party/executorch DESTINATION third_party)
+endif()
 
 install(FILES LICENSE README.md CHANGELOG.md CONTRIBUTING.md DESTINATION .)

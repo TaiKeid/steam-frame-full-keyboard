@@ -376,6 +376,10 @@ PanelRenderer::PanelRenderer() {
 PanelRenderer::~PanelRenderer() {
     cairo_surface_destroy(surface_);
 }
+std::pair<double, double> PanelRenderer::layout_point(const PanelView& view, double x, double y) const {
+    const auto p = placement(view);
+    return {(x - p.x) / p.scale, (y - p.y) / p.scale};
+}
 const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) const {
     if (view.settings) {
         return nullptr;
@@ -446,6 +450,44 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             (changed_target || animation.amount != old_amount ||
              previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id))) {
             damage.push_back(key_bounds_.at(key.id));
+        }
+    }
+    // A trail can cross many keys; repaint the union of its old and new extent.
+    if (!full && previous_->view.swipe_trail != view.swipe_trail) {
+        double left = panel_width, top = panel_height, right = 0, bottom = 0;
+        const std::vector<std::pair<double, double>>* trails[] = {&previous_->view.swipe_trail,
+                                                                  &view.swipe_trail};
+        for (const auto* trail : trails) {
+            for (const auto& [px, py] : *trail) {
+                left = std::min(left, px);
+                top = std::min(top, py);
+                right = std::max(right, px);
+                bottom = std::max(bottom, py);
+            }
+        }
+        if (right >= left) {
+            // Laser points are fractional. Like key bounds, round outwards to
+            // whole pixels: an antialiased clip edge would partly clear pixels
+            // and leave dark, translucent seams that build up frame by frame.
+            left = std::floor(left - 8);
+            top = std::floor(top - 8);
+            Rect trail{left, top, std::ceil(right + 8) - left, std::ceil(bottom + 8) - top};
+            // A clip edge through a key can drop parts of its legend glyphs, so
+            // grow the region to whole keys. Keep one rectangle: overlapping
+            // clip rectangles composite antialiased edges differently.
+            const Rect core = trail;
+            for (const auto& [id, bounds] : key_bounds_) {
+                if (bounds.x < core.x + core.width && bounds.x + bounds.width > core.x &&
+                    bounds.y < core.y + core.height && bounds.y + bounds.height > core.y) {
+                    const double r = std::max(trail.x + trail.width, bounds.x + bounds.width);
+                    const double b = std::max(trail.y + trail.height, bounds.y + bounds.height);
+                    trail.x = std::min(trail.x, bounds.x);
+                    trail.y = std::min(trail.y, bounds.y);
+                    trail.width = r - trail.x;
+                    trail.height = b - trail.y;
+                }
+            }
+            damage.push_back(trail);
         }
     }
     // Toolbar changes are infrequent and may overlap custom key geometry.
@@ -538,6 +580,20 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         cairo_restore(cr);
     }
+    if (view.swipe_trail.size() > 1 && !view.settings) {
+        cairo_save(cr);
+        cairo_set_line_width(cr, 6);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+        cairo_move_to(cr, view.swipe_trail.front().first, view.swipe_trail.front().second);
+        for (const auto& [px, py] : view.swipe_trail) {
+            cairo_line_to(cr, px, py);
+        }
+        // Legend color stays readable over both key faces and the case.
+        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .6);
+        cairo_stroke(cr);
+        cairo_restore(cr);
+    }
     if (view.composing && !view.settings) {
         const auto& method = view.language->input_method;
         const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
@@ -565,7 +621,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_save(cr);
             cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
             cairo_clip(cr);
-            label(cr, field.text, field.bounds, 22, view.language->font,
+            label(cr, field.text, field.bounds, field.size, view.language->font,
                   field.enabled ? t.legend : disabled_legend(t), field.left,
                   field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
             cairo_restore(cr);

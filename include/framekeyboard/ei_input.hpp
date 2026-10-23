@@ -21,6 +21,8 @@ class EiSink : public KeySink {
     bool can_resume() const override { return true; }
     bool text_available() override;
     bool commit_text(const std::string& text) override;
+    bool replaces_text() override { return text_available(); }
+    bool replace_text(std::size_t delete_before, const std::string& text) override;
     bool text_pending() const override { return text_ && text_->pending(); }
     bool output_blocked() const override { return text_ && text_->busy(); }
     void cancel_text() override {

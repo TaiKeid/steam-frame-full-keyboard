@@ -125,6 +125,10 @@ bool EiSink::text_available() {
 bool EiSink::commit_text(const std::string& text) {
     return pump() && !input_reset_ && held_.empty() && text_available() && text_->commit(text);
 }
+bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
+    return pump() && !input_reset_ && held_.empty() && text_available() &&
+           text_->commit(text, delete_before);
+}
 bool EiSink::pump() {
     if (disconnected_) {
         if (clock_() < retry_at_) {

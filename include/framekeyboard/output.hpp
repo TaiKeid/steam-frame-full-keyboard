@@ -21,6 +21,10 @@ class OutputController : public KeySink {
     bool tick(double now);
     bool retry();
     bool retry_available() const { return !retry_.empty(); }
+    // Whether a sequence of this many entries fits now, so it is never cut short.
+    bool can_queue(std::size_t entries) const {
+        return enabled_ && !failed_ && queue_.size() + entries <= capacity;
+    }
     std::string retry_text() const;
     std::optional<std::string> take_status();
     void set_enabled(bool value);
@@ -33,6 +37,8 @@ class OutputController : public KeySink {
     bool can_resume() const override { return target_.can_resume(); }
     bool text_available() override { return target_.text_available(); }
     bool commit_text(const std::string& text) override;
+    bool replaces_text() override { return target_.replaces_text(); }
+    bool replace_text(std::size_t delete_before, const std::string& text) override;
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
@@ -43,6 +49,7 @@ class OutputController : public KeySink {
   private:
     struct Entry {
         std::string text;
+        std::size_t delete_before{}; // Text entries only: deletions sent with the text.
         std::vector<int> codes, acquired;
         std::set<int> released_modifiers;
         std::size_t next{};

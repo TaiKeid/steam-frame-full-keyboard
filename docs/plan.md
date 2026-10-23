@@ -40,4 +40,4 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
 
-No universal native keyboard replacement, streamed PC input, speech recognition, swipe typing, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+Swipe typing is planned in [swipe typing](swipe-typing.md) and not yet implemented. No universal native keyboard replacement, streamed PC input, speech recognition, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

@@ -12,7 +12,9 @@ class GamescopeText {
     ~GamescopeText();
     bool ready();
     bool failed() const;
-    bool commit(const std::string& text);
+    // Deletions run as Gamescope delete_left actions before the text, in the
+    // same request stream, so they cannot interleave with its temporary keymap.
+    bool commit(const std::string& text, std::size_t delete_before = 0);
     bool pending() const;
     // Cancellation/timeout cannot undo an already submitted Wayland request.
     // Keep its ordering barrier until the sync arrives, even if the caller stops waiting.

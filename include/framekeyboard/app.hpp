@@ -8,6 +8,7 @@
 #include "placement.hpp"
 #include "settings_ui.hpp"
 #include "settings_writer.hpp"
+#include "swipe.hpp"
 #include <atomic>
 #include <csignal>
 #include <optional>
@@ -27,6 +28,8 @@ struct Options {
     bool start_enabled{false};
     bool autostart{};
     bool background_update{};
+    // Tests replace the optional swipe engine module; empty uses the installed one.
+    SwipeEncoderFactory swipe_encoder;
 };
 
 class App {
@@ -125,6 +128,19 @@ class App {
     void choose_cjk(int index);
     bool unicode_mode() const;
     bool text_key(const Key& key, const std::set<int>& mods) const;
+    // Swipe typing. Decoding runs on SwipeService's worker; App alone sends text.
+    bool swipe_supported(const std::string& language) const;
+    bool swipe_enabled() const { return swipe_ && swipe_keyboard_; }
+    void prepare_swipe();
+    bool swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
+                    const std::set<int>& mods);
+    void swipe_move(double x, double y);
+    bool swipe_up(unsigned pointer, double x, double y);
+    // A pending word must reach the target before any later key.
+    void finish_swipe(bool wait);
+    void apply_swipe(const SwipeService::Result& result);
+    void choose_swipe(int index);
+    void discard_swipe();
     int native_code(const Key& key, const std::set<int>& mods);
     void update_output_status();
     bool retry_output();
@@ -148,6 +164,7 @@ class App {
     bool pending_auto_leveling_{true};
     bool pending_replace_native_keyboard_{};
     bool pending_start_with_steamos_{};
+    bool pending_swipe_typing_{};
     bool native_fallback_{};
     bool replacement_available_{};
     std::string replacement_unavailable_reason_;
@@ -184,6 +201,24 @@ class App {
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;
+    std::unique_ptr<SwipeService> swipe_;
+    std::shared_ptr<const SwipeKeyboard> swipe_keyboard_; // Set only while swipe is active.
+    std::string swipe_prepared_;                          // Layout, language and word list in swipe_.
+    struct SwipeTrack {
+        unsigned pointer{};
+        xkb_keysym_t symbol{}; // The tapped character if the press never becomes a swipe.
+        bool shifted{}, swiping{};
+        std::vector<SwipePoint> points;
+        std::vector<std::pair<double, double>> trail;
+    };
+    std::optional<SwipeTrack> swipe_track_;
+    std::uint64_t swipe_request_{};
+    bool swipe_waiting_{}, swipe_shifted_{}, swipe_caps_{};
+    // Alternatives for the last swiped word; any other input invalidates them.
+    std::vector<std::string> swipe_candidates_;
+    int swipe_selected_{};
+    std::string swipe_committed_;
+    bool swipe_space_{}; // The previous output was a swiped word.
     std::atomic<double> slow_work_deadline_{};
 };
 

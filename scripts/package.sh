@@ -18,6 +18,15 @@ for engine in pinyin hangul; do
     python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/framekeyboard-$engine.so" \
         "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
 done
+# The swipe engine is optional: builds without FRAMEKEYBOARD_EXECUTORCH_FRAME omit it.
+swipe_engine="$package_dir/lib/framekeyboard/framekeyboard-swipe.so"
+if [[ -f $swipe_engine ]]; then
+    python3 tools/check_release_binary.py "$swipe_engine" "$project_dir" "$FRAMEKEYBOARD_SYSROOT" \
+        "$FRAMEKEYBOARD_EXECUTORCH_FRAME"
+    test -f "$package_dir/share/framekeyboard/swipe/futo-swipe/model_fp32.pte"
+else
+    echo 'Packaging without the swipe engine: swipe typing will stay disabled.' >&2
+fi
 if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*(libpyzy|libhangul)'; then
     echo 'Optional language libraries must not be startup dependencies.' >&2
     exit 1

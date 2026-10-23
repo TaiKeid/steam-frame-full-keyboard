@@ -25,6 +25,7 @@ struct GamescopeText::State {
     bool available{}, completed{};
     double deadline{};
     std::string submitted;
+    std::size_t submitted_deletions{};
     ~State() {
         if (sync) {
             wl_callback_destroy(sync);
@@ -174,14 +175,16 @@ bool GamescopeText::busy() const {
 void GamescopeText::cancel() {
     state_->result = State::Result::None;
     state_->submitted.clear();
+    state_->submitted_deletions = 0;
 }
-bool GamescopeText::commit(const std::string& text) {
+bool GamescopeText::commit(const std::string& text, std::size_t delete_before) {
     auto& s = *state_;
     if (!ready()) {
         return false;
     }
     if (pending()) {
-        if (text != s.submitted || s.result == State::Result::Waiting) {
+        if (text != s.submitted || delete_before != s.submitted_deletions ||
+            s.result == State::Result::Waiting) {
             return false;
         }
         const bool ok = s.result == State::Result::Success;
@@ -190,13 +193,19 @@ bool GamescopeText::commit(const std::string& text) {
     }
     if (busy() || text.empty() || text.find('\0') != std::string::npos ||
         !g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr) ||
-        g_utf8_strlen(text.c_str(), -1) > 32) {
+        g_utf8_strlen(text.c_str(), -1) > 32 || delete_before > 64) {
         return false;
+    }
+    // Each action is its own double-buffered commit; one sync covers them all.
+    for (std::size_t i = 0; i < delete_before; ++i) {
+        gamescope_input_method_set_action(s.input, GAMESCOPE_INPUT_METHOD_ACTION_DELETE_LEFT);
+        gamescope_input_method_commit(s.input, s.serial);
     }
     // Gamescope's temporary Unicode keymap holds at most 32 characters.
     gamescope_input_method_set_string(s.input, text.c_str());
     gamescope_input_method_commit(s.input, s.serial);
     s.submitted = text;
+    s.submitted_deletions = delete_before;
     s.result = State::Result::Waiting;
     s.synchronize();
     if (wl_display_flush(s.display) < 0 && errno != EAGAIN) {

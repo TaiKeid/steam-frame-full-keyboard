@@ -26,6 +26,23 @@ The SDK library is supplied by the installed SteamVR runtime, not redistributed.
 
 `gamescope/gamescope-input-method.xml` comes from ValveSoftware/gamescope commit `6867f509874f9bc52e12d6f4c4596cdf0d5be6b4`, under the MIT license included in the XML. Wayland client stubs are generated at build time. Only version 1 text submission is used, feature-checked at runtime.
 
+## Swipe typing
+
+`futo-swipe/` holds the unmodified FUTO Swipe encoder weights and their FUTO
+Model Weights License 1.0; see `futo-swipe/README.md` for the pinned revision
+and hash. The license requires a visible end-user notice, which Settings shows
+beside the swipe option.
+
+The weights run through ExecuTorch v1.5.1 (commit
+`3b60683923245cf472b7323426920e15623ba361`, BSD-3-Clause) with its XNNPACK
+backend, statically linked into the optional `framekeyboard-swipe` module.
+`tools/build-executorch.sh` builds it from that pinned checkout; the source is
+not vendored. `executorch/` holds the licenses of ExecuTorch, XNNPACK, cpuinfo,
+pthreadpool, FP16, FXdiv (BSD/MIT), flatbuffers and KleidiAI (Apache-2.0).
+
+Word lists in `../swipe/lexicons/` are derived from CC BY 4.0 lists; see their
+README for sources, hashes and changes.
+
 Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary.
 
 Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.

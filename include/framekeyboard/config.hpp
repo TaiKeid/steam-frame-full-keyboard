@@ -28,6 +28,8 @@ struct Language {
     std::map<std::string, std::string> composition_keys, composition_shift;
     std::map<std::string, std::string> overrides;
     std::vector<std::string> required_keys;
+    // Optional swipe word list ID; empty means the profile does not offer swipe.
+    std::string swipe_lexicon;
 };
 struct Selection {
     bool operator==(const Selection&) const = default;
@@ -54,6 +56,8 @@ struct Settings {
     bool auto_leveling{true};
     bool replace_native_keyboard{};
     bool start_with_steamos{};
+    // Active only when the current language also supports swipe.
+    bool swipe_typing{};
 };
 
 fs::path default_config_dir();
