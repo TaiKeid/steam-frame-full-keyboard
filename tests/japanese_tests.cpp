@@ -240,6 +240,10 @@ void flick_input() {
     }
     require(!show_choice(app, "language", "en-us").enabled,
             "the flick layout dims languages without flick kana");
+    if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+        app.paint(60);
+        app.renderer.write_png(fs::path(render) / "framekeyboard-ja-flick-languages.png");
+    }
     app.back();
     choose(app, "layout", "en-us-full");
     choose(app, "layout", "ja-flick-12");

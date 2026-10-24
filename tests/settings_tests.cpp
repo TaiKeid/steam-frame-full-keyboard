@@ -994,6 +994,11 @@ void app_settings() {
     app.show_settings();
     require(!choice_enabled(app, "language", "de-de") && choice_enabled(app, "language", "ko-kr"),
             "languages the layout cannot type are dimmed");
+    click(app, "language");
+    require(app.view().status.starts_with("Dimmed languages need another layout"),
+            "the open language list explains dimmed entries");
+    app.back();
+    require(app.view().status.empty(), "the explanation closes with the list");
     select(app, "layout", "international-full");
     select(app, "language", "de-de");
     select(app, "layout", "en-us-full");

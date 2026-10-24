@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Added the **Japanese flick 12-key** layout with the 日本語 — Flick language: the 12-key kana grid used on Japanese phones, with flick and toggle (repeated tap) input, a cross-shaped preview of the flick kana while a key is held, ゛゜小 for voiced and small kana, and the usual conversion. It keeps Esc, the F keys and the number row, and leaves out Ctrl, Alt, Super and Caps Lock.
-- Settings now dims languages the selected layout cannot type. Choosing a layout that cannot type the current language switches to the most likely language for it, such as Romaji when leaving the flick layout.
+- Settings now dims languages the selected layout cannot type, and says so while the Language list is open. Choosing a layout that cannot type the current language switches to the most likely language for it, such as Romaji when leaving the flick layout.
 
 - The Backspace key now shows a ⇤-style icon instead of the word, distinct from the left arrow.
 - The Japanese Romaji and Kana composition hint is now shown in Japanese.

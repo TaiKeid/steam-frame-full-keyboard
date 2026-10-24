@@ -24,7 +24,7 @@ void SettingsUi::set_cards(std::vector<SettingsCard> cards) {
         auto& offset = vertical_[cards_[i].id];
         offset = std::clamp(offset, 0.0, vertical_limit(i));
     }
-    if (const auto* field = open_field(); field && !field->choices.empty()) {
+    if (const auto* field = open_field_definition(); field && !field->choices.empty()) {
         first_choice_ = std::clamp(
             first_choice_, 0, std::max(0, static_cast<int>(field->choices.size()) - visible_choices));
     } else {
@@ -57,7 +57,7 @@ double SettingsUi::horizontal_limit() const {
     return std::max(0.0, static_cast<double>(cards_.size()) * (card_width + card_gap) - card_gap -
                              viewport.width);
 }
-const SettingField* SettingsUi::open_field() const {
+const SettingField* SettingsUi::open_field_definition() const {
     for (const auto& card : cards_) {
         for (const auto& field : card.fields) {
             if (field.id == open_field_) {
@@ -68,7 +68,7 @@ const SettingField* SettingsUi::open_field() const {
     return nullptr;
 }
 std::optional<Rect> SettingsUi::popup_bounds() const {
-    const auto* field = open_field();
+    const auto* field = open_field_definition();
     if (!field || field->choices.empty()) {
         return {};
     }
@@ -123,7 +123,7 @@ std::vector<SettingsUi::Scrollbar> SettingsUi::scrollbars() const {
                           i,
                           false});
     }
-    const auto* field = open_field();
+    const auto* field = open_field_definition();
     const auto popup = popup_bounds();
     if (field && popup && field->choices.size() > visible_choices) {
         const Rect track{popup->x + popup->width - 8, popup->y, 6, popup->height};
@@ -181,7 +181,7 @@ void SettingsUi::append(PanelView& view) const {
         }
     }
     view.popup = popup_bounds();
-    if (const auto* field = open_field(); view.popup && field) {
+    if (const auto* field = open_field_definition(); view.popup && field) {
         const int count = static_cast<int>(field->choices.size());
         for (int i = first_choice_; i < std::min(first_choice_ + visible_choices, count); ++i) {
             const auto& choice = field->choices[static_cast<std::size_t>(i)];
@@ -227,7 +227,7 @@ void SettingsUi::toggle(const std::string& id) {
     }
     close_popup();
     open_field_ = id;
-    if (const auto* field = open_field(); field && !field->choices.empty()) {
+    if (const auto* field = open_field_definition(); field && !field->choices.empty()) {
         const auto it =
             std::find_if(field->choices.begin(), field->choices.end(),
                          [&](const SettingChoice& choice) { return choice.id == field->value; });
@@ -244,7 +244,7 @@ bool SettingsUi::scroll(double x, double y, double dx, double dy) {
     }
     if (popup_open()) {
         if (const auto popup = popup_bounds(); popup && popup->contains(x, y)) {
-            const auto* field = open_field();
+            const auto* field = open_field_definition();
             const int limit = std::max(0, static_cast<int>(field->choices.size()) - visible_choices);
             const int old = first_choice_;
             choice_remainder_ += std::clamp(dy, -static_cast<double>(limit), static_cast<double>(limit));

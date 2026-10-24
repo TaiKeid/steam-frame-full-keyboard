@@ -34,6 +34,8 @@ class SettingsUi {
     void reset();
     void close_popup();
     bool popup_open() const { return !open_field_.empty(); }
+    // ID of the field whose dropdown is open, or empty.
+    const std::string& open_field() const { return open_field_; }
     void toggle(const std::string& field);
     bool scroll(double x, double y, double dx, double dy);
     bool down(unsigned pointer, double x, double y);
@@ -49,7 +51,7 @@ class SettingsUi {
     Rect field_bounds(std::size_t card, std::size_t field) const;
     double vertical_limit(std::size_t card) const;
     double horizontal_limit() const;
-    const SettingField* open_field() const;
+    const SettingField* open_field_definition() const;
     std::optional<Rect> popup_bounds() const;
     struct Scrollbar {
         std::string id;

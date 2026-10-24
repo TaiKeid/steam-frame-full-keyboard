@@ -418,6 +418,12 @@ PanelView App::view() const {
     if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
+    if (settings_open_ && v.status.empty() && settings_ui_.open_field() == "language" &&
+        std::any_of(profiles_.languages.begin(), profiles_.languages.end(), [&](const auto& item) {
+            return !fits(profiles_, {pending_.layout, item.first, pending_.theme});
+        })) {
+        v.status = "Dimmed languages need another layout. Choose the layout first.";
+    }
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings;
     if (v.status.empty() && !typing_ready_ && !image_export) {

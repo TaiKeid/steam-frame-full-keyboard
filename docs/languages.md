@@ -22,9 +22,13 @@ does not automatically select Russian. Updating the app preserves your selection
 | Korean | `ko-kr` | US full-size | Local two-set Hangul |
 | Japanese | `ja-romaji`, `ja-kana`, `ja-jis`, `ja-flick` | US, Japanese JIS, or flick 12-key (`ja-flick` only) | See [Japanese input](japanese.md) |
 
-Open Settings, select Language, then Apply and save. When the current geometry
-lacks required keys, the language selector chooses the smallest compatible
-layout. Layout remains independently editable. Theme selection is unchanged.
+Open Settings, select Layout, then Language, then Apply and save. Languages
+the selected layout cannot type are dimmed, and the open list says so on the
+status line; choose a layout with the needed keys first
+(for example International or UK for German). Choosing a layout that cannot
+type the current language switches to the most likely one for it: a favorite
+pair, another variant of the same language, the layout's own language, or US
+English. Theme selection is unchanged.
 French and Spanish regional variants beyond France and Spain, Chinese Zhuyin,
 Cangjie and Wubi, and Korean Hanja conversion are not included.
 

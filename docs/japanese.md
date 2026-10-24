@@ -1,6 +1,6 @@
 # Japanese input
 
-Open the Language dropdown in Settings, choose Japanese Romaji, Kana, or JIS, then use Apply and save. For flick input, choose the **Japanese flick 12-key** layout instead; it selects 日本語 — Flick. Selection keeps the theme and chooses compatible keyboard geometry when the current layout lacks required keys. Choose the JIS layout explicitly if you want its dedicated Japanese keys. Existing English/German profiles remain available in the language selector.
+Open the Language dropdown in Settings, choose Japanese Romaji, Kana, or JIS, then use Apply and save. For flick input, choose the **Japanese flick 12-key** layout instead; it selects 日本語 — Flick. Kana and JIS need the JIS layout and Flick needs the flick layout: choose the layout first, since Settings dims languages the selected layout cannot type (the open list says so). Choosing a layout that cannot type the current language switches to the closest one, such as Romaji when leaving the flick layout. Existing English/German profiles remain available in the language selector.
 
 | Preset | Entry | Conversion/output |
 | --- | --- | --- |
