@@ -47,6 +47,8 @@ class App {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
                settings_ui_.pressed(pointer);
     }
+    // Swipe typing is on and its word list has loaded; until then letters type on press.
+    bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
     void cancel_pointer(unsigned pointer);
     void cancel(bool discard_composition = true);
     bool tick(double now);

@@ -490,7 +490,7 @@ void SwipeService::prepare(std::shared_ptr<const SwipeKeyboard> keyboard, fs::pa
         std::lock_guard lock(mutex_);
         // Only the newest keyboard matters; drop queued preparation for older ones.
         std::erase_if(jobs_, [](const Job& job) { return job.prepare; });
-        jobs_.push_back({std::move(keyboard), std::move(lexicon), 0, {}, true});
+        jobs_.push_back({std::move(keyboard), std::move(lexicon), 0, {}, true, ++requested_});
     }
     wake_.notify_all();
 }
@@ -505,6 +505,10 @@ void SwipeService::decode(std::uint64_t id, std::vector<SwipePoint> points) {
 std::optional<SwipeService::Result> SwipeService::take_result() {
     std::lock_guard lock(mutex_);
     return std::exchange(result_, std::nullopt);
+}
+bool SwipeService::ready() {
+    std::lock_guard lock(mutex_);
+    return prepared_ == requested_;
 }
 std::optional<SwipeService::Result> SwipeService::wait_result() {
     std::unique_lock lock(mutex_);
@@ -546,6 +550,8 @@ void SwipeService::run() {
             } catch (const std::exception& error) {
                 lexicon_error = error.what();
             }
+            std::lock_guard lock(mutex_);
+            prepared_ = job.generation;
             continue;
         }
         Result result{job.id, {}, {}};

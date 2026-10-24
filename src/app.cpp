@@ -602,8 +602,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
         const auto modifiers = keyboard_.modifiers();
         // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
-        if (swipe_enabled() && !(cjk_ && cjk_latin_) && swipe_keyboard_->key_index.contains(key->id) &&
-            !keymap_->composing() && std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
+        // While a word list loads, letters type as without swipe: a swipe would
+        // make the next key wait for the whole load on the VR thread.
+        if (swipe_enabled() && swipe_->ready() && !(cjk_ && cjk_latin_) &&
+            swipe_keyboard_->key_index.contains(key->id) && !keymap_->composing() &&
+            std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
                 return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
             })) {
             return swipe_down(pointer, *key, x, y, now, modifiers);

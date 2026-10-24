@@ -279,6 +279,7 @@ void app_flow(bool ordered_replace) {
     TextSink sink;
     sink.ordered_replace = ordered_replace;
     App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
     *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
 
     // A tap types on release while swipe is active.
@@ -398,6 +399,7 @@ void trail_repaint() {
     options.swipe_encoder = [] { return std::unique_ptr<SwipeEncoder>(); };
     TextSink sink;
     App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
     auto identical = [&](double now) {
         const auto partial = app.renderer.rgba();
         app.renderer.paint(app.view(), now, true);
@@ -450,6 +452,38 @@ void trail_repaint() {
     app.cancel();
 }
 // Needs the Pinyin engine module, which Frame builds include.
+// A word list still loading must not hold up keys on the VR thread.
+void loading_does_not_block() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    // The encoder loads inside the first prepare job, so this stands in for a slow load.
+    options.swipe_encoder = [] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        return std::unique_ptr<SwipeEncoder>();
+    };
+    TextSink sink;
+    App app(options, sink);
+    require(!app.swipe_ready(), "swipe waits for its word list");
+    const auto [x, y] = key_point(app, "KeyA");
+    const auto started = std::chrono::steady_clock::now();
+    app.down(0, x, y, 1);
+    app.up(0, x, y);
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    app.down(0, x, y, 3);
+    app.up(0, x, y);
+    require(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(150),
+            "keys pressed while the word list loads do not wait for it");
+    require(!sink.text.empty() && sink.text.front() == "a", "letters type on press while loading");
+    settle(app, [&] { return app.swipe_ready(); });
+    require(app.swipe_ready(), "swipe becomes ready after loading");
+}
 int chinese_flow() {
     if (!CjkComposer::supported("chinese-pinyin-simplified")) {
         std::cout << "Pinyin engine not built\n";
@@ -475,6 +509,7 @@ int chinese_flow() {
     };
     TextSink sink;
     App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
     require(app.selection().language == "zh-cn-pinyin", "Pinyin profile is active");
     *path = path_of(keyboard_for("en-us-full", "zh-cn-pinyin"), U"nihao");
     swipe(app, {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}, 1);
@@ -638,6 +673,7 @@ int main(int argc, char** argv) {
         lexicon_paths();
         features();
         disabled_by_default();
+        loading_does_not_block();
         app_flow(false);
         app_flow(true);
         trail_repaint();

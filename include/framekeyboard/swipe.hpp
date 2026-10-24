@@ -112,6 +112,9 @@ class SwipeService {
     std::optional<Result> take_result();
     // Blocks until no request is outstanding, for input that must not overtake it.
     std::optional<Result> wait_result();
+    // False while the newest word list (or the encoder) is still loading. A
+    // decode queued then would wait behind the load, and so would wait_result.
+    bool ready();
 
   private:
     void run();
@@ -121,6 +124,7 @@ class SwipeService {
         std::uint64_t id{};
         std::vector<SwipePoint> points;
         bool prepare{};
+        std::uint64_t generation{}; // Of a prepare job.
     };
     SwipeEncoderFactory factory_;
     std::mutex mutex_;
@@ -128,6 +132,7 @@ class SwipeService {
     std::vector<Job> jobs_;
     std::optional<Result> result_;
     std::size_t outstanding_{};
+    std::uint64_t requested_{}, prepared_{}; // Prepare generations queued and finished.
     bool stop_{};
     std::thread worker_;
 };
