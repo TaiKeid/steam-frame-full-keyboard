@@ -346,6 +346,11 @@ void app_flow(bool ordered_replace) {
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 6);
     settle(app, [&] { return sink.text.back() == "Hello"; });
     require(sink.text.back() == "Hello", "a latched Shift capitalizes the swiped word");
+    app.down(0, shx, shy, 6.5);
+    app.up(0, shx, shy);
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 6.6);
+    settle(app, [&] { return sink.text.back() == " Hello"; });
+    require(sink.text.back() == " Hello", "a Shift tap between swiped words keeps the space");
     const auto count = sink.text.size();
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7);
     app.cancel();
@@ -361,6 +366,12 @@ void app_flow(bool ordered_replace) {
     app.up(0, ex, ey);
     settle(app, [&] { return false; });
     require(sink.text.size() == count, "a cancelled pointer leaves no swipe behind");
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 9);
+    settle(app, [&] { return sink.text.size() == count + 1; });
+    app.cancel_pointer(0); // The laser leaves, perhaps to click another field.
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 10);
+    settle(app, [&] { return sink.text.size() == count + 2; });
+    require(sink.text.back() == "hello", "pointing away clears the automatic space");
 
     // Settings: enabled for a supported language, disabled otherwise.
     app.show_settings();

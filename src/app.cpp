@@ -625,8 +625,15 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             return false; // Only one pointer types while another is swiping.
         }
         finish_swipe(true);
-        discard_swipe();
-        swipe_space_ = false;
+        // A latching Shift or Caps Lock sends nothing, so the swiped word, its
+        // alternatives and the space before the next word all stay valid.
+        const bool latch_only =
+            key->action_kind == ActionKind::Key &&
+            ((key->sticky && is_modifier(key_code(key->action))) || key->action == "CapsLock");
+        if (!latch_only) {
+            discard_swipe();
+            swipe_space_ = false;
+        }
         const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
         const bool text_local = !ime_local && text_key(*key, modifiers);
         const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
@@ -769,8 +776,10 @@ void App::cancel_pointer(unsigned pointer) {
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_track_.reset(); // A flick that left the panel types nothing.
     }
-    // The laser may now click elsewhere in the target, so replacing is unsafe.
+    // The laser may now click elsewhere in the target, so replacing is unsafe,
+    // and the next swiped word may start a new field without a space.
     discard_swipe();
+    swipe_space_ = false;
     settings_ui_.cancel_pointer(pointer);
     pointer_positions_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
