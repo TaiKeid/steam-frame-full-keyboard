@@ -216,6 +216,16 @@ void flick_input() {
     clear();
 
     app.show_settings();
+    {
+        // The case is also the VR laser mask: every Settings control must lie inside it.
+        const auto view = app.view();
+        const auto body = panel_case_bounds(view);
+        for (const auto& c : view.controls) {
+            require(c.style == ControlStyle::MoveHandle ||
+                        (c.bounds.x >= body.x && c.bounds.x + c.bounds.width <= body.x + body.width),
+                    "Settings controls stay inside the flick layout's case");
+        }
+    }
     require(!show_choice(app, "language", "en-us").enabled,
             "the flick layout dims languages without flick kana");
     app.back();

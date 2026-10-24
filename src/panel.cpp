@@ -435,8 +435,10 @@ Rect panel_case_bounds(const PanelView& view) {
     // present. This same case is used by painting, controls and the VR mask.
     const bool ime = view.language && view.language->input_method != "xkb";
     const double minimum = ime ? 1300 : 560;
-    // A layout narrower than the panel at this scale (flick) also narrows the case.
-    const double slack = panel_width - 2 * view.theme->padding - view.layout->width * p.scale;
+    // A layout narrower than the panel at this scale (flick) also narrows the
+    // case, except in Settings, whose controls and cards span the full panel.
+    const double slack =
+        view.settings ? 0 : panel_width - 2 * view.theme->padding - view.layout->width * p.scale;
     const double width =
         std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
                               (slack > 1 ? slack : 0));
