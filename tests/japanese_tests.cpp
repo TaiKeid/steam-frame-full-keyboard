@@ -61,6 +61,174 @@ void control(App& app, const std::string& id) {
     }
     throw std::runtime_error("Missing test control: " + id);
 }
+bool has_control(App& app, const std::string& id) {
+    const auto controls = app.view().controls;
+    return std::any_of(controls.begin(), controls.end(), [&](const Control& c) { return c.id == id; });
+}
+// Opens a Settings dropdown and scrolls the choice into view.
+Control show_choice(App& app, const std::string& field, const std::string& choice) {
+    control(app, field);
+    const auto id = "choose:" + field + ":" + choice;
+    for (int i = 0; i < 50 && !has_control(app, id); ++i) {
+        const auto popup = *app.view().popup;
+        app.move(0, popup.x + 10, popup.y + 10);
+        app.scroll(0, 0, -100);
+        for (int j = 0; j < i && !has_control(app, id); ++j) {
+            app.scroll(0, 0, 1);
+        }
+    }
+    for (const auto& c : app.view().controls) {
+        if (c.id == id) {
+            return c;
+        }
+    }
+    throw std::runtime_error("Missing test choice: " + id);
+}
+void choose(App& app, const std::string& field, const std::string& choice) {
+    control(app, show_choice(app, field, choice).id);
+}
+// Centre of a key's hit area in panel coordinates.
+std::pair<double, double> key_centre(App& app, const std::string& id) {
+    const auto view = app.view();
+    double left = panel_width, top = panel_height, right = 0, bottom = 0;
+    for (int y = 96; y < panel_height; y += 2) {
+        for (int x = 0; x < panel_width; x += 2) {
+            if (const auto* key = app.renderer.hit_key(view, x, y); key && key->id == id) {
+                left = std::min<double>(left, x);
+                right = std::max<double>(right, x);
+                top = std::min<double>(top, y);
+                bottom = std::max<double>(bottom, y);
+            }
+        }
+    }
+    require(right > 0, "flick key is visible");
+    return {(left + right) / 2, (top + bottom) / 2};
+}
+// Presses a flick key at time `now`, drags by (dx, dy) panel pixels and releases.
+void flick(App& app, const std::string& slot, double now, double dx = 0, double dy = 0) {
+    const auto [x, y] = key_centre(app, "Flick-" + slot);
+    require(app.down(0, x, y, now), "flick key accepts a press");
+    if (dx != 0 || dy != 0) {
+        app.move(0, x + dx / 2, y + dy / 2);
+        app.move(0, x + dx, y + dy);
+    }
+    app.up(0, x + dx, y + dy);
+}
+void flick_input() {
+    const auto profiles = load_profiles({}, {});
+    auto fits = [&](const char* layout, const char* language) {
+        try {
+            validate_selection(profiles, {layout, language, "graphite"});
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    };
+    require(fits("ja-flick-12", "ja-flick") && !fits("en-us-full", "ja-flick") &&
+                !fits("ja-flick-12", "en-us") && !fits("ja-flick-12", "ja-romaji"),
+            "flick layout and flick language only fit each other");
+    char directory[] = "/tmp/framekeyboard-flick-XXXXXX";
+    require(mkdtemp(directory), "temporary flick profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    auto preedit = [&] { return app.view().preedit; };
+    auto clear = [&] {
+        click_key(app, "Escape");
+        require(preedit().empty(), "Escape clears the flick reading");
+    };
+
+    flick(app, "a", 1);
+    require(preedit() == "あ", "a tap types the key's first kana");
+    flick(app, "a", 1.5);
+    flick(app, "a", 2);
+    require(preedit() == "う", "quick repeated taps cycle the toggle kana");
+    flick(app, "a", 4);
+    require(preedit() == "うあ", "a tap after the toggle time adds a kana");
+    click_key(app, "ArrowRight");
+    flick(app, "a", 4.2);
+    require(preedit() == "うああ", "→ ends a toggle so the same key types again");
+    clear();
+    for (int i = 0; i < 11; ++i) {
+        flick(app, "a", 10 + i * .1);
+    }
+    require(preedit() == "あ", "the toggle cycle wraps through small kana");
+    clear();
+
+    flick(app, "ka", 20, -60, 0);
+    flick(app, "ka", 21, 0, -60);
+    flick(app, "ka", 22, 60, 0);
+    flick(app, "ka", 23, 0, 60);
+    require(preedit() == "きくけこ", "flicks type the left, up, right and down kana");
+    clear();
+    {
+        const auto [x, y] = key_centre(app, "Flick-ka");
+        app.down(0, x, y, 30);
+        app.move(0, x, y - 60);
+        const auto preview = app.view().flick_preview;
+        require(preview && preview->key == "Flick-ka" && preview->selected == 2 &&
+                    preview->text == std::array<std::string, 5>{"か", "き", "く", "け", "こ"} &&
+                    app.view().key_labels.at("Flick-ka") == "く",
+                "a pressed flick key previews its kana and the chosen direction");
+        if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+            app.paint(30.5);
+            app.renderer.write_png(fs::path(render) / "framekeyboard-ja-flick-preview.png");
+        }
+        app.move(0, x, y);
+        require(app.view().flick_preview->selected == 0, "moving back selects the tap kana");
+        app.cancel_pointer(0);
+        require(preedit().empty() && !app.view().flick_preview, "a cancelled flick types nothing");
+    }
+
+    flick(app, "ta", 40, 0, -60);
+    flick(app, "mark", 41);
+    require(preedit() == "っ", "゛゜小 makes the last kana small");
+    flick(app, "mark", 41.2);
+    require(preedit() == "づ", "゛゜小 then voices it");
+    flick(app, "mark", 41.4);
+    require(preedit() == "つ", "゛゜小 cycles back to the plain kana");
+    flick(app, "ha", 42);
+    flick(app, "mark", 43, -60, 0);
+    require(preedit() == "つば", "a ゛ flick voices the last kana");
+    flick(app, "mark", 44, 60, 0);
+    require(preedit() == "つぱ", "a ゜ flick makes it semi-voiced");
+    flick(app, "mark", 45, 0, 60);
+    require(preedit() == "つぱ", "an unused direction types nothing");
+    flick(app, "punct", 46, 60, 0);
+    require(preedit() == "つぱ！", "punctuation flicks join the reading");
+    click_key(app, "Enter");
+    require(sink.text.back() == "つぱ！" && preedit().empty(), "Enter commits the flick reading");
+
+    control(app, "ime-toggle");
+    require(!app.view().composing, "Latin mode stops composition");
+    flick(app, "na", 50);
+    require(app.view().composing && preedit() == "な", "a flick key returns to kana composition");
+    clear();
+
+    app.show_settings();
+    require(!show_choice(app, "language", "en-us").enabled,
+            "the flick layout dims languages without flick kana");
+    app.back();
+    choose(app, "layout", "en-us-full");
+    choose(app, "layout", "ja-flick-12");
+    control(app, "apply");
+    require(app.selection().layout == "ja-flick-12" && app.selection().language == "ja-flick",
+            "choosing the flick layout selects flick input");
+    app.show_settings();
+    choose(app, "layout", "en-us-full");
+    control(app, "apply");
+    require(app.selection().language == "ja-romaji", "leaving flick keeps Japanese, as Romaji");
+}
 void romaji_legends() {
     char directory[] = "/tmp/framekeyboard-romaji-legends-XXXXXX";
     require(mkdtemp(directory), "temporary legend profile");
@@ -110,6 +278,7 @@ void romaji_legends() {
 int main() {
     try {
         romaji_legends();
+        flick_input();
         JapaneseComposer composer;
         for (const auto& [roman, expected] :
              std::vector<std::pair<std::string, std::string>>{{"nihon", "にほん"},
@@ -290,13 +459,11 @@ int main() {
         require(app.view().preedit.empty() && sink.delivery.empty(),
                 "Escape deliberately cancels without committing");
         app.show_settings();
-        control(app, "language");
-        app.move(0, 300, 320);
-        app.scroll(0, 0, -2);
-        control(app, "choose:language:ja-kana");
+        choose(app, "layout", "ja-jis-full");
+        choose(app, "language", "ja-kana");
         control(app, "apply");
         require(app.selection().layout == "ja-jis-full" && app.selection().language == "ja-kana",
-                "Kana preset applies required layout");
+                "Kana preset applies with its required layout");
         click_key(app, "KeyT");
         click_key(app, "BracketLeft");
         require(app.view().preedit == "が", "direct kana voiced sound");

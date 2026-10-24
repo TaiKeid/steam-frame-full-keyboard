@@ -53,7 +53,8 @@ void click(App& app, const std::string& id, unsigned pointer = 0) {
     app.down(pointer, x, y, 1);
     app.up(pointer, x, y);
 }
-void select(App& app, const std::string& field, const std::string& choice) {
+// Opens the dropdown and scrolls until the choice is visible.
+Control show_choice(App& app, const std::string& field, const std::string& choice) {
     click(app, field);
     const auto id = "choose:" + field + ":" + choice;
     for (int i = 0; i < 50 && !has(app.view(), id); ++i) {
@@ -64,7 +65,15 @@ void select(App& app, const std::string& field, const std::string& choice) {
             app.scroll(0, 0, 1);
         }
     }
-    click(app, id);
+    return control(app.view(), id);
+}
+void select(App& app, const std::string& field, const std::string& choice) {
+    click(app, show_choice(app, field, choice).id);
+}
+bool choice_enabled(App& app, const std::string& field, const std::string& choice) {
+    const bool enabled = show_choice(app, field, choice).enabled;
+    app.back(); // Close the menu again.
+    return enabled;
 }
 Settings saved(const fs::path& dir) {
     std::vector<std::string> errors;
@@ -886,11 +895,7 @@ void numpad_settings() {
             "close button follows narrower case");
     const auto profiles = load_profiles({}, {});
     for (const auto& [id, layout] : profiles.layouts) {
-        app.apply({id,
-                   id == "ja-jis-full"     ? "ja-jis"
-                   : id == "br-abnt2-full" ? "pt-br"
-                                           : "en-us",
-                   "graphite"});
+        app.apply({id, layout.language.empty() ? "en-us" : layout.language, "graphite"});
         require(app.view().hide_numpad && app.view().keyboard->num() &&
                     panel_case_bounds(app.view()).width < full_body.width,
                 "global visibility and Num Lock survive every bundled layout change");
@@ -987,17 +992,24 @@ void app_settings() {
     require(!app.view().settings, "Escape then exits settings");
 
     app.show_settings();
-    select(app, "language", "de-de");
-    require(control(app.view(), "layout").label != "US full-size with left clipboard keys",
-            "language selection chooses compatible geometry");
+    require(!choice_enabled(app, "language", "de-de") && choice_enabled(app, "language", "ko-kr"),
+            "languages the layout cannot type are dimmed");
     select(app, "layout", "international-full");
+    select(app, "language", "de-de");
+    select(app, "layout", "en-us-full");
+    require(app.view().settings && control(app.view(), "language").label == "English (US)",
+            "a layout change replaces a language it cannot type");
+    select(app, "layout", "international-full");
+    require(control(app.view(), "language").label == "English (US)",
+            "a layout change keeps a language that still fits");
+    select(app, "language", "de-de");
     click(app, "favorite");
     require(control(app.view(), "favorite").selected, "favorite checkbox reflects pending pair");
     app.back();
     require(saved(app).favorites.empty(), "Back discards unsaved favorite edits");
     app.show_settings();
-    select(app, "language", "de-de");
     select(app, "layout", "international-full");
+    select(app, "language", "de-de");
     click(app, "favorite");
     select(app, "theme", "midnight");
     // Save English as default with German retained in the pending favorite set.
@@ -1036,8 +1048,8 @@ void app_settings() {
     // A favorite of the saved default is a single cycle entry, even if duplicated
     // in a legacy file with a different theme.
     app.show_settings();
-    select(app, "language", "de-de");
     select(app, "layout", "international-full");
+    select(app, "language", "de-de");
     click(app, "apply");
     settings = saved(app);
     settings.favorites.push_back(

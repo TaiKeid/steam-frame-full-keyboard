@@ -5,6 +5,8 @@
 namespace framekeyboard {
 struct SettingChoice {
     std::string id, name;
+    // Disabled choices stay listed, dimmed, so the reason can be seen.
+    bool enabled{true};
 };
 struct SettingField {
     std::string id, label, value;

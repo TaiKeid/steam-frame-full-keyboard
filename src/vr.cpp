@@ -454,9 +454,9 @@ class VrPanel {
     void submit(PanelRenderer& renderer, const PanelView& view) {
         RuntimeWait runtime_wait;
         // The enlarged texture has transparent popup margins. Restrict laser
-        // intersection to the case, movement handle and open menu so unused pixels cannot
+        // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
         // steal focus from the dashboard.
-        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 3> mask{};
+        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 4> mask{};
         auto rectangle = [&](std::size_t index, Rect bounds) {
             mask[index].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
             mask[index].m_Primitive.m_Rectangle = {
@@ -467,6 +467,10 @@ class VrPanel {
         std::size_t count = 1;
         if (view.popup) {
             rectangle(count++, *view.popup);
+        }
+        // A flick may leave the case over its preview; keep tracking the laser there.
+        if (const auto preview = flick_preview_bounds(view)) {
+            rectangle(count++, *preview);
         }
         if (const auto handle = panel_move_handle_bounds(view)) {
             rectangle(count++, *handle);

@@ -2,6 +2,7 @@
   "schema_version": 1,
   "id": "en-gb-full",
   "name": "UK full-size with left clipboard keys",
+  "language": "en-gb",
   "width": 1480,
   "height": 416,
   "keys": [

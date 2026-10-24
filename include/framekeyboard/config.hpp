@@ -20,6 +20,14 @@ struct Theme {
     double surface_radius{}, radius{}, depth{}, travel{}, duration_ms{};
     double font_size{20}, small_font_size{13}, padding{20};
 };
+// One key of a 12-key flick layout. Repeated taps cycle through `tap` (toggle
+// input); a flick types its direction's text. The marks ゛, ゜ and 小 change the
+// preceding kana instead, and ゛゜小 cycles through its variants.
+struct FlickKey {
+    bool operator==(const FlickKey&) const = default;
+    std::vector<std::string> tap;
+    std::string left, up, right, down;
+};
 struct Language {
     bool operator==(const Language&) const = default;
     std::string id, name, locale, rules, model, keymap, variant, options, font;
@@ -27,6 +35,9 @@ struct Language {
     std::map<std::string, std::string> kana, kana_shift;
     std::map<std::string, std::string> composition_keys, composition_shift;
     std::map<std::string, std::string> overrides;
+    // Flick slot -> kana. A flick language needs every slot and a flick layout
+    // serves only flick languages.
+    std::map<std::string, FlickKey> flick;
     std::vector<std::string> required_keys;
     // Optional swipe word list ID; empty means the profile does not offer swipe.
     std::string swipe_lexicon;

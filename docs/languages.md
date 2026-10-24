@@ -20,7 +20,7 @@ does not automatically select Russian. Updating the app preserves your selection
 | Simplified Chinese | `zh-cn-pinyin` | US full-size | Local Pinyin with candidates |
 | Traditional Chinese | `zh-tw-pinyin` | US full-size | Local Pinyin with Traditional output |
 | Korean | `ko-kr` | US full-size | Local two-set Hangul |
-| Japanese | `ja-romaji`, `ja-kana`, `ja-jis` | US or Japanese JIS | See [Japanese input](japanese.md) |
+| Japanese | `ja-romaji`, `ja-kana`, `ja-jis`, `ja-flick` | US, Japanese JIS, or flick 12-key (`ja-flick` only) | See [Japanese input](japanese.md) |
 
 Open Settings, select Language, then Apply and save. When the current geometry
 lacks required keys, the language selector chooses the smallest compatible

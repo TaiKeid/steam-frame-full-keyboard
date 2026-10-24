@@ -11,6 +11,12 @@ class JapaneseComposer {
     ~JapaneseComposer();
     void roman(char key);
     void kana(const std::string& text);
+    // Changes the last kana: ゛ voices it, ゜ makes it semi-voiced, 小 makes it
+    // small, each toggling back; ゛゜小 cycles through its variants (つ っ づ).
+    // False when the last character has no such form.
+    bool mark(const std::string& mark);
+    // The last reading character, or empty while romaji is pending or converting.
+    std::string last_kana() const;
     void backspace();
     void convert();
     void cycle(int direction);

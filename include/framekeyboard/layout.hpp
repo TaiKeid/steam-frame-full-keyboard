@@ -33,7 +33,8 @@ enum class Icon {
     Backspace
 };
 
-enum class ActionKind { Key, Shortcut };
+// Flick keys name a slot of the language's flick map; they never send physical keys.
+enum class ActionKind { Key, Shortcut, Flick };
 struct Key {
     bool operator==(const Key&) const = default;
     std::string id, label, secondary_label;
@@ -48,6 +49,8 @@ struct Key {
 struct Layout {
     bool operator==(const Layout&) const = default;
     std::string id, name;
+    // Language to switch to when the current one cannot use this geometry.
+    std::string language;
     double width{}, height{};
     std::vector<Key> keys;
 };

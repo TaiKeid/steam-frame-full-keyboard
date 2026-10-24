@@ -2,6 +2,7 @@
   "schema_version": 1,
   "id": "br-abnt2-full",
   "name": "Brazilian ABNT2 full-size",
+  "language": "pt-br",
   "width": 1480,
   "height": 416,
   "keys": [

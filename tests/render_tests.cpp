@@ -1,5 +1,6 @@
 #include "framekeyboard/panel.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -14,6 +15,10 @@ const Key& find_key(const Layout& layout, const std::string& action) {
         }
     }
     throw std::runtime_error("missing key " + action);
+}
+bool has_key(const Layout& layout, const std::string& action) {
+    return std::any_of(layout.keys.begin(), layout.keys.end(),
+                       [&](const Key& key) { return key.action == action || key.id == action; });
 }
 class Comparison {
   public:
@@ -144,6 +149,16 @@ void exercise(Layout layout, Theme theme, Language language) {
             }
         }
     }
+    const bool flick = !language.flick.empty();
+    if (flick) {
+        // As App shows them: the tap kana on each flick key.
+        view.composing = true;
+        for (const auto& key : layout.keys) {
+            if (const auto it = language.flick.find(key.action); it != language.flick.end()) {
+                view.key_labels[key.id] = it->second.tap.front();
+            }
+        }
+    }
     Comparison compare;
     compare.frame(view, "initial");
     view.controls.push_back({"move-handle",
@@ -159,7 +174,7 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "hide movement line on pin or grab mode");
     view.hovered_keys.clear();
     view.hovered_controls.clear();
-    const auto a = find_key(layout, "KeyA"), b = find_key(layout, "KeyB");
+    const auto a = find_key(layout, flick ? "a" : "KeyA"), b = find_key(layout, flick ? "ka" : "KeyB");
     view.hovered_keys = {a.id};
     compare.frame(view, "hover");
     keyboard.down(0, a, compare.now);
@@ -174,8 +189,29 @@ void exercise(Layout layout, Theme theme, Language language) {
     view.hovered_keys.clear();
     view.hovered_controls.clear();
     compare.settle(view, "cancel");
+    if (flick) {
+        // A flick relabels only the pressed key and hides its hints.
+        const auto& slot = language.flick.at("a");
+        view.flick_preview =
+            PanelView::FlickPreview{a.id, {slot.tap.front(), slot.left, slot.up, slot.right, slot.down}};
+        keyboard.down(0, a, compare.now);
+        compare.frame(view, "flick preview during press animation");
+        view.hovered_keys = {b.id}; // A neighbour under the preview repaints partially.
+        compare.frame(view, "hover beneath the flick preview");
+        view.flick_preview->selected = 2;
+        view.key_labels[a.id] = slot.up;
+        compare.settle(view, "flick direction");
+        keyboard.up(0);
+        view.flick_preview.reset();
+        view.hovered_keys.clear();
+        view.key_labels[a.id] = language.flick.at("a").tap.front();
+        compare.settle(view, "flick release");
+    }
     for (const auto* action :
          {"ShiftLeft", "CapsLock", "NumLock", "ControlLeft", "MetaLeft", "MetaRight"}) {
+        if (!has_key(layout, action)) {
+            continue; // The flick layout hides modifiers and locks.
+        }
         const auto key = find_key(layout, action);
         keyboard.down(0, key, compare.now);
         compare.settle(view, "modifier/lock press");
@@ -187,6 +223,9 @@ void exercise(Layout layout, Theme theme, Language language) {
         compare.settle(view, "modified release");
     }
     for (const auto* action : {"Enter", "NumpadEnter", "Space", "Copy", "ArrowUp"}) {
+        if (!has_key(layout, action)) {
+            continue;
+        }
         const auto key = find_key(layout, action);
         view.hovered_keys = {key.id};
         keyboard.down(0, key, compare.now);
@@ -264,10 +303,11 @@ int main() {
         handle_states();
         const auto profiles = load_profiles({}, {});
         for (const auto& [id, language] : profiles.languages) {
-            const auto layout = (language.keymap == "jp" || id == "ja-kana") ? "ja-jis-full"
-                                : language.keymap == "br"                    ? "br-abnt2-full"
-                                : !language.required_keys.empty()            ? "international-full"
-                                                                             : "en-us-full";
+            const auto layout = !language.flick.empty()                        ? "ja-flick-12"
+                                : (language.keymap == "jp" || id == "ja-kana") ? "ja-jis-full"
+                                : language.keymap == "br"                      ? "br-abnt2-full"
+                                : !language.required_keys.empty()              ? "international-full"
+                                                                               : "en-us-full";
             validate_selection(profiles, {layout, id, "graphite"});
             exercise(profiles.layouts.at(layout), profiles.themes.at("graphite"), language);
         }

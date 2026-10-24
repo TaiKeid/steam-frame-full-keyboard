@@ -1,12 +1,13 @@
 # Japanese input
 
-Open the Language dropdown in Settings, choose Japanese Romaji, Kana, or JIS, then use Apply and save. Selection keeps the theme and chooses compatible keyboard geometry when the current layout lacks required keys. Choose the JIS layout explicitly if you want its dedicated Japanese keys. Existing English/German profiles remain available in the language selector.
+Open the Language dropdown in Settings, choose Japanese Romaji, Kana, or JIS, then use Apply and save. For flick input, choose the **Japanese flick 12-key** layout instead; it selects 日本語 — Flick. Selection keeps the theme and chooses compatible keyboard geometry when the current layout lacks required keys. Choose the JIS layout explicitly if you want its dedicated Japanese keys. Existing English/German profiles remain available in the language selector.
 
 | Preset | Entry | Conversion/output |
 | --- | --- | --- |
 | 日本語 Romaji | Latin letters, such as `nihon` | Local kana composition and Anthy kanji candidates |
 | 日本語 Kana | Direct JIS-position kana keys | Same local conversion and candidate controls |
 | JIS (system IME) | Physical JIS keys, including 変換/無変換/かな | Conversion handled by an already configured target IME |
+| 日本語 Flick | 12-key flick grid, as on Japanese phones | Same local conversion and candidate controls |
 
 ## Built-in composition
 
@@ -21,6 +22,17 @@ Romaji is the default Japanese choice for someone unfamiliar with Japanese keybo
 - Starting another word while candidates are active commits the chosen phrase first. Tab, Delete, Home/End, Copy/Paste, and Ctrl/Alt/Meta shortcuts first commit unfinished composition, then send their physical key events. If committing fails, the text remains and the key or shortcut is not sent. Escape and the Cancel control still cancel deliberately.
 
 The preedit stays in the keyboard until committed. Moving the laser off the keyboard keeps it. Opening Settings, dragging, hiding, recentering, changing profiles or losing input focus discards it. This avoids committing an old phrase after a focus transition. Input routing follows compositor focus, just like the ordinary keyboard.
+
+## Flick input
+
+The flick layout keeps Esc, the F keys and the number row, and replaces the letter keys with a 12-key kana grid (あ か さ / た な は / ま や ら / ゛゜小 わ 、。?!). Tab, ←, ↑/↓ and Shift sit on its left; 空白 (Space, which shows 変換 while composing), → and a two-row 改行 (Enter, 確定 while composing) on its right. Ctrl, Alt, Super and Caps Lock are not on this layout. Each kana key shows its tap kana with the four flick kana as small hints.
+
+- Tap a key for its first kana. Hold the trigger, move left, up, right or down by about 40% of a key's height and release for that direction's kana (あ: い う え お). While held, a cross-shaped preview over the key shows the tap kana in the middle and the four flick kana around it, highlighting the one release will type; moving back to the centre returns to the tap kana. The preview may extend past the keyboard edge, and the laser keeps tracking over it.
+- Toggle input: tapping the same key again within one second replaces the kana with the next in its row, then small kana (あ い う え お ぁ … ). → ends the cycle, so the next tap types the first kana again.
+- ゛゜小 cycles the previous kana through its small, voiced and semi-voiced forms (つ っ づ, は ば ぱ); flick left for ゛, up for 小 and right for ゜. や flicks to 「 and 」, わ to を, ん and ー, and 、。 to 。, ？, ！ and ….
+- Digits and Shift symbols from the number row join the reading, as on phones. あ / A switches the number row to direct output; pressing a kana key returns to kana composition.
+
+Flick and toggle typing happen on release; other keys still act on press. The first version's look is provisional.
 
 ## Runtime requirements
 

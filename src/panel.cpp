@@ -72,6 +72,25 @@ Placement placement(const PanelView& view, bool normal = false) {
     return {scale, (panel_width - visible_layout_width(view) * scale) / 2,
             toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2};
 }
+// Cells of the flick preview in panel coordinates: tap, left, up, right, down.
+// Square cells a little taller than the key, centred on it.
+std::optional<std::array<Rect, 5>> flick_cells(const PanelView& view) {
+    if (!view.flick_preview || view.settings) {
+        return {};
+    }
+    const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
+                                  [&](const Key& k) { return k.id == view.flick_preview->key; });
+    if (key == view.layout->keys.end()) {
+        return {};
+    }
+    const auto p = placement(view);
+    const double size = key->bounds.height * p.scale * 1.15, step = size + 4;
+    const double x = p.x + (key->bounds.x + key->bounds.width / 2) * p.scale - size / 2;
+    const double y = p.y + (key->bounds.y + key->bounds.height / 2) * p.scale - size / 2;
+    return std::array<Rect, 5>{Rect{x, y, size, size}, Rect{x - step, y, size, size},
+                               Rect{x, y - step, size, size}, Rect{x + step, y, size, size},
+                               Rect{x, y + step, size, size}};
+}
 void source(cairo_t* cr, Color color) {
     cairo_set_source_rgb(cr, color.r, color.g, color.b);
 }
@@ -308,6 +327,33 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
         draw_icon(cr, key.icon, face, t.legend, super_icon ? 22 : 32);
         return;
     }
+    if (key.action_kind == ActionKind::Flick) {
+        const auto custom = view.key_labels.find(key.id);
+        const auto& center = custom != view.key_labels.end() ? custom->second : key.label;
+        const auto slot = view.language->flick.find(key.action);
+        if ((view.flick_preview && view.flick_preview->key == key.id) ||
+            slot == view.language->flick.end()) {
+            // While pressed, the key shows only what release would type.
+            label(cr, center, face, t.font_size * 1.3, view.language->font, t.legend, true);
+            return;
+        }
+        // The tap kana in the middle, the four flick kana as hints on their sides.
+        const auto& flick = slot->second;
+        const double side = face.width * .22, band = face.height * .34;
+        const auto hint = disabled_legend(t);
+        label(cr, flick.left, {face.x, face.y, side, face.height}, t.small_font_size,
+              view.language->font, hint, true);
+        label(cr, flick.right, {face.x + face.width - side, face.y, side, face.height},
+              t.small_font_size, view.language->font, hint, true);
+        label(cr, flick.up, {face.x + side, face.y, face.width - 2 * side, band}, t.small_font_size,
+              view.language->font, hint, true);
+        label(cr, flick.down, {face.x + side, face.y + face.height - band, face.width - 2 * side, band},
+              t.small_font_size, view.language->font, hint, true);
+        label(cr, center,
+              {face.x + side, face.y + band * .6, face.width - 2 * side, face.height - band * 1.2},
+              t.font_size, view.language->font, t.legend, true);
+        return;
+    }
     auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
     if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
         text = custom->second;
@@ -361,6 +407,27 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     }
 }
 } // namespace
+std::optional<Rect> flick_preview_bounds(const PanelView& view) {
+    const auto cells = flick_cells(view);
+    if (!cells) {
+        return {};
+    }
+    double left = (*cells)[0].x, top = (*cells)[0].y, right = left + (*cells)[0].width,
+           bottom = top + (*cells)[0].height;
+    for (std::size_t i = 1; i < cells->size(); ++i) {
+        if (!view.flick_preview->text[i].empty()) {
+            const auto& r = (*cells)[i];
+            left = std::min(left, r.x);
+            top = std::min(top, r.y);
+            right = std::max(right, r.x + r.width);
+            bottom = std::max(bottom, r.y + r.height);
+        }
+    }
+    // Whole pixels, with room for the outline.
+    left = std::floor(left - 2);
+    top = std::floor(top - 2);
+    return Rect{left, top, std::ceil(right + 2) - left, std::ceil(bottom + 2) - top};
+}
 Rect panel_case_bounds(const PanelView& view) {
     const auto p = placement(view, true);
     // Custom geometry can leave only a few pixels after hiding its numpad.
@@ -368,8 +435,11 @@ Rect panel_case_bounds(const PanelView& view) {
     // present. This same case is used by painting, controls and the VR mask.
     const bool ime = view.language && view.language->input_method != "xkb";
     const double minimum = ime ? 1300 : 560;
+    // A layout narrower than the panel at this scale (flick) also narrows the case.
+    const double slack = panel_width - 2 * view.theme->padding - view.layout->width * p.scale;
     const double width =
-        std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale);
+        std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
+                              (slack > 1 ? slack : 0));
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
 PanelRenderer::PanelRenderer() {
@@ -411,7 +481,8 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.controls != view.controls || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
         previous_->view.hide_numpad != view.hide_numpad || previous_->view.preedit != view.preedit ||
-        previous_->view.key_labels != view.key_labels;
+        previous_->view.key_labels != view.key_labels ||
+        previous_->view.flick_preview != view.flick_preview;
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
@@ -601,14 +672,32 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_stroke(cr);
         cairo_restore(cr);
     }
+    if (const auto cells = flick_cells(view)) {
+        // Above the keys, like the trail; partial repaints redraw it inside their clip.
+        const auto& preview = *view.flick_preview;
+        const double size = (*cells)[0].height;
+        for (std::size_t i = 0; i < cells->size(); ++i) {
+            if (i > 0 && preview.text[i].empty()) {
+                continue; // A direction this key does not use.
+            }
+            rounded(cr, (*cells)[i], t.radius);
+            source(cr, static_cast<int>(i) == preview.selected ? t.latched : t.top);
+            cairo_fill_preserve(cr);
+            source(cr, t.legend);
+            cairo_set_line_width(cr, 1.5);
+            cairo_stroke(cr);
+            label(cr, preview.text[i], (*cells)[i], size * .5, view.language->font, t.legend, true);
+        }
+    }
     if (view.composing && !view.settings) {
         const auto& method = view.language->input_method;
-        const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
-                           : method.starts_with("chinese-")
-                               ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
-                           : method == "japanese-kana"
-                               ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
-                               : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
+        const char* hint =
+            method == "korean-2set"          ? "Type → Space/Enter: commit · Esc: cancel"
+            : method.starts_with("chinese-") ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
+            : method == "japanese-kana" ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
+            : method == "japanese-flick"
+                ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
+                : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
         label(cr, view.preedit.empty() ? hint : view.preedit, {body.x + 20, 94, body.width - 40, 40}, 27,
               view.language->font, t.legend);
     }

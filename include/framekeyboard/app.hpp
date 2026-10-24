@@ -144,6 +144,21 @@ class App {
     void apply_swipe(const SwipeService::Result& result);
     void choose_swipe(int index);
     void discard_swipe();
+    // 12-key flick input. A press only shows the key; release types the kana
+    // for the flick direction, or the next toggle kana for a repeated tap.
+    enum class FlickDirection { Tap, Left, Up, Right, Down };
+    struct FlickTrack {
+        unsigned pointer{};
+        std::string key, slot;
+        double x{}, y{}, pressed{}; // Press point in layout coordinates and press time.
+        FlickDirection direction{FlickDirection::Tap};
+    };
+    bool flick_down(unsigned pointer, const Key& key, double x, double y, double now);
+    void flick_move(double x, double y);
+    bool flick_up(unsigned pointer, double x, double y);
+    // What releasing now would type, and whether it replaces the last toggle kana.
+    std::string flick_text(const FlickTrack& track, bool* cycles = nullptr) const;
+    void flick_type(const std::string& text);
     int native_code(const Key& key, const std::set<int>& mods);
     void update_output_status();
     bool retry_output();
@@ -218,6 +233,14 @@ class App {
         std::vector<std::pair<double, double>> trail;
     };
     std::optional<SwipeTrack> swipe_track_;
+    std::optional<FlickTrack> flick_track_;
+    // The kana the last tap typed, which a quick repeated tap replaces.
+    struct FlickToggle {
+        std::string slot;
+        std::size_t index{};
+        double at{};
+    };
+    std::optional<FlickToggle> flick_toggle_;
     std::uint64_t swipe_request_{};
     bool swipe_waiting_{}, swipe_shifted_{}, swipe_caps_{};
     // Alternatives for the last swiped word; any other input invalidates them.

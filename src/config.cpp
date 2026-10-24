@@ -174,6 +174,9 @@ Layout parse_layout(const std::string& json) {
     Layout result;
     result.id = identifier(object, "id");
     result.name = text(object, "name");
+    if (field(object, "language", json_type_string, true)) {
+        result.language = identifier(object, "language");
+    }
     result.width = number(object, "width", 100, 4096);
     result.height = number(object, "height", 100, 2048);
     auto* keys = field(object, "keys", json_type_array);
@@ -212,6 +215,8 @@ Layout parse_layout(const std::string& json) {
             key.action_kind = ActionKind::Key;
         } else if (kind == "shortcut" && (key.action == "copy" || key.action == "paste")) {
             key.action_kind = ActionKind::Shortcut;
+        } else if (kind == "flick" && !key.action.empty() && key.action.size() <= 32) {
+            key.action_kind = ActionKind::Flick;
         } else {
             throw std::runtime_error("unknown key action");
         }
@@ -273,8 +278,8 @@ Language parse_language(const std::string& json) {
     l.locale = text(o, "locale");
     l.input_method = text(o, "input_method", "xkb", true);
     if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&
-        l.input_method != "japanese-kana" && l.input_method != "korean-2set" &&
-        l.input_method != "chinese-pinyin-simplified" &&
+        l.input_method != "japanese-kana" && l.input_method != "japanese-flick" &&
+        l.input_method != "korean-2set" && l.input_method != "chinese-pinyin-simplified" &&
         l.input_method != "chinese-pinyin-traditional") {
         throw std::runtime_error("unsupported input method");
     }
@@ -296,6 +301,42 @@ Language parse_language(const std::string& json) {
     read_kana("composition_shift", l.composition_shift);
     if (l.input_method == "japanese-kana" && l.kana.empty()) {
         throw std::runtime_error("direct Kana needs a kana mapping");
+    }
+    if (auto* slots = field(o, "flick", json_type_object, true)) {
+        auto short_text = [](json_object* object, const char* name, bool optional) {
+            auto value = text(object, name, "", optional);
+            if ((!optional && value.empty()) || value.size() > 16) {
+                throw std::runtime_error("invalid flick text");
+            }
+            return value;
+        };
+        json_object_object_foreach(slots, slot, value) {
+            if (!json_object_is_type(value, json_type_object) || std::string(slot).empty() ||
+                std::string(slot).size() > 32 || l.flick.size() >= 32) {
+                throw std::runtime_error("invalid flick key");
+            }
+            FlickKey key;
+            auto* taps = field(value, "tap", json_type_array);
+            if (json_object_array_length(taps) == 0 || json_object_array_length(taps) > 16) {
+                throw std::runtime_error("expected 1 to 16 flick taps");
+            }
+            for (std::size_t i = 0; i < json_object_array_length(taps); ++i) {
+                auto* tap = json_object_array_get_idx(taps, i);
+                if (!json_object_is_type(tap, json_type_string) ||
+                    json_object_get_string_len(tap) == 0 || json_object_get_string_len(tap) > 16) {
+                    throw std::runtime_error("invalid flick text");
+                }
+                key.tap.emplace_back(json_object_get_string(tap));
+            }
+            key.left = short_text(value, "left", true);
+            key.up = short_text(value, "up", true);
+            key.right = short_text(value, "right", true);
+            key.down = short_text(value, "down", true);
+            l.flick.emplace(slot, std::move(key));
+        }
+    }
+    if ((l.input_method == "japanese-flick") != !l.flick.empty()) {
+        throw std::runtime_error("flick input needs a flick mapping, and only it uses one");
     }
     auto* map = field(o, "keymap", json_type_object);
     l.rules = text(map, "rules");
@@ -479,6 +520,22 @@ void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
     }
     const auto& layout = profiles.layouts.at(s.layout);
     const auto& language = profiles.languages.at(s.language);
+    auto flick_key = [&](const std::string& slot) {
+        return std::any_of(layout.keys.begin(), layout.keys.end(), [&](const Key& key) {
+            return key.action_kind == ActionKind::Flick && key.action == slot;
+        });
+    };
+    if (language.flick.empty() &&
+        std::any_of(layout.keys.begin(), layout.keys.end(),
+                    [](const Key& key) { return key.action_kind == ActionKind::Flick; })) {
+        throw std::runtime_error("This layout types flick kana only. Choose a flick language.");
+    }
+    for (const auto& [slot, key] : language.flick) {
+        (void)key;
+        if (!flick_key(slot)) {
+            throw std::runtime_error("Language needs a flick layout. Choose another layout.");
+        }
+    }
     for (const auto& required : language.required_keys) {
         const bool found = std::any_of(layout.keys.begin(), layout.keys.end(), [&](const Key& key) {
             return key.action_kind == ActionKind::Key && key.action == required;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "input.hpp"
+#include <array>
 #include <cairo.h>
 #include <optional>
 
@@ -106,6 +107,15 @@ struct PanelView {
     bool hide_numpad{};
     std::string preedit;
     std::map<std::string, std::string> key_labels;
+    // The flick key being held: what a tap and each flick would type, and the
+    // direction release would choose. Painted as a cross above the keys.
+    struct FlickPreview {
+        bool operator==(const FlickPreview&) const = default;
+        std::string key;
+        std::array<std::string, 5> text; // Tap, left, up, right, down.
+        int selected{};
+    };
+    std::optional<FlickPreview> flick_preview;
     std::set<std::string> hovered_keys, hovered_controls;
     // Case coordinates of the swipe in progress, drawn above the keys.
     std::vector<std::pair<double, double>> swipe_trail;
@@ -117,6 +127,8 @@ bool hidden_key(const PanelView& view, const Key& key);
 Rect panel_case_bounds(const PanelView& view);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
+// Panel area of the flick preview, which may extend past the case.
+std::optional<Rect> flick_preview_bounds(const PanelView& view);
 
 class PanelRenderer {
   public:

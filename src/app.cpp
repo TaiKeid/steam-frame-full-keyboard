@@ -52,6 +52,61 @@ std::string compatible_layout(const Profiles& profiles, const Selection& selecti
     }
     return selection.layout; // Apply reports the validation error if none fit.
 }
+bool fits(const Profiles& profiles, const Selection& selection) {
+    try {
+        validate_selection_profiles(profiles, selection);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+// The language a newly chosen layout most likely serves: the current one if it
+// fits, then a favorite pair, a variant of the same language (ja-flick ->
+// ja-romaji, the layout's own one first), the layout's own language, English,
+// and finally any that fits.
+std::string likely_language(const Profiles& profiles, const std::vector<Favorite>& favorites,
+                            const Selection& selection) {
+    auto fit = [&](const std::string& language) {
+        return profiles.languages.contains(language) &&
+               fits(profiles, {selection.layout, language, selection.theme});
+    };
+    if (fit(selection.language)) {
+        return selection.language;
+    }
+    for (const auto& favorite : favorites) {
+        if (favorite.selection.layout == selection.layout && fit(favorite.selection.language)) {
+            return favorite.selection.language;
+        }
+    }
+    const auto& layout = profiles.layouts.at(selection.layout);
+    auto family = [](const std::string& id) { return id.substr(0, id.find('-')); };
+    if (family(layout.language) == family(selection.language) && fit(layout.language)) {
+        return layout.language;
+    }
+    for (const auto& [id, language] : profiles.languages) {
+        (void)language;
+        if (family(id) == family(selection.language) && fit(id)) {
+            return id;
+        }
+    }
+    if (fit(layout.language)) {
+        return layout.language;
+    }
+    if (fit("en-us")) {
+        return "en-us";
+    }
+    for (const auto& [id, language] : profiles.languages) {
+        (void)language;
+        if (fit(id)) {
+            return id;
+        }
+    }
+    return selection.language; // Apply reports the validation error if none fit.
+}
+// Layout units a press must travel to become a flick, about 40% of a key's height.
+constexpr double flick_distance = 24;
+// A repeated tap within this time cycles the toggle kana instead of adding one.
+constexpr double flick_toggle_seconds = 1.0;
 bool same_pair(const Selection& a, const Selection& b) {
     return a.layout == b.layout && a.language == b.language;
 }
@@ -310,13 +365,18 @@ void App::update_settings_ui() {
             std::move(note)};
     };
     const bool swipe = swipe_supported(pending_.language);
+    // Languages the pending layout cannot type stay listed but dimmed.
+    auto language_choices = choices(profiles_.languages);
+    for (auto& choice : language_choices) {
+        choice.enabled = fits(profiles_, {pending_.layout, choice.id, pending_.theme});
+    }
     settings_ui_.set_cards(
         {{"languages",
           "Languages and Layouts",
           {field(ControlKind::ChooseLayout,
                  dropdown("layout", "Layout", pending_.layout, choices(profiles_.layouts))),
            field(ControlKind::ChooseLanguage,
-                 dropdown("language", "Language", pending_.language, choices(profiles_.languages))),
+                 dropdown("language", "Language", pending_.language, language_choices)),
            field(ControlKind::Favorite, checkbox("favorite", "Favorite", favorite)),
            field(ControlKind::SwipeTyping,
                  checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
@@ -392,6 +452,29 @@ PanelView App::view() const {
             }
         }
     }
+    if (v.language->input_method == "japanese-flick") {
+        // Flick keys show their tap kana even in Latin mode, where a press returns to kana.
+        for (const auto& key : v.layout->keys) {
+            if (const auto it = v.language->flick.find(key.action);
+                key.action_kind == ActionKind::Flick && it != v.language->flick.end()) {
+                v.key_labels[key.id] = it->second.tap.front();
+            } else if (v.composing && !composition_.empty() && key.action == "Space") {
+                v.key_labels[key.id] = composition_.converting() ? "次候補" : "変換";
+            } else if (v.composing && !composition_.empty() && key.action == "Enter") {
+                v.key_labels[key.id] = "確定";
+            }
+        }
+        if (flick_track_) {
+            const auto& key = v.language->flick.at(flick_track_->slot);
+            auto tap = *flick_track_;
+            tap.direction = FlickDirection::Tap;
+            v.flick_preview =
+                PanelView::FlickPreview{flick_track_->key,
+                                        {flick_text(tap), key.left, key.up, key.right, key.down},
+                                        static_cast<int>(flick_track_->direction)};
+            v.key_labels[flick_track_->key] = flick_text(*flick_track_);
+        }
+    }
     if (cjk_ && !cjk_latin_) {
         v.composing = true;
         v.preedit = cjk_->preedit();
@@ -450,6 +533,9 @@ bool App::move(unsigned pointer, double x, double y) {
     pointer_positions_[pointer] = {x, y};
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_move(x, y);
+    }
+    if (flick_track_ && flick_track_->pointer == pointer) {
+        flick_move(x, y);
     }
     if (settings_open_ && settings_ui_.move(pointer, x, y)) {
         pressed_controls_.clear();
@@ -511,6 +597,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
+        if (key->action_kind == ActionKind::Flick) {
+            return flick_down(pointer, *key, x, y, now);
+        }
         const auto modifiers = keyboard_.modifiers();
         // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
         if (swipe_enabled() && !(cjk_ && cjk_latin_) && swipe_keyboard_->key_index.contains(key->id) &&
@@ -640,6 +729,9 @@ bool App::up(unsigned pointer, double x, double y) {
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         return swipe_up(pointer, x, y);
     }
+    if (flick_track_ && flick_track_->pointer == pointer) {
+        return flick_up(pointer, x, y);
+    }
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     const auto it = pressed_controls_.find(pointer);
@@ -662,6 +754,9 @@ void App::cancel_pointer(unsigned pointer) {
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_track_.reset();
     }
+    if (flick_track_ && flick_track_->pointer == pointer) {
+        flick_track_.reset(); // A flick that left the panel types nothing.
+    }
     // The laser may now click elsewhere in the target, so replacing is unsafe.
     discard_swipe();
     settings_ui_.cancel_pointer(pointer);
@@ -674,7 +769,9 @@ void App::cancel_pointer(unsigned pointer) {
 void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
     pointer_positions_.clear();
-    // An unfinished swipe and an undelivered decode are discarded like preedit.
+    // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
+    flick_track_.reset();
+    flick_toggle_.reset();
     swipe_track_.reset();
     swipe_waiting_ = false;
     ++swipe_request_;
@@ -997,6 +1094,7 @@ void App::convert_japanese() {
     composition_.convert();
 }
 void App::commit_japanese() {
+    flick_toggle_.reset();
     const auto text = composition_.commit_text();
     if (text.empty()) {
         return;
@@ -1034,6 +1132,16 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
     }
     const bool shift = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
     const bool composing = !composition_.empty();
+    // → ends a toggle, so the same flick key can type its first kana again.
+    if (code == "ArrowRight" && flick_toggle_ && composing) {
+        if (execute) {
+            flick_toggle_.reset();
+        }
+        return true;
+    }
+    if (execute) {
+        flick_toggle_.reset();
+    }
     if (code == "Convert" || (code == "Space" && composing)) {
         if (execute) {
             if (shift && composition_.converting()) {
@@ -1435,6 +1543,7 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
         if (kind == ControlKind::ChooseLayout) {
             pending_.layout = command.value;
+            pending_.language = likely_language(profiles_, pending_favorites_, pending_);
         } else if (kind == ControlKind::ChooseLanguage) {
             pending_.language = command.value;
             pending_.layout = compatible_layout(profiles_, pending_);
@@ -1493,6 +1602,110 @@ void App::action(const ControlAction& command) {
         }
         update_settings_ui();
     }
+}
+bool App::flick_down(unsigned pointer, const Key& key, double x, double y, double now) {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    if (!backend_ready_ || keyboard_.pointer_pressed(pointer) || flick_track_ ||
+        !language.flick.contains(key.action)) {
+        return false;
+    }
+    // Kana keys always compose; Latin mode only changes what the number row types.
+    japanese_latin_ = false;
+    // A local press shows the key and owns the pointer; nothing is sent.
+    if (!keyboard_.down(pointer, key, now, true, 0)) {
+        return false;
+    }
+    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    flick_track_ = FlickTrack{pointer, key.id, key.action, lx, ly, now};
+    dirty = true;
+    return true;
+}
+void App::flick_move(double x, double y) {
+    auto& track = *flick_track_;
+    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    const double dx = lx - track.x, dy = ly - track.y;
+    auto direction = FlickDirection::Tap;
+    if (std::hypot(dx, dy) >= flick_distance) {
+        direction = std::abs(dx) > std::abs(dy) ? (dx < 0 ? FlickDirection::Left : FlickDirection::Right)
+                                                : (dy < 0 ? FlickDirection::Up : FlickDirection::Down);
+    }
+    if (direction != track.direction) {
+        track.direction = direction;
+        dirty = true;
+    }
+}
+std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
+    const auto& key = profiles_.languages.at(settings_.active.language).flick.at(track.slot);
+    if (cycles) {
+        *cycles = false;
+    }
+    switch (track.direction) {
+    case FlickDirection::Left:
+        return key.left;
+    case FlickDirection::Up:
+        return key.up;
+    case FlickDirection::Right:
+        return key.right;
+    case FlickDirection::Down:
+        return key.down;
+    case FlickDirection::Tap:
+        break;
+    }
+    // A quick repeated tap replaces the kana the previous tap typed, if it is
+    // still the last one in the reading.
+    if (flick_toggle_ && flick_toggle_->slot == track.slot && key.tap.size() > 1 &&
+        track.pressed - flick_toggle_->at <= flick_toggle_seconds &&
+        composition_.last_kana() == key.tap[flick_toggle_->index]) {
+        if (cycles) {
+            *cycles = true;
+        }
+        return key.tap[(flick_toggle_->index + 1) % key.tap.size()];
+    }
+    return key.tap.front();
+}
+bool App::flick_up(unsigned pointer, double x, double y) {
+    const auto track = *flick_track_;
+    flick_track_.reset();
+    keyboard_.up(pointer);
+    const auto& key = profiles_.languages.at(settings_.active.language).flick.at(track.slot);
+    bool cycles = false;
+    const auto text = flick_text(track, &cycles);
+    try {
+        if (cycles) {
+            composition_.backspace();
+        }
+        flick_type(text);
+        if (track.direction == FlickDirection::Tap && key.tap.size() > 1 && !composition_.converting()) {
+            const auto index = cycles ? (flick_toggle_->index + 1) % key.tap.size() : 0;
+            flick_toggle_ = FlickToggle{track.slot, index, track.pressed};
+        } else {
+            flick_toggle_.reset();
+        }
+    } catch (const std::exception& error) {
+        flick_toggle_.reset();
+        status_ = error.what();
+    }
+    move(pointer, x, y);
+    dirty = true;
+    return true;
+}
+void App::flick_type(const std::string& text) {
+    if (text.empty()) {
+        return; // A direction this key does not use.
+    }
+    if (text == "゛" || text == "゜" || text == "小" || text == "゛゜小") {
+        composition_.mark(text);
+        return;
+    }
+    if (composition_.converting()) {
+        // Like typing, a new kana first commits the chosen phrase.
+        commit_japanese();
+        if (!composition_.empty()) {
+            return; // A failed commit keeps the phrase and types nothing.
+        }
+    }
+    composition_.kana(text);
+    status_.clear();
 }
 bool App::swipe_supported(const std::string& language_id) const {
     const auto language = profiles_.languages.find(language_id);

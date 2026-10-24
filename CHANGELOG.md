@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added the **Japanese flick 12-key** layout with the 日本語 — Flick language: the 12-key kana grid used on Japanese phones, with flick and toggle (repeated tap) input, a cross-shaped preview of the flick kana while a key is held, ゛゜小 for voiced and small kana, and the usual conversion. It keeps Esc, the F keys and the number row, and leaves out Ctrl, Alt, Super and Caps Lock.
+- Settings now dims languages the selected layout cannot type. Choosing a layout that cannot type the current language switches to the most likely language for it, such as Romaji when leaving the flick layout.
+
 - The Backspace key now shows a ⇤-style icon instead of the word, distinct from the left arrow.
 - The Japanese Romaji and Kana composition hint is now shown in Japanese.
 - Switching to the external JIS profile while Full Keyboard is replacing Steam's keyboard no longer hands the request back to Steam's keyboard, which looked like a crash. Full Keyboard stays open, explains that external JIS cannot type there, and blocks typing until another language is chosen.

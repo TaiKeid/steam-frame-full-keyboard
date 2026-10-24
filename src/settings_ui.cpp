@@ -193,6 +193,7 @@ void SettingsUi::append(PanelView& view) const {
                  choice.id == field->value,
                  Icon::None,
                  ControlStyle::MenuItem});
+            view.controls.back().enabled = choice.enabled;
             view.controls.back().action = field->action;
             view.controls.back().action.value = choice.id;
         }

@@ -26,6 +26,8 @@ def validate(data):
         raise ValueError("expected layout schema_version 1")
     text(data["id"], "id")
     text(data["name"], "name")
+    if "language" in data:
+        text(data["language"], "language")
     width = number(data["width"], "width", positive=True)
     height = number(data["height"], "height", positive=True)
     if not isinstance(data["keys"], list) or not data["keys"]:
@@ -46,7 +48,7 @@ def validate(data):
         if x + w > width + 0.001 or y + h > height + 0.001:
             raise ValueError(f"{ident}: outside the design area")
         action = key["action"]
-        if action["kind"] not in ("key", "shortcut"):
+        if action["kind"] not in ("key", "shortcut", "flick"):
             raise ValueError(f"{ident}: unsupported action kind")
         text(action["value"], ident + ".action.value")
         if action["kind"] == "shortcut" and action["value"] not in ("copy", "paste"):

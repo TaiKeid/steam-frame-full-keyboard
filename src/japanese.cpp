@@ -5,6 +5,7 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 namespace framekeyboard {
 namespace {
@@ -234,6 +235,69 @@ void JapaneseComposer::kana(const std::string& text) {
     unconvert();
     drain(true);
     append(text);
+}
+namespace {
+// Each kana is three UTF-8 bytes; the strings pair small and large forms.
+constexpr std::string_view small_kana = "ぁぃぅぇぉっゃゅょゎ", large_kana = "あいうえおつやゆよわ";
+std::string small_form(const std::string& kana) {
+    const auto at = large_kana.find(kana);
+    return kana.empty() || at == std::string_view::npos ? std::string{}
+                                                        : std::string(small_kana.substr(at, 3));
+}
+std::string large_form(const std::string& kana) {
+    const auto at = small_kana.find(kana);
+    return kana.empty() || at == std::string_view::npos ? kana : std::string(large_kana.substr(at, 3));
+}
+// Base kana plus a combining mark, if Unicode composes them into one character.
+std::string marked(const std::string& base, const char* combining) {
+    const auto text = normalized(base + combining);
+    return g_utf8_strlen(text.c_str(), -1) == 1 ? text : std::string{};
+}
+} // namespace
+std::string JapaneseComposer::last_kana() const {
+    if (!pending_.empty() || converting() || reading_.empty()) {
+        return {};
+    }
+    const auto* last = g_utf8_find_prev_char(reading_.c_str(), reading_.c_str() + reading_.size());
+    return last ? std::string(last) : std::string{};
+}
+bool JapaneseComposer::mark(const std::string& mark) {
+    unconvert();
+    drain(true);
+    const auto last = last_kana();
+    if (last.empty()) {
+        return false;
+    }
+    // The plain, large form: が -> か, っ -> つ.
+    auto* decomposed = g_utf8_normalize(last.c_str(), -1, G_NORMALIZE_DEFAULT);
+    const auto base = large_form(
+        std::string(decomposed, static_cast<std::size_t>(g_utf8_next_char(decomposed) - decomposed)));
+    g_free(decomposed);
+    const auto small = small_form(base), voiced = marked(base, "\u3099"), semi = marked(base, "\u309a");
+    std::string next;
+    if (mark == "゛" && !voiced.empty()) {
+        next = last == voiced ? base : voiced;
+    } else if (mark == "゜" && !semi.empty()) {
+        next = last == semi ? base : semi;
+    } else if (mark == "小" && !small.empty()) {
+        next = last == small ? base : small;
+    } else if (mark == "゛゜小") {
+        // Phones cycle base, small, voiced, semi-voiced: つ っ づ, は ば ぱ.
+        std::vector<std::string> variants{base};
+        for (const auto& variant : {small, voiced, semi}) {
+            if (!variant.empty()) {
+                variants.push_back(variant);
+            }
+        }
+        const auto at = std::find(variants.begin(), variants.end(), last);
+        next = at == variants.end() || at + 1 == variants.end() ? variants.front() : *(at + 1);
+    }
+    if (next.empty() || next == last) {
+        return false;
+    }
+    erase_character(reading_);
+    reading_ += next;
+    return true;
 }
 void JapaneseComposer::backspace() {
     if (converting()) {
