@@ -216,6 +216,13 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_new_sub_path(cr);
         cairo_arc(cr, 0, 0, 3.5, 0, 2 * pi);
         break;
+    case Icon::Backspace:
+        // |<-- : the bar sets it apart from the plain left arrow.
+        line(-11, -7, -11, 7);
+        line(11, 0, -7, 0);
+        line(-1, -6, -7, 0);
+        cairo_line_to(cr, -1, 6);
+        break;
     case Icon::Back:
         line(9, 0, -9, 0);
         line(-2, -7, -9, 0);
@@ -599,7 +606,9 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
                            : method.starts_with("chinese-")
                                ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
-                               : "Type → Space: convert · Enter: commit · Esc: cancel";
+                           : method == "japanese-kana"
+                               ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
+                               : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
         label(cr, view.preedit.empty() ? hint : view.preedit, {body.x + 20, 94, body.width - 40, 40}, 27,
               view.language->font, t.legend);
     }

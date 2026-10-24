@@ -29,7 +29,8 @@ enum class Icon {
     Copy,
     Paste,
     SteamFrame,
-    SteamOS
+    SteamOS,
+    Backspace
 };
 
 enum class ActionKind { Key, Shortcut };

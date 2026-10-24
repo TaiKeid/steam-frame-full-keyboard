@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Backspace key now shows a ⇤-style icon instead of the word, distinct from the left arrow.
+- The Japanese Romaji and Kana composition hint is now shown in Japanese.
+- Switching to the external JIS profile while Full Keyboard is replacing Steam's keyboard no longer hands the request back to Steam's keyboard, which looked like a crash. Full Keyboard stays open, explains that external JIS cannot type there, and blocks typing until another language is chosen.
+- The log now records frames slower than 0.5 s and why native replacement paused, with no typed content.
 - Added experimental swipe typing, off by default, for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin (the swiped Pinyin goes to the composer, which offers characters). Enable **Swipe typing** in Settings → Languages and Layouts; it is disabled for languages without a word list. Hold the trigger on a letter, trace the word and release. The best match is typed, with a space between consecutive swiped words, and up to five alternatives appear in the toolbar; choosing one replaces the swiped word. Taps still type single letters, on release while swipe is enabled. Swipe typing is powered by "FUTO Swipe" technology.
 
 ## 0.8.2: Fewer background wakeups

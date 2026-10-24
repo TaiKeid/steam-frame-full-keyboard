@@ -301,6 +301,10 @@ int main() {
         const auto defaults = fk::load_profiles({}, {});
         require(defaults.errors.empty(), "bundled profiles valid");
         require(defaults.layouts.at("en-us-full").keys.size() == 106, "106 baseline keys");
+        for (const auto& [id, layout] : defaults.layouts) {
+            require(key(layout, "Backspace").icon == fk::Icon::Backspace,
+                    "Backspace uses the |<- icon, distinct from the left arrow");
+        }
         state_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         app_tests();

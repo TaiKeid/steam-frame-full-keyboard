@@ -649,6 +649,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
     };
     replacement.frame_completed();
+    bool replacement_was_ready = false;
     while (!done && !app.quitting() && !interrupted) {
         const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
@@ -1015,6 +1016,16 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                         vr_overlay()->IsOverlayVisible(panel.handle());
         const auto report = lifecycle.frame_report(backend_ready, dashboard_visible, compositor_visible);
         const auto completed = monotonic_seconds();
+        // Diagnostics with fixed text only. A frame over the 0.9 s lease ends a
+        // Steam typing session, so record both causes for later troubleshooting.
+        if (completed - now > .5) {
+            std::cout << "Slow frame: " << static_cast<int>((completed - now) * 1000) << " ms.\n"
+                      << std::flush;
+        }
+        if (replace && replacement_was_ready && !backend_ready) {
+            std::cout << "Native replacement paused: " << app.replacement_block() << ".\n" << std::flush;
+        }
+        replacement_was_ready = backend_ready;
         replacement.update(replace, report.ready, report.acknowledgement, fallback || report.fallback,
                            completed, true);
         replacement_progress.store(completed);

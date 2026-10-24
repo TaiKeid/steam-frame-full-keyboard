@@ -34,7 +34,7 @@ Keep a compiled safe default available. If a user override is invalid, retain th
 
 ## Layouts and styles
 
-Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy`, `paste`, `steam-frame`, or `steam-os`; omitting it renders the text label. Icons use the theme legend color and move with the key face. Modifiers latch on tap by default. Set a key's `sticky` field to `false` for a native press/release hold; bundled right Super uses this for the desktop menu. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
+Layout JSON defines key rectangles and actions. An optional `icon` field accepts `copy`, `paste`, `steam-frame`, `steam-os` or `backspace`; omitting it renders the text label. Icons use the theme legend color and move with the key face. Modifiers latch on tap by default. Set a key's `sticky` field to `false` for a native press/release hold; bundled right Super uses this for the desktop menu. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
 
 Theme JSON defines renderer properties directly. Support surface and legend colors, key-face gradients, side colors/depth, corner radii, spacing/padding and font sizing, plus hover, pressed, latched and disabled state styles. The current renderer consumes the graphite fields plus `font_size`, `small_font_size`, `padding`, `hover` and `latched`. It uses immediate hover/latched colors and animated press travel. The `disabled` color blends with the legend color to dim unavailable settings controls; keyboard keys have no separate disabled state. Per-key fonts, arbitrary spacing rules and additional state styles remain future work. Native rendering does not require CSS or JavaScript theme execution.
 
@@ -74,7 +74,7 @@ Persist successful selection to `config.json` using an atomic write. If saving f
 
 ## Swipe typing
 
-The Languages and Layouts card has a **Swipe typing** checkbox, saved as the optional global boolean `swipe_typing` and defaulting to false. Apply and save activates it; Back discards it. A smaller line under it reads "Swipe typing powered by FUTO Swipe" whether or not swipe is available, as the model license requires; it dims together with the checkbox.
+The Languages and Layouts card has a **Swipe typing** checkbox, saved as the optional global boolean `swipe_typing` and defaulting to false. Apply and save activates it; Back discards it. A smaller second line under its label reads "Powered by FUTO Swipe" whether or not swipe is available, as the model license requires; it dims together with the checkbox.
 
 The checkbox is disabled for the language chosen in the dropdown unless that profile has `"swipe": {"lexicon": "<id>"}`, uses the `xkb` input method, the swipe engine module and model are installed, and a word list `swipe/lexicons/<id>.tsv` exists. A user file in `$XDG_CONFIG_HOME/framekeyboard/swipe/lexicons/` overrides the bundled one; Reload rereads it. The saved choice is kept while disabled. Swipe is active only when it is saved on and the active language supports it, so cycling to a favorite without swipe support switches it off for that language. Bundled support: English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and both Chinese Pinyin profiles. Japanese, Korean and external JIS have no swipe yet.
 

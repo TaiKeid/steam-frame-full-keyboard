@@ -152,14 +152,16 @@ void SettingsUi::append(PanelView& view) const {
         for (std::size_t j = 0; j < cards_[i].fields.size(); ++j) {
             const auto& field = cards_[i].fields[j];
             const auto bounds = field_bounds(i, j);
-            const Rect text{r.x + row_left, bounds.y, bounds.x - label_gap - (r.x + row_left),
-                            bounds.height};
+            const double label_width = bounds.x - label_gap - (r.x + row_left);
+            // A note becomes a smaller second line, keeping the row one control high.
+            const bool noted = !field.note.empty();
+            const Rect text{r.x + row_left, bounds.y + (noted ? 2 : 0), label_width,
+                            noted ? 30 : bounds.height};
             if (intersects(text, clip)) {
                 view.field_labels.push_back({field.label, text, clip, true, field.enabled});
             }
-            if (!field.note.empty()) {
-                const Rect note{r.x + row_left, bounds.y + bounds.height + 4,
-                                r.width - row_left - row_right, 24};
+            if (noted) {
+                const Rect note{r.x + row_left, bounds.y + 32, label_width, 22};
                 if (intersects(note, clip)) {
                     view.field_labels.push_back({field.note, note, clip, true, field.enabled, 16});
                 }

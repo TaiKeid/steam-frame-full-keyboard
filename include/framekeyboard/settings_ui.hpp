@@ -15,8 +15,7 @@ struct SettingField {
     bool enabled{true};
     // Dropdowns use this kind for choosing a value; their row opens generically.
     ControlAction action{};
-    // A small line under the field, dimmed with it. It occupies the gap below the
-    // row, so only the last field of a card may have one.
+    // A smaller second line under the label, dimmed with the field.
     std::string note{};
 };
 struct SettingsCard {

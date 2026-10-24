@@ -65,6 +65,8 @@ class App {
         return options_.autostart || (options_.background_update && settings_.replace_native_keyboard);
     }
     bool replacement_ready() const;
+    // Fixed diagnostic text for why replacement_ready() is false.
+    const char* replacement_block() const;
     bool take_native_fallback();
     bool resident_replacement() const {
         return options_.mode == Mode::Vr && settings_.replace_native_keyboard;
@@ -127,6 +129,7 @@ class App {
     void commit_cjk();
     void choose_cjk(int index);
     bool unicode_mode() const;
+    bool external_jis() const;
     bool text_key(const Key& key, const std::set<int>& mods) const;
     // Swipe typing. Decoding runs on SwipeService's worker; App alone sends text.
     bool swipe_supported(const std::string& language) const;
@@ -181,6 +184,7 @@ class App {
     bool cjk_latin_{};
     bool japanese_latin_{};
     bool text_ready_{};
+    bool text_transport_ready_{}; // The text connection, whatever the profile.
     bool typing_ready_{};
     struct HoverTarget {
         enum class Kind { None, Key, Control } kind{Kind::None};

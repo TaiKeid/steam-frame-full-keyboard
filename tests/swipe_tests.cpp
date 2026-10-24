@@ -348,7 +348,7 @@ void app_flow(bool ordered_replace) {
     require(swipe_box.enabled && swipe_box.selected, "swipe checkbox reflects the saved choice");
     bool note = false;
     for (const auto& label : app.view().field_labels) {
-        note |= label.text == "Swipe typing powered by FUTO Swipe";
+        note |= label.text == "Powered by FUTO Swipe";
     }
     require(note, "the FUTO notice is shown beside the checkbox");
     click(app, "language");
@@ -367,7 +367,7 @@ void app_flow(bool ordered_replace) {
     require(!swipe_box.enabled && !swipe_box.selected, "unsupported languages disable swipe");
     note = false;
     for (const auto& label : app.view().field_labels) {
-        note |= label.text == "Swipe typing powered by FUTO Swipe" && !label.enabled && label.size < 22;
+        note |= label.text == "Powered by FUTO Swipe" && !label.enabled && label.size < 22;
     }
     require(note, "the smaller notice stays visible and dims with its option");
     click(app, "apply");

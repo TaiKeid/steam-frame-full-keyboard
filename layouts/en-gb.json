@@ -374,6 +374,7 @@
     {
       "id": "Backspace",
       "label": "Backspace",
+      "icon": "backspace",
       "secondary_label": "",
       "x": 905.2,
       "y": 66,

@@ -925,6 +925,49 @@ void tracking_recovery() {
     require(tracking.should_sample(true, true, false, 20.1) && tracking.waiting(),
             "recenter can request an immediate check without inventing a valid pose");
 }
+// Switching to external JIS during a replaced request must keep our panel: it
+// reports ready, blocks typing and explains why, instead of handing back to Steam.
+void external_jis_keeps_panel() {
+    const auto directory =
+        fs::temp_directory_path() / ("framekeyboard-jis-tests-" + std::to_string(getpid()));
+    fs::remove_all(directory);
+    Settings settings;
+    settings.replace_native_keyboard = true;
+    save_settings(directory, settings);
+    Options options;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.config_dir = directory;
+    Local sink;
+    App app(options, sink);
+    app.set_replacement_available(true);
+    app.set_native_session(true);
+    app.tick(1);
+    require(app.replacement_ready(), "an ordinary profile serves the request");
+    app.apply({"ja-jis-full", "ja-jis", "graphite"});
+    app.tick(2);
+    require(app.replacement_ready(), "external JIS keeps the replaced request on our panel");
+    require(app.view().status == "External JIS cannot type into this request. Choose another language.",
+            "the panel explains why it cannot type");
+    const auto view = app.view();
+    for (int y = 96; y < panel_height; y += 4) {
+        for (int x = 0; x < panel_width; x += 4) {
+            if (const auto* key = app.renderer.hit_key(view, x, y); key && key->action == "KeyA") {
+                app.down(0, x, y, 3);
+                app.up(0, x, y);
+                y = panel_height;
+                break;
+            }
+        }
+    }
+    require(sink.keys.empty() && sink.text.empty(), "external JIS sends nothing into the request");
+    app.set_native_session(false);
+    app.tick(4);
+    require(app.view().status != "External JIS cannot type into this request. Choose another language.",
+            "the notice belongs to replaced requests only");
+    fs::remove_all(directory);
+}
 void resident_close() {
     const auto directory =
         fs::temp_directory_path() / ("framekeyboard-resident-tests-" + std::to_string(getpid()));
@@ -1220,6 +1263,7 @@ int main(int argc, char** argv) {
         tracking_recovery();
         idle_wakeups();
         resident_close();
+        external_jis_keeps_panel();
         slow_work_allowance();
         unavailable_reasons();
         runtime_wait_allowance();

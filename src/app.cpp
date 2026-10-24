@@ -320,7 +320,7 @@ void App::update_settings_ui() {
            field(ControlKind::Favorite, checkbox("favorite", "Favorite", favorite)),
            field(ControlKind::SwipeTyping,
                  checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
-                          "Swipe typing powered by FUTO Swipe"))}},
+                          "Powered by FUTO Swipe"))}},
          {"general",
           "General",
           {field(ControlKind::ChooseTheme,
@@ -361,8 +361,11 @@ PanelView App::view() const {
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings;
     if (v.status.empty() && !typing_ready_ && !image_export) {
-        v.status = options_.input == InputBackend::None
-                       ? "Preview only: this launch cannot type."
+        // External JIS sends physical keys to a system IME, which a replaced
+        // Steam keyboard request cannot receive.
+        v.status = options_.input == InputBackend::None ? "Preview only: this launch cannot type."
+                   : native_session_ && external_jis()
+                       ? "External JIS cannot type into this request. Choose another language."
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
     }
     v.settings = settings_open_;
@@ -966,7 +969,8 @@ void App::refresh_typing() {
     backend_ready_ = ready;
     backend_can_resume_ = can_resume;
     const auto& language = profiles_.languages.at(settings_.active.language);
-    text_ready_ = (unicode_mode() || japanese() || cjk_) && output_.text_available();
+    text_transport_ready_ = output_.text_available();
+    text_ready_ = (unicode_mode() || japanese() || cjk_) && text_transport_ready_;
     // Unicode mode owns character mapping. Only physical-only backends and
     // external JIS still rely on a declared receiving-session keymap.
     const bool matching = target_language_ && same_keymap(*target_language_, language) &&
@@ -977,7 +981,7 @@ void App::refresh_typing() {
         options_.start_enabled && options_.mode == Mode::Vr &&
         (options_.input == InputBackend::Ei || options_.input == InputBackend::Uinput) &&
         (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
-        backend_ready_;
+        backend_ready_ && !(native_session_ && external_jis());
     dirty |= typing_ready_ != typing_ready;
     typing_ready_ = typing_ready;
     if (output_.enabled() && !(interaction_active_ && typing_ready_)) {
@@ -1740,9 +1744,24 @@ void App::discard_swipe() {
     swipe_committed_.clear();
 }
 bool App::replacement_ready() const {
-    const auto& language = profiles_.languages.at(settings_.active.language);
+    // Readiness follows the connections, not the profile. A profile that cannot
+    // type into the request keeps the panel open with a notice; handing the
+    // request back to Steam's keyboard would look like a crash.
     return options_.mode == Mode::Vr && options_.input == InputBackend::Ei && options_.start_enabled &&
-           backend_ready_ && text_ready_ && !(language.input_method == "xkb" && language.keymap == "jp");
+           backend_ready_ && text_transport_ready_;
+}
+const char* App::replacement_block() const {
+    if (!backend_ready_) {
+        return "input connection unavailable";
+    }
+    if (!text_transport_ready_) {
+        return "text delivery unavailable";
+    }
+    return "launch options";
+}
+bool App::external_jis() const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    return language.input_method == "xkb" && language.keymap == "jp";
 }
 bool App::take_native_fallback() {
     return std::exchange(native_fallback_, false);

@@ -197,6 +197,8 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::SteamFrame;
         } else if (icon == "steam-os") {
             key.icon = Icon::SteamOS;
+        } else if (icon == "backspace") {
+            key.icon = Icon::Backspace;
         } else if (!icon.empty()) {
             throw std::runtime_error("unknown key icon");
         }
