@@ -31,12 +31,14 @@ class SwipeEncoder {
 using SwipeEncoderFactory = std::function<std::unique_ptr<SwipeEncoder>()>;
 
 struct SwipePoint {
+    bool operator==(const SwipePoint&) const = default;
     double x{}, y{}, t{}; // Layout coordinates; t in seconds.
 };
 
 // Letter keys of one layout/language pair. Each key's letter is its unshifted
 // keymap character, so geometry and language stay independent.
 struct SwipeKeyboard {
+    bool operator==(const SwipeKeyboard&) const = default;
     std::vector<char32_t> letters;
     std::vector<SwipePoint> centers;
     std::map<std::string, int> key_index; // Layout key ID -> letter index.
@@ -102,7 +104,14 @@ class SwipeService {
     ~SwipeService();
     SwipeService(const SwipeService&) = delete;
     SwipeService& operator=(const SwipeService&) = delete;
+    // Loads a word list for a keyboard; skipped when the same, unchanged file
+    // is already loaded for an equal keyboard.
     void prepare(std::shared_ptr<const SwipeKeyboard> keyboard, fs::path lexicon);
+    // Drops the word list and returns its memory, for swipe typing turned off.
+    // The encoder stays loaded: unloading and reloading its module is untested.
+    void release();
+    // Word lists parsed so far, for tests.
+    std::size_t loads();
     void decode(std::uint64_t id, std::vector<SwipePoint> points);
     struct Result {
         std::uint64_t id{};
@@ -123,7 +132,7 @@ class SwipeService {
         fs::path lexicon;
         std::uint64_t id{};
         std::vector<SwipePoint> points;
-        bool prepare{};
+        bool prepare{}, release{};
         std::uint64_t generation{}; // Of a prepare job.
     };
     SwipeEncoderFactory factory_;
@@ -133,6 +142,7 @@ class SwipeService {
     std::optional<Result> result_;
     std::size_t outstanding_{};
     std::uint64_t requested_{}, prepared_{}; // Prepare generations queued and finished.
+    std::size_t loads_{};
     bool stop_{};
     std::thread worker_;
 };

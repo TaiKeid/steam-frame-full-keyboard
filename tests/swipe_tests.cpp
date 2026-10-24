@@ -482,6 +482,31 @@ void trail_repaint() {
     app.cancel();
 }
 // Needs the Pinyin engine module, which Frame builds include.
+// Unchanged word lists are not parsed again; edits and a release load them anew.
+void service_reuse() {
+    TemporaryDirectory directory;
+    const auto path = directory.path / "words.tsv";
+    std::ofstream(path) << "hello\t200\n";
+    SwipeService service([] { return std::unique_ptr<SwipeEncoder>(); });
+    const auto keyboard = std::make_shared<const SwipeKeyboard>(keyboard_for("en-us-full", "en-us"));
+    auto prepare = [&](std::shared_ptr<const SwipeKeyboard> board) {
+        service.prepare(std::move(board), path);
+        for (int i = 0; i < 400 && !service.ready(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    };
+    prepare(keyboard);
+    prepare(std::make_shared<const SwipeKeyboard>(*keyboard)); // Reload builds an equal copy.
+    require(service.loads() == 1, "an unchanged word list for an equal keyboard is not parsed again");
+    prepare(std::make_shared<const SwipeKeyboard>(keyboard_for("international-full", "de-de")));
+    require(service.loads() == 2, "another keyboard parses the list again");
+    std::ofstream(path) << "hello\t200\nhelp\t150\n";
+    prepare(keyboard);
+    require(service.loads() == 3, "an edited word list is parsed again");
+    service.release();
+    prepare(keyboard);
+    require(service.loads() == 4, "a released word list loads again");
+}
 // A word list still loading must not hold up keys on the VR thread.
 void loading_does_not_block() {
     TemporaryDirectory directory;
@@ -703,6 +728,7 @@ int main(int argc, char** argv) {
         lexicon_paths();
         features();
         disabled_by_default();
+        service_reuse();
         loading_does_not_block();
         app_flow(false);
         app_flow(true);

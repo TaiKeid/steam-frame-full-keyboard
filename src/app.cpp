@@ -1748,8 +1748,18 @@ bool App::swipe_supported(const std::string& language_id) const {
 void App::prepare_swipe() {
     swipe_track_.reset();
     discard_swipe();
-    if (!settings_.swipe_typing || !swipe_supported(settings_.active.language)) {
-        swipe_keyboard_.reset(); // The service stays idle; re-enabling reuses its encoder.
+    if (!settings_.swipe_typing) {
+        // Turning swipe off returns the word list's memory; the encoder stays.
+        swipe_keyboard_.reset();
+        swipe_prepared_.clear();
+        if (swipe_) {
+            swipe_->release();
+        }
+        return;
+    }
+    if (!swipe_supported(settings_.active.language)) {
+        // The service keeps its word list, so returning to this language is quick.
+        swipe_keyboard_.reset();
         return;
     }
     const auto& layout = profiles_.layouts.at(settings_.active.layout);

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <glib.h>
 #include <limits>
+#include <malloc.h>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -490,9 +491,23 @@ void SwipeService::prepare(std::shared_ptr<const SwipeKeyboard> keyboard, fs::pa
         std::lock_guard lock(mutex_);
         // Only the newest keyboard matters; drop queued preparation for older ones.
         std::erase_if(jobs_, [](const Job& job) { return job.prepare; });
-        jobs_.push_back({std::move(keyboard), std::move(lexicon), 0, {}, true, ++requested_});
+        jobs_.push_back({std::move(keyboard), std::move(lexicon), 0, {}, true, false, ++requested_});
     }
     wake_.notify_all();
+}
+void SwipeService::release() {
+    {
+        std::lock_guard lock(mutex_);
+        std::erase_if(jobs_, [](const Job& job) { return job.prepare; });
+        Job job;
+        job.release = true;
+        jobs_.push_back(std::move(job));
+    }
+    wake_.notify_all();
+}
+std::size_t SwipeService::loads() {
+    std::lock_guard lock(mutex_);
+    return loads_;
 }
 void SwipeService::decode(std::uint64_t id, std::vector<SwipePoint> points) {
     {
@@ -522,6 +537,15 @@ void SwipeService::run() {
     std::shared_ptr<const SwipeKeyboard> keyboard;
     std::optional<SwipeLexicon> lexicon;
     std::string lexicon_error = "Swipe typing is not ready";
+    // Identifies the loaded word list file, so an unchanged one is not parsed again.
+    fs::path loaded_path;
+    fs::file_time_type loaded_time{};
+    std::uintmax_t loaded_size{};
+    auto return_memory = [] {
+#ifdef __GLIBC__
+        malloc_trim(0); // Parsing frees about as much as the trie keeps.
+#endif
+    };
     for (;;) {
         Job job;
         {
@@ -533,7 +557,24 @@ void SwipeService::run() {
             job = std::move(jobs_.front());
             jobs_.erase(jobs_.begin());
         }
+        if (job.release) {
+            keyboard.reset();
+            lexicon.reset();
+            lexicon_error = "Swipe typing is not ready";
+            loaded_path.clear();
+            return_memory();
+            continue;
+        }
         if (job.prepare) {
+            std::error_code stat_error;
+            const auto time = fs::last_write_time(job.lexicon, stat_error);
+            const auto size = stat_error ? 0 : fs::file_size(job.lexicon, stat_error);
+            if (lexicon && keyboard && *keyboard == *job.keyboard && job.lexicon == loaded_path &&
+                !stat_error && time == loaded_time && size == loaded_size) {
+                std::lock_guard lock(mutex_);
+                prepared_ = job.generation;
+                continue;
+            }
             if (!encoder_tried) {
                 encoder_tried = true;
                 try {
@@ -544,14 +585,22 @@ void SwipeService::run() {
             }
             keyboard = std::move(job.keyboard);
             lexicon.reset();
+            loaded_path.clear();
             try {
                 lexicon = SwipeLexicon::load(job.lexicon, *keyboard);
                 lexicon_error.clear();
+                if (!stat_error) {
+                    loaded_path = job.lexicon;
+                    loaded_time = time;
+                    loaded_size = size;
+                }
             } catch (const std::exception& error) {
                 lexicon_error = error.what();
             }
+            return_memory();
             std::lock_guard lock(mutex_);
             prepared_ = job.generation;
+            ++loads_;
             continue;
         }
         Result result{job.id, {}, {}};
