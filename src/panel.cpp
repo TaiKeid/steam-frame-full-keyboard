@@ -241,11 +241,13 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_arc(cr, 0, 0, 3.5, 0, 2 * pi);
         break;
     case Icon::Backspace:
-        // |<-- : the bar sets it apart from the plain left arrow.
-        line(-11, -7, -11, 7);
-        line(11, 0, -7, 0);
-        line(-1, -6, -7, 0);
-        cairo_line_to(cr, -1, 6);
+        // |<-- : the bar sets it apart from the plain left arrow. Keys draw it
+        // at the arrow glyphs' size; a thicker line keeps their stroke weight.
+        cairo_set_line_width(cr, 2.3);
+        line(-12, -7, -12, 7);
+        line(11, 0, -6, 0);
+        line(0, -6, -6, 0);
+        cairo_line_to(cr, 0, 6);
         break;
     case Icon::Back:
         line(9, 0, -9, 0);
@@ -329,7 +331,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     }
     if (key.icon != Icon::None) {
         const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
-        draw_icon(cr, key.icon, face, t.legend, super_icon ? 22 : 32);
+        draw_icon(cr, key.icon, face, t.legend, super_icon ? 22 : key.icon == Icon::Backspace ? 18 : 32);
         return;
     }
     if (key.action_kind == ActionKind::Flick) {
