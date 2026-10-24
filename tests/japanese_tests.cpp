@@ -190,6 +190,19 @@ void flick_input() {
         require(preedit().empty() && !app.view().flick_preview, "a cancelled flick types nothing");
     }
 
+    {
+        // The other hand's press types the held flick first, in press order.
+        const auto [kx, ky] = key_centre(app, "Flick-ka");
+        const auto [sx, sy] = key_centre(app, "Flick-sa");
+        app.down(0, kx, ky, 35);
+        app.move(0, kx, ky - 60);
+        require(app.down(1, sx, sy, 35.1) && preedit() == "く",
+                "a held flick types before the next press");
+        app.up(0, kx, ky - 60);
+        app.up(1, sx, sy);
+        require(preedit() == "くさ", "neither hand's kana is dropped");
+        clear();
+    }
     flick(app, "ta", 40, 0, -60);
     flick(app, "mark", 41);
     require(preedit() == "っ", "゛゜小 makes the last kana small");

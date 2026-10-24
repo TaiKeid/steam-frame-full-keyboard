@@ -597,6 +597,16 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
+        // Taps and flicks type on release, so the other hand often presses
+        // before this one lets go. Type the held one first to keep press order.
+        if (flick_track_ && flick_track_->pointer != pointer) {
+            finish_flick();
+        }
+        if (swipe_track_ && swipe_track_->pointer != pointer && !swipe_track_->swiping) {
+            const auto track = std::move(*swipe_track_);
+            swipe_track_.reset();
+            type_swipe_tap(track);
+        }
         if (key->action_kind == ActionKind::Flick) {
             return flick_down(pointer, *key, x, y, now);
         }
@@ -1667,9 +1677,15 @@ std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
     return key.tap.front();
 }
 bool App::flick_up(unsigned pointer, double x, double y) {
+    finish_flick();
+    move(pointer, x, y);
+    dirty = true;
+    return true;
+}
+void App::finish_flick() {
     const auto track = *flick_track_;
     flick_track_.reset();
-    keyboard_.up(pointer);
+    keyboard_.up(track.pointer);
     const auto& key = profiles_.languages.at(settings_.active.language).flick.at(track.slot);
     bool cycles = false;
     const auto text = flick_text(track, &cycles);
@@ -1688,9 +1704,6 @@ bool App::flick_up(unsigned pointer, double x, double y) {
         flick_toggle_.reset();
         status_ = error.what();
     }
-    move(pointer, x, y);
-    dirty = true;
-    return true;
 }
 void App::flick_type(const std::string& text) {
     if (text.empty()) {
@@ -1807,26 +1820,8 @@ void App::swipe_move(double x, double y) {
 bool App::swipe_up(unsigned pointer, double x, double y) {
     auto track = std::move(*swipe_track_);
     swipe_track_.reset();
-    if (!track.swiping && cjk_) {
-        // A Pinyin tap types into the composer, as it does without swipe.
-        keyboard_.up(pointer);
-        const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
-        const auto key =
-            std::find_if(keys.begin(), keys.end(), [&](const Key& k) { return k.id == track.key; });
-        if (key != keys.end()) {
-            try {
-                cjk_key(*key, true, track.modifiers);
-            } catch (const std::exception& error) {
-                status_ = error.what(); // As for presses: the composition is full.
-            }
-        }
-    } else if (!track.swiping) {
-        keyboard_.up(pointer);
-        const auto text = keymap_->compose(track.symbol);
-        if (!text.empty() && options_.input != InputBackend::None && !output_.commit_text(text)) {
-            status_ = "Text was not sent. Release other keys and check the target/input connection.";
-        }
-        swipe_space_ = false;
+    if (!track.swiping) {
+        type_swipe_tap(track);
     } else {
         const auto [lx, ly] = renderer.layout_point(view(), x, y);
         track.points.push_back({lx, ly, monotonic_seconds()});
@@ -1838,6 +1833,29 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
     move(pointer, x, y);
     dirty = true;
     return true;
+}
+void App::type_swipe_tap(const SwipeTrack& track) {
+    keyboard_.up(track.pointer);
+    if (cjk_) {
+        // A Pinyin tap types into the composer, as it does without swipe.
+        const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
+        const auto key =
+            std::find_if(keys.begin(), keys.end(), [&](const Key& k) { return k.id == track.key; });
+        if (key != keys.end()) {
+            try {
+                cjk_key(*key, true, track.modifiers);
+            } catch (const std::exception& error) {
+                status_ = error.what(); // As for presses: the composition is full.
+            }
+        }
+    } else {
+        const auto text = keymap_->compose(track.symbol);
+        if (!text.empty() && options_.input != InputBackend::None && !output_.commit_text(text)) {
+            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        }
+        swipe_space_ = false;
+    }
+    dirty = true;
 }
 void App::finish_swipe(bool wait) {
     if (!swipe_waiting_ || !swipe_) {

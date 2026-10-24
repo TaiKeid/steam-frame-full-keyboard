@@ -287,6 +287,25 @@ void app_flow(bool ordered_replace) {
     require(app.down(0, ax, ay, 1) && sink.text.empty(), "swipe mode defers a letter until release");
     app.up(0, ax, ay);
     require(sink.text == std::vector<std::string>{"a"} && *calls == 0, "a tap is not decoded");
+    {
+        // Taps type on release, so two hands overlap: the other hand's press
+        // types the held tap first, and neither is dropped.
+        const auto [tx, ty] = key_point(app, "KeyT");
+        const auto [hx, hy] = key_point(app, "KeyH");
+        app.down(0, tx, ty, 1.2);
+        app.down(1, hx, hy, 1.3);
+        require(sink.text.back() == "t", "the other hand's press types the held tap first");
+        app.up(0, tx, ty);
+        app.up(1, hx, hy);
+        const auto [sx, sy] = key_point(app, "Space");
+        app.down(0, tx, ty, 1.4);
+        app.down(1, sx, sy, 1.5);
+        app.up(1, sx, sy);
+        app.up(0, tx, ty);
+        require(sink.text == std::vector<std::string>{"a", "t", "h", "t", " "},
+                "overlapping presses from two hands type in press order");
+        sink.text = {"a"};
+    }
 
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
     require(sink.text.size() == 1, "a swipe sends nothing before its result");

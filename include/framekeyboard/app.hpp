@@ -158,6 +158,8 @@ class App {
     bool flick_down(unsigned pointer, const Key& key, double x, double y, double now);
     void flick_move(double x, double y);
     bool flick_up(unsigned pointer, double x, double y);
+    // Types the held flick now, as its release would.
+    void finish_flick();
     // What releasing now would type, and whether it replaces the last toggle kana.
     std::string flick_text(const FlickTrack& track, bool* cycles = nullptr) const;
     void flick_type(const std::string& text);
@@ -235,6 +237,8 @@ class App {
         std::vector<std::pair<double, double>> trail;
     };
     std::optional<SwipeTrack> swipe_track_;
+    // Types a press that never became a swipe, as its release would.
+    void type_swipe_tap(const SwipeTrack& track);
     std::optional<FlickTrack> flick_track_;
     // The kana the last tap typed, which a quick repeated tap replaces.
     struct FlickToggle {
