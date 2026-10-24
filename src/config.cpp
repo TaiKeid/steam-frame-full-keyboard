@@ -348,9 +348,9 @@ Language parse_language(const std::string& json) {
         }
     }
     if (auto* swipe = field(o, "swipe", json_type_object, true)) {
-        // Swipe needs ordinary XKB letters; composition profiles add it separately.
-        if (l.input_method != "xkb") {
-            throw std::runtime_error("swipe typing needs an xkb input method");
+        // Swipe needs letters it can send as text or Pinyin for the composer.
+        if (l.input_method != "xkb" && !l.input_method.starts_with("chinese-pinyin-")) {
+            throw std::runtime_error("swipe typing needs an xkb or Pinyin input method");
         }
         l.swipe_lexicon = identifier(swipe, "lexicon");
     }

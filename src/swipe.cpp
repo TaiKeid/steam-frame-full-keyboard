@@ -7,6 +7,7 @@
 #include <fstream>
 #include <glib.h>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -35,6 +36,13 @@ double log_add(double a, double b) {
 }
 bool apostrophe(char32_t c) {
     return c == U'\'' || c == U'’';
+}
+char32_t base_letter(char32_t c) {
+    gunichar decomposed[8];
+    if (g_unichar_fully_decompose(c, FALSE, decomposed, 8) > 0) {
+        return static_cast<char32_t>(g_unichar_tolower(decomposed[0]));
+    }
+    return c;
 }
 fs::path executable_dir() {
     return fs::read_symlink("/proc/self/exe").parent_path();
@@ -90,12 +98,11 @@ int SwipeKeyboard::index_of(char32_t character) const {
     if (const int index = find(lower); index >= 0) {
         return index;
     }
-    // Letters typed through dead keys are swiped on their base key (é -> e).
-    gunichar decomposed[8];
-    if (g_unichar_fully_decompose(lower, FALSE, decomposed, 8) > 0) {
-        return find(static_cast<char32_t>(g_unichar_tolower(decomposed[0])));
+    if (const auto shifted = shifted_letters.find(lower); shifted != shifted_letters.end()) {
+        return shifted->second;
     }
-    return -1;
+    // Letters typed through dead keys are swiped on their base key (é -> e).
+    return find(base_letter(lower));
 }
 
 std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const LanguageMap& keymap) {
@@ -125,18 +132,40 @@ std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const La
     if (keyboard.letters.size() < 10) {
         return {};
     }
+    std::set<int> altgr;
+    altgr.insert(key_code("AltRight"));
+    for (const auto& [id, index] : keyboard.key_index) {
+        const auto key = std::find_if(layout.keys.begin(), layout.keys.end(),
+                                      [&](const Key& k) { return k.id == id; });
+        const auto character = xkb_keysym_to_utf32(keymap.symbol(*key, altgr, false, false));
+        const auto letter = static_cast<char32_t>(g_unichar_tolower(character));
+        if (character && g_unichar_isalpha(character) &&
+            std::find(keyboard.letters.begin(), keyboard.letters.end(), letter) ==
+                keyboard.letters.end()) {
+            keyboard.shifted_letters.try_emplace(letter, index);
+        }
+    }
     const auto count = static_cast<double>(keyboard.letters.size());
     keyboard.key_width = width / count;
-    // The encoder was trained on a letter-block frame. Use the basic Latin block
-    // when present, so extra letters such as ü or ñ extend slightly beyond it.
+    // The encoder was trained on a letter-block frame and encodes key positions
+    // with a cosine basis, which mirrors positions past the frame edge. Span
+    // every letter key in the three main letter rows (ü, ñ, à beside them), but
+    // not number-row letters, which would squeeze the rows. The rows are found
+    // by physical position, so Cyrillic layouts work the same way. Measured on
+    // held-out swipes: German 84.5% top-1 (83.7% for a-z only), Spanish unchanged.
     std::vector<SwipePoint> frame_centers;
-    for (std::size_t i = 0; i < keyboard.letters.size(); ++i) {
-        if (keyboard.letters[i] >= U'a' && keyboard.letters[i] <= U'z') {
-            frame_centers.push_back(keyboard.centers[i]);
+    const auto q = keyboard.key_index.find("KeyQ"), z = keyboard.key_index.find("KeyZ");
+    if (q != keyboard.key_index.end() && z != keyboard.key_index.end()) {
+        const double row_top = keyboard.centers[static_cast<std::size_t>(q->second)].y;
+        const double row_bottom = keyboard.centers[static_cast<std::size_t>(z->second)].y;
+        for (const auto& center : keyboard.centers) {
+            if (center.y >= row_top - 1 && center.y <= row_bottom + 1) {
+                frame_centers.push_back(center);
+            }
         }
     }
     if (frame_centers.size() < 20) {
-        frame_centers = keyboard.centers;
+        frame_centers = keyboard.centers; // Layouts without the usual letter rows.
     }
     double left = std::numeric_limits<double>::max(), top = left;
     double right = std::numeric_limits<double>::lowest(), bottom = right;
@@ -149,6 +178,18 @@ std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const La
     const double half_width = keyboard.key_width / 2 + 3, half_height = height / count / 2 + 5;
     keyboard.frame = {left - half_width, top - half_height, right - left + 2 * half_width,
                       bottom - top + 2 * half_height};
+    // People often swipe an accented letter through its plain letter, and phone
+    // keyboards train that habit. Keys above the letter block accept both.
+    keyboard.alternate.assign(keyboard.letters.size(), -1);
+    for (std::size_t i = 0; i < keyboard.letters.size(); ++i) {
+        if (keyboard.centers[i].y < keyboard.frame.y) {
+            const auto base = base_letter(keyboard.letters[i]);
+            const auto it = std::find(keyboard.letters.begin(), keyboard.letters.end(), base);
+            if (base != keyboard.letters[i] && it != keyboard.letters.end()) {
+                keyboard.alternate[i] = static_cast<int>(it - keyboard.letters.begin());
+            }
+        }
+    }
     return keyboard;
 }
 
@@ -190,22 +231,36 @@ SwipeLexicon SwipeLexicon::parse(std::istream& input, const SwipeKeyboard& keybo
         if (!mapped || length < 2) {
             continue;
         }
-        std::uint32_t node = 0;
-        for (const auto key : path) {
-            auto& list = children[node];
-            const auto it = std::find_if(list.begin(), list.end(),
-                                         [&](const Child& child) { return child.key == key; });
-            if (it != list.end()) {
-                node = it->node;
-                continue;
+        auto insert = [&](const std::vector<std::uint8_t>& keys) {
+            std::uint32_t node = 0;
+            for (const auto key : keys) {
+                auto& list = children[node];
+                const auto it = std::find_if(list.begin(), list.end(),
+                                             [&](const Child& child) { return child.key == key; });
+                if (it != list.end()) {
+                    node = it->node;
+                    continue;
+                }
+                const auto created = static_cast<std::uint32_t>(children.size());
+                list.push_back({key, created});
+                children.emplace_back();
+                words.emplace_back();
+                node = created;
             }
-            const auto created = static_cast<std::uint32_t>(children.size());
-            list.push_back({key, created});
-            children.emplace_back();
-            words.emplace_back();
-            node = created;
+            words[node].push_back(static_cast<std::uint32_t>(lexicon.words_.size()));
+        };
+        insert(path);
+        std::vector<std::uint8_t> alternate;
+        for (const auto key : path) {
+            const int other = key < keyboard.alternate.size() ? keyboard.alternate[key] : -1;
+            const auto next = static_cast<std::uint8_t>(other >= 0 ? other : key);
+            if (alternate.empty() || alternate.back() != next) {
+                alternate.push_back(next);
+            }
         }
-        words[node].push_back(static_cast<std::uint32_t>(lexicon.words_.size()));
+        if (alternate != path) {
+            insert(alternate);
+        }
         lexicon.words_.push_back(word);
         lexicon.log_frequency_.push_back(static_cast<float>((frequency - 255) / frequency_scale));
         lexicon.path_length_.push_back(static_cast<std::uint8_t>(std::min<std::size_t>(length, 255)));
@@ -290,12 +345,18 @@ std::vector<SwipeLexicon::Candidate> SwipeLexicon::decode(const std::vector<floa
         beams.swap(next);
     }
     std::vector<Candidate> result;
+    std::unordered_map<std::uint32_t, std::size_t> seen; // A word can end two paths (é or e).
     for (const auto& beam : beams) {
         const auto& node = nodes_[beam.node];
         for (std::uint32_t i = 0; i < node.word_count; ++i) {
             const auto word = node_words_[node.first_word + i];
-            result.push_back({words_[word], beam.total() + frequency_weight * log_frequency_[word] +
-                                                length_weight * path_length_[word]});
+            const double score = beam.total() + frequency_weight * log_frequency_[word] +
+                                 length_weight * path_length_[word];
+            if (const auto [it, inserted] = seen.try_emplace(word, result.size()); !inserted) {
+                result[it->second].score = std::max(result[it->second].score, score);
+                continue;
+            }
+            result.push_back({words_[word], score});
         }
     }
     std::sort(result.begin(), result.end(),

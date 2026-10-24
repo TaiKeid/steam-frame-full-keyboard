@@ -42,7 +42,12 @@ struct SwipeKeyboard {
     std::map<std::string, int> key_index; // Layout key ID -> letter index.
     Rect frame;                           // Normalization frame around the letter block.
     double key_width{};
-    // A letter, its lowercase form, or its accent-free base; -1 if none.
+    // AltGr letters (Ukrainian ё on е) are swiped on the key that types them.
+    std::map<char32_t, int> shifted_letters;
+    // For a letter key outside the letter block (AZERTY é on the number row),
+    // the base letter key a swipe may cross instead; -1 otherwise.
+    std::vector<int> alternate;
+    // A letter, its lowercase form, its key's AltGr letter or its accent-free base; -1 if none.
     int index_of(char32_t character) const;
 };
 std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const LanguageMap& keymap);

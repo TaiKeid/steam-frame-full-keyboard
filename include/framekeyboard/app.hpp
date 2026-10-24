@@ -206,6 +206,8 @@ class App {
     std::string swipe_prepared_;                          // Layout, language and word list in swipe_.
     struct SwipeTrack {
         unsigned pointer{};
+        std::string key; // The tapped key, for Pinyin composition.
+        std::set<int> modifiers;
         xkb_keysym_t symbol{}; // The tapped character if the press never becomes a swipe.
         bool shifted{}, swiping{};
         std::vector<SwipePoint> points;

@@ -19,5 +19,8 @@
     "Noto Sans",
     "sans-serif"
   ],
-  "input_method": "chinese-pinyin-traditional"
+  "input_method": "chinese-pinyin-traditional",
+  "swipe": {
+    "lexicon": "zh-pinyin"
+  }
 }

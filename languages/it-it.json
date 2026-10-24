@@ -20,5 +20,8 @@
   ],
   "required_keys": [
     "IntlBackslash"
-  ]
+  ],
+  "swipe": {
+    "lexicon": "it-it"
+  }
 }

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added experimental swipe typing for English (US), German and Spanish, off by default. Enable **Swipe typing** in Settings → Languages and Layouts; it is disabled for languages without a word list. Hold the trigger on a letter, trace the word and release. The best match is typed, with a space between consecutive swiped words, and up to five alternatives appear in the toolbar; choosing one replaces the swiped word. Taps still type single letters, on release while swipe is enabled. Swipe typing is powered by "FUTO Swipe" technology.
+- Added experimental swipe typing, off by default, for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin (the swiped Pinyin goes to the composer, which offers characters). Enable **Swipe typing** in Settings → Languages and Layouts; it is disabled for languages without a word list. Hold the trigger on a letter, trace the word and release. The best match is typed, with a space between consecutive swiped words, and up to five alternatives appear in the toolbar; choosing one replaces the swiped word. Taps still type single letters, on release while swipe is enabled. Swipe typing is powered by "FUTO Swipe" technology.
 
 ## 0.8.2: Fewer background wakeups
 

@@ -14,7 +14,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
 - Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
 - Controller laser typing, press/release haptic clicks, and subtle hover feedback.
-- Experimental swipe typing for English (US), German and Spanish, off by default. Swipe typing is powered by "FUTO Swipe" technology.
+- Experimental swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
 - Move with the laser handle below the keyboard, or enable grab movement in Settings. Size controls are available in both modes.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Editable layouts, languages, and themes, with a settings menu inside VR.

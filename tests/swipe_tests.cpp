@@ -114,6 +114,22 @@ void keyboard_geometry() {
             "German keymap places Z on the QWERTZ key");
     require(letter(de, U'Ä') == letter(de, U'ä'), "German uppercase umlauts map to their key");
 
+    const auto fr = keyboard_for("international-full", "fr-fr");
+    const int e_acute = letter(fr, U'é');
+    require(e_acute != letter(fr, U'e') && fr.centers[static_cast<std::size_t>(e_acute)].y < fr.frame.y,
+            "AZERTY é is its own key on the number row");
+    require(fr.alternate[static_cast<std::size_t>(e_acute)] == letter(fr, U'e'),
+            "a number-row accent also accepts its plain letter");
+    require(fr.alternate[static_cast<std::size_t>(letter(fr, U'ù'))] == -1,
+            "accents inside the letter block stay single keys");
+    require(fr.alternate[static_cast<std::size_t>(letter(fr, U'a'))] == -1,
+            "plain letters have one path");
+    const auto uk = keyboard_for("en-us-full", "uk-ua");
+    require(letter(uk, U'ґ') != letter(uk, U'г'), "Ukrainian ґ has its own key");
+    require(letter(uk, U'ё') == letter(uk, U'е'), "an AltGr letter is swiped on the key that types it");
+    const auto ru = keyboard_for("en-us-full", "ru-ru");
+    require(ru.alternate[static_cast<std::size_t>(letter(ru, U'ё'))] == letter(ru, U'е'),
+            "Russian ё on the number row also accepts е");
     const auto es = keyboard_for("international-full", "es-es");
     require(es.index_of(U'ñ') >= 0 && es.index_of(U'ñ') != es.index_of(U'n'),
             "Spanish ñ has its own key");
@@ -138,6 +154,18 @@ void lexicon_paths() {
     words = lexicon.decode(log_probs, steps, swipe_max_keys + 1, 5);
     require(!words.empty() && words[0].word == "café", "accented words decode from base keys");
     require(lexicon.decode({}, 0, swipe_max_keys + 1, 5).empty(), "empty output decodes to nothing");
+
+    const auto fr = keyboard_for("international-full", "fr-fr");
+    std::istringstream french("été\t150\nêtes\t140\n");
+    const auto accents = SwipeLexicon::parse(french, fr);
+    for (const auto* path : {U"été", U"ete"}) {
+        log_probs = emissions(path_of(fr, path), steps);
+        words = accents.decode(log_probs, steps, swipe_max_keys + 1, 5);
+        require(!words.empty() && words[0].word == "été" &&
+                    std::count_if(words.begin(), words.end(),
+                                  [](const auto& c) { return c.word == "été"; }) == 1,
+                "a number-row accent decodes from either path, listed once");
+    }
 }
 
 void features() {
@@ -226,6 +254,12 @@ void app_flow(bool ordered_replace) {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
     std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    // A user profile without a "swipe" entry stands in for any unsupported language.
+    fs::create_directories(directory.path / "languages");
+    std::ofstream(directory.path / "languages/en-plain.json")
+        << R"({"schema_version":1,"id":"en-plain","name":"Plain English","locale":"en-US",)"
+        << R"("keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},)"
+        << R"("legends":{"source":"keymap","overrides":{}},"font_families":["Noto Sans"]})";
     Settings settings;
     settings.swipe_typing = true;
     save_settings(directory.path, settings);
@@ -318,12 +352,17 @@ void app_flow(bool ordered_replace) {
     }
     require(note, "the FUTO notice is shown beside the checkbox");
     click(app, "language");
-    for (int i = 0; i < 30 && !has_control(app.view(), "choose:language:fr-fr"); ++i) {
+    {
+        const auto popup = *app.view().popup;
+        app.move(0, popup.x + 10, popup.y + 10);
+        app.scroll(0, 0, -100); // Start at the top of the list, whatever is selected.
+    }
+    for (int i = 0; i < 30 && !has_control(app.view(), "choose:language:en-plain"); ++i) {
         const auto popup = *app.view().popup;
         app.move(0, popup.x + 10, popup.y + 10);
         app.scroll(0, 0, 1);
     }
-    click(app, "choose:language:fr-fr");
+    click(app, "choose:language:en-plain");
     swipe_box = control(app.view(), "swipe-typing");
     require(!swipe_box.enabled && !swipe_box.selected, "unsupported languages disable swipe");
     note = false;
@@ -337,7 +376,7 @@ void app_flow(bool ordered_replace) {
     require(load_settings(directory.path, errors).swipe_typing,
             "the saved choice survives a disabled language");
 
-    // French has no word list: letters type on press again.
+    // A profile without a word list types on press again.
     const auto before = sink.text.size();
     const auto [fx, fy] = key_point(app, "KeyQ");
     app.down(0, fx, fy, 9);
@@ -410,6 +449,49 @@ void trail_repaint() {
     require(identical(1.3), "removing the trail leaves no residue");
     app.cancel();
 }
+// Needs the Pinyin engine module, which Frame builds include.
+int chinese_flow() {
+    if (!CjkComposer::supported("chinese-pinyin-simplified")) {
+        std::cout << "Pinyin engine not built\n";
+        return 77;
+    }
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.swipe_typing = true;
+    settings.active = {"en-us-full", "zh-cn-pinyin", "graphite"};
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    require(app.selection().language == "zh-cn-pinyin", "Pinyin profile is active");
+    *path = path_of(keyboard_for("en-us-full", "zh-cn-pinyin"), U"nihao");
+    swipe(app, {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}, 1);
+    settle(app, [&] { return !app.view().preedit.empty(); });
+    require(!app.view().preedit.empty() && has_control(app.view(), "cjk-candidate-0"),
+            "a Pinyin swipe fills the composer and offers characters");
+    require(sink.text.empty() && !has_control(app.view(), "swipe-candidate-0"),
+            "nothing is sent and no Latin alternatives appear");
+    const auto before = app.view().preedit;
+    const auto [x, y] = key_point(app, "KeyA");
+    app.down(0, x, y, 2);
+    require(app.view().preedit == before, "a Pinyin tap waits for release");
+    app.up(0, x, y);
+    require(app.view().preedit != before && sink.text.empty(), "a Pinyin tap types into the composer");
+    app.cancel();
+    return 0;
+}
 void disabled_by_default() {
     TemporaryDirectory directory;
     Options options;
@@ -469,7 +551,17 @@ int model() {
                                   {"international-full", "de-de", U"strasse", "Straße"},
                                   {"international-full", "de-de", U"über", "über"},
                                   {"international-full", "es-es", U"tambien", "también"},
-                                  {"international-full", "es-es", U"año", "año"}};
+                                  {"international-full", "es-es", U"año", "año"},
+                                  {"en-gb-full", "en-gb", U"colour", "colour"},
+                                  {"international-full", "fr-fr", U"bonjour", "bonjour"},
+                                  {"international-full", "fr-fr", U"ete", "été"},
+                                  {"international-full", "it-it", U"città", "città"},
+                                  {"br-abnt2-full", "pt-br", U"obrigado", "obrigado"},
+                                  {"br-abnt2-full", "pt-br", U"nao", "não"},
+                                  {"en-us-full", "uk-ua", U"привіт", "привіт"},
+                                  {"en-us-full", "ru-ru", U"привет", "привет"},
+                                  {"en-us-full", "zh-cn-pinyin", U"zhongguo", "zhongguo"},
+                                  {"en-us-full", "zh-cn-pinyin", U"nihao", "nihao"}};
     auto encoder = load_swipe_encoder(swipe_model_path({}));
     int first = 0;
     for (const auto& item : cases) {
@@ -522,6 +614,9 @@ int main(int argc, char** argv) {
         const std::string mode = argc > 1 ? argv[1] : "--core";
         if (mode == "--model") {
             return model();
+        }
+        if (mode == "--chinese") {
+            return chinese_flow();
         }
         keyboard_geometry();
         lexicon_paths();

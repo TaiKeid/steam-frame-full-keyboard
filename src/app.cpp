@@ -509,8 +509,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         const auto modifiers = keyboard_.modifiers();
-        if (swipe_enabled() && swipe_keyboard_->key_index.contains(key->id) && !keymap_->composing() &&
-            std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
+        // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
+        if (swipe_enabled() && !(cjk_ && cjk_latin_) && swipe_keyboard_->key_index.contains(key->id) &&
+            !keymap_->composing() && std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
                 return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
             })) {
             return swipe_down(pointer, *key, x, y, now, modifiers);
@@ -1492,8 +1493,9 @@ void App::action(const ControlAction& command) {
 bool App::swipe_supported(const std::string& language_id) const {
     const auto language = profiles_.languages.find(language_id);
     if (language == profiles_.languages.end() || language->second.swipe_lexicon.empty() ||
-        language->second.input_method != "xkb" || language->second.keymap == "jp" ||
-        options_.input == InputBackend::Uinput) {
+        (language->second.input_method != "xkb" &&
+         !language->second.input_method.starts_with("chinese-pinyin-")) ||
+        language->second.keymap == "jp" || options_.input == InputBackend::Uinput) {
         return false; // Swipe words are Unicode text; physical-key modes cannot send them.
     }
     if (!options_.swipe_encoder && !swipe_engine_installed(options_.data_dir)) {
@@ -1542,13 +1544,16 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
     }
     finish_swipe(true);
     discard_swipe();
-    if (!output_.admit(true, now)) {
+    // Pinyin letters only reach the local composer; they need no output slot.
+    if (!output_.admit(!cjk_, now)) {
         update_output_status();
         dirty = true;
         return false;
     }
     SwipeTrack track;
     track.pointer = pointer;
+    track.key = key.id;
+    track.modifiers = mods;
     // Capture the tap's character before down() consumes a latched Shift.
     track.symbol = keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num());
     track.shifted = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
@@ -1582,7 +1587,16 @@ void App::swipe_move(double x, double y) {
 bool App::swipe_up(unsigned pointer, double x, double y) {
     auto track = std::move(*swipe_track_);
     swipe_track_.reset();
-    if (!track.swiping) {
+    if (!track.swiping && cjk_) {
+        // A Pinyin tap types into the composer, as it does without swipe.
+        keyboard_.up(pointer);
+        const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
+        const auto key =
+            std::find_if(keys.begin(), keys.end(), [&](const Key& k) { return k.id == track.key; });
+        if (key != keys.end()) {
+            cjk_key(*key, true, track.modifiers);
+        }
+    } else if (!track.swiping) {
         keyboard_.up(pointer);
         const auto text = keymap_->compose(track.symbol);
         if (!text.empty() && options_.input != InputBackend::None && !output_.commit_text(text)) {
@@ -1626,6 +1640,17 @@ void App::apply_swipe(const SwipeService::Result& result) {
     }
     if (result.words.empty()) {
         status_ = "No word matched the swipe.";
+        return;
+    }
+    if (cjk_) {
+        // The decoded Pinyin joins the composition; its own candidate row then
+        // offers the characters. Separators only matter after a syllable.
+        for (const char c : result.words.front()) {
+            if (c != '\'' || !cjk_->empty()) {
+                cjk_->type(c);
+            }
+        }
+        status_.clear();
         return;
     }
     swipe_candidates_.clear();

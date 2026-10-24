@@ -22,5 +22,8 @@
     "IntlBackslash",
     "IntlRo",
     "NumpadComma"
-  ]
+  ],
+  "swipe": {
+    "lexicon": "pt-br"
+  }
 }
