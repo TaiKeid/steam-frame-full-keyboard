@@ -107,6 +107,9 @@ std::string likely_language(const Profiles& profiles, const std::vector<Favorite
 constexpr double flick_distance = 24;
 // A repeated tap within this time cycles the toggle kana instead of adding one.
 constexpr double flick_toggle_seconds = 1.0;
+// A swipe longer than this many samples (over 30 s of motion) is not a word,
+// or its capture is stuck: it ends without typing.
+constexpr std::size_t max_swipe_points = 2000;
 bool same_pair(const Selection& a, const Selection& b) {
     return a.layout == b.layout && a.language == b.language;
 }
@@ -399,6 +402,16 @@ void App::update_settings_ui() {
                  checkbox("start-with-steamos", "Start with SteamOS",
                           pending_start_with_steamos_ && pending_replace_native_keyboard_,
                           pending_replace_native_keyboard_))}}});
+}
+PanelView App::geometry() const {
+    PanelView v;
+    v.layout = &profiles_.layouts.at(settings_.active.layout);
+    v.theme = &profiles_.themes.at(settings_.active.theme);
+    v.language = &profiles_.languages.at(settings_.active.language);
+    v.hide_numpad = settings_.hide_numpad;
+    v.settings = settings_open_;
+    v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
+    return v;
 }
 PanelView App::view() const {
     PanelView v;
@@ -1645,14 +1658,14 @@ bool App::flick_down(unsigned pointer, const Key& key, double x, double y, doubl
     if (!keyboard_.down(pointer, key, now, true, 0)) {
         return false;
     }
-    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
     flick_track_ = FlickTrack{pointer, key.id, key.action, lx, ly, now};
     dirty = true;
     return true;
 }
 void App::flick_move(double x, double y) {
     auto& track = *flick_track_;
-    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
     const double dx = lx - track.x, dy = ly - track.y;
     auto direction = FlickDirection::Tap;
     if (std::hypot(dx, dy) >= flick_distance) {
@@ -1821,7 +1834,7 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
     if (!keyboard_.down(pointer, key, now, true, 0)) {
         return false;
     }
-    const auto [lx, ly] = renderer.layout_point(view(), x, y);
+    const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
     track.points.push_back({lx, ly, monotonic_seconds()});
     track.trail.emplace_back(x, y);
     swipe_track_ = std::move(track);
@@ -1830,8 +1843,27 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
 }
 void App::swipe_move(double x, double y) {
     auto& track = *swipe_track_;
-    const auto [lx, ly] = renderer.layout_point(view(), x, y);
-    track.points.push_back({lx, ly, monotonic_seconds()});
+    const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
+    const double now = monotonic_seconds();
+    // A pointer at rest keeps reporting its position. Keep only when it
+    // arrived and the latest time: the decoder resamples by time, so it sees
+    // the same pause, and history stays bounded however long the rest.
+    const auto n = track.points.size();
+    auto near = [](const SwipePoint& a, double bx, double by) {
+        return std::hypot(a.x - bx, a.y - by) < .5;
+    };
+    if (n >= 2 && near(track.points[n - 1], lx, ly) &&
+        near(track.points[n - 2], track.points[n - 1].x, track.points[n - 1].y)) {
+        track.points.back().t = now;
+        return;
+    }
+    if (n >= max_swipe_points) {
+        swipe_track_.reset();
+        status_ = "Swipe was too long and was cancelled.";
+        dirty = true;
+        return;
+    }
+    track.points.push_back({lx, ly, now});
     track.trail.emplace_back(x, y);
     const auto& start = track.points.front();
     if (!track.swiping && std::hypot(lx - start.x, ly - start.y) > swipe_keyboard_->key_width / 2) {
@@ -1855,7 +1887,7 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
     if (!track.swiping) {
         type_swipe_tap(track);
     } else {
-        const auto [lx, ly] = renderer.layout_point(view(), x, y);
+        const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
         track.points.push_back({lx, ly, monotonic_seconds()});
         swipe_shifted_ = track.shifted;
         swipe_caps_ = keyboard_.caps();

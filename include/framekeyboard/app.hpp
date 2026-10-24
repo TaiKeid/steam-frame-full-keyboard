@@ -37,6 +37,9 @@ class App {
     App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {},
         Updates* updates = nullptr, SettingsWriter::Write reconcile_preferences = {});
     PanelView view() const;
+    // Only what key placement depends on, for converting pointer coordinates
+    // without building controls or copying the swipe trail.
+    PanelView geometry() const;
     // True only for a newly accepted keyboard key, so VR can provide haptics.
     bool down(unsigned pointer, double x, double y, double now);
     // True when an unpressed pointer enters a different keyboard key.

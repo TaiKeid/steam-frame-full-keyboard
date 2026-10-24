@@ -572,6 +572,59 @@ void leave_while_decoding() {
     require(sink.text.back() == "hello" && has_control(app.view(), "swipe-candidate-0"),
             "the next swipe has no inherited space and offers alternatives again");
 }
+// Resting and very long gestures keep bounded history; a rest still decodes.
+void long_gestures() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path =
+        std::make_shared<std::vector<int>>(path_of(keyboard_for("en-us-full", "en-us"), U"helo"));
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    auto [x, y] = key_point(app, "KeyH");
+    const auto [ex, ey] = key_point(app, "KeyE");
+    app.down(0, x, y, 1);
+    app.move(0, ex, ey);
+    for (int i = 0; i < 5000; ++i) {
+        app.move(0, ex + (i % 2) * .1, ey); // Resting, with sub-pixel jitter.
+    }
+    require(app.view().swipe_trail.size() < 8, "a resting laser does not grow the gesture");
+    for (const auto* action : {"KeyL", "KeyO"}) {
+        std::tie(x, y) = key_point(app, action);
+        app.move(0, x, y);
+    }
+    app.up(0, x, y);
+    settle(app, [&] { return !sink.text.empty(); });
+    require(sink.text == std::vector<std::string>{"hello"}, "a swipe with a long rest still decodes");
+
+    std::tie(x, y) = key_point(app, "KeyH");
+    const auto [lx, ly] = key_point(app, "KeyL");
+    app.down(0, x, y, 2);
+    for (int i = 0; i < 2100; ++i) {
+        app.move(0, i % 2 ? lx : x, i % 2 ? ly : y);
+    }
+    require(app.view().swipe_trail.empty() && app.view().status.find("too long") != std::string::npos,
+            "an endless gesture ends without typing");
+    app.up(0, x, y);
+    settle(app, [&] { return false; });
+    require(sink.text.size() == 1, "nothing types for the ended gesture");
+}
 // A word list still loading must not hold up keys on the VR thread.
 void loading_does_not_block() {
     TemporaryDirectory directory;
@@ -795,6 +848,7 @@ int main(int argc, char** argv) {
         disabled_by_default();
         service_reuse();
         leave_while_decoding();
+        long_gestures();
         loading_does_not_block();
         app_flow(false);
         app_flow(true);
