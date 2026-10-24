@@ -21,7 +21,10 @@ class EiSink : public KeySink {
     bool can_resume() const override { return true; }
     bool text_available() override;
     bool commit_text(const std::string& text) override;
-    bool replaces_text() override { return text_available(); }
+    // Local text always replaces in one ordered input-method request. While that
+    // connection is briefly down, replacing fails instead of falling back to
+    // separate libei Backspace keys, which would delete the word and type nothing.
+    bool replaces_text() override { return true; }
     bool replace_text(std::size_t delete_before, const std::string& text) override;
     bool text_pending() const override { return text_ && text_->pending(); }
     bool output_blocked() const override { return text_ && text_->busy(); }

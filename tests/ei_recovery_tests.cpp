@@ -325,6 +325,8 @@ void asynchronous_text() {
     gamescope_input_method_send_unavailable(text.input);
     text.pump();
     require(!sink->text_available(), "unavailable retires connection");
+    require(sink->replaces_text() && !sink->replace_text(3, "help"),
+            "a swipe alternative waits for local text instead of sending libei Backspace");
     now += .9;
     text.pump();
     require(!sink->text_available() && text.connections == connections, "reconnect respects backoff");
