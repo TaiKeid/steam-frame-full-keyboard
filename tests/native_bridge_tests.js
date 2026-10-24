@@ -244,8 +244,8 @@ function owned(f) {
     assert(f.step(s.request).active);
     return s.request;
 }
-function externalOwned(f) {
-    f.step(); f.status({bIsOpen: true, sOverlayKey: "gamescope.gamescope-0.window.62"});
+function externalOwned(f, key = "gamescope.gamescope-0.window.62") {
+    f.step(); f.status({bIsOpen: true, sOverlayKey: key});
     let s = f.step();
     assert(f.nativeOpen() && !s.eligible && s.externalCandidate, "leave native until exact-target guard is armed");
     s = f.bridge.prepareExternal(s.request, s.externalCandidate.key);
@@ -253,6 +253,25 @@ function externalOwned(f) {
     assert(s.local && s.eligible && !f.nativeOpen(), "close the complete external native presentation");
     assert(f.step(s.request).active);
     return s.request;
+}
+
+// A game Steam runs locally names its window overlay after its app ID, docked,
+// pinned or in theater mode alike. It is a local target like Gamescope windows.
+{
+    const f = fixture(false, false, true);
+    const request = externalOwned(f, "valve.steam.desktopgame.1671210");
+    const s = f.step(request);
+    assert(s.local && s.active && s.external.key === "valve.steam.desktopgame.1671210",
+           "a local game window becomes a local typing session");
+    f.bridge.dispose();
+}
+for (const key of ["valve.steam.desktopgame.", "valve.steam.desktopgame.12a", "valve.steam.desktopgame.1.window.2",
+                   "xvalve.steam.desktopgame.1"]) {
+    const f = fixture(false, false, true);
+    f.step(); f.status({bIsOpen: true, sOverlayKey: key});
+    const s = f.step();
+    assert(!s.externalCandidate && !s.eligible && f.nativeOpen(), `${key} stays native`);
+    f.bridge.dispose();
 }
 
 // Updating ends the old typing session. It must not summon either keyboard,

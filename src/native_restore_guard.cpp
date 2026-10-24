@@ -107,7 +107,9 @@ int main(int argc, char** argv) {
         bool ok = true;
         if (op == "prepare") {
             const char* key = json_object_get_string(field("key"));
-            const std::regex local("gamescope\\.gamescope-[0-9]+(\\.window\\.[0-9]+)?");
+            // Matches the bridge's LOCAL_KEY: Gamescope windows and locally run Steam games.
+            const std::regex local("gamescope\\.gamescope-[0-9]+(\\.window\\.[0-9]+)?|"
+                                   "valve\\.steam\\.desktopgame\\.[0-9]+");
             ok = !armed && key && std::regex_match(key, local) && fresh &&
                  json_object_get_boolean(field("ready")) && json_object_get_int(field("flags")) == 13 &&
                  vr::VROverlay()->FindOverlay(key, &target) == vr::VROverlayError_None &&

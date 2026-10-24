@@ -45,8 +45,11 @@
     const hooks = [], owners = [];
     const keyboardApi = root.SteamClient?.OpenVR?.Keyboard;
     const externalHide = keyboardApi?.Hide;
+    // Frame-local windows: Gamescope app windows, and games Steam runs locally,
+    // whose window overlay is named after their app ID (docked, pinned or theater).
+    const LOCAL_KEY = /^(?:gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?|valve\.steam\.desktopgame\.[0-9]+)$/;
     const localTarget = s => externalSupported && s.dispatch === false && s.flags === 13 &&
-        /^gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?$/.test(s.key) && typeof externalHide === "function";
+        LOCAL_KEY.test(s.key) && typeof externalHide === "function";
     let preparedExternal = null, externalRestore = null, handoff = null;
     const localFrames = new Map();
     function selectedFrame() {
@@ -470,7 +473,7 @@
             local: !!logical?.owner.external,
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: handoff && !native.open && externalSupported &&
-                /^gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?$/.test(handoff.key) ?
+                LOCAL_KEY.test(handoff.key) ?
                 {key: handoff.key, flags: 13, request, requireActive: true} :
                 !logical && !ignoreOpen && native.open && localTarget(native) &&
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
