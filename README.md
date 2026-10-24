@@ -85,7 +85,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
-Closing and reopening normally restores the last position, rotation, size and Num Lock state. Numpad visibility is saved globally across all layouts. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. With General → Auto leveling enabled, a sideways lean within 5° eases level over 500 ms after releasing movement. Auto leveling is on by default; disable it to keep the angle you set. This preserves the desk-like forward tilt and never fights your hand during a grab.
+Closing and reopening normally restores the last position, rotation, size and Num Lock state. Numpad visibility is saved globally across all layouts. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. With General → Auto leveling enabled, a small lean or turn within 5° eases out over 500 ms after releasing movement, keeping your desk tilt: the keyboard lines up with the dashboard when it sits near it, otherwise it ends level and facing you. Auto leveling is on by default; disable it to keep the angle you set. This preserves the desk-like forward tilt and never fights your hand during a grab.
 
 ## Languages and customization
 

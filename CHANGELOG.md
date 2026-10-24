@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Auto leveling now lines the keyboard's long edge up properly. It removes both one end being higher than the other and a slight turn away, and keeps the desk tilt. Near the dashboard the keyboard lines up with the dashboard, which Steam often leaves slightly rolled. Elsewhere it ends level and facing you. Before, it only turned the keyboard around its own face, which levelled the edge but left a hand tilt as a visible twist, and it ignored the dashboard's own roll.
 - Added an uninstaller, `uninstall.sh`, in the package and in the installed release. It stops the keyboard and its helpers, then removes the app, the Start with SteamOS service, the launcher and the menu entry. Settings stay unless `--purge` is given.
 - Games streamed from the PC keep using Steam's own keyboard. A separate keyboard cannot deliver their text without leaking it into the focused Frame window or losing the request to a laser click; [streamed games](docs/streamed-games.md) records the findings.
 - Fixed the keyboard button of games running locally on the Frame, such as Deltarune, opening Steam's keyboard instead of Full Keyboard with Replace native keyboard on, whether the game is docked, pinned or in theater mode. Their window is named after the game's app ID, which the replacement did not recognize as a Frame app.

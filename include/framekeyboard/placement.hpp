@@ -22,16 +22,26 @@ class DashboardAnchor {
     std::optional<Transform> anchor_, bar_;
     bool full_rotation_{true};
 };
-// Roll-only horizon assistance. Feed the uncorrected pose each frame so the
-// animation never feeds its own correction back into the controller grab.
+// Leveling assistance for the panel's long (right) edge. Feed the uncorrected
+// pose each frame so the animation never feeds its own correction back into the
+// controller grab. Relative to `reference`, a frame whose +z faces the viewer,
+// it removes the edge's pitch (one end higher than the other) and yaw (turned
+// away), so the edge lands on the reference's right edge. The reference is the
+// dashboard near it, or the room facing the user. Without one it removes only
+// the pitch. The desk tilt about the edge (roll) is always kept.
+using Quaternion = std::array<double, 4>;
 class HorizonAlignment {
   public:
-    Transform update(const Transform& raw, double now, bool grabbed = false, bool enabled = true);
+    Transform update(const Transform& raw, double now, bool grabbed = false, bool enabled = true,
+                     const std::optional<Transform>& reference = {});
+    // Ease from the correction shown now, as after a change of reference.
+    void retarget(double now);
     void reset() { *this = {}; }
     bool animating() const { return animating_; }
 
   private:
-    double started_{}, from_correction_{}, correction_{};
+    double started_{};
+    Quaternion from_{1, 0, 0, 0}, correction_{1, 0, 0, 0};
     bool within_threshold_{}, animating_{};
 };
 // Where a pointer ray meets the panel's front face. The overlay is centered on

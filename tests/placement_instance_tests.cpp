@@ -4,6 +4,7 @@
 #include "framekeyboard/placement_store.hpp"
 #include <fstream>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <future>
@@ -247,6 +248,26 @@ void drag_tests() {
     near(panel.transform()[1][1], std::cos(50 * std::numbers::pi / 180),
          "recenter restores desk tilt after dragging");
 }
+// Turns a pose's rotation about a unit axis through its center, as a hand tilt does.
+fk::Transform lean(const fk::Transform& pose, const std::array<double, 3>& axis, double degrees) {
+    const double a = degrees * std::numbers::pi / 180, c = std::cos(a), s = std::sin(a);
+    auto result = pose;
+    for (int column = 0; column < 3; ++column) {
+        const std::array<double, 3> v{pose[0][column], pose[1][column], pose[2][column]};
+        const std::array<double, 3> cross{axis[1] * v[2] - axis[2] * v[1],
+                                          axis[2] * v[0] - axis[0] * v[2],
+                                          axis[0] * v[1] - axis[1] * v[0]};
+        const double along = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+        for (int r = 0; r < 3; ++r) {
+            result[r][column] = v[r] * c + cross[r] * s + axis[r] * along * (1 - c);
+        }
+    }
+    return result;
+}
+// The right edge's angle above level: the lean auto leveling removes.
+double lean_degrees(const fk::Transform& pose) {
+    return std::atan2(pose[1][0], std::hypot(pose[0][0], pose[2][0])) * 180 / std::numbers::pi;
+}
 void horizon_tests() {
     // A level pose with 30-degree yaw and 20-degree desk tilt, independent of
     // the default recenter angle. Horizon assistance must preserve both.
@@ -255,18 +276,12 @@ void horizon_tests() {
         {{std::cos(yaw), std::sin(yaw) * std::sin(pitch), std::sin(yaw) * std::cos(pitch), 1},
          {0, std::cos(pitch), -std::sin(pitch), 1.05},
          {-std::sin(yaw), std::cos(yaw) * std::sin(pitch), std::cos(yaw) * std::cos(pitch), 1.15}}};
+    // A sideways hand tilt turns the panel about the level axis square to its
+    // right edge, here (sin yaw, 0, cos yaw); a positive angle raises the right edge.
     auto rolled = [&](double degrees) {
-        auto pose = level;
-        const double angle = degrees * std::numbers::pi / 180;
-        for (int r = 0; r < 3; ++r) {
-            pose[r][0] = level[r][0] * std::cos(angle) + level[r][1] * std::sin(angle);
-            pose[r][1] = -level[r][0] * std::sin(angle) + level[r][1] * std::cos(angle);
-        }
-        return pose;
+        return lean(level, {std::sin(yaw), 0, std::cos(yaw)}, degrees);
     };
-    auto roll_degrees = [](const fk::Transform& pose) {
-        return std::atan2(pose[1][0], pose[1][1]) * 180 / std::numbers::pi;
-    };
+    auto roll_degrees = [](const fk::Transform& pose) { return lean_degrees(pose); };
     for (double degrees : {-5., -2., 2., 5.}) {
         fk::HorizonAlignment horizon;
         const auto raw = rolled(degrees);
@@ -332,6 +347,77 @@ void horizon_tests() {
     require(horizon.update(flat, 26) == flat, "horizontal panel has no horizon roll");
     require(horizon.update(rolled(4), std::numeric_limits<double>::quiet_NaN()) == rolled(4),
             "invalid timing does not corrupt placement");
+}
+void dashboard_leveling_tests() {
+    // Rotations as row-major 3x3 blocks of a Transform; position stays put.
+    using M = std::array<std::array<double, 3>, 3>;
+    auto multiply = [](const M& a, const M& b) {
+        M r{};
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                for (int k = 0; k < 3; ++k) {
+                    r[i][j] += a[i][k] * b[k][j];
+                }
+            }
+        }
+        return r;
+    };
+    auto axis = [](int which, double degrees) {
+        const double a = degrees * std::numbers::pi / 180, c = std::cos(a), s = std::sin(a);
+        if (which == 0) {
+            return M{{{1, 0, 0}, {0, c, -s}, {0, s, c}}};
+        }
+        if (which == 1) {
+            return M{{{c, 0, s}, {0, 1, 0}, {-s, 0, c}}};
+        }
+        return M{{{c, -s, 0}, {s, c, 0}, {0, 0, 1}}};
+    };
+    auto pose = [](const M& m) {
+        return fk::Transform{{{m[0][0], m[0][1], m[0][2], 1},
+                              {m[1][0], m[1][1], m[1][2], 1.05},
+                              {m[2][0], m[2][1], m[2][2], 1.15}}};
+    };
+    // reference * yaw (about up) * pitch (one end higher) * roll (the desk tilt).
+    auto panel = [&](const M& reference, double yaw, double pitch, double tilt) {
+        return pose(
+            multiply(multiply(multiply(reference, axis(1, yaw)), axis(2, pitch)), axis(0, tilt)));
+    };
+    auto same = [](const fk::Transform& a, const fk::Transform& b, const char* message) {
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                near(a[r][c], b[r][c], message);
+            }
+        }
+    };
+    auto eased = [](const fk::Transform& raw, const std::optional<fk::Transform>& reference) {
+        fk::HorizonAlignment horizon;
+        horizon.update(raw, 1, false, true, reference);
+        return horizon.update(raw, 1.5, false, true, reference);
+    };
+    // A dashboard at a 30-degree heading, rolled 3 degrees, and a keyboard near it
+    // turned 2 degrees, one end 1 degree low and tilted 50 degrees back.
+    const M dashboard = multiply(axis(1, 30), axis(2, 3));
+    const auto raw = panel(dashboard, 2, -1, -50);
+    same(eased(raw, pose(dashboard)), panel(dashboard, 0, 0, -50),
+         "near the dashboard yaw and pitch are removed and the tilt is kept");
+    // In the room, facing the viewer at a 70-degree heading: the same alignment.
+    const M facing = axis(1, 70);
+    same(eased(panel(facing, 3, 2, -50), pose(facing)), panel(facing, 0, 0, -50),
+         "facing the viewer, yaw and pitch are removed and the tilt is kept");
+    // Without a reference only the pitch is removed; the chosen heading stays.
+    same(eased(panel(facing, 3, 2, -50), std::nullopt), panel(facing, 3, 0, -50),
+         "without a reference only the pitch is removed");
+    // A deliberate turn beyond the capture range is left alone.
+    same(eased(panel(facing, 6, 0, -50), pose(facing)), panel(facing, 6, 0, -50),
+         "a turn beyond 5 degrees is kept");
+    // Changing reference eases from the correction shown, without a jump.
+    fk::HorizonAlignment horizon;
+    horizon.update(raw, 1, false, true, pose(dashboard));
+    const auto aligned = horizon.update(raw, 1.5, false, true, pose(dashboard));
+    horizon.retarget(2);
+    same(horizon.update(raw, 2), aligned, "changing reference starts without a jump");
+    require(horizon.animating(), "changing reference eases");
+    near(lean_degrees(horizon.update(raw, 2.5)), 0, "after easing the pitch is removed in the room");
 }
 void stick_depth_tests() {
     // Tilt the component's neutral frame, as Frame's left/right models do.
@@ -1010,6 +1096,7 @@ int main() {
         dashboard_tab_tests();
         drag_tests();
         horizon_tests();
+        dashboard_leveling_tests();
         stick_depth_tests();
         grip_tests();
         trigger_release_tests();

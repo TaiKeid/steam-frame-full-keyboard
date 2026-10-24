@@ -855,6 +855,21 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         dashboard_anchor.restore(saved->dashboard, saved->dashboard_bar, saved->dashboard_full_rotation);
     }
     LaserDrag drag;
+    // The room's leveling reference: facing the viewer's head, horizontally, as
+    // seen from where the keyboard was released, recentered or restored. It is
+    // taken only then, so the keyboard does not swivel after a walking user.
+    std::optional<Transform> room_facing;
+    auto face_viewer = [](const Transform& head, const Transform& panel) -> std::optional<Transform> {
+        double x = head[0][3] - panel[0][3], z = head[2][3] - panel[2][3];
+        const double length = std::hypot(x, z);
+        if (!std::isfinite(length) || length < .05) {
+            return {};
+        }
+        x /= length;
+        z /= length;
+        // Columns: right = up x toward, room up, toward the viewer.
+        return Transform{{{z, 0, x, panel[0][3]}, {0, 1, 0, panel[1][3]}, {-x, 0, z, panel[2][3]}}};
+    };
     auto stop_drag = [&](bool align_after_release = false) {
         feedback.cancel();
         // Tracking loss or timeout may already have stopped LaserDrag. Always
@@ -866,6 +881,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // first alignment frame even when the hand was completely still.
             horizon.reset();
             transform_dirty = true;
+            if (Transform head{}; placement.ready() && panel.read_head(head)) {
+                room_facing = face_viewer(head, placement.transform());
+            }
         } else {
             if (displayed.ready()) {
                 placement.restore(displayed.transform(), displayed.width());
@@ -909,8 +927,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     auto hide_panel = [&] { lifecycle.hide(); };
     // Passthrough keeps the panel open while the dashboard is closed.
     auto presentable = [&] { return app.passthrough() || vr_overlay()->IsDashboardVisible(); };
+    // Near the visible dashboard the panel lines up with the dashboard itself,
+    // which is often slightly rolled; elsewhere, and with the dashboard closed, it
+    // lines up with the room facing the viewer.
+    std::optional<Transform> level_dashboard;
+    enum class LevelReference { None, Room, Dashboard } leveled_to = LevelReference::None;
+    auto level_reference = [&]() -> std::pair<LevelReference, std::optional<Transform>> {
+        if (level_dashboard && placement.ready()) {
+            const auto pose = placement.transform();
+            const auto& dashboard = *level_dashboard;
+            // The default place is about 0.35 m from the dashboard's bottom center.
+            if (std::hypot(pose[0][3] - dashboard[0][3], pose[1][3] - dashboard[1][3],
+                           pose[2][3] - dashboard[2][3]) <= .6) {
+                return {LevelReference::Dashboard, dashboard};
+            }
+        }
+        return {room_facing ? LevelReference::Room : LevelReference::None, room_facing};
+    };
     auto place_panel = [&](double now) {
-        const auto aligned = horizon.update(placement.transform(), now, drag.active(), auto_leveling);
+        const auto aligned = horizon.update(placement.transform(), now, drag.active(), auto_leveling,
+                                            level_reference().second);
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());
@@ -1300,6 +1336,16 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 stop_drag();
             }
         }
+        if (!dashboard_visible) {
+            level_dashboard.reset();
+        }
+        // A change of leveling reference eases from the correction shown, and must
+        // start even when nothing moved.
+        if (const auto to = level_reference().first; to != leveled_to) {
+            leveled_to = to;
+            horizon.retarget(now);
+            transform_dirty = true;
+        }
         const bool panel_requested = lifecycle.panel_requested();
         if (lifecycle.should_sample_tracking(panel_presentable, now)) {
             Transform head{};
@@ -1320,6 +1366,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 const auto dashboard =
                     dashboard_anchor.update(panel.read_dashboard("valve.steam.gamepadui.main", true),
                                             panel.read_dashboard("valve.steam.gamepadui.bar", false));
+                level_dashboard = dashboard;
                 if (!adjustments.empty()) {
                     stop_drag();
                 }
@@ -1330,6 +1377,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         std::cout << "Tracking space changed; recentering keyboard.\n";
                     } else {
                         placement.restore(saved->transform, saved->width);
+                        room_facing = face_viewer(head, saved->transform);
                         placement_universe = universe;
                         previous_dashboard = saved->dashboard;
                         transform_dirty = true;
@@ -1341,6 +1389,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     horizon.reset();
                     placement.recenter(head, dashboard ? &*dashboard : nullptr,
                                        static_cast<double>(panel_height) / panel_width);
+                    room_facing = face_viewer(head, placement.transform());
                     previous_dashboard = dashboard;
                     placement_universe = panel.universe();
                     recenter_pending = false;

@@ -22,40 +22,154 @@ Rotation level_heading(const Transform& head) {
     zz /= length;
     return {{{zz, 0, zx}, {0, 1, 0}, {-zx, 0, zz}}};
 }
+// Unit quaternions (w, x, y, z) let corrections about different axes blend
+// along the shortest rotation.
+Quaternion slerp(Quaternion from, const Quaternion& to, double t) {
+    double dot = from[0] * to[0] + from[1] * to[1] + from[2] * to[2] + from[3] * to[3];
+    if (dot < 0) {
+        for (auto& value : from) {
+            value = -value;
+        }
+        dot = -dot;
+    }
+    Quaternion result{};
+    // Linear blending only where the angle is negligible; slerp elsewhere keeps
+    // the eased angle exactly proportional, including for small corrections.
+    if (dot > 1 - 1e-12) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            result[i] = from[i] + (to[i] - from[i]) * t;
+        }
+    } else {
+        const double theta = std::acos(dot), sine = std::sin(theta);
+        const double a = std::sin((1 - t) * theta) / sine, b = std::sin(t * theta) / sine;
+        for (std::size_t i = 0; i < 4; ++i) {
+            result[i] = from[i] * a + to[i] * b;
+        }
+    }
+    const double length = std::sqrt(result[0] * result[0] + result[1] * result[1] +
+                                    result[2] * result[2] + result[3] * result[3]);
+    for (auto& value : result) {
+        value /= length;
+    }
+    return result;
+}
+double quaternion_angle(const Quaternion& a, const Quaternion& b) {
+    const double dot = std::abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+    return 2 * std::acos(std::min(1.0, dot));
+}
+Rotation rotation(const Quaternion& q) {
+    const double w = q[0], x = q[1], y = q[2], z = q[3];
+    return {{{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)},
+             {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)},
+             {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}}};
+}
 } // namespace
-Transform HorizonAlignment::update(const Transform& raw, double now, bool grabbed, bool enabled) {
+void HorizonAlignment::retarget(double now) {
+    from_ = correction_;
+    started_ = now;
+}
+Transform HorizonAlignment::update(const Transform& raw, double now, bool grabbed, bool enabled,
+                                   const std::optional<Transform>& reference) {
     if (grabbed || !enabled) {
         // Preserve the exact pose while moving or with assistance disabled.
         // Reset the easing clock so release or enabling starts smoothly.
         reset();
         return raw;
     }
-    // A local Z rotation changes roll without changing the panel normal, hence
-    // preserves its heading and tilt. World Y projected onto right/up gives roll.
-    const double vertical = std::hypot(raw[1][0], raw[1][1]);
-    if (!std::isfinite(now) || !std::isfinite(vertical) || vertical < .001) {
-        // A panel facing straight up/down has no well-defined horizon roll.
+    // Relative to the reference frame B split the panel's rotation as yaw about
+    // up, then pitch about the level axis square to the long edge, then roll
+    // about the long edge itself: R = B Ry(yaw) Rz(pitch) Rx(roll). Roll is the
+    // desk tilt and is always kept; yaw and pitch are removed, so the long edge
+    // lands on B's right edge. Without a reference, B is the room and the yaw
+    // the user chose is kept. Turning about the panel normal instead would level
+    // the edge but leave the keyboard twisted after a hand tilt.
+    Rotation basis{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+    if (reference) {
+        for (std::size_t r = 0; r < 3; ++r) {
+            for (std::size_t c = 0; c < 3; ++c) {
+                basis[r][c] = (*reference)[r][c];
+            }
+        }
+    }
+    Rotation relative{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            for (std::size_t k = 0; k < 3; ++k) {
+                relative[r][c] += basis[k][r] * raw[k][c];
+            }
+        }
+    }
+    const double horizontal = std::hypot(relative[0][0], relative[2][0]);
+    if (!std::isfinite(now) || !std::isfinite(horizontal) || horizontal < .001) {
+        // A long edge along the reference up has no well-defined pitch.
         reset();
         return raw;
     }
-    const double roll = std::atan2(raw[1][0], raw[1][1]);
+    const double pitch = std::atan2(relative[1][0], horizontal);
+    const double yaw = std::atan2(-relative[2][0], relative[0][0]);
+    // The correction in the reference frame, then in the room: B Q B^T.
+    auto turn_y = [](double a) {
+        return Rotation{{{std::cos(a), 0, std::sin(a)}, {0, 1, 0}, {-std::sin(a), 0, std::cos(a)}}};
+    };
+    auto turn_z = [](double a) {
+        return Rotation{{{std::cos(a), -std::sin(a), 0}, {std::sin(a), std::cos(a), 0}, {0, 0, 1}}};
+    };
+    auto product = [](const Rotation& a, const Rotation& b) {
+        Rotation result{};
+        for (std::size_t r = 0; r < 3; ++r) {
+            for (std::size_t c = 0; c < 3; ++c) {
+                for (std::size_t k = 0; k < 3; ++k) {
+                    result[r][c] += a[r][k] * b[k][c];
+                }
+            }
+        }
+        return result;
+    };
+    auto correction = product(turn_z(-pitch), turn_y(-yaw));
+    if (!reference) {
+        correction = product(turn_y(yaw), correction); // No yaw reference: keep the heading.
+    }
+    Rotation transposed{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            transposed[r][c] = basis[c][r];
+        }
+    }
+    const auto world = product(product(basis, correction), transposed);
+    // As one rotation about a fixed axis, so easing follows the shortest path.
+    const std::array<double, 3> twice_sine_axis{world[2][1] - world[1][2], world[0][2] - world[2][0],
+                                                world[1][0] - world[0][1]};
+    const double twice_sine = std::hypot(twice_sine_axis[0], twice_sine_axis[1], twice_sine_axis[2]);
+    const double angle = std::atan2(twice_sine / 2, (world[0][0] + world[1][1] + world[2][2] - 1) / 2);
+    std::array<double, 3> axis{};
+    if (twice_sine > 1e-12) {
+        for (std::size_t r = 0; r < 3; ++r) {
+            axis[r] = twice_sine_axis[r] / twice_sine;
+        }
+    }
+    const double roll = angle; // Lean and twist together, for the capture range.
     const bool within = std::abs(roll) <= 5 * radians + 1e-9;
     if (within != within_threshold_) {
         within_threshold_ = within;
-        from_correction_ = correction_;
-        started_ = now;
+        retarget(now);
     }
+    // The full correction, or none outside the capture range, as a quaternion.
+    const Quaternion target =
+        within ? Quaternion{std::cos(angle / 2), axis[0] * std::sin(angle / 2),
+                            axis[1] * std::sin(angle / 2), axis[2] * std::sin(angle / 2)}
+               : Quaternion{1, 0, 0, 0};
     const double t = std::clamp((now - started_) / .5, 0.0, 1.0);
-    animating_ = t < 1 && std::abs(from_correction_ - (within ? -roll : 0.0)) > 1e-6;
     const double ease = t * t * (3 - 2 * t);
-    // Track the live roll while easing in. On leaving the capture range, ease
-    // the existing correction away instead of jumping back to the raw pose.
-    correction_ = std::lerp(from_correction_, within ? -roll : 0.0, ease);
-    const double c = std::cos(correction_), s = std::sin(correction_);
+    // Track the live target while easing in. Leaving the range or changing the
+    // reference eases from the correction already shown, never jumping.
+    correction_ = slerp(from_, target, ease);
+    animating_ = t < 1 && quaternion_angle(from_, target) > 1e-6;
+    const auto turn = rotation(correction_);
     auto result = raw;
-    for (std::size_t row = 0; row < 3; ++row) {
-        result[row][0] = raw[row][0] * c + raw[row][1] * s;
-        result[row][1] = -raw[row][0] * s + raw[row][1] * c;
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 3; ++c) {
+            result[r][c] = turn[r][0] * raw[0][c] + turn[r][1] * raw[1][c] + turn[r][2] * raw[2][c];
+        }
     }
     return result;
 }
