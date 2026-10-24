@@ -479,6 +479,23 @@ void trail_repaint() {
     app.up(0, x, y);
     app.paint(1.3);
     require(identical(1.3), "removing the trail leaves no residue");
+    // A trail repaints only its newest segment while it grows, so every
+    // intermediate frame must match a full repaint too, not just the last.
+    std::tie(x, y) = key_point(app, "KeyZ");
+    app.down(0, x, y, 2);
+    for (const auto* action : {"KeyY", "KeyM", "KeyQ"}) {
+        const auto [nx, ny] = key_point(app, action);
+        for (int step = 1; step <= 6; ++step) {
+            app.move(0, x + (nx - x) * step / 6 + 0.29 * step, y + (ny - y) * step / 6 + 0.43);
+            app.paint(2.1);
+            require(identical(2.1), "each frame of a growing trail matches a full repaint");
+        }
+        x = nx;
+        y = ny;
+    }
+    app.up(0, x, y);
+    app.paint(2.2);
+    require(identical(2.2), "the ended trail leaves no residue");
     app.cancel();
 }
 // Needs the Pinyin engine module, which Frame builds include.

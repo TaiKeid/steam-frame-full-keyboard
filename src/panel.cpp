@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <pango/pangocairo.h>
 #include <stdexcept>
 
@@ -93,14 +95,6 @@ std::optional<std::array<Rect, 5>> flick_cells(const PanelView& view) {
 }
 bool overlaps(const Rect& a, const Rect& b) {
     return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-}
-void unite(Rect& a, const Rect& b) {
-    const double right = std::max(a.x + a.width, b.x + b.width);
-    const double bottom = std::max(a.y + a.height, b.y + b.height);
-    a.x = std::min(a.x, b.x);
-    a.y = std::min(a.y, b.y);
-    a.width = right - a.x;
-    a.height = bottom - a.y;
 }
 void source(cairo_t* cr, Color color) {
     cairo_set_source_rgb(cr, color.r, color.g, color.b);
@@ -462,6 +456,9 @@ PanelRenderer::PanelRenderer() {
     }
 }
 PanelRenderer::~PanelRenderer() {
+    if (trail_) {
+        cairo_surface_destroy(trail_);
+    }
     cairo_surface_destroy(surface_);
 }
 std::pair<double, double> PanelRenderer::layout_point(const PanelView& view, double x, double y) const {
@@ -485,11 +482,21 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
 void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto& t = *view.theme;
     const auto modifiers = view.keyboard->modifiers();
+    // Swipe alternatives come and go with every swiped word; they sit in the
+    // toolbar, so they repaint their own area instead of the whole scene.
+    auto without_candidates = [](const std::vector<Control>& controls) {
+        std::vector<Control> result;
+        std::copy_if(controls.begin(), controls.end(), std::back_inserter(result),
+                     [](const Control& c) { return c.action.kind != ControlKind::SwipeCandidate; });
+        return result;
+    };
+    const bool controls_changed =
+        previous_ && without_candidates(previous_->view.controls) != without_candidates(view.controls);
     const bool scene_changed =
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
         previous_->language != *view.language || previous_->modifiers != modifiers ||
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
-        previous_->view.controls != view.controls || previous_->view.status != view.status ||
+        controls_changed || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
         previous_->view.hide_numpad != view.hide_numpad || previous_->view.key_labels != view.key_labels;
     bool full = force_full || scene_changed || view.settings;
@@ -539,18 +546,42 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             damage.push_back(key_bounds_.at(key.id));
         }
     }
-    // A trail can cross many keys; repaint the union of its old and new extent.
+    // A clip edge through a key can drop parts of its legend glyphs. Damage
+    // a changed area together with every key it touches, each whole, as
+    // separate pixel-aligned rectangles: the clip's edges then run only
+    // through the gaps between keys or along key bounds, and nothing chains
+    // across the keyboard the way one bounding rectangle would.
+    std::vector<Rect> areas;
+    auto damage_area = [&](Rect r) {
+        areas.push_back(r);
+        for (const auto& [id, bounds] : key_bounds_) {
+            if (overlaps(bounds, r)) {
+                damage.push_back(bounds);
+            }
+        }
+    };
+    // A trail can cross many keys. While it grows, only its newest segments
+    // change, including their join at the old end; otherwise (a new or ended
+    // swipe) repaint everything either trail covered.
     if (!full && previous_->view.swipe_trail != view.swipe_trail) {
         double left = panel_width, top = panel_height, right = 0, bottom = 0;
-        const std::vector<std::pair<double, double>>* trails[] = {&previous_->view.swipe_trail,
-                                                                  &view.swipe_trail};
-        for (const auto* trail : trails) {
-            for (const auto& [px, py] : *trail) {
-                left = std::min(left, px);
-                top = std::min(top, py);
-                right = std::max(right, px);
-                bottom = std::max(bottom, py);
+        const auto& old_trail = previous_->view.swipe_trail;
+        const bool grows = !old_trail.empty() && view.swipe_trail.size() > old_trail.size() &&
+                           std::equal(old_trail.begin(), old_trail.end(), view.swipe_trail.begin());
+        auto extend = [&](auto begin, auto end) {
+            for (auto point = begin; point != end; ++point) {
+                left = std::min(left, point->first);
+                top = std::min(top, point->second);
+                right = std::max(right, point->first);
+                bottom = std::max(bottom, point->second);
             }
+        };
+        if (grows) {
+            extend(view.swipe_trail.begin() + static_cast<std::ptrdiff_t>(old_trail.size() - 1),
+                   view.swipe_trail.end());
+        } else {
+            extend(old_trail.begin(), old_trail.end());
+            extend(view.swipe_trail.begin(), view.swipe_trail.end());
         }
         if (right >= left) {
             // Laser points are fractional. Like key bounds, round outwards to
@@ -558,63 +589,33 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             // and leave dark, translucent seams that build up frame by frame.
             left = std::floor(left - 8);
             top = std::floor(top - 8);
-            Rect trail{left, top, std::ceil(right + 8) - left, std::ceil(bottom + 8) - top};
-            // A clip edge through a key can drop parts of its legend glyphs, so
-            // grow the region to whole keys. Keep one rectangle: overlapping
-            // clip rectangles composite antialiased edges differently.
-            const Rect core = trail;
-            for (const auto& [id, bounds] : key_bounds_) {
-                if (bounds.x < core.x + core.width && bounds.x + bounds.width > core.x &&
-                    bounds.y < core.y + core.height && bounds.y + bounds.height > core.y) {
-                    const double r = std::max(trail.x + trail.width, bounds.x + bounds.width);
-                    const double b = std::max(trail.y + trail.height, bounds.y + bounds.height);
-                    trail.x = std::min(trail.x, bounds.x);
-                    trail.y = std::min(trail.y, bounds.y);
-                    trail.width = r - trail.x;
-                    trail.height = b - trail.y;
-                }
-            }
-            damage.push_back(trail);
+            damage_area({left, top, std::ceil(right + 8) - left, std::ceil(bottom + 8) - top});
         }
     }
-    // A clip edge through a key can drop parts of its legend glyphs, so these
-    // regions grow to the whole keys they touch (only those, without chaining).
-    auto grow = [&](Rect r) {
-        const Rect core = r;
-        for (const auto& [id, bounds] : key_bounds_) {
-            if (overlaps(bounds, core)) {
-                unite(r, bounds);
+    if (!full && previous_->view.controls != view.controls) {
+        const std::array<const std::vector<Control>*, 2> both{&previous_->view.controls, &view.controls};
+        for (const auto* controls : both) {
+            for (const auto& c : *controls) {
+                if (c.action.kind == ControlKind::SwipeCandidate) {
+                    const double left = std::floor(c.bounds.x - 2), top = std::floor(c.bounds.y - 2);
+                    damage_area({left, top, std::ceil(c.bounds.x + c.bounds.width + 2) - left,
+                                 std::ceil(c.bounds.y + c.bounds.height + 2) - top});
+                }
             }
         }
-        return r;
-    };
+    }
     // The reading line and the flick preview repaint only their own area. The
     // preview's old and new extents both count; it may lie beyond the case.
     if (!full && previous_->view.preedit != view.preedit) {
         const auto body = panel_case_bounds(view);
-        damage.push_back(grow({std::floor(body.x + 20), 94, std::ceil(body.width - 40), 40}));
+        damage_area({std::floor(body.x + 20), 94, std::ceil(body.width - 40), 40});
     }
     if (!full && previous_->view.flick_preview != view.flick_preview) {
         auto old = view;
         old.flick_preview = previous_->view.flick_preview;
         for (const auto& bounds : {flick_preview_bounds(old), flick_preview_bounds(view)}) {
             if (bounds) {
-                damage.push_back(grow(*bounds));
-            }
-        }
-    }
-    // Overlapping clip rectangles composite antialiased edges differently:
-    // merge them into one, grown to whole keys again.
-    for (bool merged = !full; merged;) {
-        merged = false;
-        for (std::size_t i = 0; i < damage.size() && !merged; ++i) {
-            for (std::size_t j = i + 1; j < damage.size() && !merged; ++j) {
-                if (overlaps(damage[i], damage[j])) {
-                    unite(damage[i], damage[j]);
-                    damage[i] = grow(damage[i]);
-                    damage.erase(damage.begin() + static_cast<std::ptrdiff_t>(j));
-                    merged = true;
-                }
+                damage_area(*bounds);
             }
         }
     }
@@ -666,201 +667,268 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     } else {
         previous_->view = view;
     }
-    if (!full && damage.empty()) {
+    if (!full && damage.empty() && areas.empty()) {
         return;
     }
     auto* cr = cairo_create(surface_);
     cairo_translate(cr, 0, popup_margin);
+    // Cairo composites antialiased strokes and glyphs slightly differently
+    // under a clip of several rectangles, or a clip edge through a glyph. So
+    // repaint each damaged rectangle in its own pass with a single box clip,
+    // each pass clearing and redrawing everything in its box: first the
+    // changed areas, then every touched key whole, so an area edge through a
+    // key is painted over by that key's exact pass.
+    std::vector<Rect> passes;
     if (!full) {
+        passes = areas;
         for (const auto& r : damage) {
-            cairo_rectangle(cr, r.x, r.y, r.width, r.height);
-        }
-        cairo_clip(cr);
-    }
-    // Clear and restore the case only inside the damaged pixels. Any neighboring
-    // key intersecting that region is repainted in the original stacking order.
-    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0);
-    cairo_paint(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    const auto body = panel_case_bounds(view);
-    rounded(cr, body, t.surface_radius);
-    source(cr, t.surface);
-    cairo_fill(cr);
-    if (!view.settings) {
-        const auto p = placement(view);
-        cairo_save(cr);
-        cairo_translate(cr, p.x, p.y);
-        cairo_scale(cr, p.scale, p.scale);
-        for (const auto& key : view.layout->keys) {
-            if (hidden_key(view, key)) {
-                continue;
-            }
-            const auto& bounds = key_bounds_.at(key.id);
-            const bool intersects =
-                full || std::any_of(damage.begin(), damage.end(), [&](const Rect& r) {
-                    return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
-                           bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
-                });
-            if (intersects) {
-                draw_key(cr, view, key, animations_.at(key.id).amount);
+            if (std::find(passes.begin(), passes.end(), r) == passes.end()) {
+                passes.push_back(r);
             }
         }
-        cairo_restore(cr);
     }
-    if (view.swipe_trail.size() > 1 && !view.settings) {
-        cairo_save(cr);
-        cairo_set_line_width(cr, 6);
-        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-        cairo_move_to(cr, view.swipe_trail.front().first, view.swipe_trail.front().second);
-        for (const auto& [px, py] : view.swipe_trail) {
-            cairo_line_to(cr, px, py);
-        }
-        // Legend color stays readable over both key faces and the case.
-        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .6);
-        cairo_stroke(cr);
-        cairo_restore(cr);
+    if (view.swipe_trail.size() > 1 && !view.settings && !trail_) {
+        trail_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     }
-    if (const auto cells = flick_cells(view)) {
-        // Above the keys, like the trail; partial repaints redraw it inside their clip.
-        const auto& preview = *view.flick_preview;
-        const double size = (*cells)[0].height;
-        for (std::size_t i = 0; i < cells->size(); ++i) {
-            if (i > 0 && preview.text[i].empty()) {
-                continue; // A direction this key does not use.
+    if (trail_) {
+        const auto& points = view.settings ? decltype(view.swipe_trail){} : view.swipe_trail;
+        const bool grows = !trail_points_.empty() && points.size() >= trail_points_.size() &&
+                           std::equal(trail_points_.begin(), trail_points_.end(), points.begin());
+        auto* trail = cairo_create(trail_);
+        cairo_translate(trail, 0, popup_margin);
+        if (!grows) {
+            if (trail_extent_) {
+                const auto& r = *trail_extent_;
+                cairo_rectangle(trail, r.x, r.y, r.width, r.height);
+                cairo_set_operator(trail, CAIRO_OPERATOR_CLEAR);
+                cairo_fill(trail);
+                cairo_set_operator(trail, CAIRO_OPERATOR_OVER);
             }
-            rounded(cr, (*cells)[i], t.radius);
-            source(cr, static_cast<int>(i) == preview.selected ? t.latched : t.top);
-            cairo_fill_preserve(cr);
-            source(cr, t.legend);
-            cairo_set_line_width(cr, 1.5);
-            cairo_stroke(cr);
-            label(cr, preview.text[i], (*cells)[i], size * .5, view.language->font, t.legend, true);
+            trail_extent_.reset();
+            trail_points_.clear();
         }
-    }
-    if (view.composing && !view.settings) {
-        const auto& method = view.language->input_method;
-        const char* hint =
-            method == "korean-2set"          ? "Type → Space/Enter: commit · Esc: cancel"
-            : method.starts_with("chinese-") ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
-            : method == "japanese-kana" ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
-            : method == "japanese-flick"
-                ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
-                : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
-        label(cr, view.preedit.empty() ? hint : view.preedit, {body.x + 20, 94, body.width - 40, 40}, 27,
-              view.language->font, t.legend);
-    }
-    if (view.settings) {
-        cairo_save(cr);
-        cairo_rectangle(cr, 18, 78, 1564, 476);
-        cairo_clip(cr);
-        for (const auto& card : view.cards) {
-            rounded(cr, card.bounds, 7);
-            source(cr, t.legend);
-            cairo_set_line_width(cr, 1.5);
-            cairo_stroke(cr);
-            // Titles stay fixed while the card's fields scroll beneath them.
-            label(cr, card.title, {card.bounds.x + 14, card.bounds.y + 8, card.bounds.width - 28, 32},
-                  22, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+        if (points.size() > 1) {
+            cairo_set_line_width(trail, 6);
+            cairo_set_line_cap(trail, CAIRO_LINE_CAP_ROUND);
+            source(trail, t.legend);
+            auto extent =
+                trail_extent_.value_or(Rect{points.front().first, points.front().second, 0, 0});
+            // Each segment is its own stroke with round caps, so the joins
+            // match a joined path while earlier pixels stay as they were.
+            for (std::size_t i = std::max<std::size_t>(trail_points_.size(), 1); i < points.size();
+                 ++i) {
+                const auto [ax, ay] = points[i - 1];
+                const auto [bx, by] = points[i];
+                cairo_move_to(trail, ax, ay);
+                cairo_line_to(trail, bx, by);
+                cairo_stroke(trail);
+                const double left = std::floor(std::min({extent.x, ax - 8, bx - 8}));
+                const double top = std::floor(std::min({extent.y, ay - 8, by - 8}));
+                const double right = std::ceil(std::max({extent.x + extent.width, ax + 8, bx + 8}));
+                const double bottom = std::ceil(std::max({extent.y + extent.height, ay + 8, by + 8}));
+                extent = {left, top, right - left, bottom - top};
+            }
+            trail_extent_ = extent;
+            trail_points_ = points;
         }
-        cairo_restore(cr);
-        for (const auto& field : view.field_labels) {
+        cairo_destroy(trail);
+        cairo_surface_flush(trail_);
+    }
+    auto draw = [&](const std::vector<Rect>& pass) {
+        // Clear and restore the case only inside the damaged pixels. Any neighboring
+        // key intersecting that region is repainted in the original stacking order.
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_paint(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+        const auto body = panel_case_bounds(view);
+        rounded(cr, body, t.surface_radius);
+        source(cr, t.surface);
+        cairo_fill(cr);
+        if (!view.settings) {
+            const auto p = placement(view);
             cairo_save(cr);
-            cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
-            cairo_clip(cr);
-            label(cr, field.text, field.bounds, field.size, view.language->font,
-                  field.enabled ? t.legend : disabled_legend(t), field.left,
-                  field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
+            cairo_translate(cr, p.x, p.y);
+            cairo_scale(cr, p.scale, p.scale);
+            for (const auto& key : view.layout->keys) {
+                if (hidden_key(view, key)) {
+                    continue;
+                }
+                const auto& bounds = key_bounds_.at(key.id);
+                const bool intersects =
+                    full || std::any_of(pass.begin(), pass.end(), [&](const Rect& r) {
+                        return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
+                               bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
+                    });
+                if (intersects) {
+                    draw_key(cr, view, key, animations_.at(key.id).amount);
+                }
+            }
             cairo_restore(cr);
         }
-    }
-    auto draw_control = [&](const Control& control) {
-        cairo_save(cr);
-        if (control.style == ControlStyle::MoveHandle) {
-            const auto r = control.bounds;
-            const double width = (r.width - 80) * (1 + .1 * move_handle_.amount);
-            rounded(cr, {r.x + (r.width - width) / 2, r.y + r.height / 2 - 4, width, 8}, 4);
-            auto channel = [&](double idle) {
-                return idle / 255 + (1 - idle / 255) * move_handle_.amount;
-            };
-            cairo_set_source_rgb(cr, channel(61), channel(68), channel(80));
-            cairo_fill(cr);
-            cairo_restore(cr);
-            return;
-        }
-        if (control.clip) {
-            const auto& r = *control.clip;
+        if (trail_extent_) {
+            const auto& r = *trail_extent_;
+            cairo_save(cr);
             cairo_rectangle(cr, r.x, r.y, r.width, r.height);
             cairo_clip(cr);
+            cairo_set_source_surface(cr, trail_, 0, -popup_margin);
+            // Legend color stays readable over both key faces and the case.
+            cairo_paint_with_alpha(cr, .6);
+            cairo_restore(cr);
         }
-        const auto r = control.bounds;
-        const auto legend = control.enabled ? t.legend : disabled_legend(t);
-        const auto color =
-            control.enabled && control.selected
-                ? t.latched
-                : (control.enabled && view.hovered_controls.contains(control.id) ? t.hover : t.bottom);
-        rounded(cr, r, control.style == ControlStyle::Checkbox ? 3 : t.radius);
-        source(cr, color);
-        cairo_fill_preserve(cr);
-        if (view.settings && control.style != ControlStyle::Scrollbar &&
-            control.style != ControlStyle::MenuItem) {
-            source(cr, legend);
-            cairo_set_line_width(cr, 1.5);
-            cairo_stroke(cr);
-        } else {
-            cairo_new_path(cr);
-        }
-        if (control.style == ControlStyle::Scrollbar) {
-            source(cr, t.hover);
-            rounded(cr, r, 3);
-            cairo_fill(cr);
-        } else if (control.style == ControlStyle::Dropdown) {
-            label(cr, control.label, {r.x + 6, r.y, r.width - 58, r.height}, 22, view.language->font,
-                  legend);
-            source(cr, legend);
-            cairo_move_to(cr, r.x + r.width - 50, r.y);
-            cairo_line_to(cr, r.x + r.width - 50, r.y + r.height);
-            const double x = r.x + r.width - 25, y = r.y + r.height / 2;
-            cairo_move_to(cr, x - 7, y - 4);
-            cairo_line_to(cr, x, y + 4);
-            cairo_line_to(cr, x + 7, y - 4);
-            cairo_stroke(cr);
-        } else if (control.style == ControlStyle::Checkbox) {
-            if (control.selected) {
-                draw_icon(cr, Icon::Apply, r, legend, 28);
+        if (const auto cells = flick_cells(view)) {
+            // Above the keys, like the trail; partial repaints redraw it inside their clip.
+            const auto& preview = *view.flick_preview;
+            const double size = (*cells)[0].height;
+            for (std::size_t i = 0; i < cells->size(); ++i) {
+                if (i > 0 && preview.text[i].empty()) {
+                    continue; // A direction this key does not use.
+                }
+                rounded(cr, (*cells)[i], t.radius);
+                source(cr, static_cast<int>(i) == preview.selected ? t.latched : t.top);
+                cairo_fill_preserve(cr);
+                source(cr, t.legend);
+                cairo_set_line_width(cr, 1.5);
+                cairo_stroke(cr);
+                label(cr, preview.text[i], (*cells)[i], size * .5, view.language->font, t.legend, true);
             }
-        } else if (control.icon != Icon::None) {
-            draw_icon(cr, control.icon, r, legend);
-        } else {
-            label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
         }
-        cairo_restore(cr);
-    };
-    for (const auto& control : view.controls) {
-        if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu") {
-            draw_control(control);
+        if (view.composing && !view.settings) {
+            const auto& method = view.language->input_method;
+            const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
+                               : method.starts_with("chinese-")
+                                   ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
+                               : method == "japanese-kana"
+                                   ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
+                               : method == "japanese-flick"
+                                   ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
+                                   : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
+            label(cr, view.preedit.empty() ? hint : view.preedit, {body.x + 20, 94, body.width - 40, 40},
+                  27, view.language->font, t.legend);
         }
-    }
-    if (!view.status.empty()) {
-        label(cr, view.status,
-              view.settings ? Rect{30, 574, 1540, 24} : Rect{body.x + 18, 60, body.width - 36, 28}, 17,
-              view.language->font, t.legend);
-    }
-    // Popup is the last layer and deliberately bypasses both card and case clips.
-    if (view.popup) {
-        const auto r = *view.popup;
-        rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 5);
-        source(cr, t.legend);
-        cairo_fill(cr);
-        rounded(cr, r, 3);
-        source(cr, t.bottom);
-        cairo_fill(cr);
+        if (view.settings) {
+            cairo_save(cr);
+            cairo_rectangle(cr, 18, 78, 1564, 476);
+            cairo_clip(cr);
+            for (const auto& card : view.cards) {
+                rounded(cr, card.bounds, 7);
+                source(cr, t.legend);
+                cairo_set_line_width(cr, 1.5);
+                cairo_stroke(cr);
+                // Titles stay fixed while the card's fields scroll beneath them.
+                label(cr, card.title,
+                      {card.bounds.x + 14, card.bounds.y + 8, card.bounds.width - 28, 32}, 22,
+                      view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+            }
+            cairo_restore(cr);
+            for (const auto& field : view.field_labels) {
+                cairo_save(cr);
+                cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
+                cairo_clip(cr);
+                label(cr, field.text, field.bounds, field.size, view.language->font,
+                      field.enabled ? t.legend : disabled_legend(t), field.left,
+                      field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
+                cairo_restore(cr);
+            }
+        }
+        auto draw_control = [&](const Control& control) {
+            cairo_save(cr);
+            if (control.style == ControlStyle::MoveHandle) {
+                const auto r = control.bounds;
+                const double width = (r.width - 80) * (1 + .1 * move_handle_.amount);
+                rounded(cr, {r.x + (r.width - width) / 2, r.y + r.height / 2 - 4, width, 8}, 4);
+                auto channel = [&](double idle) {
+                    return idle / 255 + (1 - idle / 255) * move_handle_.amount;
+                };
+                cairo_set_source_rgb(cr, channel(61), channel(68), channel(80));
+                cairo_fill(cr);
+                cairo_restore(cr);
+                return;
+            }
+            if (control.clip) {
+                const auto& r = *control.clip;
+                cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+                cairo_clip(cr);
+            }
+            const auto r = control.bounds;
+            const auto legend = control.enabled ? t.legend : disabled_legend(t);
+            const auto color =
+                control.enabled && control.selected
+                    ? t.latched
+                    : (control.enabled && view.hovered_controls.contains(control.id) ? t.hover
+                                                                                     : t.bottom);
+            rounded(cr, r, control.style == ControlStyle::Checkbox ? 3 : t.radius);
+            source(cr, color);
+            cairo_fill_preserve(cr);
+            if (view.settings && control.style != ControlStyle::Scrollbar &&
+                control.style != ControlStyle::MenuItem) {
+                source(cr, legend);
+                cairo_set_line_width(cr, 1.5);
+                cairo_stroke(cr);
+            } else {
+                cairo_new_path(cr);
+            }
+            if (control.style == ControlStyle::Scrollbar) {
+                source(cr, t.hover);
+                rounded(cr, r, 3);
+                cairo_fill(cr);
+            } else if (control.style == ControlStyle::Dropdown) {
+                label(cr, control.label, {r.x + 6, r.y, r.width - 58, r.height}, 22, view.language->font,
+                      legend);
+                source(cr, legend);
+                cairo_move_to(cr, r.x + r.width - 50, r.y);
+                cairo_line_to(cr, r.x + r.width - 50, r.y + r.height);
+                const double x = r.x + r.width - 25, y = r.y + r.height / 2;
+                cairo_move_to(cr, x - 7, y - 4);
+                cairo_line_to(cr, x, y + 4);
+                cairo_line_to(cr, x + 7, y - 4);
+                cairo_stroke(cr);
+            } else if (control.style == ControlStyle::Checkbox) {
+                if (control.selected) {
+                    draw_icon(cr, Icon::Apply, r, legend, 28);
+                }
+            } else if (control.icon != Icon::None) {
+                draw_icon(cr, control.icon, r, legend);
+            } else {
+                label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
+            }
+            cairo_restore(cr);
+        };
         for (const auto& control : view.controls) {
-            if (control.style == ControlStyle::MenuItem || control.id == "scroll-menu") {
+            if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu") {
                 draw_control(control);
             }
         }
+        if (!view.status.empty()) {
+            label(cr, view.status,
+                  view.settings ? Rect{30, 574, 1540, 24} : Rect{body.x + 18, 60, body.width - 36, 28},
+                  17, view.language->font, t.legend);
+        }
+        // Popup is the last layer and deliberately bypasses both card and case clips.
+        if (view.popup) {
+            const auto r = *view.popup;
+            rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 5);
+            source(cr, t.legend);
+            cairo_fill(cr);
+            rounded(cr, r, 3);
+            source(cr, t.bottom);
+            cairo_fill(cr);
+            for (const auto& control : view.controls) {
+                if (control.style == ControlStyle::MenuItem || control.id == "scroll-menu") {
+                    draw_control(control);
+                }
+            }
+        }
+    };
+    if (full) {
+        draw({});
+    }
+    for (const auto& box : passes) {
+        cairo_save(cr);
+        cairo_rectangle(cr, box.x, box.y, box.width, box.height);
+        cairo_clip(cr);
+        draw({box});
+        cairo_restore(cr);
     }
     cairo_destroy(cr);
     cairo_surface_flush(surface_);

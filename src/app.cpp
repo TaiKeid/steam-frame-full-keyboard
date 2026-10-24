@@ -1837,7 +1837,12 @@ void App::swipe_move(double x, double y) {
         track.swiping = true;
         keyboard_.cancel_pointer(track.pointer);
     }
-    if (track.swiping) {
+    // Every point feeds the decoder, but the trail only needs repainting once
+    // it has visibly moved: about 2 px since the last painted point.
+    if (track.swiping &&
+        (track.trail.size() < 2 || track.painted >= track.trail.size() ||
+         std::hypot(x - track.trail[track.painted].first, y - track.trail[track.painted].second) >= 2)) {
+        track.painted = track.trail.size() - 1;
         dirty = true;
     }
 }

@@ -164,6 +164,13 @@ class PanelRenderer {
     std::map<std::string, Animation> animations_;
     Animation move_handle_;
     cairo_surface_t* surface_{};
+    // The swipe trail as an opaque layer, composited at 60% by every pass.
+    // Cairo strokes slightly differently under a clip, and re-stroking a
+    // growing path shifts its older antialiasing, so new segments are added
+    // to the layer without touching pixels already drawn.
+    cairo_surface_t* trail_{};
+    std::vector<std::pair<double, double>> trail_points_; // Already in the layer.
+    std::optional<Rect> trail_extent_;
     bool animating_{};
 };
 } // namespace framekeyboard

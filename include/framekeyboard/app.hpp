@@ -235,6 +235,7 @@ class App {
         bool shifted{}, swiping{};
         std::vector<SwipePoint> points;
         std::vector<std::pair<double, double>> trail;
+        std::size_t painted{}; // Trail point the last repaint request ended at.
     };
     std::optional<SwipeTrack> swipe_track_;
     // Types a press that never became a swipe, as its release would.
