@@ -860,6 +860,7 @@ bool App::tick(double now) {
     refresh_typing();
     finish_swipe(false);
     dirty |= output_.tick(now);
+    forget_failed_swipe();
     update_output_status();
     return dirty || renderer.animating();
 }
@@ -2011,9 +2012,19 @@ void App::apply_swipe(const SwipeService::Result& result) {
         return;
     }
     swipe_committed_ = swipe_candidates_.front();
+    swipe_failures_ = output_.failures();
     swipe_space_ = true;
 }
+void App::forget_failed_swipe() {
+    // The alternatives replace the word this keyboard believes it typed. Once
+    // any delivery since then failed or timed out, that word may not be in
+    // the target, and replacing by its length could delete text before it.
+    if (!swipe_candidates_.empty() && output_.failures() != swipe_failures_) {
+        discard_swipe();
+    }
+}
 void App::choose_swipe(int index) {
+    forget_failed_swipe();
     if (index < 0 || index >= static_cast<int>(swipe_candidates_.size()) || index == swipe_selected_) {
         return;
     }
@@ -2033,6 +2044,7 @@ void App::choose_swipe(int index) {
             swipe_committed_ = word;
             swipe_selected_ = index;
             dirty = true;
+            forget_failed_swipe(); // A synchronous rejection already counts.
             return;
         }
         // Steam fields acknowledge each Backspace before the text. Each is one
@@ -2054,6 +2066,7 @@ void App::choose_swipe(int index) {
     swipe_committed_ = word;
     swipe_selected_ = index;
     dirty = true;
+    forget_failed_swipe();
 }
 void App::discard_swipe() {
     if (!swipe_candidates_.empty()) {

@@ -150,6 +150,7 @@ class App {
     void finish_swipe(bool wait);
     void apply_swipe(const SwipeService::Result& result);
     void choose_swipe(int index);
+    void forget_failed_swipe();
     void discard_swipe();
     // 12-key flick input. A press only shows the key; release types the kana
     // for the flick direction, or the next toggle kana for a repeated tap.
@@ -262,7 +263,8 @@ class App {
     std::vector<std::string> swipe_candidates_;
     int swipe_selected_{};
     std::string swipe_committed_;
-    bool swipe_space_{}; // The previous output was a swiped word.
+    std::uint64_t swipe_failures_{}; // Output failures when swipe_committed_ was sent.
+    bool swipe_space_{};             // The previous output was a swiped word.
     std::atomic<double> slow_work_deadline_{};
 };
 

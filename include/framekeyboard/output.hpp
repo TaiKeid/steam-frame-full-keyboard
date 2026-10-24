@@ -1,6 +1,7 @@
 #pragma once
 
 #include "input.hpp"
+#include <cstdint>
 #include <deque>
 
 namespace framekeyboard {
@@ -12,6 +13,9 @@ class OutputController : public KeySink {
     ~OutputController() override;
     static constexpr std::size_t capacity = 32;
     bool admit(bool produces_output, double now);
+    // Counts delivery failures, so callers can tell that text they assumed
+    // was in the target may not be (a failed or timed-out request).
+    std::uint64_t failures() const { return failures_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
     void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now);
     bool text_press(unsigned pointer, const std::string& text, double now);
@@ -71,6 +75,7 @@ class OutputController : public KeySink {
     std::map<int, unsigned> delivered_;
     double now_{};
     bool enabled_{}, failed_{};
+    std::uint64_t failures_{};
     std::string status_;
     bool status_changed_{};
 };

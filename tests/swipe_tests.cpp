@@ -191,6 +191,7 @@ struct TextSink : KeySink {
     std::vector<std::pair<int, int>> events;
     std::vector<std::string> text;
     bool ordered_replace{}; // Local Gamescope text; false models acknowledged Steam-field keys.
+    bool reject_replace{};  // The replacement fails without being applied.
     std::vector<std::size_t> replaced;
     void send(int code, int value) override { events.emplace_back(code, value); }
     bool text_available() override { return true; }
@@ -201,6 +202,9 @@ struct TextSink : KeySink {
     bool replaces_text() override { return ordered_replace; }
     bool replace_text(std::size_t delete_before, const std::string& value) override {
         replaced.push_back(delete_before);
+        if (reject_replace) {
+            return false;
+        }
         text.push_back(value);
         return ordered_replace;
     }
@@ -572,6 +576,50 @@ void leave_while_decoding() {
     require(sink.text.back() == "hello" && has_control(app.view(), "swipe-candidate-0"),
             "the next swipe has no inherited space and offers alternatives again");
 }
+// After a failed replacement the field may still hold the old word, so the
+// alternatives must go: replacing by the assumed word's length could delete
+// text before it ("Xhelo" minus five characters).
+void failed_replacement() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "helo\t200\nhello\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path =
+        std::make_shared<std::vector<int>>(path_of(keyboard_for("en-us-full", "en-us"), U"helo"));
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    sink.ordered_replace = true;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 1);
+    settle(app, [&] { return !sink.text.empty(); });
+    require(sink.text.back() == "helo" && has_control(app.view(), "swipe-candidate-1"),
+            "the swiped word and its alternatives");
+    sink.reject_replace = true;
+    click(app, "swipe-candidate-1");
+    app.tick(monotonic_seconds());
+    require(!has_control(app.view(), "swipe-candidate-0") && !app.view().status.empty(),
+            "a failed replacement removes the alternatives and says so");
+    require(sink.replaced == std::vector<std::size_t>{4}, "only the one replacement was attempted");
+    sink.reject_replace = false;
+    const auto [ax, ay] = key_point(app, "KeyA");
+    app.down(0, ax, ay, 2);
+    app.up(0, ax, ay);
+    require(sink.text.back() == "a", "typing continues after the failure");
+}
 // Resting and very long gestures keep bounded history; a rest still decodes.
 void long_gestures() {
     TemporaryDirectory directory;
@@ -849,6 +897,7 @@ int main(int argc, char** argv) {
         service_reuse();
         leave_while_decoding();
         long_gestures();
+        failed_replacement();
         loading_does_not_block();
         app_flow(false);
         app_flow(true);

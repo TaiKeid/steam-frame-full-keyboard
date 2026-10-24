@@ -242,6 +242,7 @@ void OutputController::cancel() {
     status("");
 }
 void OutputController::fail() {
+    ++failures_;
     retry_.clear();
     bool boundary = false, discarded = false;
     for (auto& entry : queue_) {
