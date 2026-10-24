@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/swipe.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -80,8 +81,12 @@ std::vector<int> path_of(const SwipeKeyboard& keyboard, const std::u32string& wo
 struct FakeEncoder : SwipeEncoder {
     std::shared_ptr<std::vector<int>> path;
     std::shared_ptr<int> calls;
+    std::shared_ptr<std::atomic<bool>> hold; // While set, decoding waits.
     std::vector<float> encode(const float* features, const float*, const unsigned char* mask,
                               int& steps) override {
+        while (hold && *hold) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         ++*calls;
         for (int i = 0; i < 2 * swipe_points; ++i) {
             require(std::isfinite(features[i]), "features are finite");
@@ -524,6 +529,47 @@ void service_reuse() {
     prepare(keyboard);
     require(service.loads() == 4, "a released word list loads again");
 }
+// The laser leaving while a released swipe is decoding: the word still types,
+// but its alternatives and the following space are no longer safe.
+void leave_while_decoding() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path =
+        std::make_shared<std::vector<int>>(path_of(keyboard_for("en-us-full", "en-us"), U"helo"));
+    auto calls = std::make_shared<int>(0);
+    auto hold = std::make_shared<std::atomic<bool>>(false);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls, hold] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        encoder->hold = hold;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *hold = true;
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 1);
+    app.cancel_pointer(0);
+    *hold = false;
+    settle(app, [&] { return !sink.text.empty(); });
+    require(sink.text == std::vector<std::string>{"hello"},
+            "a word decoded after the laser left still types");
+    require(!has_control(app.view(), "swipe-candidate-0"), "but offers no replacement");
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return sink.text.size() == 2; });
+    require(sink.text.back() == "hello" && has_control(app.view(), "swipe-candidate-0"),
+            "the next swipe has no inherited space and offers alternatives again");
+}
 // A word list still loading must not hold up keys on the VR thread.
 void loading_does_not_block() {
     TemporaryDirectory directory;
@@ -746,6 +792,7 @@ int main(int argc, char** argv) {
         features();
         disabled_by_default();
         service_reuse();
+        leave_while_decoding();
         loading_does_not_block();
         app_flow(false);
         app_flow(true);

@@ -783,9 +783,12 @@ void App::cancel_pointer(unsigned pointer) {
         flick_track_.reset(); // A flick that left the panel types nothing.
     }
     // The laser may now click elsewhere in the target, so replacing is unsafe,
-    // and the next swiped word may start a new field without a space.
+    // and the next swiped word may start a new field without a space. A word
+    // still being decoded types when ready (a few milliseconds), but without
+    // alternatives or a space after it.
     discard_swipe();
     swipe_space_ = false;
+    swipe_detached_ = swipe_waiting_;
     settings_ui_.cancel_pointer(pointer);
     pointer_positions_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
@@ -1858,6 +1861,7 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
         swipe_caps_ = keyboard_.caps();
         swipe_->decode(++swipe_request_, std::move(track.points));
         swipe_waiting_ = true;
+        swipe_detached_ = false;
     }
     move(pointer, x, y);
     dirty = true;
@@ -1970,6 +1974,10 @@ void App::apply_swipe(const SwipeService::Result& result) {
         return;
     }
     status_.clear();
+    if (std::exchange(swipe_detached_, false)) {
+        swipe_candidates_.clear();
+        return;
+    }
     swipe_committed_ = swipe_candidates_.front();
     swipe_space_ = true;
 }

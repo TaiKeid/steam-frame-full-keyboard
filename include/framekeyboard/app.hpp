@@ -250,6 +250,9 @@ class App {
     std::optional<FlickToggle> flick_toggle_;
     std::uint64_t swipe_request_{};
     bool swipe_waiting_{}, swipe_shifted_{}, swipe_caps_{};
+    // The laser left after releasing the pending swipe: its word still types,
+    // but replacing it or spacing after it is no longer safe.
+    bool swipe_detached_{};
     // Alternatives for the last swiped word; any other input invalidates them.
     std::vector<std::string> swipe_candidates_;
     int swipe_selected_{};
