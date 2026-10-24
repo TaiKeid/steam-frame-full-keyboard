@@ -489,6 +489,22 @@ int chinese_flow() {
     require(app.view().preedit == before, "a Pinyin tap waits for release");
     app.up(0, x, y);
     require(app.view().preedit != before && sink.text.empty(), "a Pinyin tap types into the composer");
+    // The composer holds 30 keys. Swiped words beyond that are refused whole,
+    // and taps at the limit report it; neither may end the process.
+    for (int i = 0; i < 8; ++i) {
+        const auto full = app.view().preedit;
+        swipe(app, {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}, 3 + i);
+        settle(app, [&] { return app.view().preedit != full || !app.view().status.empty(); });
+    }
+    require(!app.view().status.empty(), "a swipe past the composition limit is refused with a notice");
+    for (int i = 0; i < 10; ++i) {
+        app.down(0, x, y, 20 + i); // Fill the remaining room with taps.
+        app.up(0, x, y);
+    }
+    const auto full = app.view().preedit;
+    app.down(0, x, y, 40);
+    app.up(0, x, y);
+    require(app.view().preedit == full && !app.view().status.empty(), "a tap at the limit is refused");
     app.cancel();
     return 0;
 }

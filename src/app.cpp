@@ -1811,7 +1811,11 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
         const auto key =
             std::find_if(keys.begin(), keys.end(), [&](const Key& k) { return k.id == track.key; });
         if (key != keys.end()) {
-            cjk_key(*key, true, track.modifiers);
+            try {
+                cjk_key(*key, true, track.modifiers);
+            } catch (const std::exception& error) {
+                status_ = error.what(); // As for presses: the composition is full.
+            }
         }
     } else if (!track.swiping) {
         keyboard_.up(pointer);
@@ -1861,11 +1865,23 @@ void App::apply_swipe(const SwipeService::Result& result) {
     }
     if (cjk_) {
         // The decoded Pinyin joins the composition; its own candidate row then
-        // offers the characters. Separators only matter after a syllable.
-        for (const char c : result.words.front()) {
-            if (c != '\'' || !cjk_->empty()) {
-                cjk_->type(c);
+        // offers the characters. Separators only matter after a syllable. A
+        // word that does not fit is removed again, so it goes in whole or not at all.
+        const auto before = cjk_->preedit();
+        std::size_t typed = 0;
+        try {
+            for (const char c : result.words.front()) {
+                if (c != '\'' || !cjk_->empty()) {
+                    cjk_->type(c);
+                    ++typed;
+                }
             }
+        } catch (const std::exception& error) {
+            for (std::size_t i = 0; i <= typed && cjk_->preedit() != before; ++i) {
+                cjk_->backspace();
+            }
+            status_ = error.what();
+            return;
         }
         status_.clear();
         return;
