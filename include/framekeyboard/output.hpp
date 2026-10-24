@@ -43,6 +43,10 @@ class OutputController : public KeySink {
     bool commit_text(const std::string& text) override;
     bool replaces_text() override { return target_.replaces_text(); }
     bool replace_text(std::size_t delete_before, const std::string& text) override;
+    // Queues `count` taps of `code`, then `text`, as one sequence admitted
+    // once. A failure found while delivering it drops the rest; no later part
+    // is admitted again as fresh input. Nothing is queued if `text` is invalid.
+    bool taps_then_text(int code, std::size_t count, const std::string& text);
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
@@ -63,6 +67,7 @@ class OutputController : public KeySink {
         std::weak_ptr<Entry> owner;
     };
     bool enqueue_text(const std::string& text, std::shared_ptr<Entry> entry = {});
+    static bool sendable(const std::string& text);
     void drain();
     void fail();
     void drop_holds();

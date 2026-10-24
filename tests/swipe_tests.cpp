@@ -192,8 +192,36 @@ struct TextSink : KeySink {
     std::vector<std::string> text;
     bool ordered_replace{}; // Local Gamescope text; false models acknowledged Steam-field keys.
     bool reject_replace{};  // The replacement fails without being applied.
+    // Asynchronous results: while `hold` is set, a replacement or key press
+    // stays pending; it fails once `polls_until_failure` more checks reach 0.
+    bool hold{}, held_pending{};
+    int polls_until_failure{-1};
     std::vector<std::size_t> replaced;
     void send(int code, int value) override { events.emplace_back(code, value); }
+    bool held_failed() {
+        if (polls_until_failure == 0) {
+            held_pending = false;
+            polls_until_failure = -1;
+            return true;
+        }
+        if (polls_until_failure > 0) {
+            --polls_until_failure;
+        }
+        return false;
+    }
+    bool text_pending() const override { return held_pending; }
+    Delivery deliver_key(int code, int value) override {
+        if (!hold || value != 1) {
+            send(code, value);
+            return Delivery::Success;
+        }
+        if (held_pending) {
+            return held_failed() ? Delivery::Failure : Delivery::Waiting;
+        }
+        send(code, value);
+        held_pending = true;
+        return Delivery::Waiting;
+    }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
         text.push_back(value);
@@ -201,8 +229,16 @@ struct TextSink : KeySink {
     }
     bool replaces_text() override { return ordered_replace; }
     bool replace_text(std::size_t delete_before, const std::string& value) override {
+        if (held_pending) {
+            held_failed();
+            return false; // Still pending, or failed once no longer pending.
+        }
         replaced.push_back(delete_before);
         if (reject_replace) {
+            return false;
+        }
+        if (hold) {
+            held_pending = true;
             return false;
         }
         text.push_back(value);
@@ -620,6 +656,52 @@ void failed_replacement() {
     app.up(0, ax, ay);
     require(sink.text.back() == "a", "typing continues after the failure");
 }
+// A failure can become known inside the next suggestion click, before any
+// tick: that click must not replace by the length of the undelivered word.
+// `polls` is how many more delivery checks pass before the failure shows.
+void failure_found_by_click(bool ordered, int polls) {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "helo\t200\nhello\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path =
+        std::make_shared<std::vector<int>>(path_of(keyboard_for("en-us-full", "en-us"), U"helo"));
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    sink.ordered_replace = ordered;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 1);
+    settle(app, [&] { return !sink.text.empty(); });
+    sink.hold = true;
+    click(app, "swipe-candidate-1"); // "hello": its first request stays pending.
+    auto backspaces = [&] {
+        return std::count(sink.events.begin(), sink.events.end(), std::pair<int, int>{KEY_BACKSPACE, 1});
+    };
+    require(has_control(app.view(), "swipe-candidate-0") &&
+                (ordered ? sink.replaced.size() == 1 : backspaces() == 1),
+            "the chosen alternative is pending");
+    sink.polls_until_failure = polls; // The result is a failure; no tick sees it first.
+    click(app, "swipe-candidate-0");
+    require(ordered ? sink.replaced == std::vector<std::size_t>{4} : backspaces() == 1,
+            "no second deletion follows a failure found by the click");
+    app.tick(monotonic_seconds());
+    require(!has_control(app.view(), "swipe-candidate-0") && !app.view().status.empty(),
+            "the alternatives are gone and the failure is reported");
+}
 // Resting and very long gestures keep bounded history; a rest still decodes.
 void long_gestures() {
     TemporaryDirectory directory;
@@ -898,6 +980,9 @@ int main(int argc, char** argv) {
         leave_while_decoding();
         long_gestures();
         failed_replacement();
+        failure_found_by_click(true, 0);
+        failure_found_by_click(false, 0);
+        failure_found_by_click(false, 1); // Found by a later delivery check of the click.
         loading_does_not_block();
         app_flow(false);
         app_flow(true);

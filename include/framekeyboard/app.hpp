@@ -264,6 +264,7 @@ class App {
     int swipe_selected_{};
     std::string swipe_committed_;
     std::uint64_t swipe_failures_{}; // Output failures when swipe_committed_ was sent.
+    bool swipe_notice_{};            // status_ explains removed alternatives.
     bool swipe_space_{};             // The previous output was a swiped word.
     std::atomic<double> slow_work_deadline_{};
 };

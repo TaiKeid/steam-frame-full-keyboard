@@ -1298,6 +1298,12 @@ bool App::text_key(const Key& key, const std::set<int>& mods) const {
 }
 void App::update_output_status() {
     if (auto status = output_.take_status()) {
+        // The queue clears its own failure message once it drains again; keep
+        // the notice that the swipe alternatives were removed until news.
+        if (status->empty() && std::exchange(swipe_notice_, false)) {
+            return;
+        }
+        swipe_notice_ = false;
         status_ = std::move(*status);
         dirty = true;
     }
@@ -2022,24 +2028,39 @@ void App::forget_failed_swipe() {
     // the target, and replacing by its length could delete text before it.
     if (!swipe_candidates_.empty() && output_.failures() != swipe_failures_) {
         discard_swipe();
+        status_ = "Text was not sent, so the swipe alternatives were removed. Check the text.";
+        swipe_notice_ = true;
+        dirty = true;
     }
 }
 void App::choose_swipe(int index) {
+    // Settle earlier deliveries before trusting the typed word: admission can
+    // discover that one failed, and it then clears the failure for new input.
+    const bool admitted = options_.input == InputBackend::None || output_.admit(true);
     forget_failed_swipe();
     if (index < 0 || index >= static_cast<int>(swipe_candidates_.size()) || index == swipe_selected_) {
         return;
     }
-    const auto& word = swipe_candidates_[static_cast<std::size_t>(index)];
+    // A copy: refusing below clears the alternatives.
+    const std::string word = swipe_candidates_[static_cast<std::size_t>(index)];
     if (options_.input != InputBackend::None) {
+        if (!admitted) {
+            update_output_status(); // Busy or full; the alternatives stay valid.
+            return;
+        }
+        auto refuse = [&] {
+            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+            discard_swipe();
+        };
         // Replace exactly the characters this keyboard just sent.
         const auto count = static_cast<std::size_t>(g_utf8_strlen(swipe_committed_.c_str(), -1));
+        const auto failures = output_.failures();
         if (output_.replaces_text()) {
             // Gamescope types text through a temporary keymap. Separate libei
             // Backspace keys could interleave with it and type wrong characters,
             // so deletion travels in the same ordered text request.
-            if (!output_.admit(true) || !output_.replace_text(count, word)) {
-                status_ = "Text was not sent. Release other keys and check the target/input connection.";
-                discard_swipe();
+            if (!output_.replace_text(count, word)) {
+                refuse();
                 return;
             }
             swipe_committed_ = word;
@@ -2054,20 +2075,16 @@ void App::choose_swipe(int index) {
             status_ = "Wait for typing to finish, then choose again.";
             return;
         }
-        for (std::size_t i = 0; i < count; ++i) {
-            output_.send(KEY_BACKSPACE, 1);
-            output_.send(KEY_BACKSPACE, 0);
-        }
-        if (!output_.commit_text(word)) {
-            status_ = "Text was not sent. Release other keys and check the target/input connection.";
-            discard_swipe();
+        // One sequence: separate presses would each be admitted on their own,
+        // and one that found an earlier failure would clear it and still go out.
+        if (!output_.taps_then_text(KEY_BACKSPACE, count, word) || output_.failures() != failures) {
+            refuse();
             return;
         }
     }
     swipe_committed_ = word;
     swipe_selected_ = index;
     dirty = true;
-    forget_failed_swipe();
 }
 void App::discard_swipe() {
     if (!swipe_candidates_.empty()) {

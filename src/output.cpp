@@ -90,13 +90,28 @@ void OutputController::native_press(unsigned pointer, const std::vector<int>& co
     queue_.push_back(entry);
     drain();
 }
+bool OutputController::sendable(const std::string& text) {
+    return text.find('\0') == std::string::npos &&
+           g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr) &&
+           g_utf8_strlen(text.c_str(), -1) <= 32;
+}
+bool OutputController::taps_then_text(int code, std::size_t count, const std::string& text) {
+    if (!enabled_ || failed_ || text.empty() || !sendable(text) ||
+        queue_.size() + count + 1 > capacity) {
+        return false;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        auto entry = std::make_shared<Entry>();
+        entry->codes = {code}; // Not held: released as soon as it is delivered.
+        queue_.push_back(entry);
+    }
+    return enqueue_text(text); // Drains the whole sequence.
+}
 bool OutputController::enqueue_text(const std::string& text, std::shared_ptr<Entry> entry) {
     if (text.empty()) {
         return true;
     }
-    if (!enabled_ || failed_ || queue_.size() >= capacity || text.find('\0') != std::string::npos ||
-        !g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr) ||
-        g_utf8_strlen(text.c_str(), -1) > 32) {
+    if (!enabled_ || failed_ || queue_.size() >= capacity || !sendable(text)) {
         status("Text not queued. Check the target and input queue.");
         return false;
     }
