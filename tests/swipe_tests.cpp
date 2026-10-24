@@ -367,6 +367,8 @@ void app_flow(bool ordered_replace) {
     const auto [ex, ey] = key_point(app, "KeyE");
     app.down(0, hx, hy, 8);
     app.move(0, ex, ey);
+    require(!app.view().swipe_trail.empty() && app.pointer_pressed(0),
+            "a swipe still captures its pointer, so lost tracking can cancel it");
     app.cancel_pointer(0);
     app.up(0, ex, ey);
     settle(app, [&] { return false; });

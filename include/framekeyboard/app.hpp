@@ -43,9 +43,11 @@ class App {
     bool move(unsigned pointer, double x, double y);
     // True when this pointer releases a captured keyboard key, even outside it.
     bool up(unsigned pointer, double x, double y);
+    // Includes a swipe, which owns its pointer after giving up the key press,
+    // so lost tracking still cancels it.
     bool pointer_pressed(unsigned pointer) const {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
-               settings_ui_.pressed(pointer);
+               settings_ui_.pressed(pointer) || (swipe_track_ && swipe_track_->pointer == pointer);
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
