@@ -305,6 +305,16 @@ int main() {
     try {
         romaji_legends();
         flick_input();
+        {
+            // Marks also apply to katakana, and leave kana without variants alone.
+            JapaneseComposer marks;
+            marks.kana("つ");
+            marks.script(true);
+            require(marks.mark("小") && marks.preedit() == "ッ", "小 makes katakana small");
+            require(marks.mark("゛゜小") && marks.preedit() == "ヅ", "゛゜小 cycles katakana too");
+            marks.kana("ん");
+            require(!marks.mark("゛゜小") && marks.preedit() == "ヅん", "ん has no variant");
+        }
         JapaneseComposer composer;
         for (const auto& [roman, expected] :
              std::vector<std::pair<std::string, std::string>>{{"nihon", "にほん"},
@@ -382,6 +392,9 @@ int main() {
             composer.cycle(1);
             composer.cycle(-1);
             require(composer.commit_text() == "日本", "candidate navigation");
+            composer.convert();
+            require(!composer.mark("゛゜小") && composer.converting(),
+                    "a mark that changes nothing keeps the conversion");
             composer.unconvert();
             require(composer.preedit() == "にほん", "unconvert");
             dlclose(anthy);

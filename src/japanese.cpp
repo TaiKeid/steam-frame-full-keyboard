@@ -237,8 +237,10 @@ void JapaneseComposer::kana(const std::string& text) {
     append(text);
 }
 namespace {
-// Each kana is three UTF-8 bytes; the strings pair small and large forms.
-constexpr std::string_view small_kana = "ぁぃぅぇぉっゃゅょゎ", large_kana = "あいうえおつやゆよわ";
+// Each kana is three UTF-8 bytes; the strings pair small and large forms,
+// hiragana then katakana (the reading may be in either after カタカナ/F7).
+constexpr std::string_view small_kana = "ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ",
+                           large_kana = "あいうえおつやゆよわアイウエオツヤユヨワ";
 std::string small_form(const std::string& kana) {
     const auto at = large_kana.find(kana);
     return kana.empty() || at == std::string_view::npos ? std::string{}
@@ -262,12 +264,13 @@ std::string JapaneseComposer::last_kana() const {
     return last ? std::string(last) : std::string{};
 }
 bool JapaneseComposer::mark(const std::string& mark) {
-    unconvert();
     drain(true);
-    const auto last = last_kana();
-    if (last.empty()) {
+    if (reading_.empty()) {
         return false;
     }
+    // The last reading character, also while converting: the conversion is
+    // only given up below if the mark actually changes it.
+    const std::string last(g_utf8_find_prev_char(reading_.c_str(), reading_.c_str() + reading_.size()));
     // The plain, large form: が -> か, っ -> つ.
     auto* decomposed = g_utf8_normalize(last.c_str(), -1, G_NORMALIZE_DEFAULT);
     const auto base = large_form(
@@ -295,6 +298,7 @@ bool JapaneseComposer::mark(const std::string& mark) {
     if (next.empty() || next == last) {
         return false;
     }
+    unconvert();
     erase_character(reading_);
     reading_ += next;
     return true;
