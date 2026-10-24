@@ -161,6 +161,41 @@ std::optional<Transform> DashboardAnchor::update(std::optional<Transform> main,
     full_rotation_ = true;
     return anchor_;
 }
+std::optional<PanelHit> panel_ray_hit(const Transform& panel, double width, double height_over_width,
+                                      const std::array<double, 3>& origin,
+                                      const std::array<double, 3>& direction) {
+    auto column = [&](std::size_t c) {
+        return std::array<double, 3>{panel[0][c], panel[1][c], panel[2][c]};
+    };
+    auto dot = [](const std::array<double, 3>& a, const std::array<double, 3>& b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    };
+    const auto right = column(0), up = column(1), normal = column(2), center = column(3);
+    // Only the face toward the viewer (+z) is visible; a ray from behind misses.
+    const double approach = dot(direction, normal);
+    if (!(approach < -1e-6) || width <= 0) {
+        return {};
+    }
+    const std::array<double, 3> to_center{center[0] - origin[0], center[1] - origin[1],
+                                          center[2] - origin[2]};
+    const double distance = dot(to_center, normal) / approach;
+    if (!std::isfinite(distance) || distance < 0) {
+        return {};
+    }
+    PanelHit hit;
+    hit.distance = distance;
+    for (std::size_t i = 0; i < 3; ++i) {
+        hit.point[i] = origin[i] + direction[i] * distance;
+    }
+    const std::array<double, 3> offset{hit.point[0] - center[0], hit.point[1] - center[1],
+                                       hit.point[2] - center[2]};
+    hit.u = dot(offset, right) / width + .5;
+    hit.v = .5 - dot(offset, up) / (width * height_over_width);
+    if (hit.u < 0 || hit.u > 1 || hit.v < 0 || hit.v > 1) {
+        return {};
+    }
+    return hit;
+}
 Transform move_with_dashboard(const Transform& panel, const Transform& previous,
                               const Transform& current) {
     // Invert only the rigid anchor, never Steam's scaled overlay matrix.

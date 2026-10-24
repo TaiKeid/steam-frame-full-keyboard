@@ -892,6 +892,81 @@ void language_recovery_tests() {
     type_a(preview);
     require(sink.events.size() == 4, "recovery never enables a launch without explicit opt-in");
 }
+void ray_hit_tests() {
+    // Upright panel 1 m ahead of the origin, facing back toward it (+z).
+    fk::Transform panel{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    const double aspect = .625;
+    auto hit = fk::panel_ray_hit(panel, 1, aspect, {0, 1, 0}, {0, 0, -1});
+    require(hit.has_value(), "a ray at the center hits the panel");
+    near(hit->u, .5, "center hit is horizontally centered");
+    near(hit->v, .5, "center hit is vertically centered");
+    near(hit->distance, 1, "hit distance is in meters");
+    near(hit->point[2], -1, "hit point lies on the panel");
+    // Toward a point a quarter in from the left and top edges.
+    const std::array<double, 3> corner{-.25, 1 + .25 * aspect, -1};
+    const double length = std::hypot(corner[0], corner[1] - 1, corner[2]);
+    hit = fk::panel_ray_hit(panel, 1, aspect, {0, 1, 0},
+                            {corner[0] / length, (corner[1] - 1) / length, corner[2] / length});
+    require(hit.has_value(), "an off-center ray hits the panel");
+    near(hit->u, .25, "u runs from the left edge");
+    near(hit->v, .25, "v runs from the top edge");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {0, 1, 0}, {0, 0, 1}), "a ray pointing away misses");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {0, 1, -2}, {0, 0, 1}),
+            "a ray from behind the panel misses");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {.6, 1, 0}, {0, 0, -1}),
+            "a ray beside the panel misses");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {0, 1, -1.5}, {0, 0, -1}),
+            "the panel behind the ray's origin is not hit");
+    // The tilted default placement is hit at its center from straight above its normal.
+    fk::PanelPlacement placed;
+    placed.recenter(head());
+    const auto pose = placed.transform();
+    const std::array<double, 3> normal{pose[0][2], pose[1][2], pose[2][2]};
+    hit = fk::panel_ray_hit(
+        pose, placed.width(), aspect,
+        {pose[0][3] + normal[0] * .4, pose[1][3] + normal[1] * .4, pose[2][3] + normal[2] * .4},
+        {-normal[0], -normal[1], -normal[2]});
+    require(hit.has_value(), "a ray along the normal hits the recentered panel");
+    near(hit->u, .5, "tilted center hit is horizontally centered");
+    near(hit->v, .5, "tilted center hit is vertically centered");
+    near(hit->distance, .4, "tilted hit distance follows the normal");
+}
+void passthrough_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    fk::NullSink sink;
+    auto find = [](const fk::App& app, const std::string& id) -> std::optional<fk::Control> {
+        for (const auto& control : app.view().controls) {
+            if (control.id == id) {
+                return control;
+            }
+        }
+        return {};
+    };
+    fk::App app(options, sink);
+    require(!app.passthrough(), "passthrough starts off");
+    const auto pin = find(app, "pin");
+    auto button = find(app, "passthrough");
+    require(pin && button && button->icon == fk::Icon::PassthroughOff && !button->selected,
+            "passthrough button shows its off state");
+    require(button->bounds.x >= pin->bounds.x + pin->bounds.width,
+            "passthrough button follows the pin button");
+    const double x = button->bounds.x + button->bounds.width / 2;
+    const double y = button->bounds.y + button->bounds.height / 2;
+    app.down(0, x, y, 1);
+    app.up(0, x, y);
+    button = find(app, "passthrough");
+    require(app.passthrough() && button->icon == fk::Icon::PassthroughOn && button->selected,
+            "clicking turns passthrough on");
+    require(!app.pinned(), "passthrough leaves pin unchanged");
+    app.flush_settings();
+    fk::App restarted(options, sink);
+    require(!restarted.passthrough(), "passthrough is not saved");
+    app.down(0, x, y, 2);
+    app.up(0, x, y);
+    require(!app.passthrough(), "clicking again turns passthrough off");
+}
 void ui_tests() {
     TemporaryDirectory temp;
     fk::Options options;
@@ -930,6 +1005,8 @@ void ui_tests() {
 int main() {
     try {
         placement_tests();
+        ray_hit_tests();
+        passthrough_tests();
         dashboard_tab_tests();
         drag_tests();
         horizon_tests();

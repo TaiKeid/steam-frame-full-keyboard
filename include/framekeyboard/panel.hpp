@@ -25,6 +25,7 @@ enum class ControlKind {
     Smaller,
     Larger,
     Pin,
+    Passthrough,
     LanguageCycle,
     Close,
     MoveHandle,

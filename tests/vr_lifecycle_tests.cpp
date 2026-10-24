@@ -69,6 +69,7 @@ struct Headset {
     Receiver receiver;
     std::unique_ptr<App> app;
     std::unique_ptr<VrLifecycle> lifecycle;
+    PassthroughRequests passthrough_requests;
     bool dashboard{true}, compositor{}, remote{}, fail_show{};
     std::optional<std::uint32_t> drag_owner;
     std::map<unsigned, std::uint32_t> pointers;
@@ -146,6 +147,8 @@ struct Headset {
                     },
             });
     }
+    // As in the VR loop: the panel may appear with the dashboard open, or in passthrough.
+    bool presentable() const { return dashboard || app->passthrough(); }
     void status(NativeReplacement::State native, bool stalled = false, bool relaunch = false) {
         next_target = static_cast<int>(native.request);
         app->set_native_session(native.open);
@@ -156,7 +159,10 @@ struct Headset {
                                 .watchdog_stalled = stalled,
                                 .relaunch = relaunch,
                                 .now = now});
-        lifecycle->dashboard_visibility(dashboard);
+        if (passthrough_requests.take(app->replace_native_keyboard(), native, dashboard)) {
+            app->set_passthrough(true);
+        }
+        lifecycle->dashboard_visibility(presentable());
         now += .02;
     }
     void request(unsigned id = 1, bool local = true, bool active = true) {
@@ -164,10 +170,10 @@ struct Headset {
     }
     void display(bool placement = true) {
         lifecycle->tracking_sampled(true, now);
-        lifecycle->present(placement, dashboard, compositor, now);
+        lifecycle->present(placement, presentable(), compositor, now);
     }
     VrLifecycle::FrameReport report(bool backend_ready = true) const {
-        return lifecycle->frame_report(backend_ready, dashboard, compositor);
+        return lifecycle->frame_report(backend_ready, presentable(), compositor);
     }
     std::pair<double, double> point(const std::string& action) const {
         const auto view = app->view();
@@ -276,6 +282,49 @@ void a_closed_dashboard_delivers_nothing() {
     h.tick();
     require(h.receiver.downs == delivered && h.receiver.text.size() == 1,
             "late text cannot deliver a queued edit after dashboard closure");
+}
+
+void a_pinned_window_request_opens_passthrough() {
+    Headset h;
+    h.dashboard = false;
+    h.request(30);
+    h.display();
+    require(h.app->passthrough() && h.compositor && h.report().acknowledgement == 30,
+            "a local request with the dashboard closed turns passthrough on and is acknowledged");
+    h.click(1, "KeyA");
+    require(h.receiver.text == std::vector<std::pair<int, std::string>>{{30, "a"}},
+            "typing reaches the window that asked for the keyboard");
+    h.app->set_passthrough(false);
+    h.request(30);
+    h.display();
+    require(!h.app->passthrough() && !h.compositor,
+            "turning passthrough off during the same request is respected");
+    require(PassthroughRequests::ends_request(true, {30, true, true, true, true, true}),
+            "turning passthrough off outside the dashboard ends the open request");
+    h.app->close_panel();
+    if (h.app->take_dismissal()) {
+        h.lifecycle->dismiss();
+    }
+    require(h.dismissals == 1, "the hidden request is dismissed, not left open for Steam to toggle");
+    h.request(34);
+    h.display();
+    require(h.app->passthrough() && h.compositor && h.report().acknowledgement == 34,
+            "the next button press opens the keyboard at once");
+    h.app->set_passthrough(false);
+    h.app->close_panel();
+    h.app->take_dismissal();
+    h.lifecycle->dismiss();
+    require(!PassthroughRequests::ends_request(true, {34, false, false, false, true, true}),
+            "with no open request there is nothing to end");
+    h.request(31, false);
+    require(!h.app->passthrough(), "a Steam request never turns passthrough on");
+    h.dashboard = true;
+    h.request(32);
+    require(!h.app->passthrough(), "a request with the dashboard open never turns passthrough on");
+    Headset manual(false, false);
+    manual.dashboard = false;
+    manual.request(33);
+    require(!manual.app->passthrough(), "without replacement no request turns passthrough on");
 }
 
 void closing_and_native_fallback_have_different_meanings() {
@@ -471,6 +520,7 @@ int main() {
         targets_keep_their_own_keys();
         late_work_cannot_cross_targets();
         a_closed_dashboard_delivers_nothing();
+        a_pinned_window_request_opens_passthrough();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

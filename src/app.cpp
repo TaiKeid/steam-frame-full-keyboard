@@ -258,11 +258,16 @@ std::vector<Control> App::controls() const {
                              {x + 280, 12, 60, 42},
                              false,
                              settings_.pinned ? Icon::PinOn : Icon::PinOff});
+    add({ControlKind::Passthrough}, {"passthrough",
+                                     passthrough_ ? "Close with the dashboard" : "Stay open over apps",
+                                     {x + 350, 12, 60, 42},
+                                     passthrough_,
+                                     passthrough_ ? Icon::PassthroughOn : Icon::PassthroughOff});
     if (!settings_.favorites.empty()) {
         add({ControlKind::LanguageCycle},
             {"language-cycle",
              language_short_name(profiles_.languages.at(settings_.active.language)),
-             {x + 350, 12, 100, 42}});
+             {x + 420, 12, 100, 42}});
     }
     add({ControlKind::Close}, {"close",
                                resident_replacement() ? "Hide keyboard" : "Close",
@@ -272,12 +277,12 @@ std::vector<Control> App::controls() const {
     const auto ime_start = result.size();
     if (japanese()) {
         add({ControlKind::ImeToggle},
-            {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {610, 12, 115, 42}});
+            {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
         if (!japanese_latin_) {
-            add({ControlKind::ImeHiragana}, {"ime-hiragana", "ひらがな", {735, 12, 120, 42}});
-            add({ControlKind::ImeKatakana}, {"ime-katakana", "カタカナ", {865, 12, 120, 42}});
-            add({ControlKind::ImeCommit}, {"ime-commit", "確定 / Commit", {995, 12, 180, 42}});
-            add({ControlKind::ImeCancel}, {"ime-cancel", "Cancel", {1185, 12, 110, 42}});
+            add({ControlKind::ImeHiragana}, {"ime-hiragana", "ひらがな", {805, 12, 120, 42}});
+            add({ControlKind::ImeKatakana}, {"ime-katakana", "カタカナ", {935, 12, 120, 42}});
+            add({ControlKind::ImeCommit}, {"ime-commit", "確定 / Commit", {1065, 12, 180, 42}});
+            add({ControlKind::ImeCancel}, {"ime-cancel", "Cancel", {1255, 12, 110, 42}});
             const auto candidates = composition_.candidates();
             if (!candidates.empty()) {
                 add({ControlKind::ImePrev}, {"ime-prev", "↑", {20, 148, 55, 42}});
@@ -305,10 +310,10 @@ std::vector<Control> App::controls() const {
         add({ControlKind::CjkToggle},
             {"cjk-toggle",
              cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
-             {610, 12, 150, 42}});
+             {680, 12, 150, 42}});
         if (!cjk_latin_) {
-            add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {995, 12, 180, 42}});
-            add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1185, 12, 110, 42}});
+            add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {1065, 12, 180, 42}});
+            add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1255, 12, 110, 42}});
             const auto candidates = cjk_->candidates();
             if (!candidates.empty()) {
                 const int page = cjk_->selected() / 5 * 5;
@@ -1528,6 +1533,8 @@ void App::action(const ControlAction& command) {
         settings_.pinned = !settings_.pinned;
         status_.clear();
         save();
+    } else if (kind == ControlKind::Passthrough) {
+        set_passthrough(!passthrough_);
     } else if (kind == ControlKind::LanguageCycle) {
         const auto& entries = cycle_entries_;
         if (entries.size() > 1) {
@@ -2124,6 +2131,15 @@ void App::close_panel() {
     } else {
         quit_ = true;
     }
+}
+void App::set_passthrough(bool on) {
+    if (on == passthrough_) {
+        return;
+    }
+    cancel(false);
+    passthrough_ = on;
+    status_.clear();
+    dirty = true;
 }
 bool App::take_dismissal() {
     return std::exchange(dismiss_requested_, false);

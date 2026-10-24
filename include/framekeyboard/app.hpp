@@ -62,6 +62,10 @@ class App {
     void back();
     bool scroll(unsigned pointer, double dx, double dy);
     bool pinned() const { return settings_.pinned; }
+    // Experimental, not saved: the panel stays open while the dashboard is
+    // closed, and VR reads the controllers itself so the focused app keeps its input.
+    bool passthrough() const { return passthrough_; }
+    void set_passthrough(bool on);
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }
@@ -227,6 +231,7 @@ class App {
     std::vector<PlacementAction> placement_actions_;
     std::map<unsigned, std::pair<double, double>> pointer_positions_;
     bool dragging_{};
+    bool passthrough_{};
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;

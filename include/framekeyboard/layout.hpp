@@ -30,7 +30,9 @@ enum class Icon {
     Paste,
     SteamFrame,
     SteamOS,
-    Backspace
+    Backspace,
+    PassthroughOn,
+    PassthroughOff
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.

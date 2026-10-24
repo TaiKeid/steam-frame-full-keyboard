@@ -344,6 +344,261 @@ class LaserDrag {
     std::optional<Transform> trigger_neutral_;
     TriggerReleaseGuard trigger_release_;
 };
+// Passthrough pointer. Outside the dashboard SteamVR sends overlay mouse events
+// only to overlays that claim scene input, which takes input from the focused
+// app. Instead read each Frame controller's pose and trigger component: neither
+// read takes anything away, so the app receives the trigger too.
+struct SceneSample {
+    vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
+    std::optional<PanelHit> hit;
+    // lost: the hand or its trigger stopped reporting while held; cancel, don't release.
+    bool pressed{}, released{}, lost{};
+};
+class ScenePointer {
+  public:
+    bool connect() {
+        auto input = vr_input();
+        ready_ =
+            input && vr_models() &&
+            input->GetInputSourceHandle("/user/hand/left", &hands_[0].source) == vr::VRInputError_None &&
+            input->GetInputSourceHandle("/user/hand/right", &hands_[1].source) == vr::VRInputError_None;
+        return ready_;
+    }
+    // Forget presses without reporting them; the caller has already cancelled input.
+    void reset() {
+        for (auto& hand : hands_) {
+            hand.armed = hand.held = false;
+        }
+    }
+    std::array<SceneSample, 2> poll(const PanelPlacement& panel, double height_over_width) {
+        std::array<SceneSample, 2> result{};
+        if (!ready_ || !panel.ready()) {
+            return result;
+        }
+        vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
+        vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses,
+                                                     vr::k_unMaxTrackedDeviceCount);
+        for (std::size_t i = 0; i < hands_.size(); ++i) {
+            auto& hand = hands_[i];
+            auto& sample = result[i];
+            const auto device = vr_system()->GetTrackedDeviceIndexForControllerRole(
+                i == 0 ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
+            if (device != hand.device) {
+                // A different controller never inherits the old one's press.
+                sample.lost = hand.held;
+                sample.device = hand.device;
+                const auto source = hand.source;
+                const bool warned = hand.warned;
+                hand = {};
+                hand.source = source;
+                hand.device = device;
+                hand.warned = warned;
+                if (sample.lost) {
+                    continue;
+                }
+            }
+            sample.device = device;
+            if (!hand.calibrated && device < vr::k_unMaxTrackedDeviceCount) {
+                calibrate(hand, i == 0);
+            }
+            const auto angle = device < vr::k_unMaxTrackedDeviceCount && hand.travel > 0
+                                   ? trigger_angle(hand)
+                                   : std::nullopt;
+            const auto& pose = device < vr::k_unMaxTrackedDeviceCount ? poses[device] : poses[0];
+            if (!angle || device >= vr::k_unMaxTrackedDeviceCount || !pose.bPoseIsValid ||
+                !pose.bDeviceIsConnected) {
+                sample.lost = hand.held;
+                hand.armed = hand.held = false;
+                continue;
+            }
+            // Require a released trigger after startup, a new controller or a gap,
+            // so a pull already in progress never clicks the key it lands on.
+            if (!hand.armed) {
+                hand.armed = *angle < hand.release;
+            } else {
+                const bool held = *angle >= (hand.held ? hand.release : hand.press);
+                sample.pressed = held && !hand.held;
+                sample.released = !held && hand.held;
+                hand.held = held;
+            }
+            const auto controller = from_vr(pose.mDeviceToAbsoluteTracking);
+            std::array<double, 3> origin{}, direction{};
+            for (std::size_t r = 0; r < 3; ++r) {
+                origin[r] = controller[r][3];
+                for (std::size_t c = 0; c < 3; ++c) {
+                    origin[r] += controller[r][c] * hand.tip[c][3];
+                    direction[r] -= controller[r][c] * hand.tip[c][2];
+                }
+            }
+            sample.hit =
+                panel_ray_hit(panel.transform(), panel.width(), height_over_width, origin, direction);
+        }
+        return result;
+    }
+    // Pointer IDs for the two hands; SteamVR's own cursor indexes stay small.
+    static unsigned pointer(std::size_t hand) { return 0x100 + static_cast<unsigned>(hand); }
+
+  private:
+    struct Hand {
+        vr::VRInputValueHandle_t source{};
+        vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
+        std::string model;
+        bool warned{}, calibrated{}, armed{}, held{};
+        // The laser's origin and -Z direction in controller space.
+        Transform tip{{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}};
+        Transform neutral{};
+        double travel{}, press{}, release{}; // Trigger rotation in degrees.
+    };
+    // Retried each frame until it succeeds: a controller can connect before its model is known.
+    void calibrate(Hand& hand, bool left) {
+        char model[1024]{};
+        vr::ETrackedPropertyError error{};
+        vr_system()->GetStringTrackedDeviceProperty(hand.device, vr::Prop_RenderModelName_String, model,
+                                                    sizeof(model), &error);
+        const std::string expected = left ? "{frame_controller}frame_controller_left"
+                                          : "{frame_controller}frame_controller_right";
+        if (error || model != expected) {
+            return;
+        }
+        auto models = vr_models();
+        vr::VRControllerState_t released{}, pulled{};
+        for (auto& axis : pulled.rAxis) {
+            axis.x = 1;
+        }
+        pulled.ulButtonPressed = vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Trigger);
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t rest{}, full{}, tip{};
+        if (!models->GetComponentState(model, "trigger", &released, &mode, &rest) ||
+            !models->GetComponentState(model, "trigger", &pulled, &mode, &full)) {
+            if (!std::exchange(hand.warned, true)) {
+                std::cout << "Passthrough pointer: no trigger component on the "
+                          << (left ? "left" : "right") << " controller.\n"
+                          << std::flush;
+            }
+            return;
+        }
+        hand.calibrated = true;
+        if (models->GetComponentState(model, "tip", &released, &mode, &tip)) {
+            hand.tip = from_vr(tip.mTrackingToComponentLocal);
+        }
+        hand.model = model;
+        hand.neutral = from_vr(rest.mTrackingToComponentRenderModel);
+        hand.travel =
+            component_rotation_degrees(hand.neutral, from_vr(full.mTrackingToComponentRenderModel));
+        // Click near a full pull like SteamVR's laser; without a measured travel,
+        // use the thresholds the line-capture release guard already relies on.
+        hand.press = hand.travel >= 2 ? hand.travel * .7 : 1;
+        hand.release = hand.travel >= 2 ? hand.travel * .4 : .5;
+        if (hand.travel < 2) {
+            hand.travel = 1;
+        }
+        std::cout << "Passthrough pointer ready on the " << (left ? "left" : "right") << " controller.\n"
+                  << std::flush;
+    }
+    std::optional<double> trigger_angle(const Hand& hand) {
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t current{};
+        if (!vr_models()->GetComponentStateForDevicePath(hand.model.c_str(), "trigger", hand.source,
+                                                         &mode, &current)) {
+            return {};
+        }
+        return component_rotation_degrees(hand.neutral,
+                                          from_vr(current.mTrackingToComponentRenderModel));
+    }
+    std::array<Hand, 2> hands_{};
+    bool ready_{};
+};
+// A dot where each passthrough ray meets the panel, since SteamVR draws no
+// laser outside the dashboard. Each is its own small overlay, so moving it
+// never repaints the keyboard texture.
+class SceneCursors {
+  public:
+    ~SceneCursors() {
+        for (auto& dot : dots_) {
+            if (dot.handle) {
+                vr_overlay()->DestroyOverlay(dot.handle);
+            }
+        }
+    }
+    void show(std::size_t hand, const Transform& panel, const PanelHit& hit) {
+        auto& dot = dots_[hand];
+        if (!dot.handle && !create(hand)) {
+            return;
+        }
+        Transform world = panel;
+        for (std::size_t r = 0; r < 3; ++r) {
+            // Just in front of the face, so the keyboard never covers it.
+            world[r][3] = hit.point[r] + panel[r][2] * .003;
+        }
+        if (world != dot.placed) {
+            vr::HmdMatrix34_t transform{};
+            for (std::size_t r = 0; r < 3; ++r) {
+                for (std::size_t c = 0; c < 4; ++c) {
+                    transform.m[r][c] = static_cast<float>(world[r][c]);
+                }
+            }
+            vr_overlay()->SetOverlayTransformAbsolute(dot.handle, vr::TrackingUniverseStanding,
+                                                      &transform);
+            dot.placed = world;
+        }
+        if (!dot.visible) {
+            vr_overlay()->ShowOverlay(dot.handle);
+            dot.visible = true;
+        }
+    }
+    void hide(std::size_t hand) {
+        auto& dot = dots_[hand];
+        if (dot.visible) {
+            vr_overlay()->HideOverlay(dot.handle);
+            dot.visible = false;
+        }
+    }
+    void hide() {
+        for (std::size_t hand = 0; hand < dots_.size(); ++hand) {
+            hide(hand);
+        }
+    }
+
+  private:
+    struct Dot {
+        vr::VROverlayHandle_t handle{};
+        bool visible{}, failed{};
+        Transform placed{};
+    };
+    bool create(std::size_t hand) {
+        auto& dot = dots_[hand];
+        if (dot.failed) {
+            return false;
+        }
+        constexpr int size = 32;
+        std::array<std::uint8_t, size * size * 4> pixels{};
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                const double r = std::hypot(x + .5 - size / 2.0, y + .5 - size / 2.0);
+                // White center, dark ring for contrast on light keys, soft edge.
+                const double alpha = std::clamp(15.5 - r, 0.0, 1.0);
+                const std::uint8_t shade = r < 11 ? 255 : 30;
+                auto* p = &pixels[static_cast<std::size_t>((y * size + x) * 4)];
+                p[0] = p[1] = p[2] = shade;
+                p[3] = static_cast<std::uint8_t>(alpha * 255);
+            }
+        }
+        auto overlay = vr_overlay();
+        const std::string key = "org.framekeyboard.cursor." + std::to_string(hand);
+        dot.failed = overlay->CreateOverlay(key.c_str(), "Full Keyboard pointer", &dot.handle) !=
+                         vr::VROverlayError_None ||
+                     overlay->SetOverlayRaw(dot.handle, pixels.data(), size, size, 4) !=
+                         vr::VROverlayError_None ||
+                     overlay->SetOverlayWidthInMeters(dot.handle, .012f) != vr::VROverlayError_None ||
+                     overlay->SetOverlaySortOrder(dot.handle, 1) != vr::VROverlayError_None;
+        if (dot.failed && dot.handle) {
+            overlay->DestroyOverlay(dot.handle);
+            dot.handle = 0;
+        }
+        return !dot.failed;
+    }
+    std::array<Dot, 2> dots_{};
+};
 class VrPanel {
   public:
     ~VrPanel() {
@@ -491,6 +746,14 @@ class VrPanel {
         }
     }
     vr::VROverlayHandle_t handle() const { return handle_; }
+    // Outside the dashboard in passthrough the overlay takes no SteamVR laser
+    // input at all, so it can never claim the scene's controllers; the
+    // passthrough pointer drives it instead.
+    void set_scene_input(bool scene) {
+        check(vr_overlay()->SetOverlayInputMethod(handle_, scene ? vr::VROverlayInputMethod_None
+                                                                 : vr::VROverlayInputMethod_Mouse),
+              "SetOverlayInputMethod");
+    }
 
   private:
     bool connected_{};
@@ -534,6 +797,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     if (!grip_input.connect() && app.use_drag_to_move()) {
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
     }
+    ScenePointer scene_pointer;
+    if (!scene_pointer.connect()) {
+        std::cout << "Passthrough pointer unavailable.\n" << std::flush;
+    }
+    SceneCursors cursors;
+    // Passthrough with the dashboard closed: the panel takes no SteamVR laser
+    // events and the passthrough pointer drives it.
+    bool scene_input = false;
+    PassthroughRequests passthrough_requests;
+    std::array<bool, 2> scene_inside{};
+    std::array<std::pair<double, double>, 2> scene_last{};
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
     auto cancel_device = [&](vr::TrackedDeviceIndex_t device) {
@@ -609,6 +883,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     hovered_devices.fill(false);
                     pointer_devices.clear();
                     grip_input.reset();
+                    scene_pointer.reset();
+                    scene_inside.fill(false);
+                    cursors.hide();
                 },
             .hide_overlay = [&] { check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard"); },
             .route_input = [&](bool remote) { replacement.route(remote); },
@@ -630,6 +907,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             .cancel_device = [&](std::uint32_t device) { cancel_device(device); },
         });
     auto hide_panel = [&] { lifecycle.hide(); };
+    // Passthrough keeps the panel open while the dashboard is closed.
+    auto presentable = [&] { return app.passthrough() || vr_overlay()->IsDashboardVisible(); };
     auto place_panel = [&](double now) {
         const auto aligned = horizon.update(placement.transform(), now, drag.active(), auto_leveling);
         if (!displayed.ready() || aligned != displayed.transform() ||
@@ -677,7 +956,28 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                .relaunch = instance.poll_recenter(),
                                .now = now});
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
-        lifecycle.dashboard_visibility(dashboard_visible);
+        if (passthrough_requests.take(replace, native, dashboard_visible)) {
+            std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;
+            app.set_passthrough(true);
+        }
+        const bool panel_presentable = dashboard_visible || app.passthrough();
+        lifecycle.dashboard_visibility(panel_presentable);
+        const bool scene = app.passthrough() && !dashboard_visible;
+        if (scene != scene_input) {
+            // SteamVR's laser and the passthrough pointer never share a press:
+            // release everything held, keeping unfinished composition.
+            stop_drag();
+            app.cancel(false);
+            hovered_devices.fill(false);
+            pointer_devices.clear();
+            scene_pointer.reset();
+            scene_inside.fill(false);
+            cursors.hide();
+            panel.set_scene_input(scene);
+            scene_input = scene;
+            std::cout << (scene ? "Passthrough pointer active.\n" : "Dashboard laser active.\n")
+                      << std::flush;
+        }
         // Hidden panels cannot be grabbed. Do not query both render models in
         // standby; require a released grip sample again when the panel returns.
         if (!lifecycle.visible()) {
@@ -713,10 +1013,69 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                       drag.active() ? std::optional{drag.device()} : std::nullopt);
             }
         }
+        // SteamVR laser events and the passthrough pointer share these handlers.
+        auto pointer_move = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y,
+                                bool controller) {
+            if (device < hovered_devices.size()) {
+                hovered_devices[device] = panel_case_bounds(app.view()).contains(x, y);
+            }
+            if (!drag.active()) {
+                if (app.move(pointer, x, y) && controller) {
+                    feedback.hover(device);
+                }
+            }
+        };
+        auto pointer_down = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y,
+                                bool controller, bool tracked_pointer) {
+            if (drag.active()) {
+                return;
+            }
+            const auto view = app.view();
+            const auto handle = panel_move_handle_bounds(view);
+            if (app.allows_movement(MoveSource::Laser) && !view.popup && handle &&
+                handle->contains(x, y)) {
+                const auto input = grip_input.laser_sample(device);
+                if (tracked_pointer && placement.ready() &&
+                    drag.start(input, displayed, now, MoveSource::Laser, pointer)) {
+                    placement.restore(displayed.transform(), displayed.width());
+                    horizon.reset();
+                    feedback.cancel();
+                    app.set_dragging(true);
+                    std::cout << "Keyboard movement started: "
+                              << (controller ? "controller" : "head cursor") << ".\n"
+                              << std::flush;
+                } else if (!tracked_pointer) {
+                    // Source metadata for a handle click only. Never log
+                    // coordinates or pointer/key events over typed keys.
+                    std::cout << "Keyboard movement ignored: untracked pointer device " << device
+                              << ", cursor " << pointer << ".\n"
+                              << std::flush;
+                }
+                return; // A handle press must never also reach a key.
+            }
+            // Grabbing cannot also type if grip and trigger arrive together.
+            const bool grabbing = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
+                return grip.active && grip.held && grip.device == device;
+            });
+            if (app.pinned() || !grabbing) {
+                const bool key_pressed = app.down(pointer, x, y, now);
+                if (key_pressed && controller) {
+                    feedback.press(pointer, device);
+                }
+            }
+        };
+        auto pointer_up = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y) {
+            if (drag.owns_pointer(device, pointer)) {
+                stop_drag(true);
+                app.move(pointer, x, y);
+            } else if (!drag.active() && app.up(pointer, x, y)) {
+                feedback.release(pointer);
+            }
+        };
         while (vr_overlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
             // Recheck before every pointer event, not just once per batch. A
             // closing dashboard must not deliver queued clicks to a local app.
-            if (!vr_overlay()->IsDashboardVisible()) {
+            if (!presentable()) {
                 hide_panel();
             }
             if (event.eventType == vr::VREvent_OverlayClosed) {
@@ -727,7 +1086,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     break;
                 }
             }
-            if (!lifecycle.visible()) {
+            // Laser events queued before the dashboard closed belong to the
+            // old pointer; the passthrough pointer owns input until it reopens.
+            if (!lifecycle.visible() || scene_input || !vr_overlay()->IsDashboardVisible()) {
                 continue;
             }
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
@@ -744,63 +1105,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 pointer_devices[pointer] = device;
             }
             switch (event.eventType) {
-            case vr::VREvent_MouseMove: {
-                if (event.trackedDeviceIndex < hovered_devices.size()) {
-                    hovered_devices[event.trackedDeviceIndex] =
-                        panel_case_bounds(app.view()).contains(x, y);
-                }
-                if (!drag.active()) {
-                    if (app.move(pointer, x, y) && controller) {
-                        feedback.hover(device);
-                    }
-                }
+            case vr::VREvent_MouseMove:
+                pointer_move(pointer, device, x, y, controller);
                 break;
-            }
             case vr::VREvent_MouseButtonDown:
-                if (event.data.mouse.button == vr::VRMouseButton_Left && !drag.active()) {
-                    const auto view = app.view();
-                    const auto handle = panel_move_handle_bounds(view);
-                    if (app.allows_movement(MoveSource::Laser) && !view.popup && handle &&
-                        handle->contains(x, y)) {
-                        const auto input = grip_input.laser_sample(device);
-                        if (tracked_pointer && placement.ready() &&
-                            drag.start(input, displayed, now, MoveSource::Laser, pointer)) {
-                            placement.restore(displayed.transform(), displayed.width());
-                            horizon.reset();
-                            feedback.cancel();
-                            app.set_dragging(true);
-                            std::cout << "Keyboard movement started: "
-                                      << (controller ? "controller" : "head cursor") << ".\n"
-                                      << std::flush;
-                        } else if (!tracked_pointer) {
-                            // Source metadata for a handle click only. Never log
-                            // coordinates or pointer/key events over typed keys.
-                            std::cout << "Keyboard movement ignored: untracked pointer device " << device
-                                      << ", cursor " << pointer << ".\n"
-                                      << std::flush;
-                        }
-                        break; // A handle press must never also reach a key.
-                    }
-                    // Grabbing cannot also type if grip and trigger arrive together.
-                    const bool grabbing = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
-                        return grip.active && grip.held && grip.device == event.trackedDeviceIndex;
-                    });
-                    if (app.pinned() || !grabbing) {
-                        const bool key_pressed = app.down(pointer, x, y, now);
-                        if (key_pressed && controller) {
-                            feedback.press(pointer, device);
-                        }
-                    }
+                if (event.data.mouse.button == vr::VRMouseButton_Left) {
+                    pointer_down(pointer, device, x, y, controller, tracked_pointer);
                 }
                 break;
             case vr::VREvent_MouseButtonUp:
                 if (event.data.mouse.button == vr::VRMouseButton_Left) {
-                    if (drag.owns_pointer(device, pointer)) {
-                        stop_drag(true);
-                        app.move(pointer, x, y);
-                    } else if (!drag.active() && app.up(pointer, x, y)) {
-                        feedback.release(pointer);
-                    }
+                    pointer_up(pointer, device, x, y);
                 }
                 break;
             case vr::VREvent_ScrollDiscrete:
@@ -828,6 +1143,73 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 break;
             }
             dismiss_panel();
+        }
+        if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
+            const auto view = app.view();
+            // The same areas as the intersection mask: transparent margins never take the ray.
+            auto accepts = [&](double x, double y) {
+                const auto preview = flick_preview_bounds(view);
+                const auto handle = panel_move_handle_bounds(view);
+                return panel_case_bounds(view).contains(x, y) ||
+                       (view.popup && view.popup->contains(x, y)) ||
+                       (preview && preview->contains(x, y)) || (handle && handle->contains(x, y));
+            };
+            const auto samples =
+                scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
+            for (std::size_t hand = 0; hand < samples.size(); ++hand) {
+                const auto& sample = samples[hand];
+                const auto pointer = ScenePointer::pointer(hand);
+                if (sample.lost) {
+                    // No release was seen: cancel rather than type.
+                    cursors.hide(hand);
+                    scene_inside[hand] = false;
+                    if (drag.owns_pointer(sample.device, pointer)) {
+                        stop_drag();
+                    }
+                    app.cancel_pointer(pointer);
+                    feedback.cancel_pointer(pointer);
+                    pointer_devices.erase(pointer);
+                    continue;
+                }
+                std::optional<std::pair<double, double>> at;
+                if (sample.hit) {
+                    const double x = sample.hit->u * panel_width;
+                    const double y = sample.hit->v * texture_height - popup_margin;
+                    if (accepts(x, y)) {
+                        at = std::pair{x, y};
+                        scene_last[hand] = *at;
+                    }
+                }
+                if (at || drag.owns_pointer(sample.device, pointer)) {
+                    pointer_devices[pointer] = sample.device;
+                }
+                if (at) {
+                    cursors.show(hand, displayed.transform(), *sample.hit);
+                    scene_inside[hand] = true;
+                    pointer_move(pointer, sample.device, at->first, at->second, true);
+                    if (sample.pressed) {
+                        pointer_down(pointer, sample.device, at->first, at->second, true, true);
+                    }
+                } else {
+                    cursors.hide(hand);
+                    if (std::exchange(scene_inside[hand], false)) {
+                        // Leaving the panel ends this hand's presses, as SteamVR's FocusLeave does.
+                        if (sample.device < hovered_devices.size()) {
+                            hovered_devices[sample.device] = false;
+                        }
+                        lifecycle.pointer_left(sample.device, drag.active());
+                    }
+                }
+                if (sample.released) {
+                    pointer_up(pointer, sample.device, scene_last[hand].first, scene_last[hand].second);
+                }
+            }
+            dismiss_panel();
+            // Only the passthrough pointer can turn it off with the dashboard closed.
+            if (!app.passthrough() && PassthroughRequests::ends_request(replace, native)) {
+                app.close_panel();
+                dismiss_panel();
+            }
         }
         if (done || app.quitting()) {
             break;
@@ -919,7 +1301,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         const bool panel_requested = lifecycle.panel_requested();
-        if (lifecycle.should_sample_tracking(dashboard_visible, now)) {
+        if (lifecycle.should_sample_tracking(panel_presentable, now)) {
             Transform head{};
             const bool was_waiting = lifecycle.waiting_for_tracking();
             const bool valid_head = panel.read_head(head);
@@ -989,15 +1371,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // Read actual compositor visibility rather than trusting our cached flag.
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
-                lifecycle.present(placement.ready(), vr_overlay()->IsDashboardVisible(),
-                                  compositor_visible, now);
+                lifecycle.present(placement.ready(), presentable(), compositor_visible, now);
             }
         }
         if (lifecycle.visible() && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
         }
         // Repeat and text commits share the same gate as pointer presses.
-        if (!vr_overlay()->IsDashboardVisible()) {
+        if (!presentable()) {
             hide_panel();
         }
         const bool repaint = app.tick(now);
@@ -1015,10 +1396,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // A hidden resident must remain ready for the next summon, including one that
         // opens the dashboard. Presentation is acknowledged separately for each request.
         const bool backend_ready = app.replacement_ready();
-        const bool compositor_visible = lifecycle.ready(backend_ready, dashboard_visible) &&
-                                        dashboard_visible && lifecycle.visible() &&
+        const bool compositor_visible = lifecycle.ready(backend_ready, panel_presentable) &&
+                                        panel_presentable && lifecycle.visible() &&
                                         vr_overlay()->IsOverlayVisible(panel.handle());
-        const auto report = lifecycle.frame_report(backend_ready, dashboard_visible, compositor_visible);
+        const auto report = lifecycle.frame_report(backend_ready, panel_presentable, compositor_visible);
         const auto completed = monotonic_seconds();
         // Diagnostics with fixed text only. A frame over the 0.9 s lease ends a
         // Steam typing session, so record both causes for later troubleshooting.

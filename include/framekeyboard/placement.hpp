@@ -34,6 +34,16 @@ class HorizonAlignment {
     double started_{}, from_correction_{}, correction_{};
     bool within_threshold_{}, animating_{};
 };
+// Where a pointer ray meets the panel's front face. The overlay is centered on
+// its transform, width meters wide and width * height_over_width tall; u and v
+// run from its top-left corner to 1 at the opposite edges.
+struct PanelHit {
+    double u{}, v{}, distance{};
+    std::array<double, 3> point{};
+};
+std::optional<PanelHit> panel_ray_hit(const Transform& panel, double width, double height_over_width,
+                                      const std::array<double, 3>& origin,
+                                      const std::array<double, 3>& direction);
 enum class PlacementAction { Smaller, Larger };
 enum class MoveSource { Laser, Grip };
 // Capture belongs to the initiating head/controller and cursor. Another pointer

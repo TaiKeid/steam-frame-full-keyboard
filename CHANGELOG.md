@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed windows pinned in the world: with Replace native keyboard on and the dashboard closed, their keyboard button opened Steam's keyboard, because Full Keyboard could only appear inside the dashboard. It now opens Full Keyboard on the first press, in a mode that stays open outside the dashboard and types into that window. Outside the dashboard the keyboard reads the controllers itself instead of taking SteamVR's laser, so other apps keep all of their input; pulling the trigger on a key also reaches them. A dot shows where each controller points. The new **Stay open over apps** button after Pin turns this mode on or off; it is not saved. Streamed PC games are not reached: Steam's streaming client carries no keyboard input.
 - Added the **Japanese flick 12-key** layout with the 日本語 — Flick language: the 12-key kana grid used on Japanese phones, with flick and toggle (repeated tap) input, a cross-shaped preview of the flick kana while a key is held, ゛゜小 for voiced and small kana, and the usual conversion. It keeps Esc, the F keys and the number row, and leaves out Ctrl, Alt, Super and Caps Lock.
 - Settings now dims languages the selected layout cannot type, and says so while the Language list is open. Choosing a layout that cannot type the current language switches to the most likely language for it, such as Romaji when leaving the flick layout.
 

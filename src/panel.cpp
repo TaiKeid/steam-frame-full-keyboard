@@ -224,6 +224,22 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             line(-10, -10, 10, 10);
         }
         break;
+    case Icon::PassthroughOn:
+    case Icon::PassthroughOff:
+        // A ray and a window: on, the ray passes through to the app behind it;
+        // off, the window stops it.
+        cairo_rectangle(cr, -3, -9, 6, 18);
+        if (icon == Icon::PassthroughOn) {
+            line(-11, 0, -3, 0);
+            line(3, 0, 11, 0);
+            line(11, 0, 7, -4);
+            line(11, 0, 7, 4);
+        } else {
+            line(-11, 0, -4, 0);
+            line(-4, 0, -8, -4);
+            line(-4, 0, -8, 4);
+        }
+        break;
     case Icon::Settings:
         // Each tooth has a flat tip and a recessed gap.
         for (int i = 0; i < 32; ++i) {
@@ -439,7 +455,7 @@ Rect panel_case_bounds(const PanelView& view) {
     // Reserve the fixed main toolbar, and room for the scaled IME toolbar when
     // present. This same case is used by painting, controls and the VR mask.
     const bool ime = view.language && view.language->input_method != "xkb";
-    const double minimum = ime ? 1300 : 560;
+    const double minimum = ime ? 1300 : 630;
     // A layout narrower than the panel at this scale (flick) also narrows the
     // case, except in Settings, whose controls and cards span the full panel.
     const double slack =

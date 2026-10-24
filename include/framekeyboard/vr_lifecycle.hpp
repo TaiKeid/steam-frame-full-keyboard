@@ -15,6 +15,32 @@ struct VrLifecycleEffects {
     std::function<void(std::uint32_t)> cancel_device;
 };
 
+// A keyboard button under a window pinned in the world asks for a keyboard
+// while the dashboard is closed; our panel can only appear there in
+// passthrough. Turn it on once per such request, so turning it off again
+// during that request sticks.
+class PassthroughRequests {
+  public:
+    bool take(bool replacement_enabled, const NativeReplacement::State& native, bool dashboard_visible) {
+        if (!replacement_enabled || !native.available || !native.open || !native.local ||
+            dashboard_visible || native.request == handled_) {
+            return false;
+        }
+        handled_ = native.request;
+        return true;
+    }
+
+    // Turning passthrough off with the dashboard closed hides our panel. Steam
+    // still counts its request as open, and would treat the next keyboard
+    // button press as closing it; end the request as X does instead.
+    static bool ends_request(bool replacement_enabled, const NativeReplacement::State& native) {
+        return replacement_enabled && native.available && native.open;
+    }
+
+  private:
+    std::uint64_t handled_{};
+};
+
 class VrLifecycle {
   public:
     VrLifecycle(bool background_start, VrLifecycleEffects effects);
