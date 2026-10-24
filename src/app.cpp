@@ -797,8 +797,7 @@ void App::cancel_pointer(unsigned pointer) {
     }
     // The laser may now click elsewhere in the target, so replacing is unsafe,
     // and the next swiped word may start a new field without a space. A word
-    // still being decoded types when ready (a few milliseconds), but without
-    // alternatives or a space after it.
+    // still being decoded is discarded when ready (Pinyin still composes).
     discard_swipe();
     swipe_space_ = false;
     swipe_detached_ = swipe_waiting_;
@@ -1973,6 +1972,12 @@ void App::apply_swipe(const SwipeService::Result& result) {
         status_.clear();
         return;
     }
+    if (std::exchange(swipe_detached_, false)) {
+        // The laser left before the word was ready; the target's cursor may
+        // have moved since, so the word is not typed at all.
+        status_ = "Swipe discarded: the laser left the keyboard before the word was ready.";
+        return;
+    }
     swipe_candidates_.clear();
     for (const auto& word : result.words) {
         std::string cased = word;
@@ -2007,10 +2012,6 @@ void App::apply_swipe(const SwipeService::Result& result) {
         return;
     }
     status_.clear();
-    if (std::exchange(swipe_detached_, false)) {
-        swipe_candidates_.clear();
-        return;
-    }
     swipe_committed_ = swipe_candidates_.front();
     swipe_failures_ = output_.failures();
     swipe_space_ = true;

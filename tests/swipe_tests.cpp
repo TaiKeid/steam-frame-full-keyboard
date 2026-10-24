@@ -535,8 +535,8 @@ void service_reuse() {
     prepare(keyboard);
     require(service.loads() == 4, "a released word list loads again");
 }
-// The laser leaving while a released swipe is decoding: the word still types,
-// but its alternatives and the following space are no longer safe.
+// The laser leaving while a released swipe is decoding: the target's cursor
+// may move before the result arrives, so the word is discarded.
 void leave_while_decoding() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
@@ -567,14 +567,14 @@ void leave_while_decoding() {
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 1);
     app.cancel_pointer(0);
     *hold = false;
-    settle(app, [&] { return !sink.text.empty(); });
-    require(sink.text == std::vector<std::string>{"hello"},
-            "a word decoded after the laser left still types");
-    require(!has_control(app.view(), "swipe-candidate-0"), "but offers no replacement");
+    settle(app, [&] { return !app.view().status.empty(); });
+    require(sink.text.empty() && !has_control(app.view(), "swipe-candidate-0") &&
+                app.view().status.starts_with("Swipe discarded"),
+            "a word decoded after the laser left is discarded, with a notice");
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
-    settle(app, [&] { return sink.text.size() == 2; });
+    settle(app, [&] { return sink.text.size() == 1; });
     require(sink.text.back() == "hello" && has_control(app.view(), "swipe-candidate-0"),
-            "the next swipe has no inherited space and offers alternatives again");
+            "the next swipe types without an inherited space and offers alternatives");
 }
 // After a failed replacement the field may still hold the old word, so the
 // alternatives must go: replacing by the assumed word's length could delete

@@ -21,7 +21,7 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 4. **Commit.** Open decision, below.
 5. **Shift and Caps.** A latched Shift capitalises the first letter; Caps Lock uppercases the word. Otherwise the word list's own capitalisation is used, so German nouns stay capitalised.
 6. **Auto-space.** A space goes before a swiped word when the previous action was a swiped word. Punctuation keys follow normal rules.
-7. **Cancellation.** Hide, drag, recentre, target change, profile change, FocusLeave of the owning controller and shutdown discard an unfinished swipe and any pending alternatives. They release nothing extra, because a swipe holds no backend key.
+7. **Cancellation.** Hide, drag, recentre, target change, profile change, FocusLeave of the owning controller and shutdown discard an unfinished swipe and any pending alternatives; a word still decoding when its laser leaves is discarded rather than typed at a cursor that may have moved. Lost tracking cancels a swipe like a held key. They release nothing extra, because a swipe holds no backend key.
 
 ### How a swiped word reaches the field
 
