@@ -245,13 +245,16 @@ void OutputController::fail() {
     retry_.clear();
     bool boundary = false, discarded = false;
     for (auto& entry : queue_) {
-        if (entry->text.empty()) {
+        // A replacement deletes before it inserts, which is not safe to repeat:
+        // a timeout leaves its delivery unknown, and if it was applied a retry
+        // would delete text before the word. Like native actions, it ends the
+        // retained prefix; the word can be chosen or typed again.
+        if (entry->text.empty() || entry->delete_before) {
             boundary = true;
         }
         if (!boundary && (!entry->repeat || entry == queue_.front())) {
             auto saved = std::make_shared<Entry>();
             saved->text = entry->text;
-            saved->delete_before = entry->delete_before; // A retry repeats the same request.
             retry_.push_back(saved);
         } else {
             discarded = true;

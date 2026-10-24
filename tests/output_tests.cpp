@@ -51,6 +51,17 @@ struct Transport : KeySink {
         done = false;
         return false;
     }
+    bool replaces_text() override { return true; }
+    bool replace_text(std::size_t delete_before, const std::string& value) override {
+        if (pending) {
+            return commit_text(value); // Same pending request and result.
+        }
+        events.push_back("-" + std::to_string(delete_before) + ":" + value);
+        text = value;
+        pending = true;
+        done = false;
+        return false;
+    }
     bool text_pending() const override { return pending; }
     bool output_blocked() const override { return barrier || pending; }
     void cancel_text() override { pending = false; }
@@ -115,6 +126,34 @@ void failure_and_retry() {
     output.tick(102);
     require(sink.events == std::vector<std::string>{"a", "a", "b"},
             "retry never replays Backspace or text beyond its boundary");
+}
+// A replacement that timed out may still have been applied. Retrying it would
+// delete again, reaching text before the word ("Xhello" -> "Xhi" -> "hi").
+void ambiguous_replacement() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    character(output, 0, "a");
+    require(output.replace_text(5, "hi"), "replacement queued behind text");
+    character(output, 1, "b");
+    sink.done = true;
+    sink.success = false;
+    output.tick(2);
+    require(output.retry_text() == "a", "a failure before a replacement keeps only the text before it");
+    sink.success = true;
+    require(output.retry(), "the retained text can be retried");
+    sink.done = true;
+    output.tick(3);
+    require(sink.events == std::vector<std::string>{"a", "a"}, "the replacement is not replayed");
+
+    require(output.replace_text(5, "hi"), "replacement queued");
+    sink.done = true;
+    sink.success = false; // The compositor's answer arrived after the deadline.
+    output.tick(4);
+    require(output.retry_text().empty() && !output.retry(),
+            "a replacement with unknown delivery is never retried");
+    require(sink.events == std::vector<std::string>{"a", "a", "-5:hi"},
+            "the deletion was sent exactly once");
 }
 void held_keys() {
     Transport sink;
@@ -237,6 +276,7 @@ int main() {
     try {
         ordering();
         failure_and_retry();
+        ambiguous_replacement();
         held_keys();
         release_and_capacity();
         modifier_snapshot();
