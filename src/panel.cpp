@@ -91,6 +91,17 @@ std::optional<std::array<Rect, 5>> flick_cells(const PanelView& view) {
                                Rect{x, y - step, size, size}, Rect{x + step, y, size, size},
                                Rect{x, y + step, size, size}};
 }
+bool overlaps(const Rect& a, const Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+void unite(Rect& a, const Rect& b) {
+    const double right = std::max(a.x + a.width, b.x + b.width);
+    const double bottom = std::max(a.y + a.height, b.y + b.height);
+    a.x = std::min(a.x, b.x);
+    a.y = std::min(a.y, b.y);
+    a.width = right - a.x;
+    a.height = bottom - a.y;
+}
 void source(cairo_t* cr, Color color) {
     cairo_set_source_rgb(cr, color.r, color.g, color.b);
 }
@@ -331,9 +342,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
         const auto custom = view.key_labels.find(key.id);
         const auto& center = custom != view.key_labels.end() ? custom->second : key.label;
         const auto slot = view.language->flick.find(key.action);
-        if ((view.flick_preview && view.flick_preview->key == key.id) ||
-            slot == view.language->flick.end()) {
-            // While pressed, the key shows only what release would type.
+        if (slot == view.language->flick.end()) {
             label(cr, center, face, t.font_size * 1.3, view.language->font, t.legend, true);
             return;
         }
@@ -482,9 +491,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->view.controls != view.controls || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
-        previous_->view.hide_numpad != view.hide_numpad || previous_->view.preedit != view.preedit ||
-        previous_->view.key_labels != view.key_labels ||
-        previous_->view.flick_preview != view.flick_preview;
+        previous_->view.hide_numpad != view.hide_numpad || previous_->view.key_labels != view.key_labels;
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
@@ -568,6 +575,47 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
             }
             damage.push_back(trail);
+        }
+    }
+    // A clip edge through a key can drop parts of its legend glyphs, so these
+    // regions grow to the whole keys they touch (only those, without chaining).
+    auto grow = [&](Rect r) {
+        const Rect core = r;
+        for (const auto& [id, bounds] : key_bounds_) {
+            if (overlaps(bounds, core)) {
+                unite(r, bounds);
+            }
+        }
+        return r;
+    };
+    // The reading line and the flick preview repaint only their own area. The
+    // preview's old and new extents both count; it may lie beyond the case.
+    if (!full && previous_->view.preedit != view.preedit) {
+        const auto body = panel_case_bounds(view);
+        damage.push_back(grow({std::floor(body.x + 20), 94, std::ceil(body.width - 40), 40}));
+    }
+    if (!full && previous_->view.flick_preview != view.flick_preview) {
+        auto old = view;
+        old.flick_preview = previous_->view.flick_preview;
+        for (const auto& bounds : {flick_preview_bounds(old), flick_preview_bounds(view)}) {
+            if (bounds) {
+                damage.push_back(grow(*bounds));
+            }
+        }
+    }
+    // Overlapping clip rectangles composite antialiased edges differently:
+    // merge them into one, grown to whole keys again.
+    for (bool merged = !full; merged;) {
+        merged = false;
+        for (std::size_t i = 0; i < damage.size() && !merged; ++i) {
+            for (std::size_t j = i + 1; j < damage.size() && !merged; ++j) {
+                if (overlaps(damage[i], damage[j])) {
+                    unite(damage[i], damage[j]);
+                    damage[i] = grow(damage[i]);
+                    damage.erase(damage.begin() + static_cast<std::ptrdiff_t>(j));
+                    merged = true;
+                }
+            }
         }
     }
     // Toolbar changes are infrequent and may overlap custom key geometry.

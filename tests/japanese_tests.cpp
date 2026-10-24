@@ -177,8 +177,7 @@ void flick_input() {
         app.move(0, x, y - 60);
         const auto preview = app.view().flick_preview;
         require(preview && preview->key == "Flick-ka" && preview->selected == 2 &&
-                    preview->text == std::array<std::string, 5>{"か", "き", "く", "け", "こ"} &&
-                    app.view().key_labels.at("Flick-ka") == "く",
+                    preview->text == std::array<std::string, 5>{"か", "き", "く", "け", "こ"},
                 "a pressed flick key previews its kana and the chosen direction");
         if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
             app.paint(30.5);

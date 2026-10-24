@@ -472,7 +472,6 @@ PanelView App::view() const {
                 PanelView::FlickPreview{flick_track_->key,
                                         {flick_text(tap), key.left, key.up, key.right, key.down},
                                         static_cast<int>(flick_track_->direction)};
-            v.key_labels[flick_track_->key] = flick_text(*flick_track_);
         }
     }
     if (cjk_ && !cjk_latin_) {

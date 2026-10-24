@@ -199,8 +199,11 @@ void exercise(Layout layout, Theme theme, Language language) {
         view.hovered_keys = {b.id}; // A neighbour under the preview repaints partially.
         compare.frame(view, "hover beneath the flick preview");
         view.flick_preview->selected = 2;
-        view.key_labels[a.id] = slot.up;
         compare.settle(view, "flick direction");
+        view.preedit = "う";
+        compare.frame(view, "reading line repaints alone");
+        view.preedit = "うか";
+        compare.frame(view, "reading line grows");
         keyboard.up(0);
         view.flick_preview.reset();
         view.hovered_keys.clear();
