@@ -36,6 +36,7 @@ if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*libei\.so'; th
     exit 1
 fi
 cp scripts/install-local.sh "$package_dir/install.sh"
+cp scripts/uninstall-local.sh "$package_dir/uninstall.sh"
 tar -C out -czf "out/framekeyboard-$version-aarch64.tar.gz" "framekeyboard-$version-aarch64"
 (cd out && sha256sum "framekeyboard-$version-aarch64.tar.gz" > SHA256SUMS)
 cat out/SHA256SUMS

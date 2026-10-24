@@ -91,23 +91,28 @@ bash /path/to/newer-package/install.sh /path/to/extracted-older-package
 
 Production installs keep no permanent rollback release or `previous` link. During an in-app update, the old release and preference snapshot survive until the new process confirms startup; a failed start restores the old release automatically. Cleanup only removes directories positively marked by the production installer/updater. Development deployments, historical unmarked releases and unrelated `previous` links stay untouched. Older installers/updaters keep their original retention behavior. The installed app label stays Full Keyboard when reinstalling an older binary.
 
-To uninstall, first uncheck Start with SteamOS and Apply and save, then quit the app. If the app cannot run, remove its optional startup unit first:
+To uninstall, run the uninstaller from the installed release or from an extracted package:
+
+```sh
+bash ~/.local/share/framekeyboard/current/uninstall.sh
+```
+
+It lists what it will remove and asks first; `--yes` skips the question. It stops the Start with SteamOS service and any running Full Keyboard. A normal stop gives keyboard requests back to Steam's keyboard and removes the bridge's hooks from Steam's UI. It waits on the instance lock until nothing runs, and waits for any install or update in progress. It then removes the startup unit and its links, every installed release, the launcher, the menu entry and the runtime lock directory. It only removes files it recognizes as Full Keyboard's: a launcher, menu entry or unit of the same name written by another program stays. Settings, keyboard placement and custom profiles in `~/.config/framekeyboard` stay unless you add `--purge`. Running it again when nothing is installed is harmless. Releases before the uninstaller was added do not contain it; use the one from a newer extracted package.
+
+To remove it by hand instead, quit Full Keyboard (Settings → Quit Full Keyboard with native replacement enabled), then run:
 
 ```sh
 systemctl --user disable --now framekeyboard-autostart.service
-rm -f ~/.config/systemd/user/framekeyboard-autostart.service
+rm -f ~/.config/systemd/user/framekeyboard-autostart.service \
+      ~/.config/systemd/user/steamvr.service.wants/framekeyboard-autostart.service \
+      ~/.config/systemd/user/gamescope-session.target.wants/framekeyboard-autostart.service
 systemctl --user daemon-reload
-```
-
-Then run:
-
-```sh
 rm ~/.local/bin/framekeyboard
 rm ~/.local/share/applications/framekeyboard.desktop
 rm -r ~/.local/share/framekeyboard
 ```
 
-Keep `~/.config/framekeyboard` if you want to preserve themes, layouts, and placement. If you added a Steam Library shortcut manually, remove it through Steam too. No OS or stock keyboard files need restoring. The optional user-local startup unit is removed as described above.
+If you added a Steam Library shortcut manually, remove it through Steam too. No OS, Steam or stock keyboard files need restoring.
 
 ## Developer diagnostics
 

@@ -56,6 +56,8 @@ Everything installs under your home directory. The installer preserves settings 
 
 To update from the installed keyboard, open Settings and press **Check for updates** at the top center. If a newer stable release is available, press **Download and install update**. The keyboard verifies the archive, installs it and restarts, preserving your settings. The old production release stays until the new one confirms a healthy start, then is removed. A failed start rolls back automatically. See [updates](docs/updates.md).
 
+To uninstall, run `bash ~/.local/share/framekeyboard/current/uninstall.sh`. It stops the keyboard and its helpers, removes the app, its startup service, launcher and menu entry, and keeps your settings unless you add `--purge`. Steam's keyboard is used again. See [rollback and removal](docs/runtime.md#update-rollback-and-removal).
+
 For a manual update, quit Full Keyboard first. With native replacement enabled, use Settings → Quit Full Keyboard. Download the new release assets and repeat the installation steps. The installer supports reinstalling the same version or installing an older one, and refuses while Full Keyboard is running. Manual rollback means reinstalling an older release package; see [rollback and removal](docs/runtime.md#update-rollback-and-removal).
 
 ## Use the keyboard

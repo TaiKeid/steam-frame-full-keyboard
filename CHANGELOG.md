@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added an uninstaller, `uninstall.sh`, in the package and in the installed release. It stops the keyboard and its helpers, then removes the app, the Start with SteamOS service, the launcher and the menu entry. Settings stay unless `--purge` is given.
 - Games streamed from the PC keep using Steam's own keyboard. A separate keyboard cannot deliver their text without leaking it into the focused Frame window or losing the request to a laser click; [streamed games](docs/streamed-games.md) records the findings.
 - Fixed the keyboard button of games running locally on the Frame, such as Deltarune, opening Steam's keyboard instead of Full Keyboard with Replace native keyboard on, whether the game is docked, pinned or in theater mode. Their window is named after the game's app ID, which the replacement did not recognize as a Frame app.
 - Fixed windows pinned in the world: with Replace native keyboard on and the dashboard closed, their keyboard button opened Steam's keyboard, because Full Keyboard could only appear inside the dashboard. It now opens Full Keyboard on the first press, in a mode that stays open outside the dashboard and types into that window. Outside the dashboard the keyboard reads the controllers itself instead of taking SteamVR's laser, so other apps keep all of their input; pulling the trigger on a key also reaches them. A dot shows where each controller points. The new **Stay open over apps** button after Pin turns this mode on or off; it is not saved.

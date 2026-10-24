@@ -256,6 +256,8 @@ if(BUILD_TESTING)
         add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:framekeyboard>")
+        add_test(NAME uninstaller COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/uninstall_tests.py" "${CMAKE_CURRENT_SOURCE_DIR}")
         pkg_check_modules(EIS QUIET IMPORTED_TARGET libeis-1.0>=1.6)
         if(EIS_FOUND)
             add_executable(ei-recovery-tests tests/ei_recovery_tests.cpp)
