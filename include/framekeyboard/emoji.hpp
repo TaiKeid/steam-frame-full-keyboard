@@ -196,6 +196,7 @@ class EmojiPicker {
     void layout_items();
     Hit hit(double x, double y) const;
     Rect cell_bounds(const Item& item) const;
+    double shown_scroll() const;
     std::vector<std::size_t> shown_groups() const;
     double tab_width() const;
     // Recent stays at the left; the other tabs scroll beside it if they don't fit.

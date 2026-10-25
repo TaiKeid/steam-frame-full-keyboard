@@ -257,6 +257,23 @@ void picker_tests() {
     require(!picker.gliding(), "the glide stops by itself");
     const double glided = picker.scroll_offset() - 144;
     require(glided > 380 && glided < 430, "it covers about a third of a second of the release speed");
+    {
+        // Near its end the glide moves less than a pixel a frame; the view shows whole pixels.
+        picker.reset();
+        picker.down(1, x, y, 80);
+        picker.move(1, x - 20, y, 80.05);
+        picker.up(1, x - 20, y, 80.06);
+        int unchanged = 0, frames = 0;
+        auto last = picker.view();
+        for (double now = 80.06 + 1.0 / 60; picker.gliding() && frames < 600;
+             now += 1.0 / 60, ++frames) {
+            picker.tick(now);
+            const auto next = picker.view();
+            unchanged += next == last;
+            last = next;
+        }
+        require(unchanged >= 5, "sub-pixel glide frames leave the view as it was");
+    }
     picker.reset();
     picker.down(1, x, y, 10);
     picker.move(1, x - 100, y, 10.1);

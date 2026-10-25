@@ -410,8 +410,13 @@ std::size_t EmojiPicker::active_group() const {
 }
 Rect EmojiPicker::cell_bounds(const Item& item) const {
     const auto& section = layout_[item.group];
-    return {grid_.x + section.start + (item.column - section.first_column) * cell_ - scroll_,
+    return {grid_.x + section.start + (item.column - section.first_column) * cell_ - shown_scroll(),
             grid_.y + item.row * cell_, cell_, cell_};
+}
+double EmojiPicker::shown_scroll() const {
+    // Whole pixels: the slow tail of a glide or bounce then leaves the view
+    // unchanged for frames on end, and those frames repaint nothing.
+    return std::round(scroll_);
 }
 std::optional<Rect> EmojiPicker::popup_bounds() const {
     if (!press_ || !press_->popup) {
@@ -730,7 +735,7 @@ EmojiPickerView EmojiPicker::view() const {
     } else if (sections_[0].empty()) {
         const auto& recent = layout_[0];
         v.hint = "Recently used emoji\nappear here";
-        v.hint_bounds = {grid_.x + recent.start - scroll_, grid_.y, recent.columns * cell_,
+        v.hint_bounds = {grid_.x + recent.start - shown_scroll(), grid_.y, recent.columns * cell_,
                          grid_.height};
     }
     if (const auto popup = popup_bounds()) {
