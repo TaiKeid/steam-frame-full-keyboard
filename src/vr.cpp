@@ -1292,6 +1292,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     LaserRays laser_rays;
     StickReader sticks;
     StickScrollDirection stick_direction;
+    std::map<unsigned, int> stick_leaning; // Last prediction per pointer, for hysteresis.
     std::array<ResizerReach, 2> resizer_reach{};
     // The dashboard's pointing device: the head cursor counts as a laser while it is.
     vr::TrackedDeviceIndex_t dashboard_pointer = vr::k_unTrackedDeviceIndexInvalid;
@@ -2146,14 +2147,22 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const bool repaint = app.tick(now);
         // Ask for SteamVR's ticking scroll steps only while some laser is over
         // something its stick would actually scroll: not at an end it leans toward.
+        // The stick matters only at an end: elsewhere both directions move.
         bool scroll_steps = false;
         for (const auto& [pointer, device] : pointer_devices) {
-            if (const auto room = app.scroll_room(pointer)) {
-                const auto stick = sticks.read(device, now);
-                scroll_steps |= wants_scroll_steps(
-                    *room, stick ? stick_direction.predict(stick->first, stick->second) : 0);
+            const auto room = app.scroll_room(pointer);
+            int leaning = 0;
+            if (room && room->back != room->forward) {
+                if (const auto stick = sticks.read(device, now)) {
+                    leaning =
+                        stick_direction.predict(stick->first, stick->second, stick_leaning[pointer]);
+                }
             }
+            stick_leaning[pointer] = leaning;
+            scroll_steps |= room && wants_scroll_steps(*room, leaning);
         }
+        std::erase_if(stick_leaning,
+                      [&](const auto& item) { return !pointer_devices.contains(item.first); });
         panel.accept_scroll(scroll_steps);
         // A state change that redraws no pixel, like a sub-pixel glide step or
         // an image drawn off-screen, uploads nothing: each upload of the whole

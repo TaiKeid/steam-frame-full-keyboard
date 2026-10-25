@@ -32,7 +32,8 @@ class StickScrollDirection {
   public:
     void learn(double x, double y, double step);
     // +1 forward, -1 back, or 0 while the stick is too near center to step.
-    int predict(double x, double y) const;
+    // `leaning` is the last prediction for this stick.
+    int predict(double x, double y, int leaning = 0) const;
 
   private:
     std::array<int, 2> forward_{1, -1}; // Sign of a forward tilt on x, then y.

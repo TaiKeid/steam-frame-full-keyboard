@@ -84,9 +84,11 @@ void StickScrollDirection::learn(double x, double y, double step) {
     }
     forward_[axis] = (step > 0) == (tilt > 0) ? 1 : -1;
 }
-int StickScrollDirection::predict(double x, double y) const {
-    // Below SteamVR's own step threshold, so the switch comes before a step.
-    constexpr double lean = .1;
+int StickScrollDirection::predict(double x, double y, int leaning) const {
+    // Below SteamVR's own step threshold, so the switch comes before a step;
+    // a stick already leaning must come back further before it counts as
+    // centered, so one resting near the threshold does not flip every frame.
+    const double lean = leaning ? .05 : .1;
     const std::size_t axis = std::abs(x) >= std::abs(y) ? 0 : 1;
     const double tilt = axis == 0 ? x : y;
     if (std::abs(tilt) < lean) {

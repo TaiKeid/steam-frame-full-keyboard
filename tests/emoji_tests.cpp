@@ -167,6 +167,8 @@ void stick_tests() {
     require(wants_scroll_steps({true, true}, 0) && wants_scroll_steps({false, true}, 0),
             "a centered stick takes steps where anything moves");
     require(!wants_scroll_steps({false, false}, 0), "but not where nothing does");
+    require(direction.predict(0, -.08, 0) == 0 && direction.predict(0, -.08, -1) == -1,
+            "a leaning stick must come back further to count as centered");
     require(wants_scroll_steps({false, true}, 1) && !wants_scroll_steps({false, true}, -1),
             "leaning toward an end it is at takes no steps");
     require(wants_scroll_steps({true, false}, -1) && !wants_scroll_steps({true, false}, 1),
