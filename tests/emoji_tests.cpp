@@ -437,6 +437,28 @@ void picker_tests() {
     picker.tick(20.6);
     event = picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 0);
     require(event.type.empty() && !event.tone, "releasing off the tones types nothing");
+    // The release position picks the tone, whatever was hovered before it.
+    auto tone_at = [&](std::size_t choice) {
+        return center(picker.view().popup->choices[choice].bounds);
+    };
+    picker.down(1, x, y, 21);
+    picker.tick(21.6);
+    const auto [direct_x, direct_y] = tone_at(3);
+    event = picker.up(1, direct_x, direct_y, 21.7);
+    require(event.type == "wave3", "a release straight onto a tone, with no move first, types it");
+    picker.down(1, x, y, 22);
+    picker.tick(22.6);
+    const auto [hover_x, hover_y] = tone_at(3);
+    picker.move(1, hover_x, hover_y, 22.6);
+    event = picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 22.7);
+    require(event.type.empty() && !event.tone, "a hovered tone, released away from, types nothing");
+    picker.down(1, x, y, 23);
+    picker.tick(23.6);
+    const auto [three_x, three_y] = tone_at(3);
+    const auto [five_x, five_y] = tone_at(5);
+    picker.move(1, three_x, three_y, 23.6);
+    event = picker.up(1, five_x, five_y, 23.7);
+    require(event.type == "wave5" && event.tone == 5, "a release on another tone types that one");
     view = picker.view();
     const auto* plain = cell(view, "s39");
     if (plain) {

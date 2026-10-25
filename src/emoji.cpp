@@ -580,8 +580,10 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y, double 
     if (press.popup) {
         const auto& item = items_[press.hit.index];
         event.recent = item.group == 0;
-        if (press.choice) {
-            const auto tone = static_cast<int>(*press.choice);
+        // The tone under the release, not the last one hovered: a release
+        // event carries its own position, with no move before it.
+        if (target.target == Target::Choice) {
+            const auto tone = static_cast<int>(target.index);
             event.type = item.entry->text(tone);
             event.typed = item.entry;
             event.tone = tone;
