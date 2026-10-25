@@ -41,8 +41,16 @@ Vector3 resizer_target(const Transform& panel, PanelOffset corner, ResizeCorner 
                        const ResizerShape& shape);
 // Shortest distance from a ray (only ahead of its origin) to a point.
 double ray_distance(const Ray& ray, const Vector3& point);
-// 1 while a laser passes within a few centimeters of the bracket, easing to 0 farther away.
-double resizer_proximity(double distance);
+// Whether a laser is near enough to show a resizer: within 5 cm of the
+// bracket, and until it is beyond 7 cm. The gap keeps hand tremor at the
+// edge from toggling it; ResizerFade times the change.
+class ResizerReach {
+  public:
+    bool update(double distance);
+
+  private:
+    bool near_{};
+};
 // Where the ray meets the panel plane inside the resizer's laser area.
 std::optional<Vector3> resizer_hit(const Transform& panel, PanelOffset corner, ResizeCorner side,
                                    const ResizerShape& shape, const Ray& ray);

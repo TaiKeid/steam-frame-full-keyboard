@@ -1059,11 +1059,14 @@ void resizer_tests() {
          "distance is perpendicular to the ray");
     near(fk::ray_distance({{bend[0], bend[1], -2}, {0, 0, -1}}, bend), 1,
          "a point behind the ray's origin measures from the origin");
-    near(fk::resizer_proximity(0), 1, "a laser on the bracket shows it fully");
-    near(fk::resizer_proximity(.035), 1, "a laser a few centimeters away still shows it fully");
-    near(fk::resizer_proximity(.06), .5, "the resizer fades between near and far");
-    near(fk::resizer_proximity(.085), 0, "a distant laser hides it");
-    near(fk::resizer_proximity(1), 0, "a laser elsewhere hides it");
+    fk::ResizerReach reach;
+    require(!reach.update(1), "a laser elsewhere hides it");
+    require(!reach.update(.06), "approaching within 6 cm is not yet near");
+    require(reach.update(.049), "within 5 cm shows it");
+    require(reach.update(.065), "tremor up to 7 cm keeps it shown");
+    require(!reach.update(.071), "beyond 7 cm hides it");
+    require(!reach.update(.06), "and it stays hidden until within 5 cm again");
+    require(!reach.update(INFINITY), "no laser hides it");
 
     // The quadrant over the case never takes the laser, so corner keys stay reachable.
     auto hits = [&](fk::PanelOffset corner, fk::ResizeCorner side, double x, double y) {

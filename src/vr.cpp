@@ -1134,6 +1134,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     SceneCursors cursors;
     LaserRays laser_rays;
+    std::array<ResizerReach, 2> resizer_reach{};
     // The dashboard's pointing device: the head cursor counts as a laser while it is.
     vr::TrackedDeviceIndex_t dashboard_pointer = vr::k_unTrackedDeviceIndexInvalid;
     double dashboard_pointer_checked = -1;
@@ -1891,6 +1892,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             const auto corner = [&](std::size_t side) {
                 return case_corner(view, displayed.width(), side == 1, true);
             };
+            // Nearest laser to each bracket; none counts as infinitely far.
+            std::array<double, 2> distance{INFINITY, INFINITY};
             std::array<double, 2> target{};
             const bool resizing = drag.active() && drag.source() == MoveSource::Resize;
             if (resizing) {
@@ -1912,9 +1915,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     for (std::size_t side = 0; ray && side < 2; ++side) {
                         const auto bend =
                             resizer_target(displayed.transform(), corner(side), corner_of(side), shape);
-                        target[side] =
-                            std::max(target[side], resizer_proximity(ray_distance(*ray, bend)));
+                        distance[side] = std::min(distance[side], ray_distance(*ray, bend));
                     }
+                }
+            }
+            for (std::size_t side = 0; side < 2; ++side) {
+                if (resizer_reach[side].update(distance[side])) {
+                    target[side] = 1;
                 }
             }
             for (std::size_t side = 0; side < 2; ++side) {

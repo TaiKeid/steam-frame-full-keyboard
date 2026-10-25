@@ -93,10 +93,10 @@ double ray_distance(const Ray& ray, const Vector3& point) {
     const double along = std::max(0.0, dot(offset, ray.direction) / length);
     return std::sqrt(std::max(0.0, dot(offset, offset) - along * along));
 }
-double resizer_proximity(double distance) {
-    constexpr double shown = .035, hidden = .085;
-    const double t = std::clamp((hidden - distance) / (hidden - shown), 0.0, 1.0);
-    return t * t * (3 - 2 * t);
+bool ResizerReach::update(double distance) {
+    constexpr double show = .05, hide = .07;
+    near_ = distance < (near_ ? hide : show);
+    return near_;
 }
 std::optional<Vector3> resizer_hit(const Transform& panel, PanelOffset corner, ResizeCorner side,
                                    const ResizerShape& shape, const Ray& ray) {
