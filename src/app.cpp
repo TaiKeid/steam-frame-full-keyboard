@@ -2259,11 +2259,12 @@ bool App::scroll_wanted() const {
     if (!interaction_active_ || dragging_) {
         return false;
     }
-    return settings_open_ ||
-           (emoji_open_ &&
-            std::any_of(pointer_positions_.begin(), pointer_positions_.end(), [&](const auto& item) {
-                return emoji_.contains(item.second.first, item.second.second);
-            }));
+    // One flag serves every laser on the panel, so any laser over a
+    // scrollable spot turns it on.
+    return std::any_of(pointer_positions_.begin(), pointer_positions_.end(), [&](const auto& item) {
+        const auto [x, y] = item.second;
+        return settings_open_ ? settings_ui_.scrolls_at(x, y) : emoji_open_ && emoji_.scrolls_at(x, y);
+    });
 }
 bool App::emoji_available() const {
     if (!emoji_font_) {

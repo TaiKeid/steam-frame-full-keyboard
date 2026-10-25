@@ -168,6 +168,12 @@ void picker_tests() {
     require(view.tab_list.size() == 4, "empty categories have no tab");
     require(view.tab_list.front().icon == Icon::Recent && view.tab_list.front().active,
             "Recent comes first");
+    require(picker.scrolls_at(grid.x + 5, grid.y + 5), "the grid scrolls");
+    require(!picker.scrolls_at(view.tab_list[1].bounds.x + 5, view.tab_list[1].bounds.y + 5),
+            "tabs that fit do not scroll");
+    require(!picker.scrolls_at(tabs.x + tabs.width - 5, tabs.y + 5),
+            "nor does the tab row's empty space");
+    require(!picker.scrolls_at(grid.x + 5, grid.y - 5), "nor the gap above the grid");
     const auto* first = cell(view, "s0");
     const auto* second = cell(view, "s1");
     const auto* sixth = cell(view, "s5");
@@ -345,6 +351,7 @@ void picker_tests() {
     event = picker.tick(10.6);
     require(event.redraw && picker.popup_open(),
             "a long hold opens the tones, despite a slightly unsteady hand");
+    require(!picker.scrolls_at(x, y), "nothing scrolls while choosing a tone");
     view = picker.view();
     require(view.popup && view.popup->choices.size() == 6 && view.popup->choices[0].text == "wave" &&
                 view.popup->choices[5].text == "wave5",
@@ -463,6 +470,10 @@ void app_tests() {
     const auto [key_x, key_y] = key_center(app, "Enter");
     app.move(0, key_x, key_y);
     require(!app.scroll_wanted(), "no scroll events over the picker's keys");
+    const auto tab_row = app.view().emoji->tabs;
+    app.move(0, tab_row.x + tab_row.width - 5, tab_row.y + 5);
+    require(!app.scroll_wanted(), "no scroll events over empty tab-row space");
+
     require(!app.move(0, x, y) && !app.down(0, x, y, 2), "emoji neither buzz on hover nor on press");
     require(app.scroll_wanted(), "scroll events over the grid");
     require(sink.text.empty(), "nothing types on press");
@@ -507,6 +518,11 @@ void app_tests() {
     app.set_interaction_active(false);
     require(!app.emoji_open(), "hiding returns to the keyboard");
     app.set_interaction_active(true);
+    app.show_settings();
+    const auto card = app.view().cards.front().bounds;
+    app.move(0, card.x + card.width / 2, card.y + card.height - 40);
+    require(!app.scroll_wanted(), "settings cards that fit take no scroll events");
+    app.back();
 
     // Close after choosing.
     Settings settings = load_settings(directory.path, *std::make_unique<std::vector<std::string>>());

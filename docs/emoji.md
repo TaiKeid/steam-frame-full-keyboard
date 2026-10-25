@@ -40,7 +40,7 @@ The view's geometry is generated from the active layout's case size, key unit an
   - The thumbstick of the controller whose laser is on the grid. In the dashboard this arrives as scroll events. In passthrough, the keyboard reads the stick itself.
   - The stick and the tab row scroll without gliding. Scrolling stops at the ends.
 - **Swipe typing:** belongs to the main layout and is inactive in the picker. No trail is drawn.
-- **Haptics:** none in the grid, tabs or tone popup. A tick for every emoji under a sweeping laser became a constant rattle. The picker's keys keep theirs. In the dashboard, SteamVR itself ticks for each stick scroll step it sends; the panel accepts scroll events only while a laser is over the grid, the tabs or Settings, so the stick does not tick over keys where nothing scrolls.
+- **Haptics:** none in the grid, tabs or tone popup. A tick for every emoji under a sweeping laser became a constant rattle. The picker's keys keep theirs. In the dashboard, SteamVR itself ticks the controller: the Frame controller's dashboard binding turns the stick into discrete scroll steps, each with a tick, or into smooth scrolling. Turning the panel's scroll events off did not stop the ticks. So the panel asks for discrete steps only while a laser is over something that scrolls (the grid, tabs that overflow, an overflowing Settings card or list) and for smooth scrolling elsewhere, whose events it ignores. Whether smooth scrolling is tick-free is still to be confirmed in the headset.
 
 ### Skin tones
 

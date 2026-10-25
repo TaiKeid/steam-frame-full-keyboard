@@ -429,6 +429,20 @@ EmojiPicker::Hit EmojiPicker::hit(double x, double y) const {
     }
     return {};
 }
+bool EmojiPicker::scrolls_at(double x, double y) const {
+    if (popup_open()) {
+        return false;
+    }
+    if (grid_.contains(x, y)) {
+        return scroll_limit() > 0;
+    }
+    if (tab_limit() <= 0 || !scrolling_tabs().contains(x, y)) {
+        return false;
+    }
+    const auto groups = shown_groups();
+    return std::any_of(groups.begin(), groups.end(),
+                       [&](std::size_t g) { return g != 0 && tab_bounds(g).contains(x, y); });
+}
 bool EmojiPicker::contains(double x, double y) const {
     if (const auto popup = popup_bounds(); popup && popup->contains(x, y)) {
         return true;

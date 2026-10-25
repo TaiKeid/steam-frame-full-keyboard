@@ -38,6 +38,9 @@ class SettingsUi {
     const std::string& open_field() const { return open_field_; }
     void toggle(const std::string& field);
     bool scroll(double x, double y, double dx, double dy);
+    // Whether scroll() could move anything at this point: an open list longer
+    // than its popup, an overflowing card, or cards wider than the panel.
+    bool scrolls_at(double x, double y) const;
     bool down(unsigned pointer, double x, double y);
     bool move(unsigned pointer, double x, double y);
     bool up(unsigned pointer);

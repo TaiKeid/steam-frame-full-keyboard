@@ -282,6 +282,27 @@ bool SettingsUi::scroll(double x, double y, double dx, double dy) {
     horizontal_ = std::clamp(horizontal_ + (dx != 0 ? dx : dy) * 100, 0.0, horizontal_limit());
     return horizontal_ != old;
 }
+bool SettingsUi::scrolls_at(double x, double y) const {
+    if (popup_open()) {
+        const auto popup = popup_bounds();
+        const auto* field = open_field_definition();
+        return popup && popup->contains(x, y) && field &&
+               field->choices.size() > static_cast<std::size_t>(visible_choices);
+    }
+    if (!viewport.contains(x, y) &&
+        !Rect{viewport.x, viewport.y + viewport.height, viewport.width, 18}.contains(x, y)) {
+        return false;
+    }
+    if (horizontal_limit() > 0) {
+        return true;
+    }
+    for (std::size_t i = 0; i < cards_.size(); ++i) {
+        if (card_bounds(i).contains(x, y) && vertical_limit(i) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
 bool SettingsUi::down(unsigned pointer, double x, double y) {
     for (const auto& bar : scrollbars()) {
         if ((!popup_open() || bar.id == "scroll-menu") && bar.track.contains(x, y)) {

@@ -1141,13 +1141,23 @@ class VrPanel {
         }
     }
     vr::VROverlayHandle_t handle() const { return handle_; }
-    // SteamVR's dashboard laser buzzes for each scroll event it sends, even
-    // when nothing under it scrolls, so the panel takes scroll events only
-    // while a laser is over something that does.
+    // The Frame controller's dashboard binding turns the stick into discrete
+    // scroll steps, each with a haptic tick, or into smooth scrolling. Taking
+    // no scroll events did not stop the ticks, so the panel asks for discrete
+    // steps only while a laser is over something that scrolls, and smooth
+    // scrolling elsewhere, whose events it ignores.
     void accept_scroll(bool scroll) {
-        if (scroll_ != scroll &&
-            vr_overlay()->SetOverlayFlag(handle_, vr::VROverlayFlags_SendVRDiscreteScrollEvents,
-                                         scroll) == vr::VROverlayError_None) {
+        if (scroll_ == scroll) {
+            return;
+        }
+        auto overlay = vr_overlay();
+        // Drop the old mode before taking the new one, so both are never set.
+        const auto old = scroll ? vr::VROverlayFlags_SendVRSmoothScrollEvents
+                                : vr::VROverlayFlags_SendVRDiscreteScrollEvents;
+        const auto now = scroll ? vr::VROverlayFlags_SendVRDiscreteScrollEvents
+                                : vr::VROverlayFlags_SendVRSmoothScrollEvents;
+        if (overlay->SetOverlayFlag(handle_, old, false) == vr::VROverlayError_None &&
+            overlay->SetOverlayFlag(handle_, now, true) == vr::VROverlayError_None) {
             scroll_ = scroll;
         }
     }

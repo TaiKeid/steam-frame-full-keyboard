@@ -126,6 +126,9 @@ class EmojiPicker {
     // Back to the first category, with nothing pressed.
     void reset();
     bool contains(double x, double y) const;
+    // Whether the stick could scroll anything here: the grid, or the tab row's
+    // own tabs when they overflow. Not the tone popup or empty tab-row space.
+    bool scrolls_at(double x, double y) const;
     Event down(unsigned pointer, double x, double y, double now);
     Event move(unsigned pointer, double x, double y, double now);
     Event up(unsigned pointer, double x, double y, double now);
