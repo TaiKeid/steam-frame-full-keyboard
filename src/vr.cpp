@@ -699,6 +699,21 @@ ResizerShape resizer_shape(const PanelView& view, double width) {
     const double radius = view.theme->surface_radius * width / panel_width;
     return {std::round(radius * 4000) / 4000};
 }
+// Whether a resizer's square, in panel pixels, overlaps an open dropdown or a
+// flick preview. Both may extend past the case, where the resizer, in front of
+// the keyboard, would otherwise take their clicks.
+bool resizer_covers_popup(const PanelView& view, double width, std::size_t side,
+                          const ResizerShape& shape) {
+    const auto body = panel_case_bounds(view);
+    const double half = shape.half_size() * panel_width / width;
+    const Rect area{(side == 1 ? body.x + body.width : body.x) - half, body.y + body.height - half,
+                    2 * half, 2 * half};
+    auto overlaps = [&](const std::optional<Rect>& r) {
+        return r && r->x < area.x + area.width && area.x < r->x + r->width &&
+               r->y < area.y + area.height && area.y < r->y + r->height;
+    };
+    return overlaps(view.popup) || overlaps(flick_preview_bounds(view));
+}
 // The two corner resizers, index 0 left and 1 right. Each is its own overlay,
 // so fading never repaints the keyboard texture. Both are created up front:
 // the watchdog thread hides them by handle.
@@ -782,6 +797,11 @@ class CornerResizers {
             corner.fade.reset();
             hide(corner);
         }
+    }
+    // At once, without fading, so it never takes the laser meanwhile.
+    void hide(std::size_t side) {
+        corners_[side].fade.reset();
+        hide(corners_[side]);
     }
 
   private:
@@ -1835,6 +1855,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
             for (std::size_t side = 0; side < 2; ++side) {
+                if (resizer_covers_popup(view, displayed.width(), side, shape)) {
+                    resizers.hide(side);
+                    continue;
+                }
                 resizers.update(side, resizer_transform(displayed.transform(), corner(side)), shape,
                                 target[side], now, resizing && side == resize_side);
             }
