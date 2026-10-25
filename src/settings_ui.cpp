@@ -50,8 +50,10 @@ Rect SettingsUi::field_bounds(std::size_t i, std::size_t field) const {
             r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id), width, 56};
 }
 double SettingsUi::vertical_limit(std::size_t i) const {
-    return std::max(0.0, 32 + static_cast<double>(cards_[i].fields.size()) * row_height -
-                             (viewport.height - 68));
+    // Rows start 68 below the card's top, each a row_height apart less its
+    // trailing gap; body() clips them 16 above the card's bottom.
+    const double content = 68 + static_cast<double>(cards_[i].fields.size()) * row_height - 20;
+    return std::max(0.0, content - (viewport.height - 16));
 }
 double SettingsUi::horizontal_limit() const {
     return std::max(0.0, static_cast<double>(cards_.size()) * (card_width + card_gap) - card_gap -
