@@ -38,6 +38,24 @@ class StickScrollDirection {
   private:
     std::array<int, 2> forward_{1, -1}; // Sign of a forward tilt on x, then y.
 };
+// How fast SteamVR repeats dashboard scroll steps for a fully tilted stick,
+// measured from the steps themselves: its binding sets the rate, and nothing
+// reports it. Passthrough scrolls the stick itself at this rate so both feel
+// the same. Until measured, a default near SteamVR's.
+class StickStepRate {
+  public:
+    static constexpr double default_rate = 8; // Steps per second at full tilt.
+    // A dashboard step arrived at `now` with this much tilt (0 to 1).
+    // Returns true when the estimate first settles, worth one log line.
+    bool step(double now, double tilt);
+    double rate() const { return rate_.value_or(default_rate); }
+    // Steps per second for a tilt, past SteamVR's own 10% dead zone.
+    double steps_per_second(double tilt) const;
+
+  private:
+    std::optional<double> rate_, last_;
+    int samples_{};
+};
 // Whether SteamVR's ticking scroll steps are wanted for an area with this
 // room: toward a direction that can still move, or while the stick is
 // centered and either direction can.

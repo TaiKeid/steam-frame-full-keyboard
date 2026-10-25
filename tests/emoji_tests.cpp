@@ -173,6 +173,21 @@ void stick_tests() {
             "leaning toward an end it is at takes no steps");
     require(wants_scroll_steps({true, false}, -1) && !wants_scroll_steps({true, false}, 1),
             "at either end");
+    StickStepRate rate;
+    require(rate.rate() == StickStepRate::default_rate, "a default until measured");
+    require(rate.steps_per_second(.05) == 0 && rate.steps_per_second(-1) == -StickStepRate::default_rate,
+            "nothing inside SteamVR's dead zone, the full rate at full tilt");
+    bool settled = false;
+    for (int i = 0; i < 20; ++i) {
+        settled |= rate.step(10 + i * .1, .95); // A held push stepping ten times a second.
+    }
+    require(settled && std::abs(rate.rate() - 10) < .01, "the rate is measured from held steps");
+    rate.step(20, .95);
+    rate.step(20.05, .3);
+    rate.step(30, .95);
+    require(std::abs(rate.rate() - 10) < .01, "a light tilt or a new push measures nothing");
+    require(std::abs(rate.steps_per_second(.55) - 5) < .01,
+            "half way past the dead zone, half the rate");
 }
 
 void picker_tests() {

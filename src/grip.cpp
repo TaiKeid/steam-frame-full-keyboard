@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <utility>
 
 namespace framekeyboard {
 double component_rotation_degrees(const Transform& released, const Transform& current) {
@@ -95,6 +96,25 @@ int StickScrollDirection::predict(double x, double y, int leaning) const {
         return 0;
     }
     return tilt > 0 ? forward_[axis] : -forward_[axis];
+}
+bool StickStepRate::step(double now, double tilt) {
+    const auto last = std::exchange(last_, now);
+    // Repeats of one held, nearly full push; the first step of a push comes
+    // at once, so it says nothing about the rate.
+    if (std::abs(tilt) < .8 || !last || now - *last > .6 || now - *last < .01) {
+        return false;
+    }
+    const double sample = 1 / (now - *last);
+    rate_ = rate_ ? .8 * *rate_ + .2 * sample : sample;
+    return ++samples_ == 8;
+}
+double StickStepRate::steps_per_second(double tilt) const {
+    constexpr double dead_zone = .1;
+    const double magnitude = std::abs(tilt);
+    if (magnitude < dead_zone) {
+        return 0;
+    }
+    return std::copysign(rate() * (magnitude - dead_zone) / (1 - dead_zone), tilt);
 }
 bool wants_scroll_steps(ScrollRoom room, int direction) {
     return direction > 0 ? room.forward : direction < 0 ? room.back : room.back || room.forward;

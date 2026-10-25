@@ -1295,6 +1295,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     LaserRays laser_rays;
     StickReader sticks;
     StickScrollDirection stick_direction;
+    StickStepRate stick_rate;
     std::map<unsigned, int> stick_leaning; // Last prediction per pointer, for hysteresis.
     std::array<ResizerReach, 2> resizer_reach{};
     // The dashboard's pointing device: the head cursor counts as a laser while it is.
@@ -1738,9 +1739,16 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (!drag.active()) {
                     const double dx = -event.data.scroll.xdelta, dy = -event.data.scroll.ydelta;
                     // Learn which way this stick scrolls, as App::scroll reads the step.
+                    // And how fast SteamVR repeats steps, for passthrough to match.
                     if (const auto stick = sticks.read(device, now)) {
                         stick_direction.learn(stick->first, stick->second,
                                               std::abs(dx) > std::abs(dy) ? dx : dy);
+                        const double tilt = std::max(std::abs(stick->first), std::abs(stick->second));
+                        if (stick_rate.step(now, tilt)) {
+                            std::cout << "Dashboard stick scrolls " << stick_rate.rate()
+                                      << " steps a second at full tilt.\n"
+                                      << std::flush;
+                        }
                     }
                     app.scroll(event.data.scroll.cursorIndex, dx, dy);
                 }
@@ -1878,8 +1886,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
             // The stick scrolls the emoji grid under its hand's ray: outside the
-            // dashboard SteamVR sends no scroll events. Full tilt moves about
-            // ten columns a second; a small tilt does nothing.
+            // dashboard SteamVR sends no scroll events. It scrolls at the rate
+            // measured from the dashboard's steps, two columns a step.
             const double stick_seconds = std::clamp(now - std::exchange(stick_scrolled, now), 0.0, .1);
             for (std::size_t hand = 0; app.emoji_open() && !drag.active() && hand < samples.size();
                  ++hand) {
@@ -1891,13 +1899,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (!stick) {
                     continue;
                 }
-                auto tilt = [](double value) {
-                    return std::abs(value) < .25 ? 0.0 : (value - std::copysign(.25, value)) / .75;
-                };
-                const double x = tilt(stick->first), y = tilt(stick->second);
+                // As fast as SteamVR's own steps in the dashboard, continuously.
+                const double x = stick_rate.steps_per_second(stick->first);
+                const double y = stick_rate.steps_per_second(stick->second);
                 if (x != 0 || y != 0) {
-                    app.scroll(ScenePointer::pointer(hand), 5 * x * stick_seconds,
-                               -5 * y * stick_seconds);
+                    app.scroll(ScenePointer::pointer(hand), x * stick_seconds, -y * stick_seconds);
                 }
             }
             dismiss_panel();
