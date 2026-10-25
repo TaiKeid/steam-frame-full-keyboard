@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1: Full Keyboard returns after in-app updates
 
 - After an in-app update, Full Keyboard comes back by itself. The old version hands the open keyboard request back to Steam, and the new one takes over Steam's keyboard about a second later, instead of leaving it open until you close it. Updating into this version already takes over a Steam keyboard that opened during the handoff; the automatic return on every update starts with updates from this version onward.
 
