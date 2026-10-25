@@ -29,7 +29,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 
 ![Keyboard with the mic key in the side column (owner mockup)](images/dictation-mic-key.png)
 
-The mic key sits in the side column below Copy and Paste, which become shorter to make room. It is shown only when dictation is usable in the chosen mode for the active language (see [Settings](#settings)); otherwise the side column is unchanged.
+The mic key takes the third of the three equal side-column keys, below Copy and Paste and the small emoji key above them (see [emoji picker](emoji.md#side-column)); the mockup predates that column. It is shown only when dictation is usable in the chosen mode for the active language (see [Settings](#settings)); otherwise its slot stays empty.
 
 - **Normal mode:** pressing the mic key enters dictation mode and starts capturing at once.
 - **Type as I speak:** pressing it starts capture without leaving the normal keyboard.
