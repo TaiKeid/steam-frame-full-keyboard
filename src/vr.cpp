@@ -791,7 +791,12 @@ class CornerResizers {
             corner.visible = true;
         }
     }
-    double alpha(std::size_t side) const { return corners_[side].fade.value(); }
+    // On screen and opaque enough to be seen: only then may the passthrough
+    // pointer press it. A failed overlay or image never counts.
+    bool shown(std::size_t side) const {
+        const auto& corner = corners_[side];
+        return corner.handle && corner.visible && corner.shape && corner.fade.value() > .3;
+    }
     void hide() {
         for (auto& corner : corners_) {
             corner.fade.reset();
@@ -1600,7 +1605,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     std::optional<Vector3> resizer;
                     std::size_t side = 0;
                     for (; sample.ray && side < 2 && !resizer; ++side) {
-                        if (resizers.alpha(side) > .3) {
+                        if (resizers.shown(side)) {
                             resizer = resizer_hit(displayed.transform(),
                                                   case_corner(view, displayed.width(), side == 1, true),
                                                   corner_of(side),
