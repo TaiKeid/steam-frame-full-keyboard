@@ -41,11 +41,12 @@ The mic key takes the third of the three equal side-column keys, below Copy and 
 The mockup is incomplete; where it differs, the rules below apply.
 
 - An editor replaces the function-key row. Esc stays at its left.
-- **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert (*proposal*), both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy and Paste side keys.
+- **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy and Paste side keys.
 - **Send** takes the place of the right-hand Alt to Ctrl keys.
 - **Undo last phrase** takes the first freed side slot, directly above the mic key.
-- Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it (*proposal*).
-- The toolbar stays. Settings and the language button work only while not capturing (*proposal*).
+- Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
+- The toolbar stays. Settings and the language button work only while not capturing; X, Pin, Recenter and Esc keep working.
+- Swipe typing and the emoji key are unavailable in dictation mode until they can type into the editor.
 
 ### Capturing
 
@@ -115,9 +116,9 @@ Esc in dictation mode is local and never reaches the application.
   - The editor is locked and shows progress while sending.
   - If delivery fails or is interrupted, the unsent remainder stays in the editor and the mode stays open, as failed Japanese commits stay in the preedit today.
     - Text the target acknowledged leaves the editor.
-    - A commit that timed out may have arrived anyway, so the editor marks where delivery became uncertain (*proposal*).
+    - A commit that timed out may have arrived anyway, so the editor marks where delivery became uncertain.
     - The final Enter is tracked on its own, so a retry never sends the message twice.
-- **Send while capturing:** capture stops, Send waits for pending phrases, then sends (*proposal*). The wait can be cancelled with Esc and ends after the request timeout.
+- **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be cancelled with Esc and ends after the request timeout.
 - **Target:** Send types into whatever has keyboard focus at that moment. Switching windows mid-dictation is the user's choice.
 
 ### Dashboard, passthrough and focus
@@ -141,7 +142,8 @@ A second checkbox, **Type as I speak**, skips the editor. The mic key starts and
 - Esc while capturing stops capture and is not sent. Otherwise Esc is the normal key.
 - **Mic key while capturing** stops capture. The phrase being spoken is still recognized and typed.
 - In space-separated languages, every phrase after the first in a capture session starts with a space. The prompt uses the phrases typed in that session.
-- Other keys keep typing while capturing (*proposal*).
+- Other keys keep typing while capturing.
+- Available only in Server mode. On-device recognition takes about 5 s per phrase, too slow to type as you speak.
 
 ## Errors and overlays
 
@@ -173,15 +175,17 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - A **Test** button that checks the server.
 - **Type as I speak** checkbox, saved as `dictation_direct`, default false.
 
-### Entering the server address (*proposal*)
+### Entering the server address
 
-Settings has no text fields yet, and Settings covers the keys, so typing letters there seems hard. But the device you type with is a full keyboard; it only needs the keys back. Selecting the Server field switches the panel into **field entry**:
+Settings has no text fields, and its cards cover the keys. Selecting the Server field opens an **address popup** over Settings, with its own one-line field and a small hardcoded keyboard. The address is set rarely, so this stays deliberately simple.
 
-- **Layout:** the settings cards give way to the normal keys, with a one-line editor above them. It is the same editor component as dictation mode, one line high.
-- **Local only:** the keys type into that editor, never into Steam or the focused application, even with Replace native keyboard on.
-- **Editing:** the editor starts with the current value. The arrows, Home, End, Backspace and Delete edit it. Enter saves and returns to Settings; Esc returns without saving.
-- **Validation:** input is limited to characters valid in a host name, an IPv4 address or a bracketed IPv6 address, plus `:port`. An invalid value keeps the editor open with a short reason.
-- **Recent servers:** a dropdown under the field lists up to five recent servers that passed a test. Picking one avoids typing again.
+- **Keys:** lowercase letters, digits, and `.` `-` `_` `:` `/` `[` `]` `?` (the exact set is a *proposal*). They type only characters that can appear in an address. There is no Space, Shift, Ctrl, Alt, Super, numpad or swipe; host names ignore case, and anything else can be pasted.
+- **Editing keys:** Backspace, the arrows and Paste. Enter acts on press: it accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels.
+- **Paste:** pastes the clipboard into the field, for an address copied elsewhere. This is the only place Full Keyboard reads the clipboard, and only when Paste is pressed. Open questions: the owner's OK and the README wording, and how the app reads the Frame's clipboard.
+- **Local only:** the popup types only into its field, never into Steam or the focused application, even with Replace native keyboard on.
+- **Size:** smaller than the main keyboard, so it fits inside the panel. The layout is hardcoded and does not follow the active layout or language.
+- **Validation:** an invalid value keeps the popup open with a short reason.
+- **Recent servers:** up to five recent servers that passed Test are listed under the field (*proposal*).
 
 Fallback: `dictation_server` can also be edited in `config.json`, over SSH or in Desktop Mode, like every other setting.
 
@@ -191,7 +195,7 @@ Mic key visibility: the mic key appears only when dictation is usable and the ac
 - **On device:** the model is ready and the language is English or Spanish.
 - **Server:** a server address is set.
 
-The modes never fall back to each other automatically (*proposal*). Audio must not go to a server while the user chose on-device recognition, and on-device recognition cannot cover the server's languages.
+The modes never fall back to each other automatically. Audio must not go to a server while the user chose on-device recognition, and on-device recognition cannot cover the server's languages.
 
 Four cards no longer fit the 1564 px settings viewport. Today three 509 px cards with 18 px gaps fill it almost exactly (1563 px), which hides that the row scrolls. Cards become slightly narrower, so three show in full and the start of the fourth is cut off at the right edge, hinting that the row scrolls horizontally. About 470 px gives three full cards and a visible 100 px of Experimental. Labels must still fit beside the controls: at 470 px the label space beside a 318 px dropdown shrinks from about 123 to 84 px, so the dropdown narrows too. The exact widths are settled with rendered settings images. The change ships with the Dictation card; with only three narrower cards the row would end in empty space instead of a cut-off card.
 
@@ -211,7 +215,7 @@ A fallback for English and Spanish when no server is available.
 
 ## Speech server
 
-### Protocol (*proposal*)
+### Protocol
 
 The keyboard knows only the server address. Each phrase is one plain HTTP request in the widely implemented OpenAI-style transcription format, so existing self-hosted servers can answer it:
 
@@ -225,8 +229,8 @@ The keyboard knows only the server address. Each phrase is one plain HTTP reques
 - **Model name:** sent as `model` only when `dictation_model` is set in `config.json`. Some servers need it, for example Speaches unless a default model is configured; `whisper-server` ignores it.
 - **Server-side configuration:** the model, GPU, threads and decoding options belong to the server's own configuration.
 - **Timeout:** 10 s per phrase. A connection failure is retried once; that is safe because nothing is typed before the text returns.
-- **One request at a time** (*proposal*): a phrase is sent only after the previous one returned and was inserted. App, not the helper, supplies each phrase's prompt from the editor as it is then. Its context then includes the phrase before it, as cleaned, joined or edited. Servers answer in well under half a second, so this costs little.
-- **Reply limits** (*proposal*): a reply larger than 64 KB is rejected before it is parsed, and only the `text` field is read.
+- **One request at a time:** a phrase is sent only after the previous one returned and was inserted. App, not the helper, supplies each phrase's prompt from the editor as it is then. Its context then includes the phrase before it, as cleaned, joined or edited. Servers answer in well under half a second, so this costs little.
+- **Reply limits:** a reply larger than 64 KB is rejected before it is parsed, and only the `text` field is read.
 - **Test:** sends half a second of silence and expects a valid reply. A reply with empty text passes: any valid reply with a `text` field shows the server is reachable and speaks the protocol.
 
 **Why one request per phrase:** Whisper transcribes whole clips anyway, phrase detection is cheap on the Frame, and stateless requests keep any compatible server usable. Audio is about 32 KB per second of speech.
@@ -275,9 +279,10 @@ The repository ships instructions only, no server code:
 
 - **When audio leaves the Frame:** only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test.
 - **No encryption or authentication.** Host and port only means plain HTTP. Anyone on the local network can reach the server, and audio and text cross the network unencrypted. To limit this:
-  - the keyboard accepts only private-network hosts: RFC 1918 and link-local addresses, `.local` names, and loopback (*proposal*);
+  - hosts are not restricted, so third-party providers can be used later. When the resolved address is not on the local network (RFC 1918, link-local, loopback, IPv6 unique-local or link-local), the Dictation card shows a red warning that the host is not local and the traffic is unencrypted;
   - the setup guide recommends binding the server to the LAN and firewalling it;
-  - choosing Server mode shows a one-line notice about this (*proposal*).
+  - for a local server, choosing Server mode shows a one-line notice about plain HTTP (*proposal*).
+- **To be decided before M2:** third-party providers, HTTPS and API keys (see [open questions](#open-questions)).
 - **Logging on the Frame:** no audio and no transcripts. Whether the server logs is up to its configuration; the setup guide points this out.
 - **Replies are untrusted input:** they are validated and cleaned as described under [capturing](#capturing), and in dictation mode they only reach the editor until Send.
 
@@ -286,7 +291,7 @@ The repository ships instructions only, no server code:
 | Piece | Responsibility | Notes |
 | --- | --- | --- |
 | `framekeyboard-dictate` helper | Microphone capture through a `pw-record` child (16 kHz mono), speech level, phrase detection, WAV encoding, server requests, reply cleanup | Separate process, so a stuck device or network call cannot block the VR loop. Python standard library only, like the update helper (*proposal*). |
-| On-device engine | whisper.cpp with the small model, run by the helper as a child process with a line protocol | Only in On device mode. Low priority; unloads when idle (*proposal*). |
+| On-device engine | whisper.cpp with the small model, run by the helper as a child process with a line protocol | Only in On device mode. Low priority; unloads when idle. |
 | Phrase detection | Energy-based, with an adaptive noise floor, 0.3 s pre-roll, end after 0.6 s of silence, at most 25 s per phrase | Cheap enough for the Frame (*proposal*). |
 | Helper protocol | Private `SOCK_SEQPACKET` socket pair with bounded packets: level, phrase start and end, text, errors. App answers each finished phrase with its prompt | Transcripts are never logged. A dead helper cannot raise SIGPIPE in the keyboard. |
 | Helper lifetime | Exits on socket EOF and kills `pw-record` with it. Captured output only, and not dumpable | The service keeps helpers alive across a handoff (`KillMode=process`), so the helper must notice the keyboard is gone on its own. |
@@ -333,8 +338,8 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - `DictationEditor` and its tests.
   - The dictation mode layout, with editor keys handled in App before `KeyboardState`. Typed text goes through `TextOutput`.
   - Minimal config parsing and the English profile's `dictation` entry, so dictation can be configured in `config.json` before M4.
-  - Profiles with a composer hide the mic key until M5a (*proposal*).
-  - Swipe and the emoji key are unavailable in dictation mode (*proposal*).
+  - Profiles with a composer hide the mic key until M5a.
+  - Swipe and the emoji key are unavailable in dictation mode.
   - A `--render-dictation` image export for reviewing the look.
 - [ ] **M3b Send:**
   - **A/B test of plain-text delivery:** whole commits of up to 32 characters against one acknowledged character at a time, 20 ms apart. The swipe fix that introduced the second way was measured only on replacements.
@@ -348,11 +353,11 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - The helper connected to the editor: phrases, overlays, Esc rules, phrase undo and the mic bars, whose cost is measured with a game running.
   - **Presentation and lifecycle:**
     - A table of what capture, pending phrases and the editor do on dashboard close, X, target loss, native fallback, tracking loss, suspend, Quit and update.
-    - Automatic passthrough is tracked apart from the user's own toggle (*proposal*).
+    - Automatic passthrough is tracked apart from the user's own toggle.
 - [ ] **M4 Settings:**
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
-  - Field entry for the server address, recent servers, Test and the error overlays.
+  - The address popup with its mini keyboard and Paste, recent servers, Test, the non-local host warning and the error overlays.
 - [ ] **M5a Languages:** Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
@@ -437,12 +442,22 @@ Findings:
 
 ## Open questions
 
-The owner settled the behavior questions on 2026-10-25; the rules are in the sections above. Still open:
+The owner settled the behavior questions and most proposals on 2026-10-25; the rules are in the sections above. Still open:
 
+- **Providers, HTTPS and API keys (before M2):** to be brainstormed with the owner.
+  - **Third-party providers:** supporting OpenAI-compatible providers turns the server field into a URL (`https://host/path`) rather than `host:port`.
+  - **HTTPS:** Python's standard library can verify providers against the system certificates; a local server with a self-signed certificate is the awkward case.
+  - **API keys:** providers need one. Entering it (the address popup has no uppercase), storing it outside logs and Git, and sending it only to that host are open.
+  - **Tailscale:** addresses in 100.64.0.0/10 are encrypted but not local; do they get the warning?
+- **Paste in the address popup (M4):**
+  - the owner's OK for reading the clipboard on an explicit Paste;
+  - the README wording, which today promises no clipboard reads;
+  - how the app reads the Frame's clipboard.
+- **Plain-HTTP notice for local servers (M4):** a one-line notice, or nothing (*proposal*: the notice).
+- **Helper (M2):** Python standard library only, without `audioop` (removed in Python 3.13), and energy-based phrase detection tuned with M1's recordings (*proposal*).
 - **Reply length cap (M2):** measure false rejections per language before fixing 25 characters a second.
-- **Private hosts (M2):** check the resolved address on every connection and retry, follow no redirects and use no proxy. Allow IPv6 unique-local and link-local addresses (*proposal*).
 - **Mic bars:** the cost of redrawing them with a game running (measured in M3c).
-- **Proposals:** the items marked *proposal* above.
+- **Proposals:** the remaining items marked *proposal* above.
 
 ## Further work
 
