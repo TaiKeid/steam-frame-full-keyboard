@@ -824,7 +824,9 @@ class CornerResizers {
             hide(corner);
             return;
         }
-        if (corner.shape != shape && !(held && corner.shape) && !draw(side, shape)) {
+        // Held or fading out, the current image stays: replacing it costs a
+        // raw upload and flickers.
+        if (corner.shape != shape && !((held || target == 0) && corner.shape) && !draw(side, shape)) {
             hide(corner);
             return;
         }
@@ -849,6 +851,7 @@ class CornerResizers {
             corner.visible = true;
         }
     }
+    bool visible(std::size_t side) const { return corners_[side].visible; }
     // On screen and opaque enough to be seen: only then may the passthrough
     // pointer press it. A failed overlay or image never counts.
     bool shown(std::size_t side) const {
@@ -1487,6 +1490,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             // Only the width changes, so leveling keeps running on the same pose.
             resize_side = side;
+            resizers.hide(1 - side);
             feedback.cancel();
             app.set_dragging(true, true);
             std::cout << "Keyboard resize started.\n" << std::flush;
@@ -1897,7 +1901,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!lifecycle.visible() || !displayed.ready()) {
             resizers.hide();
         } else {
-            const auto view = app.view();
+            // Case geometry only; the full view, with its controls and popup, is
+            // built just when a resizer is wanted or shown.
+            const auto view = app.geometry();
             const auto shape = resizer_shape(view, displayed.width());
             const auto corner = [&](std::size_t side) {
                 return case_corner(view, displayed.width(), side == 1, true);
@@ -1934,8 +1940,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     target[side] = 1;
                 }
             }
+            std::optional<PanelView> full;
             for (std::size_t side = 0; side < 2; ++side) {
-                if (resizer_covers_popup(view, displayed.width(), side, shape)) {
+                if ((target[side] > 0 || resizers.visible(side)) && !full) {
+                    full = app.view();
+                }
+                if (full && resizer_covers_popup(*full, displayed.width(), side, shape)) {
                     resizers.hide(side);
                     continue;
                 }
