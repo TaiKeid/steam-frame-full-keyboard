@@ -635,21 +635,62 @@ class SceneCursors {
 // along -Z, as SteamVR draws it, and the head cursor's straight ahead.
 class LaserRays {
   public:
+    // One tracking-pose read per frame serves every ray in it.
+    void begin_frame(double now) {
+        now_ = now;
+        posed_ = false;
+    }
+    // Device classes, roles and laser tips change only with these device
+    // events; until then they are read once instead of every frame.
+    static bool invalidates(std::uint32_t event) {
+        return event == vr::VREvent_TrackedDeviceActivated ||
+               event == vr::VREvent_TrackedDeviceDeactivated ||
+               event == vr::VREvent_TrackedDeviceUpdated ||
+               event == vr::VREvent_TrackedDeviceRoleChanged;
+    }
+    void forget() {
+        devices_.fill({});
+        hands_.reset();
+    }
+    // The left and right hand controllers' device indices.
+    std::array<vr::TrackedDeviceIndex_t, 2> hands() {
+        if (!hands_) {
+            hands_ = {
+                vr_system()->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand),
+                vr_system()->GetTrackedDeviceIndexForControllerRole(
+                    vr::TrackedControllerRole_RightHand)};
+        }
+        return *hands_;
+    }
     std::optional<Ray> read(vr::TrackedDeviceIndex_t device) {
-        const auto pose = read_pointer_pose(device);
-        if (!pose) {
+        if (device >= vr::k_unMaxTrackedDeviceCount) {
             return {};
         }
-        const auto tip = vr_system()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller
-                             ? controller_tip(device)
-                             : identity;
+        auto& info = devices_[device];
+        if (!info || (!info->complete && now_ >= info->retry)) {
+            info = describe(device);
+        }
+        if (info->kind != vr::TrackedDeviceClass_Controller &&
+            info->kind != vr::TrackedDeviceClass_HMD) {
+            return {};
+        }
+        if (!posed_) {
+            vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses_.data(),
+                                                         vr::k_unMaxTrackedDeviceCount);
+            posed_ = true;
+        }
+        const auto& state = poses_[device];
+        if (!state.bPoseIsValid || !state.bDeviceIsConnected) {
+            return {};
+        }
+        const auto pose = from_vr(state.mDeviceToAbsoluteTracking);
         Ray ray{};
         ray.direction = {};
         for (std::size_t r = 0; r < 3; ++r) {
-            ray.origin[r] = (*pose)[r][3];
+            ray.origin[r] = pose[r][3];
             for (std::size_t c = 0; c < 3; ++c) {
-                ray.origin[r] += (*pose)[r][c] * tip[c][3];
-                ray.direction[r] -= (*pose)[r][c] * tip[c][2];
+                ray.origin[r] += pose[r][c] * info->tip[c][3];
+                ray.direction[r] -= pose[r][c] * info->tip[c][2];
             }
         }
         return ray;
@@ -657,30 +698,38 @@ class LaserRays {
 
   private:
     static constexpr Transform identity{{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}};
-    // Cached per device index and render model; a reconnect may change either.
-    Transform controller_tip(vr::TrackedDeviceIndex_t device) {
+    struct Device {
+        vr::ETrackedDeviceClass kind{};
+        // A controller's laser origin and -Z direction; the head cursor's is its own pose.
+        Transform tip = identity;
+        // A controller may connect before its render model is known: retry each second.
+        bool complete{};
+        double retry{};
+    };
+    Device describe(vr::TrackedDeviceIndex_t device) const {
+        Device result{vr_system()->GetTrackedDeviceClass(device), identity, true, now_ + 1};
+        if (result.kind != vr::TrackedDeviceClass_Controller) {
+            return result;
+        }
         char model[1024]{};
         vr::ETrackedPropertyError error{};
         vr_system()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String, model,
                                                     sizeof(model), &error);
-        auto& tip = tips_[device];
-        if (error || tip.model != model) {
-            tip = {error ? "" : model, identity};
-            vr::VRControllerState_t released{};
-            vr::RenderModel_ControllerMode_State_t mode{};
-            vr::RenderModel_ComponentState_t state{};
-            if (!error && vr_models() &&
-                vr_models()->GetComponentState(model, "tip", &released, &mode, &state)) {
-                tip.local = from_vr(state.mTrackingToComponentLocal);
-            }
+        vr::VRControllerState_t released{};
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t state{};
+        result.complete = !error && model[0] && vr_models() &&
+                          vr_models()->GetComponentState(model, "tip", &released, &mode, &state);
+        if (result.complete) {
+            result.tip = from_vr(state.mTrackingToComponentLocal);
         }
-        return tip.local;
+        return result;
     }
-    struct Tip {
-        std::string model;
-        Transform local{};
-    };
-    std::map<vr::TrackedDeviceIndex_t, Tip> tips_;
+    std::array<std::optional<Device>, vr::k_unMaxTrackedDeviceCount> devices_{};
+    std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> poses_{};
+    std::optional<std::array<vr::TrackedDeviceIndex_t, 2>> hands_;
+    double now_{};
+    bool posed_{};
 };
 ResizeCorner corner_of(std::size_t side) {
     return side == 0 ? ResizeCorner::Left : ResizeCorner::Right;
@@ -1085,6 +1134,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     SceneCursors cursors;
     LaserRays laser_rays;
+    // The dashboard's pointing device: the head cursor counts as a laser while it is.
+    vr::TrackedDeviceIndex_t dashboard_pointer = vr::k_unTrackedDeviceIndexInvalid;
+    double dashboard_pointer_checked = -1;
     // The corner being resized; it stays shown while the other fades.
     std::size_t resize_side = 1;
     // Passthrough with the dashboard closed: the panel takes no SteamVR laser
@@ -1278,6 +1330,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     while (!done && !app.quitting() && !interrupted) {
         const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
+        laser_rays.begin_frame(now);
         if (duration > 0 && now - start >= duration) {
             break;
         }
@@ -1350,6 +1403,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
                 lifecycle.focus_lost();
+            }
+            if (LaserRays::invalidates(event.eventType)) {
+                laser_rays.forget();
             }
             if (event.eventType == vr::VREvent_TrackedDeviceDeactivated) {
                 lifecycle.device_lost(event.trackedDeviceIndex,
@@ -1840,15 +1896,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (resizing) {
                 target[resize_side] = 1;
             } else if (!drag.active() && app.allows_movement(MoveSource::Resize)) {
-                std::vector<vr::TrackedDeviceIndex_t> lasers{
-                    vr_system()->GetTrackedDeviceIndexForControllerRole(
-                        vr::TrackedControllerRole_LeftHand),
-                    vr_system()->GetTrackedDeviceIndexForControllerRole(
-                        vr::TrackedControllerRole_RightHand)};
-                if (const auto primary = vr_overlay()->GetPrimaryDashboardDevice();
-                    !scene_input && primary == vr::k_unTrackedDeviceIndex_Hmd) {
-                    lasers.push_back(primary);
+                const auto hands = laser_rays.hands();
+                // The dashboard pointer changes only on a deliberate switch; 4 Hz suffices.
+                if (!scene_input && now - dashboard_pointer_checked >= .25) {
+                    dashboard_pointer = vr_overlay()->GetPrimaryDashboardDevice();
+                    dashboard_pointer_checked = now;
                 }
+                const std::array<vr::TrackedDeviceIndex_t, 3> lasers{
+                    hands[0], hands[1],
+                    !scene_input && dashboard_pointer == vr::k_unTrackedDeviceIndex_Hmd
+                        ? dashboard_pointer
+                        : vr::k_unTrackedDeviceIndexInvalid};
                 for (const auto device : lasers) {
                     const auto ray = laser_rays.read(device);
                     for (std::size_t side = 0; ray && side < 2; ++side) {
