@@ -67,6 +67,10 @@ class NativeReplacement : public KeySink {
         return !remote_ && !pending_id_ && local_.replace_text(delete_before, text);
     }
     bool text_pending() const override { return pending_id_ != 0 || local_.text_pending(); }
+    // Steam fields receive each text as one helper request.
+    std::size_t delivered_characters() const override {
+        return remote_ ? 0 : local_.delivered_characters();
+    }
     void cancel_text() override;
     bool output_blocked() const override { return !remote_ && local_.output_blocked(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {

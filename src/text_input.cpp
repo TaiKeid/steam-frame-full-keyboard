@@ -32,6 +32,7 @@ struct GamescopeText::State {
     // that were only an acknowledgement (about 5 ms) apart.
     static constexpr double character_gap = .02;
     std::string remaining;
+    std::size_t acknowledged{}; // Characters of `submitted`, kept after its result is consumed.
     double next_character{};
     bool between_characters{};
     ~State() {
@@ -169,6 +170,7 @@ bool GamescopeText::ready() {
         } else if (s.phase == State::Phase::Input) {
             s.phase = s.available ? State::Phase::Ready : State::Phase::Dead;
         } else if (s.result == State::Result::Waiting && !s.remaining.empty()) {
+            ++s.acknowledged;
             s.between_characters = true;
         } else if (s.result == State::Result::Waiting) {
             s.result = State::Result::Success;
@@ -199,6 +201,9 @@ bool GamescopeText::failed() const {
 }
 bool GamescopeText::pending() const {
     return state_->result != State::Result::None;
+}
+std::size_t GamescopeText::acknowledged() const {
+    return state_->acknowledged;
 }
 bool GamescopeText::busy() const {
     return state_->phase == State::Phase::Ready && (state_->sync || pending());
@@ -256,6 +261,7 @@ bool GamescopeText::commit(const std::string& text, std::size_t delete_before, b
     }
     s.submitted = text;
     s.submitted_deletions = delete_before;
+    s.acknowledged = 0;
     s.result = State::Result::Waiting;
     s.synchronize();
     if (wl_display_flush(s.display) < 0 && errno != EAGAIN) {

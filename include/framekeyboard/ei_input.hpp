@@ -27,6 +27,7 @@ class EiSink : public KeySink {
     bool replaces_text() override { return true; }
     bool replace_text(std::size_t delete_before, const std::string& text) override;
     bool text_pending() const override { return text_ && text_->pending(); }
+    std::size_t delivered_characters() const override { return text_ ? text_->acknowledged() : 0; }
     bool output_blocked() const override { return text_ && text_->busy(); }
     void cancel_text() override {
         if (text_) {

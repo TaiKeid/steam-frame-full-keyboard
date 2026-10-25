@@ -20,6 +20,9 @@ class GamescopeText {
     // arrive spaced apart.
     bool commit(const std::string& text, std::size_t delete_before = 0, bool per_character = false);
     bool pending() const;
+    // Characters of the most recent commit that Gamescope acknowledged. Only a
+    // per-character commit can end with part of its text acknowledged.
+    std::size_t acknowledged() const;
     // Cancellation/timeout cannot undo an already submitted Wayland request.
     // Keep its ordering barrier until the sync arrives, even if the caller stops waiting.
     bool busy() const;

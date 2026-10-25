@@ -69,7 +69,9 @@ class OutputController : public KeySink {
     bool enqueue_text(const std::string& text, std::shared_ptr<Entry> entry = {});
     static bool sendable(const std::string& text);
     void drain();
-    void fail();
+    // `delivered` characters at the start of the front text entry are known
+    // to have reached the target; the retry keeps only the rest.
+    void fail(std::size_t delivered = 0);
     void drop_holds();
     void release_codes(Entry& entry, std::optional<int> only = {});
     void status(std::string message);

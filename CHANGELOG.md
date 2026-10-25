@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed a retry after a stalled app typing the start of a word twice. Plain-ASCII words go to local apps one character at a time. If the app stopped acknowledging partway through, pressing Enter to retry typed the whole word again, so *hello* could become *hehello*. The retry now types only the characters that had not been acknowledged.
 - Shift+Enter now starts a new line in Steam's friends chat and other multi-line Steam text boxes when Full Keyboard replaces Steam's keyboard; Enter still sends. It used to show "Control unavailable in Steam fields". Other shortcuts in Steam fields remain unavailable.
 
 ## 0.10.0: Emoji picker and corner resizing

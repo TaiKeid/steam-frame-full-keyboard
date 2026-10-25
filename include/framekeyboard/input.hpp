@@ -40,6 +40,10 @@ class KeySink {
     // Optional asynchronous transports retain one commit until the caller consumes its result.
     virtual bool text_pending() const { return false; }
     virtual void cancel_text() {}
+    // Characters at the start of the last text commit that the target
+    // acknowledged before it failed, so a retry can skip them. Zero when the
+    // commit went out as one request, whose delivery is unknown as a whole.
+    virtual std::size_t delivered_characters() const { return 0; }
     // An outstanding text request can still order native downs after the caller
     // cancels or consumes a timeout. Releases remain allowed through this barrier.
     virtual bool output_blocked() const { return false; }

@@ -256,7 +256,7 @@ void OutputController::cancel() {
     drop_holds();
     status("");
 }
-void OutputController::fail() {
+void OutputController::fail(std::size_t delivered) {
     ++failures_;
     retry_.clear();
     bool boundary = false, discarded = false;
@@ -271,7 +271,15 @@ void OutputController::fail() {
         if (!boundary && (!entry->repeat || entry == queue_.front())) {
             auto saved = std::make_shared<Entry>();
             saved->text = entry->text;
-            retry_.push_back(saved);
+            if (entry == queue_.front() && delivered) {
+                // Retyping the acknowledged characters would duplicate them.
+                const char* rest =
+                    g_utf8_offset_to_pointer(entry->text.c_str(), static_cast<glong>(delivered));
+                saved->text.erase(0, static_cast<std::size_t>(rest - entry->text.c_str()));
+            }
+            if (!saved->text.empty()) {
+                retry_.push_back(saved);
+            }
         } else {
             discarded = true;
         }
@@ -311,7 +319,7 @@ void OutputController::drain() {
                 if (target_.text_pending()) {
                     return;
                 }
-                fail();
+                fail(target_.delivered_characters());
                 return;
             }
         } else {

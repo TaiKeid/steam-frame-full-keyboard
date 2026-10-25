@@ -15,6 +15,7 @@ struct Transport : KeySink {
     std::vector<std::string> events;
     bool pending{}, done{}, success{true}, slow_keys{}, native_pending{}, native_done{};
     bool native_success{true}, barrier{};
+    std::size_t delivered{}; // Characters of a failed commit already acknowledged.
     std::string text;
     void send(int code, int value) override {
         events.push_back(std::to_string(code) + ":" + std::to_string(value));
@@ -63,6 +64,7 @@ struct Transport : KeySink {
         return false;
     }
     bool text_pending() const override { return pending; }
+    std::size_t delivered_characters() const override { return delivered; }
     bool output_blocked() const override { return barrier || pending; }
     void cancel_text() override { pending = false; }
     void cancel_delivery() override { pending = native_pending = false; }
@@ -126,6 +128,36 @@ void failure_and_retry() {
     output.tick(102);
     require(sink.events == std::vector<std::string>{"a", "a", "b"},
             "retry never replays Backspace or text beyond its boundary");
+}
+// A per-character commit can time out after some characters were acknowledged
+// ("hé" of "héllo"); retrying the whole text would type them twice.
+void partial_retry() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    require(output.admit(true) && output.commit_text("héllo"), "word queued");
+    require(output.admit(true) && output.commit_text(" next"), "later text queued");
+    sink.delivered = 2;
+    sink.done = true;
+    sink.success = false;
+    output.tick(2);
+    require(output.retry_text() == "llo next",
+            "retry keeps only the unacknowledged rest and later text");
+    sink.delivered = 0;
+    sink.success = true;
+    require(output.retry(), "the rest can be retried");
+    sink.done = true;
+    output.tick(3);
+    sink.done = true;
+    output.tick(4);
+    require(sink.events == std::vector<std::string>{"héllo", "llo", " next"},
+            "acknowledged characters are never typed again");
+    require(output.admit(true) && output.commit_text("again"), "next word queued");
+    sink.done = true;
+    sink.success = false;
+    output.tick(5);
+    require(output.retry_text() == "again",
+            "a failure with nothing acknowledged retries the whole text");
 }
 // A replacement that timed out may still have been applied. Retrying it would
 // delete again, reaching text before the word ("Xhello" -> "Xhi" -> "hi").
@@ -276,6 +308,7 @@ int main() {
     try {
         ordering();
         failure_and_retry();
+        partial_retry();
         ambiguous_replacement();
         held_keys();
         release_and_capacity();
