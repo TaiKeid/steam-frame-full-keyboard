@@ -295,6 +295,68 @@ template <class Done> void settle(App& app, Done done) {
     }
 }
 
+// Swipe taps, swiped words and alternatives all type through App's text
+// output, so a replacement output (a local editor) receives every one of them.
+struct RecordedText : TextOutput {
+    std::vector<std::string> calls;
+    bool text_press(unsigned, const std::string& text, double) override {
+        calls.push_back("press:" + text);
+        return true;
+    }
+    bool commit_text(const std::string& text) override {
+        calls.push_back("commit:" + text);
+        return true;
+    }
+    bool replaces_text() override { return true; }
+    bool replace_text(std::size_t delete_before, const std::string& text) override {
+        calls.push_back("replace:" + std::to_string(delete_before) + ":" + text);
+        return true;
+    }
+    bool taps_then_text(int, std::size_t count, const std::string& text) override {
+        calls.push_back("taps:" + std::to_string(count) + ":" + text);
+        return true;
+    }
+};
+void text_output_capture() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    RecordedText recorded;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.text_output = &recorded;
+    options.swipe_encoder = [path] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = std::make_shared<int>(0);
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    auto [ax, ay] = key_point(app, "KeyA");
+    app.down(0, ax, ay, 1);
+    app.up(0, ax, ay);
+    auto [dx, dy] = key_point(app, "Digit1");
+    app.down(0, dx, dy, 1.1);
+    app.up(0, dx, dy);
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return recorded.calls.size() == 3; });
+    click(app, "swipe-candidate-1");
+    require(recorded.calls ==
+                std::vector<std::string>{"commit:a", "press:1", "commit:hello", "replace:5:helo"},
+            "taps, text keys, swiped words and alternatives use the text output");
+    require(sink.text.empty() && sink.replaced.empty(),
+            "nothing reaches the target past the text output");
+}
 void app_flow(bool ordered_replace) {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
@@ -1052,6 +1114,7 @@ int main(int argc, char** argv) {
         loading_does_not_block();
         app_flow(false);
         app_flow(true);
+        text_output_capture();
         trail_repaint();
         std::cout << "swipe tests passed\n";
         return 0;

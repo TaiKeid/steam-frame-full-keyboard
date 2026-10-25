@@ -31,6 +31,8 @@ struct Options {
     bool background_update{};
     // Tests replace the optional swipe engine module; empty uses the installed one.
     SwipeEncoderFactory swipe_encoder;
+    // Tests capture typed text here instead of the output queue; null uses the queue.
+    TextOutput* text_output{};
 };
 
 class App {
@@ -244,6 +246,8 @@ class App {
     // The launch declaration is frozen; Reload cannot redefine the target.
     std::optional<Language> target_language_;
     OutputController output_;
+    // Every text-producing path types through this: output_ unless replaced.
+    TextOutput* text_output_;
     KeyboardState keyboard_;
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;

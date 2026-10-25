@@ -5,9 +5,22 @@
 #include <deque>
 
 namespace framekeyboard {
+// Where App sends typed text. OutputController delivers it to the target; a
+// local editor can take its place. Native key presses stay with KeyboardState.
+class TextOutput {
+  public:
+    virtual ~TextOutput() = default;
+    // A held text key: typed once now, then repeated while held.
+    virtual bool text_press(unsigned pointer, const std::string& text, double now) = 0;
+    virtual bool commit_text(const std::string& text) = 0;
+    // Whether replace_text() is one ordered request; otherwise use taps_then_text().
+    virtual bool replaces_text() = 0;
+    virtual bool replace_text(std::size_t delete_before, const std::string& text) = 0;
+    virtual bool taps_then_text(int code, std::size_t count, const std::string& text) = 0;
+};
 // One field-scoped output session. Pointer/legend state stays in KeyboardState;
 // transport protocol state stays in the sinks. Only this class orders delivery.
-class OutputController : public KeySink {
+class OutputController : public KeySink, public TextOutput {
   public:
     explicit OutputController(KeySink& target) : target_(target) {}
     ~OutputController() override;
@@ -18,7 +31,7 @@ class OutputController : public KeySink {
     std::uint64_t failures() const { return failures_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
     void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now);
-    bool text_press(unsigned pointer, const std::string& text, double now);
+    bool text_press(unsigned pointer, const std::string& text, double now) override;
     void release(unsigned pointer);
     void release_modifier(int code);
     void cancel();
@@ -46,7 +59,7 @@ class OutputController : public KeySink {
     // Queues `count` taps of `code`, then `text`, as one sequence admitted
     // once. A failure found while delivering it drops the rest; no later part
     // is admitted again as fresh input. Nothing is queued if `text` is invalid.
-    bool taps_then_text(int code, std::size_t count, const std::string& text);
+    bool taps_then_text(int code, std::size_t count, const std::string& text) override;
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {

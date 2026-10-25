@@ -89,6 +89,13 @@ text after that boundary are discarded with a status, so a discarded Tab or Ente
 cannot join text intended for separate fields. A synchronous preedit rejection
 leaves the original editor responsible for its unchanged preedit.
 
+App types all text through one `TextOutput`: text key presses, Japanese, flick
+and Chinese/Korean commits, swipe taps, swiped words, alternatives and emoji.
+`OutputController` implements it, so by default text joins the ordered queue.
+A local editor can take its place, and tests inject a recorder through
+`Options::text_output`. Admission, retry and status stay with
+`OutputController`, and native presses still go from `KeyboardState` to it.
+
 Cancellation, hide, input reset and observed target/request or route changes clear
 queued output and retries before another session can receive input. A late result
 cannot advance the new session. An unowned Wayland ordering barrier left by

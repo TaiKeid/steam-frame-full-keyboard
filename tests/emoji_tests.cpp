@@ -584,6 +584,46 @@ void wait_for_emoji(App& app) {
     throw std::runtime_error("emoji images never finished");
 }
 
+// Emoji type through App's text output, so a local editor can receive them.
+struct RecordedText : TextOutput {
+    std::vector<std::string> commits;
+    bool text_press(unsigned, const std::string&, double) override { return false; }
+    bool commit_text(const std::string& text) override {
+        commits.push_back(text);
+        return true;
+    }
+    bool replaces_text() override { return false; }
+    bool replace_text(std::size_t, const std::string&) override { return false; }
+    bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
+};
+void text_output_tests() {
+    TemporaryDirectory directory;
+    TextSink sink;
+    RecordedText recorded;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.text_output = &recorded;
+    App app(options, sink);
+    const auto [px, py] = key_center(app, "picker");
+    app.down(0, px, py, 1);
+    app.up(0, px, py);
+    wait_for_emoji(app);
+    if (!app.emoji_open()) {
+        std::cout << "No color emoji font here; skipping the emoji text output check.\n";
+        return;
+    }
+    const auto view = app.view();
+    const auto* grin = cell(*view.emoji, "😀");
+    require(grin, "the first smiley is in view");
+    const auto [x, y] = center(grin->bounds);
+    app.down(0, x, y, 2);
+    app.up(0, x, y);
+    require(recorded.commits == std::vector<std::string>{"😀"} && sink.text.empty(),
+            "an emoji types through the text output and nothing reaches the target past it");
+}
 void app_tests() {
     TemporaryDirectory directory;
     TextSink sink;
@@ -869,6 +909,7 @@ int main() {
         stick_tests();
         picker_tests();
         app_tests();
+        text_output_tests();
         paint_tests();
         shutdown_tests();
         unavailable_tests();

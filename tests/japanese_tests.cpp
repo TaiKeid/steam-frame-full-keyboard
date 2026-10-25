@@ -301,10 +301,52 @@ void romaji_legends() {
         }
     }
 }
+// Romaji and flick commits type through App's text output, so a local editor
+// can receive them instead of the target.
+struct RecordedText : TextOutput {
+    std::vector<std::string> commits;
+    bool text_press(unsigned, const std::string&, double) override { return false; }
+    bool commit_text(const std::string& text) override {
+        commits.push_back(text);
+        return true;
+    }
+    bool replaces_text() override { return false; }
+    bool replace_text(std::size_t, const std::string&) override { return false; }
+    bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
+};
+void text_output_capture() {
+    char directory[] = "/tmp/framekeyboard-japanese-output-XXXXXX";
+    require(mkdtemp(directory), "temporary text output profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    RecordedText recorded;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.text_output = &recorded;
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    click_key(app, "Enter");
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    flick(app, "a", 1);
+    click_key(app, "Enter");
+    require(recorded.commits == std::vector<std::string>{"か", "あ"},
+            "Romaji and flick commits use the text output");
+    require(sink.text.empty() && sink.keys.empty(), "nothing reaches the target past the text output");
+}
 int main() {
     try {
         romaji_legends();
         flick_input();
+        text_output_capture();
         {
             // Marks also apply to katakana, and leave kana without variants alone.
             JapaneseComposer marks;

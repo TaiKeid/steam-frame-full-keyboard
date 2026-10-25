@@ -128,7 +128,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       profiles_(load_profiles(options.data_dir, options.config_dir)),
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
-      output_(sink), keyboard_(output_) {
+      output_(sink), text_output_(options.text_output ? options.text_output : &output_),
+      keyboard_(output_) {
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
@@ -833,7 +834,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                     if (options_.input == InputBackend::None) {
                         status_.clear();
                     } else {
-                        output_.text_press(pointer, text, now);
+                        text_output_->text_press(pointer, text, now);
                     }
                     if (keymap_->composing()) {
                         status_ = "Accent pending";
@@ -1275,7 +1276,7 @@ void App::commit_japanese() {
     if (options_.input == InputBackend::None) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
-    } else if (output_.commit_text(text)) {
+    } else if (text_output_->commit_text(text)) {
         composition_.cancel();
         status_.clear();
     } else {
@@ -1508,7 +1509,7 @@ void App::commit_cjk() {
         return;
     }
     const auto text = cjk_->text();
-    if (!text.empty() && (options_.input == InputBackend::None || output_.commit_text(text))) {
+    if (!text.empty() && (options_.input == InputBackend::None || text_output_->commit_text(text))) {
         cjk_->cancel();
         status_.clear();
     } else {
@@ -2050,7 +2051,7 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         }
     } else {
         const auto text = keymap_->compose(track.symbol);
-        if (!text.empty() && options_.input != InputBackend::None && !output_.commit_text(text)) {
+        if (!text.empty() && options_.input != InputBackend::None && !text_output_->commit_text(text)) {
             status_ = "Text was not sent. Release other keys and check the target/input connection.";
         }
         swipe_space_ = false;
@@ -2141,7 +2142,8 @@ void App::apply_swipe(const SwipeService::Result& result) {
     }
     swipe_selected_ = 0;
     const auto text = (swipe_space_ ? " " : "") + swipe_candidates_.front();
-    if (options_.input != InputBackend::None && !(output_.admit(true) && output_.commit_text(text))) {
+    if (options_.input != InputBackend::None &&
+        !(output_.admit(true) && text_output_->commit_text(text))) {
         status_ = "Text was not sent. Release other keys and check the target/input connection.";
         swipe_candidates_.clear();
         return;
@@ -2184,11 +2186,11 @@ void App::choose_swipe(int index) {
         // Replace exactly the characters this keyboard just sent.
         const auto count = static_cast<std::size_t>(g_utf8_strlen(swipe_committed_.c_str(), -1));
         const auto failures = output_.failures();
-        if (output_.replaces_text()) {
+        if (text_output_->replaces_text()) {
             // Gamescope types text through a temporary keymap. Separate libei
             // Backspace keys could interleave with it and type wrong characters,
             // so deletion travels in the same ordered text request.
-            if (!output_.replace_text(count, word)) {
+            if (!text_output_->replace_text(count, word)) {
                 refuse();
                 return;
             }
@@ -2206,7 +2208,8 @@ void App::choose_swipe(int index) {
         }
         // One sequence: separate presses would each be admitted on their own,
         // and one that found an earlier failure would clear it and still go out.
-        if (!output_.taps_then_text(KEY_BACKSPACE, count, word) || output_.failures() != failures) {
+        if (!text_output_->taps_then_text(KEY_BACKSPACE, count, word) ||
+            output_.failures() != failures) {
             refuse();
             return;
         }
@@ -2459,7 +2462,7 @@ bool App::type_emoji(const std::string& text) {
         return true; // The preview cannot type; it still remembers the emoji.
     }
     // One commit for the whole sequence, so a family or flag arrives whole.
-    if (!backend_ready_ || !output_.admit(true) || !output_.commit_text(text)) {
+    if (!backend_ready_ || !output_.admit(true) || !text_output_->commit_text(text)) {
         update_output_status();
         dirty = true;
         return false;
