@@ -628,27 +628,41 @@ EmojiPicker::Event EmojiPicker::tick(double now) {
         const double seconds = std::min(now - glide_->at, .1);
         const double old = scroll_, limit = scroll_limit();
         glide_->at = now;
-        if (glide_->bounce) {
-            // Exact steps of x'' = -w²x - 2wx' from the end the grid ran past.
-            const double w = bounce_rate, e = std::exp(-w * seconds);
+        // Exact steps of x'' = -w²x - 2wx' from the end the grid ran past.
+        auto spring = [&](double t) {
+            const double w = bounce_rate, e = std::exp(-w * t);
             const double x = scroll_ - glide_->end, v = glide_->velocity;
-            scroll_ = glide_->end + (x + (v + w * x) * seconds) * e;
-            glide_->velocity = (v - w * (v + w * x) * seconds) * e;
+            scroll_ = glide_->end + (x + (v + w * x) * t) * e;
+            glide_->velocity = (v - w * (v + w * x) * t) * e;
             if (std::abs(scroll_ - glide_->end) < .5 && std::abs(glide_->velocity) < settled_speed) {
                 scroll_ = glide_->end;
                 glide_.reset(); // Settled on the end.
             }
+        };
+        if (glide_->bounce) {
+            spring(seconds);
         } else {
             // The exact distance under exponential decay, independent of frame rate.
-            const double decay = std::exp(-seconds / glide_decay);
-            scroll_ += glide_->velocity * glide_decay * (1 - decay);
-            glide_->velocity *= decay;
-            if (scroll_ < 0 || scroll_ > limit) {
+            const double v = glide_->velocity, decay = std::exp(-seconds / glide_decay);
+            const double next = scroll_ + v * glide_decay * (1 - decay);
+            if (next < 0 || next > limit) {
+                // Spring from the moment the glide reaches the end, at the
+                // capped speed, so a fast fling or a late frame overshoots no
+                // more than a slow one: solve x + v·τ(1 − e^(−t/τ)) = end.
+                const double end = next < 0 ? 0 : limit;
+                const double reached = std::clamp((end - scroll_) / (v * glide_decay), 0.0, 1 - 1e-9);
+                const double at = -glide_decay * std::log(1 - reached);
+                scroll_ = end;
                 glide_->bounce = true;
-                glide_->end = scroll_ < 0 ? 0 : limit;
-                glide_->velocity = std::clamp(glide_->velocity, -bounce_speed, bounce_speed);
-            } else if (std::abs(glide_->velocity) < settled_speed) {
-                glide_.reset(); // Slowed to a stop.
+                glide_->end = end;
+                glide_->velocity = std::clamp(v * (1 - reached), -bounce_speed, bounce_speed);
+                spring(std::max(0.0, seconds - at));
+            } else {
+                scroll_ = next;
+                glide_->velocity *= decay;
+                if (std::abs(glide_->velocity) < settled_speed) {
+                    glide_.reset(); // Slowed to a stop.
+                }
             }
         }
         if (scroll_ != old) {

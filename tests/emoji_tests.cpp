@@ -342,6 +342,21 @@ void picker_tests() {
         require((picker.scroll_room(grid.x + 5, grid.y + 5) == ScrollRoom{forward, !forward}),
                 "at an end the grid only scrolls back");
     }
+    // A fast fling, or one ticked late, overshoots no more than a slow one.
+    for (const double frame : {1.0 / 60, .1}) {
+        picker.reset();
+        picker.scroll(x, y, 1); // 116 px from the start.
+        picker.down(1, x, y, 90);
+        picker.move(1, x + 100, y, 90.0167);
+        picker.up(1, x + 100, y, 90.017); // About 5900 px a second toward the start.
+        double furthest = 0;
+        for (double now = 90.017 + frame; picker.gliding() && now < 100; now += frame) {
+            picker.tick(now);
+            furthest = std::max(furthest, -picker.scroll_offset());
+        }
+        require(furthest > 20 && furthest < 70, "a fast fling bounces no further than a slow one");
+        require(!picker.gliding() && picker.scroll_offset() == 0, "and settles on the end");
+    }
     // A press during the bounce puts the grid back on its end.
     picker.reset();
     picker.scroll(x, y, 1);
