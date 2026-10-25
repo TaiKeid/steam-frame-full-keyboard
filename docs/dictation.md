@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: designed, not started, and not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: designed, with the groundwork in place (2026-10-25); M1 is next. Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -104,13 +104,18 @@ Esc in dictation mode is local and never reaches the application.
 - **Line breaks:**
   - Those at the start and end are dropped.
   - Those between paragraphs are kept and sent as Shift+Enter, so chat applications insert a line break instead of sending early.
+  - Steam fields take Shift+Enter only where they hold several lines, such as the friends chat message box. For other Steam fields, see [open questions](#open-questions).
   - Only the final Enter is a plain Enter.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the existing output queue. Each line break is a native key entry, so text with many lines goes out in several batches as the queue drains.
+  - Plain text to local apps goes either as whole commits or one acknowledged character at a time, at least 20 ms apart. The second way takes about 30 s for 900 characters. M3b measures both before choosing.
   - Sending waits until no key is held, so a held modifier cannot turn letters into shortcuts.
   - The editor is locked and shows progress while sending.
   - If delivery fails or is interrupted, the unsent remainder stays in the editor and the mode stays open, as failed Japanese commits stay in the preedit today.
-- **Send while capturing:** capture stops, Send waits for pending phrases, then sends (*proposal*).
+    - Text the target acknowledged leaves the editor.
+    - A commit that timed out may have arrived anyway, so the editor marks where delivery became uncertain (*proposal*).
+    - The final Enter is tracked on its own, so a retry never sends the message twice.
+- **Send while capturing:** capture stops, Send waits for pending phrases, then sends (*proposal*). The wait can be cancelled with Esc and ends after the request timeout.
 - **Target:** Send types into whatever has keyboard focus at that moment. Switching windows mid-dictation is the user's choice.
 
 ### Dashboard, passthrough and focus
@@ -213,6 +218,8 @@ The keyboard knows only the server address. Each phrase is one plain HTTP reques
 - **Model name:** sent as `model` only when `dictation_model` is set in `config.json`. Some servers need it, for example Speaches unless a default model is configured; `whisper-server` ignores it.
 - **Server-side configuration:** the model, GPU, threads and decoding options belong to the server's own configuration.
 - **Timeout:** 10 s per phrase. A connection failure is retried once; that is safe because nothing is typed before the text returns.
+- **One request at a time** (*proposal*): a phrase is sent only after the previous one returned and was inserted. App, not the helper, supplies each phrase's prompt from the editor as it is then. Its context then includes the phrase before it, as cleaned, joined or edited. Servers answer in well under half a second, so this costs little.
+- **Reply limits** (*proposal*): a reply larger than 64 KB is rejected before it is parsed, and only the `text` field is read.
 - **Test:** sends half a second of silence and expects a valid reply.
 
 **Why one request per phrase:** Whisper transcribes whole clips anyway, phrase detection is cheap on the Frame, and stateless requests keep any compatible server usable. Audio is about 32 KB per second of speech.
@@ -226,6 +233,7 @@ The reference is whisper.cpp's `whisper-server`, at the version used in the meas
 - **Window:** Whisper's normal 30 s window, never a window sized to the clip.
 - **Path:** `--inference-path /v1/audio/transcriptions`.
 - **Decoding:** non-speech tokens suppressed (`--suppress-nst`), no timestamps (`--no-timestamps`).
+- **No `--convert`:** the keyboard already sends 16 kHz mono WAV. With conversion on, the server writes each upload to a temporary file.
 - **Network:** listening on the LAN address (`--host`, `--port`).
 
 Its request fields match the protocol above. The exact command, running it as a background service, and its logging behavior are verified and documented in M1.
@@ -244,9 +252,15 @@ Servers with their own protocols, such as Home Assistant's Wyoming Faster Whispe
 
 The repository ships instructions only, no server code:
 
-- building or installing `whisper-server` on macOS (Metal), Linux with NVIDIA (CUDA) and other GPUs (Vulkan);
+- installing or building `whisper-server` on Windows, macOS and Linux:
+  - **Windows:** NVIDIA (CUDA) and other GPUs (Vulkan).
+  - **macOS:** Metal.
+  - **Linux:** NVIDIA (CUDA) and other GPUs (Vulkan).
 - downloading large-v3-turbo;
-- the start command and running it as a service (a LaunchAgent on macOS, a systemd user unit on Linux);
+- the start command, and running it at login or as a service:
+  - **Windows:** a scheduled task or service.
+  - **macOS:** a LaunchAgent.
+  - **Linux:** a systemd user unit.
 - binding it to the LAN address and firewalling it;
 - checking it from another machine with `curl` before using it from the keyboard.
 
@@ -267,26 +281,73 @@ The repository ships instructions only, no server code:
 | `framekeyboard-dictate` helper | Microphone capture through a `pw-record` child (16 kHz mono), speech level, phrase detection, WAV encoding, server requests, reply cleanup | Separate process, so a stuck device or network call cannot block the VR loop. Python standard library only, like the update helper (*proposal*). |
 | On-device engine | whisper.cpp with the small model, run by the helper as a child process with a line protocol | Only in On device mode. Low priority; unloads when idle (*proposal*). |
 | Phrase detection | Energy-based, with an adaptive noise floor, 0.3 s pre-roll, end after 0.6 s of silence, at most 25 s per phrase | Cheap enough for the Frame (*proposal*). |
-| Helper protocol | Socket pair with bounded line messages: level, phrase start and end, text, errors | Transcripts are never logged. A dead helper cannot raise SIGPIPE in the keyboard. |
+| Helper protocol | Private `SOCK_SEQPACKET` socket pair with bounded packets: level, phrase start and end, text, errors. App answers each finished phrase with its prompt | Transcripts are never logged. A dead helper cannot raise SIGPIPE in the keyboard. |
+| Helper lifetime | Exits on socket EOF and kills `pw-record` with it. Captured output only, and not dumpable | The service keeps helpers alive across a handoff (`KillMode=process`), so the helper must notice the keyboard is gone on its own. |
 | `DictationEditor` | Text, cursor, line layout, limits, phrase insertion and joining, phrase undo | Pure and host-testable. |
-| App integration | Dictation mode layout, key routing to the editor, Esc rules, Send through the output queue, composer commits into the editor | Rendering stays free of input delivery. |
+| App integration | Dictation mode layout, key routing to the editor, Esc rules, Send through the output queue, composer commits into the editor | Typed text reaches the editor through `TextOutput`. Rendering stays free of input delivery. |
 | Panel | Editor drawing, greyed text, overlays, counter, mic bars, Settings text fields | The bars redraw only the mic key's damaged region. If the full texture upload per frame is too costly with a game running, the bars move to a separate small overlay like the passthrough cursors. |
 | VR | Passthrough while capturing, stick scrolling in both modes | |
 
 ## Milestones
 
+Revised on 2026-10-25 after a second review of this plan. Every milestone keeps its acceptance conditions; a checkbox is marked only once they pass.
+
 - [x] **M0 Feasibility and engine decision:**
   - Whisper measured on the Frame and on two self-hosted machines.
   - Server recognition chosen as the main path.
   - On-device recognition limited to small, English and Spanish.
-- [ ] **M1 Reference server:**
-  - Verify `whisper-server` with the protocol above.
-  - Document the setup, running it as a service, and its logging.
+- [x] **Groundwork (2026-10-25):** fixes outside dictation that it depends on.
+  - All of App's typed text goes through one `TextOutput`, so the editor can take the target's place.
+  - A retry after a per-character timeout types only the unacknowledged rest, instead of retyping delivered characters.
+  - Shift+Enter starts a new line in multi-line Steam fields, such as the friends chat message box, and Enter still sends.
+- [ ] **M1 Reference server and microphone:**
+  - Run `whisper-server` on a Linux desktop with a GPU. Verify the protocol above: its fields, the `/inference` fallback for a server started without `--inference-path`, and the `model` field.
+  - Check what the server logs, and that uploads are not written to disk; `--convert` writes them to temporary files.
+  - Write the setup guide for Windows, macOS and Linux (see [setup instructions](#setup-instructions)).
   - Measure end-to-end time from the Frame for 3 s and 10 s phrases over Wi-Fi.
-- [ ] **M2 Helper, server path:** capture, level, phrase detection, requests and the protocol. Host tests with WAV fixtures and a local fake server; no microphone needed.
-- [ ] **M3 Dictation mode, English:** editor model and tests, layout, Esc rules, undo, Send through the queue. Delivery verified with the dedicated receiver before any application.
-- [ ] **M4 Settings:** Dictation card with the mode dropdown, narrower cards with the cut-off fourth card, field entry for the server address, recent servers, Test, error overlays.
-- [ ] **M5 Languages and direct mode:** Spanish, Japanese and Chinese acceptance, script prompts, composer commits into the editor, Type as I speak.
+  - **Microphone on the Frame:**
+    - Check that `pw-record` at 16 kHz mono 16-bit records the headset microphone in the headset session with SteamVR running.
+    - Check which source it actually links to, without relying on a fixed node number, and that stdout is raw samples, not a container.
+    - Check mute and loss of the device, and recording while a game plays sound.
+    - Record level samples for tuning phrase detection: fan noise, breathing, quiet speech, short answers and speech running past 25 s.
+- [ ] **M2 Helper, server path:** capture, level, phrase detection, requests and the protocol, plus:
+  - **Lifetime:**
+    - The helper exits when the keyboard's socket closes or the keyboard stops making progress, and takes `pw-record` with it.
+    - A blocked request can be cancelled.
+    - An update handoff starts only after the helper and recorder have gone.
+  - **Privacy:**
+    - The helper inherits no output, and errors are fixed codes.
+    - No text or audio goes into arguments, the environment or files.
+    - The helper process cannot dump core.
+    - Tests check that marker phrases never show up in output.
+  - **Backlog:** queued audio is bounded by bytes, duration and age. Overflow stops capture visibly.
+  - Host tests with WAV fixtures, a fake `pw-record` and a local fake server; no microphone needed.
+- [ ] **M3a Editor and key routing, English:**
+  - `DictationEditor` and its tests.
+  - The dictation mode layout, with editor keys handled in App before `KeyboardState`. Typed text goes through `TextOutput`.
+  - Minimal config parsing and the English profile's `dictation` entry, so dictation can be configured in `config.json` before M4.
+  - Profiles with a composer hide the mic key until M5a (*proposal*).
+  - Swipe and the emoji key are unavailable in dictation mode (*proposal*).
+  - A `--render-dictation` image export for reviewing the look.
+- [ ] **M3b Send:**
+  - **A/B test of plain-text delivery:** whole commits of up to 32 characters against one acknowledged character at a time, 20 ms apart. The swipe fix that introduced the second way was measured only on replacements.
+    - Test the dedicated receiver first, then an X11 browser under load.
+    - Count scrambled and reordered text, and time a 900-character text.
+    - The default is whichever is reliable.
+  - Progress while sending. On failure, only the unsent rest stays in the editor, and the final Enter is tracked separately, so a retry cannot send twice.
+  - Line breaks: Shift+Enter in multi-line Steam fields, and the open question below for other Steam fields.
+  - Delivery verified with the dedicated receiver before any application.
+- [ ] **M3c Live dictation:**
+  - The helper connected to the editor: phrases, overlays, Esc rules, phrase undo and the mic bars, whose cost is measured with a game running.
+  - **Presentation and lifecycle:**
+    - A table of what capture, pending phrases and the editor do on dashboard close, X, target loss, native fallback, tracking loss, suspend, Quit and update.
+    - Automatic passthrough is tracked apart from the user's own toggle (*proposal*).
+- [ ] **M4 Settings:**
+  - The Dictation card with the mode dropdown.
+  - Narrower cards with the cut-off fourth card.
+  - Field entry for the server address, recent servers, Test and the error overlays.
+- [ ] **M5a Languages:** Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
+- [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
   - whisper.cpp build and small model download and delete.
   - English and Spanish only.
@@ -369,7 +430,23 @@ Findings:
 
 ## Open questions
 
-- **Mic bars:** the cost of redrawing them with a game running.
+For the owner, before the milestone named:
+
+- **Steam fields without line breaks (M3b):** search and other single-line Steam fields cannot take Shift+Enter. Does Send refuse multi-line text there before typing anything, or flatten its line breaks to spaces?
+- **Closing the dashboard while paused (M3c):** automatic passthrough lasts until dictation mode ends, but a paused editor hides when the dashboard closes. Which wins after capture started passthrough?
+- **Steam closing its request while capturing (M3c):** in replacement mode the panel hides when Steam's request ends, whatever passthrough says. Should X and a lost target stop capture and drop pending phrases? *Proposal:* yes, keeping the editor text.
+- **Pause and pending phrases (M3c):**
+  - Does pausing send the phrase being spoken, or drop it?
+  - Where does a late result go if the cursor moved or the text changed meanwhile? *Proposal:* where the phrase started, unless that text was edited, then at the cursor.
+- **Recognizer failure (M3c):** drop only the failed phrase, or every queued one too? *Proposal:* all queued phrases, with the reason shown.
+- **Uploads after capture stops (M2):** the decisions say audio leaves only while capturing, but queued phrases and Send's wait upload after the microphone stops, and Test sends silence. *Proposal:* say that audio leaves only for a dictation session or a Test, never outside one.
+- **Text cleanup (M3a):**
+  - Lowercasing a phrase's first letter breaks "I" and names. *Proposal:* drop the rule and rely on the context prompt.
+  - Collapsing repeated words can remove deliberate repetition. *Proposal:* collapse only runs of six or more.
+- **Reply length cap (M2):** measure false rejections per language before fixing 25 characters a second.
+- **Test button (M4):** does a reply with empty text count as reachable? *Proposal:* yes, any valid reply with a `text` field.
+- **Private hosts (M2):** check the resolved address on every connection and retry, follow no redirects and use no proxy. Allow IPv6 unique-local and link-local addresses (*proposal*).
+- **Mic bars:** the cost of redrawing them with a game running (measured in M3c).
 - **Proposals:** the items marked *proposal* above.
 
 ## Further work
