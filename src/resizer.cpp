@@ -169,7 +169,7 @@ bool PanelResize::begin(const Transform& panel, double width, const Ray& ray) {
     grab_ = *hit;
     return true;
 }
-std::optional<PanelResize::Result> PanelResize::update(const Ray& ray) const {
+std::optional<double> PanelResize::update(const Ray& ray) const {
     // The plane captured at the press, so the scale never feeds back into the hit.
     const auto hit = plane_hit(panel_, ray);
     if (!hit) {
@@ -178,8 +178,6 @@ std::optional<PanelResize::Result> PanelResize::update(const Ray& ray) const {
     const auto center = column(panel_, 3);
     const auto span = minus(grab_, center);
     const double factor = dot(minus(*hit, center), span) / dot(span, span);
-    // The pose is unchanged: the center stays put and the edges move symmetrically.
-    return Result{panel_, std::clamp(width_ * factor, PanelPlacement::minimum_width,
-                                     PanelPlacement::maximum_width)};
+    return std::clamp(width_ * factor, PanelPlacement::minimum_width, PanelPlacement::maximum_width);
 }
 } // namespace framekeyboard

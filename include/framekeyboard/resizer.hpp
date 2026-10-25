@@ -65,18 +65,15 @@ class ResizerFade {
     double value_{};
     std::optional<double> updated_;
 };
-// Scales the panel about its center. The scale follows the ray's hit on the
-// panel plane projected onto the line from the center through the initial
-// grab, so a press never jumps, the grabbed corner follows the laser and
-// sideways motion changes nothing.
+// Scales the panel about its center, so only its width changes. The scale
+// follows the ray's hit on the panel plane projected onto the line from the
+// center through the initial grab, so a press never jumps, the grabbed corner
+// follows the laser and sideways motion changes nothing.
 class PanelResize {
   public:
     bool begin(const Transform& panel, double width, const Ray& ray);
-    struct Result {
-        Transform transform{};
-        double width{};
-    };
-    std::optional<Result> update(const Ray& ray) const;
+    // The new width, or none while the ray misses the panel's plane.
+    std::optional<double> update(const Ray& ray) const;
 
   private:
     Transform panel_{};

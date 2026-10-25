@@ -293,8 +293,8 @@ class LaserDrag {
             stop();
             return false;
         }
-        if (const auto next = resize_.update(*ray)) {
-            placement.restore(next->transform, next->width);
+        if (const auto width = resize_.update(*ray)) {
+            placement.set_width(*width);
         }
         return true;
     }
@@ -1132,12 +1132,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         return Transform{{{z, 0, x, panel[0][3]}, {0, 1, 0, panel[1][3]}, {-x, 0, z, panel[2][3]}}};
     };
     auto stop_drag = [&](bool align_after_release = false) {
+        const bool resizing = drag.active() && drag.source() == MoveSource::Resize;
         feedback.cancel();
         // Tracking loss or timeout may already have stopped LaserDrag. Always
         // release the app's input gate as well; repeated cleanup is harmless.
         drag.stop();
         app.set_dragging(false);
-        if (align_after_release) {
+        if (resizing) {
+            // A resize keeps the pose: no re-facing, and the room or dashboard
+            // leveling reference stays as it was. Keep the width reached.
+            transform_dirty = true;
+        } else if (align_after_release) {
             // Release may arrive without another movement sample. Schedule the
             // first alignment frame even when the hand was completely still.
             horizon.reset();
@@ -1218,8 +1223,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             leveled_to = level_to;
             horizon.retarget(now);
         }
-        const auto aligned =
-            horizon.update(placement.transform(), now, drag.active(), auto_leveling, reference);
+        const auto aligned = horizon.update(placement.transform(), now,
+                                            drag.active() && drag.source() != MoveSource::Resize,
+                                            auto_leveling, reference);
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());
@@ -1384,9 +1390,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 !drag.start_resize(device, pointer, resize, now)) {
                 return;
             }
+            // Only the width changes, so leveling keeps running on the same pose.
             resize_side = side;
-            placement.restore(displayed.transform(), displayed.width());
-            horizon.reset();
             feedback.cancel();
             app.set_dragging(true, true);
             std::cout << "Keyboard resize started.\n" << std::flush;

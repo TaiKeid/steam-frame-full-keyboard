@@ -1130,23 +1130,22 @@ void resizer_tests() {
     // Grab the bottom-right corner; the center stays put.
     fk::PanelResize resize;
     require(resize.begin(panel, 1, toward({.5, .8125, -1})), "a press on the plane starts");
-    auto result = resize.update(toward({.5, .8125, -1}));
-    require(result && result->transform == panel, "pressing never jumps");
-    near(result->width, 1, "pressing keeps the width");
+    auto width = resize.update(toward({.5, .8125, -1}));
+    require(width.has_value(), "a press on the plane has a width");
+    near(*width, 1, "pressing never jumps");
     auto along = [&](double t) { return toward({.5 * t, 1 - .1875 * t, -1}); };
-    result = resize.update(along(1.5));
-    require(result.has_value(), "dragging along the diagonal resizes");
-    near(result->width, 1.5, "the dragged corner follows the laser");
-    require(result->transform == panel, "the center and rotation stay in place");
+    width = resize.update(along(1.5));
+    require(width.has_value(), "dragging along the diagonal resizes");
+    near(*width, 1.5, "the dragged corner follows the laser about the fixed center");
     // Sideways motion, perpendicular to the center's diagonal, changes nothing.
     const auto sideways = toward({.5 + .1875 * .1, .8125 + .5 * .1, -1});
-    near(resize.update(sideways)->width, 1, "perpendicular motion keeps the size");
-    near(resize.update(along(5))->width, 2, "the maximum width still applies");
-    near(resize.update(along(.1))->width, .45, "the minimum width still applies");
+    near(*resize.update(sideways), 1, "perpendicular motion keeps the size");
+    near(*resize.update(along(5)), 2, "the maximum width still applies");
+    near(*resize.update(along(.1)), .45, "the minimum width still applies");
     // Any corner works: the opposite one grows the keyboard the same way.
     fk::PanelResize from_left;
     require(from_left.begin(panel, 1, toward({-.5, .8125, -1})), "the left corner starts too");
-    near(from_left.update(toward({-.75, 1 - .1875 * 1.5, -1}))->width, 1.5,
+    near(*from_left.update(toward({-.75, 1 - .1875 * 1.5, -1})), 1.5,
          "dragging the left corner outward grows the keyboard");
     require(!resize.update({{.5, .8, 0}, {0, 0, 1}}), "a ray off the plane keeps the last size");
     require(!resize.begin(panel, 1, toward({0, 1, -1})), "a press at the center cannot start");
