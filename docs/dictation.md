@@ -17,7 +17,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
   - English, Spanish, Japanese and Chinese first. One multilingual Whisper model covers all of them on a server.
   - On device: English and Spanish only.
   - A language profile without dictation support hides the mic key.
-- **Off by default.** Audio leaves the Frame only in Server mode, only for the configured host and only while capturing.
+- **Off by default.** Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
 - **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk, and the system clipboard is never read or written.
 - **Release:** not in 0.9.0.
@@ -49,7 +49,8 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 ### Capturing
 
-- The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send or Esc.
+- The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send, which commits, or Esc, which discards.
+- **Pause:** the phrase being spoken ends at the pause, and its audio is recognized and inserted. Resuming starts a new phrase.
 - **Mic key while capturing:** five vertical bars replace the mic icon and move with the speech level. They are flat during silence.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
@@ -60,9 +61,10 @@ The mockup is incomplete; where it differs, the rules below apply.
 - **Script prompts:** for Chinese the prompt also fixes the script, because Whisper otherwise mixes simplified and traditional characters. For Japanese it uses 、 and 。, which Whisper often omits.
 - **Joining:**
   - In space-separated languages (English, Spanish), a space is added at either edge where needed; in Japanese and Chinese, none.
-  - When the inserted phrase continues a sentence, its first letter is lowercased.
+  - Whisper's casing is kept. The context prompt already tells it when a phrase continues a sentence, and lowercasing would break "I" and names.
   - When text follows the cursor, the phrase's final period is dropped.
 - **Order:** resuming while a phrase is still pending queues the new audio, and phrases are inserted in order.
+- **Late text:** a phrase is inserted at the cursor as it is when its text arrives, even if the cursor moved or the text changed meanwhile.
 - **Cleanup of returned text:**
   - Must be valid UTF-8, or the phrase is dropped.
   - Control characters are removed.
@@ -104,7 +106,7 @@ Esc in dictation mode is local and never reaches the application.
 - **Line breaks:**
   - Those at the start and end are dropped.
   - Those between paragraphs are kept and sent as Shift+Enter, so chat applications insert a line break instead of sending early.
-  - Steam fields take Shift+Enter only where they hold several lines, such as the friends chat message box. For other Steam fields, see [open questions](#open-questions).
+  - A Steam field that holds only one line, such as search, cannot take Shift+Enter. There each run of line breaks becomes a single space, so `a\n\n\nb` is sent as `a b`. Multi-line Steam fields, such as the friends chat message box, keep the line breaks.
   - Only the final Enter is a plain Enter.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the existing output queue. Each line break is a native key entry, so text with many lines goes out in several batches as the queue drains.
@@ -121,7 +123,11 @@ Esc in dictation mode is local and never reaches the application.
 ### Dashboard, passthrough and focus
 
 - **Dashboard closed while capturing:** passthrough is turned on automatically, so the keyboard stays open and capture continues, even if Steam asks to close the keyboard. That passthrough stays on until dictation mode ends.
-- **Dashboard closed while not capturing:** the keyboard hides as usual. The dictation state (mode, editor text, cursor, scroll) is kept in memory and restored when the keyboard opens again.
+- **Dashboard closed while not capturing:** the keyboard hides as usual. The dictation state (mode, editor text, cursor, scroll) is kept in memory and restored when the keyboard opens again. A paused editor whose capture already turned passthrough on stays open, because that passthrough lasts until the mode ends.
+- **X** discards everything, without asking: capture stops, pending phrases and the editor text are dropped, and dictation mode ends.
+- **Typing target lost**, for example when Steam's field closes:
+  - **Editor mode:** dictation continues into the editor and the panel stays open. The user can select the right field and Send there. In replacement mode this needs its own presentation rule, because today the panel hides when Steam's request ends, whatever passthrough says.
+  - **Type as I speak:** capture stops at once, and phrases not yet typed are discarded.
 - **Switching windows** is handled the same way as closing and reopening the dashboard.
 - **Unchanged:** held keys are still released on hide and target change, and the stock keyboard fallback is unchanged.
 - **App exit or restart:** the editor text is lost.
@@ -133,6 +139,7 @@ A second checkbox, **Type as I speak**, skips the editor. The mic key starts and
 - No character limit and no counter; the output queue paces delivery.
 - Undo last phrase is not offered, because the cursor in the target may have moved.
 - Esc while capturing stops capture and is not sent. Otherwise Esc is the normal key.
+- **Mic key while capturing** stops capture. The phrase being spoken is still recognized and typed.
 - In space-separated languages, every phrase after the first in a capture session starts with a space. The prompt uses the phrases typed in that session.
 - Other keys keep typing while capturing (*proposal*).
 
@@ -147,7 +154,7 @@ Waiting for the recognizer, errors and the discard confirmation appear as overla
 - server error, or an unusable reply;
 - the helper exited.
 
-On a recognizer failure, capture stops and the failed phrase is discarded; text already in the editor stays (*proposal*). In Type as I speak mode errors use the status line.
+On a recognizer failure, capture stops, and the failed phrase and every phrase queued after it are dropped, with the reason shown. Text already in the editor stays. In Type as I speak mode errors use the status line.
 
 ## Settings
 
@@ -220,7 +227,7 @@ The keyboard knows only the server address. Each phrase is one plain HTTP reques
 - **Timeout:** 10 s per phrase. A connection failure is retried once; that is safe because nothing is typed before the text returns.
 - **One request at a time** (*proposal*): a phrase is sent only after the previous one returned and was inserted. App, not the helper, supplies each phrase's prompt from the editor as it is then. Its context then includes the phrase before it, as cleaned, joined or edited. Servers answer in well under half a second, so this costs little.
 - **Reply limits** (*proposal*): a reply larger than 64 KB is rejected before it is parsed, and only the `text` field is read.
-- **Test:** sends half a second of silence and expects a valid reply.
+- **Test:** sends half a second of silence and expects a valid reply. A reply with empty text passes: any valid reply with a `text` field shows the server is reachable and speaks the protocol.
 
 **Why one request per phrase:** Whisper transcribes whole clips anyway, phrase detection is cheap on the Frame, and stateless requests keep any compatible server usable. Audio is about 32 KB per second of speech.
 
@@ -266,7 +273,7 @@ The repository ships instructions only, no server code:
 
 ### Security and privacy
 
-- **When audio leaves the Frame:** only in Server mode, only while capturing, and only to the configured host.
+- **When audio leaves the Frame:** only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test.
 - **No encryption or authentication.** Host and port only means plain HTTP. Anyone on the local network can reach the server, and audio and text cross the network unencrypted. To limit this:
   - the keyboard accepts only private-network hosts: RFC 1918 and link-local addresses, `.local` names, and loopback (*proposal*);
   - the setup guide recommends binding the server to the LAN and firewalling it;
@@ -335,7 +342,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
     - Count scrambled and reordered text, and time a 900-character text.
     - The default is whichever is reliable.
   - Progress while sending. On failure, only the unsent rest stays in the editor, and the final Enter is tracked separately, so a retry cannot send twice.
-  - Line breaks: Shift+Enter in multi-line Steam fields, and the open question below for other Steam fields.
+  - Line breaks: Shift+Enter in multi-line Steam fields, and single spaces in single-line Steam fields.
   - Delivery verified with the dedicated receiver before any application.
 - [ ] **M3c Live dictation:**
   - The helper connected to the editor: phrases, overlays, Esc rules, phrase undo and the mic bars, whose cost is measured with a game running.
@@ -430,21 +437,9 @@ Findings:
 
 ## Open questions
 
-For the owner, before the milestone named:
+The owner settled the behavior questions on 2026-10-25; the rules are in the sections above. Still open:
 
-- **Steam fields without line breaks (M3b):** search and other single-line Steam fields cannot take Shift+Enter. Does Send refuse multi-line text there before typing anything, or flatten its line breaks to spaces?
-- **Closing the dashboard while paused (M3c):** automatic passthrough lasts until dictation mode ends, but a paused editor hides when the dashboard closes. Which wins after capture started passthrough?
-- **Steam closing its request while capturing (M3c):** in replacement mode the panel hides when Steam's request ends, whatever passthrough says. Should X and a lost target stop capture and drop pending phrases? *Proposal:* yes, keeping the editor text.
-- **Pause and pending phrases (M3c):**
-  - Does pausing send the phrase being spoken, or drop it?
-  - Where does a late result go if the cursor moved or the text changed meanwhile? *Proposal:* where the phrase started, unless that text was edited, then at the cursor.
-- **Recognizer failure (M3c):** drop only the failed phrase, or every queued one too? *Proposal:* all queued phrases, with the reason shown.
-- **Uploads after capture stops (M2):** the decisions say audio leaves only while capturing, but queued phrases and Send's wait upload after the microphone stops, and Test sends silence. *Proposal:* say that audio leaves only for a dictation session or a Test, never outside one.
-- **Text cleanup (M3a):**
-  - Lowercasing a phrase's first letter breaks "I" and names. *Proposal:* drop the rule and rely on the context prompt.
-  - Collapsing repeated words can remove deliberate repetition. *Proposal:* collapse only runs of six or more.
 - **Reply length cap (M2):** measure false rejections per language before fixing 25 characters a second.
-- **Test button (M4):** does a reply with empty text count as reachable? *Proposal:* yes, any valid reply with a `text` field.
 - **Private hosts (M2):** check the resolved address on every connection and retry, follow no redirects and use no proxy. Allow IPv6 unique-local and link-local addresses (*proposal*).
 - **Mic bars:** the cost of redrawing them with a game running (measured in M3c).
 - **Proposals:** the items marked *proposal* above.
