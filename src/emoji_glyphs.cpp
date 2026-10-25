@@ -156,6 +156,16 @@ void EmojiGlyphs::request(int size, const std::vector<std::string>& texts) {
     }
     wake_.notify_all();
 }
+void EmojiGlyphs::release() {
+    std::lock_guard lock(mutex_);
+    queue_.clear();
+    next_ = 0;
+    for (auto& [text, surface] : images_) {
+        cairo_surface_destroy(surface);
+    }
+    images_.clear();
+    fresh_ = false; // Nothing left to show.
+}
 cairo_surface_t* EmojiGlyphs::image(const std::string& text) const {
     std::lock_guard lock(mutex_);
     const auto found = images_.find(text);

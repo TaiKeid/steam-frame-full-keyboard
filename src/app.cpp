@@ -859,7 +859,6 @@ bool App::up(unsigned pointer, double x, double y) {
         const auto event = emoji_.up(pointer, x, y, monotonic_seconds());
         apply_emoji_event(event);
         move(pointer, x, y);
-        dirty = true;
         return false;
     }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
@@ -2317,6 +2316,8 @@ void App::open_emoji() {
     emoji_.reset();
     if (!emoji_glyphs_) {
         emoji_glyphs_ = std::make_unique<EmojiGlyphs>();
+    }
+    if (!emoji_checked_) {
         std::vector<std::string> texts;
         for (const auto& entry : bundled_emoji().entries) {
             texts.push_back(entry.base);
@@ -2336,6 +2337,14 @@ void App::close_emoji() {
     emoji_open_ = false;
     cancel(); // Space, Backspace and the arrows may be held.
     save_emoji();
+    // Stop drawing for a closed picker and free its images, up to 8 MB.
+    // Reopening draws the first screen again in milliseconds. The worker and
+    // its fonts stay: destroying Pango font maps leaks fontconfig data each
+    // time.
+    if (emoji_glyphs_) {
+        emoji_glyphs_->release();
+    }
+    emoji_requested_ = {};
     dirty = true;
 }
 void App::update_emoji_content() {

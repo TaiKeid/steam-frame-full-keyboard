@@ -34,7 +34,9 @@ class EmojiGlyphs {
     // Replaces the queue: images of these texts, `size` pixels square, in this
     // order. Images not requested any more are released.
     void request(int size, const std::vector<std::string>& texts);
-    // The finished image, or null. Valid until the next request().
+    // Drops the queue and frees every image, as for a closed picker.
+    void release();
+    // The finished image, or null. Valid until the next request() or release().
     cairo_surface_t* image(const std::string& text) const;
     // How many images of this size fit the memory limit.
     static std::size_t capacity(int size) {
