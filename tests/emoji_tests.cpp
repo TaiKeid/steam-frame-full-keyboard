@@ -565,6 +565,7 @@ void app_tests() {
                 "the waving hand starts the People columns");
         const auto [wave_x, wave_y] = center(wave->bounds);
         app.down(0, wave_x, wave_y, 6);
+        require(app.pointer_pressed(0), "an emoji press counts as pressed, so lost tracking cancels it");
         app.tick(6.6);
         wait_for_emoji(app);
         auto before = app.view();
@@ -581,6 +582,8 @@ void app_tests() {
         full.paint(after, 7, true);
         require(partial.rgba() == full.rgba(), "late tone images reach the popup");
         app.cancel_pointer(0);
+        require(!app.pointer_pressed(0) && !app.view().emoji->popup,
+                "cancelling ends the hold and its tones");
         toggle();
     }
 
