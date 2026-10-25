@@ -30,11 +30,25 @@ enum class Icon {
     SteamOS,
     Backspace,
     PassthroughOn,
-    PassthroughOff
+    PassthroughOff,
+    Emoji,
+    // Emoji picker categories.
+    Recent,
+    Smileys,
+    People,
+    Animals,
+    Food,
+    Travel,
+    Activities,
+    Objects,
+    Symbols,
+    Flags,
+    Clear
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.
-enum class ActionKind { Key, Shortcut, Flick };
+// The emoji key switches between the keyboard and the emoji picker; it sends nothing.
+enum class ActionKind { Key, Shortcut, Flick, Emoji };
 struct Key {
     bool operator==(const Key&) const = default;
     std::string id, label, secondary_label;

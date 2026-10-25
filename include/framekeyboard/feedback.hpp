@@ -28,6 +28,12 @@ class KeyHaptics {
         owners_[pointer] = device;
         pending_[device] = KeyFeedback::Press;
     }
+    // A held key that does something more, like an emoji opening its skin tones.
+    void hold(unsigned pointer) {
+        if (const auto owner = owners_.find(pointer); owner != owners_.end()) {
+            pending_[owner->second] = KeyFeedback::Press;
+        }
+    }
     void release(unsigned pointer) {
         const auto owner = owners_.find(pointer);
         if (owner != owners_.end()) {

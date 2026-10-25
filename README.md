@@ -12,6 +12,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 - Full-size layout with F1–F12, navigation keys, arrow keys, numpad, Ctrl, Alt, and Shift.
 - Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
+- An emoji picker with recent emoji, categories and skin tones.
 - Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
 - Controller laser typing, press/release haptic clicks, and subtle hover feedback.
 - Experimental swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
@@ -70,6 +71,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
 | Copy / paste | Use the two icons on the left; select text first when copying |
+| Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. The arrow key at the top left returns to the keyboard |
 | Move / rotate | Unpin, point at the line below the keyboard, hold the trigger, move your hand, then release |
 | Use the headset cursor | Press AUX to show the head cursor. Aim at keys with your head and click AUX; hold AUX on the movement line to move the keyboard |
 | Use grab movement | Enable **Use Drag to Move** in the **General** settings card and apply. Point anywhere on the keyboard and hold grab/grip; the same hand's thumbstick adjusts depth |
@@ -114,7 +116,7 @@ Use a new profile `id` to add a choice, or the same `id` to override a bundled o
 
 The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser or need an internet connection.
 
-Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save composition history. Placement and profile preferences are stored locally.
+Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save composition history; the emoji picker keeps a local list of recently used emoji, which its Clear button empties. Placement and profile preferences are stored locally.
 
 The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 

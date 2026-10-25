@@ -6,13 +6,27 @@
   "height": 416,
   "keys": [
     {
+      "id": "Emoji",
+      "label": "Emoji",
+      "secondary_label": "",
+      "x": 0,
+      "y": 0,
+      "width": 54.4,
+      "height": 44,
+      "action": {
+        "kind": "emoji",
+        "value": "picker"
+      },
+      "icon": "emoji"
+    },
+    {
       "id": "Copy",
       "label": "Copy",
       "secondary_label": "",
       "x": 0,
-      "y": 56,
+      "y": 66,
       "width": 79,
-      "height": 116,
+      "height": 110,
       "action": {
         "kind": "shortcut",
         "value": "copy"
@@ -24,9 +38,9 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 187,
+      "y": 186,
       "width": 79,
-      "height": 116,
+      "height": 110,
       "action": {
         "kind": "shortcut",
         "value": "paste"

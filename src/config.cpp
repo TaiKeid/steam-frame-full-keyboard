@@ -202,6 +202,8 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::SteamOS;
         } else if (icon == "backspace") {
             key.icon = Icon::Backspace;
+        } else if (icon == "emoji") {
+            key.icon = Icon::Emoji;
         } else if (!icon.empty()) {
             throw std::runtime_error("unknown key icon");
         }
@@ -217,6 +219,8 @@ Layout parse_layout(const std::string& json) {
             key.action_kind = ActionKind::Shortcut;
         } else if (kind == "flick" && !key.action.empty() && key.action.size() <= 32) {
             key.action_kind = ActionKind::Flick;
+        } else if (kind == "emoji" && key.action == "picker") {
+            key.action_kind = ActionKind::Emoji;
         } else {
             throw std::runtime_error("unknown key action");
         }
@@ -496,6 +500,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* swipe = field(document.get(), "swipe_typing", json_type_boolean, true)) {
             settings.swipe_typing = json_object_get_boolean(swipe);
         }
+        if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
+            settings.emoji_close_on_select = json_object_get_boolean(close);
+        }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
                 throw std::runtime_error("too many favorites");
@@ -598,6 +605,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->start_with_steamos));
         json_object_object_add(document.get(), "swipe_typing",
                                json_object_new_boolean(settings->swipe_typing));
+        json_object_object_add(document.get(), "emoji_close_on_select",
+                               json_object_new_boolean(settings->emoji_close_on_select));
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

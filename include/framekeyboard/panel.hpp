@@ -1,11 +1,13 @@
 #pragma once
 
+#include "emoji.hpp"
 #include "input.hpp"
 #include <array>
 #include <cairo.h>
 #include <optional>
 
 namespace framekeyboard {
+class EmojiGlyphs;
 constexpr int panel_width = 1600;
 constexpr int panel_height = 600;
 // Transparent space above/below the case lets dropdowns escape its border.
@@ -37,6 +39,7 @@ enum class ControlKind {
     AutoLeveling,
     ReplaceNativeKeyboard,
     StartWithSteamos,
+    EmojiCloseOnSelect,
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,
@@ -118,9 +121,18 @@ struct PanelView {
     std::set<std::string> hovered_keys, hovered_controls;
     // Case coordinates of the swipe in progress, drawn above the keys.
     std::vector<std::pair<double, double>> swipe_trail;
+    // Keys drawn dimmed, which ignore the laser.
+    std::set<std::string> disabled_keys;
+    // The emoji picker's grid and tabs; its keys are in `layout`.
+    std::optional<EmojiPickerView> emoji;
+    const EmojiGlyphs* emoji_glyphs{};
 };
 
 bool hidden_key(const PanelView& view, const Key& key);
+// The layout's width without its hidden numpad.
+double visible_layout_width(const PanelView& view);
+// A rectangle in layout coordinates, in panel coordinates.
+Rect panel_rect(const PanelView& view, Rect layout_rect);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
 Rect panel_case_bounds(const PanelView& view);

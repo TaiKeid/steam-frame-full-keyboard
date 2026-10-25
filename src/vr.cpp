@@ -469,6 +469,38 @@ class ScenePointer {
     }
     // Pointer IDs for the two hands; SteamVR's own cursor indexes stay small.
     static unsigned pointer(std::size_t hand) { return 0x100 + static_cast<unsigned>(hand); }
+    // A calibrated hand's thumbstick, x right and y up, from the component's
+    // tilt; like the trigger, reading it takes nothing from the app.
+    std::optional<std::pair<double, double>> stick(std::size_t index) {
+        auto& hand = hands_[index];
+        if (!hand.calibrated) {
+            return {};
+        }
+        auto models = vr_models();
+        vr::RenderModel_ControllerMode_State_t mode{};
+        if (!std::exchange(hand.stick_tried, true)) {
+            vr::VRControllerState_t released{}, right{}, up{};
+            right.rAxis[0].x = 1;
+            up.rAxis[0].y = 1;
+            vr::RenderModel_ComponentState_t rest{}, full_right{}, full_up{};
+            hand.stick_ready =
+                models->GetComponentState(hand.model.c_str(), "thumbstick", &released, &mode, &rest) &&
+                models->GetComponentState(hand.model.c_str(), "thumbstick", &right, &mode,
+                                          &full_right) &&
+                models->GetComponentState(hand.model.c_str(), "thumbstick", &up, &mode, &full_up) &&
+                hand.stick_x.calibrate(from_vr(rest.mTrackingToComponentRenderModel),
+                                       from_vr(full_right.mTrackingToComponentRenderModel)) &&
+                hand.stick_y.calibrate(from_vr(rest.mTrackingToComponentRenderModel),
+                                       from_vr(full_up.mTrackingToComponentRenderModel));
+        }
+        vr::RenderModel_ComponentState_t current{};
+        if (!hand.stick_ready || !models->GetComponentStateForDevicePath(
+                                     hand.model.c_str(), "thumbstick", hand.source, &mode, &current)) {
+            return {};
+        }
+        const auto pose = from_vr(current.mTrackingToComponentRenderModel);
+        return std::pair{hand.stick_x.read(pose), hand.stick_y.read(pose)};
+    }
 
   private:
     struct Hand {
@@ -476,6 +508,8 @@ class ScenePointer {
         vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
         std::string model;
         bool warned{}, calibrated{}, armed{}, held{};
+        bool stick_tried{}, stick_ready{};
+        ComponentAxis stick_x, stick_y;
         // The laser's origin and -Z direction in controller space.
         Transform tip{{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}};
         Transform neutral{};
@@ -1165,6 +1199,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
     }
     ScenePointer scene_pointer;
+    double stick_scrolled = 0; // When the passthrough stick last scrolled the emoji grid.
     if (!scene_pointer.connect()) {
         std::cout << "Passthrough pointer unavailable.\n" << std::flush;
     }
@@ -1745,6 +1780,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     break;
                 }
             }
+            // The stick scrolls the emoji grid under its hand's ray: outside the
+            // dashboard SteamVR sends no scroll events. Full tilt moves about
+            // ten columns a second; a small tilt does nothing.
+            const double stick_seconds = std::clamp(now - std::exchange(stick_scrolled, now), 0.0, .1);
+            for (std::size_t hand = 0; app.emoji_open() && !drag.active() && hand < samples.size();
+                 ++hand) {
+                const auto stick =
+                    inside[hand] && !samples[hand].lost ? scene_pointer.stick(hand) : std::nullopt;
+                if (!stick) {
+                    continue;
+                }
+                auto tilt = [](double value) {
+                    return std::abs(value) < .25 ? 0.0 : (value - std::copysign(.25, value)) / .75;
+                };
+                const double x = tilt(stick->first), y = tilt(stick->second);
+                if (x != 0 || y != 0) {
+                    app.scroll(ScenePointer::pointer(hand), 5 * x * stick_seconds,
+                               -5 * y * stick_seconds);
+                }
+            }
             dismiss_panel();
             // Only the passthrough pointer can turn it off with the dashboard closed.
             if (!app.passthrough() && PassthroughRequests::ends_request(replace, native)) {
@@ -1993,6 +2048,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             hide_panel();
         }
         const bool repaint = app.tick(now);
+        if (const auto held = app.take_emoji_hold(); held && lifecycle.visible()) {
+            feedback.hold(*held);
+        }
         if (lifecycle.visible() && repaint) {
             app.paint(now);
             panel.submit(app.renderer, app.view());

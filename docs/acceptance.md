@@ -69,6 +69,15 @@ Measure idle CPU, process memory, redraw time and pointer-to-feedback latency on
 
 Typed text and clipboard contents must not appear in logs. Recovery must not paste or replay queued characters into a newly focused application.
 
+## Emoji picker
+
+See [emoji picker](emoji.md#acceptance) for the full list. In the headset:
+
+- The emoji key opens the picker and Back returns; hiding, Settings and a lost Unicode connection return to the keys. Latched modifiers never reach an emoji.
+- A single emoji, a toned emoji, a ZWJ family and a flag each arrive whole in a Steam field, a Wayland field and an X11 field.
+- Dragging the grid and both stick paths (dashboard scroll events, and Stay open over apps) scroll without typing; holding never repeats.
+- The first open never stalls the VR loop, cells fill in as images arrive, and an idle picker does not redraw.
+
 ## Settings and pin
 
 - Confirm Settings, Recenter, Pin, Stay open over apps and language toolbar order. A pinned button changes icon without an active background.

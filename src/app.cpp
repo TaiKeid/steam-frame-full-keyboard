@@ -189,6 +189,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
     prepare_swipe();
     update_settings_ui();
     status_ = !startup_status_.empty()   ? startup_status_
@@ -269,6 +271,8 @@ std::vector<Control> App::controls() const {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
              button(4, 3, 0, 100)});
+        // The picker belongs to the language it was opened from.
+        result.back().enabled = !emoji_open_;
     }
     // Where the first row's fixed buttons end; suggestions start after it.
     double toolbar_end = x;
@@ -283,7 +287,7 @@ std::vector<Control> App::controls() const {
                                false,
                                Icon::Close});
     const auto ime_start = result.size();
-    if (japanese()) {
+    if (japanese() && !emoji_open_) {
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
         if (!japanese_latin_) {
@@ -314,7 +318,7 @@ std::vector<Control> App::controls() const {
             }
         }
     }
-    if (cjk_) {
+    if (cjk_ && !emoji_open_) {
         add({ControlKind::CjkToggle},
             {"cjk-toggle",
              cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
@@ -414,7 +418,10 @@ void App::update_settings_ui() {
            field(ControlKind::UseDragToMove,
                  checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
            field(ControlKind::AutoLeveling,
-                 checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))}},
+                 checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_)),
+           field(ControlKind::EmojiCloseOnSelect,
+                 checkbox("emoji-close-on-select", "Close emoji picker after choosing",
+                          pending_emoji_close_on_select_))}},
          {"experimental",
           "Experimental",
           {field(ControlKind::ReplaceNativeKeyboard,
@@ -433,6 +440,11 @@ PanelView App::geometry() const {
     v.hide_numpad = settings_.hide_numpad;
     v.settings = settings_open_;
     v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
+    if (emoji_open_) {
+        v.layout = &emoji_layout_.layout;
+        v.composing = false;
+        v.emoji.emplace().width = emoji_width_;
+    }
     return v;
 }
 PanelView App::view() const {
@@ -461,7 +473,8 @@ PanelView App::view() const {
         v.status = "Dimmed languages need another layout. Choose the layout first.";
     }
     // Image exports show the layout without the interactive preview's input notice.
-    const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings;
+    const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings ||
+                              options_.mode == Mode::RenderEmoji;
     if (v.status.empty() && !typing_ready_ && !image_export) {
         // External JIS sends physical keys to a system IME, which a replaced
         // Steam keyboard request cannot receive.
@@ -543,6 +556,23 @@ PanelView App::view() const {
     if (swipe_track_ && swipe_track_->swiping) {
         v.swipe_trail = swipe_track_->trail;
     }
+    if (emoji_open_) {
+        // The picker has its own keys; composition was committed on opening.
+        v.layout = &emoji_layout_.layout;
+        v.composing = false;
+        v.preedit.clear();
+        v.key_labels.clear();
+        v.flick_preview.reset();
+        v.emoji = emoji_.view();
+        v.emoji->width = emoji_width_;
+        v.emoji_glyphs = emoji_glyphs_.get();
+    } else if (!emoji_available()) {
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::Emoji) {
+                v.disabled_keys.insert(key.id);
+            }
+        }
+    }
     for (const auto& [pointer, target] : hovered_) {
         (void)pointer;
         if (target.kind == HoverTarget::Kind::Key) {
@@ -554,6 +584,15 @@ PanelView App::view() const {
     return v;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
+    if (emoji_open_ && interaction_active_ && !dragging_ && pointer_positions_.contains(pointer)) {
+        const auto [x, y] = pointer_positions_.at(pointer);
+        // The grid only scrolls sideways; an up/down stick scrolls it too.
+        if (!emoji_.scroll(x, y, std::abs(dx) > std::abs(dy) ? dx : dy)) {
+            return false;
+        }
+        dirty = true;
+        return true;
+    }
     if (!settings_open_ || !interaction_active_ || dragging_ || !pointer_positions_.contains(pointer)) {
         return false;
     }
@@ -584,6 +623,15 @@ bool App::move(unsigned pointer, double x, double y) {
         dirty = true;
         return false;
     }
+    bool haptic = false;
+    if (emoji_open_) {
+        const auto event = emoji_.move(pointer, x, y);
+        dirty |= event.redraw;
+        haptic = event.haptic;
+        if (emoji_.pressed(pointer)) {
+            return haptic; // Scrolling or choosing a tone: keys under the laser don't count.
+        }
+    }
     const auto v = view();
     HoverTarget target;
     for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
@@ -604,10 +652,10 @@ bool App::move(unsigned pointer, double x, double y) {
     if (hovered_[pointer] != target) {
         hovered_[pointer] = target;
         dirty = true;
-        return target.kind == HoverTarget::Kind::Key && !dragging_ &&
-               !keyboard_.pointer_pressed(pointer);
+        return haptic || (target.kind == HoverTarget::Kind::Key && !dragging_ &&
+                          !keyboard_.pointer_pressed(pointer) && !v.disabled_keys.contains(target.id));
     }
-    return false;
+    return haptic;
 }
 
 bool App::down(unsigned pointer, double x, double y, double now) {
@@ -637,6 +685,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
         return false;
     }
+    if (emoji_open_ && emoji_.contains(x, y)) {
+        const auto event = emoji_.down(pointer, x, y, now);
+        dirty |= event.redraw;
+        return event.haptic;
+    }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         // Taps and flicks type on release, so the other hand often presses
         // before this one lets go. Type the held one first to keep press order.
@@ -651,11 +704,21 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (key->action_kind == ActionKind::Flick) {
             return flick_down(pointer, *key, x, y, now);
         }
+        if (key->action_kind == ActionKind::Emoji) {
+            // A local press that acts on release, like a toolbar button.
+            if (emoji_key_pointer_ || v.disabled_keys.contains(key->id) ||
+                keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
+                return false;
+            }
+            emoji_key_pointer_ = pointer;
+            dirty = true;
+            return true;
+        }
         const auto modifiers = keyboard_.modifiers();
         // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
         // While a word list loads, letters type as without swipe: a swipe would
         // make the next key wait for the whole load on the VR thread.
-        if (swipe_enabled() && swipe_->ready() && !(cjk_ && cjk_latin_) &&
+        if (!emoji_open_ && swipe_enabled() && swipe_->ready() && !(cjk_ && cjk_latin_) &&
             swipe_keyboard_->key_index.contains(key->id) && !keymap_->composing() &&
             std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
                 return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
@@ -787,6 +850,13 @@ bool App::up(unsigned pointer, double x, double y) {
         dirty = true;
         return false;
     }
+    if (emoji_open_ && emoji_.pressed(pointer)) {
+        const auto event = emoji_.up(pointer, x, y);
+        apply_emoji_event(event);
+        move(pointer, x, y);
+        dirty = true;
+        return !event.type.empty() || event.clear;
+    }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         return swipe_up(pointer, x, y);
     }
@@ -795,6 +865,17 @@ bool App::up(unsigned pointer, double x, double y) {
     }
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
+    if (emoji_key_pointer_ == pointer) {
+        emoji_key_pointer_.reset();
+        const auto& hovered = hovered_[pointer];
+        if (hovered.kind == HoverTarget::Kind::Key && emoji_key(hovered.id)) {
+            if (emoji_open_) {
+                close_emoji();
+            } else {
+                open_emoji();
+            }
+        }
+    }
     const auto it = pressed_controls_.find(pointer);
     if (it != pressed_controls_.end()) {
         const auto pressed = it->second;
@@ -825,6 +906,10 @@ void App::cancel_pointer(unsigned pointer) {
     swipe_space_ = false;
     swipe_detached_ = swipe_waiting_;
     settings_ui_.cancel_pointer(pointer);
+    emoji_.cancel_pointer(pointer);
+    if (emoji_key_pointer_ == pointer) {
+        emoji_key_pointer_.reset();
+    }
     pointer_positions_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
     pressed_controls_.erase(pointer);
@@ -833,6 +918,8 @@ void App::cancel_pointer(unsigned pointer) {
 }
 void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
+    emoji_.cancel();
+    emoji_key_pointer_.reset();
     pointer_positions_.clear();
     // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
     flick_track_.reset();
@@ -880,6 +967,7 @@ bool App::tick(double now) {
         }
     }
     refresh_typing();
+    update_emoji(now);
     finish_swipe(false);
     dirty |= output_.tick(now);
     forget_failed_swipe();
@@ -896,6 +984,8 @@ void App::set_interaction_active(bool active) {
     }
     // Release through the still-open gate; disabling first would strand held
     // modifiers in the compositor. Also discard preedit and queued UI clicks.
+    // The keyboard always reopens on its main layout.
+    close_emoji();
     cancel();
     interaction_active_ = active;
     if (active) {
@@ -921,6 +1011,7 @@ void App::report_status(const std::string& message) {
     dirty = true;
 }
 void App::show_settings() {
+    close_emoji(); // Settings returns to the keyboard, not the picker.
     cancel();
     settings_open_ = true;
     pending_ = settings_.active;
@@ -931,6 +1022,7 @@ void App::show_settings() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -949,6 +1041,7 @@ void App::back() {
 void App::summon() {
     dismiss_requested_ = false;
     // Release held keys before moving; keep the input connection unchanged.
+    close_emoji();
     cancel();
     settings_open_ = false;
     recenter_ = true;
@@ -959,6 +1052,7 @@ void App::activate(Selection selection) {
     validate_selection_profiles(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
+    close_emoji();
     cancel();
     japanese_latin_ = false;
     cjk_latin_ = false;
@@ -1074,6 +1168,7 @@ void App::reload() {
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
     auto cjk = prepare_cjk(candidate.languages.at(settings_.active.language));
+    close_emoji(); // Its layout comes from profiles about to be replaced.
     cancel();
     cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
@@ -1090,6 +1185,7 @@ void App::reload() {
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
+        settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
@@ -1102,6 +1198,7 @@ void App::reload() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     swipe_prepared_.clear(); // Reread an edited word list.
     prepare_swipe();
     rebuild_cycle_entries();
@@ -1586,6 +1683,7 @@ void App::action(const ControlAction& command) {
         settings_.replace_native_keyboard = pending_replace_native_keyboard_;
         settings_.start_with_steamos = pending_start_with_steamos_;
         settings_.swipe_typing = pending_swipe_typing_;
+        settings_.emoji_close_on_select = pending_emoji_close_on_select_;
         prepare_swipe();
         default_ = settings_.active;
         persisted_active_ = settings_.active;
@@ -1639,6 +1737,9 @@ void App::action(const ControlAction& command) {
         choose_swipe(command.index);
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
+        update_settings_ui();
+    } else if (kind == ControlKind::EmojiCloseOnSelect) {
+        pending_emoji_close_on_select_ = !pending_emoji_close_on_select_;
         update_settings_ui();
     } else if (kind == ControlKind::Favorite) {
         const bool exists =
@@ -2130,6 +2231,7 @@ bool App::take_native_fallback() {
     return std::exchange(native_fallback_, false);
 }
 void App::close_panel() {
+    close_emoji();
     set_interaction_active(false);
     if (resident_replacement()) {
         settings_open_ = false;
@@ -2154,5 +2256,182 @@ bool App::take_recenter() {
     const bool result = recenter_;
     recenter_ = false;
     return result;
+}
+bool App::emoji_available() const {
+    if (!emoji_font_) {
+        return false; // No color emoji font: nothing would draw.
+    }
+    // Previews show the picker without typing; the uinput backend and
+    // external JIS send only physical keys, which cannot carry an emoji.
+    return options_.input == InputBackend::None || (unicode_mode() && text_ready_ && backend_ready_);
+}
+bool App::emoji_key(const std::string& id) const {
+    const auto& keys =
+        emoji_open_ ? emoji_layout_.layout.keys : profiles_.layouts.at(settings_.active.layout).keys;
+    return std::any_of(keys.begin(), keys.end(), [&](const Key& key) {
+        return key.id == id && key.action_kind == ActionKind::Emoji;
+    });
+}
+void App::open_emoji() {
+    if (emoji_open_ || settings_open_ || !emoji_available()) {
+        return;
+    }
+    // A swiped word or composition still in progress goes to the target
+    // first; if it can't, the picker stays closed rather than losing it.
+    finish_swipe(true);
+    try {
+        commit_japanese();
+        commit_cjk();
+    } catch (const std::exception& error) {
+        status_ = error.what();
+    }
+    dirty = true;
+    if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
+        return;
+    }
+    // Release every held key and latched modifier, and cancel a pending accent.
+    cancel();
+    const auto main = geometry();
+    emoji_width_ = visible_layout_width(main);
+    emoji_layout_ = emoji_layout(*main.layout, emoji_width_);
+    emoji_open_ = true;
+    const auto picker = geometry();
+    emoji_.set_geometry(panel_rect(picker, emoji_layout_.tabs), panel_rect(picker, emoji_layout_.grid));
+    emoji_.reset();
+    emoji_recent_ = emoji_preferences_.recent;
+    if (!emoji_glyphs_) {
+        emoji_glyphs_ = std::make_unique<EmojiGlyphs>();
+        std::vector<std::string> texts;
+        for (const auto& entry : bundled_emoji().entries) {
+            texts.push_back(entry.base);
+            if (entry.toned()) {
+                texts.insert(texts.end(), entry.tones.begin(), entry.tones.end());
+            }
+        }
+        emoji_glyphs_->check(std::move(texts));
+    }
+    update_emoji_content();
+    status_.clear();
+}
+void App::close_emoji() {
+    if (!emoji_open_) {
+        return;
+    }
+    emoji_open_ = false;
+    cancel(); // Space, Backspace and the arrows may be held.
+    save_emoji();
+    dirty = true;
+}
+void App::update_emoji_content() {
+    std::array<std::vector<const EmojiEntry*>, emoji_group_count> sections;
+    if (emoji_checked_) {
+        for (const auto& entry : emoji_catalog_.entries) {
+            sections[static_cast<std::size_t>(entry.group)].push_back(&entry);
+        }
+        for (const auto& base : emoji_recent_) {
+            if (sections[0].size() >= emoji_.recent_capacity()) {
+                break;
+            }
+            if (const auto* entry = emoji_catalog_.find(base)) {
+                sections[0].push_back(entry);
+            }
+        }
+    }
+    emoji_.set_content(std::move(sections), emoji_preferences_.tone, !emoji_checked_);
+    ++emoji_content_;
+    dirty = true;
+}
+void App::update_emoji(double now) {
+    if (emoji_glyphs_) {
+        if (!emoji_checked_ && emoji_glyphs_->checked()) {
+            emoji_checked_ = true;
+            // Keep what the font draws; a toned emoji missing any tone takes none.
+            for (const auto& entry : bundled_emoji().entries) {
+                if (!emoji_glyphs_->renders(entry.base)) {
+                    continue;
+                }
+                auto& kept = emoji_catalog_.entries.emplace_back(entry);
+                if (kept.toned() &&
+                    !std::all_of(kept.tones.begin(), kept.tones.end(),
+                                 [&](const auto& tone) { return emoji_glyphs_->renders(tone); })) {
+                    kept.tones = {};
+                }
+            }
+            emoji_font_ = !emoji_catalog_.entries.empty();
+            if (!emoji_font_) {
+                status_ = "No color emoji font found. Emoji are unavailable.";
+            }
+            if (emoji_open_) {
+                update_emoji_content();
+            }
+            dirty = true;
+        }
+        if (emoji_glyphs_->take_ready()) {
+            emoji_.set_glyphs(emoji_glyphs_->generation());
+            dirty = true;
+        }
+    }
+    if (!emoji_open_) {
+        return;
+    }
+    if (!emoji_available()) {
+        close_emoji(); // Text delivery was lost; the status line says why.
+        return;
+    }
+    const auto event = emoji_.tick(now);
+    dirty |= event.redraw;
+    if (event.haptic) {
+        emoji_hold_ = emoji_.press_pointer();
+    }
+    // Ask for images only when what is in view could have changed.
+    const auto wanted = std::tuple{emoji_.glyph_size(), emoji_.first_column(), emoji_content_,
+                                   emoji_preferences_.tone, emoji_.popup_open()};
+    if (emoji_checked_ && wanted != emoji_requested_) {
+        emoji_requested_ = wanted;
+        emoji_glyphs_->request(emoji_.glyph_size(), emoji_.glyph_order());
+    }
+}
+void App::apply_emoji_event(const EmojiPicker::Event& event) {
+    dirty |= event.redraw;
+    if (event.tone) {
+        emoji_preferences_.tone = *event.tone;
+        emoji_.set_tone(*event.tone);
+    }
+    if (event.clear) {
+        emoji_preferences_.recent.clear();
+        emoji_recent_.clear();
+        update_emoji_content();
+        save_emoji();
+    }
+    if (!event.type.empty() && type_emoji(event.type)) {
+        remember_emoji(emoji_preferences_, event.typed->base);
+        if (settings_.emoji_close_on_select) {
+            close_emoji();
+        }
+    }
+}
+bool App::type_emoji(const std::string& text) {
+    if (options_.input == InputBackend::None) {
+        return true; // The preview cannot type; it still remembers the emoji.
+    }
+    // One commit for the whole sequence, so a family or flag arrives whole.
+    if (!backend_ready_ || !output_.admit(true) || !output_.commit_text(text)) {
+        update_output_status();
+        dirty = true;
+        return false;
+    }
+    status_.clear();
+    return true;
+}
+void App::save_emoji() {
+    if (emoji_preferences_ == emoji_saved_) {
+        return;
+    }
+    try {
+        save_emoji_preferences(options_.config_dir / "emoji.json", emoji_preferences_);
+        emoji_saved_ = emoji_preferences_;
+    } catch (const std::exception& error) {
+        status_ = "Recent emoji not saved: " + std::string(error.what());
+    }
 }
 } // namespace framekeyboard

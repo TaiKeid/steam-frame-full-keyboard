@@ -1,6 +1,6 @@
 # Emoji picker plan
 
-Status: designed on `feature/emojis` (2026-10-25), not started. Mark milestone checkboxes only after their acceptance conditions pass. Items marked *proposal* are not yet confirmed by the owner.
+Status: implemented on `feature/emojis` (2026-10-25), with host tests; not yet tested in the headset. Mark milestone checkboxes only after their acceptance conditions pass. Items marked *proposal* are not yet confirmed by the owner. User-facing behavior is described in [configuration](configuration.md#emoji-picker).
 
 The emoji picker is a second view of the keyboard. An emoji key in the side column switches to it. The view shows a scrollable grid of emoji with category tabs, a space bar, and Backspace, Enter and arrow keys, so a user can type a short message without switching back.
 
@@ -15,7 +15,7 @@ The left side column changes in every layout, whether or not the picker is avail
 
 Dictation is not implemented, so its slot is left empty: no key, no placeholder drawing. [Dictation](dictation.md) fills the slot later.
 
-The emoji key is disabled (drawn with the theme's disabled color, not clickable) when the active input mode can't type Unicode text. This covers the uinput backend, a Unicode transport that isn't ready, and no input backend at all. If that happens while the picker is open, the keyboard returns to the main layout.
+The emoji key is disabled (drawn with the theme's disabled color, not clickable) when the active input mode can't type Unicode text: the uinput backend, external JIS, or a Unicode transport that isn't ready. If that happens while the picker is open, the keyboard returns to the main layout. The desktop preview, which never types, still opens the picker.
 
 ## Picker view
 
@@ -66,7 +66,7 @@ Releasing over a variant types it and makes that tone the keyboard-wide choice. 
 
 - **Clear:** a clear icon button takes the bottom cell of Recent's last column, inside the scrolling grid. When that column is full, Clear starts a new column of its own. It is not shown at all while Recent is empty. Pressing it empties Recent at once, with no confirmation (*proposal*); the empty Recent section then shows only a short hint (*proposal*).
 - **Order:** a typed emoji moves to the front only the next time the picker opens, so cells never shift under the laser.
-- **Storage:** a small file in the app's state directory, not the config. It is a record of typed content, so it is never logged.
+- **Storage:** `emoji.json` beside `placement.json`, not in `config.json`, holding the recent emoji and the skin tone. It is written when the picker closes or Recent is cleared. It is a record of typed content, so it is never logged.
 
 ### Entering and leaving
 
@@ -91,17 +91,19 @@ Whether an X11 or Wayland application joins a ZWJ sequence or keeps a variation 
 ## Emoji data and coverage
 
 - **Source:** a table generated from Unicode's `emoji-test.txt`, keeping the fully-qualified entries. It records each emoji's group and order and whether it takes skin tones. The Unicode version is pinned, and the Unicode license and attribution go in `third_party/`.
-- **Coverage:** only emoji the system color emoji font can draw are shown. Each sequence is shaped once with Pango, and kept only if it comes out as a single cluster with no missing-glyph boxes. A category with nothing left is hidden.
-- **No font:** if no color emoji font is available, the emoji key is disabled.
+- **Coverage:** only emoji the system color emoji font can draw are shown. The worker loads that font (`Noto Color Emoji`, else fontconfig's `emoji` alias) and shapes each sequence and each tone with HarfBuzz, keeping those that come out as one visible glyph with no missing glyph. A toned emoji missing any tone keeps only its default. A category with nothing left is hidden. Shaping against the one font, without Pango's per-text fallback search, took the check of all 3,513 sequences from 1.1 s to a few milliseconds on the development host.
+- **No font:** if the font cannot draw 😀, nothing counts as drawable and the emoji key is disabled.
 
 ## Rendering and performance
 
 - **Glyph cache:** color emoji fonts store glyphs as large bitmaps, which are slow to scale on every draw. Each emoji is rasterized once at cell size into a cache, and the grid copies from that cache. The cache depends on the theme and the panel's pixel scale, not on the keyboard's size in the world, so resizing keeps it.
-- **Async:** a worker thread shapes, checks and rasterizes, starting when the picker first opens:
-  - visible cells first, then the rest of the current category, then the others;
-  - with its own Pango font map and Cairo surfaces, since neither is shared across threads;
-  - cells not yet ready draw empty, and the grid redraws as batches finish.
-- **Memory:** at about 64 px per cell, every emoji uses about 30 MB. Keep the categories near the scroll position and drop the rest under a cap (*proposal*: about 8 MB).
+- **Async:** a worker thread checks and rasterizes, starting when the picker first opens:
+  - cells nearest the middle of the view first, outward from there;
+  - only the nearest 300 missing images per request, about three screens; a new request comes only when the first visible column, the tone, the content or the tone popup changes;
+  - with its own Pango font map, HarfBuzz buffer and Cairo surfaces, since none is shared across threads;
+  - cells not yet ready draw empty, and the grid redraws as images arrive.
+- **Memory:** images are about 42 px square on the bundled layouts, 7 KB each. At most 8 MB are kept, about 1,180 images; a request releases those no longer among the nearest that fit. The panel draws an image only between requests, so it never draws a released one.
+- **First open:** on the development host, the check and the first 300 images take about 0.2 s of worker time; the VR loop never waits for them.
 - **Redraw:** only while scrolling, hovering, pressing or filling the cache. Nothing redraws when the view is idle.
 
 ## Milestones

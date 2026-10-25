@@ -69,6 +69,8 @@ struct Settings {
     bool start_with_steamos{};
     // Active only when the current language also supports swipe.
     bool swipe_typing{};
+    // Return to the keyboard after typing an emoji.
+    bool emoji_close_on_select{};
 };
 
 fs::path default_config_dir();

@@ -300,7 +300,7 @@ int main() {
     try {
         const auto defaults = fk::load_profiles({}, {});
         require(defaults.errors.empty(), "bundled profiles valid");
-        require(defaults.layouts.at("en-us-full").keys.size() == 106, "106 baseline keys");
+        require(defaults.layouts.at("en-us-full").keys.size() == 107, "107 baseline keys");
         for (const auto& [id, layout] : defaults.layouts) {
             require(key(layout, "Backspace").icon == fk::Icon::Backspace,
                     "Backspace uses the |<- icon, distinct from the left arrow");

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <unistd.h>
 
 namespace fk = framekeyboard;
@@ -19,6 +20,7 @@ void help() {
               << "  --autostart               Start VR replacement hidden, if enabled in Settings\n"
               << "  --render FILE.png         Render the keyboard without a window\n"
               << "  --render-settings FILE    Render the profile selector\n"
+              << "  --render-emoji FILE       Render the emoji picker\n"
               << "  --check                   Validate and list available profiles\n"
               << "  --describe-layout         Describe the active key geometry\n"
               << "  --input ei|uinput         Use compositor input or a virtual kernel device\n"
@@ -69,8 +71,11 @@ int main(int argc, char** argv) {
                 mode(fk::Mode::Preview);
             } else if (argument == "--vr") {
                 mode(fk::Mode::Vr);
-            } else if (argument == "--render" || argument == "--render-settings") {
-                mode(argument == "--render" ? fk::Mode::Render : fk::Mode::RenderSettings);
+            } else if (argument == "--render" || argument == "--render-settings" ||
+                       argument == "--render-emoji") {
+                mode(argument == "--render"            ? fk::Mode::Render
+                     : argument == "--render-settings" ? fk::Mode::RenderSettings
+                                                       : fk::Mode::RenderEmoji);
                 options.output = value();
             } else if (argument == "--check") {
                 mode(fk::Mode::Check);
@@ -228,9 +233,19 @@ int main(int argc, char** argv) {
             fk::App app(options, replacement, std::move(preferences),
                         options.mode == fk::Mode::Vr ? &updates : nullptr,
                         std::move(reconcile_preferences));
-            if (options.mode == fk::Mode::Render || options.mode == fk::Mode::RenderSettings) {
+            if (options.mode == fk::Mode::Render || options.mode == fk::Mode::RenderSettings ||
+                options.mode == fk::Mode::RenderEmoji) {
                 if (options.mode == fk::Mode::RenderSettings) {
                     app.show_settings();
+                } else if (options.mode == fk::Mode::RenderEmoji) {
+                    app.show_emoji();
+                    // Wait for the worker to check the font and draw what is in view.
+                    const double deadline = fk::monotonic_seconds() + 20;
+                    while (!app.emoji_settled() && fk::monotonic_seconds() < deadline) {
+                        app.tick(fk::monotonic_seconds());
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    }
+                    app.tick(fk::monotonic_seconds());
                 }
                 app.paint(fk::monotonic_seconds());
                 app.renderer.write_png(options.output);

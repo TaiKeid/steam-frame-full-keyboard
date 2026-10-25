@@ -4,6 +4,9 @@
 
 - Resize the keyboard from its corners, like a Steam window, instead of with the zoom buttons. Aim either controller's laser just outside a bottom corner: a resizer that follows the keyboard's rounded corner fades in there, and fades out as the laser moves away. Hold the trigger on it and drag; the keyboard grows or shrinks around its center. Pinning the keyboard hides the resizers. With the numpad hidden, only Stay open over apps moves to the toolbar's second row.
 
+- Added an emoji picker. The new smiley key at the top of the left column replaces the keys with a scrollable grid of emoji, with a category row above it, a space bar, and Backspace, Enter and the arrows at the right; its arrow key returns. Release the trigger on an emoji to type it; drag or use the thumbstick to scroll. Recent emoji come first, with a Clear button at the end. Hold an emoji with skin tones to choose one; the choice applies to every emoji after it. With the numpad hidden, the picker stays narrow. Only emoji the headset's emoji font can draw are listed. The picker needs Unicode text input, so it is unavailable with the uinput backend and external JIS. General → **Close emoji picker after choosing** returns to the keys after each emoji.
+- Copy and Paste are now equal-height keys below the emoji key, leaving room for a dictation key later.
+
 ## 0.9.2: Swiped words type correctly in X11 apps
 
 - Fixed swiped words and swipe alternatives sometimes arriving scrambled or partly as digits in Brave and other X11 apps, such as `word235` or `htree` for *three*, especially while the Frame was busy. Words of plain ASCII characters are now typed one acknowledged character at a time, the way single key presses already were, with a short gap between characters. This avoids Gamescope's temporary keymap, and keeps the input method from reordering keys. Other text, such as accented words, Japanese or Chinese, is typed as before.

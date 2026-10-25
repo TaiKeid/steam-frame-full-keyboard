@@ -17,7 +17,7 @@ endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
-pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo xkbcommon json-c)
+pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo harfbuzz xkbcommon json-c)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
 # SteamOS libei 1.4.1 crashes on an aborted negotiation. Keep the fixed client
 # inside this app; never replace the runtime library used by Steam itself.
@@ -42,9 +42,9 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             ${LAYOUT_FILES}
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_defaults.py"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
-    DEPENDS ${PROFILE_FILES} tools/embed_defaults.py tools/validate_layout.py
+    DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -252,6 +252,10 @@ if(BUILD_TESTING)
     target_link_libraries(placement-instance-tests PRIVATE keyboard_core Threads::Threads)
     target_compile_options(placement-instance-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME placement-instance COMMAND placement-instance-tests)
+    add_executable(emoji-tests tests/emoji_tests.cpp)
+    target_link_libraries(emoji-tests PRIVATE keyboard_core)
+    target_compile_options(emoji-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME emoji COMMAND emoji-tests)
     if(NOT CMAKE_CROSSCOMPILING)
         add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_tests.py"
@@ -315,6 +319,7 @@ install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overla
 install(FILES third_party/libei/COPYING third_party/libei/README.md third_party/libei/provenance.json DESTINATION third_party/libei)
 
 install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
+install(FILES third_party/unicode/LICENSE DESTINATION third_party/unicode)
 if(FRAMEKEYBOARD_SWIPE_ENGINE)
     install(FILES third_party/futo-swipe/LICENSE.md third_party/futo-swipe/README.md
             DESTINATION third_party/futo-swipe)

@@ -14,6 +14,10 @@ for kind in ('layouts', 'languages', 'themes'):
         # Encode as a C++ string, preserving UTF-8 while escaping quotes and controls.
         content = json.dumps(json.loads(path.read_text()), ensure_ascii=False)
         lines.append('{' + json.dumps(kind) + ', ' + json.dumps(content, ensure_ascii=False) + '},')
-lines += ['};', '}']
+lines.append('};')
+# The emoji picker's table, see tools/emoji_table.py.
+table = (root / 'emoji' / 'emoji.tsv').read_text(encoding='utf-8')
+lines.append('inline constexpr std::string_view emoji_table = ' + json.dumps(table, ensure_ascii=False) + ';')
+lines.append('}')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text('\n'.join(lines) + '\n')

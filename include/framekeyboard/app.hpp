@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cjk.hpp"
+#include "emoji_glyphs.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
 #include "output.hpp"
@@ -17,7 +18,7 @@
 namespace framekeyboard {
 class NativeReplacement;
 class Updates;
-enum class Mode { Help, Preview, Vr, Render, RenderSettings, Check, Describe };
+enum class Mode { Help, Preview, Vr, Render, RenderSettings, RenderEmoji, Check, Describe };
 enum class InputBackend { None, Ei, Uinput };
 struct Options {
     fs::path data_dir, config_dir, ei_socket, text_socket;
@@ -120,6 +121,15 @@ class App {
     bool quitting() const { return quit_; }
     bool updating() const;
     bool take_recenter();
+    bool emoji_open() const { return emoji_open_; }
+    // For image exports: open the picker, and whether its images are all drawn.
+    void show_emoji() { open_emoji(); }
+    bool emoji_settled() const {
+        return emoji_glyphs_ && emoji_checked_ && std::get<0>(emoji_requested_) > 0 &&
+               emoji_glyphs_->idle();
+    }
+    // The pointer whose held emoji just opened its skin tones, for a buzz.
+    std::optional<unsigned> take_emoji_hold() { return std::exchange(emoji_hold_, std::nullopt); }
     bool dirty{true};
     PanelRenderer renderer;
     const Selection& selection() const { return settings_.active; }
@@ -176,6 +186,16 @@ class App {
     std::string flick_text(const FlickTrack& track, bool* cycles = nullptr) const;
     void flick_type(const std::string& text);
     int native_code(const Key& key, const std::set<int>& mods);
+    // Emoji picker. It opens over the keyboard's own case; its keys type as usual.
+    bool emoji_available() const;
+    bool emoji_key(const std::string& id) const;
+    void open_emoji();
+    void close_emoji();
+    void update_emoji(double now);
+    void update_emoji_content();
+    void apply_emoji_event(const EmojiPicker::Event& event);
+    bool type_emoji(const std::string& text);
+    void save_emoji();
     void update_output_status();
     bool retry_output();
     Updates* updates_{};
@@ -199,6 +219,7 @@ class App {
     bool pending_replace_native_keyboard_{};
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
+    bool pending_emoji_close_on_select_{};
     bool native_fallback_{};
     bool replacement_available_{};
     std::string replacement_unavailable_reason_;
@@ -273,6 +294,21 @@ class App {
     bool swipe_notice_{};            // status_ explains removed alternatives.
     bool swipe_space_{};             // The previous output was a swiped word.
     std::atomic<double> slow_work_deadline_{};
+    bool emoji_open_{};
+    std::optional<unsigned> emoji_key_pointer_; // Holds the emoji key; release toggles the picker.
+    std::optional<unsigned> emoji_hold_;
+    EmojiLayout emoji_layout_;
+    double emoji_width_{};
+    EmojiPicker emoji_;
+    // Created on first open; it checks which emoji the font can draw, once.
+    std::unique_ptr<EmojiGlyphs> emoji_glyphs_;
+    EmojiCatalog emoji_catalog_; // Only what the font draws; set once checked.
+    bool emoji_checked_{}, emoji_font_{true};
+    EmojiPreferences emoji_preferences_, emoji_saved_;
+    // Recent emoji as shown since the picker opened; newly typed ones move up next time.
+    std::vector<std::string> emoji_recent_;
+    std::uint64_t emoji_content_{};
+    std::tuple<int, int, std::uint64_t, int, bool> emoji_requested_{};
 };
 
 double monotonic_seconds();

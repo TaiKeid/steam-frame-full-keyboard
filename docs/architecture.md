@@ -171,6 +171,12 @@ The renderer reserves space for preedit/candidates during Japanese, Chinese and 
 
 The encoder is FUTO Swipe's `honorable_sturgeon` export, run by ExecuTorch with XNNPACK inside the optional `framekeyboard-swipe.so`, loaded with `dlopen` from beside the executable like the CJK adapters. ExecuTorch symbols stay private to that module, and its thread pool is limited to one thread. The beam search and scoring are this project's own (FUTO's GPL-3 library is not used); weights of 0.8 for log-frequency and 1.0 per letter were tuned on held-out FUTO swipes mapped onto these layouts. See [swipe typing](swipe-typing.md) for measurements and remaining work.
 
+## Emoji picker
+
+The picker is a second view of the same panel. `emoji_layout()` derives its keys from the active layout, so `KeyboardState`, the output queue and the key renderer handle Space, Backspace, Enter and the arrows unchanged, and the emoji key's Back acts like a toolbar button on release. `EmojiPicker` owns the grid and tabs in panel coordinates: one strip of categories laid out column by column, presses, drags, stick scrolling and the tone popup. It returns events, and App alone sends text, through `OutputController::commit_text` so a whole sequence is one transport request. Opening first delivers a pending swiped word and commits composition (staying closed if that fails), then cancels every press and latched modifier.
+
+`EmojiGlyphs` keeps emoji images off the VR thread. Its worker owns its own Pango font map, HarfBuzz buffer and Cairo surfaces: it checks once which sequences the color emoji font draws as one glyph, then draws images in the order App requests (nearest the view first), keeping at most 8 MB. Only App's thread releases images, in `request()`, which runs from `tick()` and never during painting. The panel copies finished images and repaints only the grid, tab row and popup rectangles when they change. `bundled_emoji()` parses `emoji/emoji.tsv`, embedded at build time like the default profiles.
+
 ## Code map
 
 | Area | Files |
@@ -183,6 +189,7 @@ The encoder is FUTO Swipe's `honorable_sturgeon` export, run by ExecuTorch with 
 | Settings, profile changes and composition dispatch | `src/app.cpp`, `src/settings_ui.cpp` |
 | Japanese reading and conversion | `src/japanese.cpp` |
 | Swipe keys, word lists, decoding and worker | `src/swipe.cpp`, `include/framekeyboard/swipe.hpp`; encoder module `src/swipe_engine.cpp` |
+| Emoji table, picker layout and grid, glyph worker | `src/emoji.cpp`, `src/emoji_glyphs.cpp`; table `emoji/emoji.tsv` from `tools/emoji_table.py` |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |

@@ -48,11 +48,13 @@ def validate(data):
         if x + w > width + 0.001 or y + h > height + 0.001:
             raise ValueError(f"{ident}: outside the design area")
         action = key["action"]
-        if action["kind"] not in ("key", "shortcut", "flick"):
+        if action["kind"] not in ("key", "shortcut", "flick", "emoji"):
             raise ValueError(f"{ident}: unsupported action kind")
         text(action["value"], ident + ".action.value")
         if action["kind"] == "shortcut" and action["value"] not in ("copy", "paste"):
             raise ValueError(f"{ident}: unsupported shortcut")
+        if action["kind"] == "emoji" and action["value"] != "picker":
+            raise ValueError(f"{ident}: unsupported emoji action")
         for other, ox, oy, ow, oh in rects:
             if min(x + w, ox + ow) - max(x, ox) > 0.001 and min(y + h, oy + oh) - max(y, oy) > 0.001:
                 raise ValueError(f"overlapping hit areas: {ident} and {other}")

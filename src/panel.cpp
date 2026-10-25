@@ -1,4 +1,5 @@
 #include "framekeyboard/panel.hpp"
+#include "framekeyboard/emoji_glyphs.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,26 @@ std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
 bool hidden_key(const PanelView& view, const Key& key) {
     return view.hide_numpad && !view.settings &&
            (key.action == "NumLock" || key.action.starts_with("Numpad"));
+}
+double visible_layout_width(const PanelView& view) {
+    if (view.emoji) {
+        return view.emoji->width; // The picker keeps the keyboard's width.
+    }
+    if (!view.hide_numpad || view.settings) {
+        return view.layout->width;
+    }
+    double right = 0;
+    bool removed = false;
+    for (const auto& key : view.layout->keys) {
+        if (hidden_key(view, key)) {
+            removed = true;
+        } else {
+            right = std::max(right, key.bounds.x + key.bounds.width);
+        }
+    }
+    // Do not crop intentional whitespace on a layout without a numpad, or an
+    // all-numpad custom layout to zero width.
+    return removed && right > 0 ? right : view.layout->width;
 }
 namespace {
 Color disabled_legend(const Theme& theme) {
@@ -43,24 +64,6 @@ double handle_ease_out(double progress) {
     const double t = (low + high) / 2;
     return t * t * (3 - 2 * t);
 }
-double visible_layout_width(const PanelView& view) {
-    if (!view.hide_numpad || view.settings) {
-        return view.layout->width;
-    }
-    double right = 0;
-    bool removed = false;
-    for (const auto& key : view.layout->keys) {
-        if (hidden_key(view, key)) {
-            removed = true;
-        } else {
-            right = std::max(right, key.bounds.x + key.bounds.width);
-        }
-    }
-    // Do not crop intentional whitespace on a layout without a numpad, or an
-    // all-numpad custom layout to zero width.
-    return removed && right > 0 ? right : view.layout->width;
-}
-
 constexpr double normal_toolbar_height = 96;
 struct Placement {
     double scale, x, y;
@@ -73,6 +76,12 @@ Placement placement(const PanelView& view, bool normal = false) {
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
     return {scale, (panel_width - visible_layout_width(view) * scale) / 2,
             toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2};
+}
+// Whole pixels around a rectangle, for clips that never cut antialiasing.
+Rect pixel_bounds(Rect r, double margin = 0) {
+    const double left = std::floor(r.x - margin), top = std::floor(r.y - margin);
+    return {left, top, std::ceil(r.x + r.width + margin) - left,
+            std::ceil(r.y + r.height + margin) - top};
 }
 // Cells of the flick preview in panel coordinates: tap, left, up, right, down.
 // Square cells a little taller than the key, centred on it.
@@ -119,7 +128,8 @@ void gradient(cairo_t* cr, Rect r, Color top, Color middle, Color bottom) {
     cairo_pattern_destroy(pattern);
 }
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
-           Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER) {
+           Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER,
+           bool wrap = false) {
     auto* layout = pango_cairo_create_layout(cr);
     auto* font = pango_font_description_new();
     pango_font_description_set_family(font, family.c_str());
@@ -137,7 +147,11 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
         }
     }
     pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 8) * PANGO_SCALE));
-    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    if (wrap) {
+        pango_layout_set_wrap(layout, PANGO_WRAP_WORD);
+    } else {
+        pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    }
     pango_layout_set_alignment(layout, alignment);
     int width, height;
     pango_layout_get_pixel_size(layout, &width, &height);
@@ -300,6 +314,109 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-4, 0, 4, 0);
         line(-4, 5, 2, 5);
         break;
+    case Icon::Emoji:
+    case Icon::Smileys:
+        cairo_arc(cr, 0, 0, 10, 0, 2 * pi);
+        for (const double x : {-3.6, 3.6}) {
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, x, -3, .5, 0, 2 * pi);
+        }
+        cairo_new_sub_path(cr);
+        if (icon == Icon::Emoji) {
+            cairo_arc(cr, 0, 1, 5.5, .15 * pi, .85 * pi);
+        } else {
+            // Grinning: an open mouth.
+            cairo_move_to(cr, -5.5, 2);
+            cairo_line_to(cr, 5.5, 2);
+            cairo_arc(cr, 0, 2, 5.5, 0, pi);
+        }
+        break;
+    case Icon::Recent:
+        cairo_arc(cr, 0, 0, 10, 0, 2 * pi);
+        line(0, 0, 0, -6);
+        line(0, 0, 4.5, 2.5);
+        break;
+    case Icon::People:
+        cairo_arc(cr, 0, -5, 4, 0, 2 * pi);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 0, 11, 8.5, pi, 2 * pi);
+        break;
+    case Icon::Animals:
+        // A paw: one pad and four toes.
+        cairo_arc(cr, 0, 5, 4.5, 0, 2 * pi);
+        for (const auto [x, y] : {std::pair{-7.5, -1.5}, {-3, -7}, {3, -7}, {7.5, -1.5}}) {
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, x, y, 2, 0, 2 * pi);
+        }
+        break;
+    case Icon::Food:
+        // A burger: bun, filling, base.
+        cairo_arc(cr, 0, -1, 9, pi, 2 * pi);
+        cairo_close_path(cr);
+        line(-9.5, 3, 9.5, 3);
+        cairo_new_sub_path(cr);
+        rounded(cr, {-9, 6, 18, 4}, 2);
+        break;
+    case Icon::Travel:
+        // A car.
+        rounded(cr, {-10.5, -1, 21, 7}, 2);
+        cairo_move_to(cr, -6.5, -1);
+        cairo_line_to(cr, -4, -6.5);
+        cairo_line_to(cr, 4, -6.5);
+        cairo_line_to(cr, 6.5, -1);
+        for (const double x : {-5.5, 5.5}) {
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, x, 8, 2.2, 0, 2 * pi);
+        }
+        break;
+    case Icon::Activities:
+        // A ball with seams.
+        cairo_arc(cr, 0, 0, 10, 0, 2 * pi);
+        line(0, -10, 0, 10);
+        line(-10, 0, 10, 0);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, -14, 0, 10, -.8, .8);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 14, 0, 10, pi - .8, pi + .8);
+        break;
+    case Icon::Objects:
+        // A light bulb.
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 0, -3, 7.5, .5 * pi + .7, 2.5 * pi - .7);
+        cairo_line_to(cr, 3, 6);
+        cairo_line_to(cr, -3, 6);
+        cairo_close_path(cr);
+        line(-2.5, 9.5, 2.5, 9.5);
+        break;
+    case Icon::Symbols:
+        // A heart.
+        cairo_move_to(cr, 0, 9);
+        cairo_curve_to(cr, -13, 0, -7, -11, 0, -4.5);
+        cairo_curve_to(cr, 7, -11, 13, 0, 0, 9);
+        cairo_close_path(cr);
+        break;
+    case Icon::Flags:
+        line(-7, -10, -7, 11);
+        cairo_move_to(cr, -7, -9.5);
+        cairo_line_to(cr, 8.5, -9.5);
+        cairo_line_to(cr, 5, -5);
+        cairo_line_to(cr, 8.5, -.5);
+        cairo_line_to(cr, -7, -.5);
+        break;
+    case Icon::Clear:
+        // A bin.
+        line(-8.5, -6, 8.5, -6);
+        cairo_move_to(cr, -3, -6);
+        cairo_line_to(cr, -3, -9);
+        cairo_line_to(cr, 3, -9);
+        cairo_line_to(cr, 3, -6);
+        cairo_move_to(cr, -6, -6);
+        cairo_line_to(cr, -5, 10);
+        cairo_line_to(cr, 5, 10);
+        cairo_line_to(cr, 6, -6);
+        line(-2, -2, -2, 6);
+        line(2, -2, 2, 6);
+        break;
     case Icon::None:
         break;
     }
@@ -327,18 +444,23 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     const bool latched = modifiers.contains(code) ||
                          (key.action == "CapsLock" && view.keyboard->caps()) ||
                          (key.action == "NumLock" && view.keyboard->num());
+    const bool disabled = view.disabled_keys.contains(key.id);
     rounded(cr, face, t.radius);
     if (latched) {
         source(cr, t.latched);
         cairo_fill(cr);
-    } else if (view.hovered_keys.contains(key.id)) {
+    } else if (view.hovered_keys.contains(key.id) && !disabled) {
         gradient(cr, face, t.hover, t.middle, t.bottom);
     } else {
         gradient(cr, face, t.top, t.middle, t.bottom);
     }
     if (key.icon != Icon::None) {
         const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
-        draw_icon(cr, key.icon, face, t.legend, super_icon ? 22 : key.icon == Icon::Backspace ? 18 : 32);
+        const double size = super_icon                    ? 22
+                            : key.icon == Icon::Backspace ? 18
+                            : key.icon == Icon::Emoji     ? 26
+                                                          : 32;
+        draw_icon(cr, key.icon, face, disabled ? disabled_legend(t) : t.legend, size);
         return;
     }
     if (key.action_kind == ActionKind::Flick) {
@@ -456,6 +578,10 @@ Rect panel_case_bounds(const PanelView& view) {
                               (slack > 1 ? slack : 0));
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
+Rect panel_rect(const PanelView& view, Rect r) {
+    const auto p = placement(view);
+    return {p.x + r.x * p.scale, p.y + r.y * p.scale, r.width * p.scale, r.height * p.scale};
+}
 bool compact_toolbar(const PanelView& view) {
     return !view.settings && panel_case_bounds(view).width < panel_width - 1;
 }
@@ -510,7 +636,10 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         controls_changed || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
-        previous_->view.hide_numpad != view.hide_numpad || previous_->view.key_labels != view.key_labels;
+        previous_->view.hide_numpad != view.hide_numpad ||
+        previous_->view.key_labels != view.key_labels ||
+        previous_->view.disabled_keys != view.disabled_keys ||
+        previous_->view.emoji.has_value() != view.emoji.has_value();
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
@@ -628,6 +757,25 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& bounds : {flick_preview_bounds(old), flick_preview_bounds(view)}) {
             if (bounds) {
                 damage_area(*bounds);
+            }
+        }
+    }
+    // The picker's grid, tabs and tone popup repaint only their own areas.
+    if (!full && previous_->view.emoji != view.emoji) {
+        const auto& old = *previous_->view.emoji;
+        const auto& now = *view.emoji;
+        if (old.cells != now.cells || old.hint != now.hint || old.hint_bounds != now.hint_bounds ||
+            old.glyphs != now.glyphs || old.grid != now.grid) {
+            damage_area(pixel_bounds(now.grid, 1));
+        }
+        if (old.tab_list != now.tab_list || old.tabs != now.tabs) {
+            damage_area(pixel_bounds(now.tabs, 1));
+        }
+        if (old.popup != now.popup) {
+            for (const auto* popup : {&old.popup, &now.popup}) {
+                if (*popup) {
+                    damage_area(pixel_bounds((*popup)->bounds, 3));
+                }
             }
         }
     }
@@ -788,6 +936,57 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_paint_with_alpha(cr, .6);
             cairo_restore(cr);
         }
+        auto emoji_image = [&](const std::string& text, Rect cell) {
+            auto* image = view.emoji_glyphs ? view.emoji_glyphs->image(text) : nullptr;
+            if (!image) {
+                return; // Still being drawn; the cell stays empty until then.
+            }
+            const int size = cairo_image_surface_get_width(image);
+            cairo_set_source_surface(cr, image, std::round(cell.x + (cell.width - size) / 2),
+                                     std::round(cell.y + (cell.height - size) / 2));
+            cairo_paint(cr);
+        };
+        if (view.emoji && !view.settings) {
+            const auto& picker = *view.emoji;
+            for (const auto& tab : picker.tab_list) {
+                cairo_save(cr);
+                if (tab.icon != Icon::Recent) {
+                    const auto& r = picker.scrolling_tabs;
+                    cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+                    cairo_clip(cr);
+                }
+                rounded(cr, tab.bounds, t.radius);
+                source(cr, tab.active ? t.latched : tab.pressed || tab.hovered ? t.hover : t.bottom);
+                cairo_fill(cr);
+                draw_icon(cr, tab.icon, tab.bounds, t.legend, 24);
+                cairo_restore(cr);
+            }
+            cairo_save(cr);
+            cairo_rectangle(cr, picker.grid.x, picker.grid.y, picker.grid.width, picker.grid.height);
+            cairo_clip(cr);
+            for (const auto& cell : picker.cells) {
+                const Rect face{cell.bounds.x + 3, cell.bounds.y + 3, cell.bounds.width - 6,
+                                cell.bounds.height - 6};
+                if (cell.clear) {
+                    rounded(cr, face, t.radius);
+                    source(cr, cell.pressed ? t.latched : cell.hovered ? t.hover : t.bottom);
+                    cairo_fill(cr);
+                    draw_icon(cr, Icon::Clear, face, t.legend, 24);
+                    continue;
+                }
+                if (cell.pressed || cell.hovered) {
+                    rounded(cr, face, t.radius);
+                    source(cr, cell.pressed ? t.latched : t.bottom);
+                    cairo_fill(cr);
+                }
+                emoji_image(cell.text, cell.bounds);
+            }
+            if (!picker.hint.empty()) {
+                label(cr, picker.hint, picker.hint_bounds, t.small_font_size * 1.3, view.language->font,
+                      disabled_legend(t), false, PANGO_ALIGN_CENTER, true);
+            }
+            cairo_restore(cr);
+        }
         if (const auto cells = flick_cells(view)) {
             // Above the keys, like the trail; partial repaints redraw it inside their clip.
             const auto& preview = *view.flick_preview;
@@ -918,6 +1117,25 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                   view.settings ? Rect{30, 574, 1540, 24}
                                 : Rect{body.x + inset, 60, body.width - inset - 18, 28},
                   17, view.language->font, t.legend);
+        }
+        // The skin tones of a held emoji, above everything in the picker.
+        if (view.emoji && view.emoji->popup && !view.settings) {
+            const auto& popup = *view.emoji->popup;
+            const auto r = popup.bounds;
+            rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
+            source(cr, t.legend);
+            cairo_fill(cr);
+            rounded(cr, r, t.radius);
+            source(cr, t.bottom);
+            cairo_fill(cr);
+            for (const auto& choice : popup.choices) {
+                if (choice.hovered) {
+                    rounded(cr, choice.bounds, t.radius);
+                    source(cr, t.latched);
+                    cairo_fill(cr);
+                }
+                emoji_image(choice.text, choice.bounds);
+            }
         }
         // Popup is the last layer and deliberately bypasses both card and case clips.
         if (view.popup) {
