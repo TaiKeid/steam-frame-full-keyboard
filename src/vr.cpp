@@ -1035,8 +1035,8 @@ class VrPanel {
               "SetOverlayInputMethod");
         vr::HmdVector2_t scale{{panel_width, texture_height}};
         check(overlay->SetOverlayMouseScale(handle_, &scale), "SetOverlayMouseScale");
-        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor,
-                                vr::VROverlayFlags_SendVRDiscreteScrollEvents}) {
+        // Scroll events are switched on only where something scrolls; see accept_scroll().
+        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
             check(overlay->SetOverlayFlag(handle_, flag, true), "SetOverlayFlag");
         }
         std::string message;
@@ -1141,6 +1141,16 @@ class VrPanel {
         }
     }
     vr::VROverlayHandle_t handle() const { return handle_; }
+    // SteamVR's dashboard laser buzzes for each scroll event it sends, even
+    // when nothing under it scrolls, so the panel takes scroll events only
+    // while a laser is over something that does.
+    void accept_scroll(bool scroll) {
+        if (scroll_ != scroll &&
+            vr_overlay()->SetOverlayFlag(handle_, vr::VROverlayFlags_SendVRDiscreteScrollEvents,
+                                         scroll) == vr::VROverlayError_None) {
+            scroll_ = scroll;
+        }
+    }
     // Outside the dashboard in passthrough the overlay takes no SteamVR laser
     // input at all, so it can never claim the scene's controllers; the
     // passthrough pointer drives it instead.
@@ -1156,6 +1166,7 @@ class VrPanel {
     VulkanContext vulkan_;
     PanelTexture texture_;
     std::optional<bool> reported_native_;
+    std::optional<bool> scroll_;
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
@@ -2048,6 +2059,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             hide_panel();
         }
         const bool repaint = app.tick(now);
+        panel.accept_scroll(app.scroll_wanted());
         if (lifecycle.visible() && repaint) {
             app.paint(now);
             panel.submit(app.renderer, app.view());

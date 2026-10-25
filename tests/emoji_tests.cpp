@@ -198,6 +198,16 @@ void picker_tests() {
     picker.up(1, x + 1000, y, 0);
     require(picker.scroll_offset() == 0, "scrolling stops at the start");
 
+    // An emoji without tones starts scrolling sooner than one being held for its tones.
+    picker.down(1, x, y, 0.5);
+    picker.move(1, x - 14, y, 0.6);
+    picker.up(1, x - 14, y, 0.7);
+    require(picker.scroll_offset() == 14, "a small move on a plain emoji scrolls");
+    picker.down(1, x + 14, y, 0.8);
+    picker.move(1, x + 28, y, 0.9);
+    picker.up(1, x + 28, y, 1.0);
+    require(picker.scroll_offset() == 0, "and back");
+
     // A quick drag glides on after release, slowing until it stops; a press catches it.
     picker.down(1, x, y, 1);
     for (int i = 1; i <= 6; ++i) {
@@ -330,9 +340,11 @@ void picker_tests() {
     require(wave, "the toned emoji is in view");
     std::tie(x, y) = center(wave->bounds);
     picker.down(1, x, y, 10);
+    picker.move(1, x + 14, y - 14, 10.2);
     require(!picker.tick(10.3).redraw, "a short hold does nothing");
     event = picker.tick(10.6);
-    require(event.redraw && picker.popup_open(), "a long hold opens the tones");
+    require(event.redraw && picker.popup_open(),
+            "a long hold opens the tones, despite a slightly unsteady hand");
     view = picker.view();
     require(view.popup && view.popup->choices.size() == 6 && view.popup->choices[0].text == "wave" &&
                 view.popup->choices[5].text == "wave5",
@@ -448,7 +460,11 @@ void app_tests() {
     const auto* grin = cell(*view.emoji, "😀");
     require(grin, "the first smiley is in view");
     auto [x, y] = center(grin->bounds);
+    const auto [key_x, key_y] = key_center(app, "Enter");
+    app.move(0, key_x, key_y);
+    require(!app.scroll_wanted(), "no scroll events over the picker's keys");
     require(!app.move(0, x, y) && !app.down(0, x, y, 2), "emoji neither buzz on hover nor on press");
+    require(app.scroll_wanted(), "scroll events over the grid");
     require(sink.text.empty(), "nothing types on press");
     app.up(0, x, y);
     require((sink.text == std::vector<std::string>{"😀"}), "the emoji types once on release, whole");

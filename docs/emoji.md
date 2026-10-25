@@ -40,11 +40,11 @@ The view's geometry is generated from the active layout's case size, key unit an
   - The thumbstick of the controller whose laser is on the grid. In the dashboard this arrives as scroll events. In passthrough, the keyboard reads the stick itself.
   - The stick and the tab row scroll without gliding. Scrolling stops at the ends.
 - **Swipe typing:** belongs to the main layout and is inactive in the picker. No trail is drawn.
-- **Haptics:** none in the grid, tabs or tone popup. A tick for every emoji under a sweeping laser became a constant rattle. The picker's keys keep theirs.
+- **Haptics:** none in the grid, tabs or tone popup. A tick for every emoji under a sweeping laser became a constant rattle. The picker's keys keep theirs. In the dashboard, SteamVR itself ticks for each stick scroll step it sends; the panel accepts scroll events only while a laser is over the grid, the tabs or Settings, so the stick does not tick over keys where nothing scrolls.
 
 ### Skin tones
 
-Holding an emoji that supports skin tones for 500 ms (*proposal*) opens a popup above it with six variants:
+Holding an emoji that supports skin tones for 500 ms (*proposal*) opens a popup above it with six variants. While held, the laser may wander 16 px (about 1 cm) before the press becomes a scroll, instead of the usual 10 px:
 
 - the default yellow first;
 - then the five tones from light to dark.

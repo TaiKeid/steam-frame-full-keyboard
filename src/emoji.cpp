@@ -15,6 +15,9 @@ namespace framekeyboard {
 namespace {
 // A press that moves this far, in panel pixels, scrolls instead of typing.
 constexpr double drag_distance = 10;
+// A held emoji with skin tones allows a little more, since the hand has to
+// stay put for the whole hold.
+constexpr double hold_drag_distance = 16;
 // Holding a toned emoji this long opens its skin tones.
 constexpr double hold_seconds = .5;
 constexpr double tab_spacing = 6;
@@ -466,7 +469,10 @@ EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y, doubl
             }
             return event;
         }
-        if (!press.dragging && std::max(std::abs(x - press.x), std::abs(y - press.y)) > drag_distance) {
+        const auto* held = press.hit.target == Target::Cell ? items_[press.hit.index].entry : nullptr;
+        const double distance =
+            held && held->toned() && !press.caught ? hold_drag_distance : drag_distance;
+        if (!press.dragging && std::max(std::abs(x - press.x), std::abs(y - press.y)) > distance) {
             press.dragging = true;
             hovered_.clear();
             event.redraw = true;
