@@ -2401,16 +2401,21 @@ void App::update_emoji(double now) {
 }
 void App::apply_emoji_event(const EmojiPicker::Event& event) {
     dirty |= event.redraw;
-    if (event.tone) {
-        emoji_preferences_.tone = *event.tone;
-        emoji_.set_tone(*event.tone);
-    }
     if (event.clear) {
         emoji_preferences_.recent.clear();
         update_emoji_content();
         save_emoji();
     }
-    if (!event.type.empty() && type_emoji(event.type)) {
+    const bool typed = !event.type.empty() && type_emoji(event.type);
+    if (event.tone) {
+        // A chosen tone sticks only once its emoji was sent; the picker shows
+        // it already, so put the old one back otherwise.
+        if (typed) {
+            emoji_preferences_.tone = *event.tone;
+        }
+        emoji_.set_tone(emoji_preferences_.tone);
+    }
+    if (typed) {
         // Recent shows it at once; choosing from Recent itself keeps its order,
         // so nothing moves under the laser there.
         if (!event.recent) {

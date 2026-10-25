@@ -430,9 +430,13 @@ void picker_tests() {
 struct TextSink : KeySink {
     std::vector<std::pair<int, int>> events;
     std::vector<std::string> text;
+    bool reject{}; // The target refuses text.
     void send(int code, int value) override { events.emplace_back(code, value); }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
+        if (reject) {
+            return false;
+        }
         text.push_back(value);
         return true;
     }
@@ -581,9 +585,26 @@ void app_tests() {
         partial.paint(after, 7);
         full.paint(after, 7, true);
         require(partial.rgba() == full.rgba(), "late tone images reach the popup");
+        // A tone whose emoji the target refuses does not stick.
+        const auto [choice_x, choice_y] = center(after.emoji->popup->choices[3].bounds);
+        app.move(0, choice_x, choice_y);
+        sink.reject = true;
+        const auto typed = sink.text.size();
+        app.up(0, choice_x, choice_y);
+        sink.reject = false;
+        const auto rejected = app.view();
+        require(sink.text.size() == typed && cell(*rejected.emoji, "👋") &&
+                    !cell(*rejected.emoji, "👋🏽"),
+                "a refused emoji leaves the tone as it was");
+        app.down(0, wave_x, wave_y, 8);
+        app.tick(8.6);
+        app.move(0, choice_x, choice_y);
+        app.up(0, choice_x, choice_y);
+        const auto toned = app.view();
+        require(sink.text.back() == "👋🏽" && cell(*toned.emoji, "👋🏽"), "a sent one changes it");
+        app.down(0, wave_x, wave_y, 9);
         app.cancel_pointer(0);
-        require(!app.pointer_pressed(0) && !app.view().emoji->popup,
-                "cancelling ends the hold and its tones");
+        require(!app.pointer_pressed(0) && !app.view().emoji->popup, "cancelling ends a press");
         toggle();
     }
 
