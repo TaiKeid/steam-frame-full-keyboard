@@ -16,8 +16,6 @@ struct Rect {
 
 enum class Icon {
     None,
-    ScaleDown,
-    ScaleUp,
     Settings,
     Back,
     Reload,

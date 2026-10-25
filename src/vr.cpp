@@ -2,6 +2,7 @@
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/placement_store.hpp"
+#include "framekeyboard/resizer.hpp"
 #include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_haptics.hpp"
 #include "framekeyboard/vr_lifecycle.hpp"
@@ -272,6 +273,31 @@ class LaserDrag {
         }
         return true;
     }
+    // A corner resizer press: the panel scales with the holding laser's ray.
+    bool start_resize(vr::TrackedDeviceIndex_t device, unsigned pointer, const PanelResize& resize,
+                      double now) {
+        if (!capture_.begin(MoveSource::Resize, device, pointer)) {
+            return false;
+        }
+        resize_ = resize;
+        started_ = updated_ = now;
+        trigger_release_.begin(now);
+        trigger_neutral_.reset();
+        prepare_trigger();
+        return true;
+    }
+    // A lost ray or the movement time limit ends the resize; a ray off the
+    // panel plane keeps the last size.
+    bool resize(PanelPlacement& placement, double now, const std::optional<Ray>& ray) {
+        if (!ray || now - started_ > 30) {
+            stop();
+            return false;
+        }
+        if (const auto next = resize_.update(*ray)) {
+            placement.restore(next->transform, next->width);
+        }
+        return true;
+    }
     bool update(PanelPlacement& placement, double now, double stick_y) {
         const auto pose = read_pointer_pose(device());
         if (!pose || now - started_ > 30) {
@@ -290,7 +316,7 @@ class LaserDrag {
         return capture_.owns_pointer(device, pointer);
     }
     bool trigger_released(double now) {
-        if (source() != MoveSource::Laser || !trigger_neutral_) {
+        if (source() == MoveSource::Grip || !trigger_neutral_) {
             return false;
         }
         vr::RenderModel_ControllerMode_State_t mode{};
@@ -337,6 +363,7 @@ class LaserDrag {
         }
     }
     PanelDrag transform_;
+    PanelResize resize_;
     MoveCapture capture_;
     double started_{}, updated_{};
     std::string trigger_model_;
@@ -351,6 +378,7 @@ class LaserDrag {
 struct SceneSample {
     vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
     std::optional<PanelHit> hit;
+    std::optional<Ray> ray;
     // lost: the hand or its trigger stopped reporting while held; cancel, don't release.
     bool pressed{}, released{}, lost{};
 };
@@ -430,6 +458,7 @@ class ScenePointer {
                     direction[r] -= controller[r][c] * hand.tip[c][2];
                 }
             }
+            sample.ray = Ray{origin, direction};
             sample.hit =
                 panel_ray_hit(panel.transform(), panel.width(), height_over_width, origin, direction);
         }
@@ -598,6 +627,225 @@ class SceneCursors {
         return !dot.failed;
     }
     std::array<Dot, 2> dots_{};
+};
+// Each pointer's laser in the world: a controller's from its tip component
+// along -Z, as SteamVR draws it, and the head cursor's straight ahead.
+class LaserRays {
+  public:
+    std::optional<Ray> read(vr::TrackedDeviceIndex_t device) {
+        const auto pose = read_pointer_pose(device);
+        if (!pose) {
+            return {};
+        }
+        const auto tip = vr_system()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller
+                             ? controller_tip(device)
+                             : identity;
+        Ray ray{};
+        ray.direction = {};
+        for (std::size_t r = 0; r < 3; ++r) {
+            ray.origin[r] = (*pose)[r][3];
+            for (std::size_t c = 0; c < 3; ++c) {
+                ray.origin[r] += (*pose)[r][c] * tip[c][3];
+                ray.direction[r] -= (*pose)[r][c] * tip[c][2];
+            }
+        }
+        return ray;
+    }
+
+  private:
+    static constexpr Transform identity{{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}};
+    // Cached per device index and render model; a reconnect may change either.
+    Transform controller_tip(vr::TrackedDeviceIndex_t device) {
+        char model[1024]{};
+        vr::ETrackedPropertyError error{};
+        vr_system()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String, model,
+                                                    sizeof(model), &error);
+        auto& tip = tips_[device];
+        if (error || tip.model != model) {
+            tip = {error ? "" : model, identity};
+            vr::VRControllerState_t released{};
+            vr::RenderModel_ControllerMode_State_t mode{};
+            vr::RenderModel_ComponentState_t state{};
+            if (!error && vr_models() &&
+                vr_models()->GetComponentState(model, "tip", &released, &mode, &state)) {
+                tip.local = from_vr(state.mTrackingToComponentLocal);
+            }
+        }
+        return tip.local;
+    }
+    struct Tip {
+        std::string model;
+        Transform local{};
+    };
+    std::map<vr::TrackedDeviceIndex_t, Tip> tips_;
+};
+ResizeCorner corner_of(std::size_t side) {
+    return side == 0 ? ResizeCorner::Left : ResizeCorner::Right;
+}
+// A case corner as an offset from the overlay center. The texture adds
+// popup_margin above and below the case, so its center is the case's middle row.
+PanelOffset case_corner(const PanelView& view, double width, bool right, bool bottom) {
+    const auto body = panel_case_bounds(view);
+    const double meters = width / panel_width;
+    return {((right ? body.x + body.width : body.x) - panel_width / 2.0) * meters,
+            (texture_height / 2.0 - popup_margin - (bottom ? body.y + body.height : body.y)) * meters};
+}
+// The bracket follows the case's corner radius, which scales with the panel.
+// Quantized to 0.25 mm so a resize redraws the image only now and then.
+ResizerShape resizer_shape(const PanelView& view, double width) {
+    const double radius = view.theme->surface_radius * width / panel_width;
+    return {std::round(radius * 4000) / 4000};
+}
+// The two corner resizers, index 0 left and 1 right. Each is its own overlay,
+// so fading never repaints the keyboard texture. Both are created up front:
+// the watchdog thread hides them by handle.
+class CornerResizers {
+  public:
+    CornerResizers() {
+        for (std::size_t side = 0; side < corners_.size(); ++side) {
+            create(side);
+        }
+    }
+    ~CornerResizers() {
+        for (auto& corner : corners_) {
+            if (corner.handle) {
+                vr_overlay()->DestroyOverlay(corner.handle);
+            }
+        }
+    }
+    CornerResizers(const CornerResizers&) = delete;
+    CornerResizers& operator=(const CornerResizers&) = delete;
+    std::array<vr::VROverlayHandle_t, 2> handles() const {
+        return {corners_[0].handle, corners_[1].handle};
+    }
+    bool poll(std::size_t side, vr::VREvent_t& event) {
+        const auto handle = corners_[side].handle;
+        return handle && vr_overlay()->PollNextOverlayEvent(handle, &event, sizeof(event));
+    }
+    // As for the keyboard, passthrough takes no SteamVR laser input.
+    void set_scene_input(bool scene) {
+        for (const auto& corner : corners_) {
+            if (corner.handle) {
+                vr_overlay()->SetOverlayInputMethod(corner.handle, scene
+                                                                       ? vr::VROverlayInputMethod_None
+                                                                       : vr::VROverlayInputMethod_Mouse);
+            }
+        }
+    }
+    // Eases toward `target` opacity. A faded-out resizer is hidden, so it never
+    // takes the laser; its image is redrawn only when shown at a new radius.
+    // A held resizer stays fully opaque and keeps its image: replacing a raw
+    // overlay image every few frames of a resize makes it flicker. It is
+    // redrawn for the final radius once released.
+    void update(std::size_t side, const Transform& world, const ResizerShape& shape, double target,
+                double now, bool held = false) {
+        auto& corner = corners_[side];
+        const double alpha = held ? corner.fade.hold(now) : corner.fade.update(target, now);
+        if (!corner.handle) {
+            return;
+        }
+        if (alpha < .01) {
+            hide(corner);
+            return;
+        }
+        if (corner.shape != shape && !(held && corner.shape) && !draw(side, shape)) {
+            hide(corner);
+            return;
+        }
+        auto overlay = vr_overlay();
+        if (world != corner.placed) {
+            vr::HmdMatrix34_t transform{};
+            for (std::size_t r = 0; r < 3; ++r) {
+                for (std::size_t c = 0; c < 4; ++c) {
+                    transform.m[r][c] = static_cast<float>(world[r][c]);
+                }
+            }
+            overlay->SetOverlayTransformAbsolute(corner.handle, vr::TrackingUniverseStanding,
+                                                 &transform);
+            corner.placed = world;
+        }
+        if (std::abs(alpha - corner.shown_alpha) > .004 || (alpha == 1 && corner.shown_alpha != 1)) {
+            overlay->SetOverlayAlpha(corner.handle, static_cast<float>(alpha));
+            corner.shown_alpha = alpha;
+        }
+        if (!corner.visible) {
+            overlay->ShowOverlay(corner.handle);
+            corner.visible = true;
+        }
+    }
+    double alpha(std::size_t side) const { return corners_[side].fade.value(); }
+    void hide() {
+        for (auto& corner : corners_) {
+            corner.fade.reset();
+            hide(corner);
+        }
+    }
+
+  private:
+    struct Corner {
+        vr::VROverlayHandle_t handle{};
+        bool visible{};
+        double shown_alpha{-1};
+        Transform placed{};
+        // The radius the current image was drawn for; none before the first draw.
+        std::optional<ResizerShape> shape;
+        ResizerFade fade;
+    };
+    void hide(Corner& corner) {
+        if (corner.visible) {
+            vr_overlay()->HideOverlay(corner.handle);
+            corner.visible = false;
+        }
+    }
+    void create(std::size_t side) {
+        auto& corner = corners_[side];
+        auto overlay = vr_overlay();
+        const std::string key = "org.framekeyboard.resizer." + std::to_string(side);
+        if (overlay->CreateOverlay(key.c_str(), "Full Keyboard resizer", &corner.handle) !=
+            vr::VROverlayError_None) {
+            corner.handle = 0;
+            std::cout << "Corner resizer unavailable.\n" << std::flush;
+            return;
+        }
+        bool ok = overlay->SetOverlaySortOrder(corner.handle, 1) == vr::VROverlayError_None &&
+                  overlay->SetOverlayInputMethod(corner.handle, vr::VROverlayInputMethod_Mouse) ==
+                      vr::VROverlayError_None;
+        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
+            ok = ok && overlay->SetOverlayFlag(corner.handle, flag, true) == vr::VROverlayError_None;
+        }
+        if (!ok) {
+            overlay->DestroyOverlay(corner.handle);
+            corner.handle = 0;
+            std::cout << "Corner resizer unavailable.\n" << std::flush;
+        }
+    }
+    // Image, size, mouse scale and laser mask all depend on the radius.
+    bool draw(std::size_t side, const ResizerShape& shape) {
+        auto& corner = corners_[side];
+        const int size = shape.pixels();
+        auto pixels = resizer_pixels(corner_of(side), shape);
+        vr::HmdVector2_t scale{{static_cast<float>(size), static_cast<float>(size)}};
+        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 2> mask{};
+        const auto rectangles = resizer_mask(corner_of(side), shape);
+        for (std::size_t i = 0; i < mask.size(); ++i) {
+            mask[i].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
+            const auto& r = rectangles[i];
+            mask[i].m_Primitive.m_Rectangle = {r[0], r[1], r[2], r[3]};
+        }
+        auto overlay = vr_overlay();
+        const bool ok =
+            overlay->SetOverlayRaw(corner.handle, pixels.data(), static_cast<std::uint32_t>(size),
+                                   static_cast<std::uint32_t>(size), 4) == vr::VROverlayError_None &&
+            overlay->SetOverlayWidthInMeters(corner.handle, static_cast<float>(2 * shape.half_size())) ==
+                vr::VROverlayError_None &&
+            overlay->SetOverlayMouseScale(corner.handle, &scale) == vr::VROverlayError_None &&
+            overlay->SetOverlayIntersectionMask(corner.handle, mask.data(),
+                                                static_cast<std::uint32_t>(mask.size())) ==
+                vr::VROverlayError_None;
+        corner.shape = ok ? std::optional{shape} : std::nullopt;
+        return ok;
+    }
+    std::array<Corner, 2> corners_{};
 };
 class VrPanel {
   public:
@@ -768,6 +1016,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     app.set_interaction_active(false);
     VrPanel panel;
     panel.connect();
+    CornerResizers resizers;
     std::atomic<double> replacement_progress{monotonic_seconds()};
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false};
     replacement.prepare_watchdog();
@@ -781,6 +1030,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
                 vr_overlay()->HideOverlay(panel.handle());
+                for (const auto handle : resizers.handles()) {
+                    if (handle) {
+                        vr_overlay()->HideOverlay(handle);
+                    }
+                }
                 replacement_stalled.store(true);
             }
         }
@@ -802,6 +1056,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         std::cout << "Passthrough pointer unavailable.\n" << std::flush;
     }
     SceneCursors cursors;
+    LaserRays laser_rays;
+    // The corner being resized; it stays shown while the other fades.
+    std::size_t resize_side = 1;
     // Passthrough with the dashboard closed: the panel takes no SteamVR laser
     // events and the passthrough pointer drives it.
     bool scene_input = false;
@@ -910,7 +1167,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     scene_inside.fill(false);
                     cursors.hide();
                 },
-            .hide_overlay = [&] { check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard"); },
+            .hide_overlay =
+                [&] {
+                    resizers.hide();
+                    check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard");
+                },
             .route_input = [&](bool remote) { replacement.route(remote); },
             .set_interaction = [&](bool active) { app.set_interaction_active(active); },
             .show_overlay =
@@ -966,7 +1227,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             transform_dirty = false;
         }
     };
-    std::vector<PlacementAction> adjustments;
     if (app.background_start()) {
         // The first texture upload can consume much of the summon deadline.
         // Prepare it while hidden, before the helper can advertise readiness.
@@ -1022,6 +1282,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             scene_inside.fill(false);
             cursors.hide();
             panel.set_scene_input(scene);
+            resizers.set_scene_input(scene);
             scene_input = scene;
             std::cout << (scene ? "Passthrough pointer active.\n" : "Dashboard laser active.\n")
                       << std::flush;
@@ -1112,6 +1373,24 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
         };
+        // Either corner scales the keyboard about its center.
+        auto start_resize = [&](std::size_t side, vr::TrackedDeviceIndex_t device, unsigned pointer) {
+            if (drag.active() || !displayed.ready() || !app.allows_movement(MoveSource::Resize)) {
+                return;
+            }
+            const auto ray = laser_rays.read(device);
+            PanelResize resize;
+            if (!ray || !resize.begin(displayed.transform(), displayed.width(), *ray) ||
+                !drag.start_resize(device, pointer, resize, now)) {
+                return;
+            }
+            resize_side = side;
+            placement.restore(displayed.transform(), displayed.width());
+            horizon.reset();
+            feedback.cancel();
+            app.set_dragging(true, true);
+            std::cout << "Keyboard resize started.\n" << std::flush;
+        };
         auto pointer_up = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y) {
             if (drag.owns_pointer(device, pointer)) {
                 stop_drag(true);
@@ -1192,6 +1471,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             dismiss_panel();
         }
+        for (std::size_t side = 0; side < 2; ++side) {
+            while (resizers.poll(side, event)) {
+                const bool left_button = (event.eventType == vr::VREvent_MouseButtonDown ||
+                                          event.eventType == vr::VREvent_MouseButtonUp) &&
+                                         event.data.mouse.button == vr::VRMouseButton_Left;
+                if (!left_button || !lifecycle.visible() || scene_input || !dashboard_visible || done ||
+                    app.quitting()) {
+                    continue;
+                }
+                const auto device = event.trackedDeviceIndex;
+                const auto pointer = event.data.mouse.cursorIndex;
+                if (event.eventType == vr::VREvent_MouseButtonDown) {
+                    if (pointer_device(device)) {
+                        start_resize(side, device, pointer);
+                    }
+                } else if (drag.owns_pointer(device, pointer)) {
+                    stop_drag(true);
+                }
+            }
+        }
         if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
             const auto view = app.view();
             // The same areas as the intersection mask: transparent margins never take the ray.
@@ -1254,7 +1553,27 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         pointer_down(pointer, sample.device, at->first, at->second, true, true);
                     }
                 } else {
-                    cursors.hide(hand);
+                    // The ray may rest on a shown corner resizer, outside the case.
+                    std::optional<Vector3> resizer;
+                    std::size_t side = 0;
+                    for (; sample.ray && side < 2 && !resizer; ++side) {
+                        if (resizers.alpha(side) > .3) {
+                            resizer = resizer_hit(displayed.transform(),
+                                                  case_corner(view, displayed.width(), side == 1, true),
+                                                  corner_of(side),
+                                                  resizer_shape(view, displayed.width()), *sample.ray);
+                        }
+                    }
+                    if (resizer) {
+                        PanelHit hit;
+                        hit.point = *resizer;
+                        cursors.show(hand, displayed.transform(), hit);
+                        if (sample.pressed) {
+                            start_resize(side - 1, sample.device, pointer);
+                        }
+                    } else {
+                        cursors.hide(hand);
+                    }
                     if (std::exchange(scene_inside[hand], false)) {
                         // Leaving the panel ends this hand's presses, as SteamVR's FocusLeave does.
                         if (sample.device < hovered_devices.size()) {
@@ -1343,26 +1662,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             stop_drag();
             saved.reset();
             recenter_pending = true;
-            adjustments.clear();
             lifecycle.request_recenter();
         }
-        const auto actions = app.take_placement_actions();
-        adjustments.insert(adjustments.end(), actions.begin(), actions.end());
-        if (!actions.empty()) {
-            lifecycle.request_tracking_sample();
-        }
         if (drag.active()) {
-            double stick_y = 0;
-            if (drag.source() == MoveSource::Laser) {
-                stick_y = grip_input.laser_sample(drag.device()).stick_y;
+            bool followed = false;
+            if (drag.source() == MoveSource::Resize) {
+                followed = drag.resize(placement, now, laser_rays.read(drag.device()));
             } else {
-                for (const auto& input : grips) {
-                    if (input.active && input.held && input.device == drag.device()) {
-                        stick_y = input.stick_y;
+                double stick_y = 0;
+                if (drag.source() == MoveSource::Laser) {
+                    stick_y = grip_input.laser_sample(drag.device()).stick_y;
+                } else {
+                    for (const auto& input : grips) {
+                        if (input.active && input.held && input.device == drag.device()) {
+                            stick_y = input.stick_y;
+                        }
                     }
                 }
+                followed = drag.update(placement, now, stick_y);
             }
-            if (drag.update(placement, now, stick_y)) {
+            if (followed) {
                 transform_dirty = true;
             } else {
                 stop_drag();
@@ -1400,9 +1719,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     dashboard_anchor.update(panel.read_dashboard("valve.steam.gamepadui.main", true),
                                             panel.read_dashboard("valve.steam.gamepadui.bar", false));
                 level_dashboard = dashboard;
-                if (!adjustments.empty()) {
-                    stop_drag();
-                }
                 if (saved) {
                     const auto universe = panel.universe();
                     if (saved->universe && universe && saved->universe != universe) {
@@ -1449,11 +1765,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     // current so release preserves the new custom offset.
                     previous_dashboard = dashboard;
                 }
-                for (const auto action : adjustments) {
-                    placement.adjust(action);
-                    transform_dirty = true;
-                }
-                adjustments.clear();
                 if (transform_dirty) {
                     place_panel(now);
                 }
@@ -1465,6 +1776,45 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (lifecycle.visible() && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
+        }
+        // Corner resizers fade in wherever any laser comes near: either hand's,
+        // and the head cursor while it is the dashboard's pointer. Pinning hides them.
+        if (!lifecycle.visible() || !displayed.ready()) {
+            resizers.hide();
+        } else {
+            const auto view = app.view();
+            const auto shape = resizer_shape(view, displayed.width());
+            const auto corner = [&](std::size_t side) {
+                return case_corner(view, displayed.width(), side == 1, true);
+            };
+            std::array<double, 2> target{};
+            const bool resizing = drag.active() && drag.source() == MoveSource::Resize;
+            if (resizing) {
+                target[resize_side] = 1;
+            } else if (!drag.active() && app.allows_movement(MoveSource::Resize)) {
+                std::vector<vr::TrackedDeviceIndex_t> lasers{
+                    vr_system()->GetTrackedDeviceIndexForControllerRole(
+                        vr::TrackedControllerRole_LeftHand),
+                    vr_system()->GetTrackedDeviceIndexForControllerRole(
+                        vr::TrackedControllerRole_RightHand)};
+                if (const auto primary = vr_overlay()->GetPrimaryDashboardDevice();
+                    !scene_input && primary == vr::k_unTrackedDeviceIndex_Hmd) {
+                    lasers.push_back(primary);
+                }
+                for (const auto device : lasers) {
+                    const auto ray = laser_rays.read(device);
+                    for (std::size_t side = 0; ray && side < 2; ++side) {
+                        const auto bend =
+                            resizer_target(displayed.transform(), corner(side), corner_of(side), shape);
+                        target[side] =
+                            std::max(target[side], resizer_proximity(ray_distance(*ray, bend)));
+                    }
+                }
+            }
+            for (std::size_t side = 0; side < 2; ++side) {
+                resizers.update(side, resizer_transform(displayed.transform(), corner(side)), shape,
+                                target[side], now, resizing && side == resize_side);
+            }
         }
         // Repeat and text commits share the same gate as pointer presses.
         if (!presentable()) {

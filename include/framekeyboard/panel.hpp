@@ -22,8 +22,6 @@ enum class ControlKind {
     NativeFallback,
     Quit,
     Recenter,
-    Smaller,
-    Larger,
     Pin,
     Passthrough,
     LanguageCycle,

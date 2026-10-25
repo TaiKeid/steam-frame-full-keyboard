@@ -64,7 +64,6 @@ class VrLifecycle {
     void device_lost(std::uint32_t device, std::optional<std::uint32_t> drag_owner);
     void pointer_left(std::uint32_t device, bool dragging);
     void request_recenter();
-    void request_tracking_sample() { tracking_.request_sample(); }
     bool should_sample_tracking(bool dashboard_visible, double now) const;
     void tracking_sampled(bool valid, double now);
     bool waiting_for_tracking() const { return tracking_.waiting(); }

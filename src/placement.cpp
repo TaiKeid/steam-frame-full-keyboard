@@ -391,7 +391,7 @@ void PanelPlacement::restore(const Transform& world, double width) {
     set_width(width);
 }
 void PanelPlacement::set_width(double width) {
-    width_ = std::clamp(width, .45, 2.0);
+    width_ = std::clamp(width, minimum_width, maximum_width);
 }
 void PanelPlacement::recenter(const Transform& head, const Transform* dashboard_bottom,
                               double height_over_width) {
@@ -412,16 +412,5 @@ void PanelPlacement::recenter(const Transform& head, const Transform* dashboard_
                              : head[row][3] - rotation[row][2] * .85 - rotation[row][1] * .65;
     }
     ready_ = true;
-}
-void PanelPlacement::adjust(PlacementAction action) {
-    switch (action) {
-    case PlacementAction::Smaller:
-        width_ -= .05;
-        break;
-    case PlacementAction::Larger:
-        width_ += .05;
-        break;
-    }
-    width_ = std::clamp(width_, .45, 2.0);
 }
 } // namespace framekeyboard

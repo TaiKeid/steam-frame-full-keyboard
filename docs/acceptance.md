@@ -71,7 +71,8 @@ Typed text and clipboard contents must not appear in logs. Recovery must not pas
 
 ## Settings and pin
 
-- Confirm Settings, Recenter, smaller/larger zoom, Pin and language toolbar order. A pinned button changes icon without an active background.
+- Confirm Settings, Recenter, Pin, Stay open over apps and language toolbar order. A pinned button changes icon without an active background.
+- Corner resizers: aiming either laser just outside either bottom corner fades in a bracket there that follows the case's rounded corner; aiming away fades it out, and the pin hides both. Dragging either corner scales the keyboard about its center, release keeps the size, and keys at the corner still type while the resizer shows. Repeat over apps with the dashboard closed and at the smallest and largest sizes.
 - Turn Num Lock on, close/reopen, and confirm its legends and mapping. Turn it off and repeat.
 - In General check Hide numpad and Apply. Confirm the keys disappear and the case becomes narrower, with no laser/grab hits in the trimmed space. Change layouts and cycle favorites; visibility and Num Lock remain global. Show the numpad again and confirm its prior lock state.
 - Toggle pin, close/reopen, and confirm the saved icon/state. Neither movement method can move a pinned keyboard; moving/tilting the dashboard still carries it. Unpin and confirm the selected movement method returns.

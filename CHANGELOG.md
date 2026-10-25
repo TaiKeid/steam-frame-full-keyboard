@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Resize the keyboard from its corners, like a Steam window, instead of with the zoom buttons. Aim either controller's laser just outside a bottom corner: a resizer that follows the keyboard's rounded corner fades in there, and fades out as the laser moves away. Hold the trigger on it and drag; the keyboard grows or shrinks around its center. Pinning the keyboard hides the resizers. With the numpad hidden, only Stay open over apps moves to the toolbar's second row.
+
 ## 0.9.2: Swiped words type correctly in X11 apps
 
 - Fixed swiped words and swipe alternatives sometimes arriving scrambled or partly as digits in Brave and other X11 apps, such as `word235` or `htree` for *three*, especially while the Frame was busy. Words of plain ASCII characters are now typed one acknowledged character at a time, the way single key presses already were, with a short gap between characters. This avoids Gamescope's temporary keymap, and keeps the input method from reordering keys. Other text, such as accented words, Japanese or Chinese, is typed as before.

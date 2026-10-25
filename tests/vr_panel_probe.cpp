@@ -132,55 +132,15 @@ int main(int argc, char** argv) {
             click(panel, 1552, 33);
             std::cout << "Clicked Close on the input-disabled keyboard.\n";
         } else if (mode == "--exercise") {
-            require(vr::VROverlayView() != nullptr, "overlay event interface unavailable");
-            const auto original = transform(panel);
-            float width = 0, resized = 0;
-            vr::VROverlay()->GetOverlayWidthInMeters(panel, &width);
-            // Reuse actual toolbar geometry, including the optional language
-            // button. This App only reads the test instance's profiles/config;
-            // its NullSink cannot deliver input to any application.
-            framekeyboard::Options options;
-            options.config_dir = framekeyboard::default_config_dir();
-            std::vector<std::string> args;
-            for (std::size_t start = 0; start < arguments.size();) {
-                const auto end = arguments.find('\0', start);
-                args.push_back(arguments.substr(start, end - start));
-                if (end == std::string::npos) {
-                    break;
-                }
-                start = end + 1;
+            // Corner resizers are separate overlays beside the case's bottom
+            // corners. They stay hidden and undrawn until a laser approaches,
+            // so only their existence is checked without a headset in use.
+            for (const char* key : {"org.framekeyboard.resizer.0", "org.framekeyboard.resizer.1"}) {
+                vr::VROverlayHandle_t resizer{};
+                require(vr::VROverlay()->FindOverlay(key, &resizer) == vr::VROverlayError_None,
+                        "corner resizer overlay missing");
             }
-            for (std::size_t i = 0; i + 1 < args.size(); ++i) {
-                if (args[i] == "--config-dir") {
-                    options.config_dir = args[i + 1];
-                } else if (args[i] == "--data-dir") {
-                    options.data_dir = args[i + 1];
-                }
-            }
-            framekeyboard::NullSink sink;
-            framekeyboard::App ui(options, sink);
-            auto click_control = [&](const std::string& id) {
-                for (const auto& control : ui.view().controls) {
-                    if (control.id == id) {
-                        click(panel, static_cast<float>(control.bounds.x + control.bounds.width / 2),
-                              static_cast<float>(control.bounds.y + control.bounds.height / 2));
-                        return;
-                    }
-                }
-                throw std::runtime_error("missing control " + id);
-            };
-            click_control("size-larger");
-            vr::VROverlay()->GetOverlayWidthInMeters(panel, &resized);
-            require(std::abs(resized - width - .05) < .005, "larger icon adds 5 cm");
-            click_control("size-smaller");
-            vr::VROverlay()->GetOverlayWidthInMeters(panel, &resized);
-            require(std::abs(resized - width) < .005, "smaller icon restores width");
-            const auto after = transform(panel);
-            for (int row = 0; row < 3; ++row) {
-                require(std::abs(after.m[row][3] - original.m[row][3]) < .00001,
-                        "resize icons preserve position");
-            }
-            std::cout << "Live main-view resize icons changed width without moving the panel.\n";
+            std::cout << "Live corner resizer overlays exist.\n";
         } else {
             const auto current = transform(panel);
             require(std::abs(current.m[1][0]) < .001 &&

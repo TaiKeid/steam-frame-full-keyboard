@@ -15,7 +15,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
 - Controller laser typing, press/release haptic clicks, and subtle hover feedback.
 - Experimental swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
-- Move with the laser handle below the keyboard, or enable grab movement in Settings. Size controls are available in both modes.
+- Move with the laser handle below the keyboard, or enable grab movement in Settings. Resize from either bottom corner in both modes.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Editable layouts, languages, and themes, with a settings menu inside VR.
 - English, German, French, Spanish, Italian, Brazilian Portuguese, Russian, Ukrainian, Japanese, Chinese and Korean options. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul.
@@ -76,7 +76,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
 | Cycle favorite layouts and languages | Press the language abbreviation beside the pin icon |
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
-| Change size | Use the smaller / larger icons in the toolbar |
+| Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |

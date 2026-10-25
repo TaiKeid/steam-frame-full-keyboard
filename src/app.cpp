@@ -224,7 +224,7 @@ std::vector<Control> App::controls() const {
             add({ControlKind::MoveHandle}, {"move-handle",
                                             "Move keyboard",
                                             {body.x + body.width / 2 - 220, panel_height + 12, 440, 60},
-                                            dragging_,
+                                            dragging_ && !resizing_,
                                             Icon::None,
                                             ControlStyle::MoveHandle});
         }
@@ -246,8 +246,8 @@ std::vector<Control> App::controls() const {
         append_move_handle();
         return result;
     }
-    // One row: Settings, Recenter, zoom, Pin, passthrough, language. Compact:
-    // Settings, Recenter, Pin, language, with zoom and passthrough below.
+    // One row: Settings, Recenter, Pin, passthrough, language. Compact:
+    // Settings, Recenter, Pin, language, with passthrough below Settings.
     const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
     auto slot = [&](int row_one, int compact_column, int compact_row) {
@@ -260,19 +260,15 @@ std::vector<Control> App::controls() const {
     };
     add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
     add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
-    add({ControlKind::Smaller},
-        {"size-smaller", "Smaller keyboard", button(2, 0, 1), false, Icon::ScaleDown});
-    add({ControlKind::Larger},
-        {"size-larger", "Larger keyboard", button(3, 1, 1), false, Icon::ScaleUp});
     add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
-                             button(4, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
+                             button(2, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
     add({ControlKind::Passthrough},
         {"passthrough", passthrough_ ? "Close with the dashboard" : "Stay open over apps",
-         button(5, 2, 1), passthrough_, passthrough_ ? Icon::PassthroughOn : Icon::PassthroughOff});
+         button(3, 0, 1), passthrough_, passthrough_ ? Icon::PassthroughOn : Icon::PassthroughOff});
     if (!settings_.favorites.empty()) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
-             button(6, 3, 0, 100)});
+             button(4, 3, 0, 100)});
     }
     // Where the first row's fixed buttons end; suggestions start after it.
     double toolbar_end = x;
@@ -451,9 +447,10 @@ PanelView App::view() const {
     if (settings_open_) {
         settings_ui_.append(v);
     }
-    v.status = dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
-                                                       : "Release trigger to place keyboard")
-                         : (status_.empty() ? startup_status_ : status_);
+    v.status = resizing_   ? "Release trigger to keep this size"
+               : dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
+                                                         : "Release trigger to place keyboard")
+                           : (status_.empty() ? startup_status_ : status_);
     if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
@@ -907,7 +904,7 @@ void App::set_interaction_active(bool active) {
         output_.set_enabled(false);
     }
 }
-void App::set_dragging(bool dragging) {
+void App::set_dragging(bool dragging, bool resizing) {
     if (dragging && settings_.pinned) {
         return;
     }
@@ -916,6 +913,7 @@ void App::set_dragging(bool dragging) {
     }
     cancel();
     dragging_ = dragging;
+    resizing_ = dragging && resizing;
     status_.clear();
 }
 void App::report_status(const std::string& message) {
@@ -953,14 +951,8 @@ void App::summon() {
     // Release held keys before moving; keep the input connection unchanged.
     cancel();
     settings_open_ = false;
-    placement_actions_.clear();
     recenter_ = true;
     status_.clear();
-}
-std::vector<PlacementAction> App::take_placement_actions() {
-    std::vector<PlacementAction> result;
-    result.swap(placement_actions_);
-    return result;
 }
 void App::activate(Selection selection) {
     allow_slow_work();
@@ -1474,12 +1466,6 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
 }
 void App::action(const ControlAction& command) {
     const auto kind = command.kind;
-    if (kind == ControlKind::Smaller || kind == ControlKind::Larger) {
-        cancel();
-        placement_actions_.push_back(kind == ControlKind::Smaller ? PlacementAction::Smaller
-                                                                  : PlacementAction::Larger);
-        return;
-    }
     if (output_.text_pending() &&
         ((kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate) ||
          (kind >= ControlKind::ImeToggle && kind <= ControlKind::ImeCandidate))) {
@@ -1589,7 +1575,6 @@ void App::action(const ControlAction& command) {
         }
     } else if (kind == ControlKind::Recenter) {
         cancel();
-        placement_actions_.clear();
         recenter_ = true;
     } else if (kind == ControlKind::Apply) {
         // Prepare/activate first. A failed candidate must leave all saved state intact.

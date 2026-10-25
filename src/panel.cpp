@@ -300,15 +300,6 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-4, 0, 4, 0);
         line(-4, 5, 2, 5);
         break;
-    case Icon::ScaleDown:
-    case Icon::ScaleUp:
-        cairo_arc(cr, -3, -3, 8, 0, 2 * pi);
-        line(3, 3, 10, 10);
-        line(-7, -3, 1, -3);
-        if (icon == Icon::ScaleUp) {
-            line(-3, -7, -3, 1);
-        }
-        break;
     case Icon::None:
         break;
     }
@@ -922,7 +913,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         if (!view.status.empty()) {
             // A compact toolbar's second row takes the left of the status line.
-            const double inset = compact_toolbar(view) ? 228 : 18;
+            const double inset = compact_toolbar(view) ? 88 : 18;
             label(cr, view.status,
                   view.settings ? Rect{30, 574, 1540, 24}
                                 : Rect{body.x + inset, 60, body.width - inset - 18, 28},

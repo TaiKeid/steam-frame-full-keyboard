@@ -28,7 +28,7 @@ By default, point at the line below the keyboard, hold the trigger, move your ha
 
 The keyboard reads grip travel from the native Frame controller model. Other controller models are unsupported. Steam updates that change this model may require an app update. No global SteamVR input setting is changed.
 
-General → Auto leveling is on by default. Horizon assistance runs only after release: a roll within 5° eases level over 500 ms without changing pitch. Disable Auto leveling and Apply to retain your chosen roll. Changing the setting preserves the current displayed pose. Toolbar size controls change width by 5 cm within 45 cm to 2 m.
+General → Auto leveling is on by default. Horizon assistance runs only after release: a roll within 5° eases level over 500 ms without changing pitch. Disable Auto leveling and Apply to retain your chosen roll. Changing the setting preserves the current displayed pose. Corner resizers change the width within 45 cm to 2 m.
 
 Press feedback uses 25 ms at full strength; release uses 8 ms at 35%, both at 150 Hz. Hover uses 4 ms at 10% and 240 Hz. Feedback goes to the controller responsible for the interaction. Toolbar actions, repeats, and dragging do not pulse.
 

@@ -59,8 +59,8 @@ struct PanelHit {
 std::optional<PanelHit> panel_ray_hit(const Transform& panel, double width, double height_over_width,
                                       const std::array<double, 3>& origin,
                                       const std::array<double, 3>& direction);
-enum class PlacementAction { Smaller, Larger };
-enum class MoveSource { Laser, Grip };
+// Laser: the movement line. Resize: a corner resizer, also laser-held.
+enum class MoveSource { Laser, Grip, Resize };
 // Capture belongs to the initiating head/controller and cursor. Another pointer
 // must not steal or release movement, even when it reuses the same cursor index.
 class MoveCapture {
@@ -78,7 +78,7 @@ class MoveCapture {
     std::optional<MoveSource> source() const { return source_; }
     unsigned device() const { return device_; }
     bool owns_pointer(unsigned device, unsigned pointer) const {
-        return source_ == MoveSource::Laser && device_ == device && pointer_ == pointer;
+        return source_ && source_ != MoveSource::Grip && device_ == device && pointer_ == pointer;
     }
     void reset() { source_.reset(); }
 
@@ -88,9 +88,9 @@ class MoveCapture {
 };
 class PanelPlacement {
   public:
+    static constexpr double minimum_width = .45, maximum_width = 2.0;
     void recenter(const Transform& head, const Transform* dashboard_bottom = nullptr,
                   double height_over_width = 600.0 / 1600.0);
-    void adjust(PlacementAction action);
     Transform transform() const { return world_; }
     void set_transform(const Transform& world);
     void set_width(double width);

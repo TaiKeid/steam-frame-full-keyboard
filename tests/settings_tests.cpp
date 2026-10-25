@@ -941,9 +941,9 @@ void app_settings() {
     CaptureSink sink;
     App app(options, sink);
     require(!has(app.view(), "language-cycle"), "no favorites hides language cycle");
-    require(control(app.view(), "settings").bounds.x < control(app.view(), "size-larger").bounds.x &&
-                control(app.view(), "size-larger").bounds.x < control(app.view(), "pin").bounds.x,
-            "pin follows zoom buttons");
+    require(control(app.view(), "settings").bounds.x < control(app.view(), "recenter").bounds.x &&
+                control(app.view(), "recenter").bounds.x < control(app.view(), "pin").bounds.x,
+            "pin follows Recenter");
     const auto unpinned_icon = control(app.view(), "pin").icon;
     click(app, "pin");
     require(app.pinned() && saved(app).pinned, "pin queues persistent state immediately");

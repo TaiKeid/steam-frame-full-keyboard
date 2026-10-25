@@ -97,14 +97,16 @@ class App {
         native_session_ = open;
     }
     bool allows_movement(MoveSource source) const {
-        return !pinned() && use_drag_to_move() == (source == MoveSource::Grip);
+        // Corner resizers work in either movement mode; only the pin locks them.
+        return !pinned() &&
+               (source == MoveSource::Resize || use_drag_to_move() == (source == MoveSource::Grip));
     }
     void summon();
-    void set_dragging(bool dragging);
+    // A corner resize holds the same input gate as movement.
+    void set_dragging(bool dragging, bool resizing = false);
     // Hiding the VR context releases keys before closing the input gate.
     void set_interaction_active(bool active);
     void report_status(const std::string& message);
-    std::vector<PlacementAction> take_placement_actions();
     void apply(Selection selection);
     // Reload immediately when storage is idle, otherwise coalesce the request
     // and complete it from tick() after the newest pending snapshot is saved.
@@ -228,9 +230,8 @@ class App {
     std::map<unsigned, PressedControl> pressed_controls_;
     std::string status_;
     bool settings_open_{false}, quit_{false}, recenter_{false};
-    std::vector<PlacementAction> placement_actions_;
     std::map<unsigned, std::pair<double, double>> pointer_positions_;
-    bool dragging_{};
+    bool dragging_{}, resizing_{};
     bool passthrough_{};
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};

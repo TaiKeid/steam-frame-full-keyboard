@@ -2,6 +2,7 @@
 #include "framekeyboard/feedback.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/placement_store.hpp"
+#include "framekeyboard/resizer.hpp"
 #include <fstream>
 
 #include <algorithm>
@@ -158,18 +159,12 @@ void placement_tests() {
             near(dot, a == b ? 1 : 0, "recenter rotation is orthonormal");
         }
     }
-    panel.adjust(fk::PlacementAction::Smaller);
-    near(panel.width(), .9, "smaller removes 5 cm");
-    panel.adjust(fk::PlacementAction::Larger);
-    near(panel.width(), .95, "larger adds 5 cm");
-    require(panel.transform() == pose, "resizing preserves the entire pose");
-    for (int i = 0; i < 100; ++i) {
-        panel.adjust(fk::PlacementAction::Smaller);
-    }
+    panel.set_width(.9);
+    near(panel.width(), .9, "width is set in meters");
+    require(panel.transform() == pose, "setting the width preserves the entire pose");
+    panel.set_width(.1);
     near(panel.width(), .45, "minimum width");
-    for (int i = 0; i < 100; ++i) {
-        panel.adjust(fk::PlacementAction::Larger);
-    }
+    panel.set_width(5);
     near(panel.width(), 2, "maximum width");
     // A straight-down headset must retain the default desk tilt, not add head pitch.
     const fk::Transform looking_down{{{1, 0, 0, 0}, {0, 0, 1, 1.7}, {0, -1, 0, 0}}};
@@ -220,7 +215,7 @@ void placement_tests() {
 void drag_tests() {
     fk::PanelPlacement panel;
     panel.recenter(head());
-    panel.adjust(fk::PlacementAction::Larger);
+    panel.set_width(1);
     const auto original = panel.transform();
     fk::PanelDrag drag;
     drag.begin(head(), original);
@@ -502,8 +497,8 @@ void persistence_tests() {
     // and save/restore without being reconstructed from the recenter defaults.
     const fk::Transform dragged{{{.8, -.6, 0, 1.2}, {0, 0, 1, 1.1}, {-.6, -.8, 0, 2.3}}};
     original.set_transform(dragged);
-    original.adjust(fk::PlacementAction::Larger);
-    require(original.transform() == dragged, "resizing preserves a dragged pose");
+    original.set_width(1);
+    require(original.transform() == dragged, "a width change preserves a dragged pose");
     fk::save_placement(path, {original.transform(), original.width(), 18446744073709551615ULL});
     const auto saved = fk::load_placement(path);
     require(saved && saved->universe == 18446744073709551615ULL, "universe ID retains all bits");
@@ -1034,6 +1029,133 @@ void ray_hit_tests() {
     near(hit->v, .5, "tilted center hit is vertically centered");
     near(hit->distance, .4, "tilted hit distance follows the normal");
 }
+void resizer_tests() {
+    // Upright panel 1 m wide, centered 1 m ahead at eye height 1, facing +z.
+    const fk::Transform panel{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    const fk::PanelOffset right{.5, -.1875}, left{-.5, -.1875};
+    // The default theme's 20 px case radius on a 1600 px, 1 m panel.
+    const fk::ResizerShape shape{.0125};
+    auto toward = [](const fk::Vector3& target) {
+        return fk::Ray{{target[0], target[1], 0}, {0, 0, -1}};
+    };
+    const auto pose = fk::resizer_transform(panel, right);
+    near(pose[0][3], .5, "the resizer is centered on the case corner");
+    near(pose[1][3], .8125, "the resizer sits at the case's bottom edge");
+    near(pose[2][3], -.997, "the resizer floats just in front of the panel");
+    near(pose[0][0], 1, "the resizer shares the panel's rotation");
+
+    // The bracket is concentric with the case corner a few millimeters out.
+    const auto bend = fk::resizer_target(panel, right, fk::ResizeCorner::Right, shape);
+    const double from_arc_center =
+        std::hypot(bend[0] - (.5 - shape.case_radius), bend[1] - (.8125 + shape.case_radius));
+    require(from_arc_center > shape.case_radius + .003 && from_arc_center < shape.case_radius + .008,
+            "the bracket follows the case's corner radius at a small gap");
+    require(bend[0] > .5 && bend[1] < .8125, "the bracket bends outside the case corner");
+    const auto mirrored = fk::resizer_target(panel, left, fk::ResizeCorner::Left, shape);
+    near(mirrored[0], -bend[0], "the left bracket mirrors the right");
+    // Proximity follows the ray itself, not a pointer on the keyboard surface.
+    near(fk::ray_distance(toward(bend), bend), 0, "a ray through the bracket has no distance");
+    near(fk::ray_distance({{bend[0] + .03, bend[1], 0}, {0, 0, -1}}, bend), .03,
+         "distance is perpendicular to the ray");
+    near(fk::ray_distance({{bend[0], bend[1], -2}, {0, 0, -1}}, bend), 1,
+         "a point behind the ray's origin measures from the origin");
+    near(fk::resizer_proximity(0), 1, "a laser on the bracket shows it fully");
+    near(fk::resizer_proximity(.035), 1, "a laser a few centimeters away still shows it fully");
+    near(fk::resizer_proximity(.06), .5, "the resizer fades between near and far");
+    near(fk::resizer_proximity(.085), 0, "a distant laser hides it");
+    near(fk::resizer_proximity(1), 0, "a laser elsewhere hides it");
+
+    // The quadrant over the case never takes the laser, so corner keys stay reachable.
+    auto hits = [&](fk::PanelOffset corner, fk::ResizeCorner side, double x, double y) {
+        return fk::resizer_hit(panel, corner, side, shape, toward({x, y, -1})).has_value();
+    };
+    require(hits(right, fk::ResizeCorner::Right, .51, .82), "beside the right edge takes the laser");
+    require(hits(right, fk::ResizeCorner::Right, .51, .80), "past the corner takes the laser");
+    require(hits(right, fk::ResizeCorner::Right, .49, .80), "below the bottom edge takes the laser");
+    require(!hits(right, fk::ResizeCorner::Right, .49, .82), "the case corner keeps the laser");
+    require(!hits(right, fk::ResizeCorner::Right, .56, .80), "beyond the resizer misses");
+    require(hits(left, fk::ResizeCorner::Left, -.51, .82), "beside the left edge takes the laser");
+    require(!hits(left, fk::ResizeCorner::Left, -.49, .82), "the left case corner keeps the laser");
+    require(!fk::resizer_hit(panel, right, fk::ResizeCorner::Right, shape, {{.51, .82, 0}, {0, 0, 1}}),
+            "a ray pointing away misses the resizer");
+
+    // The image grows with the radius so the legs always fit.
+    require(fk::ResizerShape{.0125}.pixels() == 128, "the default resizer is 6.4 cm at 20 px/cm");
+    const fk::ResizerShape large{.025};
+    require(large.half_size() >= large.case_radius + .014 && large.pixels() % 2 == 0,
+            "a large keyboard's resizer keeps room for its legs");
+    const int size = shape.pixels();
+    const auto right_pixels = fk::resizer_pixels(fk::ResizeCorner::Right, shape);
+    const auto left_pixels = fk::resizer_pixels(fk::ResizeCorner::Left, shape);
+    require(right_pixels.size() == static_cast<std::size_t>(size * size * 4), "RGBA bracket image");
+    auto alpha = [&](const std::vector<std::uint8_t>& pixels, int x, int y) {
+        return pixels[static_cast<std::size_t>((y * size + x) * 4 + 3)];
+    };
+    // 1.5 cm inside both case edges: over the keys, behind the rounded corner.
+    require(alpha(right_pixels, size / 2 - 30, size / 2 - 30) == 0, "the case's interior stays clear");
+    std::uint8_t strongest = 0;
+    bool mirror = true, clear_edges = true;
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            strongest = std::max(strongest, alpha(right_pixels, x, y));
+            mirror &= alpha(right_pixels, x, y) == alpha(left_pixels, size - 1 - x, y);
+            if (x == 0 || y == 0 || x == size - 1 || y == size - 1) {
+                clear_edges &= alpha(right_pixels, x, y) == 0;
+            }
+        }
+    }
+    require(strongest > 200 && mirror, "a solid bracket, mirrored for the left corner");
+    require(clear_edges, "the bracket is never clipped by the overlay's edges");
+    const auto large_pixels = fk::resizer_pixels(fk::ResizeCorner::Right, large);
+    bool large_clear = true;
+    for (int i = 0; i < large.pixels(); ++i) {
+        large_clear &= large_pixels[static_cast<std::size_t>(i * 4 + 3)] == 0;
+    }
+    require(large_clear, "a large radius still fits its overlay");
+    const auto mask = fk::resizer_mask(fk::ResizeCorner::Right, shape);
+    require(mask[0] == std::array<float, 4>{64, 0, 64, 128} &&
+                mask[1] == std::array<float, 4>{0, 64, 64, 64},
+            "the right mask covers the outward half and the quadrant below the case");
+
+    fk::ResizerFade fade;
+    near(fade.update(1, 10), 0, "a fade starts from hidden");
+    near(fade.update(1, 10.06), .5, "fading in takes 0.12 s");
+    near(fade.update(1, 11), 1, "a long frame finishes the fade");
+    near(fade.update(0, 11.1), .5, "fading out takes 0.2 s");
+    near(fade.hold(11.11), 1, "a held resizer is fully opaque at once");
+    near(fade.update(1, 11.2), 1, "releasing near the laser keeps it opaque");
+    fade.reset();
+    near(fade.value(), 0, "reset hides immediately");
+
+    // Grab the bottom-right corner; the center stays put.
+    fk::PanelResize resize;
+    require(resize.begin(panel, 1, toward({.5, .8125, -1})), "a press on the plane starts");
+    auto result = resize.update(toward({.5, .8125, -1}));
+    require(result && result->transform == panel, "pressing never jumps");
+    near(result->width, 1, "pressing keeps the width");
+    auto along = [&](double t) { return toward({.5 * t, 1 - .1875 * t, -1}); };
+    result = resize.update(along(1.5));
+    require(result.has_value(), "dragging along the diagonal resizes");
+    near(result->width, 1.5, "the dragged corner follows the laser");
+    require(result->transform == panel, "the center and rotation stay in place");
+    // Sideways motion, perpendicular to the center's diagonal, changes nothing.
+    const auto sideways = toward({.5 + .1875 * .1, .8125 + .5 * .1, -1});
+    near(resize.update(sideways)->width, 1, "perpendicular motion keeps the size");
+    near(resize.update(along(5))->width, 2, "the maximum width still applies");
+    near(resize.update(along(.1))->width, .45, "the minimum width still applies");
+    // Any corner works: the opposite one grows the keyboard the same way.
+    fk::PanelResize from_left;
+    require(from_left.begin(panel, 1, toward({-.5, .8125, -1})), "the left corner starts too");
+    near(from_left.update(toward({-.75, 1 - .1875 * 1.5, -1}))->width, 1.5,
+         "dragging the left corner outward grows the keyboard");
+    require(!resize.update({{.5, .8, 0}, {0, 0, 1}}), "a ray off the plane keeps the last size");
+    require(!resize.begin(panel, 1, toward({0, 1, -1})), "a press at the center cannot start");
+
+    fk::MoveCapture capture;
+    require(capture.begin(fk::MoveSource::Resize, 3, 1) && capture.owns_pointer(3, 1) &&
+                !capture.owns_pointer(3, 0),
+            "a resize belongs to its laser's pointer");
+}
 void passthrough_tests() {
     TemporaryDirectory temp;
     fk::Options options;
@@ -1076,29 +1198,33 @@ void ui_tests() {
     options.config_dir = temp.path;
     fk::NullSink sink;
     fk::App app(options, sink);
-    require(!app.view().settings, "keyboard remains visible with resize controls");
+    require(!app.view().settings, "keyboard starts on the main view");
     for (const auto& control : app.view().controls) {
-        require(control.id != "position" && control.id != "input" && control.id != "release",
-                "removed toolbar controls absent");
+        require(control.id != "position" && control.id != "input" && control.id != "release" &&
+                    control.id != "size-smaller" && control.id != "size-larger",
+                "removed toolbar controls absent; corner resizers replace the size icons");
     }
-    for (const auto* id : {"size-smaller", "size-larger"}) {
-        bool clicked = false;
-        for (const auto& control : app.view().controls) {
-            if (control.id != id) {
-                continue;
-            }
-            require(control.icon != fk::Icon::None, "resize controls have icons");
+    // Corner resizers work in either movement mode; the pin hides them.
+    require(app.allows_movement(fk::MoveSource::Resize), "an unpinned keyboard can be resized");
+    for (const auto& control : app.view().controls) {
+        if (control.id == "pin") {
             const double x = control.bounds.x + control.bounds.width / 2;
             const double y = control.bounds.y + control.bounds.height / 2;
             app.down(0, x, y, 1);
             app.up(0, x, y);
-            clicked = true;
         }
-        require(clicked, "resize control exists on main view");
     }
-    require(app.take_placement_actions() ==
-                std::vector{fk::PlacementAction::Smaller, fk::PlacementAction::Larger},
-            "main-view icons queue resize actions");
+    require(app.pinned() && !app.allows_movement(fk::MoveSource::Resize),
+            "a pinned keyboard cannot be resized");
+    for (const auto& control : app.view().controls) {
+        if (control.id == "pin") {
+            const double x = control.bounds.x + control.bounds.width / 2;
+            const double y = control.bounds.y + control.bounds.height / 2;
+            app.down(0, x, y, 2);
+            app.up(0, x, y);
+        }
+    }
+    require(!app.pinned(), "the pin can be released again");
     app.summon();
     require(!app.view().settings && app.take_recenter(),
             "summon returns to keyboard and requests recenter");
@@ -1109,6 +1235,7 @@ int main() {
     try {
         placement_tests();
         ray_hit_tests();
+        resizer_tests();
         passthrough_tests();
         dashboard_tab_tests();
         drag_tests();
