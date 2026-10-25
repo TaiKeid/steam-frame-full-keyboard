@@ -60,12 +60,13 @@ std::optional<Vector3> resizer_hit(const Transform& panel, PanelOffset corner, R
 std::vector<std::uint8_t> resizer_pixels(ResizeCorner side, const ResizerShape& shape);
 // The laser area in the overlay's top-left pixel coordinates: rectangles
 // {x, y, width, height} for the three quadrants outside the sharp corner, and
-// a circle {x, y, radius} around the bracket's bend. On a large keyboard the
-// bend lies inside the sharp corner; the circle reaches it without entering
-// the rounded case, since it is the bracket's gap wide.
+// circles {x, y, radius} along the part of the bracket's arc inside it. On a
+// large keyboard the arc's middle lies inside the sharp corner; the circles
+// reach it without entering the rounded case, since each is the bracket's
+// gap wide and centered on its middle line.
 struct ResizerMask {
     std::array<std::array<float, 4>, 2> rectangles{};
-    std::array<float, 3> circle{};
+    std::vector<std::array<float, 3>> circles;
 };
 ResizerMask resizer_mask(ResizeCorner side, const ResizerShape& shape);
 // Eases displayed opacity toward a target so the resizer fades in and out.

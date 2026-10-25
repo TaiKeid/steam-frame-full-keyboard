@@ -1119,37 +1119,57 @@ void resizer_tests() {
     require(mask.rectangles[0] == std::array<float, 4>{64, 0, 64, 128} &&
                 mask.rectangles[1] == std::array<float, 4>{0, 64, 64, 64},
             "the right mask covers the outward half and the quadrant below the case");
-    // The bend of a large keyboard's bracket lies inside the sharp corner, yet
-    // stays clickable, while the rounded case behind it keeps the laser.
+    // On a large keyboard the middle of the bracket's arc lies inside the
+    // sharp corner, yet all of the drawn arc stays clickable, in software and
+    // in the overlay mask, while the rounded case behind it keeps the laser.
     for (const double width : {.45, .95, 1.2, 2.0}) {
         for (const double theme_radius : {0.0, 20.0, 40.0}) {
             const fk::ResizerShape sized{std::round(theme_radius * width / 1600 * 4000) / 4000};
-            const double r = sized.case_radius;
+            const double r = sized.case_radius, middle_line = r + .0055; // The bracket's 5.5 mm gap.
             for (const auto side : {fk::ResizeCorner::Left, fk::ResizeCorner::Right}) {
                 const auto corner = side == fk::ResizeCorner::Right ? right : left;
                 const double outward = side == fk::ResizeCorner::Right ? 1 : -1;
-                const auto target = fk::resizer_target(panel, corner, side, sized);
-                require(fk::resizer_hit(panel, corner, side, sized, toward(target)).has_value(),
-                        "a ray through the visible bend reaches the resizer");
-                // 40% of the radius in from both sharp edges is inside the rounded case.
-                const double in = r > 0 ? .4 * r : .002;
-                require(!fk::resizer_hit(panel, corner, side, sized,
-                                         toward({corner.right - outward * in, 1 + corner.up + in, -1})),
-                        "the rounded case's corner keeps the laser");
                 const auto area = fk::resizer_mask(side, sized);
+                require(area.rectangles.size() + area.circles.size() <= 32,
+                        "the mask fits OpenVR's primitive limit");
                 const double ppm = fk::ResizerShape::pixels_per_meter, middle = sized.pixels() / 2.0;
-                const double x = middle + (target[0] - corner.right) * ppm;
-                const double y = middle - (target[1] - 1 - corner.up) * ppm;
-                const bool in_rectangles =
-                    std::any_of(area.rectangles.begin(), area.rectangles.end(), [&](const auto& m) {
-                        return x >= m[0] && y >= m[1] && x < m[0] + m[2] && y < m[1] + m[3];
-                    });
-                require(in_rectangles ||
-                            std::hypot(x - area.circle[0], y - area.circle[1]) <= area.circle[2],
-                        "the overlay mask also takes the bend");
-                const double kx = middle - outward * in * ppm, ky = middle - in * ppm;
-                require(std::hypot(kx - area.circle[0], ky - area.circle[1]) > area.circle[2] || r == 0,
-                        "the mask's circle stays out of the rounded case");
+                // Corner coordinates: a outward from the side edge, b down from the bottom edge.
+                auto clickable = [&](double a, double b) {
+                    return fk::resizer_hit(panel, corner, side, sized,
+                                           toward({corner.right + outward * a, 1 + corner.up - b, -1}))
+                        .has_value();
+                };
+                auto masked = [&](double a, double b) {
+                    const double x = middle + outward * a * ppm, y = middle + b * ppm;
+                    return std::any_of(area.rectangles.begin(), area.rectangles.end(),
+                                       [&](const auto& m) {
+                                           return x >= m[0] && y >= m[1] && x < m[0] + m[2] &&
+                                                  y < m[1] + m[3];
+                                       }) ||
+                           std::any_of(area.circles.begin(), area.circles.end(), [&](const auto& c) {
+                               return std::hypot(x - c[0], y - c[1]) <= c[2];
+                           });
+                };
+                for (int degrees = 0; degrees <= 90; degrees += 5) {
+                    const double angle = degrees * std::numbers::pi / 180;
+                    // The stroke's middle line and 1.5 mm to either side of it.
+                    for (const double offset : {-.0015, 0.0, .0015}) {
+                        const double a = -r + (middle_line + offset) * std::cos(angle);
+                        const double b = -r + (middle_line + offset) * std::sin(angle);
+                        require(clickable(a, b), "every drawn part of the arc reaches the resizer");
+                        require(masked(a, b), "the overlay mask takes every drawn part of the arc");
+                    }
+                    if (r > .001) {
+                        // Just inside the rounded case.
+                        const double a = -r + (r - .001) * std::cos(angle);
+                        const double b = -r + (r - .001) * std::sin(angle);
+                        require(!clickable(a, b) && !masked(a, b), "the rounded case keeps the laser");
+                    }
+                }
+                require(clickable(.0001, -.03) && clickable(-.03, .0001),
+                        "beside both edges still works");
+                require(!clickable(-r - .002, -.002) && !masked(-r - .002, -.002),
+                        "keys along the bottom edge keep the laser");
             }
         }
     }

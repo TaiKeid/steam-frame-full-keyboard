@@ -51,6 +51,24 @@ double segment_distance(double a, double b, double a0, double b0, double a1, dou
 double bend(const ResizerShape& shape) {
     return -shape.case_radius + (shape.case_radius + gap) / std::sqrt(2.0);
 }
+// Centers, in corner coordinates, of gap-radius circles along the arc's middle
+// line where it lies inside the sharp corner's square (both coordinates
+// negative), no more than one gap apart, so their union covers the drawn
+// stroke there. Each circle's nearest point to the arc center is the case
+// radius away, so none enters the rounded case. Always includes the bend.
+std::vector<std::array<double, 2>> arc_circles(const ResizerShape& shape) {
+    constexpr double quarter = 1.57079632679489661923;
+    const double r = std::max(shape.case_radius, 0.0), middle = r + gap;
+    // The middle line leaves the square where it crosses a sharp edge.
+    const double start = std::acos(std::clamp(r / middle, 0.0, 1.0)), span = quarter - 2 * start;
+    const int count = span > 0 ? static_cast<int>(std::ceil(middle * span / gap)) + 1 : 1;
+    std::vector<std::array<double, 2>> centers;
+    for (int i = 0; i < count; ++i) {
+        const double angle = count == 1 ? quarter / 2 : start + span * i / (count - 1);
+        centers.push_back({-r + middle * std::cos(angle), -r + middle * std::sin(angle)});
+    }
+    return centers;
+}
 double bracket_distance(double a, double b, const ResizerShape& shape) {
     const double c = -shape.case_radius, edge = gap, end = c - leg_length;
     double distance =
@@ -113,7 +131,11 @@ std::optional<Vector3> resizer_hit(const Transform& panel, PanelOffset corner, R
     const double b = -dot(offset, column(panel, 1));
     const double half = shape.half_size();
     const bool outside = std::abs(a) <= half && std::abs(b) <= half && (a > 0 || b > 0);
-    if (!outside && std::hypot(a - bend(shape), b - bend(shape)) > gap) {
+    const auto circles = arc_circles(shape);
+    const bool on_arc = std::any_of(circles.begin(), circles.end(), [&](const auto& center) {
+        return std::hypot(a - center[0], b - center[1]) <= gap;
+    });
+    if (!outside && !on_arc) {
         return {};
     }
     return hit;
@@ -140,14 +162,19 @@ std::vector<std::uint8_t> resizer_pixels(ResizeCorner side, const ResizerShape& 
 }
 ResizerMask resizer_mask(ResizeCorner side, const ResizerShape& shape) {
     const float size = static_cast<float>(shape.pixels()), half = size / 2;
-    const auto offset = static_cast<float>(bend(shape) * pixels_per_meter);
     const auto radius = static_cast<float>(gap * pixels_per_meter);
+    const bool right = side == ResizeCorner::Right;
+    ResizerMask mask;
     // The outward half at full height, plus the quadrant below the case's bottom edge.
-    if (side == ResizeCorner::Right) {
-        return {{{{half, 0, half, size}, {0, half, half, half}}},
-                {half + offset, half + offset, radius}};
+    mask.rectangles =
+        right ? std::array<std::array<float, 4>, 2>{{{half, 0, half, size}, {0, half, half, half}}}
+              : std::array<std::array<float, 4>, 2>{{{0, 0, half, size}, {half, half, half, half}}};
+    for (const auto& center : arc_circles(shape)) {
+        const auto a = static_cast<float>(center[0] * pixels_per_meter);
+        const auto b = static_cast<float>(center[1] * pixels_per_meter);
+        mask.circles.push_back({right ? half + a : half - a, half + b, radius});
     }
-    return {{{{0, 0, half, size}, {half, half, half, half}}}, {half - offset, half + offset, radius}};
+    return mask;
 }
 double ResizerFade::update(double target, double now) {
     constexpr double fade_in = .12, fade_out = .2; // Seconds for a complete fade.

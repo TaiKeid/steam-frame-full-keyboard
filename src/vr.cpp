@@ -932,15 +932,19 @@ class CornerResizers {
         const int size = shape.pixels();
         auto pixels = resizer_pixels(corner_of(side), shape);
         vr::HmdVector2_t scale{{static_cast<float>(size), static_cast<float>(size)}};
-        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 3> mask{};
+        // At most 2 rectangles and about 8 circles, within OpenVR's 32 primitives.
+        std::vector<vr::VROverlayIntersectionMaskPrimitive_t> mask;
         const auto area = resizer_mask(corner_of(side), shape);
-        for (std::size_t i = 0; i < area.rectangles.size(); ++i) {
-            mask[i].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
-            const auto& r = area.rectangles[i];
-            mask[i].m_Primitive.m_Rectangle = {r[0], r[1], r[2], r[3]};
+        for (const auto& r : area.rectangles) {
+            auto& primitive = mask.emplace_back();
+            primitive.m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
+            primitive.m_Primitive.m_Rectangle = {r[0], r[1], r[2], r[3]};
         }
-        mask[2].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Circle;
-        mask[2].m_Primitive.m_Circle = {area.circle[0], area.circle[1], area.circle[2]};
+        for (const auto& c : area.circles) {
+            auto& primitive = mask.emplace_back();
+            primitive.m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Circle;
+            primitive.m_Primitive.m_Circle = {c[0], c[1], c[2]};
+        }
         auto overlay = vr_overlay();
         const bool ok =
             overlay->SetOverlayRaw(corner.handle, pixels.data(), static_cast<std::uint32_t>(size),
