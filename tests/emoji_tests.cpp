@@ -431,6 +431,27 @@ void picker_tests() {
         picker.cancel();
     }
 
+    // Images are asked for in view first, then outward, each once, up to a limit.
+    {
+        picker.set_content(sections(catalog, 3), 0, false);
+        picker.reset();
+        picker.scroll(grid.x + 1, grid.y + 1, 3);
+        const auto in_view = picker.view();
+        const auto all = picker.glyph_order(10000);
+        std::vector<std::string> visible;
+        for (const auto& c : in_view.cells) {
+            if (!c.clear) {
+                visible.push_back(c.text);
+            }
+        }
+        require(std::equal(visible.begin(), visible.end(), all.begin()),
+                "cells in view come first, in order");
+        require(all.size() == catalog.entries.size() + 3, "then every other emoji, Recent's too");
+        require(picker.glyph_order(7).size() == 7, "no more than the limit");
+        const auto& next = all[visible.size()];
+        require(next != all.back(), "outward from the view, not to one end first");
+    }
+
     // Recent: reserved width, column order, Clear in its bottom-right cell.
     picker.set_content(sections(catalog), 0, false);
     picker.reset();

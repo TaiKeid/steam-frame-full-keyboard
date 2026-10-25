@@ -36,6 +36,10 @@ class EmojiGlyphs {
     void request(int size, const std::vector<std::string>& texts);
     // The finished image, or null. Valid until the next request().
     cairo_surface_t* image(const std::string& text) const;
+    // How many images of this size fit the memory limit.
+    static std::size_t capacity(int size) {
+        return memory_limit / (static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4);
+    }
     // Whether checks or images finished since the last call.
     bool take_ready();
     // Nothing checked or drawn is waiting.

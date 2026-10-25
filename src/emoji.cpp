@@ -7,7 +7,6 @@
 #include <glib.h>
 #include <json-c/json.h>
 #include <memory>
-#include <numeric>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -755,7 +754,7 @@ int EmojiPicker::first_column() const {
 int EmojiPicker::glyph_size() const {
     return std::max(8, static_cast<int>(std::lround(cell_ * .72)));
 }
-std::vector<std::string> EmojiPicker::glyph_order() const {
+std::vector<std::string> EmojiPicker::glyph_order(std::size_t limit) const {
     std::vector<std::string> order;
     if (press_ && press_->popup) {
         const auto* entry = items_[press_->hit.index].entry;
@@ -763,20 +762,35 @@ std::vector<std::string> EmojiPicker::glyph_order() const {
             order.push_back(entry->text(tone));
         }
     }
-    // Nearest the middle of the view first, so visible cells come before the rest.
-    const double middle = grid_.x + grid_.width / 2;
-    std::vector<std::size_t> indices(items_.size());
-    std::iota(indices.begin(), indices.end(), 0);
-    std::vector<double> distance(items_.size());
+    // Items run in strip order, left to right, so those in view are one run:
+    // take it, then alternate outward from both of its ends. No sorting, and
+    // nothing past the limit is copied.
+    std::size_t first = items_.size(), last = 0;
     for (std::size_t i = 0; i < items_.size(); ++i) {
         const auto bounds = cell_bounds(items_[i]);
-        distance[i] = std::abs(bounds.x + bounds.width / 2 - middle);
+        if (bounds.x + bounds.width > grid_.x && bounds.x < grid_.x + grid_.width) {
+            first = std::min(first, i);
+            last = i + 1;
+        }
     }
-    std::stable_sort(indices.begin(), indices.end(),
-                     [&](std::size_t a, std::size_t b) { return distance[a] < distance[b]; });
-    for (const auto i : indices) {
+    if (first >= last) {
+        first = last = 0;
+    }
+    auto add = [&](std::size_t i) {
         if (items_[i].entry) {
             order.push_back(text(items_[i]));
+        }
+    };
+    for (std::size_t i = first; i < last && order.size() < limit; ++i) {
+        add(i);
+    }
+    for (std::size_t left = first, right = last;
+         order.size() < limit && (left > 0 || right < items_.size());) {
+        if (right < items_.size()) {
+            add(right++);
+        }
+        if (left > 0 && order.size() < limit) {
+            add(--left);
         }
     }
     return order;

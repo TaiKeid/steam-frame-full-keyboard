@@ -133,22 +133,25 @@ bool EmojiGlyphs::renders(const std::string& text) const {
 void EmojiGlyphs::request(int size, const std::vector<std::string>& texts) {
     {
         std::lock_guard lock(mutex_);
-        const auto bytes = static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4;
-        const auto keep = std::min(texts.size(), memory_limit / bytes);
+        const auto keep = std::min(texts.size(), capacity(size));
         queue_.assign(texts.begin(),
                       texts.begin() + static_cast<std::ptrdiff_t>(std::min(keep, prefetch)));
         next_ = 0;
-        // Earlier images stay while they are among the nearest that fit.
-        const std::set<std::string> kept(texts.begin(),
-                                         texts.begin() + static_cast<std::ptrdiff_t>(keep));
-        // Only this thread removes images, so the panel never draws a freed one.
-        std::erase_if(images_, [&](auto& item) {
-            if (size == size_ && kept.contains(item.first)) {
-                return false;
+        // Earlier images stay while they are among the nearest that fit: move
+        // those across, without copying any text, and free the rest. Only this
+        // thread removes images, so the panel never draws a freed one.
+        decltype(images_) kept;
+        if (size == size_) {
+            for (std::size_t i = 0; i < keep && !images_.empty(); ++i) {
+                if (auto node = images_.extract(texts[i])) {
+                    kept.insert(std::move(node));
+                }
             }
-            cairo_surface_destroy(item.second);
-            return true;
-        });
+        }
+        for (auto& [text, surface] : images_) {
+            cairo_surface_destroy(surface);
+        }
+        images_ = std::move(kept);
         size_ = size;
     }
     wake_.notify_all();

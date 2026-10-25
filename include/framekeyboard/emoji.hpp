@@ -146,7 +146,7 @@ class EmojiPicker {
     bool popup_open() const { return press_ && press_->popup; }
     EmojiPickerView view() const;
     // Display texts for the glyph cache: those in view first, then outward.
-    std::vector<std::string> glyph_order() const;
+    std::vector<std::string> glyph_order(std::size_t limit) const;
     // Where in the strip the view starts, for requesting glyphs only on change.
     int first_column() const;
     // Recent holds six columns, less the cell for Clear.

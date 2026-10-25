@@ -2391,12 +2391,16 @@ void App::update_emoji(double now) {
         return;
     }
     dirty |= emoji_.tick(now).redraw;
-    // Ask for images only when what is in view could have changed.
-    const auto wanted = std::tuple{emoji_.glyph_size(), emoji_.first_column(), emoji_content_,
-                                   emoji_preferences_.tone, emoji_.popup_open()};
-    if (emoji_checked_ && wanted != emoji_requested_) {
+    // Ask for images when what they show changed, or once the view has moved
+    // eight columns: each request draws about three screens around the view.
+    const auto wanted =
+        std::tuple{emoji_.glyph_size(), emoji_content_, emoji_preferences_.tone, emoji_.popup_open()};
+    if (emoji_checked_ &&
+        (wanted != emoji_requested_ || std::abs(emoji_.first_column() - emoji_requested_column_) >= 8)) {
         emoji_requested_ = wanted;
-        emoji_glyphs_->request(emoji_.glyph_size(), emoji_.glyph_order());
+        emoji_requested_column_ = emoji_.first_column();
+        emoji_glyphs_->request(emoji_.glyph_size(),
+                               emoji_.glyph_order(EmojiGlyphs::capacity(emoji_.glyph_size())));
     }
 }
 void App::apply_emoji_event(const EmojiPicker::Event& event) {

@@ -315,7 +315,8 @@ class App {
     bool emoji_checked_{}, emoji_font_{true};
     EmojiPreferences emoji_preferences_, emoji_saved_;
     std::uint64_t emoji_content_{};
-    std::tuple<int, int, std::uint64_t, int, bool> emoji_requested_{};
+    std::tuple<int, std::uint64_t, int, bool> emoji_requested_{}; // Size, content, tone, popup.
+    int emoji_requested_column_{};
 };
 
 double monotonic_seconds();
