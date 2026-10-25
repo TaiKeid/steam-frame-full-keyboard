@@ -45,4 +45,4 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 
   Every hide or disconnect must release held keys.
 
-Swipe typing is planned in [swipe typing](swipe-typing.md) and not yet implemented. No universal native keyboard replacement, streamed PC input, speech recognition, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+Swipe typing is planned in [swipe typing](swipe-typing.md) and not yet implemented. Dictation is designed in [dictation](dictation.md): recognition on a user-hosted speech server, with a limited on-device mode for English and Spanish. It is not started and not part of 0.9.0. No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
