@@ -315,6 +315,9 @@ class LaserDrag {
     bool owns_pointer(unsigned device, unsigned pointer) const {
         return capture_.owns_pointer(device, pointer);
     }
+    // Whether a laser capture can end on the trigger's own release, without
+    // a pointer event: only for a Frame controller with a calibrated trigger.
+    bool watches_trigger() const { return source() != MoveSource::Grip && trigger_neutral_.has_value(); }
     bool trigger_released(double now) {
         if (source() == MoveSource::Grip || !trigger_neutral_) {
             return false;
@@ -1404,6 +1407,41 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 feedback.release(pointer);
             }
         };
+        // Resizer events come first: a press there and a quick release over
+        // the keyboard in the same frame must start the capture before it ends.
+        for (std::size_t side = 0; side < 2; ++side) {
+            while (resizers.poll(side, event)) {
+                if (!lifecycle.visible() || scene_input || !dashboard_visible || done ||
+                    app.quitting()) {
+                    continue;
+                }
+                const auto device = event.trackedDeviceIndex;
+                if (event.eventType == vr::VREvent_FocusLeave) {
+                    // Without a trigger to watch (the head cursor), a release
+                    // away from our overlays would never arrive: leaving the
+                    // resizer ends the resize, keeping the size reached.
+                    if (drag.active() && drag.source() == MoveSource::Resize &&
+                        drag.device() == device && !drag.watches_trigger()) {
+                        stop_drag(true);
+                    }
+                    continue;
+                }
+                const bool left_button = (event.eventType == vr::VREvent_MouseButtonDown ||
+                                          event.eventType == vr::VREvent_MouseButtonUp) &&
+                                         event.data.mouse.button == vr::VRMouseButton_Left;
+                if (!left_button) {
+                    continue;
+                }
+                const auto pointer = event.data.mouse.cursorIndex;
+                if (event.eventType == vr::VREvent_MouseButtonDown) {
+                    if (pointer_device(device)) {
+                        start_resize(side, device, pointer);
+                    }
+                } else if (drag.owns_pointer(device, pointer)) {
+                    stop_drag(true);
+                }
+            }
+        }
         while (vr_overlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
             // Recheck before every pointer event, not just once per batch. A
             // closing dashboard must not deliver queued clicks to a local app.
@@ -1475,26 +1513,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 break;
             }
             dismiss_panel();
-        }
-        for (std::size_t side = 0; side < 2; ++side) {
-            while (resizers.poll(side, event)) {
-                const bool left_button = (event.eventType == vr::VREvent_MouseButtonDown ||
-                                          event.eventType == vr::VREvent_MouseButtonUp) &&
-                                         event.data.mouse.button == vr::VRMouseButton_Left;
-                if (!left_button || !lifecycle.visible() || scene_input || !dashboard_visible || done ||
-                    app.quitting()) {
-                    continue;
-                }
-                const auto device = event.trackedDeviceIndex;
-                const auto pointer = event.data.mouse.cursorIndex;
-                if (event.eventType == vr::VREvent_MouseButtonDown) {
-                    if (pointer_device(device)) {
-                        start_resize(side, device, pointer);
-                    }
-                } else if (drag.owns_pointer(device, pointer)) {
-                    stop_drag(true);
-                }
-            }
         }
         if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
             const auto view = app.view();
