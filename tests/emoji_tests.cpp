@@ -205,6 +205,10 @@ void picker_tests() {
     }
     require(!picker.up(1, x - 144, y, 1.12).haptic && picker.gliding(), "a quick drag glides");
     require(picker.scroll_offset() == 144, "the release itself does not jump");
+    // The VR loop's frame time can precede the release's own time.
+    picker.tick(1.11);
+    picker.tick(1.12);
+    require(picker.gliding() && picker.scroll_offset() == 144, "a tick no later than the release waits");
     picker.tick(1.12 + 1.0 / 60);
     const double after_frame = picker.scroll_offset();
     require(after_frame > 160 && after_frame < 170, "the glide starts at the release speed");

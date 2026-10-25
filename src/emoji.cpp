@@ -548,8 +548,10 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y, double 
 }
 EmojiPicker::Event EmojiPicker::tick(double now) {
     Event event;
-    if (glide_) {
-        const double seconds = std::clamp(now - glide_->at, 0.0, .1);
+    // The release is timed when its event arrives, after the VR loop read the
+    // frame's time, so a tick can come no later than the release: skip it.
+    if (glide_ && now > glide_->at) {
+        const double seconds = std::min(now - glide_->at, .1);
         const double decay = std::exp(-seconds / glide_decay);
         // The exact distance under exponential decay, independent of frame rate.
         const double old = scroll_;
@@ -561,8 +563,9 @@ EmojiPicker::Event EmojiPicker::tick(double now) {
             scrolled();
             event.redraw = true;
         }
-        if (scroll_ == old || std::abs(glide_->velocity) < stop_glide) {
-            glide_.reset(); // Stopped, or reached an end.
+        const bool end = glide_->velocity > 0 ? scroll_ >= scroll_limit() : scroll_ <= 0;
+        if (end || std::abs(glide_->velocity) < stop_glide) {
+            glide_.reset(); // Reached an end, or slowed to a stop.
         }
     }
     if (press_ && !press_->popup && !press_->dragging && !press_->caught &&
