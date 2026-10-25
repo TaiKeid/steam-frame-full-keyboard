@@ -261,7 +261,7 @@ class GrabInput {
 // the model takes nothing from it, as for the grip.
 class StickReader {
   public:
-    std::optional<std::pair<double, double>> read(vr::TrackedDeviceIndex_t device) {
+    std::optional<std::pair<double, double>> read(vr::TrackedDeviceIndex_t device, double now) {
         if (device >= vr::k_unMaxTrackedDeviceCount ||
             vr_system()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
             return {};
@@ -269,7 +269,10 @@ class StickReader {
         auto models = vr_models();
         auto& stick = sticks_[device];
         vr::RenderModel_ControllerMode_State_t mode{};
-        if (!std::exchange(stick.tried, true)) {
+        // A controller can appear before its role or model components are
+        // known, so a failed setup is retried, at most once a second.
+        if (!stick.ready && now >= stick.retry_at) {
+            stick.retry_at = now + 1;
             const auto role = vr_system()->GetControllerRoleForTrackedDeviceIndex(device);
             char model[1024]{};
             vr::ETrackedPropertyError error{};
@@ -309,7 +312,8 @@ class StickReader {
 
   private:
     struct Stick {
-        bool tried{}, ready{};
+        bool ready{};
+        double retry_at{};
         std::string model;
         vr::VRInputValueHandle_t source{};
         ComponentAxis x, y;
@@ -1730,7 +1734,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (!drag.active()) {
                     const double dx = -event.data.scroll.xdelta, dy = -event.data.scroll.ydelta;
                     // Learn which way this stick scrolls, as App::scroll reads the step.
-                    if (const auto stick = sticks.read(device)) {
+                    if (const auto stick = sticks.read(device, now)) {
                         stick_direction.learn(stick->first, stick->second,
                                               std::abs(dx) > std::abs(dy) ? dx : dy);
                     }
@@ -2142,7 +2146,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         bool scroll_steps = false;
         for (const auto& [pointer, device] : pointer_devices) {
             if (const auto room = app.scroll_room(pointer)) {
-                const auto stick = sticks.read(device);
+                const auto stick = sticks.read(device, now);
                 scroll_steps |= wants_scroll_steps(
                     *room, stick ? stick_direction.predict(stick->first, stick->second) : 0);
             }
