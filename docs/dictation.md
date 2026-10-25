@@ -9,7 +9,8 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 - **Two recognition modes, chosen in Settings:**
   - **Server:** a speech server the user hosts on a machine with a capable GPU. It gives the best quality and speed and covers all dictation languages.
   - **On device:** Whisper small on the Frame's CPU, for English and Spanish only. It is a fallback: in the measurements it took about 5 s per phrase and loaded the CPU heavily, and larger models were unusable on the Frame alongside VR.
-- **The keyboard asks only for the server's host and port.** Model choice and every other recognition setting live in the server's own configuration.
+- **The keyboard asks only for the server's address,** as `host:port` in Settings. Model choice and every other recognition setting live in the server's own configuration. An optional model name exists only in the configuration file, for servers without a default model.
+- **We don't build a server.** Users run an existing OpenAI-compatible server, `whisper-server` as the reference; the documentation gives setup instructions only.
 - **No server in this repository.** This repository does not ship or vendor a server. The documentation describes a reference setup with an existing open-source server.
 - **Reference engine:** whisper.cpp's `whisper-server` with the large-v3-turbo model on a GPU, with Whisper's normal 30 s window. On the measured servers it transcribed a 3 s phrase in 0.09–0.24 s, with Japanese at about 3.4% and English at 3.4% errors.
 - **Languages:**
@@ -155,16 +156,28 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - The card shows the model's state: not downloaded, downloading, ready or failed.
   - **Delete model** removes the downloaded model.
 - **Server:**
-  - **Host** and **Port** fields, saved as `dictation_host` and `dictation_port`. These are all the keyboard asks for; everything else is configured on the server.
+  - A **Server** field, saved as `dictation_server`. It holds `host:port`, for example `studio.local:8080` or `192.168.1.20`, and port 8080 is assumed when it is left out. This is all the keyboard asks for; everything else is configured on the server.
   - A state line: not configured, reachable or unreachable.
   - A **Test** button that checks the server.
 - **Type as I speak** checkbox, saved as `dictation_direct`, default false.
 
-Field entry (*proposal*): Settings has no text fields yet, and Settings covers the keys. Selecting Host or Port opens a one-line editor above the keys, as in dictation mode. The keys type into it, Enter confirms and Esc cancels. Port accepts digits only.
+### Entering the server address (*proposal*)
+
+Settings has no text fields yet, and Settings covers the keys, so typing letters there seems hard. But the device you type with is a full keyboard; it only needs the keys back. Selecting the Server field switches the panel into **field entry**:
+
+- **Layout:** the settings cards give way to the normal keys, with a one-line editor above them. It is the same editor component as dictation mode, one line high.
+- **Local only:** the keys type into that editor, never into Steam or the focused application, even with Replace native keyboard on.
+- **Editing:** the editor starts with the current value. The arrows, Home, End, Backspace and Delete edit it. Enter saves and returns to Settings; Esc returns without saving.
+- **Validation:** input is limited to characters valid in a host name, an IPv4 address or a bracketed IPv6 address, plus `:port`. An invalid value keeps the editor open with a short reason.
+- **Recent servers:** a dropdown under the field lists up to five recent servers that passed a test. Picking one avoids typing again.
+
+Fallback: `dictation_server` can also be edited in `config.json`, over SSH or in Desktop Mode, like every other setting.
+
+Full Keyboard never scans the network or discovers servers. It contacts only the address the user typed: Test checks that address, and phrases go to it while capturing.
 
 Mic key visibility: the mic key appears only when dictation is usable and the active language profile has a `dictation` object, holding the Whisper language code and, for Chinese, the script.
 - **On device:** the model is ready and the language is English or Spanish.
-- **Server:** a host and port are set.
+- **Server:** a server address is set.
 
 The modes never fall back to each other automatically (*proposal*). Audio must not go to a server while the user chose on-device recognition, and on-device recognition cannot cover the server's languages.
 
@@ -188,7 +201,7 @@ A fallback for English and Spanish when no server is available.
 
 ### Protocol (*proposal*)
 
-The keyboard knows only the host and port. Each phrase is one plain HTTP request in the widely implemented OpenAI-style transcription format, so existing self-hosted servers can answer it:
+The keyboard knows only the server address. Each phrase is one plain HTTP request in the widely implemented OpenAI-style transcription format, so existing self-hosted servers can answer it:
 
 - `POST http://<host>:<port>/v1/audio/transcriptions` as `multipart/form-data`, with these fields:
   - `file`: the phrase as a 16 kHz mono 16-bit WAV;
@@ -196,6 +209,8 @@ The keyboard knows only the host and port. Each phrase is one plain HTTP request
   - `prompt`: the context text;
   - `response_format=json` and `temperature=0`.
 - The reply is JSON with a `text` field.
+- **Path fallback:** if the server answers 404 on `/v1/audio/transcriptions`, the keyboard tries whisper.cpp's default `/inference` once, with the same fields, and remembers which path worked. A `whisper-server` started without `--inference-path` therefore works too.
+- **Model name:** sent as `model` only when `dictation_model` is set in `config.json`. Some servers need it, for example Speaches unless a default model is configured; `whisper-server` ignores it.
 - **Server-side configuration:** the model, GPU, threads and decoding options belong to the server's own configuration.
 - **Timeout:** 10 s per phrase. A connection failure is retried once; that is safe because nothing is typed before the text returns.
 - **Test:** sends half a second of silence and expects a valid reply.
@@ -214,6 +229,26 @@ The reference is whisper.cpp's `whisper-server`, at the version used in the meas
 - **Network:** listening on the LAN address (`--host`, `--port`).
 
 Its request fields match the protocol above. The exact command, running it as a background service, and its logging behavior are verified and documented in M1.
+
+### Compatible servers
+
+Any server that implements the OpenAI-style transcription endpoint should work; only `whisper-server` has been measured. Users can choose:
+
+- **whisper.cpp `whisper-server`:** the reference. Small, and runs on Metal, CUDA or Vulkan.
+- **Speaches** (formerly faster-whisper-server): Docker, mainly NVIDIA GPUs. It needs a model name unless a default is configured.
+- **LocalAI:** a general self-hosted OpenAI-compatible server that can use whisper.cpp.
+
+Servers with their own protocols, such as Home Assistant's Wyoming Faster Whisper, are not supported; a Wyoming client is further work.
+
+### Setup instructions
+
+The repository ships instructions only, no server code:
+
+- building or installing `whisper-server` on macOS (Metal), Linux with NVIDIA (CUDA) and other GPUs (Vulkan);
+- downloading large-v3-turbo;
+- the start command and running it as a service (a LaunchAgent on macOS, a systemd user unit on Linux);
+- binding it to the LAN address and firewalling it;
+- checking it from another machine with `curl` before using it from the keyboard.
 
 ### Security and privacy
 
@@ -250,7 +285,7 @@ Its request fields match the protocol above. The exact command, running it as a 
   - Measure end-to-end time from the Frame for 3 s and 10 s phrases over Wi-Fi.
 - [ ] **M2 Helper, server path:** capture, level, phrase detection, requests and the protocol. Host tests with WAV fixtures and a local fake server; no microphone needed.
 - [ ] **M3 Dictation mode, English:** editor model and tests, layout, Esc rules, undo, Send through the queue. Delivery verified with the dedicated receiver before any application.
-- [ ] **M4 Settings:** Dictation card with the mode dropdown, narrower cards with the cut-off fourth card, Host and Port entry, Test, error overlays.
+- [ ] **M4 Settings:** Dictation card with the mode dropdown, narrower cards with the cut-off fourth card, field entry for the server address, recent servers, Test, error overlays.
 - [ ] **M5 Languages and direct mode:** Spanish, Japanese and Chinese acceptance, script prompts, composer commits into the editor, Type as I speak.
 - [ ] **M6 On-device mode:**
   - whisper.cpp build and small model download and delete.
@@ -334,8 +369,6 @@ Findings:
 
 ## Open questions
 
-- **Which server:** whisper.cpp's `whisper-server` as is, or a small dedicated server of our own. Our own server could offer a health check, discovery, a fixed path and its own configuration file.
-- **Discovery:** finding the server on the local network, for example with mDNS, so typing a host is optional.
 - **Mic bars:** the cost of redrawing them with a game running.
 - **Proposals:** the items marked *proposal* above.
 
@@ -344,3 +377,4 @@ Findings:
 - Swipe typing into the editor. It needs a suggestion row, and dictation mode has no room for one yet.
 - Text selection in the editor.
 - Live partial text while speaking, which needs a streaming server protocol.
+- A Wyoming protocol client, for Home Assistant's speech servers.
