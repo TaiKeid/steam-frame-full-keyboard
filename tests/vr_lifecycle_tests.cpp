@@ -321,6 +321,15 @@ void a_pinned_window_request_opens_passthrough() {
     h.dashboard = true;
     h.request(32);
     require(!h.app->passthrough(), "a request with the dashboard open never turns passthrough on");
+    // After Steam's UI reloads, the bridge numbers requests from 1 again.
+    Headset reloaded;
+    reloaded.dashboard = false;
+    reloaded.request(1);
+    reloaded.app->set_passthrough(false);
+    reloaded.status({1, false, false, false, true, true});
+    reloaded.request(1);
+    require(reloaded.app->passthrough(),
+            "a reused request number after a close turns passthrough on again");
     Headset manual(false, false);
     manual.dashboard = false;
     manual.request(33);

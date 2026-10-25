@@ -322,6 +322,22 @@ Transform move_with_dashboard(const Transform& panel, const Transform& previous,
     }
     return compose(current, compose(inverse, panel));
 }
+Transform turn_with_dashboard(const Transform& facing, const Transform& previous,
+                              const Transform& current, const Transform& panel) {
+    // Headings of the toward columns; a dashboard facing straight up or down has none.
+    auto heading = [](const Transform& pose) -> std::optional<double> {
+        if (std::hypot(pose[0][2], pose[2][2]) < .001) {
+            return {};
+        }
+        return std::atan2(pose[0][2], pose[2][2]);
+    };
+    const auto from = heading(previous), to = heading(current);
+    const double turn = from && to ? *to - *from : 0;
+    const double c = std::cos(turn), s = std::sin(turn);
+    // Turn the toward column about room up; right stays up x toward.
+    const double x = c * facing[0][2] + s * facing[2][2], z = -s * facing[0][2] + c * facing[2][2];
+    return Transform{{{z, 0, x, panel[0][3]}, {0, 1, 0, panel[1][3]}, {-x, 0, z, panel[2][3]}}};
+}
 void PanelDrag::begin(const Transform& controller, const Transform& panel,
                       std::array<double, 3> ray_direction) {
     Transform inverse{};

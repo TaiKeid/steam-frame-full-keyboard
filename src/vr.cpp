@@ -859,6 +859,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // seen from where the keyboard was released, recentered or restored. It is
     // taken only then, so the keyboard does not swivel after a walking user.
     std::optional<Transform> room_facing;
+    // Set once the keyboard was shown with the dashboard closed (passthrough):
+    // it then stays leveled to the room, even when the dashboard opens again,
+    // until it is moved or recentered.
+    bool room_until_moved = false;
     auto face_viewer = [](const Transform& head, const Transform& panel) -> std::optional<Transform> {
         double x = head[0][3] - panel[0][3], z = head[2][3] - panel[2][3];
         const double length = std::hypot(x, z);
@@ -881,6 +885,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // first alignment frame even when the hand was completely still.
             horizon.reset();
             transform_dirty = true;
+            room_until_moved = false;
             if (Transform head{}; placement.ready() && panel.read_head(head)) {
                 room_facing = face_viewer(head, placement.transform());
             }
@@ -928,12 +933,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // Passthrough keeps the panel open while the dashboard is closed.
     auto presentable = [&] { return app.passthrough() || vr_overlay()->IsDashboardVisible(); };
     // Near the visible dashboard the panel lines up with the dashboard itself,
-    // which is often slightly rolled; elsewhere, and with the dashboard closed, it
-    // lines up with the room facing the viewer.
+    // which is often slightly rolled; elsewhere, with the dashboard closed, and
+    // after being shown without it, it lines up with the room facing the viewer.
     std::optional<Transform> level_dashboard;
     enum class LevelReference { None, Room, Dashboard } leveled_to = LevelReference::None;
     auto level_reference = [&]() -> std::pair<LevelReference, std::optional<Transform>> {
-        if (level_dashboard && placement.ready()) {
+        if (!room_until_moved && level_dashboard && placement.ready()) {
             const auto pose = placement.transform();
             const auto& dashboard = *level_dashboard;
             // The default place is about 0.35 m from the dashboard's bottom center.
@@ -945,8 +950,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         return {room_facing ? LevelReference::Room : LevelReference::None, room_facing};
     };
     auto place_panel = [&](double now) {
-        const auto aligned = horizon.update(placement.transform(), now, drag.active(), auto_leveling,
-                                            level_reference().second);
+        const auto [level_to, reference] = level_reference();
+        if (level_to != leveled_to) {
+            // A change of reference eases from the correction shown. Checked here,
+            // so a reference that changes in the same frame as a placement eases too.
+            leveled_to = level_to;
+            horizon.retarget(now);
+        }
+        const auto aligned =
+            horizon.update(placement.transform(), now, drag.active(), auto_leveling, reference);
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());
@@ -1338,12 +1350,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (!dashboard_visible) {
             level_dashboard.reset();
+            if (lifecycle.visible()) {
+                room_until_moved = true;
+            }
         }
-        // A change of leveling reference eases from the correction shown, and must
-        // start even when nothing moved.
-        if (const auto to = level_reference().first; to != leveled_to) {
-            leveled_to = to;
-            horizon.retarget(now);
+        // place_panel eases to a new leveling reference; it must run even when
+        // nothing moved.
+        if (level_reference().first != leveled_to) {
             transform_dirty = true;
         }
         const bool panel_requested = lifecycle.panel_requested();
@@ -1390,6 +1403,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     placement.recenter(head, dashboard ? &*dashboard : nullptr,
                                        static_cast<double>(panel_height) / panel_width);
                     room_facing = face_viewer(head, placement.transform());
+                    room_until_moved = false;
                     previous_dashboard = dashboard;
                     placement_universe = panel.universe();
                     recenter_pending = false;
@@ -1403,6 +1417,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         !drag.active()) {
                         placement.set_transform(
                             move_with_dashboard(placement.transform(), *previous_dashboard, *dashboard));
+                        // The room reference turns with it; otherwise a keyboard
+                        // carried to a new heading would level toward the old one.
+                        if (room_facing) {
+                            room_facing = turn_with_dashboard(*room_facing, *previous_dashboard,
+                                                              *dashboard, placement.transform());
+                        }
                         transform_dirty = true;
                     }
                     // While grabbed the hand owns placement; keep the anchor

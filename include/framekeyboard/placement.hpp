@@ -9,6 +9,11 @@ using Transform = std::array<std::array<double, 4>, 3>;
 std::optional<Transform> dashboard_anchor(const Transform& scaled_bottom);
 Transform move_with_dashboard(const Transform& panel, const Transform& previous,
                               const Transform& current);
+// A level room frame facing the viewer (columns right, up, toward), turned by the
+// dashboard's change of heading and placed at `panel`'s center, so a keyboard
+// carried along with the dashboard keeps its room leveling reference.
+Transform turn_with_dashboard(const Transform& facing, const Transform& previous,
+                              const Transform& current, const Transform& panel);
 // Steam's main tab freezes when an app tab is selected. Carry its last live
 // bottom-center anchor with the persistent dashboard bar during those tabs.
 class DashboardAnchor {

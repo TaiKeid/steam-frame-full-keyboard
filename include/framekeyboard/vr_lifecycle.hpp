@@ -18,10 +18,15 @@ struct VrLifecycleEffects {
 // A keyboard button under a window pinned in the world asks for a keyboard
 // while the dashboard is closed; our panel can only appear there in
 // passthrough. Turn it on once per such request, so turning it off again
-// during that request sticks.
+// during that request sticks. Passthrough turned on this way stays on after
+// the request ends, like the toolbar toggle.
 class PassthroughRequests {
   public:
     bool take(bool replacement_enabled, const NativeReplacement::State& native, bool dashboard_visible) {
+        if (!native.open) {
+            // The bridge numbers requests from 1 again after Steam's UI reloads.
+            handled_ = 0;
+        }
         if (!replacement_enabled || !native.available || !native.open || !native.local ||
             dashboard_visible || native.request == handled_) {
             return false;

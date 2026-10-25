@@ -418,6 +418,23 @@ void dashboard_leveling_tests() {
     same(horizon.update(raw, 2), aligned, "changing reference starts without a jump");
     require(horizon.animating(), "changing reference eases");
     near(lean_degrees(horizon.update(raw, 2.5)), 0, "after easing the pitch is removed in the room");
+    // A keyboard leveled in the room and carried by a dashboard turned 90 degrees
+    // stays leveled: its room reference turns along instead of facing the old way.
+    auto at = [&](const M& m, double x, double y, double z) {
+        auto result = pose(m);
+        result[0][3] = x;
+        result[1][3] = y;
+        result[2][3] = z;
+        return result;
+    };
+    const auto before = at(dashboard, 0, 1.2, -1),
+               after = at(multiply(axis(1, 90), dashboard), -1, 1.3, 0);
+    const auto leveled = panel(facing, 0, 0, -50);
+    const auto carried = fk::move_with_dashboard(leveled, before, after);
+    const auto turned = fk::turn_with_dashboard(pose(facing), before, after, carried);
+    same(turned, at(axis(1, 160), carried[0][3], carried[1][3], carried[2][3]),
+         "the room reference turns by the dashboard's heading and sits at the keyboard");
+    same(eased(carried, turned), carried, "a carried leveled keyboard needs no correction");
 }
 void stick_depth_tests() {
     // Tilt the component's neutral frame, as Frame's left/right models do.
