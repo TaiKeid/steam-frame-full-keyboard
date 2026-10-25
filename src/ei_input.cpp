@@ -2,6 +2,7 @@
 #include "framekeyboard/local_socket.hpp"
 #include <algorithm>
 #include <chrono>
+#include <glib.h>
 #include <poll.h>
 #include <stdexcept>
 #include <string_view>
@@ -123,11 +124,62 @@ bool EiSink::text_available() {
     return !disconnected_ && resumed_ && text_ && text_->ready();
 }
 bool EiSink::commit_text(const std::string& text) {
-    return pump() && !input_reset_ && held_.empty() && text_available() && text_->commit(text);
+    return pump() && !input_reset_ && held_.empty() && text_available() &&
+           text_->commit(text, 0, on_keymap(text));
 }
 bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
     return pump() && !input_reset_ && held_.empty() && text_available() &&
-           text_->commit(text, delete_before);
+           text_->commit(text, delete_before, on_keymap(text));
+}
+// Whether Gamescope can type every character of a multi-character text on its
+// ordinary keymap, so committing them one by one avoids its temporary keymap.
+// Mirrors ime.cpp try_type_keysym: one key level with exactly that keysym,
+// reached with at most Shift, Control and Alt. Only the current group counts,
+// because Gamescope presses the key without changing the group.
+bool EiSink::on_keymap(const std::string& text) const {
+    if (g_utf8_strlen(text.c_str(), -1) < 2) {
+        return false;
+    }
+    if (!keymap_) {
+        // Gamescope's libei device sends no keymap. Its ordinary keymap is the
+        // layout Steam pushes (US by default), where printable ASCII needs no
+        // AltGr; other text keeps the single temporary-keymap commit.
+        return std::all_of(text.begin(), text.end(), [](char c) { return c >= 0x20 && c <= 0x7e; });
+    }
+    auto* map = keymap_.get();
+    xkb_mod_mask_t allowed = 0;
+    for (const char* name : {XKB_MOD_NAME_SHIFT, XKB_MOD_NAME_CTRL, XKB_MOD_NAME_ALT}) {
+        const auto index = xkb_keymap_mod_get_index(map, name);
+        if (index != XKB_MOD_INVALID) {
+            allowed |= xkb_mod_mask_t{1} << index;
+        }
+    }
+    const auto typeable = [&](xkb_keysym_t keysym) {
+        for (auto key = xkb_keymap_min_keycode(map); key <= xkb_keymap_max_keycode(map); ++key) {
+            if (group_ >= xkb_keymap_num_layouts_for_key(map, key)) {
+                continue;
+            }
+            const auto levels = xkb_keymap_num_levels_for_key(map, key, group_);
+            for (xkb_level_index_t level = 0; level < levels; ++level) {
+                const xkb_keysym_t* symbols = nullptr;
+                xkb_mod_mask_t mask{};
+                if (xkb_keymap_key_get_syms_by_level(map, key, group_, level, &symbols) == 1 &&
+                    symbols[0] == keysym &&
+                    xkb_keymap_key_get_mods_for_level(map, key, group_, level, &mask, 1) == 1 &&
+                    (mask & ~allowed) == 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
+        const auto keysym = xkb_utf32_to_keysym(g_utf8_get_char(p));
+        if (keysym == XKB_KEY_NoSymbol || !typeable(keysym)) {
+            return false;
+        }
+    }
+    return true;
 }
 bool EiSink::pump() {
     if (disconnected_) {

@@ -26,6 +26,14 @@ struct GamescopeText::State {
     double deadline{};
     std::string submitted;
     std::size_t submitted_deletions{};
+    // Per-character text not yet sent. Each character follows the previous
+    // one's acknowledgement and at least character_gap after it was sent: an
+    // asynchronous X input method (IBus through XIM) under load reordered keys
+    // that were only an acknowledgement (about 5 ms) apart.
+    static constexpr double character_gap = .02;
+    std::string remaining;
+    double next_character{};
+    bool between_characters{};
     ~State() {
         if (sync) {
             wl_callback_destroy(sync);
@@ -77,6 +85,18 @@ struct GamescopeText::State {
         if (s.phase != Phase::Dead) {
             s.serial = serial;
             s.available = true;
+        }
+    }
+    void send_next() {
+        const char* end = g_utf8_next_char(remaining.c_str());
+        const std::string character(remaining.c_str(), end);
+        remaining.erase(0, character.size());
+        gamescope_input_method_set_string(input, character.c_str());
+        gamescope_input_method_commit(input, serial);
+        next_character = clock() + character_gap;
+        synchronize();
+        if (wl_display_flush(display) < 0 && errno != EAGAIN) {
+            phase = Phase::Dead;
         }
     }
     bool dispatch() {
@@ -148,8 +168,16 @@ bool GamescopeText::ready() {
             wl_display_flush(s.display);
         } else if (s.phase == State::Phase::Input) {
             s.phase = s.available ? State::Phase::Ready : State::Phase::Dead;
+        } else if (s.result == State::Result::Waiting && !s.remaining.empty()) {
+            s.between_characters = true;
         } else if (s.result == State::Result::Waiting) {
             s.result = State::Result::Success;
+        }
+    }
+    if (s.between_characters && s.clock() >= s.next_character) {
+        s.between_characters = false;
+        if (s.result == State::Result::Waiting && !s.remaining.empty()) {
+            s.send_next();
         }
     }
     if (s.sync && s.clock() >= s.deadline) {
@@ -158,7 +186,10 @@ bool GamescopeText::ready() {
         } else if (s.result == State::Result::Waiting) {
             // Delivery is unknown, not disconnected. Keep sync as a barrier to
             // further text/native downs until the late acknowledgement arrives.
+            // Unsent characters are dropped rather than typed late.
             s.result = State::Result::Failure;
+            s.remaining.clear();
+            s.between_characters = false;
         }
     }
     return s.phase == State::Phase::Ready;
@@ -176,8 +207,10 @@ void GamescopeText::cancel() {
     state_->result = State::Result::None;
     state_->submitted.clear();
     state_->submitted_deletions = 0;
+    state_->remaining.clear();
+    state_->between_characters = false;
 }
-bool GamescopeText::commit(const std::string& text, std::size_t delete_before) {
+bool GamescopeText::commit(const std::string& text, std::size_t delete_before, bool per_character) {
     auto& s = *state_;
     if (!ready()) {
         return false;
@@ -201,9 +234,26 @@ bool GamescopeText::commit(const std::string& text, std::size_t delete_before) {
         gamescope_input_method_set_action(s.input, GAMESCOPE_INPUT_METHOD_ACTION_DELETE_LEFT);
         gamescope_input_method_commit(s.input, s.serial);
     }
-    // Gamescope's temporary Unicode keymap holds at most 32 characters.
-    gamescope_input_method_set_string(s.input, text.c_str());
-    gamescope_input_method_commit(s.input, s.serial);
+    if (per_character) {
+        // A multi-character string always switches Gamescope to a temporary
+        // keymap, and resets it 100 ms later; a busy X client can apply either
+        // change late and read keys with the wrong keymap ("word235"). Keys
+        // pressed back to back can also be reordered by an asynchronous X input
+        // method (IBus through XIM). So each character is its own commit, sent
+        // after the previous one is acknowledged and a short gap, starting with
+        // the first here.
+        s.remaining = text;
+        const char* end = g_utf8_next_char(text.c_str());
+        const std::string character(text.c_str(), end);
+        s.remaining.erase(0, character.size());
+        gamescope_input_method_set_string(s.input, character.c_str());
+        gamescope_input_method_commit(s.input, s.serial);
+        s.next_character = s.clock() + State::character_gap;
+    } else {
+        // Gamescope's temporary Unicode keymap holds at most 32 characters.
+        gamescope_input_method_set_string(s.input, text.c_str());
+        gamescope_input_method_commit(s.input, s.serial);
+    }
     s.submitted = text;
     s.submitted_deletions = delete_before;
     s.result = State::Result::Waiting;

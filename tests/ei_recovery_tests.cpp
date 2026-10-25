@@ -291,22 +291,51 @@ void asynchronous_text() {
         sink->pump();
     }
     require(!wrapper.commit_text("retry") && wrapper.text_pending(), "same connection accepts retry");
+    for (int i = 0; i < 5; ++i) {
+        text.pump(); // The compositor acknowledges, but our side has not read it.
+    }
+    require(text.commits == std::vector<std::string>{"s", "r"},
+            "the next character waits for the previous acknowledgement");
+    for (int i = 0; i < 5; ++i) {
+        text.pump();
+        sink->pump(); // Acknowledged, but still within the gap.
+    }
+    require(text.commits == std::vector<std::string>{"s", "r"},
+            "the next character also waits for the minimum gap");
+    now += .02;
     server.until([&] {
         text.pump();
         sink->pump();
+        now += .005;
         return wrapper.commit_text("retry");
     });
-    require(text.commits == std::vector<std::string>{"slow", "retry"}, "no automatic duplicate commit");
+    // Text the target keymap can type arrives one character per commit, each
+    // after the previous acknowledgement, so Gamescope never switches keymaps
+    // and keys arrive spaced apart. The timed-out "slow" stopped after its
+    // first character instead of typing the rest late.
+    const std::vector<std::string> first{"s", "r", "e", "t", "r", "y"};
+    require(text.commits == first, "no automatic duplicate commit, one character per commit");
     // A swipe alternative deletes and inserts through the same ordered stream.
     require(wrapper.replaces_text(), "local Gamescope text can replace a word");
     require(!wrapper.replace_text(3, "help") && wrapper.text_pending(), "replacement is asynchronous");
     server.until([&] {
         text.pump();
         sink->pump();
+        now += .005;
         return wrapper.replace_text(3, "help");
     });
-    require(text.commits == std::vector<std::string>{"slow", "retry", "\b", "\b", "\b", "help"},
-            "deletions precede the replacement text in one request stream");
+    auto replaced = first;
+    replaced.insert(replaced.end(), {"\b", "\b", "\b", "h", "e", "l", "p"});
+    require(text.commits == replaced, "deletions precede the replacement text in one request stream");
+    // Characters missing from the keymap still need Gamescope's temporary
+    // keymap; splitting them would only add keymap switches.
+    require(!wrapper.commit_text("日本") && wrapper.text_pending(), "CJK commit is asynchronous");
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return wrapper.commit_text("日本");
+    });
+    require(text.commits.back() == "日本", "text outside the keymap stays one commit");
     text.commits.resize(2);
     sink->send(32, 1);
     sink->send(32, 0);

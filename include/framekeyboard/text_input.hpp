@@ -14,7 +14,11 @@ class GamescopeText {
     bool failed() const;
     // Deletions run as Gamescope delete_left actions before the text, in the
     // same request stream, so they cannot interleave with its temporary keymap.
-    bool commit(const std::string& text, std::size_t delete_before = 0);
+    // With per_character, each character is its own commit, sent after the
+    // previous one is acknowledged and at least 20 ms later: Gamescope then types
+    // characters its ordinary keymap has without a temporary keymap, and they
+    // arrive spaced apart.
+    bool commit(const std::string& text, std::size_t delete_before = 0, bool per_character = false);
     bool pending() const;
     // Cancellation/timeout cannot undo an already submitted Wayland request.
     // Keep its ordering barrier until the sync arrives, even if the caller stops waiting.

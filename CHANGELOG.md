@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed swiped words and swipe alternatives sometimes arriving scrambled or partly as digits in Brave and other X11 apps, such as `word235` or `htree` for *three*, especially while the Frame was busy. Words of plain ASCII characters are now typed one acknowledged character at a time, the way single key presses already were, with a short gap between characters. This avoids Gamescope's temporary keymap, and keeps the input method from reordering keys. Other text, such as accented words, Japanese or Chinese, is typed as before.
+
 ## 0.9.1: Full Keyboard returns after in-app updates
 
 - After an in-app update, Full Keyboard comes back by itself. The old version hands the open keyboard request back to Steam, and the new one takes over Steam's keyboard about a second later, instead of leaving it open until you close it. Updating into this version already takes over a Steam keyboard that opened during the handoff; the automatic return on every update starts with updates from this version onward.

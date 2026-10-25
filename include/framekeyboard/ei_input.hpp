@@ -40,6 +40,7 @@ class EiSink : public KeySink {
 
   private:
     void read_keymap();
+    bool on_keymap(const std::string& text) const;
     void service_text();
     bool connect();
     void connection_lost();
