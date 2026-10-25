@@ -36,11 +36,11 @@ The view's geometry is generated from the active layout's case size, key unit an
 - **Typing:** an emoji is typed when the trigger is released over the same cell. If the laser moves more than a few millimeters during the press, it becomes a scroll and nothing is typed. The picker stays open, unless the close-on-select setting is on.
 - **No repeat:** holding an emoji never repeats it. A hold opens the skin-tone popup instead (below).
 - **Scrolling:** two ways to scroll, both moving the grid horizontally:
-  - Dragging with the trigger held. A quick drag keeps the grid gliding after release and slowing down, like a phone list: the speed over the last 0.1 s before release (at least 300 px/s) decays with a 0.35 s time constant, so the glide covers about a third of a second of that speed. A pause before releasing leaves nothing to glide. A press on the gliding grid stops it and types nothing; the stick also stops it.
+  - Dragging with the trigger held. A quick drag keeps the grid gliding after release and slowing down, like a phone list: the speed over the last 0.1 s before release (at least 300 px/s) decays with a 0.35 s time constant, so the glide covers about a third of a second of that speed. A pause before releasing leaves nothing to glide. A glide that runs past an end overshoots on a critically damped spring and settles back on the end, like iOS lists; it overshoots at most about 65 px. A press on the gliding grid stops it (back on the end, if past one) and types nothing; the stick also stops it. A drag can start anywhere in the grid, including the empty space between categories.
   - The thumbstick of the controller whose laser is on the grid. In the dashboard this arrives as scroll events. In passthrough, the keyboard reads the stick itself.
   - The stick and the tab row scroll without gliding. Scrolling stops at the ends.
 - **Swipe typing:** belongs to the main layout and is inactive in the picker. No trail is drawn.
-- **Haptics:** a hover tick and a press buzz, like the keys.
+- **Haptics:** none in the grid, tabs or tone popup. A tick for every emoji under a sweeping laser became a constant rattle. The picker's keys keep theirs.
 
 ### Skin tones
 

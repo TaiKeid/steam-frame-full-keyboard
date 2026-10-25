@@ -178,7 +178,7 @@ void picker_tests() {
 
     // A tap types on release, over the same cell.
     auto [x, y] = center(first->bounds);
-    require(picker.down(1, x, y, 0).haptic, "pressing a cell buzzes");
+    require(picker.down(1, x, y, 0).redraw, "pressing a cell shows it");
     auto event = picker.up(1, x, y, 0);
     require(event.type == "s0" && event.typed == &catalog.entries[0], "a released cell types");
     picker.down(1, x, y, 0);
@@ -203,7 +203,8 @@ void picker_tests() {
     for (int i = 1; i <= 6; ++i) {
         picker.move(1, x - 24.0 * i, y, 1 + .02 * i); // 1200 pixels a second.
     }
-    require(!picker.up(1, x - 144, y, 1.12).haptic && picker.gliding(), "a quick drag glides");
+    picker.up(1, x - 144, y, 1.12);
+    require(picker.gliding(), "a quick drag glides");
     require(picker.scroll_offset() == 144, "the release itself does not jump");
     // The VR loop's frame time can precede the release's own time.
     picker.tick(1.11);
@@ -231,7 +232,7 @@ void picker_tests() {
     picker.tick(20.1);
     require(picker.gliding(), "glides again");
     event = picker.down(1, x, y, 20.12);
-    require(!picker.gliding() && !event.haptic, "a press catches the glide");
+    require(!picker.gliding(), "a press catches the glide");
     require(picker.up(1, x, y, 20.15).type.empty(), "and its release types nothing");
     picker.down(1, x, y, 21);
     picker.move(1, x - 150, y, 21.05);
@@ -243,6 +244,52 @@ void picker_tests() {
     picker.cancel();
     require(!picker.gliding(), "cancelling stops a glide");
     picker.reset();
+    // A glide past either end overshoots a little and settles back on it.
+    for (const bool forward : {true, false}) {
+        picker.reset();
+        const double limit = picker.scroll_limit();
+        // Two cells from the end it will run past.
+        picker.scroll(x, y, forward ? limit / (2 * grid.height / 5) - 1 : 1);
+        const double start = picker.scroll_offset();
+        const double step = forward ? -40 : 40; // 2000 pixels a second toward the end.
+        picker.down(1, x, y, 40);
+        for (int i = 1; i <= 5; ++i) {
+            picker.move(1, x + step * i, y, 40 + .02 * i);
+        }
+        picker.up(1, x + step * 5, y, 40.1);
+        require(picker.gliding() || picker.scroll_offset() != start, "the fling glides");
+        const double end = forward ? limit : 0;
+        double furthest = 0;
+        for (int frame = 1; frame < 600 && picker.gliding(); ++frame) {
+            picker.tick(40.1 + frame / 60.0);
+            furthest = std::max(furthest,
+                                forward ? picker.scroll_offset() - end : end - picker.scroll_offset());
+        }
+        require(furthest > 20 && furthest < 70, "it runs a little past the end");
+        require(!picker.gliding() && picker.scroll_offset() == end, "and settles exactly on it");
+    }
+    // A press during the bounce puts the grid back on its end.
+    picker.reset();
+    picker.scroll(x, y, 1);
+    picker.down(1, x, y, 50);
+    picker.move(1, x + 60, y, 50.02);
+    picker.up(1, x + 100, y, 50.04);
+    double now = 50.04;
+    while (picker.gliding() && picker.scroll_offset() >= 0 && now < 51) {
+        picker.tick(now += 1.0 / 60);
+    }
+    require(picker.gliding() && picker.scroll_offset() < 0, "bouncing past the start");
+    picker.down(1, x, y, now);
+    require(picker.scroll_offset() == 0 && !picker.gliding(), "a press puts it back at the start");
+    picker.up(1, x, y, now);
+    // A drag from empty grid space, here the empty Recent, scrolls too, and a tap there types nothing.
+    picker.reset();
+    picker.down(1, grid.x + 5, grid.y + 5, 60);
+    require(picker.up(1, grid.x + 5, grid.y + 5, 60.1).type.empty(), "empty space types nothing");
+    picker.down(1, grid.x + 5, grid.y + 5, 61);
+    picker.move(1, grid.x - 95, grid.y + 5, 61.5);
+    picker.up(1, grid.x - 95, grid.y + 5, 62);
+    require(picker.scroll_offset() == 100, "a drag from empty space scrolls");
     // The tab row never glides.
     const auto tabs_center = center(picker.view().tab_list[1].bounds);
     picker.down(1, tabs_center.first, tabs_center.second, 30);
@@ -252,7 +299,7 @@ void picker_tests() {
 
     // Only one press at a time.
     picker.down(1, x, y, 0);
-    require(!picker.down(2, x, y, 0).haptic, "another hand's press waits");
+    require(!picker.down(2, x, y, 0).redraw, "another hand's press waits");
     picker.cancel_pointer(1);
     require(picker.up(1, x, y, 0).type.empty(), "a cancelled press types nothing");
 
@@ -285,13 +332,13 @@ void picker_tests() {
     picker.down(1, x, y, 10);
     require(!picker.tick(10.3).redraw, "a short hold does nothing");
     event = picker.tick(10.6);
-    require(event.redraw && event.haptic && picker.popup_open(), "a long hold opens the tones");
+    require(event.redraw && picker.popup_open(), "a long hold opens the tones");
     view = picker.view();
     require(view.popup && view.popup->choices.size() == 6 && view.popup->choices[0].text == "wave" &&
                 view.popup->choices[5].text == "wave5",
             "default first, then light to dark");
     const auto choice = center(view.popup->choices[3].bounds);
-    require(picker.move(1, choice.first, choice.second, 0).haptic, "moving onto a tone buzzes");
+    require(picker.move(1, choice.first, choice.second, 0).redraw, "moving onto a tone highlights it");
     event = picker.up(1, choice.first, choice.second, 0);
     require(event.type == "wave3" && event.tone == 3, "releasing on a tone types it and keeps it");
     require(cell(picker.view(), "wave3"), "the grid shows the new tone");
@@ -401,7 +448,7 @@ void app_tests() {
     const auto* grin = cell(*view.emoji, "😀");
     require(grin, "the first smiley is in view");
     auto [x, y] = center(grin->bounds);
-    require(app.down(0, x, y, 2), "pressing an emoji buzzes");
+    require(!app.move(0, x, y) && !app.down(0, x, y, 2), "emoji neither buzz on hover nor on press");
     require(sink.text.empty(), "nothing types on press");
     app.up(0, x, y);
     require((sink.text == std::vector<std::string>{"😀"}), "the emoji types once on release, whole");

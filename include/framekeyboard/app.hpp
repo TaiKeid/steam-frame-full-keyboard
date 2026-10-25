@@ -128,8 +128,6 @@ class App {
         return emoji_glyphs_ && emoji_checked_ && std::get<0>(emoji_requested_) > 0 &&
                emoji_glyphs_->idle();
     }
-    // The pointer whose held emoji just opened its skin tones, for a buzz.
-    std::optional<unsigned> take_emoji_hold() { return std::exchange(emoji_hold_, std::nullopt); }
     bool dirty{true};
     PanelRenderer renderer;
     const Selection& selection() const { return settings_.active; }
@@ -296,7 +294,6 @@ class App {
     std::atomic<double> slow_work_deadline_{};
     bool emoji_open_{};
     std::optional<unsigned> emoji_key_pointer_; // Holds the emoji key; release toggles the picker.
-    std::optional<unsigned> emoji_hold_;
     EmojiLayout emoji_layout_;
     double emoji_width_{};
     EmojiPicker emoji_;

@@ -103,12 +103,13 @@ struct EmojiPickerView {
 // column and then across, scrolled sideways by dragging or with the stick.
 // An emoji types when released over the cell it was pressed on; holding a
 // toned one opens its skin tones instead. A quick laser drag on the grid
-// keeps it gliding after release, slowing down like a phone list; the stick
-// and the tab row scroll without it. Panel coordinates throughout.
+// keeps it gliding after release, slowing down like a phone list, and
+// bouncing back from an end it runs past; the stick and the tab row scroll
+// without it. Panel coordinates throughout.
 class EmojiPicker {
   public:
     struct Event {
-        bool redraw{}, haptic{}, clear{};
+        bool redraw{}, clear{};
         std::string type;          // Text to type.
         const EmojiEntry* typed{}; // Its entry, for the recent list.
         bool recent{};             // Chosen in Recent, which then keeps its order.
@@ -164,7 +165,9 @@ class EmojiPicker {
         std::size_t first_item{}, items{};
         bool shown{};
     };
-    enum class Target { None, Cell, Tab, Choice };
+    // Grid is the grid's empty space, between categories or in an empty
+    // Recent: it types nothing, but a drag from it still scrolls.
+    enum class Target { None, Cell, Grid, Tab, Choice };
     struct Hit {
         Target target{Target::None};
         std::size_t index{};
@@ -182,7 +185,10 @@ class EmojiPicker {
     };
     struct Glide {
         double velocity{}, at{}; // Scroll pixels per second, and when last moved.
+        bool bounce{};           // Past an end, springing back to it.
+        double end{};
     };
+    void stop_glide();
     void scrolled(); // After the grid scrolls under the laser.
     void layout_items();
     Hit hit(double x, double y) const;

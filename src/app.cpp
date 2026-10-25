@@ -623,13 +623,12 @@ bool App::move(unsigned pointer, double x, double y) {
         dirty = true;
         return false;
     }
-    bool haptic = false;
+    // The picker gives no haptics: buzzing every emoji under a sweeping laser
+    // turns into a constant rattle.
     if (emoji_open_) {
-        const auto event = emoji_.move(pointer, x, y, monotonic_seconds());
-        dirty |= event.redraw;
-        haptic = event.haptic;
+        dirty |= emoji_.move(pointer, x, y, monotonic_seconds()).redraw;
         if (emoji_.pressed(pointer)) {
-            return haptic; // Scrolling or choosing a tone: keys under the laser don't count.
+            return false; // Scrolling or choosing a tone: keys under the laser don't count.
         }
     }
     const auto v = view();
@@ -652,10 +651,10 @@ bool App::move(unsigned pointer, double x, double y) {
     if (hovered_[pointer] != target) {
         hovered_[pointer] = target;
         dirty = true;
-        return haptic || (target.kind == HoverTarget::Kind::Key && !dragging_ &&
-                          !keyboard_.pointer_pressed(pointer) && !v.disabled_keys.contains(target.id));
+        return target.kind == HoverTarget::Kind::Key && !dragging_ &&
+               !keyboard_.pointer_pressed(pointer) && !v.disabled_keys.contains(target.id);
     }
-    return haptic;
+    return false;
 }
 
 bool App::down(unsigned pointer, double x, double y, double now) {
@@ -686,9 +685,8 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (emoji_open_ && emoji_.contains(x, y)) {
-        const auto event = emoji_.down(pointer, x, y, now);
-        dirty |= event.redraw;
-        return event.haptic;
+        dirty |= emoji_.down(pointer, x, y, now).redraw;
+        return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         // Taps and flicks type on release, so the other hand often presses
@@ -855,7 +853,7 @@ bool App::up(unsigned pointer, double x, double y) {
         apply_emoji_event(event);
         move(pointer, x, y);
         dirty = true;
-        return !event.type.empty() || event.clear;
+        return false;
     }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         return swipe_up(pointer, x, y);
@@ -2377,11 +2375,7 @@ void App::update_emoji(double now) {
         close_emoji(); // Text delivery was lost; the status line says why.
         return;
     }
-    const auto event = emoji_.tick(now);
-    dirty |= event.redraw;
-    if (event.haptic) {
-        emoji_hold_ = emoji_.press_pointer();
-    }
+    dirty |= emoji_.tick(now).redraw;
     // Ask for images only when what is in view could have changed.
     const auto wanted = std::tuple{emoji_.glyph_size(), emoji_.first_column(), emoji_content_,
                                    emoji_preferences_.tone, emoji_.popup_open()};

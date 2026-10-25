@@ -2048,9 +2048,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             hide_panel();
         }
         const bool repaint = app.tick(now);
-        if (const auto held = app.take_emoji_hold(); held && lifecycle.visible()) {
-            feedback.hold(*held);
-        }
         if (lifecycle.visible() && repaint) {
             app.paint(now);
             panel.submit(app.renderer, app.view());
