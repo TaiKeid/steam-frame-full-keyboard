@@ -467,6 +467,41 @@ class Lifecycle(unittest.TestCase):
         subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(payload), text=True,
                        check=True, timeout=5)
 
+    @unittest.skipUnless(shutil.which("node"), "Node required for production install-expression regression")
+    def test_only_an_update_handoff_install_adopts_an_open_native_keyboard(self):
+        source = "(function(root, store, external, adoptOpenMs) { root.adopt.push(adoptOpenMs); " \
+                 "return {expired: () => true, dispose() {}}; })"
+        payload = [bridge.install_expression(source, "plain", True, 2000),
+                   bridge.install_expression(source, "update", True, 2000, adopt_open=True)]
+        script = r"""
+            const assert = require('node:assert/strict'), vm = require('node:vm');
+            const p = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+            const root = {adopt: []}; root.Date = {now: () => 0};
+            const context = vm.createContext(root);
+            for (const expression of p) assert.equal(vm.runInContext(expression, context), true);
+            assert.deepEqual(root.adopt, [0, 3000]);
+        """
+        subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(payload), text=True,
+                       check=True, timeout=5)
+
+    def test_helper_accepts_only_the_adopt_flag_as_an_extra_argument(self):
+        for extra, accepted in (([], True), (["--adopt-open"], True), (["--adopt"], False),
+                                (["--adopt-open", "--adopt-open"], False)):
+            with patch.object(bridge, "run") as run, patch.object(sys, "argv",
+                                                                  ["native_bridge.py", "--fd", "3",
+                                                                   "--health-fd", "4", *extra]):
+                main = Path(spec.origin).read_text().split('if __name__ == "__main__":', 1)[1]
+                namespace = {**vars(bridge), "socket": type("S", (), {"socket": staticmethod(lambda **_: None)}),
+                             "signal": type("G", (), {"signal": staticmethod(lambda *_: None), "SIGTERM": 15})}
+                if accepted:
+                    exec(compile("if True:" + main, spec.origin, "exec"), namespace)
+                    self.assertEqual(run.call_args.kwargs["adopt_open"], extra == ["--adopt-open"])
+                else:
+                    with self.assertRaises(SystemExit) as stop:
+                        exec(compile("if True:" + main, spec.origin, "exec"), namespace)
+                    self.assertEqual(stop.exception.code, 2)
+                    run.assert_not_called()
+
     def test_debugger_must_be_bound_to_loopback_before_any_connection(self):
         def tables(address, port):
             value = ipaddress.ip_address(address)

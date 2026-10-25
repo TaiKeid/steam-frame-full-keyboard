@@ -305,6 +305,7 @@ UpdateStartup::UpdateStartup() {
         if (parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && fd >= 3 &&
             fstat(fd, &info) == 0 && S_ISSOCK(info.st_mode)) {
             startup_fd = fd;
+            update_launch_ = true;
             startup_started = startup_last = -1;
             fcntl(fd, F_SETFD, FD_CLOEXEC);
             const auto service = std::getenv("FRAMEKEYBOARD_SERVICE");

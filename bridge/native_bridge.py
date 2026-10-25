@@ -21,6 +21,8 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 MAX_PACKET = 32768
 GLOBAL = "__fullKeyboardNativeV1"
 INSTALL_TIMEOUT = 2.0
+# After an in-app update, adopt a native keyboard the outgoing version left open.
+ADOPT_OPEN_MS = 3000
 ACTIVE_POLL = 0.035
 IDLE_POLL = 0.075
 
@@ -31,14 +33,15 @@ def poll_interval(state):
     return IDLE_POLL if state.get('idle') is True and not any(state.get(k) for k in busy) else ACTIVE_POLL
 
 
-def install_expression(source, token, external_supported, expires):
+def install_expression(source, token, external_supported, expires, adopt_open=False):
     reference = f"globalThis.{GLOBAL}"
     # Python and CEF run on the same device. A command queued beyond its local
     # deadline must not install hooks later, even if CDP cleanup cannot get through.
     return (f"(() => {{ if (Date.now() >= {expires}) return null; "
             f"if ({reference}) {{ if (!{reference}.bridge.expired()) return false; "
             f"{reference}.bridge.dispose(); delete {reference}; }} "
-            f"const bridge = ({source})(globalThis, undefined, {str(external_supported).lower()}); "
+            f"const bridge = ({source})(globalThis, undefined, {str(external_supported).lower()}, "
+            f"{ADOPT_OPEN_MS if adopt_open else 0}); "
             f"if (Date.now() >= {expires}) {{ bridge.dispose(); return null; }} "
             f"{reference} = {{token: {json.dumps(token)}, bridge}}; return true; }})()")
 
@@ -388,7 +391,8 @@ class ParentRecovery:
         return False
 
 
-def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, health_fd=None):
+def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, health_fd=None,
+        adopt_open=False):
     client = None
     guard = None
     install_attempted = False
@@ -410,7 +414,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         # Never displace another live instance. A dead owner's lease must expire first.
         install_attempted = True
         result = client.evaluate(install_expression(source, token, guard is not None,
-                                                   int((time.time() + INSTALL_TIMEOUT) * 1000)),
+                                                   int((time.time() + INSTALL_TIMEOUT) * 1000),
+                                                   adopt_open),
                                  timeout=INSTALL_TIMEOUT)
         if result is None:
             raise TimeoutError()  # The expression itself rejected a late installation.
@@ -464,8 +469,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 message = json.loads(packet)
                 operation = message.get("op")
                 if operation == "stop":
-                    # Only an explicit prepared-update shutdown may suppress
-                    # recovery. EOF, signals and malformed packets still restore.
+                    # Only an explicit restore:false stop may suppress recovery;
+                    # prepared updates now restore too. EOF, signals and
+                    # malformed packets still restore.
                     restore_native = message.get("restore") is not False
                     stopping = True
                     break
@@ -631,6 +637,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
 if __name__ == "__main__":
     # SIGTERM follows the same cleanup path as EOF from the owning application.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    if len(sys.argv) != 5 or sys.argv[1] != "--fd" or sys.argv[3] != "--health-fd":
+    if (len(sys.argv) not in (5, 6) or sys.argv[1] != "--fd" or sys.argv[3] != "--health-fd" or
+            sys.argv[5:] not in ([], ["--adopt-open"])):
         sys.exit(2)
-    run(socket.socket(fileno=int(sys.argv[2])), parent_pid=os.getppid(), health_fd=int(sys.argv[4]))
+    run(socket.socket(fileno=int(sys.argv[2])), parent_pid=os.getppid(), health_fd=int(sys.argv[4]),
+        adopt_open=sys.argv[5:] == ["--adopt-open"])

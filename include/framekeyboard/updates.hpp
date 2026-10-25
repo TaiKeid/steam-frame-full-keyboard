@@ -45,9 +45,11 @@ class UpdateStartup {
     ~UpdateStartup();
     // Update/rollback is explicit; hidden presentation does not recheck boot opt-in.
     bool background_start() const { return background_; }
+    // Started by the update helper, before or after service adoption.
+    bool update_launch() const { return update_launch_; }
 
   private:
-    bool background_{};
+    bool background_{}, update_launch_{};
 };
 void update_startup_ready(double now);
 } // namespace framekeyboard

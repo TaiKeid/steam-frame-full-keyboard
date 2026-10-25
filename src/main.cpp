@@ -208,6 +208,9 @@ int main(int argc, char** argv) {
                 sink = std::make_unique<fk::NullSink>();
             }
             fk::NativeReplacement replacement(*sink);
+            if (startup.update_launch()) {
+                replacement.adopt_update_handoff(fk::monotonic_seconds() + 30);
+            }
             fk::SettingsWriter::Write preferences;
             fk::SettingsWriter::Write reconcile_preferences;
             if (options.mode == fk::Mode::Vr) {

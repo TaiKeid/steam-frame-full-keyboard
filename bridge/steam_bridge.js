@@ -1,6 +1,6 @@
 // Evaluated only in Steam's SharedJSContext. Never read field or clipboard text.
 // Native presentation is closed; input stays bound to the owning Steam window.
-(function installNativeBridge(root, testStore, externalSupported) {
+(function installNativeBridge(root, testStore, externalSupported, adoptOpenMs) {
     "use strict";
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100;
     const now = () => root.performance.now();
@@ -74,7 +74,11 @@
     const ownSteam = key => typeof key === "string" && (key === "valve.steam.gamepadui.main" ||
         key === "valve.steam.gamepadui.barpopup" || key.startsWith("valve.steam.gamepadui.appoverlay."));
     let native = nativeStatus(), previousOpen = native.open, previousKey = native.key;
-    let ignoreOpen = native.open, rawDeadline = 0, restoringUntil = 0;
+    // An already-open native session normally stays native. After an in-app
+    // update, the outgoing version's cleanup can leave Steam's keyboard open
+    // for its own request; only that handoff adopts it, within a short window.
+    const adoptUntil = Number.isFinite(adoptOpenMs) && adoptOpenMs > 0 ? now() + adoptOpenMs : 0;
+    let ignoreOpen = native.open && !adoptUntil, rawDeadline = native.open ? adoptUntil : 0, restoringUntil = 0;
     let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
@@ -338,7 +342,7 @@
             if (!restoringOwner && restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
             if (!native.open && !restoringUntil) ignoreOpen = false;
             const newOpen = native.open && (!previousOpen || native.key !== previousKey);
-            if (newOpen) rawDeadline = time + REQUEST_MS;
+            if (newOpen) rawDeadline = Math.max(time + REQUEST_MS, adoptUntil);
             previousOpen = native.open;
             previousKey = native.key;
             const frame = selectedFrame();
@@ -454,6 +458,8 @@
             } else if (native.open && !ignoreOpen && !restoringUntil) {
                 const owner = candidate(native);
                 if (fresh() && owner && time < rawDeadline) begin(owner);
+                // The incoming app renews the lease only after its first frame.
+                else if (!fresh() && time < adoptUntil) { /* Keep the handoff session adoptable. */ }
                 else if (!fresh() || !potential(native) || time >= rawDeadline) ignoreOpen = true;
             }
             // A show can arrive before its native status. Replay it when that

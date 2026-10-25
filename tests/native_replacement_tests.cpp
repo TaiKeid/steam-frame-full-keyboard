@@ -61,9 +61,8 @@ void update_shutdown() {
         json_object* message = json_tokener_parse(packet.c_str());
         require(message, "shutdown control is a valid protocol message");
         require(std::string(json_object_get_string(json_object_object_get(message, "op"))) == "stop" &&
-                    json_object_object_get(message, "restore") &&
-                    !json_object_get_boolean(json_object_object_get(message, "restore")),
-                "prepared update must explicitly close the old session without native recovery");
+                    !json_object_object_get(message, "restore"),
+                "prepared update hands the open request back to Steam for the successor to adopt");
         json_object_put(message);
         require(!replacement.state().open && !replacement.state().active,
                 "retired replacement no longer owns a typing session");
@@ -1246,6 +1245,37 @@ int main(int argc, char** argv) {
             }
             throw std::runtime_error(std::string("unarmed Steam handshake unavailable: ") +
                                      replacement.unavailable_reason());
+        }
+        if (argc == 2 && std::string(argv[1]) == "--helper-adopt-fixture") {
+            // The first helper after an in-app update adopts an open native
+            // keyboard. A restart, or a start after the window, never does.
+            NullSink local;
+            NativeReplacement replacement(local);
+            require(replacement.prepare_watchdog(), "private health pipe available");
+            replacement.adopt_update_handoff(monotonic_seconds() + 30);
+            for (int run = 0; run < 3; ++run) {
+                if (run == 2) {
+                    replacement.adopt_update_handoff(monotonic_seconds() - 1);
+                }
+                replacement.retry_now(monotonic_seconds());
+                const auto start = monotonic_seconds();
+                bool available = false;
+                while (!available && monotonic_seconds() - start < 3) {
+                    const double now = monotonic_seconds();
+                    replacement.poll(now);
+                    replacement.watchdog_tick(now);
+                    replacement.update(true, false, 0, false, now);
+                    available = replacement.state().available;
+                    if (available) {
+                        replacement.update(false, false, 0, false, now);
+                    } else {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    }
+                }
+                require(available, "fixture helper became available");
+            }
+            std::cout << "Only the first helper start after an update adopts native.\n";
+            return 0;
         }
         require(argc == 1, "unknown test option");
         update_shutdown();

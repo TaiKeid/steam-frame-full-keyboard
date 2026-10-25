@@ -33,9 +33,13 @@ class NativeReplacement : public KeySink {
     void route(bool remote) { remote_ = remote; }
     bool remote() const { return remote_; }
     void dismiss_request();
-    // A prepared update closes the current request instead of reopening native.
-    // All other shutdowns retain independent native recovery.
+    // A prepared update hands the open request back to Steam, as Quit does,
+    // so the successor's first helper can adopt it (adopt_update_handoff).
     void shutdown_for_update();
+    // The first helper after an in-app update adopts a native keyboard that the
+    // outgoing version's cleanup left open. It must start before `until`
+    // (monotonic seconds); later starts and restarts never adopt.
+    void adopt_update_handoff(double until) { adopt_until_ = until; }
     void retry_now(double now);
     bool take_unsupported_control();
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
@@ -97,7 +101,7 @@ class NativeReplacement : public KeySink {
     State state_;
     Failure failure_{Failure::None};
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
-    double last_reply_{}, install_until_{}, next_start_{}, now_{}, pending_since_{};
+    double last_reply_{}, install_until_{}, next_start_{}, now_{}, pending_since_{}, adopt_until_{};
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
     unsigned log_lines_{};

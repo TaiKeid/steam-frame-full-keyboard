@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- After an in-app update, Full Keyboard comes back by itself. The old version hands the open keyboard request back to Steam, and the new one takes over Steam's keyboard about a second later, instead of leaving it open until you close it. Updating into this version already takes over a Steam keyboard that opened during the handoff; the automatic return on every update starts with updates from this version onward.
+
 ## 0.9.0: Swipe typing, flick input and typing over pinned windows
 
 - With the numpad hidden or on the flick layout, the toolbar uses two rows: Settings, Recenter, Pin and the language on top, the zoom buttons and Stay open over apps below. Swipe suggestions no longer cover the language button.

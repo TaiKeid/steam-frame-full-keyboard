@@ -291,11 +291,14 @@ bool NativeReplacement::start(double now) {
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
     std::string path = helper.string();
     char python[] = "python3", isolated[] = "-I", fd_option[] = "--fd", fd_number[] = "3";
-    char health_option[] = "--health-fd", health_number[] = "4";
-    char* arguments[] = {python,    isolated,      path.data(),   fd_option,
-                         fd_number, health_option, health_number, nullptr};
+    char health_option[] = "--health-fd", health_number[] = "4", adopt_option[] = "--adopt-open";
+    char* arguments[] = {
+        python,    isolated,      path.data(),   fd_option,
+        fd_number, health_option, health_number, now < adopt_until_ ? adopt_option : nullptr,
+        nullptr};
     const int error = posix_spawnp(&child_, python, &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
+    adopt_until_ = 0;
     close(pair[1]);
     close(health);
     if (error) {
@@ -312,7 +315,9 @@ bool NativeReplacement::start(double now) {
     return true;
 }
 void NativeReplacement::shutdown_for_update() {
-    stop(false);
+    // Steam reopens its keyboard for the retained request; the update successor
+    // adopts it within its handoff window, so the panel returns by itself.
+    stop(true);
 }
 void NativeReplacement::stop(bool restore_native) {
     packet(restore_native ? "{\"op\":\"stop\"}" : "{\"op\":\"stop\",\"restore\":false}");

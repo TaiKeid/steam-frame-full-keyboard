@@ -18,7 +18,9 @@ with tempfile.TemporaryDirectory(prefix="framekeyboard-helper-fixture-") as dire
     (root / "bridge/native_bridge.py").write_text('''import json,os,select,socket,struct,sys,time
 from pathlib import Path
 assert sys.flags.isolated == 1
-assert sys.argv[1:] == ["--fd", "3", "--health-fd", "4"]
+assert sys.argv[1:5] == ["--fd", "3", "--health-fd", "4"] and sys.argv[5:] in ([], ["--adopt-open"])
+with Path(__file__).with_name("adopt.log").open("a") as log:
+    log.write(json.dumps(sys.argv[5:] == ["--adopt-open"]) + "\\n")
 parent=socket.socket(fileno=3)
 deadline=time.monotonic()+2
 health=frame=replied=False
@@ -55,6 +57,17 @@ parent.close();os.close(4)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads((root / "bridge/result.json").read_text()) == dict(health=True, frame=True, closed=True)
     print(result.stdout.strip())
+    assert [json.loads(line) for line in (root / "bridge/adopt.log").read_text().splitlines()] == [False]
+
+    # The first helper after an in-app update adopts a native keyboard the
+    # outgoing version left open; a restart or a late start never does.
+    (root / "bridge/adopt.log").unlink()
+    result = subprocess.run([str(binary), "--helper-adopt-fixture"], capture_output=True, text=True, timeout=15,
+                            env={**os.environ, "PYTHONPATH": str(root / "bridge")})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [json.loads(line) for line in (root / "bridge/adopt.log").read_text().splitlines()] == \
+        [True, False, False]
+    print(result.stdout.strip().splitlines()[-1])
 
     # Use the real recovery loop and real C++ spawn/health/instance ownership.
     # Only this disposable process may be signalled; CDP and OpenVR stay fake.

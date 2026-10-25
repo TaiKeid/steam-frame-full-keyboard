@@ -72,7 +72,7 @@ function editingFixture(manager) {
         }};
 }
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
-    discoveryProbe = false) {
+    discoveryProbe = false, adoptOpenMs = 0) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -180,7 +180,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         const key = owner.m_Instance.GetVROverlayKey();
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
     }
-    const bridge = factory(root, production ? undefined : store, external);
+    const bridge = factory(root, production ? undefined : store, external, adoptOpenMs);
     function checkOwnership() {
         const s = bridge.diagnostics();
         assert.equal(wrongTarget.length, 0, "replacement input never reaches the global background-app sink");
@@ -1015,6 +1015,37 @@ for (const values of [
     assert(f.nativeOpen() && !f.step().eligible, "unrestorable/external targets remain native");
     assert(!f.calls.includes("native-hide"));
     assert.equal(f.nodes.size, 0);
+    f.bridge.dispose();
+}
+// After an in-app update, the outgoing version's cleanup can leave Steam's
+// keyboard open for its request. The incoming bridge adopts that session once
+// the app's frames become ready; until then it sends not-ready frames.
+function notReadyFor(f, ms) {
+    for (let waited = 0; waited < ms; waited += 250) { f.advance(250); f.step(0, false); }
+}
+{
+    const f = fixture(true, false, false, false, false, false, 3000);
+    notReadyFor(f, 1500);
+    assert(f.nativeOpen() && !f.step(0, false).eligible, "no takeover before the incoming app is ready");
+    const s = f.step();
+    assert(s.open && s.eligible && !f.nativeOpen(), "the first ready frame adopts the handoff session");
+    assert(f.step(s.request).active);
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, false, false, false, false, 3000);
+    f.status({bIsOpen: true}); notReadyFor(f, 1000);
+    const s = f.step();
+    assert(s.eligible && !f.nativeOpen(), "a handoff open after install but before the app is ready is adopted");
+    assert(f.step(s.request).active);
+    f.bridge.dispose();
+}
+{
+    const f = fixture(true, false, false, false, false, false, 3000);
+    notReadyFor(f, 3250);
+    assert(!f.step().eligible && f.nativeOpen(), "a session older than the handoff window stays native");
+    f.status({bIsOpen: false}); f.newTarget(); f.status({bIsOpen: true}); const s = f.step();
+    assert(f.step(s.request).active, "later native requests are taken over as usual");
     f.bridge.dispose();
 }
 {
