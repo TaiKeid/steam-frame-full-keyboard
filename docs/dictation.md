@@ -179,9 +179,9 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
 
 Settings has no text fields, and its cards cover the keys. Selecting the Server field opens an **address popup** over Settings, with its own one-line field and a small hardcoded keyboard. The address is set rarely, so this stays deliberately simple.
 
-- **Keys:** lowercase letters, digits, and `.` `-` `_` `:` `/` `[` `]` `?` (the exact set is a *proposal*). They type only characters that can appear in an address. There is no Space, Shift, Ctrl, Alt, Super, numpad or swipe; host names ignore case, and anything else can be pasted.
-- **Editing keys:** Backspace, the arrows and Paste. Enter acts on press: it accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels.
-- **Paste:** pastes the clipboard into the field, for an address copied elsewhere. This is the only place Full Keyboard reads the clipboard, and only when Paste is pressed. Open questions: the owner's OK and the README wording, and how the app reads the Frame's clipboard.
+- **Keys:** lowercase letters, digits, and `.` `-` `_` `:` `/` `[` `]` `?` (the exact set is a *proposal*). They type only characters that can appear in an address. There is no Space, Shift, Ctrl, Alt, Super, numpad, swipe or Paste; host names ignore case.
+- **Editing keys:** Backspace and the arrows. Enter acts on press: it accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels.
+- **No Paste:** Full Keyboard never reads the clipboard, here or anywhere else.
 - **Local only:** the popup types only into its field, never into Steam or the focused application, even with Replace native keyboard on.
 - **Size:** smaller than the main keyboard, so it fits inside the panel. The layout is hardcoded and does not follow the active layout or language.
 - **Validation:** an invalid value keeps the popup open with a short reason.
@@ -278,11 +278,12 @@ The repository ships instructions only, no server code:
 ### Security and privacy
 
 - **When audio leaves the Frame:** only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test.
-- **No encryption or authentication.** Host and port only means plain HTTP. Anyone on the local network can reach the server, and audio and text cross the network unencrypted. To limit this:
-  - hosts are not restricted, so third-party providers can be used later. When the resolved address is not on the local network (RFC 1918, link-local, loopback, IPv6 unique-local or link-local), the Dictation card shows a red warning that the host is not local and the traffic is unencrypted;
+- **Plain HTTP on the local network.** Host and port only means no encryption or authentication. Anyone on the local network can reach the server, and audio and text cross the network unencrypted. Therefore:
+  - hosts are not restricted, so third-party providers can be used later. When the resolved address is not on the local network (RFC 1918, link-local, loopback, IPv6 unique-local or link-local), the Dictation card shows a red warning that the host is not local, and for plain HTTP that the traffic is unencrypted;
   - the setup guide recommends binding the server to the LAN and firewalling it;
-  - for a local server, choosing Server mode shows a one-line notice about plain HTTP (*proposal*).
-- **To be decided before M2:** third-party providers, HTTPS and API keys (see [open questions](#open-questions)).
+  - plain HTTP to a local server is accepted without any notice.
+- **HTTPS:** an `https` address is verified against the system's certificates, which covers hosted providers. Self-signed certificates get no special handling; users who want encryption on their own network can put a reverse proxy with a real certificate in front of the server.
+- **To be decided before M2:** third-party providers and API keys (see [open questions](#open-questions)).
 - **Logging on the Frame:** no audio and no transcripts. Whether the server logs is up to its configuration; the setup guide points this out.
 - **Replies are untrusted input:** they are validated and cleaned as described under [capturing](#capturing), and in dictation mode they only reach the editor until Send.
 
@@ -290,9 +291,9 @@ The repository ships instructions only, no server code:
 
 | Piece | Responsibility | Notes |
 | --- | --- | --- |
-| `framekeyboard-dictate` helper | Microphone capture through a `pw-record` child (16 kHz mono), speech level, phrase detection, WAV encoding, server requests, reply cleanup | Separate process, so a stuck device or network call cannot block the VR loop. Python standard library only, like the update helper (*proposal*). |
+| `framekeyboard-dictate` helper | Microphone capture through a `pw-record` child (16 kHz mono), speech level, phrase detection, WAV encoding, server requests, reply cleanup | Separate process, so a stuck device or network call cannot block the VR loop. Python standard library only, like the update helper. It runs only during dictation: started on the first mic press, it exits about a minute after dictation mode ends (*proposal*). |
 | On-device engine | whisper.cpp with the small model, run by the helper as a child process with a line protocol | Only in On device mode. Low priority; unloads when idle. |
-| Phrase detection | Energy-based, with an adaptive noise floor, 0.3 s pre-roll, end after 0.6 s of silence, at most 25 s per phrase | Cheap enough for the Frame (*proposal*). |
+| Phrase detection | Energy-based, with an adaptive noise floor, 0.3 s pre-roll, end after 0.6 s of silence, at most 25 s per phrase | The cheapest detection, in line with keeping Full Keyboard light on CPU, GPU and memory. |
 | Helper protocol | Private `SOCK_SEQPACKET` socket pair with bounded packets: level, phrase start and end, text, errors. App answers each finished phrase with its prompt | Transcripts are never logged. A dead helper cannot raise SIGPIPE in the keyboard. |
 | Helper lifetime | Exits on socket EOF and kills `pw-record` with it. Captured output only, and not dumpable | The service keeps helpers alive across a handoff (`KillMode=process`), so the helper must notice the keyboard is gone on its own. |
 | `DictationEditor` | Text, cursor, line layout, limits, phrase insertion and joining, phrase undo | Pure and host-testable. |
@@ -333,6 +334,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
     - The helper process cannot dump core.
     - Tests check that marker phrases never show up in output.
   - **Backlog:** queued audio is bounded by bytes, duration and age. Overflow stops capture visibly.
+  - **Cost:** measure the helper's CPU and memory on the Frame while capturing and while idle in dictation mode. Full Keyboard should stay as light as possible.
   - Host tests with WAV fixtures, a fake `pw-record` and a local fake server; no microphone needed.
 - [ ] **M3a Editor and key routing, English:**
   - `DictationEditor` and its tests.
@@ -357,7 +359,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
 - [ ] **M4 Settings:**
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
-  - The address popup with its mini keyboard and Paste, recent servers, Test, the non-local host warning and the error overlays.
+  - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
 - [ ] **M5a Languages:** Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
@@ -442,19 +444,12 @@ Findings:
 
 ## Open questions
 
-The owner settled the behavior questions and most proposals on 2026-10-25; the rules are in the sections above. Still open:
+The owner settled the behavior questions and the proposals on 2026-10-25; the rules are in the sections above. Still open:
 
-- **Providers, HTTPS and API keys (before M2):** to be brainstormed with the owner.
+- **Providers and API keys (before M2):** to be brainstormed with the owner.
   - **Third-party providers:** supporting OpenAI-compatible providers turns the server field into a URL (`https://host/path`) rather than `host:port`.
-  - **HTTPS:** Python's standard library can verify providers against the system certificates; a local server with a self-signed certificate is the awkward case.
   - **API keys:** providers need one. Entering it (the address popup has no uppercase), storing it outside logs and Git, and sending it only to that host are open.
   - **Tailscale:** addresses in 100.64.0.0/10 are encrypted but not local; do they get the warning?
-- **Paste in the address popup (M4):**
-  - the owner's OK for reading the clipboard on an explicit Paste;
-  - the README wording, which today promises no clipboard reads;
-  - how the app reads the Frame's clipboard.
-- **Plain-HTTP notice for local servers (M4):** a one-line notice, or nothing (*proposal*: the notice).
-- **Helper (M2):** Python standard library only, without `audioop` (removed in Python 3.13), and energy-based phrase detection tuned with M1's recordings (*proposal*).
 - **Reply length cap (M2):** measure false rejections per language before fixing 25 characters a second.
 - **Mic bars:** the cost of redrawing them with a game running (measured in M3c).
 - **Proposals:** the remaining items marked *proposal* above.
