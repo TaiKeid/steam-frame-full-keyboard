@@ -398,6 +398,22 @@ void picker_tests() {
         require(picker.up(1, x, y, 0).type == "s39", "and types once on release");
     }
 
+    // New content, such as an emoji joining Recent, keeps another press and its tone popup.
+    picker.set_content(sections(catalog), 0, false);
+    picker.reset();
+    picker.scroll(grid.x + 1, grid.y + 1, 7);
+    {
+        const auto held_view = picker.view();
+        const auto [hx, hy] = center(cell(held_view, "wave")->bounds);
+        picker.down(2, hx, hy, 70);
+        picker.tick(70.6);
+        require(picker.popup_open(), "the other hand holds a tone popup");
+        picker.set_content(sections(catalog, 1), 0, false);
+        require(picker.popup_open() && picker.pressed(2), "Recent gaining an emoji keeps it");
+        require(picker.view().popup->choices[0].text == "wave", "on the same emoji");
+        picker.cancel();
+    }
+
     // Recent: reserved width, column order, Clear in its bottom-right cell.
     picker.set_content(sections(catalog), 0, false);
     picker.reset();

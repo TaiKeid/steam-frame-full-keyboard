@@ -258,12 +258,44 @@ void EmojiPicker::set_geometry(Rect tabs, Rect grid) {
 }
 void EmojiPicker::set_content(std::array<std::vector<const EmojiEntry*>, emoji_group_count> sections,
                               int tone, bool loading) {
+    // Item indices change, mostly when Recent gains an emoji. Follow each press
+    // and hover to the same emoji, so the other hand's drag or tone popup
+    // survives; one whose emoji is gone ends.
+    struct Held {
+        const EmojiEntry* entry{};
+        std::size_t group{};
+    };
+    auto held = [&](const Hit& hit) {
+        return hit.target == Target::Cell
+                   ? std::optional{Held{items_[hit.index].entry, items_[hit.index].group}}
+                   : std::nullopt;
+    };
+    const auto pressed = press_ ? held(press_->hit) : std::nullopt;
+    std::map<unsigned, std::optional<Held>> hovering;
+    for (const auto& [pointer, hit] : hovered_) {
+        hovering[pointer] = held(hit);
+    }
     sections_ = std::move(sections);
     tone_ = tone;
     loading_ = loading;
-    // Items move; a press or hover would now point at another emoji.
-    cancel();
     layout_items();
+    auto follow = [&](Hit& hit, const std::optional<Held>& was) {
+        if (!was) {
+            return hit.target != Target::Cell;
+        }
+        const auto found = std::find_if(items_.begin(), items_.end(), [&](const Item& item) {
+            return item.entry == was->entry && item.group == was->group;
+        });
+        hit.index = static_cast<std::size_t>(found - items_.begin());
+        return found != items_.end();
+    };
+    if (press_ && !follow(press_->hit, pressed)) {
+        press_.reset();
+    }
+    std::erase_if(hovered_, [&](auto& item) { return !follow(item.second, hovering[item.first]); });
+    if (loading_ || items_.empty()) {
+        cancel();
+    }
 }
 void EmojiPicker::set_tone(int tone) {
     tone_ = std::clamp(tone, 0, 5);
