@@ -555,6 +555,77 @@ void named_key_repeats() {
                 "a lost release withdraws the helper instead of leaving repeats live");
     }
 }
+// Shift+Enter is a paragraph break only where the retained Steam field is a
+// textarea; everywhere else it stays an unsupported shortcut.
+void paragraph_breaks() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "paragraph socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        const auto state = [&](int request, bool multiline) {
+            put(pair[1], R"({"op":"state","version":1,"request":)" + std::to_string(request) +
+                             R"(,"open":true,"eligible":true,"active":true,"multiline":)" +
+                             (multiline ? "true" : "false") + "}");
+            replacement.poll(10);
+            replacement.route(true);
+        };
+        const auto read = [&](const char* kind, int value, const char* text) {
+            auto* message = json_tokener_parse(take(pair[1]).c_str());
+            require(std::string(json_object_get_string(json_object_object_get(message, "op"))) == kind &&
+                        json_object_get_int(json_object_object_get(message, "value")) == value &&
+                        std::string(json_object_get_string(json_object_object_get(message, "text"))) ==
+                            text,
+                    "paragraph break key packet");
+            const auto id = json_object_get_uint64(json_object_object_get(message, "id"));
+            json_object_put(message);
+            return id;
+        };
+        const auto empty = [&](const char* message) {
+            char byte;
+            require(recv(pair[1], &byte, 1, MSG_DONTWAIT) < 0 && errno == EAGAIN, message);
+        };
+        state(2, true);
+        require(replacement.state().multiline, "multiline session metadata");
+        require(replacement.deliver_key(KEY_LEFTSHIFT, 1) == Delivery::Success,
+                "Shift in a multiline field is held without a packet");
+        empty("Shift alone sends nothing to Steam");
+        require(replacement.deliver_key(KEY_ENTER, 1) == Delivery::Waiting, "Shift+Enter is delivered");
+        const auto id = read("key", 1, "ShiftEnter");
+        put(pair[1], "{\"op\":\"key-result\",\"id\":" + std::to_string(id) + ",\"ok\":true}");
+        replacement.poll(10.1);
+        require(replacement.deliver_key(KEY_ENTER, 1) == Delivery::Success, "Shift+Enter acknowledged");
+        replacement.send(KEY_ENTER, 2);
+        require(read("key", 2, "ShiftEnter") == id, "a held paragraph break repeats as itself");
+        replacement.send(KEY_ENTER, 0);
+        replacement.send(KEY_LEFTSHIFT, 0);
+        require(take(pair[1]).find("key-up") != std::string::npos, "paragraph break release");
+        replacement.send(KEY_ENTER, 1);
+        read("key", 1, "Enter");
+        replacement.send(KEY_ENTER, 0);
+        take(pair[1]);
+        replacement.send(KEY_LEFTSHIFT, 1);
+        replacement.send(KEY_TAB, 1);
+        replacement.send(KEY_TAB, 0);
+        replacement.send(KEY_LEFTCTRL, 1);
+        replacement.send(KEY_ENTER, 1);
+        replacement.send(KEY_ENTER, 0);
+        replacement.send(KEY_LEFTCTRL, 0);
+        replacement.send(KEY_LEFTSHIFT, 0);
+        empty("Shift+Tab and Ctrl+Shift+Enter stay unsupported in a multiline field");
+        require(replacement.take_unsupported_control(), "other shifted controls show the notice");
+        state(3, false);
+        require(replacement.deliver_key(KEY_LEFTSHIFT, 1) == Delivery::Failure &&
+                    replacement.take_unsupported_control(),
+                "a single-line field keeps refusing Shift");
+        replacement.send(KEY_ENTER, 1);
+        replacement.send(KEY_ENTER, 0);
+        replacement.send(KEY_LEFTSHIFT, 0);
+        empty("a single-line field never receives a paragraph break");
+        require(local.keys.empty(), "paragraph breaks never reach the local sink");
+    }
+    close(pair[1]);
+}
 struct Deferred : Local {
     bool pending{}, done{}, success{};
     std::string held;
@@ -1287,6 +1358,7 @@ int main(int argc, char** argv) {
         installation_budget();
         sanitized_diagnostics();
         named_key_repeats();
+        paragraph_breaks();
         app_commit();
         handoff_status();
         resident_visibility();

@@ -44,11 +44,15 @@ function editingFixture(manager) {
         }}; }};
     return {doc, events, text: element => fields.get(element).text,
         onInput(element, fn) { fields.get(element).onInput = fn; },
-        field(validPredicate = true, focusEvent = true) {
-            const e = {ownerDocument: doc, isConnected: true, tagName: "INPUT", type: "search",
+        field(validPredicate = true, focusEvent = true, tagName = "INPUT") {
+            const e = {ownerDocument: doc, isConnected: true, tagName, type: tagName === "INPUT" ? "search" : "textarea",
                 disabled: false, readOnly: false, selectionStart: 0, selectionEnd: 0, tabIndex: 0,
                 getClientRects: () => [{}],
-                dispatchEvent(event) { events.push(event.type + ":" + event.key); return !event.defaultPrevented; },
+                dispatchEvent(event) {
+                    events.push(event.type + ":" + (event.shiftKey ? "Shift+" : "") + event.key);
+                    e.onKeyDown?.(event); return !event.defaultPrevented;
+                },
+                form: {requestSubmit() { events.push("submit"); }},
                 focus() {
                     doc.activeElement = e;
                     const event = {target: e, eventPhase: 1};
@@ -504,6 +508,42 @@ for (const production of [false, true]) for (const automatic of [false, true]) {
         "literal Enter text does not invoke a Steam action");
     assert(f.bridge.send(generation, "Enter", true) && !f.step(generation).open,
         "real Enter preserves the owning field's action and dismissal");
+    f.bridge.dispose();
+}
+// Steam's friends chat submits on a plain Enter keydown and leaves Shift+Enter
+// to the textarea, which inserts a line break.
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true), chat = f.dom.field(true, true, "TEXTAREA");
+    chat.onKeyDown = event => {
+        if (event.type === "keydown" && event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault(); f.dom.events.push("chat-send");
+        }
+    };
+    let generation = domOwned(f);
+    assert(f.step(generation).multiline, "a retained textarea reports multiline");
+    assert(f.bridge.send(generation, "one") && f.bridge.send(generation, "ShiftEnter", true) &&
+        f.bridge.send(generation, "two"));
+    assert.equal(f.dom.text(chat), "one\ntwo", "Shift+Enter inserts one line break");
+    assert(f.dom.events.includes("keydown:Shift+Enter") && !f.dom.events.includes("chat-send"),
+        "the page sees a shifted Enter and does not submit");
+    assert(f.bridge.send(generation, "ShiftEnter") && f.dom.text(chat) === "one\ntwoShiftEnter",
+        "text spelling the control name remains ordinary text");
+    assert(f.bridge.send(generation, "Enter", true) && f.dom.events.includes("chat-send") &&
+        f.dom.text(chat) === "one\ntwoShiftEnter", "a plain Enter still submits");
+    const input = f.dom.field(), changed = f.step(generation);
+    generation = changed.request;
+    assert(f.step(generation).active && !f.step(generation).multiline, "a single-line field is not multiline");
+    const events = f.dom.events.length;
+    assert(!f.bridge.send(generation, "ShiftEnter", true) && f.dom.text(input) === "" &&
+        f.dom.events.length === events, "a single-line field never receives or submits a paragraph break");
+    f.bridge.dispose();
+}
+{
+    const f = fixture();
+    const generation = owned(f), calls = f.calls.length;
+    assert(!f.step(generation).multiline, "a callback route is never multiline");
+    assert(!f.bridge.send(generation, "ShiftEnter", true) && f.calls.length === calls && f.deliveries.length === 0,
+        "a callback route never receives a paragraph break");
     f.bridge.dispose();
 }
 for (const production of [false, true]) {

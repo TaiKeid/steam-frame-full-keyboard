@@ -386,7 +386,8 @@ void NativeReplacement::poll(double now) {
                       json_object_get_boolean(field("eligible")) != 0,
                       json_object_get_boolean(field("active")) != 0,
                       true,
-                      json_object_get_boolean(field("local")) != 0};
+                      json_object_get_boolean(field("local")) != 0,
+                      json_object_get_boolean(field("multiline")) != 0};
             last_reply_ = now;
             install_until_ = 0;
             failure_ = Failure::None;
@@ -529,6 +530,10 @@ void NativeReplacement::dismiss_request() {
 bool NativeReplacement::take_unsupported_control() {
     return std::exchange(unsupported_control_, false);
 }
+bool NativeReplacement::paragraph_shift(int code) const {
+    return remote_ && state_.active && state_.multiline &&
+           (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT);
+}
 void NativeReplacement::send(int code, int value) {
     const auto held = remote_keys_.find(code);
     if (value == 0 && held != remote_keys_.end()) {
@@ -546,11 +551,10 @@ void NativeReplacement::send(int code, int value) {
     }
     if (value == 2 && held != remote_keys_.end()) {
         auto& key = held->second;
-        if (remote_ && state_.active && state_.request == key.request && modifiers_.empty() &&
-            !key.pending) {
-            if (packet("{\"op\":\"key\",\"request\":" + std::to_string(key.request) +
-                       ",\"id\":" + std::to_string(key.id) +
-                       ",\"value\":2,\"text\":" + encoded(named_key(code)) + "}")) {
+        if (remote_ && state_.active && state_.request == key.request &&
+            (modifiers_.empty() || key.text == "ShiftEnter") && !key.pending) {
+            if (packet("{\"op\":\"key\",\"request\":" + std::to_string(key.request) + ",\"id\":" +
+                       std::to_string(key.id) + ",\"value\":2,\"text\":" + encoded(key.text) + "}")) {
                 key.pending = true;
             } else {
                 force_fallback_ = reset_ = true;
@@ -576,8 +580,17 @@ void NativeReplacement::send(int code, int value) {
             modifiers_.insert(code);
         }
     }
-    const auto key = named_key(code);
-    if (remote_ && !key.empty() && modifiers_.empty()) {
+    if (value == 1 && paragraph_shift(code)) {
+        return; // Sends nothing; only a following Enter uses it.
+    }
+    auto key = named_key(code);
+    if (!modifiers_.empty()) {
+        // Any other modified control stays unsupported in Steam fields.
+        const bool shifted = std::all_of(modifiers_.begin(), modifiers_.end(),
+                                         [this](int held) { return paragraph_shift(held); });
+        key = key == "Enter" && shifted ? "ShiftEnter" : "";
+    }
+    if (remote_ && !key.empty()) {
         if (value != 1 || held != remote_keys_.end()) {
             return;
         }
@@ -588,7 +601,7 @@ void NativeReplacement::send(int code, int value) {
             force_fallback_ = reset_ = true;
             return;
         }
-        remote_keys_.emplace(code, RemoteKey{id, state_.request, true});
+        remote_keys_.emplace(code, RemoteKey{id, state_.request, true, key});
         return;
     }
     if (remote_) {
@@ -626,6 +639,9 @@ Delivery NativeReplacement::deliver_key(int code, int value) {
         return ok ? Delivery::Success : Delivery::Failure;
     }
     send(code, value);
+    if (value == 1 && paragraph_shift(code)) {
+        return Delivery::Success;
+    }
     const auto held = remote_keys_.find(code);
     if (held == remote_keys_.end()) {
         return Delivery::Failure;

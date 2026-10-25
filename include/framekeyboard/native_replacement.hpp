@@ -22,6 +22,8 @@ class NativeReplacement : public KeySink {
     struct State {
         std::uint64_t request{};
         bool open{}, eligible{}, active{}, available{}, local{};
+        // The retained Steam field holds line breaks, so Shift+Enter is a paragraph break.
+        bool multiline{};
     };
     void poll(double now);
     // Between hidden frames, wake the idle sleep when session metadata changes.
@@ -118,7 +120,10 @@ class NativeReplacement : public KeySink {
     struct RemoteKey {
         std::uint64_t id, request;
         bool pending;
+        std::string text; // Named control sent at press; repeats send the same one.
     };
+    // Shift in a multiline Steam field is held only to make Enter a paragraph break.
+    bool paragraph_shift(int code) const;
     std::map<int, RemoteKey> remote_keys_;
     std::set<int> modifiers_, local_keys_;
 };

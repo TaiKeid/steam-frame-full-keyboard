@@ -127,6 +127,8 @@
         return !m.m_currentVirtualKeyboardRef && !m.m_ActiveElementProps ? {kind: "dashboard"} : null;
     }
     const routeReady = owner => !!routeFor(owner);
+    // Only a retained textarea can hold a line break; a changed element is a new request.
+    const multiline = session => session?.route?.kind === "dom" && session.route.element?.tagName === "TEXTAREA";
     function sendDom(session, text, key) {
         const d = session.owner.document, element = session.route.element;
         if (!key) {
@@ -135,10 +137,15 @@
             return !element || d.execCommand("insertText", false, text) === true;
         }
         if (text === "VKClose") { releaseLogical(false); return true; }
+        // Shift+Enter is a paragraph break. The page sees a shifted Enter, as
+        // chat entries that submit only on a plain Enter expect.
+        const shift = text === "ShiftEnter";
+        if (shift && !multiline(session)) return false;
+        if (shift) text = "Enter";
         const codes = {Backspace: 8, Enter: 13, Tab: 9, ArrowLeft: 37, ArrowUp: 38,
             ArrowRight: 39, ArrowDown: 40};
         if (!(text in codes)) return false;
-        if (element && text === "Enter" && session.props?.onEnterKeyPress != null) {
+        if (element && text === "Enter" && !shift && session.props?.onEnterKeyPress != null) {
             const enter = session.props.onEnterKeyPress;
             const action = typeof enter === "function" ? enter.call(session.props) : enter;
             if (!action) return true;
@@ -147,7 +154,7 @@
         }
         const target = element || d.activeElement || d.body;
         const event = type => new d.defaultView.KeyboardEvent(type,
-            {key: text, code: text, keyCode: codes[text], which: codes[text],
+            {key: text, code: text, keyCode: codes[text], which: codes[text], shiftKey: shift,
                 bubbles: true, cancelable: true});
         const accepted = target.dispatchEvent(event("keydown"));
         try {
@@ -166,7 +173,7 @@
                         text === "ArrowLeft" || text === "ArrowRight" ? "character" : "line");
                 } else if (text === "Enter") {
                     if (element.tagName === "TEXTAREA") d.execCommand("insertText", false, "\n");
-                    else element.form?.requestSubmit?.();
+                    else if (!shift) element.form?.requestSubmit?.();
                 }
             }
             return true;
@@ -476,7 +483,7 @@
         const eligible = !!logical && !closingNative && !ignoreOpen;
         return {version: VERSION, request, open: !!logical || !!native.open || !!handoff, eligible, idle: idle(),
             active: eligible && acknowledged === request && fresh(),
-            local: !!logical?.owner.external,
+            local: !!logical?.owner.external, multiline: multiline(logical),
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: handoff && !native.open && externalSupported &&
                 LOCAL_KEY.test(handoff.key) ?
@@ -632,10 +639,11 @@
             inspect();
             if (!snapshot().active || generation !== request || typeof text !== "string" ||
                 text.length > 8192 || typeof key !== "boolean" || key &&
-                !["Backspace", "Enter", "Tab", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "VKClose"].includes(text))
+                !["Backspace", "Enter", "ShiftEnter", "Tab", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+                    "VKClose"].includes(text))
                 return false;
             const session = logical, manager = session.owner.manager;
-            if (session.owner.external) return false;
+            if (session.owner.external || key && text === "ShiftEnter" && !multiline(session)) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
             if (session.route?.kind !== "callback") {
                 const ok = sendDom(session, text, key);

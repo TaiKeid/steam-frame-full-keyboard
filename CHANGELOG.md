@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Shift+Enter now starts a new line in Steam's friends chat and other multi-line Steam text boxes when Full Keyboard replaces Steam's keyboard; Enter still sends. It used to show "Control unavailable in Steam fields". Other shortcuts in Steam fields remain unavailable.
+
 ## 0.10.0: Emoji picker and corner resizing
 
 - Added an emoji picker. The new smiley key at the top of the left column replaces the keys with a scrollable grid of emoji, with a category row above it, a space bar, and Backspace, Enter and the arrows at the right; its arrow key returns. Release the trigger on an emoji to type it; drag or use the thumbstick to scroll. A quick laser drag keeps gliding after release and bounces back from the ends; pressing the grid stops it. Emoji give no haptic clicks, so sweeping the laser across them stays quiet. Recent emoji come first, in a fixed six-column area with a Clear button: an emoji chosen elsewhere moves to the front at once, while choosing from Recent leaves its order alone. Hold an emoji with skin tones to choose one; the choice applies to every emoji after it. With the numpad hidden, the picker stays narrow. Only emoji the headset's emoji font can draw are listed. The picker needs Unicode text input, so it is unavailable with the uinput backend and external JIS. General → **Close emoji picker after choosing** returns to the keys after each emoji.
