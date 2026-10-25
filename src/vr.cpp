@@ -785,9 +785,18 @@ class CornerResizers {
     std::array<vr::VROverlayHandle_t, 2> handles() const {
         return {corners_[0].handle, corners_[1].handle};
     }
+    // A hidden overlay receives no laser events: after one final drain its
+    // queue is left alone, saving an IPC call per frame, also while idle.
     bool poll(std::size_t side, vr::VREvent_t& event) {
-        const auto handle = corners_[side].handle;
-        return handle && vr_overlay()->PollNextOverlayEvent(handle, &event, sizeof(event));
+        auto& corner = corners_[side];
+        if (!corner.handle || (!corner.visible && !corner.drain)) {
+            return false;
+        }
+        if (vr_overlay()->PollNextOverlayEvent(corner.handle, &event, sizeof(event))) {
+            return true;
+        }
+        corner.drain = corner.visible;
+        return false;
     }
     // As for the keyboard, passthrough takes no SteamVR laser input.
     void set_scene_input(bool scene) {
@@ -861,7 +870,7 @@ class CornerResizers {
   private:
     struct Corner {
         vr::VROverlayHandle_t handle{};
-        bool visible{};
+        bool visible{}, drain{};
         double shown_alpha{-1};
         Transform placed{};
         // The radius the current image was drawn for; none before the first draw.
@@ -872,6 +881,7 @@ class CornerResizers {
         if (corner.visible) {
             vr_overlay()->HideOverlay(corner.handle);
             corner.visible = false;
+            corner.drain = true;
         }
     }
     void create(std::size_t side) {
