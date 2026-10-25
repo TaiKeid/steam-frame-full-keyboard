@@ -639,6 +639,17 @@ class LaserRays {
     void begin_frame(double now) {
         now_ = now;
         posed_ = false;
+        shared_ = {};
+    }
+    // A ray the passthrough pointer already computed this frame, from the
+    // same tip component; reading it needs no second pose query.
+    void share(vr::TrackedDeviceIndex_t device, const Ray& ray) {
+        for (auto& slot : shared_) {
+            if (!slot) {
+                slot = std::pair{device, ray};
+                return;
+            }
+        }
     }
     // Device classes, roles and laser tips change only with these device
     // events; until then they are read once instead of every frame.
@@ -665,6 +676,11 @@ class LaserRays {
     std::optional<Ray> read(vr::TrackedDeviceIndex_t device) {
         if (device >= vr::k_unMaxTrackedDeviceCount) {
             return {};
+        }
+        for (const auto& slot : shared_) {
+            if (slot && slot->first == device) {
+                return slot->second;
+            }
         }
         auto& info = devices_[device];
         if (!info || (!info->complete && now_ >= info->retry)) {
@@ -728,6 +744,7 @@ class LaserRays {
     std::array<std::optional<Device>, vr::k_unMaxTrackedDeviceCount> devices_{};
     std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> poses_{};
     std::optional<std::array<vr::TrackedDeviceIndex_t, 2>> hands_;
+    std::array<std::optional<std::pair<vr::TrackedDeviceIndex_t, Ray>>, 2> shared_{};
     double now_{};
     bool posed_{};
 };
@@ -1624,6 +1641,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             };
             const auto samples =
                 scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
+            for (const auto& sample : samples) {
+                if (sample.ray && !sample.lost) {
+                    laser_rays.share(sample.device, *sample.ray);
+                }
+            }
             // A shown resizer, in front of the keyboard, takes the ray first, as
             // its overlay does SteamVR's laser in the dashboard. Its bend can
             // lie inside the case's sharp corner, outside the rounded case.
