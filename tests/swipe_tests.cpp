@@ -612,6 +612,72 @@ void leave_while_decoding() {
     require(sink.text.back() == "hello" && has_control(app.view(), "swipe-candidate-0"),
             "the next swipe types without an inherited space and offers alternatives");
 }
+// Suggestions start after the first toolbar row and end before Close, with
+// the numpad shown or hidden and with or without the language button.
+void suggestions_clear_the_toolbar() {
+    for (const bool hide_numpad : {false, true}) {
+        for (const bool favorite : {false, true}) {
+            TemporaryDirectory directory;
+            fs::create_directories(directory.path / "swipe/lexicons");
+            std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+            Settings settings;
+            settings.swipe_typing = true;
+            settings.hide_numpad = hide_numpad;
+            if (favorite) {
+                settings.favorites.push_back({"us", "US", {}});
+            }
+            save_settings(directory.path, settings);
+            auto path = std::make_shared<std::vector<int>>(
+                path_of(keyboard_for("en-us-full", "en-us"), U"helo"));
+            Options options;
+            options.config_dir = directory.path;
+            options.mode = Mode::Vr;
+            options.input = InputBackend::Ei;
+            options.start_enabled = true;
+            options.swipe_encoder = [path] {
+                auto encoder = std::make_unique<FakeEncoder>();
+                encoder->path = path;
+                encoder->calls = std::make_shared<int>(0);
+                return encoder;
+            };
+            TextSink sink;
+            App app(options, sink);
+            settle(app, [&] { return app.swipe_ready(); });
+            swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 1);
+            settle(app, [&] { return has_control(app.view(), "swipe-candidate-1"); });
+            const auto view = app.view();
+            const auto close = control(view, "close").bounds;
+            double toolbar_end = 0;
+            for (const auto& c : view.controls) {
+                if (c.action.kind != ControlKind::SwipeCandidate && c.id != "close" &&
+                    c.bounds.y == 12) {
+                    toolbar_end = std::max(toolbar_end, c.bounds.x + c.bounds.width);
+                }
+            }
+            require(
+                !favorite || toolbar_end ==
+                                 [&] {
+                                     const auto language = control(view, "language-cycle").bounds;
+                                     return language.x + language.width;
+                                 }(),
+                "the language button ends the first row");
+            for (const auto& c : view.controls) {
+                if (c.action.kind == ControlKind::SwipeCandidate) {
+                    require(c.bounds.x > toolbar_end && c.bounds.x + c.bounds.width < close.x &&
+                                c.bounds.width > 100,
+                            "suggestions sit between the toolbar and Close, readable");
+                }
+            }
+            // With the numpad hidden, zoom and passthrough move to a second row.
+            const auto smaller = control(view, "size-smaller").bounds;
+            const auto passthrough = control(view, "passthrough").bounds;
+            require((smaller.y > 12 && passthrough.y == smaller.y) == hide_numpad,
+                    "a compact toolbar stacks zoom and passthrough under Settings");
+            require(!hide_numpad || smaller.x == control(view, "settings").bounds.x,
+                    "the second row starts under Settings");
+        }
+    }
+}
 // After a failed replacement the field may still hold the old word, so the
 // alternatives must go: replacing by the assumed word's length could delete
 // text before it ("Xhelo" minus five characters).
@@ -978,6 +1044,7 @@ int main(int argc, char** argv) {
         disabled_by_default();
         service_reuse();
         leave_while_decoding();
+        suggestions_clear_the_toolbar();
         long_gestures();
         failed_replacement();
         failure_found_by_click(true, 0);

@@ -126,6 +126,10 @@ bool hidden_key(const PanelView& view, const Key& key);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
 Rect panel_case_bounds(const PanelView& view);
+// A case narrower than the panel (numpad hidden, flick layout) cannot fit the
+// main toolbar and swipe suggestions in one row; the zoom and passthrough
+// buttons then form a second row under Settings.
+bool compact_toolbar(const PanelView& view);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 // Panel area of the flick preview, which may extend past the case.

@@ -465,6 +465,9 @@ Rect panel_case_bounds(const PanelView& view) {
                               (slack > 1 ? slack : 0));
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
+bool compact_toolbar(const PanelView& view) {
+    return !view.settings && panel_case_bounds(view).width < panel_width - 1;
+}
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -918,8 +921,11 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
         if (!view.status.empty()) {
+            // A compact toolbar's second row takes the left of the status line.
+            const double inset = compact_toolbar(view) ? 228 : 18;
             label(cr, view.status,
-                  view.settings ? Rect{30, 574, 1540, 24} : Rect{body.x + 18, 60, body.width - 36, 28},
+                  view.settings ? Rect{30, 574, 1540, 24}
+                                : Rect{body.x + inset, 60, body.width - inset - 18, 28},
                   17, view.language->font, t.legend);
         }
         // Popup is the last layer and deliberately bypasses both card and case clips.

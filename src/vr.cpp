@@ -1204,6 +1204,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             };
             const auto samples =
                 scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
+            // Where each ray meets the panel's accepted areas, if it does.
+            std::array<std::optional<std::pair<double, double>>, 2> inside{};
+            for (std::size_t hand = 0; hand < samples.size(); ++hand) {
+                if (const auto& hit = samples[hand].hit) {
+                    const double x = hit->u * panel_width;
+                    const double y = hit->v * texture_height - popup_margin;
+                    if (accepts(x, y)) {
+                        inside[hand] = std::pair{x, y};
+                    }
+                }
+            }
+            // A trigger pulled outside the panel may click another field or cursor
+            // position in the app, even with a hand that never pointed at the
+            // keyboard. Treat it as the laser leaving, before any key from this
+            // batch, so swipe suggestions can no longer replace text there.
+            for (std::size_t hand = 0; hand < samples.size(); ++hand) {
+                if (!samples[hand].lost && samples[hand].pressed && !inside[hand]) {
+                    app.cancel_pointer(ScenePointer::pointer(hand));
+                }
+            }
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
                 const auto& sample = samples[hand];
                 const auto pointer = ScenePointer::pointer(hand);
@@ -1219,14 +1239,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     pointer_devices.erase(pointer);
                     continue;
                 }
-                std::optional<std::pair<double, double>> at;
-                if (sample.hit) {
-                    const double x = sample.hit->u * panel_width;
-                    const double y = sample.hit->v * texture_height - popup_margin;
-                    if (accepts(x, y)) {
-                        at = std::pair{x, y};
-                        scene_last[hand] = *at;
-                    }
+                const auto& at = inside[hand];
+                if (at) {
+                    scene_last[hand] = *at;
                 }
                 if (at || drag.owns_pointer(sample.device, pointer)) {
                     pointer_devices[pointer] = sample.device;
@@ -1250,6 +1265,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 if (sample.released) {
                     pointer_up(pointer, sample.device, scene_last[hand].first, scene_last[hand].second);
+                }
+                if (!app.passthrough()) {
+                    // Turned off by this hand: the panel closes below, and the
+                    // other hand's press in this batch must not type first.
+                    break;
                 }
             }
             dismiss_panel();

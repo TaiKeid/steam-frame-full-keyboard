@@ -246,28 +246,40 @@ std::vector<Control> App::controls() const {
         append_move_handle();
         return result;
     }
+    // One row: Settings, Recenter, zoom, Pin, passthrough, language. Compact:
+    // Settings, Recenter, Pin, language, with zoom and passthrough below.
+    const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
-    add({ControlKind::Settings}, {"settings", "Settings", {x, 12, 60, 42}, false, Icon::Settings});
-    add({ControlKind::Recenter}, {"recenter", "Recenter", {x + 70, 12, 60, 42}, false, Icon::Recenter});
+    auto slot = [&](int row_one, int compact_column, int compact_row) {
+        return compact ? std::pair{x + compact_column * 70.0, 12.0 + compact_row * 50}
+                       : std::pair{x + row_one * 70.0, 12.0};
+    };
+    auto button = [&](int row_one, int compact_column, int compact_row, double width = 60) {
+        const auto [left, top] = slot(row_one, compact_column, compact_row);
+        return Rect{left, top, width, 42};
+    };
+    add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
+    add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
     add({ControlKind::Smaller},
-        {"size-smaller", "Smaller keyboard", {x + 140, 12, 60, 42}, false, Icon::ScaleDown});
+        {"size-smaller", "Smaller keyboard", button(2, 0, 1), false, Icon::ScaleDown});
     add({ControlKind::Larger},
-        {"size-larger", "Larger keyboard", {x + 210, 12, 60, 42}, false, Icon::ScaleUp});
-    add({ControlKind::Pin}, {"pin",
-                             settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
-                             {x + 280, 12, 60, 42},
-                             false,
-                             settings_.pinned ? Icon::PinOn : Icon::PinOff});
-    add({ControlKind::Passthrough}, {"passthrough",
-                                     passthrough_ ? "Close with the dashboard" : "Stay open over apps",
-                                     {x + 350, 12, 60, 42},
-                                     passthrough_,
-                                     passthrough_ ? Icon::PassthroughOn : Icon::PassthroughOff});
+        {"size-larger", "Larger keyboard", button(3, 1, 1), false, Icon::ScaleUp});
+    add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
+                             button(4, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
+    add({ControlKind::Passthrough},
+        {"passthrough", passthrough_ ? "Close with the dashboard" : "Stay open over apps",
+         button(5, 2, 1), passthrough_, passthrough_ ? Icon::PassthroughOn : Icon::PassthroughOff});
     if (!settings_.favorites.empty()) {
         add({ControlKind::LanguageCycle},
-            {"language-cycle",
-             language_short_name(profiles_.languages.at(settings_.active.language)),
-             {x + 420, 12, 100, 42}});
+            {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
+             button(6, 3, 0, 100)});
+    }
+    // Where the first row's fixed buttons end; suggestions start after it.
+    double toolbar_end = x;
+    for (const auto& control : result) {
+        if (control.bounds.y == 12) {
+            toolbar_end = std::max(toolbar_end, control.bounds.x + control.bounds.width);
+        }
     }
     add({ControlKind::Close}, {"close",
                                resident_replacement() ? "Hide keyboard" : "Close",
@@ -329,18 +341,27 @@ std::vector<Control> App::controls() const {
             }
         }
     }
-    for (std::size_t i = 0; i < swipe_candidates_.size(); ++i) {
-        add({ControlKind::SwipeCandidate, static_cast<int>(i)},
-            {"swipe-candidate-" + std::to_string(i),
-             swipe_candidates_[i],
-             {610.0 + static_cast<double>(i) * 180, 12, 170, 42},
-             static_cast<int>(i) == swipe_selected_});
-    }
     // Composition controls use the available case width; the main toolbar keeps
-    // its button sizes and order when the numpad is hidden.
+    // its button sizes when the numpad is hidden.
+    const double scale = body.width / panel_width;
     for (std::size_t i = ime_start; i < result.size(); ++i) {
-        result[i].bounds.x = body.x + result[i].bounds.x * body.width / panel_width;
-        result[i].bounds.width *= body.width / panel_width;
+        result[i].bounds.x = body.x + result[i].bounds.x * scale;
+        result[i].bounds.width *= scale;
+    }
+    // Swipe suggestions scale the same way, but never start before the end of
+    // the first toolbar row or reach the close button; many share the room.
+    if (!swipe_candidates_.empty()) {
+        const double start = std::max(body.x + 610 * scale, toolbar_end + 10);
+        const double end = body.x + body.width - 78 - 10;
+        const double pitch = std::min(180 * scale, (end - start + 10 * scale) /
+                                                       static_cast<double>(swipe_candidates_.size()));
+        for (std::size_t i = 0; i < swipe_candidates_.size(); ++i) {
+            add({ControlKind::SwipeCandidate, static_cast<int>(i)},
+                {"swipe-candidate-" + std::to_string(i),
+                 swipe_candidates_[i],
+                 {start + static_cast<double>(i) * pitch, 12, pitch - 10 * scale, 42},
+                 static_cast<int>(i) == swipe_selected_});
+        }
     }
     append_move_handle();
     return result;
