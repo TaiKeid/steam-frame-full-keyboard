@@ -255,19 +255,28 @@ void picker_tests() {
         require(picker.up(1, x, y).type == "s39", "and types once on release");
     }
 
-    // Recent: column order, Clear at the bottom of its last column.
-    for (const std::size_t count : {std::size_t{17}, std::size_t{20}}) {
+    // Recent: reserved width, column order, Clear in its bottom-right cell.
+    picker.set_content(sections(catalog), 0, false);
+    picker.reset();
+    const auto empty_start = cell(picker.view(), "s0")->bounds;
+    for (const std::size_t count : {std::size_t{1}, std::size_t{17}, std::size_t{29}, std::size_t{40}}) {
         picker.set_content(sections(catalog, count), 0, false);
         picker.reset();
         view = picker.view();
         const auto clear =
             std::find_if(view.cells.begin(), view.cells.end(), [](const auto& c) { return c.clear; });
         require(clear != view.cells.end(), "Recent has Clear");
+        require(std::next(clear) != view.cells.end() && std::next(clear)->bounds == empty_start,
+                "Recent keeps its width however full it is");
         const double cell_size = view.cells.front().bounds.width;
         const int column = static_cast<int>(std::lround((clear->bounds.x - grid.x) / cell_size));
         require(clear->bounds.y + clear->bounds.height == grid.y + grid.height,
                 "Clear sits on the bottom row");
-        require(column == (count == 17 ? 3 : 4), "Clear ends Recent's last column, or starts its own");
+        require(column == EmojiPicker::recent_columns - 1, "Clear sits in Recent's last column");
+        const auto shown =
+            std::count_if(view.cells.begin(), clear, [](const auto& c) { return !c.clear; });
+        require(static_cast<std::size_t>(shown) == std::min(count, picker.recent_capacity()),
+                "Recent shows what fits beside Clear");
         std::tie(x, y) = center(clear->bounds);
         picker.down(1, x, y, 0);
         require(picker.up(1, x, y).clear, "Clear empties Recent");
@@ -344,6 +353,24 @@ void app_tests() {
     app.up(0, x, y);
     require((sink.text == std::vector<std::string>{"😀"}), "the emoji types once on release, whole");
     require(app.emoji_open(), "the picker stays open");
+    view = app.view();
+    require(view.emoji->cells.front().text == "😀" && view.emoji->cells[1].clear,
+            "an emoji from a category appears in Recent at once");
+    // Another one goes first; choosing from Recent keeps its order.
+    const auto* second = cell(*view.emoji, "😃");
+    std::tie(x, y) = center(second->bounds);
+    app.down(0, x, y, 2);
+    app.up(0, x, y);
+    view = app.view();
+    require(view.emoji->cells[0].text == "😃" && view.emoji->cells[1].text == "😀",
+            "the newest emoji from a category goes first");
+    std::tie(x, y) = center(view.emoji->cells[1].bounds);
+    app.down(0, x, y, 2);
+    app.up(0, x, y);
+    view = app.view();
+    require(sink.text.back() == "😀" && view.emoji->cells[0].text == "😃" &&
+                view.emoji->cells[1].text == "😀",
+            "choosing from Recent does not reorder it");
     require(sink.events.empty(), "no key events reach the target");
     // Space types through the usual path.
     const auto [space_x, space_y] = key_center(app, "Space");
@@ -352,14 +379,15 @@ void app_tests() {
     require(sink.text.back() == " ", "the picker's space bar types");
     toggle();
     require(!app.emoji_open(), "Back returns to the keyboard");
-    require(load_emoji_preferences(directory.path / "emoji.json").recent ==
-                std::vector<std::string>{"😀"},
+    require((load_emoji_preferences(directory.path / "emoji.json").recent ==
+             std::vector<std::string>{"😃", "😀"}),
             "recent emoji are saved on closing");
     toggle();
     wait_for_emoji(app);
     view = app.view();
-    require(view.emoji->cells.front().text == "😀" && view.emoji->cells[1].clear,
-            "Recent shows what was typed, then Clear");
+    require(view.emoji->cells[0].text == "😃" && view.emoji->cells[1].text == "😀" &&
+                view.emoji->cells[2].clear,
+            "Recent reopens as it was, then Clear");
     app.set_interaction_active(false);
     require(!app.emoji_open(), "hiding returns to the keyboard");
     app.set_interaction_active(true);

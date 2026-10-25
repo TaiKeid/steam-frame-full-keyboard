@@ -109,10 +109,12 @@ class EmojiPicker {
         bool redraw{}, haptic{}, clear{};
         std::string type;          // Text to type.
         const EmojiEntry* typed{}; // Its entry, for the recent list.
+        bool recent{};             // Chosen in Recent, which then keeps its order.
         std::optional<int> tone;   // A newly chosen skin tone.
     };
     void set_geometry(Rect tabs, Rect grid);
-    // Sections in tab order; Recent first, which shows Clear when not empty.
+    // Sections in tab order; Recent first, which always takes six columns and
+    // shows Clear in its bottom-right cell when not empty.
     // Loading shows only a hint until the emoji font has been checked.
     void set_content(std::array<std::vector<const EmojiEntry*>, emoji_group_count> sections, int tone,
                      bool loading);
@@ -141,7 +143,8 @@ class EmojiPicker {
     // Where in the strip the view starts, for requesting glyphs only on change.
     int first_column() const;
     // Recent holds six columns, less the cell for Clear.
-    std::size_t recent_capacity() const { return static_cast<std::size_t>(6 * rows_ - 1); }
+    static constexpr int recent_columns = 6;
+    std::size_t recent_capacity() const { return static_cast<std::size_t>(recent_columns * rows_ - 1); }
     int glyph_size() const;
     double scroll_offset() const { return scroll_; }
     double scroll_limit() const;

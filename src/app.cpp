@@ -2298,7 +2298,6 @@ void App::open_emoji() {
     const auto picker = geometry();
     emoji_.set_geometry(panel_rect(picker, emoji_layout_.tabs), panel_rect(picker, emoji_layout_.grid));
     emoji_.reset();
-    emoji_recent_ = emoji_preferences_.recent;
     if (!emoji_glyphs_) {
         emoji_glyphs_ = std::make_unique<EmojiGlyphs>();
         std::vector<std::string> texts;
@@ -2328,7 +2327,7 @@ void App::update_emoji_content() {
         for (const auto& entry : emoji_catalog_.entries) {
             sections[static_cast<std::size_t>(entry.group)].push_back(&entry);
         }
-        for (const auto& base : emoji_recent_) {
+        for (const auto& base : emoji_preferences_.recent) {
             if (sections[0].size() >= emoji_.recent_capacity()) {
                 break;
             }
@@ -2399,12 +2398,16 @@ void App::apply_emoji_event(const EmojiPicker::Event& event) {
     }
     if (event.clear) {
         emoji_preferences_.recent.clear();
-        emoji_recent_.clear();
         update_emoji_content();
         save_emoji();
     }
     if (!event.type.empty() && type_emoji(event.type)) {
-        remember_emoji(emoji_preferences_, event.typed->base);
+        // Recent shows it at once; choosing from Recent itself keeps its order,
+        // so nothing moves under the laser there.
+        if (!event.recent) {
+            remember_emoji(emoji_preferences_, event.typed->base);
+            update_emoji_content();
+        }
         if (settings_.emoji_close_on_select) {
             close_emoji();
         }

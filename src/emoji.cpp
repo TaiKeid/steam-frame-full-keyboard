@@ -273,19 +273,18 @@ void EmojiPicker::layout_items() {
         section.start = x;
         section.first_column = column;
         section.first_item = items_.size();
-        for (std::size_t i = 0; i < list.size(); ++i) {
+        const auto count = recent ? std::min(list.size(), recent_capacity()) : list.size();
+        for (std::size_t i = 0; i < count; ++i) {
             items_.push_back(
                 {list[i], g, column + static_cast<int>(i) / rows_, static_cast<int>(i) % rows_});
         }
-        if (recent && !list.empty()) {
-            // Clear takes the bottom cell of the last column, or starts a new one.
-            const auto n = static_cast<int>(list.size());
-            items_.push_back(
-                {nullptr, g, column + (n % rows_ == 0 ? n / rows_ : (n - 1) / rows_), rows_ - 1});
+        if (recent && count) {
+            // Clear takes the bottom-right cell, after the last one Recent can fill.
+            items_.push_back({nullptr, g, column + recent_columns - 1, rows_ - 1});
         }
         section.items = items_.size() - section.first_item;
-        // An empty Recent leaves room for its hint.
-        section.columns = section.items ? items_.back().column - column + 1 : 4;
+        // Recent keeps its full width, so nothing after it moves as it fills.
+        section.columns = recent ? recent_columns : items_.back().column - column + 1;
         x += section.columns * cell_ + gap;
         column += section.columns;
     }
@@ -490,6 +489,7 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y) {
     event.redraw = true;
     if (press.popup) {
         const auto& item = items_[press.hit.index];
+        event.recent = item.group == 0;
         if (press.choice) {
             const auto tone = static_cast<int>(*press.choice);
             event.type = item.entry->text(tone);
@@ -500,6 +500,7 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y) {
     } else if (!press.dragging && target == press.hit) {
         if (target.target == Target::Cell) {
             const auto& item = items_[target.index];
+            event.recent = item.group == 0;
             if (item.entry) {
                 event.type = text(item);
                 event.typed = item.entry;

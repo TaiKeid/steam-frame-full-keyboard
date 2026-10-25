@@ -305,8 +305,6 @@ class App {
     EmojiCatalog emoji_catalog_; // Only what the font draws; set once checked.
     bool emoji_checked_{}, emoji_font_{true};
     EmojiPreferences emoji_preferences_, emoji_saved_;
-    // Recent emoji as shown since the picker opened; newly typed ones move up next time.
-    std::vector<std::string> emoji_recent_;
     std::uint64_t emoji_content_{};
     std::tuple<int, int, std::uint64_t, int, bool> emoji_requested_{};
 };

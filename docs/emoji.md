@@ -53,7 +53,7 @@ Releasing over a variant types it and makes that tone the keyboard-wide choice. 
 
 ### Recent
 
-- **Contents:** up to six columns of emoji, less one cell for Clear (29 with five rows; *proposal*), stored without a tone so the global tone applies.
+- **Space:** Recent always takes six columns, full or empty, so the categories after it never move as it fills. It holds up to 29 emoji with five rows, stored without a tone so the global tone applies.
 - **Layout:** most recent first, filled down each column and then across, like the rest of the grid. With five rows and 17 emoji:
 
   ```txt
@@ -61,11 +61,11 @@ Releasing over a variant types it and makes that tone the keyboard-wide choice. 
   2 7  12 17
   3 8  13
   4 9  14
-  5 10 15  ×
+  5 10 15          ×
   ```
 
-- **Clear:** a clear icon button takes the bottom cell of Recent's last column, inside the scrolling grid. When that column is full, Clear starts a new column of its own. It is not shown at all while Recent is empty. Pressing it empties Recent at once, with no confirmation (*proposal*); the empty Recent section then shows only a short hint (*proposal*).
-- **Order:** a typed emoji moves to the front only the next time the picker opens, so cells never shift under the laser.
+- **Clear:** a clear icon button in the bottom-right cell of Recent's six columns, inside the scrolling grid. It is not shown at all while Recent is empty. Pressing it empties Recent at once, with no confirmation (*proposal*). An empty Recent shows "Recently used emoji / appear here" in its place.
+- **Order:** an emoji chosen from another category appears at the front of Recent at once. One chosen from Recent itself keeps its place, so Recent never shifts under the laser while you use it.
 - **Storage:** `emoji.json` beside `placement.json`, not in `config.json`, holding the recent emoji and the skin tone. It is written when the picker closes or Recent is cleared. It is a record of typed content, so it is never logged.
 
 ### Entering and leaving
