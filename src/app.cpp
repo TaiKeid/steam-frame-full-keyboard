@@ -569,6 +569,17 @@ PanelView App::build_view(bool picker) const {
         if (picker) {
             v.emoji = emoji_.view();
             v.emoji_glyphs = emoji_glyphs_.get();
+            if (emoji_glyphs_) {
+                auto mark = [&](std::vector<EmojiPickerView::Cell>& cells) {
+                    for (auto& cell : cells) {
+                        cell.ready = !cell.clear && emoji_glyphs_->image(cell.text);
+                    }
+                };
+                mark(v.emoji->cells);
+                if (v.emoji->popup) {
+                    mark(v.emoji->popup->choices);
+                }
+            }
         } else {
             v.emoji.emplace(); // Only its width, which sets the case.
         }
@@ -2392,7 +2403,6 @@ void App::update_emoji(double now) {
             dirty = true;
         }
         if (emoji_glyphs_->take_ready()) {
-            emoji_.set_glyphs(emoji_glyphs_->generation());
             dirty = true;
         }
     }

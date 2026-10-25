@@ -178,7 +178,6 @@ bool EmojiGlyphs::idle() const {
 bool EmojiGlyphs::take_ready() {
     std::lock_guard lock(mutex_);
     const bool fresh = std::exchange(fresh_, false);
-    generation_ += fresh;
     return fresh;
 }
 void EmojiGlyphs::run() {

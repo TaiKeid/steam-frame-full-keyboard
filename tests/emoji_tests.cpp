@@ -688,11 +688,16 @@ void app_tests() {
                     before.emoji->popup->bounds.y + before.emoji->popup->bounds.height <
                         before.emoji->grid.y,
                 "the top row's tones open above the grid");
-        before.emoji_glyphs = nullptr; // As if no tone image had arrived yet.
+        // As if no tone image had arrived yet.
+        before.emoji_glyphs = nullptr;
+        for (auto* cells : {&before.emoji->cells, &before.emoji->popup->choices}) {
+            for (auto& c : *cells) {
+                c.ready = false;
+            }
+        }
         PanelRenderer partial, full;
         partial.paint(before, 7, true);
         auto after = app.view();
-        after.emoji->glyphs += 1; // The images arrive.
         partial.paint(after, 7);
         full.paint(after, 7, true);
         require(partial.rgba() == full.rgba(), "late tone images reach the popup");
@@ -716,6 +721,26 @@ void app_tests() {
         app.down(0, wave_x, wave_y, 9);
         app.cancel_pointer(0);
         require(!app.pointer_pressed(0) && !app.view().emoji->popup, "cancelling ends a press");
+        toggle();
+    }
+
+    // An image arriving repaints only its own cell; one off-screen repaints nothing.
+    {
+        toggle();
+        wait_for_emoji(app);
+        auto missing = app.view();
+        require(std::all_of(missing.emoji->cells.begin(), missing.emoji->cells.end(),
+                            [](const auto& c) { return c.clear || c.ready; }),
+                "every cell in view has its image once settled");
+        missing.emoji->cells[5].ready = false;
+        PanelRenderer partial;
+        partial.paint(missing, 30, true);
+        const auto arrived = app.view();
+        require(partial.paint(arrived, 30), "a visible image arriving repaints");
+        PanelRenderer full;
+        full.paint(arrived, 30, true);
+        require(partial.rgba() == full.rgba(), "and its cell matches a full repaint");
+        require(!partial.paint(app.view(), 30), "with nothing new in view, nothing repaints");
         toggle();
     }
 

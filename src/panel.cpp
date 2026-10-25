@@ -772,8 +772,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                               [](const auto& x, const auto& y) { return x.bounds == y.bounds; });
         };
         const bool grid_still = old.grid == now.grid && old.hint == now.hint &&
-                                old.hint_bounds == now.hint_bounds && old.glyphs == now.glyphs &&
-                                same_place(old.cells, now.cells);
+                                old.hint_bounds == now.hint_bounds && same_place(old.cells, now.cells);
         if (grid_still) {
             for (std::size_t i = 0; i < now.cells.size(); ++i) {
                 if (old.cells[i] != now.cells[i]) {
@@ -793,9 +792,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         } else {
             damage_area(pixel_bounds(now.tabs, 1));
         }
-        // Tone images can arrive after the popup opens, and above the grid's top
-        // row the popup lies outside the grid's rectangle.
-        if (old.popup != now.popup || (now.popup && old.glyphs != now.glyphs)) {
+        // Tone images can arrive after the popup opens, marking its choices
+        // ready; above the grid's top row it lies outside the grid's rectangle.
+        if (old.popup != now.popup) {
             for (const auto* popup : {&old.popup, &now.popup}) {
                 if (*popup) {
                     damage_area(pixel_bounds((*popup)->bounds, 3));

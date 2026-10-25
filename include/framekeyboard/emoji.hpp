@@ -75,6 +75,9 @@ struct EmojiPickerView {
         Rect bounds;
         std::string text;
         bool clear{}, hovered{}, pressed{};
+        // Its image is drawn; set by App, which owns the images. A cell repaints
+        // when its own image arrives, and an image off-screen repaints nothing.
+        bool ready{};
         bool operator==(const Cell&) const = default;
     };
     struct Tab {
@@ -95,7 +98,6 @@ struct EmojiPickerView {
     std::string hint;
     Rect hint_bounds;
     std::optional<Popup> popup;
-    std::uint64_t glyphs{}; // Changes when new emoji images are ready.
     bool operator==(const EmojiPickerView&) const = default;
 };
 
@@ -122,7 +124,6 @@ class EmojiPicker {
     void set_content(std::array<std::vector<const EmojiEntry*>, emoji_group_count> sections, int tone,
                      bool loading);
     void set_tone(int tone);
-    void set_glyphs(std::uint64_t generation) { glyphs_ = generation; }
     // Back to the first category, with nothing pressed.
     void reset();
     bool contains(double x, double y) const;
@@ -223,6 +224,5 @@ class EmojiPicker {
     std::optional<Glide> glide_;
     std::map<unsigned, Hit> hovered_;
     std::map<unsigned, std::pair<double, double>> positions_; // Last laser position, for rehover().
-    std::uint64_t glyphs_{};
 };
 } // namespace framekeyboard

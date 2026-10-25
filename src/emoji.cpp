@@ -714,7 +714,6 @@ EmojiPickerView EmojiPicker::view() const {
     v.grid = grid_;
     v.tabs = tabs_;
     v.scrolling_tabs = scrolling_tabs();
-    v.glyphs = glyphs_;
     const bool dragging = press_ && press_->dragging;
     auto hovered = [&](Hit target) {
         return !dragging && std::any_of(hovered_.begin(), hovered_.end(),

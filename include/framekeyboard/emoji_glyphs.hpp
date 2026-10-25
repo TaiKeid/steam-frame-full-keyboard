@@ -46,7 +46,6 @@ class EmojiGlyphs {
     bool take_ready();
     // Nothing checked or drawn is waiting.
     bool idle() const;
-    std::uint64_t generation() const { return generation_; }
 
   private:
     struct Font;
@@ -62,7 +61,6 @@ class EmojiGlyphs {
     std::size_t next_{};
     std::map<std::string, cairo_surface_t*> images_; // All at size_.
     bool fresh_{}, drawing_{};
-    std::uint64_t generation_{};
     std::thread worker_; // Last, so it starts after everything it uses.
 };
 } // namespace framekeyboard
