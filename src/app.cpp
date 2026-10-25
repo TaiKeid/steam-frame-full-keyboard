@@ -625,7 +625,7 @@ bool App::move(unsigned pointer, double x, double y) {
     }
     bool haptic = false;
     if (emoji_open_) {
-        const auto event = emoji_.move(pointer, x, y);
+        const auto event = emoji_.move(pointer, x, y, monotonic_seconds());
         dirty |= event.redraw;
         haptic = event.haptic;
         if (emoji_.pressed(pointer)) {
@@ -851,7 +851,7 @@ bool App::up(unsigned pointer, double x, double y) {
         return false;
     }
     if (emoji_open_ && emoji_.pressed(pointer)) {
-        const auto event = emoji_.up(pointer, x, y);
+        const auto event = emoji_.up(pointer, x, y, monotonic_seconds());
         apply_emoji_event(event);
         move(pointer, x, y);
         dirty = true;

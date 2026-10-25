@@ -102,7 +102,9 @@ struct EmojiPickerView {
 // The picker's grid and tabs: one strip of every category, filled down each
 // column and then across, scrolled sideways by dragging or with the stick.
 // An emoji types when released over the cell it was pressed on; holding a
-// toned one opens its skin tones instead. Panel coordinates throughout.
+// toned one opens its skin tones instead. A quick laser drag on the grid
+// keeps it gliding after release, slowing down like a phone list; the stick
+// and the tab row scroll without it. Panel coordinates throughout.
 class EmojiPicker {
   public:
     struct Event {
@@ -124,10 +126,11 @@ class EmojiPicker {
     void reset();
     bool contains(double x, double y) const;
     Event down(unsigned pointer, double x, double y, double now);
-    Event move(unsigned pointer, double x, double y);
-    Event up(unsigned pointer, double x, double y);
-    // Opens the skin tones of a held emoji.
+    Event move(unsigned pointer, double x, double y, double now);
+    Event up(unsigned pointer, double x, double y, double now);
+    // Opens the skin tones of a held emoji, and moves a gliding grid.
     Event tick(double now);
+    bool gliding() const { return glide_.has_value(); }
     // Stick or wheel notches; positive scrolls toward later categories.
     bool scroll(double x, double y, double steps);
     void cancel_pointer(unsigned pointer);
@@ -172,8 +175,15 @@ class EmojiPicker {
         double x{}, y{}, scroll{}, tab_scroll{}, at{};
         Hit hit;
         bool dragging{}, popup{};
+        // Caught a gliding grid: it stops there, and the release types nothing.
+        bool caught{};
         std::optional<std::size_t> choice;
+        std::vector<std::pair<double, double>> samples; // Recent (time, scroll) while dragging.
     };
+    struct Glide {
+        double velocity{}, at{}; // Scroll pixels per second, and when last moved.
+    };
+    void scrolled(); // After the grid scrolls under the laser.
     void layout_items();
     Hit hit(double x, double y) const;
     Rect cell_bounds(const Item& item) const;
@@ -199,6 +209,7 @@ class EmojiPicker {
     double scroll_{}, tab_scroll_{}, width_{};
     std::optional<std::size_t> chosen_group_; // A tapped tab, until the next manual scroll.
     std::optional<Press> press_;
+    std::optional<Glide> glide_;
     std::map<unsigned, Hit> hovered_;
     std::uint64_t glyphs_{};
 };

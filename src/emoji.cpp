@@ -19,6 +19,11 @@ constexpr double drag_distance = 10;
 constexpr double hold_seconds = .5;
 constexpr double tab_spacing = 6;
 constexpr int tone_choices = 6; // Default, then light to dark.
+// Gliding after a laser drag: the release speed over the last 0.1 s, if at
+// least min_glide pixels a second, decays with this time constant until it
+// is slower than stop_glide. Its first second covers about 0.3 s of speed.
+constexpr double glide_window = .1, min_glide = 300, stop_glide = 30, glide_decay = .35,
+                 max_glide = 6000;
 
 bool valid_text(std::string_view text) {
     return !text.empty() && text.size() <= 64 && text.find('\0') == std::string_view::npos &&
@@ -300,6 +305,11 @@ void EmojiPicker::reset() {
     chosen_group_.reset();
     cancel();
 }
+void EmojiPicker::scrolled() {
+    chosen_group_.reset();
+    reveal_tab(active_group());
+    hovered_.clear(); // Whatever was under the laser has moved.
+}
 std::vector<std::size_t> EmojiPicker::shown_groups() const {
     std::vector<std::size_t> groups;
     for (std::size_t g = 0; g < emoji_group_count; ++g) {
@@ -428,11 +438,17 @@ EmojiPicker::Event EmojiPicker::down(unsigned pointer, double x, double y, doubl
     if (target.target == Target::None) {
         return event;
     }
-    press_ = Press{pointer, x, y, scroll_, tab_scroll_, now, target, false, false, std::nullopt};
-    event.redraw = event.haptic = true;
+    // A press on a gliding grid catches it, like a finger on a phone list.
+    const bool caught = glide_ && target.target == Target::Cell;
+    glide_.reset();
+    press_ =
+        Press{pointer, x, y, scroll_, tab_scroll_, now, target, false, false, caught, std::nullopt, {}};
+    press_->samples.emplace_back(now, scroll_);
+    event.redraw = true;
+    event.haptic = !caught;
     return event;
 }
-EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y) {
+EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y, double now) {
     Event event;
     if (press_ && press_->pointer == pointer) {
         auto& press = *press_;
@@ -457,9 +473,11 @@ EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y) {
             if (press.hit.target == Target::Cell) {
                 const double old = scroll_;
                 scroll_ = std::clamp(press.scroll - (x - press.x), 0.0, scroll_limit());
+                std::erase_if(press.samples,
+                              [&](const auto& sample) { return sample.first < now - glide_window; });
+                press.samples.emplace_back(now, scroll_);
                 if (scroll_ != old) {
-                    chosen_group_.reset();
-                    reveal_tab(active_group());
+                    scrolled();
                     event.redraw = true;
                 }
             } else {
@@ -479,10 +497,10 @@ EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y) {
     }
     return event;
 }
-EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y) {
+EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y, double now) {
     Event event;
     if (!press_ || press_->pointer != pointer) {
-        return move(pointer, x, y);
+        return move(pointer, x, y, now);
     }
     const auto press = *press_;
     const auto target = hit(x, y);
@@ -497,7 +515,18 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y) {
             event.tone = tone;
             tone_ = tone;
         }
-    } else if (!press.dragging && target == press.hit) {
+    } else if (press.dragging && press.hit.target == Target::Cell) {
+        // Keep the speed of the last tenth of a second; a pause before
+        // releasing leaves nothing to glide.
+        std::erase_if(press_->samples,
+                      [&](const auto& sample) { return sample.first < now - glide_window; });
+        press_->samples.emplace_back(now, scroll_);
+        const auto& [first_at, first] = press_->samples.front();
+        const double velocity = now - first_at > .01 ? (scroll_ - first) / (now - first_at) : 0;
+        if (std::abs(velocity) >= min_glide) {
+            glide_ = Glide{std::clamp(velocity, -max_glide, max_glide), now};
+        }
+    } else if (!press.dragging && !press.caught && target == press.hit) {
         if (target.target == Target::Cell) {
             const auto& item = items_[target.index];
             event.recent = item.group == 0;
@@ -519,8 +548,25 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y) {
 }
 EmojiPicker::Event EmojiPicker::tick(double now) {
     Event event;
-    if (press_ && !press_->popup && !press_->dragging && press_->hit.target == Target::Cell &&
-        now - press_->at >= hold_seconds) {
+    if (glide_) {
+        const double seconds = std::clamp(now - glide_->at, 0.0, .1);
+        const double decay = std::exp(-seconds / glide_decay);
+        // The exact distance under exponential decay, independent of frame rate.
+        const double old = scroll_;
+        scroll_ =
+            std::clamp(scroll_ + glide_->velocity * glide_decay * (1 - decay), 0.0, scroll_limit());
+        glide_->velocity *= decay;
+        glide_->at = now;
+        if (scroll_ != old) {
+            scrolled();
+            event.redraw = true;
+        }
+        if (scroll_ == old || std::abs(glide_->velocity) < stop_glide) {
+            glide_.reset(); // Stopped, or reached an end.
+        }
+    }
+    if (press_ && !press_->popup && !press_->dragging && !press_->caught &&
+        press_->hit.target == Target::Cell && now - press_->at >= hold_seconds) {
         const auto* entry = items_[press_->hit.index].entry;
         if (entry && entry->toned()) {
             press_->popup = true;
@@ -534,13 +580,14 @@ bool EmojiPicker::scroll(double x, double y, double steps) {
         return false;
     }
     if (grid_.contains(x, y)) {
+        glide_.reset(); // The stick takes over.
         const double old = scroll_;
         scroll_ = std::clamp(scroll_ + steps * 2 * cell_, 0.0, scroll_limit());
         if (scroll_ == old) {
             return false;
         }
-        chosen_group_.reset();
-        reveal_tab(active_group());
+        scrolled();
+        return true;
     } else if (tabs_.contains(x, y)) {
         const double old = tab_scroll_;
         tab_scroll_ = std::clamp(tab_scroll_ + steps * (tab_width() + tab_spacing), 0.0, tab_limit());
@@ -561,6 +608,7 @@ void EmojiPicker::cancel_pointer(unsigned pointer) {
 }
 void EmojiPicker::cancel() {
     press_.reset();
+    glide_.reset();
     hovered_.clear();
 }
 EmojiPickerView EmojiPicker::view() const {

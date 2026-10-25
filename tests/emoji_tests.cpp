@@ -179,29 +179,78 @@ void picker_tests() {
     // A tap types on release, over the same cell.
     auto [x, y] = center(first->bounds);
     require(picker.down(1, x, y, 0).haptic, "pressing a cell buzzes");
-    auto event = picker.up(1, x, y);
+    auto event = picker.up(1, x, y, 0);
     require(event.type == "s0" && event.typed == &catalog.entries[0], "a released cell types");
     picker.down(1, x, y, 0);
-    picker.move(1, x, y + first->bounds.height);
-    require(picker.up(1, x, y + first->bounds.height).type.empty(), "releasing elsewhere types nothing");
+    picker.move(1, x, y + first->bounds.height, 0);
+    require(picker.up(1, x, y + first->bounds.height, 0).type.empty(),
+            "releasing elsewhere types nothing");
 
     // A drag scrolls and types nothing.
     picker.down(1, x, y, 0);
-    picker.move(1, x - 5, y);
+    picker.move(1, x - 5, y, 0);
     require(picker.scroll_offset() == 0, "a few pixels still count as a tap");
-    picker.move(1, x - 120, y);
+    picker.move(1, x - 120, y, 0);
     require(picker.scroll_offset() == 120, "dragging scrolls the grid");
-    require(picker.up(1, x - 120, y).type.empty(), "a drag types nothing");
+    require(picker.up(1, x - 120, y, 0).type.empty(), "a drag types nothing");
     picker.down(1, x, y, 0);
-    picker.move(1, x + 1000, y);
-    picker.up(1, x + 1000, y);
+    picker.move(1, x + 1000, y, 0);
+    picker.up(1, x + 1000, y, 0);
     require(picker.scroll_offset() == 0, "scrolling stops at the start");
+
+    // A quick drag glides on after release, slowing until it stops; a press catches it.
+    picker.down(1, x, y, 1);
+    for (int i = 1; i <= 6; ++i) {
+        picker.move(1, x - 24.0 * i, y, 1 + .02 * i); // 1200 pixels a second.
+    }
+    require(!picker.up(1, x - 144, y, 1.12).haptic && picker.gliding(), "a quick drag glides");
+    require(picker.scroll_offset() == 144, "the release itself does not jump");
+    picker.tick(1.12 + 1.0 / 60);
+    const double after_frame = picker.scroll_offset();
+    require(after_frame > 160 && after_frame < 170, "the glide starts at the release speed");
+    for (int frame = 2; frame < 300 && picker.gliding(); ++frame) {
+        picker.tick(1.12 + frame / 60.0);
+    }
+    require(!picker.gliding(), "the glide stops by itself");
+    const double glided = picker.scroll_offset() - 144;
+    require(glided > 380 && glided < 430, "it covers about a third of a second of the release speed");
+    picker.reset();
+    picker.down(1, x, y, 10);
+    picker.move(1, x - 100, y, 10.1);
+    picker.move(1, x - 100, y, 10.25);
+    picker.up(1, x - 100, y, 10.3);
+    require(!picker.gliding(), "pausing before release leaves nothing to glide");
+    picker.reset();
+    picker.down(1, x, y, 20);
+    picker.move(1, x - 150, y, 20.05);
+    picker.up(1, x - 150, y, 20.06);
+    picker.tick(20.1);
+    require(picker.gliding(), "glides again");
+    event = picker.down(1, x, y, 20.12);
+    require(!picker.gliding() && !event.haptic, "a press catches the glide");
+    require(picker.up(1, x, y, 20.15).type.empty(), "and its release types nothing");
+    picker.down(1, x, y, 21);
+    picker.move(1, x - 150, y, 21.05);
+    picker.up(1, x - 150, y, 21.06);
+    require(picker.scroll(x, y, 1) && !picker.gliding(), "the stick stops a glide");
+    picker.down(1, x, y, 22);
+    picker.move(1, x - 150, y, 22.05);
+    picker.up(1, x - 150, y, 22.06);
+    picker.cancel();
+    require(!picker.gliding(), "cancelling stops a glide");
+    picker.reset();
+    // The tab row never glides.
+    const auto tabs_center = center(picker.view().tab_list[1].bounds);
+    picker.down(1, tabs_center.first, tabs_center.second, 30);
+    picker.move(1, tabs_center.first - 150, tabs_center.second, 30.05);
+    picker.up(1, tabs_center.first - 150, tabs_center.second, 30.06);
+    require(!picker.gliding(), "the tab row does not glide");
 
     // Only one press at a time.
     picker.down(1, x, y, 0);
     require(!picker.down(2, x, y, 0).haptic, "another hand's press waits");
     picker.cancel_pointer(1);
-    require(picker.up(1, x, y).type.empty(), "a cancelled press types nothing");
+    require(picker.up(1, x, y, 0).type.empty(), "a cancelled press types nothing");
 
     // Stick notches scroll; tabs jump to their category.
     require(picker.scroll(x, y, 1) && picker.scroll_offset() > 0, "the stick scrolls the grid");
@@ -211,7 +260,7 @@ void picker_tests() {
                                     [](const auto& tab) { return tab.icon == Icon::Flags; });
     std::tie(x, y) = center(flags->bounds);
     picker.down(1, x, y, 0);
-    picker.up(1, x, y);
+    picker.up(1, x, y, 0);
     view = picker.view();
     require(picker.scroll_offset() == picker.scroll_limit() && cell(view, "f29"),
             "a tab jumps to its category");
@@ -238,13 +287,13 @@ void picker_tests() {
                 view.popup->choices[5].text == "wave5",
             "default first, then light to dark");
     const auto choice = center(view.popup->choices[3].bounds);
-    require(picker.move(1, choice.first, choice.second).haptic, "moving onto a tone buzzes");
-    event = picker.up(1, choice.first, choice.second);
+    require(picker.move(1, choice.first, choice.second, 0).haptic, "moving onto a tone buzzes");
+    event = picker.up(1, choice.first, choice.second, 0);
     require(event.type == "wave3" && event.tone == 3, "releasing on a tone types it and keeps it");
     require(cell(picker.view(), "wave3"), "the grid shows the new tone");
     picker.down(1, x, y, 20);
     picker.tick(20.6);
-    event = picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1);
+    event = picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 0);
     require(event.type.empty() && !event.tone, "releasing off the tones types nothing");
     view = picker.view();
     const auto* plain = cell(view, "s39");
@@ -252,7 +301,7 @@ void picker_tests() {
         std::tie(x, y) = center(plain->bounds);
         picker.down(1, x, y, 30);
         require(!picker.tick(31).redraw, "an untoned emoji has no tones");
-        require(picker.up(1, x, y).type == "s39", "and types once on release");
+        require(picker.up(1, x, y, 0).type == "s39", "and types once on release");
     }
 
     // Recent: reserved width, column order, Clear in its bottom-right cell.
@@ -279,7 +328,7 @@ void picker_tests() {
                 "Recent shows what fits beside Clear");
         std::tie(x, y) = center(clear->bounds);
         picker.down(1, x, y, 0);
-        require(picker.up(1, x, y).clear, "Clear empties Recent");
+        require(picker.up(1, x, y, 0).clear, "Clear empties Recent");
     }
     require(picker.recent_capacity() == 29, "Recent holds six columns less Clear");
 }
