@@ -975,9 +975,9 @@ bool App::tick(double now) {
     update_output_status();
     return dirty || renderer.animating();
 }
-void App::paint(double now) {
-    renderer.paint(view(), now);
+bool App::paint(double now) {
     dirty = false;
+    return renderer.paint(view(), now);
 }
 void App::set_interaction_active(bool active) {
     if (active == interaction_active_) {

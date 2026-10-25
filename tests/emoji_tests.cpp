@@ -643,6 +643,24 @@ void app_tests() {
     require(closing_sink.text.size() == 1 && !closing.emoji_open(), "choosing can close the picker");
 }
 
+void paint_tests() {
+    // An unchanged frame draws nothing, so VR skips the texture upload.
+    TemporaryDirectory directory;
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    App app(options, sink);
+    require(app.paint(1), "the first frame draws");
+    require(!app.paint(1), "an unchanged frame draws nothing");
+    const auto [x, y] = key_center(app, "KeyA");
+    app.move(0, x, y);
+    require(app.paint(1.5), "a hover draws");
+    require(!app.paint(1.5), "and only once");
+}
+
 void shutdown_tests() {
     // Quitting with the picker open still saves what was chosen.
     TemporaryDirectory directory;
@@ -696,6 +714,7 @@ int main() {
         stick_tests();
         picker_tests();
         app_tests();
+        paint_tests();
         shutdown_tests();
         unavailable_tests();
     } catch (const std::exception& error) {

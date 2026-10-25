@@ -2152,8 +2152,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         panel.accept_scroll(scroll_steps);
-        if (lifecycle.visible() && repaint) {
-            app.paint(now);
+        // A state change that redraws no pixel, like a sub-pixel glide step or
+        // an image drawn off-screen, uploads nothing: each upload of the whole
+        // texture costs milliseconds.
+        if (lifecycle.visible() && repaint && app.paint(now)) {
             panel.submit(app.renderer, app.view());
         }
         bool fallback = app.take_native_fallback();

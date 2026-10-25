@@ -152,7 +152,8 @@ class PanelRenderer {
     PanelRenderer(const PanelRenderer&) = delete;
     PanelRenderer& operator=(const PanelRenderer&) = delete;
     // force_full is used by pixel-equivalence tests and rendering benchmarks.
-    void paint(const PanelView& view, double now, bool force_full = false);
+    // Whether any pixel was redrawn; nothing to upload otherwise.
+    bool paint(const PanelView& view, double now, bool force_full = false);
     const Key* hit_key(const PanelView& view, double x, double y) const;
     // Case coordinates to the layout's own key coordinates, as hit_key uses.
     std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;

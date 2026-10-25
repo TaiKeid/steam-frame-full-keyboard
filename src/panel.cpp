@@ -617,7 +617,7 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
     }
     return nullptr;
 }
-void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
+bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto& t = *view.theme;
     const auto modifiers = view.keyboard->modifiers();
     // Swipe alternatives come and go with every swiped word; they sit in the
@@ -830,7 +830,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view = view;
     }
     if (!full && damage.empty() && areas.empty()) {
-        return;
+        return false;
     }
     auto* cr = cairo_create(surface_);
     cairo_translate(cr, 0, popup_margin);
@@ -1167,6 +1167,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }
     cairo_destroy(cr);
     cairo_surface_flush(surface_);
+    return true;
 }
 std::vector<unsigned char> PanelRenderer::rgba() const {
     const auto* bytes = cairo_image_surface_get_data(surface_);

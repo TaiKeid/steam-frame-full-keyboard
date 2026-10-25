@@ -64,7 +64,8 @@ class App {
     void cancel_pointer(unsigned pointer);
     void cancel(bool discard_composition = true);
     bool tick(double now);
-    void paint(double now);
+    // Whether the image changed and needs uploading.
+    bool paint(double now);
     void show_settings();
     void back();
     bool scroll(unsigned pointer, double dx, double dy);
