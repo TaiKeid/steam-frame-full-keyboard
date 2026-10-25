@@ -76,6 +76,27 @@ double ComponentAxis::read(const Transform& current) const {
     // rotation axis and cancels from this ratio, including diagonal movement.
     return std::clamp(2 * std::atan2(projection, (*q)[0]) / full_angle_, -1.0, 1.0);
 }
+void StickScrollDirection::learn(double x, double y, double step) {
+    const std::size_t axis = std::abs(x) >= std::abs(y) ? 0 : 1;
+    const double tilt = axis == 0 ? x : y;
+    if (step == 0 || std::abs(tilt) < .3) {
+        return; // Too little tilt to be the stick that stepped.
+    }
+    forward_[axis] = (step > 0) == (tilt > 0) ? 1 : -1;
+}
+int StickScrollDirection::predict(double x, double y) const {
+    // Below SteamVR's own step threshold, so the switch comes before a step.
+    constexpr double lean = .1;
+    const std::size_t axis = std::abs(x) >= std::abs(y) ? 0 : 1;
+    const double tilt = axis == 0 ? x : y;
+    if (std::abs(tilt) < lean) {
+        return 0;
+    }
+    return tilt > 0 ? forward_[axis] : -forward_[axis];
+}
+bool wants_scroll_steps(ScrollRoom room, int direction) {
+    return direction > 0 ? room.forward : direction < 0 ? room.back : room.back || room.forward;
+}
 GripTransition GripLatch::update(std::optional<double> angle_degrees) {
     if (!angle_degrees || !std::isfinite(*angle_degrees)) {
         reset();

@@ -14,6 +14,13 @@ struct Rect {
     }
 };
 
+// Which ways something under a laser can still scroll: back toward its
+// start, forward toward its end.
+struct ScrollRoom {
+    bool back{}, forward{};
+    bool operator==(const ScrollRoom&) const = default;
+};
+
 enum class Icon {
     None,
     Settings,

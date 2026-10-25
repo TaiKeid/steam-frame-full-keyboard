@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/grip.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -152,6 +153,26 @@ const EmojiPickerView::Cell* cell(const EmojiPickerView& view, const std::string
     return found == view.cells.end() ? nullptr : &*found;
 }
 
+void stick_tests() {
+    StickScrollDirection direction;
+    require(direction.predict(.05, -.05) == 0, "a centered stick steps nowhere");
+    require(direction.predict(.5, 0) == 1 && direction.predict(0, .5) == -1,
+            "until learned, right goes forward and up goes back");
+    direction.learn(0, .8, 1);
+    require(direction.predict(0, .5) == 1 && direction.predict(0, -.5) == -1, "a step teaches the axis");
+    direction.learn(0, .2, -1);
+    require(direction.predict(0, .5) == 1, "a slight tilt teaches nothing");
+    direction.learn(-.9, .1, 1);
+    require(direction.predict(.5, .1) == -1, "each axis learns on its own");
+    require(wants_scroll_steps({true, true}, 0) && wants_scroll_steps({false, true}, 0),
+            "a centered stick takes steps where anything moves");
+    require(!wants_scroll_steps({false, false}, 0), "but not where nothing does");
+    require(wants_scroll_steps({false, true}, 1) && !wants_scroll_steps({false, true}, -1),
+            "leaning toward an end it is at takes no steps");
+    require(wants_scroll_steps({true, false}, -1) && !wants_scroll_steps({true, false}, 1),
+            "at either end");
+}
+
 void picker_tests() {
     const auto catalog = sample_catalog();
     const Rect tabs{100, 100, 900, 50}, grid{100, 170, 700, 290};
@@ -168,12 +189,13 @@ void picker_tests() {
     require(view.tab_list.size() == 4, "empty categories have no tab");
     require(view.tab_list.front().icon == Icon::Recent && view.tab_list.front().active,
             "Recent comes first");
-    require(picker.scrolls_at(grid.x + 5, grid.y + 5), "the grid scrolls");
-    require(!picker.scrolls_at(view.tab_list[1].bounds.x + 5, view.tab_list[1].bounds.y + 5),
+    require((picker.scroll_room(grid.x + 5, grid.y + 5) == ScrollRoom{false, true}),
+            "the grid scrolls forward from its start");
+    require(!picker.scroll_room(view.tab_list[1].bounds.x + 5, view.tab_list[1].bounds.y + 5),
             "tabs that fit do not scroll");
-    require(!picker.scrolls_at(tabs.x + tabs.width - 5, tabs.y + 5),
+    require(!picker.scroll_room(tabs.x + tabs.width - 5, tabs.y + 5),
             "nor does the tab row's empty space");
-    require(!picker.scrolls_at(grid.x + 5, grid.y - 5), "nor the gap above the grid");
+    require(!picker.scroll_room(grid.x + 5, grid.y - 5), "nor the gap above the grid");
     const auto* first = cell(view, "s0");
     const auto* second = cell(view, "s1");
     const auto* sixth = cell(view, "s5");
@@ -283,6 +305,8 @@ void picker_tests() {
         }
         require(furthest > 20 && furthest < 70, "it runs a little past the end");
         require(!picker.gliding() && picker.scroll_offset() == end, "and settles exactly on it");
+        require((picker.scroll_room(grid.x + 5, grid.y + 5) == ScrollRoom{forward, !forward}),
+                "at an end the grid only scrolls back");
     }
     // A press during the bounce puts the grid back on its end.
     picker.reset();
@@ -351,7 +375,7 @@ void picker_tests() {
     event = picker.tick(10.6);
     require(event.redraw && picker.popup_open(),
             "a long hold opens the tones, despite a slightly unsteady hand");
-    require(!picker.scrolls_at(x, y), "nothing scrolls while choosing a tone");
+    require(!picker.scroll_room(x, y), "nothing scrolls while choosing a tone");
     view = picker.view();
     require(view.popup && view.popup->choices.size() == 6 && view.popup->choices[0].text == "wave" &&
                 view.popup->choices[5].text == "wave5",
@@ -469,13 +493,13 @@ void app_tests() {
     auto [x, y] = center(grin->bounds);
     const auto [key_x, key_y] = key_center(app, "Enter");
     app.move(0, key_x, key_y);
-    require(!app.scroll_wanted(), "no scroll events over the picker's keys");
+    require(!app.scroll_room(0), "no scroll events over the picker's keys");
     const auto tab_row = app.view().emoji->tabs;
     app.move(0, tab_row.x + tab_row.width - 5, tab_row.y + 5);
-    require(!app.scroll_wanted(), "no scroll events over empty tab-row space");
+    require(!app.scroll_room(0), "no scroll events over empty tab-row space");
 
     require(!app.move(0, x, y) && !app.down(0, x, y, 2), "emoji neither buzz on hover nor on press");
-    require(app.scroll_wanted(), "scroll events over the grid");
+    require(app.scroll_room(0).has_value(), "scroll events over the grid");
     require(sink.text.empty(), "nothing types on press");
     app.up(0, x, y);
     require((sink.text == std::vector<std::string>{"😀"}), "the emoji types once on release, whole");
@@ -521,7 +545,7 @@ void app_tests() {
     app.show_settings();
     const auto card = app.view().cards.front().bounds;
     app.move(0, card.x + card.width / 2, card.y + card.height - 40);
-    require(!app.scroll_wanted(), "settings cards that fit take no scroll events");
+    require(!app.scroll_room(0), "settings cards that fit take no scroll events");
     app.back();
 
     // Close after choosing.
@@ -567,6 +591,7 @@ int main() {
         table_tests();
         preference_tests();
         layout_tests();
+        stick_tests();
         picker_tests();
         app_tests();
         unavailable_tests();

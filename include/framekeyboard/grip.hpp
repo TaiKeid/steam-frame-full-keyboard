@@ -1,5 +1,7 @@
 #pragma once
+#include "framekeyboard/layout.hpp"
 #include "framekeyboard/placement.hpp"
+#include <array>
 #include <optional>
 
 namespace framekeyboard {
@@ -20,6 +22,25 @@ class ComponentAxis {
     std::array<double, 3> axis_{};
     double full_angle_{};
 };
+
+// Which way a thumbstick tilt scrolls in the dashboard, where SteamVR turns
+// the stick into scroll steps by its own binding. It is learned from steps
+// that arrive while the stick is clearly tilted; until then, right scrolls
+// forward and up scrolls back, like a wheel. Forward is the positive step
+// App::scroll takes.
+class StickScrollDirection {
+  public:
+    void learn(double x, double y, double step);
+    // +1 forward, -1 back, or 0 while the stick is too near center to step.
+    int predict(double x, double y) const;
+
+  private:
+    std::array<int, 2> forward_{1, -1}; // Sign of a forward tilt on x, then y.
+};
+// Whether SteamVR's ticking scroll steps are wanted for an area with this
+// room: toward a direction that can still move, or while the stick is
+// centered and either direction can.
+bool wants_scroll_steps(ScrollRoom room, int direction);
 
 struct GripTransition {
     bool held{}, pressed{};

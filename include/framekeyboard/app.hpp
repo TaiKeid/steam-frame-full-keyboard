@@ -122,11 +122,11 @@ class App {
     bool updating() const;
     bool take_recenter();
     bool emoji_open() const { return emoji_open_; }
-    // Whether a laser is over something the stick can scroll: the emoji
-    // grid, overflowing tabs, or an overflowing Settings card or list.
-    // SteamVR's dashboard buzzes for every scroll event it sends, so the
-    // panel takes them only then.
-    bool scroll_wanted() const;
+    // Which ways the stick could scroll what this laser points at: the emoji
+    // grid, overflowing tabs, or an overflowing Settings card or list. None
+    // elsewhere. SteamVR's dashboard ticks the controller for every scroll
+    // step it sends, so VR asks for steps only where they would move something.
+    std::optional<ScrollRoom> scroll_room(unsigned pointer) const;
     // For image exports: open the picker, and whether its images are all drawn.
     void show_emoji() { open_emoji(); }
     bool emoji_settled() const {

@@ -429,19 +429,24 @@ EmojiPicker::Hit EmojiPicker::hit(double x, double y) const {
     }
     return {};
 }
-bool EmojiPicker::scrolls_at(double x, double y) const {
+std::optional<ScrollRoom> EmojiPicker::scroll_room(double x, double y) const {
     if (popup_open()) {
-        return false;
+        return {};
     }
     if (grid_.contains(x, y)) {
-        return scroll_limit() > 0;
+        // A glide past an end counts as at that end.
+        return scroll_limit() > 0 ? std::optional{ScrollRoom{scroll_ > 0, scroll_ < scroll_limit()}}
+                                  : std::nullopt;
     }
     if (tab_limit() <= 0 || !scrolling_tabs().contains(x, y)) {
-        return false;
+        return {};
     }
     const auto groups = shown_groups();
-    return std::any_of(groups.begin(), groups.end(),
-                       [&](std::size_t g) { return g != 0 && tab_bounds(g).contains(x, y); });
+    if (std::none_of(groups.begin(), groups.end(),
+                     [&](std::size_t g) { return g != 0 && tab_bounds(g).contains(x, y); })) {
+        return {};
+    }
+    return ScrollRoom{tab_scroll_ > 0, tab_scroll_ < tab_limit()};
 }
 bool EmojiPicker::contains(double x, double y) const {
     if (const auto popup = popup_bounds(); popup && popup->contains(x, y)) {

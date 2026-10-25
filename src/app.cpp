@@ -2255,16 +2255,17 @@ bool App::take_recenter() {
     recenter_ = false;
     return result;
 }
-bool App::scroll_wanted() const {
-    if (!interaction_active_ || dragging_) {
-        return false;
+std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
+    const auto position = pointer_positions_.find(pointer);
+    if (!interaction_active_ || dragging_ || position == pointer_positions_.end()) {
+        return {};
     }
-    // One flag serves every laser on the panel, so any laser over a
-    // scrollable spot turns it on.
-    return std::any_of(pointer_positions_.begin(), pointer_positions_.end(), [&](const auto& item) {
-        const auto [x, y] = item.second;
-        return settings_open_ ? settings_ui_.scrolls_at(x, y) : emoji_open_ && emoji_.scrolls_at(x, y);
-    });
+    const auto [x, y] = position->second;
+    if (settings_open_) {
+        // Settings rarely overflows; its ends are not worth tracking.
+        return settings_ui_.scrolls_at(x, y) ? std::optional{ScrollRoom{true, true}} : std::nullopt;
+    }
+    return emoji_open_ ? emoji_.scroll_room(x, y) : std::nullopt;
 }
 bool App::emoji_available() const {
     if (!emoji_font_) {

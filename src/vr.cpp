@@ -256,6 +256,66 @@ class GrabInput {
     std::array<vr::TrackedDeviceIndex_t, 2> devices_{
         {vr::k_unTrackedDeviceIndexInvalid, vr::k_unTrackedDeviceIndexInvalid}};
 };
+// Any controller's thumbstick tilt, x right and y up, from its render-model
+// component: the dashboard owns the controllers' input actions, but reading
+// the model takes nothing from it, as for the grip.
+class StickReader {
+  public:
+    std::optional<std::pair<double, double>> read(vr::TrackedDeviceIndex_t device) {
+        if (device >= vr::k_unMaxTrackedDeviceCount ||
+            vr_system()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
+            return {};
+        }
+        auto models = vr_models();
+        auto& stick = sticks_[device];
+        vr::RenderModel_ControllerMode_State_t mode{};
+        if (!std::exchange(stick.tried, true)) {
+            const auto role = vr_system()->GetControllerRoleForTrackedDeviceIndex(device);
+            char model[1024]{};
+            vr::ETrackedPropertyError error{};
+            vr_system()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String, model,
+                                                        sizeof(model), &error);
+            vr::VRControllerState_t released{}, right{}, up{};
+            right.rAxis[0].x = 1;
+            up.rAxis[0].y = 1;
+            vr::RenderModel_ComponentState_t rest{}, full_right{}, full_up{};
+            auto input = vr_input();
+            stick.model = model;
+            stick.ready = !error && models && input &&
+                          (role == vr::TrackedControllerRole_LeftHand ||
+                           role == vr::TrackedControllerRole_RightHand) &&
+                          input->GetInputSourceHandle(role == vr::TrackedControllerRole_LeftHand
+                                                          ? "/user/hand/left"
+                                                          : "/user/hand/right",
+                                                      &stick.source) == vr::VRInputError_None &&
+                          models->GetComponentState(model, "thumbstick", &released, &mode, &rest) &&
+                          models->GetComponentState(model, "thumbstick", &right, &mode, &full_right) &&
+                          models->GetComponentState(model, "thumbstick", &up, &mode, &full_up) &&
+                          stick.x.calibrate(from_vr(rest.mTrackingToComponentRenderModel),
+                                            from_vr(full_right.mTrackingToComponentRenderModel)) &&
+                          stick.y.calibrate(from_vr(rest.mTrackingToComponentRenderModel),
+                                            from_vr(full_up.mTrackingToComponentRenderModel));
+        }
+        vr::RenderModel_ComponentState_t current{};
+        if (!stick.ready || !models->GetComponentStateForDevicePath(stick.model.c_str(), "thumbstick",
+                                                                    stick.source, &mode, &current)) {
+            return {};
+        }
+        const auto pose = from_vr(current.mTrackingToComponentRenderModel);
+        return std::pair{stick.x.read(pose), stick.y.read(pose)};
+    }
+    // Controllers came, went or changed hands.
+    void forget() { sticks_ = {}; }
+
+  private:
+    struct Stick {
+        bool tried{}, ready{};
+        std::string model;
+        vr::VRInputValueHandle_t source{};
+        ComponentAxis x, y;
+    };
+    std::array<Stick, vr::k_unMaxTrackedDeviceCount> sticks_{};
+};
 class LaserDrag {
   public:
     bool start(const GrabSample& input, const PanelPlacement& placement, double now, MoveSource source,
@@ -1226,6 +1286,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     SceneCursors cursors;
     LaserRays laser_rays;
+    StickReader sticks;
+    StickScrollDirection stick_direction;
     std::array<ResizerReach, 2> resizer_reach{};
     // The dashboard's pointing device: the head cursor counts as a laser while it is.
     vr::TrackedDeviceIndex_t dashboard_pointer = vr::k_unTrackedDeviceIndexInvalid;
@@ -1499,6 +1561,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             if (LaserRays::invalidates(event.eventType)) {
                 laser_rays.forget();
+                sticks.forget();
             }
             if (event.eventType == vr::VREvent_TrackedDeviceDeactivated) {
                 lifecycle.device_lost(event.trackedDeviceIndex,
@@ -1665,8 +1728,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 break;
             case vr::VREvent_ScrollDiscrete:
                 if (!drag.active()) {
-                    app.scroll(event.data.scroll.cursorIndex, -event.data.scroll.xdelta,
-                               -event.data.scroll.ydelta);
+                    const double dx = -event.data.scroll.xdelta, dy = -event.data.scroll.ydelta;
+                    // Learn which way this stick scrolls, as App::scroll reads the step.
+                    if (const auto stick = sticks.read(device)) {
+                        stick_direction.learn(stick->first, stick->second,
+                                              std::abs(dx) > std::abs(dy) ? dx : dy);
+                    }
+                    app.scroll(event.data.scroll.cursorIndex, dx, dy);
                 }
                 break;
             case vr::VREvent_FocusLeave:
@@ -2069,7 +2137,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             hide_panel();
         }
         const bool repaint = app.tick(now);
-        panel.accept_scroll(app.scroll_wanted());
+        // Ask for SteamVR's ticking scroll steps only while some laser is over
+        // something its stick would actually scroll: not at an end it leans toward.
+        bool scroll_steps = false;
+        for (const auto& [pointer, device] : pointer_devices) {
+            if (const auto room = app.scroll_room(pointer)) {
+                const auto stick = sticks.read(device);
+                scroll_steps |= wants_scroll_steps(
+                    *room, stick ? stick_direction.predict(stick->first, stick->second) : 0);
+            }
+        }
+        panel.accept_scroll(scroll_steps);
         if (lifecycle.visible() && repaint) {
             app.paint(now);
             panel.submit(app.renderer, app.view());
