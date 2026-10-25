@@ -976,7 +976,7 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 if (cell.pressed || cell.hovered) {
                     rounded(cr, face, t.radius);
-                    source(cr, cell.pressed ? t.latched : t.bottom);
+                    source(cr, cell.pressed ? t.latched : t.hover); // Like the tabs.
                     cairo_fill(cr);
                 }
                 emoji_image(cell.text, cell.bounds);
