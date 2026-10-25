@@ -98,13 +98,13 @@ Whether an X11 or Wayland application joins a ZWJ sequence or keeps a variation 
 
 - **Glyph cache:** color emoji fonts store glyphs as large bitmaps, which are slow to scale on every draw. Each emoji is rasterized once at cell size into a cache, and the grid copies from that cache. The cache depends on the theme and the panel's pixel scale, not on the keyboard's size in the world, so resizing keeps it.
 - **Async:** a worker thread checks and rasterizes, starting when the picker first opens:
-  - cells nearest the middle of the view first, outward from there;
-  - only the nearest 300 missing images per request, about three screens; a new request comes only when the first visible column, the tone, the content or the tone popup changes;
+  - the cells in view first, then outward from both ends of that run. The strip order is fixed, so this needs no sorting: the in-view cells are one run of it;
+  - only the nearest 300 missing images per request, about three screens. A new request comes only when the view has moved eight columns, or the tone, the content or the tone popup changes;
   - with its own Pango font map, HarfBuzz buffer and Cairo surfaces, since none is shared across threads;
-  - cells not yet ready draw empty, and the grid redraws as images arrive.
-- **Memory:** images are about 42 px square on the bundled layouts, 7 KB each. At most 8 MB are kept, about 1,180 images; a request releases those no longer among the nearest that fit. The panel draws an image only between requests, so it never draws a released one.
+  - cells not yet ready draw empty, and the grid redraws as images arrive. The tone popup redraws too, since above the top row it lies outside the grid.
+- **Memory:** images are about 42 px square on the bundled layouts, 7 KB each. At most 8 MB are kept, about 1,180 images; a request moves those still among the nearest that fit, without copying their names, and frees the rest. Closing the picker drops the queue and frees every image. The worker and its fonts stay until exit, because destroying Pango font maps leaks fontconfig data.
 - **First open:** on the development host, the check and the first 300 images take about 0.2 s of worker time; the VR loop never waits for them.
-- **Redraw:** only while scrolling, hovering, pressing or filling the cache. Nothing redraws when the view is idle.
+- **Redraw:** only while scrolling, hovering, pressing or filling the cache. Nothing redraws when the view is idle. A hover repaints only the cells or tabs it changed. The grid is drawn at a whole-pixel scroll, so the slow tail of a glide or bounce leaves the view unchanged for many frames. A repaint that draws nothing uploads nothing, which saves about 2.4 ms per frame on the headset. Hit tests and input areas use a view without the picker's cells. The dashboard stick is read only at a scroll end, and the passthrough stick only over something that scrolls.
 
 ## Milestones
 
