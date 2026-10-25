@@ -548,6 +548,42 @@ void app_tests() {
     require(!app.scroll_room(0), "settings cards that fit take no scroll events");
     app.back();
 
+    // Tone images that arrive after the popup opens are drawn, even above the
+    // grid's top row, outside the grid's own repaint area.
+    {
+        toggle();
+        wait_for_emoji(app);
+        const auto opened = app.view();
+        const auto people = std::find_if(opened.emoji->tab_list.begin(), opened.emoji->tab_list.end(),
+                                         [](const auto& tab) { return tab.icon == Icon::People; });
+        const auto [tab_x, tab_y] = center(people->bounds);
+        app.down(0, tab_x, tab_y, 5);
+        app.up(0, tab_x, tab_y);
+        const auto people_view = app.view();
+        const auto* wave = cell(*people_view.emoji, "👋");
+        require(wave && wave->bounds.y == people_view.emoji->grid.y,
+                "the waving hand starts the People columns");
+        const auto [wave_x, wave_y] = center(wave->bounds);
+        app.down(0, wave_x, wave_y, 6);
+        app.tick(6.6);
+        wait_for_emoji(app);
+        auto before = app.view();
+        require(before.emoji->popup &&
+                    before.emoji->popup->bounds.y + before.emoji->popup->bounds.height <
+                        before.emoji->grid.y,
+                "the top row's tones open above the grid");
+        before.emoji_glyphs = nullptr; // As if no tone image had arrived yet.
+        PanelRenderer partial, full;
+        partial.paint(before, 7, true);
+        auto after = app.view();
+        after.emoji->glyphs += 1; // The images arrive.
+        partial.paint(after, 7);
+        full.paint(after, 7, true);
+        require(partial.rgba() == full.rgba(), "late tone images reach the popup");
+        app.cancel_pointer(0);
+        toggle();
+    }
+
     // Close after choosing.
     Settings settings = load_settings(directory.path, *std::make_unique<std::vector<std::string>>());
     settings.emoji_close_on_select = true;

@@ -771,7 +771,9 @@ void PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (old.tab_list != now.tab_list || old.tabs != now.tabs) {
             damage_area(pixel_bounds(now.tabs, 1));
         }
-        if (old.popup != now.popup) {
+        // Tone images can arrive after the popup opens, and above the grid's top
+        // row the popup lies outside the grid's rectangle.
+        if (old.popup != now.popup || (now.popup && old.glyphs != now.glyphs)) {
             for (const auto* popup : {&old.popup, &now.popup}) {
                 if (*popup) {
                     damage_area(pixel_bounds((*popup)->bounds, 3));
