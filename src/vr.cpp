@@ -1879,8 +1879,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             const double stick_seconds = std::clamp(now - std::exchange(stick_scrolled, now), 0.0, .1);
             for (std::size_t hand = 0; app.emoji_open() && !drag.active() && hand < samples.size();
                  ++hand) {
+                // Read the stick only while its ray is over something that scrolls.
                 const auto stick =
-                    inside[hand] && !samples[hand].lost ? scene_pointer.stick(hand) : std::nullopt;
+                    inside[hand] && !samples[hand].lost && app.scroll_room(ScenePointer::pointer(hand))
+                        ? scene_pointer.stick(hand)
+                        : std::nullopt;
                 if (!stick) {
                     continue;
                 }
