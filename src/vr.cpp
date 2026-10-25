@@ -915,13 +915,15 @@ class CornerResizers {
         const int size = shape.pixels();
         auto pixels = resizer_pixels(corner_of(side), shape);
         vr::HmdVector2_t scale{{static_cast<float>(size), static_cast<float>(size)}};
-        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 2> mask{};
-        const auto rectangles = resizer_mask(corner_of(side), shape);
-        for (std::size_t i = 0; i < mask.size(); ++i) {
+        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 3> mask{};
+        const auto area = resizer_mask(corner_of(side), shape);
+        for (std::size_t i = 0; i < area.rectangles.size(); ++i) {
             mask[i].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
-            const auto& r = rectangles[i];
+            const auto& r = area.rectangles[i];
             mask[i].m_Primitive.m_Rectangle = {r[0], r[1], r[2], r[3]};
         }
+        mask[2].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Circle;
+        mask[2].m_Primitive.m_Circle = {area.circle[0], area.circle[1], area.circle[2]};
         auto overlay = vr_overlay();
         const bool ok =
             overlay->SetOverlayRaw(corner.handle, pixels.data(), static_cast<std::uint32_t>(size),
@@ -1622,10 +1624,27 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             };
             const auto samples =
                 scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
+            // A shown resizer, in front of the keyboard, takes the ray first, as
+            // its overlay does SteamVR's laser in the dashboard. Its bend can
+            // lie inside the case's sharp corner, outside the rounded case.
+            std::array<std::optional<std::pair<std::size_t, Vector3>>, 2> on_resizer{};
+            for (std::size_t hand = 0; hand < samples.size(); ++hand) {
+                for (std::size_t side = 0; samples[hand].ray && side < 2 && !on_resizer[hand]; ++side) {
+                    if (!resizers.shown(side)) {
+                        continue;
+                    }
+                    if (const auto point = resizer_hit(
+                            displayed.transform(), case_corner(view, displayed.width(), side == 1, true),
+                            corner_of(side), resizer_shape(view, displayed.width()),
+                            *samples[hand].ray)) {
+                        on_resizer[hand] = std::pair{side, *point};
+                    }
+                }
+            }
             // Where each ray meets the panel's accepted areas, if it does.
             std::array<std::optional<std::pair<double, double>>, 2> inside{};
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
-                if (const auto& hit = samples[hand].hit) {
+                if (const auto& hit = samples[hand].hit; hit && !on_resizer[hand]) {
                     const double x = hit->u * panel_width;
                     const double y = hit->v * texture_height - popup_margin;
                     if (accepts(x, y)) {
@@ -1672,23 +1691,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         pointer_down(pointer, sample.device, at->first, at->second, true, true);
                     }
                 } else {
-                    // The ray may rest on a shown corner resizer, outside the case.
-                    std::optional<Vector3> resizer;
-                    std::size_t side = 0;
-                    for (; sample.ray && side < 2 && !resizer; ++side) {
-                        if (resizers.shown(side)) {
-                            resizer = resizer_hit(displayed.transform(),
-                                                  case_corner(view, displayed.width(), side == 1, true),
-                                                  corner_of(side),
-                                                  resizer_shape(view, displayed.width()), *sample.ray);
-                        }
-                    }
-                    if (resizer) {
+                    // The ray may rest on a shown corner resizer, found above.
+                    if (const auto& resizer = on_resizer[hand]) {
                         PanelHit hit;
-                        hit.point = *resizer;
+                        hit.point = resizer->second;
                         cursors.show(hand, displayed.transform(), hit);
                         if (sample.pressed) {
-                            start_resize(side - 1, sample.device, pointer);
+                            start_resize(resizer->first, sample.device, pointer);
                         }
                     } else {
                         cursors.hide(hand);

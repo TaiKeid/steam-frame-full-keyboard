@@ -47,6 +47,10 @@ double segment_distance(double a, double b, double a0, double b0, double a1, dou
     const double t = std::clamp(((a - a0) * da + (b - b0) * db) / (da * da + db * db), 0.0, 1.0);
     return std::hypot(a - a0 - da * t, b - b0 - db * t);
 }
+// Where the arc crosses the diagonal, in both corner coordinates.
+double bend(const ResizerShape& shape) {
+    return -shape.case_radius + (shape.case_radius + gap) / std::sqrt(2.0);
+}
 double bracket_distance(double a, double b, const ResizerShape& shape) {
     const double c = -shape.case_radius, edge = gap, end = c - leg_length;
     double distance =
@@ -81,8 +85,7 @@ Transform resizer_transform(const Transform& panel, PanelOffset corner) {
 }
 Vector3 resizer_target(const Transform& panel, PanelOffset corner, ResizeCorner side,
                        const ResizerShape& shape) {
-    const double bend = -shape.case_radius + (shape.case_radius + gap) / std::sqrt(2.0);
-    return corner_point(panel, corner, side, bend, bend);
+    return corner_point(panel, corner, side, bend(shape), bend(shape));
 }
 double ray_distance(const Ray& ray, const Vector3& point) {
     const double length = std::sqrt(dot(ray.direction, ray.direction));
@@ -109,7 +112,8 @@ std::optional<Vector3> resizer_hit(const Transform& panel, PanelOffset corner, R
     const double a = side == ResizeCorner::Right ? right : -right;
     const double b = -dot(offset, column(panel, 1));
     const double half = shape.half_size();
-    if (std::abs(a) > half || std::abs(b) > half || (a <= 0 && b <= 0)) {
+    const bool outside = std::abs(a) <= half && std::abs(b) <= half && (a > 0 || b > 0);
+    if (!outside && std::hypot(a - bend(shape), b - bend(shape)) > gap) {
         return {};
     }
     return hit;
@@ -134,13 +138,16 @@ std::vector<std::uint8_t> resizer_pixels(ResizeCorner side, const ResizerShape& 
     }
     return pixels;
 }
-std::array<std::array<float, 4>, 2> resizer_mask(ResizeCorner side, const ResizerShape& shape) {
+ResizerMask resizer_mask(ResizeCorner side, const ResizerShape& shape) {
     const float size = static_cast<float>(shape.pixels()), half = size / 2;
+    const auto offset = static_cast<float>(bend(shape) * pixels_per_meter);
+    const auto radius = static_cast<float>(gap * pixels_per_meter);
     // The outward half at full height, plus the quadrant below the case's bottom edge.
     if (side == ResizeCorner::Right) {
-        return {{{half, 0, half, size}, {0, half, half, half}}};
+        return {{{{half, 0, half, size}, {0, half, half, half}}},
+                {half + offset, half + offset, radius}};
     }
-    return {{{0, 0, half, size}, {half, half, half, half}}};
+    return {{{{0, 0, half, size}, {half, half, half, half}}}, {half - offset, half + offset, radius}};
 }
 double ResizerFade::update(double target, double now) {
     constexpr double fade_in = .12, fade_out = .2; // Seconds for a complete fade.

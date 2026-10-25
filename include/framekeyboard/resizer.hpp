@@ -51,15 +51,23 @@ class ResizerReach {
   private:
     bool near_{};
 };
-// Where the ray meets the panel plane inside the resizer's laser area.
+// Where the ray meets the panel plane inside the resizer's laser area, the
+// same area as resizer_mask.
 std::optional<Vector3> resizer_hit(const Transform& panel, PanelOffset corner, ResizeCorner side,
                                    const ResizerShape& shape, const Ray& ray);
 // The bracket image: `_|` for the right corner, mirrored for the left. RGBA,
 // not premultiplied, shape.pixels() square, rows from the top.
 std::vector<std::uint8_t> resizer_pixels(ResizeCorner side, const ResizerShape& shape);
-// Intersection-mask rectangles {x, y, width, height} in the overlay's
-// top-left pixel coordinates, covering the three outside quadrants.
-std::array<std::array<float, 4>, 2> resizer_mask(ResizeCorner side, const ResizerShape& shape);
+// The laser area in the overlay's top-left pixel coordinates: rectangles
+// {x, y, width, height} for the three quadrants outside the sharp corner, and
+// a circle {x, y, radius} around the bracket's bend. On a large keyboard the
+// bend lies inside the sharp corner; the circle reaches it without entering
+// the rounded case, since it is the bracket's gap wide.
+struct ResizerMask {
+    std::array<std::array<float, 4>, 2> rectangles{};
+    std::array<float, 3> circle{};
+};
+ResizerMask resizer_mask(ResizeCorner side, const ResizerShape& shape);
 // Eases displayed opacity toward a target so the resizer fades in and out.
 class ResizerFade {
   public:

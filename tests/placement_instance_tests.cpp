@@ -1116,9 +1116,43 @@ void resizer_tests() {
     }
     require(large_clear, "a large radius still fits its overlay");
     const auto mask = fk::resizer_mask(fk::ResizeCorner::Right, shape);
-    require(mask[0] == std::array<float, 4>{64, 0, 64, 128} &&
-                mask[1] == std::array<float, 4>{0, 64, 64, 64},
+    require(mask.rectangles[0] == std::array<float, 4>{64, 0, 64, 128} &&
+                mask.rectangles[1] == std::array<float, 4>{0, 64, 64, 64},
             "the right mask covers the outward half and the quadrant below the case");
+    // The bend of a large keyboard's bracket lies inside the sharp corner, yet
+    // stays clickable, while the rounded case behind it keeps the laser.
+    for (const double width : {.45, .95, 1.2, 2.0}) {
+        for (const double theme_radius : {0.0, 20.0, 40.0}) {
+            const fk::ResizerShape sized{std::round(theme_radius * width / 1600 * 4000) / 4000};
+            const double r = sized.case_radius;
+            for (const auto side : {fk::ResizeCorner::Left, fk::ResizeCorner::Right}) {
+                const auto corner = side == fk::ResizeCorner::Right ? right : left;
+                const double outward = side == fk::ResizeCorner::Right ? 1 : -1;
+                const auto target = fk::resizer_target(panel, corner, side, sized);
+                require(fk::resizer_hit(panel, corner, side, sized, toward(target)).has_value(),
+                        "a ray through the visible bend reaches the resizer");
+                // 40% of the radius in from both sharp edges is inside the rounded case.
+                const double in = r > 0 ? .4 * r : .002;
+                require(!fk::resizer_hit(panel, corner, side, sized,
+                                         toward({corner.right - outward * in, 1 + corner.up + in, -1})),
+                        "the rounded case's corner keeps the laser");
+                const auto area = fk::resizer_mask(side, sized);
+                const double ppm = fk::ResizerShape::pixels_per_meter, middle = sized.pixels() / 2.0;
+                const double x = middle + (target[0] - corner.right) * ppm;
+                const double y = middle - (target[1] - 1 - corner.up) * ppm;
+                const bool in_rectangles =
+                    std::any_of(area.rectangles.begin(), area.rectangles.end(), [&](const auto& m) {
+                        return x >= m[0] && y >= m[1] && x < m[0] + m[2] && y < m[1] + m[3];
+                    });
+                require(in_rectangles ||
+                            std::hypot(x - area.circle[0], y - area.circle[1]) <= area.circle[2],
+                        "the overlay mask also takes the bend");
+                const double kx = middle - outward * in * ppm, ky = middle - in * ppm;
+                require(std::hypot(kx - area.circle[0], ky - area.circle[1]) > area.circle[2] || r == 0,
+                        "the mask's circle stays out of the rounded case");
+            }
+        }
+    }
 
     fk::ResizerFade fade;
     near(fade.update(1, 10), 0, "a fade starts from hidden");
