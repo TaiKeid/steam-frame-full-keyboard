@@ -362,6 +362,20 @@ void picker_tests() {
     picker.cancel_pointer(1);
     require(picker.up(1, x, y, 0).type.empty(), "a cancelled press types nothing");
 
+    // A stick step keeps the hover, on whatever is now under the laser.
+    {
+        picker.reset();
+        const auto hovered_before = picker.view();
+        const auto [hx, hy] = center(hovered_before.cells[2].bounds);
+        picker.move(1, hx, hy, 0);
+        picker.scroll(hx, hy, 1);
+        const auto after = picker.view();
+        require(std::count_if(after.cells.begin(), after.cells.end(),
+                              [&](const auto& c) { return c.hovered && c.bounds.contains(hx, hy); }) ==
+                    1,
+                "the cell now under the laser is hovered");
+        picker.cancel();
+    }
     // Stick notches scroll; tabs jump to their category.
     require(picker.scroll(x, y, 1) && picker.scroll_offset() > 0, "the stick scrolls the grid");
     require(!picker.scroll(x, y, -1000) || picker.scroll_offset() == 0, "and stops at the start");

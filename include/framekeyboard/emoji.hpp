@@ -193,6 +193,7 @@ class EmojiPicker {
     };
     void stop_glide();
     void scrolled(); // After the grid scrolls under the laser.
+    void rehover();
     void layout_items();
     Hit hit(double x, double y) const;
     Rect cell_bounds(const Item& item) const;
@@ -221,6 +222,7 @@ class EmojiPicker {
     std::optional<Press> press_;
     std::optional<Glide> glide_;
     std::map<unsigned, Hit> hovered_;
+    std::map<unsigned, std::pair<double, double>> positions_; // Last laser position, for rehover().
     std::uint64_t glyphs_{};
 };
 } // namespace framekeyboard

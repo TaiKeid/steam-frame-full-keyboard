@@ -346,7 +346,14 @@ void EmojiPicker::reset() {
 void EmojiPicker::scrolled() {
     chosen_group_.reset();
     reveal_tab(active_group());
-    hovered_.clear(); // Whatever was under the laser has moved.
+    rehover();
+}
+void EmojiPicker::rehover() {
+    // What lies under each laser has moved; look again rather than wait for
+    // its next move, which would repaint once more.
+    for (const auto& [pointer, position] : positions_) {
+        hovered_[pointer] = hit(position.first, position.second);
+    }
 }
 std::vector<std::size_t> EmojiPicker::shown_groups() const {
     std::vector<std::size_t> groups;
@@ -492,6 +499,7 @@ bool EmojiPicker::contains(double x, double y) const {
 }
 EmojiPicker::Event EmojiPicker::down(unsigned pointer, double x, double y, double now) {
     Event event;
+    positions_[pointer] = {x, y};
     if (press_) {
         return event; // One press at a time; another hand's press waits.
     }
@@ -511,6 +519,7 @@ EmojiPicker::Event EmojiPicker::down(unsigned pointer, double x, double y, doubl
 }
 EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y, double now) {
     Event event;
+    positions_[pointer] = {x, y};
     if (press_ && press_->pointer == pointer) {
         auto& press = *press_;
         if (press.popup) {
@@ -561,6 +570,7 @@ EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y, doubl
 }
 EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y, double now) {
     Event event;
+    positions_[pointer] = {x, y};
     if (!press_ || press_->pointer != pointer) {
         return move(pointer, x, y, now);
     }
@@ -676,7 +686,7 @@ bool EmojiPicker::scroll(double x, double y, double steps) {
     } else {
         return false;
     }
-    hovered_.clear(); // Whatever was under the laser has moved.
+    rehover();
     return true;
 }
 void EmojiPicker::cancel_pointer(unsigned pointer) {
@@ -684,11 +694,13 @@ void EmojiPicker::cancel_pointer(unsigned pointer) {
         press_.reset();
     }
     hovered_.erase(pointer);
+    positions_.erase(pointer);
 }
 void EmojiPicker::cancel() {
     press_.reset();
     stop_glide();
     hovered_.clear();
+    positions_.clear();
 }
 void EmojiPicker::stop_glide() {
     glide_.reset();
