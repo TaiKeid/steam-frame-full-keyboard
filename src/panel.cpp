@@ -764,11 +764,33 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     if (!full && previous_->view.emoji != view.emoji) {
         const auto& old = *previous_->view.emoji;
         const auto& now = *view.emoji;
-        if (old.cells != now.cells || old.hint != now.hint || old.hint_bounds != now.hint_bounds ||
-            old.glyphs != now.glyphs || old.grid != now.grid) {
+        // A hover or press changes only its own cell or tab: with nothing moved
+        // or redrawn, repaint just those, not the whole grid or tab row.
+        auto same_place = [](const auto& a, const auto& b) {
+            return a.size() == b.size() &&
+                   std::equal(a.begin(), a.end(), b.begin(),
+                              [](const auto& x, const auto& y) { return x.bounds == y.bounds; });
+        };
+        const bool grid_still = old.grid == now.grid && old.hint == now.hint &&
+                                old.hint_bounds == now.hint_bounds && old.glyphs == now.glyphs &&
+                                same_place(old.cells, now.cells);
+        if (grid_still) {
+            for (std::size_t i = 0; i < now.cells.size(); ++i) {
+                if (old.cells[i] != now.cells[i]) {
+                    damage_area(pixel_bounds(now.cells[i].bounds, 1));
+                }
+            }
+        } else {
             damage_area(pixel_bounds(now.grid, 1));
         }
-        if (old.tab_list != now.tab_list || old.tabs != now.tabs) {
+        if (old.tabs == now.tabs && old.scrolling_tabs == now.scrolling_tabs &&
+            same_place(old.tab_list, now.tab_list)) {
+            for (std::size_t i = 0; i < now.tab_list.size(); ++i) {
+                if (old.tab_list[i] != now.tab_list[i]) {
+                    damage_area(pixel_bounds(now.tab_list[i].bounds, 1));
+                }
+            }
+        } else {
             damage_area(pixel_bounds(now.tabs, 1));
         }
         // Tone images can arrive after the popup opens, and above the grid's top

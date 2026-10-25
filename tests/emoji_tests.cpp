@@ -641,6 +641,26 @@ void app_tests() {
         toggle();
     }
 
+    // Hover redraws only the changed cells and tabs, matching a full repaint.
+    {
+        toggle();
+        wait_for_emoji(app);
+        PanelRenderer partial;
+        partial.paint(app.view(), 20, true);
+        const auto opened = app.view();
+        for (const auto& target : {opened.emoji->cells[3].bounds, opened.emoji->cells[4].bounds,
+                                   opened.emoji->tab_list[2].bounds, opened.emoji->cells[3].bounds}) {
+            const auto [hx, hy] = center(target);
+            app.move(0, hx, hy);
+            const auto view = app.view();
+            partial.paint(view, 20);
+            PanelRenderer full;
+            full.paint(view, 20, true);
+            require(partial.rgba() == full.rgba(), "a hover repaint matches a full repaint");
+        }
+        toggle();
+    }
+
     // Close after choosing.
     Settings settings = load_settings(directory.path, *std::make_unique<std::vector<std::string>>());
     settings.emoji_close_on_select = true;
