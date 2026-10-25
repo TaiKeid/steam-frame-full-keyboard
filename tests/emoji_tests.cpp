@@ -548,6 +548,10 @@ void app_tests() {
     auto view = app.view();
     require(view.emoji && view.layout->keys.size() == 10, "the picker has its own keys");
     require(view.emoji->width == app.geometry().emoji->width, "geometry keeps the case width");
+    const auto input = app.input_view();
+    require(input.emoji && input.emoji->cells.empty() && input.emoji->width == view.emoji->width &&
+                panel_case_bounds(input) == panel_case_bounds(view),
+            "the input view skips the cells but keeps the case");
     const auto* grin = cell(*view.emoji, "😀");
     require(grin, "the first smiley is in view");
     auto [x, y] = center(grin->bounds);

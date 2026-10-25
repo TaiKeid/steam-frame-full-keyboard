@@ -450,7 +450,7 @@ PanelView App::geometry() const {
     }
     return v;
 }
-PanelView App::view() const {
+PanelView App::build_view(bool picker) const {
     PanelView v;
     v.layout = &profiles_.layouts.at(settings_.active.layout);
     v.theme = &profiles_.themes.at(settings_.active.theme);
@@ -566,9 +566,13 @@ PanelView App::view() const {
         v.preedit.clear();
         v.key_labels.clear();
         v.flick_preview.reset();
-        v.emoji = emoji_.view();
+        if (picker) {
+            v.emoji = emoji_.view();
+            v.emoji_glyphs = emoji_glyphs_.get();
+        } else {
+            v.emoji.emplace(); // Only its width, which sets the case.
+        }
         v.emoji->width = emoji_width_;
-        v.emoji_glyphs = emoji_glyphs_.get();
     } else if (!emoji_available()) {
         for (const auto& key : v.layout->keys) {
             if (key.action_kind == ActionKind::Emoji) {
@@ -634,7 +638,7 @@ bool App::move(unsigned pointer, double x, double y) {
             return false; // Scrolling or choosing a tone: keys under the laser don't count.
         }
     }
-    const auto v = view();
+    const auto v = input_view();
     HoverTarget target;
     for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
         if (v.popup && it->style != ControlStyle::MenuItem &&
@@ -665,7 +669,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     move(pointer, x, y);
-    const auto v = view();
+    const auto v = input_view();
     if (settings_open_ && settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;

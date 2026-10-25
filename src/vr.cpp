@@ -1577,7 +1577,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         auto pointer_move = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y,
                                 bool controller) {
             if (device < hovered_devices.size()) {
-                hovered_devices[device] = panel_case_bounds(app.view()).contains(x, y);
+                hovered_devices[device] = panel_case_bounds(app.geometry()).contains(x, y);
             }
             if (!drag.active()) {
                 if (app.move(pointer, x, y) && controller) {
@@ -1590,7 +1590,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (drag.active()) {
                 return;
             }
-            const auto view = app.view();
+            const auto view = app.input_view();
             const auto handle = panel_move_handle_bounds(view);
             if (app.allows_movement(MoveSource::Laser) && !view.popup && handle &&
                 handle->contains(x, y)) {
@@ -1763,7 +1763,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             dismiss_panel();
         }
         if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
-            const auto view = app.view();
+            const auto view = app.input_view();
             // The same areas as the intersection mask: transparent margins never take the ray.
             auto accepts = [&](double x, double y) {
                 const auto preview = flick_preview_bounds(view);
@@ -2130,7 +2130,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::optional<PanelView> full;
             for (std::size_t side = 0; side < 2; ++side) {
                 if ((target[side] > 0 || resizers.visible(side)) && !full) {
-                    full = app.view();
+                    full = app.input_view();
                 }
                 if (full && resizer_covers_popup(*full, displayed.width(), side, shape)) {
                     resizers.hide(side);

@@ -42,7 +42,10 @@ class App {
     ~App();
     App(const App&) = delete;
     App& operator=(const App&) = delete;
-    PanelView view() const;
+    PanelView view() const { return build_view(true); }
+    // Everything but the emoji picker's cells and tabs, for hit tests and
+    // input areas: building those for every laser event is the costly part.
+    PanelView input_view() const { return build_view(false); }
     // Only what key placement depends on, for converting pointer coordinates
     // without building controls or copying the swipe trail.
     PanelView geometry() const;
@@ -146,6 +149,7 @@ class App {
 
   private:
     std::vector<Control> controls() const;
+    PanelView build_view(bool picker) const;
     void update_settings_ui();
     void activate(Selection selection);
     void save();
