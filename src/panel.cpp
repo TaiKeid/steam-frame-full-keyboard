@@ -456,10 +456,10 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
     }
     if (key.icon != Icon::None) {
         const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
-        const double size = super_icon                    ? 22
-                            : key.icon == Icon::Backspace ? 18
-                            : key.icon == Icon::Emoji     ? 26
-                                                          : 32;
+        const double size = super_icon                                          ? 22
+                            : key.icon == Icon::Backspace                       ? 18
+                            : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
+                                                                                : 32;
         draw_icon(cr, key.icon, face, disabled ? disabled_legend(t) : t.legend, size);
         return;
     }
