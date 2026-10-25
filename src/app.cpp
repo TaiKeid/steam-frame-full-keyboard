@@ -208,6 +208,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         settings_writer_.reconcile(settings_);
     }
 }
+App::~App() {
+    save_emoji(); // Reports failure only in a status nobody will see; never throws.
+}
 std::vector<Control> App::controls() const {
     std::vector<Control> result;
     auto add = [&](ControlAction action, Control control) {

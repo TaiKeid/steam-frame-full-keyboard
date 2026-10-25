@@ -37,6 +37,11 @@ class App {
   public:
     App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {},
         Updates* updates = nullptr, SettingsWriter::Write reconcile_preferences = {});
+    // Saves emoji typed and a tone chosen while the picker is still open, as
+    // when SteamVR quits.
+    ~App();
+    App(const App&) = delete;
+    App& operator=(const App&) = delete;
     PanelView view() const;
     // Only what key placement depends on, for converting pointer coordinates
     // without building controls or copying the swipe trail.

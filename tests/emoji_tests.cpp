@@ -606,6 +606,32 @@ void app_tests() {
     require(closing_sink.text.size() == 1 && !closing.emoji_open(), "choosing can close the picker");
 }
 
+void shutdown_tests() {
+    // Quitting with the picker open still saves what was chosen.
+    TemporaryDirectory directory;
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    {
+        App app(options, sink);
+        const auto [x, y] = key_center(app, "picker");
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        wait_for_emoji(app);
+        const auto view = app.view();
+        const auto [cx, cy] = center(cell(*view.emoji, "😀")->bounds);
+        app.down(0, cx, cy, 2);
+        app.up(0, cx, cy);
+        require(app.emoji_open(), "the picker is still open at quit");
+    }
+    require(load_emoji_preferences(directory.path / "emoji.json").recent ==
+                std::vector<std::string>{"😀"},
+            "recent emoji are saved when the app ends with the picker open");
+}
+
 void unavailable_tests() {
     TemporaryDirectory directory;
     NullSink sink;
@@ -633,6 +659,7 @@ int main() {
         stick_tests();
         picker_tests();
         app_tests();
+        shutdown_tests();
         unavailable_tests();
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';
