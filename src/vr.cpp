@@ -1220,9 +1220,12 @@ class VrPanel {
                                 : vr::VROverlayFlags_SendVRDiscreteScrollEvents;
         const auto now = scroll ? vr::VROverlayFlags_SendVRDiscreteScrollEvents
                                 : vr::VROverlayFlags_SendVRSmoothScrollEvents;
-        if (overlay->SetOverlayFlag(handle_, old, false) == vr::VROverlayError_None &&
-            overlay->SetOverlayFlag(handle_, now, true) == vr::VROverlayError_None) {
-            scroll_ = scroll;
+        // Recorded even if the runtime refuses, so a refusal costs two calls
+        // per change rather than two every frame; the next change tries again.
+        scroll_ = scroll;
+        if (overlay->SetOverlayFlag(handle_, old, false) != vr::VROverlayError_None ||
+            overlay->SetOverlayFlag(handle_, now, true) != vr::VROverlayError_None) {
+            std::cout << "Keyboard scroll mode not changed.\n" << std::flush;
         }
     }
     // Outside the dashboard in passthrough the overlay takes no SteamVR laser
