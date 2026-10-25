@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0: Swipe typing, flick input and typing over pinned windows
 
 - With the numpad hidden or on the flick layout, the toolbar uses two rows: Settings, Recenter, Pin and the language on top, the zoom buttons and Stay open over apps below. Swipe suggestions no longer cover the language button.
 - Auto leveling now lines the keyboard's long edge up properly. It removes both one end being higher than the other and a slight turn away, and keeps the desk tilt. Near the dashboard the keyboard lines up with the dashboard, which Steam often leaves slightly rolled. Elsewhere it ends level and facing you. Once it has been shown over apps with the dashboard closed, it stays level with the room, even when the dashboard opens again, until you move or recenter it, so opening the dashboard no longer turns it. When the dashboard carries the keyboard to a new heading, the room leveling turns along. Before, it only turned the keyboard around its own face, which levelled the edge but left a hand tilt as a visible twist, and it ignored the dashboard's own roll.
@@ -10,7 +10,6 @@
 - Fixed windows pinned in the world: with Replace native keyboard on and the dashboard closed, their keyboard button opened Steam's keyboard, because Full Keyboard could only appear inside the dashboard. It now opens Full Keyboard on the first press, in a mode that stays open outside the dashboard and types into that window. Outside the dashboard the keyboard reads the controllers itself instead of taking SteamVR's laser, so other apps keep all of their input; pulling the trigger on a key also reaches them. A dot shows where each controller points. The new **Stay open over apps** button after Pin turns this mode on or off; it is not saved. Pulling the trigger outside the keyboard, with either hand, removes swipe suggestions, since that click may have moved the cursor. When a pinned window's button turned it on, it stays on after that window's request ends.
 - Added the **Japanese flick 12-key** layout with the 日本語 — Flick language: the 12-key kana grid used on Japanese phones, with flick and toggle (repeated tap) input, a cross-shaped preview of the flick kana while a key is held, ゛゜小 for voiced and small kana, and the usual conversion. It keeps Esc, the F keys and the number row, and leaves out Ctrl, Alt, Super and Caps Lock.
 - Settings now dims languages the selected layout cannot type, and says so while the Language list is open. Choosing a layout that cannot type the current language switches to the most likely language for it, such as Romaji when leaving the flick layout.
-
 - The Backspace key now shows a ⇤-style icon instead of the word, distinct from the left arrow.
 - The Japanese Romaji and Kana composition hint is now shown in Japanese.
 - Switching to the external JIS profile while Full Keyboard is replacing Steam's keyboard no longer hands the request back to Steam's keyboard, which looked like a crash. Full Keyboard stays open, explains that external JIS cannot type there, and blocks typing until another language is chosen.
