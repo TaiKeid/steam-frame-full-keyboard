@@ -41,6 +41,8 @@ struct Language {
     std::vector<std::string> required_keys;
     // Optional swipe word list ID; empty means the profile does not offer swipe.
     std::string swipe_lexicon;
+    // Whisper language code for dictation; empty means the profile has no dictation.
+    std::string dictation_language;
 };
 struct Selection {
     bool operator==(const Selection&) const = default;
@@ -71,7 +73,17 @@ struct Settings {
     bool swipe_typing{};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
+    // Dictation (docs/dictation.md). Read here and kept by every save; the
+    // Dictation card that edits them comes later. An invalid value turns
+    // dictation off without affecting any other setting.
+    std::string dictation{"off"}; // "off" or "server"
+    std::string dictation_server; // host[:port]
+    std::string dictation_url;    // or a full base URL
+    std::string dictation_model;
 };
+// Whether a server address or URL is one the dictation helper accepts.
+bool valid_dictation_server(const std::string& server);
+bool valid_dictation_url(const std::string& url);
 
 fs::path default_config_dir();
 // Defaults are embedded. Reload may retain a previous valid user override on errors.

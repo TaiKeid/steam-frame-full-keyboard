@@ -36,7 +36,7 @@ Keep a compiled safe default available. If a user override is invalid, retain th
 
 ## Layouts and styles
 
-Layout JSON defines key rectangles and actions. An action's `kind` is `key` (a physical key name), `shortcut` (`copy` or `paste`) or `flick` (a slot name of the language's `flick` map; it never sends a physical key). An optional `icon` field accepts `copy`, `paste`, `steam-frame`, `steam-os` or `backspace`; omitting it renders the text label. Icons use the theme legend color and move with the key face. Modifiers latch on tap by default. Set a key's `sticky` field to `false` for a native press/release hold; bundled right Super uses this for the desktop menu. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
+Layout JSON defines key rectangles and actions. An action's `kind` is `key` (a physical key name), `shortcut` (`copy` or `paste`), `flick` (a slot name of the language's `flick` map; it never sends a physical key), `emoji` (`picker`) or `dictation` (`mic`, which opens dictation mode and is shown only when dictation is usable). An optional `icon` field accepts `copy`, `paste`, `steam-frame`, `steam-os`, `backspace`, `emoji` or `mic`; omitting it renders the text label. Icons use the theme legend color and move with the key face. Modifiers latch on tap by default. Set a key's `sticky` field to `false` for a native press/release hold; bundled right Super uses this for the desktop menu. The existing validator checks bounds and overlap. The runtime validator limits profile size, key count, label length and action types. Profiles are data and cannot execute commands or scripts.
 
 Theme JSON defines renderer properties directly. Support surface and legend colors, key-face gradients, side colors/depth, corner radii, spacing/padding and font sizing, plus hover, pressed, latched and disabled state styles. The current renderer consumes the graphite fields plus `font_size`, `small_font_size`, `padding`, `hover` and `latched`. It uses immediate hover/latched colors and animated press travel. The `disabled` color blends with the legend color to dim unavailable settings controls; keyboard keys have no separate disabled state. Per-key fonts, arbitrary spacing rules and additional state styles remain future work. Native rendering does not require CSS or JavaScript theme execution.
 
@@ -94,6 +94,21 @@ The small emoji key at the top of the left column opens the emoji picker in plac
 - **Availability:** the key is dimmed and ignores the laser with the uinput backend, with external JIS, while Unicode text delivery is unavailable, or without a color emoji font. The picker closes if delivery is lost while it is open. The language button is dimmed while the picker is open.
 - **Closing:** the picker closes on Back, when the keyboard hides, and when Settings opens; the keyboard always reopens on its keys. General → **Close emoji picker after choosing**, saved as the optional boolean `emoji_close_on_select` and defaulting to false, also closes it after each emoji.
 - **Storage:** `emoji.json` beside `placement.json` (schema 1: `tone` 0–5 and up to 64 `recent` emoji) honors `--config-dir`. It is written when the picker closes or Recent is cleared, and a missing or invalid file starts empty. It records typed emoji, so the app never logs it.
+
+## Dictation
+
+Dictation is being built and is not released yet; the design is in [dictation](dictation.md). Until its Settings card exists, it is configured in `config.json`:
+
+- `dictation`: `"off"` (the default) or `"server"`.
+- `dictation_server`: the user's own speech server as `host` or `host:port`; port 8031 is assumed.
+- `dictation_url`: instead of a server, a full base URL of a hosted OpenAI-compatible provider, such as `https://api.groq.com/openai/v1`.
+- `dictation_model`: the model name, for servers and providers that need one.
+
+The API key for a provider is not stored here, but in `dictation-key` beside `config.json`, readable only by the user (see [speech server setup](speech-server.md#hosted-providers)). An invalid dictation field turns dictation off with a message and leaves every other setting as it is. Saving from Settings keeps these fields.
+
+A language profile offers dictation with a `dictation` object holding its Whisper language code, for example `"dictation": {"language": "en"}`. The bundled English profiles have one. The mic key shows when dictation is configured, the active language has a `dictation` object and uses the `xkb` input method; composition profiles follow later.
+
+In dictation mode the keyboard edits a local editor and sends nothing to the target. The function keys, Tab, Insert, Ctrl, Super, Alt, Steam, Menu, Copy, Paste and the emoji key give way to the editor, a Send key and an Undo key. Esc leaves the mode and keeps the text for the next time. Swipe typing is off in it.
 
 ## Implementation order
 

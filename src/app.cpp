@@ -449,6 +449,12 @@ PanelView App::geometry() const {
         v.composing = false;
         v.emoji.emplace().width = emoji_width_;
     }
+    v.dictation_available = dictation_available();
+    if (dictation_open_) {
+        v.layout = &dictation_layout_.layout;
+        v.composing = false;
+        set_dictation_view(v);
+    }
     return v;
 }
 PanelView App::build_view(bool picker) const {
@@ -478,7 +484,8 @@ PanelView App::build_view(bool picker) const {
     }
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings ||
-                              options_.mode == Mode::RenderEmoji;
+                              options_.mode == Mode::RenderEmoji ||
+                              options_.mode == Mode::RenderDictation;
     if (v.status.empty() && !typing_ready_ && !image_export) {
         // External JIS sends physical keys to a system IME, which a replaced
         // Steam keyboard request cannot receive.
@@ -590,6 +597,21 @@ PanelView App::build_view(bool picker) const {
             if (key.action_kind == ActionKind::Emoji) {
                 v.disabled_keys.insert(key.id);
             }
+        }
+    }
+    v.dictation_available = dictation_available();
+    if (dictation_open_) {
+        // The mode has its own keys; swipe and composition are off in it.
+        v.layout = &dictation_layout_.layout;
+        v.composing = false;
+        v.preedit.clear();
+        v.key_labels.clear();
+        v.flick_preview.reset();
+        v.swipe_trail.clear();
+        set_dictation_view(v);
+        v.disabled_keys.insert("Dictation-send"); // Delivery arrives with M3b.
+        if (!editor_.can_undo()) {
+            v.disabled_keys.insert("Dictation-undo");
         }
     }
     for (const auto& [pointer, target] : hovered_) {
@@ -707,7 +729,28 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         dirty |= emoji_.down(pointer, x, y, now).redraw;
         return false;
     }
+    if (dictation_open_ && !settings_open_ && v.dictation && v.dictation->bounds.contains(x, y)) {
+        const auto area = editor_text_area(v);
+        editor_.set_cursor(editor_index_at(v, x - area.x, y - area.y + editor_scroll_));
+        editor_goal_x_.reset();
+        follow_cursor();
+        dirty = true;
+        return false;
+    }
     if (const auto* key = renderer.hit_key(v, x, y)) {
+        if (dictation_open_) {
+            return dictation_down(pointer, *key, now);
+        }
+        if (key->action_kind == ActionKind::Dictation) {
+            // The mic key opens dictation mode on release, like a toolbar button.
+            if (dictation_key_pointer_ || keyboard_.pointer_pressed(pointer) ||
+                !keyboard_.down(pointer, *key, now, true, 0)) {
+                return false;
+            }
+            dictation_key_pointer_ = pointer;
+            dirty = true;
+            return true;
+        }
         // Taps and flicks type on release, so the other hand often presses
         // before this one lets go. Type the held one first to keep press order.
         if (flick_track_ && flick_track_->pointer != pointer) {
@@ -881,6 +924,22 @@ bool App::up(unsigned pointer, double x, double y) {
     }
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
+    if (editor_repeat_ && editor_repeat_->pointer == pointer) {
+        editor_repeat_.reset();
+    }
+    if (dictation_key_pointer_ == pointer) {
+        dictation_key_pointer_.reset();
+        const auto& hovered = hovered_[pointer];
+        const auto view = input_view();
+        const auto key =
+            std::find_if(view.layout->keys.begin(), view.layout->keys.end(), [&](const Key& k) {
+                return k.id == hovered.id && k.action_kind == ActionKind::Dictation;
+            });
+        if (hovered.kind == HoverTarget::Kind::Key && key != view.layout->keys.end() &&
+            !view.disabled_keys.contains(key->id)) {
+            dictation_key_up(*key);
+        }
+    }
     if (emoji_key_pointer_ == pointer) {
         emoji_key_pointer_.reset();
         const auto& hovered = hovered_[pointer];
@@ -926,6 +985,12 @@ void App::cancel_pointer(unsigned pointer) {
     if (emoji_key_pointer_ == pointer) {
         emoji_key_pointer_.reset();
     }
+    if (dictation_key_pointer_ == pointer) {
+        dictation_key_pointer_.reset();
+    }
+    if (editor_repeat_ && editor_repeat_->pointer == pointer) {
+        editor_repeat_.reset();
+    }
     pointer_positions_.erase(pointer);
     keyboard_.cancel_pointer(pointer);
     pressed_controls_.erase(pointer);
@@ -936,6 +1001,8 @@ void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
     emoji_.cancel();
     emoji_key_pointer_.reset();
+    dictation_key_pointer_.reset();
+    editor_repeat_.reset();
     pointer_positions_.clear();
     // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
     flick_track_.reset();
@@ -984,6 +1051,28 @@ bool App::tick(double now) {
     }
     refresh_typing();
     update_emoji(now);
+    if (dictation_open_) {
+        if (!dictation_available()) {
+            close_dictation(); // the profile or settings no longer allow it
+        } else {
+            refresh_dictation_layout();
+        }
+    }
+    if (editor_repeat_ && now >= editor_repeat_->next) {
+        if (!dictation_open_ || !keyboard_.pointer_pressed(editor_repeat_->pointer)) {
+            editor_repeat_.reset();
+        } else {
+            if (editor_repeat_->text.empty()) {
+                run_editor_command(editor_repeat_->command);
+            } else {
+                editor_.type(editor_repeat_->text);
+                follow_cursor();
+            }
+            // Repeats never catch up after a stall, like the output queue's.
+            editor_repeat_->next = now + .04;
+            dirty = true;
+        }
+    }
     finish_swipe(false);
     dirty |= output_.tick(now);
     forget_failed_swipe();
@@ -2480,5 +2569,291 @@ void App::save_emoji() {
     } catch (const std::exception& error) {
         status_ = "Recent emoji not saved: " + std::string(error.what());
     }
+}
+
+bool App::dictation_available() const {
+    if (options_.mode == Mode::RenderDictation) {
+        return true; // image exports show the mode whatever the settings
+    }
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    // Composer profiles wait until their commits can go into the editor.
+    return settings_.dictation == "server" &&
+           (!settings_.dictation_server.empty() || !settings_.dictation_url.empty()) &&
+           !language.dictation_language.empty() && language.input_method == "xkb";
+}
+
+void App::open_dictation() {
+    if (dictation_open_ || settings_open_ || !dictation_available()) {
+        return;
+    }
+    close_emoji();
+    // A swiped word still being decoded goes to the target first, as before
+    // any other key; the editor starts from a keyboard with nothing held.
+    finish_swipe(true);
+    discard_swipe();
+    swipe_space_ = false;
+    cancel();
+    dictation_open_ = true;
+    dictation_layout_key_.clear();
+    refresh_dictation_layout();
+    text_output_ = &editor_output_;
+    editor_goal_x_.reset();
+    follow_cursor();
+    status_.clear();
+    dirty = true;
+}
+
+void App::close_dictation() {
+    if (!dictation_open_) {
+        return;
+    }
+    dictation_open_ = false;
+    text_output_ = options_.text_output ? options_.text_output : &output_;
+    // Held editor keys must not turn into presses on the keyboard's keys. The
+    // text stays in memory until the mode opens again.
+    cancel();
+    dirty = true;
+}
+
+void App::show_dictation() {
+    open_dictation();
+    editor_.clear();
+    editor_.type(
+        "Dictation turns speech into text. You speak, check the text here, and send it to the "
+        "focused application in one go.\nA second paragraph shows a line break. Longer text wraps "
+        "at the edge and scrolls inside the editor, and the counter shows its length. Phrases join "
+        "with a space where one is needed, and the thumbstick or Page Up and Page Down scroll back "
+        "through what was said.\nA third paragraph makes the text taller than the editor, so the "
+        "scroll indicator appears at its right edge.");
+    editor_.set_cursor(editor_.text().find(" in one go"));
+    follow_cursor();
+}
+
+void App::refresh_dictation_layout() {
+    const auto key = settings_.active.layout + (settings_.hide_numpad ? "/numpad-hidden" : "");
+    if (key == dictation_layout_key_) {
+        return;
+    }
+    PanelView main;
+    main.layout = &profiles_.layouts.at(settings_.active.layout);
+    main.theme = &profiles_.themes.at(settings_.active.theme);
+    main.language = &profiles_.languages.at(settings_.active.language);
+    main.hide_numpad = settings_.hide_numpad;
+    dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main));
+    dictation_layout_key_ = key;
+    dirty = true;
+}
+
+void App::set_dictation_view(PanelView& view) const {
+    DictationView editor;
+    editor.bounds = panel_rect(view, dictation_layout_.editor);
+    editor.text = editor_.text();
+    editor.cursor = editor_.cursor();
+    editor.scroll = editor_scroll_;
+    editor.counter =
+        std::to_string(editor_.length()) + "/" + std::to_string(DictationEditor::dictation_limit);
+    editor.at_limit = !editor_.can_dictate();
+    view.dictation = std::move(editor);
+}
+
+bool App::dictation_down(unsigned pointer, const Key& key, double now) {
+    if (keyboard_.pointer_pressed(pointer)) {
+        return false;
+    }
+    if (key.action_kind == ActionKind::Dictation) {
+        // Mic, Send and Undo act on release, like toolbar buttons.
+        if (dictation_key_pointer_ || input_view().disabled_keys.contains(key.id) ||
+            !keyboard_.down(pointer, key, now, true, 0)) {
+            return false;
+        }
+        dictation_key_pointer_ = pointer;
+        dirty = true;
+        return true;
+    }
+    // Capture the symbol before a latched Shift is consumed by down().
+    const auto modifiers = keyboard_.modifiers();
+    const auto symbol = key.action_kind == ActionKind::Key
+                            ? keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num())
+                            : XKB_KEY_NoSymbol;
+    const bool old_num = keyboard_.num();
+    // Every key is local here: it shows as pressed and latches, but sends nothing.
+    if (!keyboard_.down(pointer, key, now, true, 0)) {
+        return false;
+    }
+    dirty = true;
+    if (keyboard_.num() != old_num) {
+        settings_.num_lock = keyboard_.num();
+        save();
+    }
+    if (key.action_kind != ActionKind::Key || is_modifier(key_code(key.action)) ||
+        key.action == "CapsLock" || key.action == "NumLock") {
+        return true;
+    }
+    if (key.action == "Escape") {
+        keymap_->cancel_compose();
+        close_dictation(); // the text stays for the next time the mode opens
+        return true;
+    }
+    if (const auto command = editor_command(key, symbol); command != EditorCommand::None) {
+        keymap_->cancel_compose();
+        run_editor_command(command);
+        if (command != EditorCommand::PageUp && command != EditorCommand::PageDown &&
+            command != EditorCommand::Newline) {
+            editor_repeat_ = EditorRepeat{pointer, command, {}, now + .5};
+        }
+        return true;
+    }
+    const auto codepoint = xkb_keysym_to_utf32(symbol);
+    if (codepoint == 0 || g_unichar_iscntrl(codepoint)) {
+        return true; // nothing an editor can hold, such as a dead numpad key
+    }
+    const auto text = keymap_->compose(symbol);
+    if (!text.empty() && text_output_->text_press(pointer, text, now)) {
+        editor_goal_x_.reset();
+        follow_cursor();
+        editor_repeat_ = EditorRepeat{pointer, EditorCommand::None, text, now + .5};
+    }
+    return true;
+}
+
+void App::dictation_key_up(const Key& key) {
+    if (key.action == "mic") {
+        if (!dictation_open_) {
+            open_dictation();
+        }
+        // Capture starts here once the helper is connected (M3c).
+    } else if (key.action == "undo") {
+        if (editor_.undo_phrase()) {
+            editor_goal_x_.reset();
+            follow_cursor();
+        }
+    }
+    dirty = true;
+}
+
+App::EditorCommand App::editor_command(const Key& key, xkb_keysym_t symbol) const {
+    switch (symbol) {
+    case XKB_KEY_BackSpace:
+        return EditorCommand::Backspace;
+    case XKB_KEY_Delete:
+    case XKB_KEY_KP_Delete:
+        return EditorCommand::Delete;
+    case XKB_KEY_Return:
+    case XKB_KEY_KP_Enter:
+        return EditorCommand::Newline;
+    case XKB_KEY_Left:
+    case XKB_KEY_KP_Left:
+        return EditorCommand::Left;
+    case XKB_KEY_Right:
+    case XKB_KEY_KP_Right:
+        return EditorCommand::Right;
+    case XKB_KEY_Up:
+    case XKB_KEY_KP_Up:
+        return EditorCommand::Up;
+    case XKB_KEY_Down:
+    case XKB_KEY_KP_Down:
+        return EditorCommand::Down;
+    case XKB_KEY_Home:
+    case XKB_KEY_KP_Home:
+        return EditorCommand::Home;
+    case XKB_KEY_End:
+    case XKB_KEY_KP_End:
+        return EditorCommand::End;
+    case XKB_KEY_Prior:
+    case XKB_KEY_KP_Prior:
+        return EditorCommand::PageUp;
+    case XKB_KEY_Next:
+    case XKB_KEY_KP_Next:
+        return EditorCommand::PageDown;
+    default:
+        break;
+    }
+    // Keys whose keysym the profile does not report, by their physical name.
+    static const std::map<std::string, EditorCommand> by_action{
+        {"Backspace", EditorCommand::Backspace}, {"Delete", EditorCommand::Delete},
+        {"Enter", EditorCommand::Newline},       {"NumpadEnter", EditorCommand::Newline},
+        {"ArrowLeft", EditorCommand::Left},      {"ArrowRight", EditorCommand::Right},
+        {"ArrowUp", EditorCommand::Up},          {"ArrowDown", EditorCommand::Down},
+        {"Home", EditorCommand::Home},           {"End", EditorCommand::End},
+        {"PageUp", EditorCommand::PageUp},       {"PageDown", EditorCommand::PageDown}};
+    if (symbol == XKB_KEY_NoSymbol) {
+        if (const auto it = by_action.find(key.action); it != by_action.end()) {
+            return it->second;
+        }
+    }
+    return EditorCommand::None;
+}
+
+void App::run_editor_command(EditorCommand command) {
+    const auto view = geometry();
+    const auto area = editor_text_area(view);
+    const double content = editor_content_height(view);
+    if (command != EditorCommand::Up && command != EditorCommand::Down) {
+        editor_goal_x_.reset();
+    }
+    switch (command) {
+    case EditorCommand::Backspace:
+        editor_.backspace();
+        break;
+    case EditorCommand::Delete:
+        editor_.erase_forward();
+        break;
+    case EditorCommand::Newline:
+        editor_.type("\n");
+        break;
+    case EditorCommand::Left:
+        editor_.left();
+        break;
+    case EditorCommand::Right:
+        editor_.right();
+        break;
+    case EditorCommand::Up:
+    case EditorCommand::Down: {
+        const auto caret = editor_caret(view, editor_.cursor());
+        const double x = editor_goal_x_.value_or(caret.x);
+        editor_goal_x_ = x;
+        if (command == EditorCommand::Up) {
+            editor_.set_cursor(caret.y < 1 ? 0 : editor_index_at(view, x, caret.y - caret.height / 2));
+        } else {
+            const double y = caret.y + caret.height * 1.5;
+            editor_.set_cursor(y >= content ? editor_.text().size() : editor_index_at(view, x, y));
+        }
+        break;
+    }
+    case EditorCommand::Home:
+        editor_.set_cursor(editor_line(view, editor_.cursor()).first);
+        break;
+    case EditorCommand::End:
+        editor_.set_cursor(editor_line(view, editor_.cursor()).second);
+        break;
+    case EditorCommand::PageUp:
+    case EditorCommand::PageDown: {
+        // Pages scroll the view; the cursor stays where it is.
+        const double page = command == EditorCommand::PageUp ? -area.height : area.height;
+        editor_scroll_ = std::clamp(editor_scroll_ + page, 0.0, std::max(0.0, content - area.height));
+        dirty = true;
+        return;
+    }
+    case EditorCommand::None:
+        return;
+    }
+    follow_cursor();
+    dirty = true;
+}
+
+void App::follow_cursor() {
+    if (!dictation_open_) {
+        return;
+    }
+    const auto view = geometry();
+    const auto area = editor_text_area(view);
+    const auto caret = editor_caret(view, editor_.cursor());
+    const double content = editor_content_height(view);
+    if (caret.y < editor_scroll_) {
+        editor_scroll_ = caret.y;
+    } else if (caret.y + caret.height > editor_scroll_ + area.height) {
+        editor_scroll_ = caret.y + caret.height - area.height;
+    }
+    editor_scroll_ = std::clamp(editor_scroll_, 0.0, std::max(0.0, content - area.height));
 }
 } // namespace framekeyboard

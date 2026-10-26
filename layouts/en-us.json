@@ -49,6 +49,20 @@
       "icon": "paste"
     },
     {
+      "id": "Dictation",
+      "label": "Dictation",
+      "secondary_label": "",
+      "x": 0,
+      "y": 306,
+      "width": 79,
+      "height": 110,
+      "action": {
+        "kind": "dictation",
+        "value": "mic"
+      },
+      "icon": "mic"
+    },
+    {
       "id": "Escape",
       "label": "Esc",
       "secondary_label": "",

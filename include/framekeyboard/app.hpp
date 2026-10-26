@@ -1,6 +1,8 @@
 #pragma once
 
 #include "cjk.hpp"
+#include "dictation_editor.hpp"
+#include "dictation_mode.hpp"
 #include "emoji_glyphs.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
@@ -18,7 +20,17 @@
 namespace framekeyboard {
 class NativeReplacement;
 class Updates;
-enum class Mode { Help, Preview, Vr, Render, RenderSettings, RenderEmoji, Check, Describe };
+enum class Mode {
+    Help,
+    Preview,
+    Vr,
+    Render,
+    RenderSettings,
+    RenderEmoji,
+    RenderDictation,
+    Check,
+    Describe
+};
 enum class InputBackend { None, Ei, Uinput };
 struct Options {
     fs::path data_dir, config_dir, ei_socket, text_socket;
@@ -134,6 +146,9 @@ class App {
     bool updating() const;
     bool take_recenter();
     bool emoji_open() const { return emoji_open_; }
+    bool dictation_open() const { return dictation_open_; }
+    // For image exports: dictation mode with sample text, whatever the settings.
+    void show_dictation();
     // Which ways the stick could scroll what this laser points at: the emoji
     // grid, overflowing tabs, or an overflowing Settings card or list. None
     // elsewhere. SteamVR's dashboard ticks the controller for every scroll
@@ -325,6 +340,64 @@ class App {
     std::uint64_t emoji_content_{};
     std::tuple<int, std::uint64_t, int, bool> emoji_requested_{}; // Size, content, tone, popup.
     int emoji_requested_column_{};
+    // Dictation mode (docs/dictation.md). Its keys edit the editor locally;
+    // none of them reaches the output queue or the target.
+    enum class EditorCommand {
+        None,
+        Backspace,
+        Delete,
+        Newline,
+        Left,
+        Right,
+        Up,
+        Down,
+        Home,
+        End,
+        PageUp,
+        PageDown
+    };
+    // Typed text goes into the editor while dictation mode is open.
+    class EditorOutput : public TextOutput {
+      public:
+        explicit EditorOutput(DictationEditor& editor) : editor_(editor) {}
+        bool text_press(unsigned, const std::string& text, double) override {
+            return editor_.type(text);
+        }
+        bool commit_text(const std::string& text) override { return editor_.type(text); }
+        bool replaces_text() override { return false; }
+        bool replace_text(std::size_t, const std::string&) override { return false; }
+        bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
+
+      private:
+        DictationEditor& editor_;
+    };
+    struct EditorRepeat {
+        unsigned pointer{};
+        EditorCommand command{EditorCommand::None};
+        std::string text; // When the held key types text instead.
+        double next{};
+    };
+    bool dictation_available() const;
+    void open_dictation();
+    void close_dictation();
+    // Rebuilds the mode's keys when the layout or the hidden numpad changed.
+    void refresh_dictation_layout();
+    void set_dictation_view(PanelView& view) const;
+    bool dictation_down(unsigned pointer, const Key& key, double now);
+    void dictation_key_up(const Key& key);
+    EditorCommand editor_command(const Key& key, xkb_keysym_t symbol) const;
+    void run_editor_command(EditorCommand command);
+    // Keeps the cursor's line inside the editor after an edit or a move.
+    void follow_cursor();
+    bool dictation_open_{};
+    DictationEditor editor_;
+    EditorOutput editor_output_{editor_};
+    DictationLayout dictation_layout_;
+    std::string dictation_layout_key_; // Layout ID and numpad state it was built for.
+    double editor_scroll_{};
+    std::optional<double> editor_goal_x_;           // Column kept across Up and Down.
+    std::optional<unsigned> dictation_key_pointer_; // Mic, Send and Undo act on release.
+    std::optional<EditorRepeat> editor_repeat_;
 };
 
 double monotonic_seconds();

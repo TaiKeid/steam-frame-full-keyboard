@@ -18,6 +18,9 @@ std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
     return {};
 }
 bool hidden_key(const PanelView& view, const Key& key) {
+    if (key.action_kind == ActionKind::Dictation && key.action == "mic") {
+        return !view.dictation_available && !view.dictation; // its slot stays empty
+    }
     return view.hide_numpad && !view.settings &&
            (key.action == "NumLock" || key.action.starts_with("Numpad"));
 }
@@ -314,6 +317,20 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-4, 0, 4, 0);
         line(-4, 5, 2, 5);
         break;
+    case Icon::Mic:
+        rounded(cr, {-4, -11, 8, 14}, 4);
+        cairo_stroke(cr);
+        cairo_arc(cr, 0, 0, 7.5, 0, pi);
+        cairo_stroke(cr);
+        line(0, 7.5, 0, 11);
+        line(-4, 11, 4, 11);
+        break;
+    case Icon::Undo:
+        cairo_arc_negative(cr, 1, 1, 8, -.15 * pi, -1.0 * pi);
+        cairo_stroke(cr);
+        line(-7, 1, -10, -4);
+        line(-7, 1, -2, -2);
+        break;
     case Icon::Emoji:
     case Icon::Smileys:
         cairo_arc(cr, 0, 0, 10, 0, 2 * pi);
@@ -530,13 +547,14 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
                               key.action.find_first_not_of("0123456789", 1) == std::string::npos;
     const bool utility =
         g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
+    const auto legend = disabled ? disabled_legend(t) : t.legend;
     if (!secondary.empty()) {
         label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40}, t.small_font_size,
-              view.language->font, t.legend, true);
+              view.language->font, legend, true);
         label(cr, text, {face.x, face.y + face.height * .4, face.width, face.height * .55},
-              t.font_size * .85, view.language->font, t.legend, true);
+              t.font_size * .85, view.language->font, legend, true);
     } else {
-        label(cr, text, face, utility ? t.small_font_size : t.font_size, view.language->font, t.legend,
+        label(cr, text, face, utility ? t.small_font_size : t.font_size, view.language->font, legend,
               true);
     }
 }
@@ -582,9 +600,167 @@ Rect panel_rect(const PanelView& view, Rect r) {
     const auto p = placement(view);
     return {p.x + r.x * p.scale, p.y + r.y * p.scale, r.width * p.scale, r.height * p.scale};
 }
+namespace {
+constexpr double editor_font_size = 19;
+constexpr double editor_padding_x = 14, editor_padding_y = 7;
+// One Pango layout of the editor text, built the same way for painting and
+// for App's cursor movement, so both agree on every line break.
+PangoLayout* editor_layout(const PanelView& view) {
+    // Measuring needs a context but no pixels; one tiny surface serves every call
+    // on the VR thread.
+    static cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+    static cairo_t* context = cairo_create(surface);
+    auto* layout = pango_cairo_create_layout(context);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, view.language->font.c_str());
+    pango_font_description_set_absolute_size(font, editor_font_size * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    const auto area = editor_text_area(view);
+    pango_layout_set_width(layout, static_cast<int>(std::max(1.0, area.width) * PANGO_SCALE));
+    pango_layout_set_wrap(layout, PANGO_WRAP_WORD_CHAR);
+    const auto& text = view.dictation->text;
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    return layout;
+}
+} // namespace
+Rect editor_text_area(const PanelView& view) {
+    const auto& r = view.dictation->bounds;
+    return {r.x + editor_padding_x, r.y + editor_padding_y, r.width - 2 * editor_padding_x,
+            r.height - 2 * editor_padding_y};
+}
+EditorCaret editor_caret(const PanelView& view, std::size_t index) {
+    auto* layout = editor_layout(view);
+    PangoRectangle strong;
+    pango_layout_get_cursor_pos(layout, static_cast<int>(index), &strong, nullptr);
+    g_object_unref(layout);
+    return {static_cast<double>(strong.x) / PANGO_SCALE, static_cast<double>(strong.y) / PANGO_SCALE,
+            std::max(1.0, static_cast<double>(strong.height) / PANGO_SCALE)};
+}
+std::size_t editor_index_at(const PanelView& view, double x, double y) {
+    auto* layout = editor_layout(view);
+    int index = 0, trailing = 0;
+    pango_layout_xy_to_index(layout, static_cast<int>(x * PANGO_SCALE),
+                             static_cast<int>(y * PANGO_SCALE), &index, &trailing);
+    // A click past a character's middle puts the cursor after it.
+    const auto& text = view.dictation->text;
+    const char* p = text.c_str() + index;
+    for (int i = 0; i < trailing && *p; ++i) {
+        p = g_utf8_next_char(p);
+    }
+    g_object_unref(layout);
+    return static_cast<std::size_t>(p - text.c_str());
+}
+std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size_t index) {
+    auto* layout = editor_layout(view);
+    int line_number = 0, x = 0;
+    pango_layout_index_to_line_x(layout, static_cast<int>(index), false, &line_number, &x);
+    auto* line = pango_layout_get_line_readonly(layout, line_number);
+    std::size_t start = static_cast<std::size_t>(line->start_index);
+    std::size_t end = start + static_cast<std::size_t>(line->length);
+    g_object_unref(layout);
+    const auto& text = view.dictation->text;
+    // A wrapped line's trailing space and a hard break stay outside it, so End
+    // lands before them as in other editors.
+    while (end > start && (text[end - 1] == '\n' || (end < text.size() && text[end - 1] == ' '))) {
+        --end;
+    }
+    return {start, end};
+}
+double editor_content_height(const PanelView& view) {
+    auto* layout = editor_layout(view);
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    g_object_unref(layout);
+    return height;
+}
 bool compact_toolbar(const PanelView& view) {
     return !view.settings && panel_case_bounds(view).width < panel_width - 1;
 }
+namespace {
+// The character counter sits in the toolbar row, left of the close button.
+std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
+    for (const auto& control : view.controls) {
+        if (control.action.kind == ControlKind::Close) {
+            return Rect{control.bounds.x - 156, control.bounds.y, 144, control.bounds.height};
+        }
+    }
+    return {};
+}
+void draw_editor(cairo_t* cr, const PanelView& view) {
+    const auto& t = *view.theme;
+    const auto& editor = *view.dictation;
+    const auto& r = editor.bounds;
+    const double radius = t.radius + 2;
+    // A well recessed into the case, the opposite of a keycap: darker than
+    // the case, shaded under its top edge, with a faint rim and a light catch
+    // on its lower lip. Every colour derives from the theme.
+    const Color well{t.surface.r * .55, t.surface.g * .55, t.surface.b * .55};
+    rounded(cr, r, radius);
+    source(cr, well);
+    cairo_fill_preserve(cr);
+    cairo_save(cr);
+    cairo_clip(cr);
+    auto* shade = cairo_pattern_create_linear(0, r.y, 0, r.y + 10);
+    cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, .55);
+    cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, 0);
+    cairo_set_source(cr, shade);
+    cairo_paint(cr);
+    cairo_pattern_destroy(shade);
+    cairo_restore(cr);
+    // The rim takes most of its colour from the keys, so it reads as an edge
+    // even on a case too dark for the well itself to show.
+    rounded(cr, {r.x + .5, r.y + .5, r.width - 1, r.height - 1}, radius);
+    cairo_set_source_rgba(cr, t.surface.r + (t.bottom.r - t.surface.r) * .8,
+                          t.surface.g + (t.bottom.g - t.surface.g) * .8,
+                          t.surface.b + (t.bottom.b - t.surface.b) * .8, 1);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+    // The light catch: a hairline just inside the bottom edge.
+    cairo_move_to(cr, r.x + radius, r.y + r.height - 1.5);
+    cairo_line_to(cr, r.x + r.width - radius, r.y + r.height - 1.5);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .06);
+    cairo_stroke(cr);
+
+    const auto area = editor_text_area(view);
+    cairo_save(cr);
+    cairo_rectangle(cr, area.x, area.y, area.width, area.height);
+    cairo_clip(cr);
+    // The measuring layout itself, so the text lands exactly where App's
+    // cursor moves expect it.
+    auto* layout = editor_layout(view);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .92);
+    cairo_move_to(cr, area.x, area.y - editor.scroll);
+    pango_cairo_show_layout(cr, layout);
+    PangoRectangle caret;
+    pango_layout_get_cursor_pos(layout, static_cast<int>(editor.cursor), &caret, nullptr);
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    g_object_unref(layout);
+    rounded(cr,
+            {area.x + caret.x / PANGO_SCALE - 1, area.y - editor.scroll + caret.y / PANGO_SCALE + 2, 2,
+             std::max(1.0, caret.height / static_cast<double>(PANGO_SCALE) - 4)},
+            1);
+    source(cr, t.legend);
+    cairo_fill(cr);
+    cairo_restore(cr);
+    if (height > area.height) {
+        // A slim indicator in the well's right margin, as quiet as a hint.
+        const double track = r.height - 2 * radius;
+        const double thumb = std::max(18.0, track * area.height / height);
+        const double y = r.y + radius +
+                         (track - thumb) * std::clamp(editor.scroll / (height - area.height), 0.0, 1.0);
+        rounded(cr, {r.x + r.width - 7, y, 3, thumb}, 1.5);
+        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .22);
+        cairo_fill(cr);
+    }
+    if (const auto counter = dictation_counter_bounds(view)) {
+        // Quiet while there is room; amber once dictation has reached its limit.
+        label(cr, editor.counter, *counter, t.small_font_size * 1.3, view.language->font,
+              editor.at_limit ? Color{.96, .72, .35} : disabled_legend(t), false, PANGO_ALIGN_RIGHT);
+    }
+}
+} // namespace
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -639,7 +815,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.key_labels != view.key_labels ||
         previous_->view.disabled_keys != view.disabled_keys ||
-        previous_->view.emoji.has_value() != view.emoji.has_value();
+        previous_->view.emoji.has_value() != view.emoji.has_value() ||
+        previous_->view.dictation.has_value() != view.dictation.has_value() ||
+        previous_->view.dictation_available != view.dictation_available;
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
@@ -799,6 +977,15 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 if (*popup) {
                     damage_area(pixel_bounds((*popup)->bounds, 3));
                 }
+            }
+        }
+    }
+    // The editor and its counter repaint only their own areas.
+    if (!full && previous_->view.dictation != view.dictation) {
+        damage_area(pixel_bounds(view.dictation->bounds, 2));
+        if (previous_->view.dictation->counter != view.dictation->counter) {
+            if (const auto counter = dictation_counter_bounds(view)) {
+                damage_area(pixel_bounds(*counter, 1));
             }
         }
     }
@@ -1009,6 +1196,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                       disabled_legend(t), false, PANGO_ALIGN_CENTER, true);
             }
             cairo_restore(cr);
+        }
+        if (view.dictation && !view.settings) {
+            draw_editor(cr, view);
         }
         if (const auto cells = flick_cells(view)) {
             // Above the keys, like the trail; partial repaints redraw it inside their clip.

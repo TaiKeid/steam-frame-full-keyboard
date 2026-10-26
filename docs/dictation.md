@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration (2026-10-25); M3a is next. Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built and host-tested (2026-10-25). M3b is next. Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -387,7 +387,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - **Cost:** measure the helper's CPU and memory on the Frame while capturing and while idle in dictation mode. Full Keyboard should stay as light as possible.
   - **HTTPS and keys:** `dictation_url`, HTTPS verified against the system certificates, and the key file sent only over HTTPS to that host, with no redirects.
   - Host tests with WAV fixtures, a fake `pw-record` and a local fake server, including an HTTPS server with a test certificate authority; no microphone needed.
-- [ ] **M3a Editor and key routing, English:**
+- [ ] **M3a Editor and key routing, English:** built and host-tested 2026-10-25 (see [M3a results](#m3a-results-2026-10-25)); not yet tried in the headset.
   - `DictationEditor` and its tests.
   - The dictation mode layout, with editor keys handled in App before `KeyboardState`. Typed text goes through `TextOutput`.
   - Minimal config parsing and the English profile's `dictation` entry, so dictation can be configured in `config.json` before M4.
@@ -560,6 +560,32 @@ What this means for the design:
 | Capturing continuous speech over noise | 0.79% | 21.9 MiB |
 
   Phrase detection worked in real time: the phrase started at 0.1 s and split at exactly 25.0 s. `pw-record`'s own cost is not measured yet, because measuring it needs the real microphone; it belongs with the M3c live tests.
+
+## M3a results (2026-10-25)
+
+- **Editor:** `DictationEditor` (`src/dictation_editor.cpp`) holds UTF-8 text with a byte cursor on character boundaries; limits count code points.
+  - **Typing:** stops at 1000 code points; dictation stops at 900. Tabs and control characters are dropped.
+  - **Phrases:** inserted with the [joining](#capturing) rules, and undone in reverse order. An edit inside a phrase makes it no longer undoable; edits before it only move it.
+  - **Context:** the last 200 code points before the cursor become the prompt.
+- **Layout:** `dictation_layout()` (`src/dictation_mode.cpp`) derives the mode's keys from the active layout, as the emoji picker does.
+  - The editor fills the function-key row from Esc to the visible right edge, rising 60 units into the gap under the toolbar and dropping 12 toward the number row, so four lines of 19 px text fit.
+  - The mic key is a new `dictation` action at the free side slot in every bundled layout, hidden until dictation is usable.
+  - Send spans the right-hand Alt to Ctrl keys, and Undo takes Paste's slot.
+- **Look:** the editor is a well recessed into the case, the opposite of a keycap. It is darker than the case, shaded under its top edge, with a rim taken from the keys' colour and a faint light catch on its lower lip; every colour comes from the theme. The text is slightly off-white, the scroll indicator is a quiet pill, and the counter sits grey in the toolbar row, turning amber at 900.
+- **Routing:** in dictation mode, every key goes to the editor before swipe, the composers or the output queue.
+  - Keys still show as pressed and latch through `KeyboardState` as local keys.
+  - Text reaches the editor through `TextOutput`.
+  - Backspace, Delete, Enter, the arrows, Home, End and the numpad's navigation keys edit or move. Up and Down keep their column; Home and End follow the wrapped line.
+  - PgUp and PgDn scroll by a page, and a laser click places the cursor.
+  - Held keys repeat after 0.5 s, every 40 ms, without catching up.
+  - Esc leaves the mode and keeps the text; the discard confirmation comes with capture in M3c.
+  - Send stays dimmed until M3b.
+- **Config:** `config.json` fields as in [configuration](configuration.md#dictation). An invalid dictation field turns only dictation off. The English profiles carry `"dictation": {"language": "en"}`. The mode closes if the profile or settings stop allowing it.
+- **Tests:**
+  - `dictation-editor`: editing, limits, joining, undo and context.
+  - `dictation-mode`: settings, layout, the mic key's visibility, typing, Shift, Backspace, Enter, arrows, Home, Delete, Down and End, repeat, a click placing the cursor, Esc, reopening with the text kept, and a profile change closing the mode. Nothing reaches the sink.
+  - Host CTest passes with 30 suites and 3 optional CJK skips, and the ARM64 build is clean.
+- **Not yet:** stick scrolling of the editor and the discard confirmation (M3c), Send (M3b), and a check in the headset.
 
 ## Open questions
 

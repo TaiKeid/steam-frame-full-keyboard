@@ -44,7 +44,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -187,6 +187,14 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/update_helper_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/update/update_helper.py")
     endif()
+    add_executable(dictation-editor-tests tests/dictation_editor_tests.cpp)
+    target_link_libraries(dictation-editor-tests PRIVATE keyboard_core)
+    target_compile_options(dictation-editor-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME dictation-editor COMMAND dictation-editor-tests)
+    add_executable(dictation-mode-tests tests/dictation_mode_tests.cpp)
+    target_link_libraries(dictation-mode-tests PRIVATE keyboard_core)
+    target_compile_options(dictation-mode-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME dictation-mode COMMAND dictation-mode-tests)
     add_executable(dictation-tests tests/dictation_tests.cpp)
     target_link_libraries(dictation-tests PRIVATE keyboard_core)
     target_compile_options(dictation-tests PRIVATE -Wall -Wextra -Wpedantic)

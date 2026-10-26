@@ -93,6 +93,16 @@ struct FieldLabel {
     bool enabled{true};
     double size{22};
 };
+// The dictation editor as the panel draws it.
+struct DictationView {
+    bool operator==(const DictationView&) const = default;
+    Rect bounds;          // Panel coordinates of the editor's frame.
+    std::string text;     // Never logged.
+    std::size_t cursor{}; // Byte offset into `text`.
+    double scroll{};      // Content pixels scrolled out above the frame.
+    std::string counter;  // For example "412/900".
+    bool at_limit{};      // Dictation cannot continue; the counter turns amber.
+};
 struct PanelView {
     const Layout* layout{};
     const Theme* theme{};
@@ -126,7 +136,23 @@ struct PanelView {
     // The emoji picker's grid and tabs; its keys are in `layout`.
     std::optional<EmojiPickerView> emoji;
     const EmojiGlyphs* emoji_glyphs{};
+    // Dictation is usable, so the layout's mic key shows.
+    bool dictation_available{};
+    // Dictation mode's editor; its keys are in `layout`.
+    std::optional<DictationView> dictation;
 };
+
+// Dictation editor text geometry, shared by painting and App's cursor moves.
+// Content coordinates start at the text's top-left corner, before scrolling.
+struct EditorCaret {
+    double x{}, y{}, height{};
+};
+Rect editor_text_area(const PanelView& view); // Panel coordinates inside the frame.
+EditorCaret editor_caret(const PanelView& view, std::size_t index);
+std::size_t editor_index_at(const PanelView& view, double x, double y);
+// The visual line holding `index`, as byte offsets [start, end) without its break.
+std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size_t index);
+double editor_content_height(const PanelView& view);
 
 bool hidden_key(const PanelView& view, const Key& key);
 // The layout's width without its hidden numpad.

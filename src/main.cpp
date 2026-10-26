@@ -21,6 +21,7 @@ void help() {
               << "  --render FILE.png         Render the keyboard without a window\n"
               << "  --render-settings FILE    Render the profile selector\n"
               << "  --render-emoji FILE       Render the emoji picker\n"
+              << "  --render-dictation FILE   Render dictation mode with sample text\n"
               << "  --check                   Validate and list available profiles\n"
               << "  --describe-layout         Describe the active key geometry\n"
               << "  --input ei|uinput         Use compositor input or a virtual kernel device\n"
@@ -72,10 +73,11 @@ int main(int argc, char** argv) {
             } else if (argument == "--vr") {
                 mode(fk::Mode::Vr);
             } else if (argument == "--render" || argument == "--render-settings" ||
-                       argument == "--render-emoji") {
+                       argument == "--render-emoji" || argument == "--render-dictation") {
                 mode(argument == "--render"            ? fk::Mode::Render
                      : argument == "--render-settings" ? fk::Mode::RenderSettings
-                                                       : fk::Mode::RenderEmoji);
+                     : argument == "--render-emoji"    ? fk::Mode::RenderEmoji
+                                                       : fk::Mode::RenderDictation);
                 options.output = value();
             } else if (argument == "--check") {
                 mode(fk::Mode::Check);
@@ -234,8 +236,10 @@ int main(int argc, char** argv) {
                         options.mode == fk::Mode::Vr ? &updates : nullptr,
                         std::move(reconcile_preferences));
             if (options.mode == fk::Mode::Render || options.mode == fk::Mode::RenderSettings ||
-                options.mode == fk::Mode::RenderEmoji) {
-                if (options.mode == fk::Mode::RenderSettings) {
+                options.mode == fk::Mode::RenderEmoji || options.mode == fk::Mode::RenderDictation) {
+                if (options.mode == fk::Mode::RenderDictation) {
+                    app.show_dictation();
+                } else if (options.mode == fk::Mode::RenderSettings) {
                     app.show_settings();
                 } else if (options.mode == fk::Mode::RenderEmoji) {
                     app.show_emoji();

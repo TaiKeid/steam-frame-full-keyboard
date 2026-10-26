@@ -50,12 +50,17 @@ enum class Icon {
     Objects,
     Symbols,
     Flags,
-    Clear
+    Clear,
+    // Dictation.
+    Mic,
+    Undo
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.
 // The emoji key switches between the keyboard and the emoji picker; it sends nothing.
-enum class ActionKind { Key, Shortcut, Flick, Emoji };
+// Dictation keys ("mic" in layouts; "send" and "undo" in dictation mode) act
+// locally and send nothing themselves.
+enum class ActionKind { Key, Shortcut, Flick, Emoji, Dictation };
 struct Key {
     bool operator==(const Key&) const = default;
     std::string id, label, secondary_label;

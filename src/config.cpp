@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <glib.h>
 #include <json-c/json.h>
 #include <memory>
 #include <set>
@@ -204,6 +205,8 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::Backspace;
         } else if (icon == "emoji") {
             key.icon = Icon::Emoji;
+        } else if (icon == "mic") {
+            key.icon = Icon::Mic;
         } else if (!icon.empty()) {
             throw std::runtime_error("unknown key icon");
         }
@@ -221,6 +224,8 @@ Layout parse_layout(const std::string& json) {
             key.action_kind = ActionKind::Flick;
         } else if (kind == "emoji" && key.action == "picker") {
             key.action_kind = ActionKind::Emoji;
+        } else if (kind == "dictation" && key.action == "mic") {
+            key.action_kind = ActionKind::Dictation;
         } else {
             throw std::runtime_error("unknown key action");
         }
@@ -394,6 +399,14 @@ Language parse_language(const std::string& json) {
             l.required_keys.push_back(name);
         }
     }
+    if (auto* dictation = field(o, "dictation", json_type_object, true)) {
+        l.dictation_language = text(dictation, "language");
+        if (l.dictation_language.size() < 2 || l.dictation_language.size() > 3 ||
+            !std::all_of(l.dictation_language.begin(), l.dictation_language.end(),
+                         [](char c) { return c >= 'a' && c <= 'z'; })) {
+            throw std::runtime_error("dictation language must be a Whisper language code");
+        }
+    }
     if (auto* swipe = field(o, "swipe", json_type_object, true)) {
         // Swipe needs letters it can send as text or Pinyin for the composer.
         if (l.input_method != "xkb" && !l.input_method.starts_with("chinese-pinyin-")) {
@@ -466,6 +479,60 @@ Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir, const
     }
     return p;
 }
+bool valid_dictation_server(const std::string& server) {
+    // The helper's own check (dictation_helper.py, Target) is the authority;
+    // this one only keeps a typo from reaching it.
+    std::string host = server, port;
+    if (server.starts_with('[')) {
+        const auto close = server.find(']');
+        if (close == std::string::npos) {
+            return false;
+        }
+        host = server.substr(1, close - 1);
+        const auto rest = server.substr(close + 1);
+        if (!rest.empty() && (rest[0] != ':' || rest.size() == 1)) {
+            return false;
+        }
+        port = rest.empty() ? "" : rest.substr(1);
+        if (host.empty() || !std::all_of(host.begin(), host.end(), [](char c) {
+                return g_ascii_isxdigit(c) || c == ':' || c == '.';
+            })) {
+            return false;
+        }
+    } else {
+        if (const auto colon = server.find(':'); colon != std::string::npos) {
+            host = server.substr(0, colon);
+            port = server.substr(colon + 1);
+            if (port.empty()) {
+                return false;
+            }
+        }
+        if (host.empty() || host.size() > 253 || !std::all_of(host.begin(), host.end(), [](char c) {
+                return g_ascii_isalnum(c) || c == '.' || c == '-';
+            })) {
+            return false;
+        }
+    }
+    if (!port.empty()) {
+        if (port.size() > 5 ||
+            !std::all_of(port.begin(), port.end(), [](char c) { return g_ascii_isdigit(c); }) ||
+            std::stoi(port) < 1 || std::stoi(port) > 65535) {
+            return false;
+        }
+    }
+    return true;
+}
+bool valid_dictation_url(const std::string& url) {
+    const bool https = url.starts_with("https://");
+    if (!https && !url.starts_with("http://")) {
+        return false;
+    }
+    const auto rest = url.substr(https ? 8 : 7);
+    const auto host = rest.substr(0, rest.find('/'));
+    return !host.empty() && host.find('@') == std::string::npos &&
+           url.find_first_of("?# ") == std::string::npos &&
+           std::all_of(url.begin(), url.end(), [](unsigned char c) { return c > 32 && c < 127; });
+}
 Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors) {
     Settings settings;
     const auto path = user_dir / "config.json";
@@ -502,6 +569,30 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         }
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
+        }
+        try {
+            // Hand-edited dictation fields fail on their own: dictation stays
+            // off, and the layout, language and every other setting still load.
+            settings.dictation = text(document.get(), "dictation", "off", true);
+            settings.dictation_server = text(document.get(), "dictation_server", "", true);
+            settings.dictation_url = text(document.get(), "dictation_url", "", true);
+            settings.dictation_model = text(document.get(), "dictation_model", "", true);
+            if (settings.dictation != "off" && settings.dictation != "server") {
+                throw std::runtime_error("dictation must be \"off\" or \"server\"");
+            }
+            if (!settings.dictation_server.empty() &&
+                !valid_dictation_server(settings.dictation_server)) {
+                throw std::runtime_error("dictation_server must be host or host:port");
+            }
+            if (!settings.dictation_url.empty() && !valid_dictation_url(settings.dictation_url)) {
+                throw std::runtime_error("dictation_url must be an http or https URL");
+            }
+        } catch (const std::exception& error) {
+            errors.push_back("config.json: " + std::string(error.what()) + "; dictation is off");
+            settings.dictation = "off";
+            settings.dictation_server.clear();
+            settings.dictation_url.clear();
+            settings.dictation_model.clear();
         }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
