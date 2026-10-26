@@ -865,6 +865,9 @@ void dictation_hold() {
     view.fallback();
     require(!view.show() && !view.held_without_field(),
             "the stock keyboard's fallback wins over the hold");
+    view.update(true, {4, false, false, false, true});
+    require(view.show() && view.held_without_field() && !view.remote(),
+            "once Steam's keyboard closes that request, an editor with text holds the panel again");
 }
 void resident_visibility() {
     {
