@@ -10,7 +10,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
   - **Server:** a speech server the user hosts on a machine with a capable GPU. It gives the best quality and speed and covers all dictation languages. A hosted OpenAI-compatible provider can take its place through `config.json` (see [hosted providers](#hosted-providers)).
   - **On device:** Whisper small on the Frame's CPU, the default since 2026-10-26, best for English and Spanish; other dictation languages are allowed with a low-accuracy warning (owner, 2026-10-26). The 8-bit model takes about 2 s per phrase ([M6 measurements](#m6-measurements-2026-10-26)); larger models were unusable on the Frame alongside VR.
 - **On the Frame, the CPU and never the GPU** (owner, 2026-10-26):
-  - **The GPU belongs to VR.** The headset renders the dashboard, the keyboard and any game on it. Whisper on the GPU made the dashboard barely responsive, heated the SoC and drew about 17 W, and ggml's Vulkan scheduler aborted on a short clip ([M0](#steam-frame)). Another dictation fork reports GPU faults during VR. A recognizer that can stall or crash rendering is not acceptable in a headset.
+  - **The GPU belongs to VR.** The headset renders the dashboard, the keyboard and any game on it. Whisper on the GPU made the dashboard barely responsive, heated the SoC and drew about 17 W, and ggml's Vulkan scheduler aborted on a short clip ([M0](#steam-frame)). A recognizer that can stall or crash rendering is not acceptable in a headset.
   - **The CPU is good and fast enough for small.** With the Frame's dot-product and int8 matrix instructions, 8-bit small recognizes a phrase in about 2 s with 5.2% word errors in English and 5.4% in Spanish, at `nice 10`, so VR and games keep priority. That is enough for dictating messages.
   - **Better quality comes from a self-hosted server,** not from a larger model on the headset: a computer with a GPU runs large-v3-turbo in a fraction of a second, with fewer errors in every language. Self-hosted mode, and the fallback to the device when the server cannot be reached, cover that.
 - **The keyboard asks only for the server's address,** as `host:port` in Settings. Model choice and every other recognition setting live in the server's own configuration. An optional model name exists only in the configuration file, for servers without a default model.
@@ -760,7 +760,6 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
 - **Threads:** 4 is the knee; 6 saves only 0.1 s.
 - **Loading** takes about 0.3 s and the first recognition about 2 s.
 - **Not yet measured:** CPU load in detail (the old benchmark does not report it; all threads stay busy while recognizing) and the effect on a running game.
-- **Other dictation forks** (checked 2026-10-26): none quantizes or targets the Frame's CPU features; one uses f16 `small.en` on the CPU, another f16 models through Vulkan on the GPU, which faulted the GPU during VR.
 
 ## M6 results (2026-10-26)
 
