@@ -440,7 +440,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Self-hosted servers only; the API key state waits for third-party providers (see [Further work](#further-work)).
 - [ ] **M5a Languages:** built and host-tested 2026-10-26, and the languages measured against the reference server (see [M5a results](#m5a-results-2026-10-26)); not yet tried in the headset.
   - Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
-- [ ] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)); not yet tried in the headset.
+- [ ] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)); with live words and Paste, it worked for the owner in a desktop text editor the same day. A target change, a full queue and uncertain delivery are tested on the host only.
   - Its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
   - whisper.cpp build and small model download and delete.
@@ -718,6 +718,7 @@ First part: the helper connected to the editor.
 | Three guesses, exact, aligned (chosen) | 3.4% | 3.3% | 3.5% | 10.1% | 72–84%, a median 2.8–3.6 s early |
 
   Holding back more of the newest guess helped Japanese only slowly (5.5% to 4.2% with eight characters held) and Spanish not at all; the mistakes were early words Whisper later changed, which a third agreeing guess catches. A clip took 9–12 partial requests.
+- **Third headset try (r24, live words, Paste):** worked well in a desktop text editor (owner, 2026-10-26).
 - **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
 ## Open questions
