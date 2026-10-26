@@ -444,7 +444,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)); with live words and Paste, it worked for the owner in a desktop text editor the same day. A target change, a full queue and uncertain delivery are tested on the host only.
   - Its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
-- [ ] **M6 On-device mode:** measured and decided 2026-10-27 (see [M6 measurements](#m6-measurements-2026-10-27) and [On-device recognition](#on-device-recognition)).
+- [ ] **M6 On-device mode:** measured and decided 2026-10-27 (see [M6 measurements](#m6-measurements-2026-10-27) and [On-device recognition](#on-device-recognition)); engine, download, Settings and fallback built and host-tested the same day (see [M6 results](#m6-results-2026-10-27)); the game measurement and headset tries are open.
   - The engine built from pinned whisper.cpp, run from the helper through pipes.
   - Model download after confirmation, with progress on the keyboard and the mic disabled meanwhile; Delete model; the development Model dropdown.
   - One multilingual model for all dictation languages; English and Spanish are its good ones, and the others show the low-accuracy warning in Settings (owner, 2026-10-26). `small.en` is not offered: it gained nothing.
@@ -747,6 +747,23 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
 - **Loading** takes about 0.3 s and the first recognition about 2 s.
 - **Not yet measured:** CPU load in detail (the old benchmark does not report it; all threads stay busy while recognizing) and the effect on a running game.
 - **Other dictation forks** (checked 2026-10-27): none quantizes or targets the Frame's CPU features; one uses f16 `small.en` on the CPU, another f16 models through Vulkan on the GPU, which faulted the GPU during VR.
+
+## M6 results (2026-10-27)
+
+- **Engine:** `framekeyboard-whisper` (`src/whisper_engine.cpp`) loads the model once and answers requests on stdin and stdout: a JSON header line, then 16-bit samples; one JSON line back. It runs at `nice 10`, without core dumps, and prints nothing else. `tools/build-whisper.sh` builds whisper.cpp v1.9.5 for the CPU from the pinned checkout; CMake takes it through `FRAMEKEYBOARD_WHISPER_DIR` (presets: `FRAMEKEYBOARD_WHISPER_HOST`, `FRAMEKEYBOARD_WHISPER_FRAME`) and installs the engine and whisper.cpp's `whisper-quantize` in `lib/framekeyboard`.
+- **Helper:**
+  - `configure` takes `device`, the model file, alone or with a server and `fallback`.
+  - The engine starts on the first on-device phrase and stops after 60 s unused; a cancel kills it.
+  - With the fallback, an unreachable or timed-out server sends the phrase to the engine, and the text carries `"device": true`. Partials never fall back.
+  - `download` fetches a model from the pinned revision over verified HTTPS, following redirects only to Hugging Face hosts, writes a `0600` temporary file in a `0700` directory, renames it into place once size and SHA-256 match, and for 4-bit quantizes the f16 file and deletes it. Progress is reported per percent; `download-cancel` stops it.
+- **App:**
+  - **Settings:** the Dictation card offers On device. Its Model row shows the size, the progress or Ready, with Download, Cancel or Delete; with `developer_options` in `config.json`, a Format row picks 8-, 5- or 4-bit. A language other than English or Spanish shows the low-accuracy warning as an amber line under the selector. Server mode adds **Fall back to on device**.
+  - **Download:** Apply with a setting that needs a missing model asks first ("Download the speech model?", naming the size); Download applies and starts it, Cancel applies nothing.
+  - **Progress:** the mic key stays shown but disabled, with a slim progress track along its foot, and the status line says "Downloading the speech model: 45%". Typing goes on meanwhile.
+  - **Fallback mark:** in the editor the counter reads "On device · 412/900" while phrases come from the fallback; Type as I speak says so on the status line.
+- **Tests:**
+  - helper: the engine loaded once and unloaded when idle, a missing model or engine, cancel, phrases on device with the keyboard's prompt, the fallback with its mark, no fallback without the switch; downloads from a local HTTPS server with a test certificate authority, with a redirect, a wrong file never kept, redirects only to HTTPS model hosts, the 4-bit conversion and its failure, cancel;
+  - App: the confirmation, Cancel applying nothing, progress on the mic key with typing going on, the device target, Delete, the warning, the development Format row, the fallback's configuration and its mark.
 
 ## Open questions
 

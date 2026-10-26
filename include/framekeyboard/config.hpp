@@ -82,7 +82,7 @@ struct Settings {
     // Dictation (docs/dictation.md). The Dictation card in Settings edits the
     // mode and server; the URL and model are kept as they are in the file. An
     // invalid value turns dictation off without affecting any other setting.
-    std::string dictation{"off"}; // "off" or "server"
+    std::string dictation{"off"}; // "off", "server" or "device"
     std::string dictation_server; // host[:port]
     std::string dictation_url;    // or a full base URL
     std::string dictation_model;
@@ -95,11 +95,24 @@ struct Settings {
     // Type as I speak: the mic key captures on the normal keyboard and each
     // phrase is typed into the target as soon as it is recognized.
     bool dictation_direct{};
+    // In Server mode, a phrase the server cannot recognize is recognized on
+    // the Frame, once its model is downloaded.
+    bool dictation_fallback{};
+    // The on-device model: "small-q8_0" (the default), or for comparison in
+    // development builds "small-q5_1" or "small-q4_0".
+    std::string dictation_device_model{"small-q8_0"};
+    // Shows development-only rows in Settings; set by hand in config.json.
+    bool developer_options{};
     // Up to five servers that passed the Dictation card's Test, newest first.
     std::vector<std::string> dictation_recent_servers;
 };
 // Whether a server address or URL is one the dictation helper accepts.
 bool valid_dictation_server(const std::string& server);
+// The on-device models (docs/dictation.md, On-device recognition): whether a
+// name is one, the file it is used from, and its download size in MB.
+bool valid_device_model(const std::string& model);
+std::string device_model_file(const std::string& model);
+int device_model_megabytes(const std::string& model);
 // Whether a valid server address is on the user's own network: private and
 // link-local IPv4 and IPv6, loopback, Tailscale's 100.64.0.0/10 and ts.net
 // names, single-label names and the local suffixes. Others get a warning,

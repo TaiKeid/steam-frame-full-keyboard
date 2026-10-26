@@ -37,7 +37,8 @@ const std::set<std::string>& known_reasons() {
                                                "backlog-full",  "keyboard-stalled", "invalid-command",
                                                "helper-exited", "silence",          "busy",
                                                "empty",         "invalid",          "too-long",
-                                               "model-missing", "device-failed"};
+                                               "model-missing", "device-failed",    "checksum",
+                                               "disk",          "quantize",         "cancelled"};
     return reasons;
 }
 std::string reason_of(json_object* packet) {
@@ -166,7 +167,10 @@ bool Dictation::send(const std::string& data) {
 }
 
 bool Dictation::configure(const Target& target) {
-    if ((target.server.empty() == target.url.empty()) || !start()) {
+    // A server or a URL, not both; or on device only, the model alone.
+    const bool remote = !target.server.empty() || !target.url.empty();
+    if ((!target.server.empty() && !target.url.empty()) || (!remote && target.device.empty()) ||
+        !start()) {
         return false;
     }
     return send(packet(
@@ -236,6 +240,25 @@ bool Dictation::cancel() {
 
 bool Dictation::test() {
     return send(packet("test"));
+}
+
+bool Dictation::download(const std::string& model, const std::filesystem::path& directory) {
+    if (!start()) {
+        return false;
+    }
+    const std::pair<std::string, std::string> values{model, directory.string()};
+    return send(packet(
+        "download",
+        [](json_object* object, const void* data) {
+            const auto& v = *static_cast<const std::pair<std::string, std::string>*>(data);
+            json_object_object_add(object, "model", json_object_new_string(v.first.c_str()));
+            json_object_object_add(object, "directory", json_object_new_string(v.second.c_str()));
+        },
+        &values));
+}
+
+bool Dictation::cancel_download() {
+    return fd_ >= 0 && send(packet("download-cancel"));
 }
 
 void Dictation::tick(double now) {
@@ -320,6 +343,24 @@ void Dictation::tick(double now) {
         } else if (op == "error") {
             event.kind = Event::Kind::Error;
             event.reason = reason_of(message.get());
+        } else if (op == "download") {
+            json_object* value{};
+            const auto field = [&](const char* name) {
+                return json_object_object_get_ex(message.get(), name, &value) &&
+                               json_object_is_type(value, json_type_int)
+                           ? std::max<std::int64_t>(0, json_object_get_int64(value))
+                           : std::int64_t{};
+            };
+            event.kind = Event::Kind::Download;
+            event.text = json_object_object_get_ex(message.get(), "state", &value) &&
+                                 json_object_is_type(value, json_type_string)
+                             ? json_object_get_string(value)
+                             : "";
+            event.done = static_cast<std::uint64_t>(field("done"));
+            event.total = static_cast<std::uint64_t>(field("total"));
+            if (event.text == "failed") {
+                event.reason = reason_of(message.get());
+            }
         } else if (op == "test") {
             json_object* ok{};
             event.kind = Event::Kind::Test;
@@ -334,7 +375,7 @@ void Dictation::tick(double now) {
         // Packets sent before the helper saw a cancel belong to the cancelled
         // phrases; the socket keeps order, so `cancelled` ends them. A Test
         // result is not part of capture.
-        if (cancels_ && event.kind != Event::Kind::Test) {
+        if (cancels_ && event.kind != Event::Kind::Test && event.kind != Event::Kind::Download) {
             continue;
         }
         if (events_.size() < max_events) {

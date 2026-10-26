@@ -4,6 +4,7 @@ No microphone, network or real speech server is used; servers listen on
 127.0.0.1 only and every file lives in a temporary directory.
 """
 import contextlib
+import hashlib
 import http.server
 import importlib.util
 import io
@@ -15,6 +16,7 @@ import random
 import shutil
 import socket
 import ssl
+import stat
 import subprocess
 import sys
 import tempfile
@@ -322,6 +324,109 @@ class Requests(unittest.TestCase):
             self.assertEqual(d.recognize(target, "sk-secret", PCM, "", d.Connection(), None),
                              ("error", "unreachable"))
             self.assertEqual(len(server.requests), count)
+
+
+class Downloads(unittest.TestCase):
+    """Model downloads from a local HTTPS server with a test CA, redirecting
+    once like Hugging Face's CDN."""
+
+    def setUp(self):
+        self.directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        ca = make_ca(self.directory)
+        if ca is None:
+            self.skipTest("openssl is not installed")
+        self.ca = str(ca / "ca.pem")
+        self.content = os.urandom(3 << 20)
+        self.served = {"ggml-small-q8_0.bin": self.content, "ggml-small.bin": self.content}
+        self.redirect = None
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                name = self.path.rsplit("/", 1)[-1]
+                if "/resolve/" in self.path:
+                    self.send_response(302)
+                    self.send_header("Location", outer.redirect or f"https://127.0.0.1:{outer.port}/cdn/{name}")
+                    self.end_headers()
+                    return
+                data = outer.served.get(name)
+                if data is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                with contextlib.suppress(OSError):
+                    self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        context.load_cert_chain(ca / "server.pem", ca / "server.key")
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        self.port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        digest = hashlib.sha256(self.content).hexdigest()
+        self.models = dict(d.MODELS)
+        d.MODELS["small-q8_0"] = ("ggml-small-q8_0.bin", len(self.content), digest)
+        d.MODELS["small-q4_0"] = ("ggml-small.bin", len(self.content), digest)
+        self.addCleanup(lambda: (d.MODELS.clear(), d.MODELS.update(self.models)))
+        self.models_dir = self.directory / "models"
+
+    def download(self, name, quantize=None, cancel=False):
+        events = []
+        job = d.Download(name, str(self.models_dir), quantize, self.ca,
+                         lambda state, **values: events.append(dict(state=state, **values)),
+                         origin=("127.0.0.1", self.port))
+        if cancel:
+            job.cancelled = True
+        job.start()
+        job.join(30)
+        return events
+
+    def test_a_verified_model_is_renamed_into_place(self):
+        events = self.download("small-q8_0")
+        self.assertEqual(events[-1], {"state": "ready"})
+        progress = [e for e in events if e["state"] == "progress"]
+        self.assertTrue(progress and progress[-1]["done"] == len(self.content))
+        self.assertEqual((self.models_dir / "ggml-small-q8_0.bin").read_bytes(), self.content)
+        self.assertEqual(stat.S_IMODE(os.stat(self.models_dir).st_mode), 0o700)
+        self.assertEqual(sorted(p.name for p in self.models_dir.iterdir()), ["ggml-small-q8_0.bin"])
+
+    def test_a_wrong_file_is_never_kept(self):
+        self.served["ggml-small-q8_0.bin"] = self.content[:-1] + b"x"
+        self.assertEqual(self.download("small-q8_0")[-1], {"state": "failed", "reason": "checksum"})
+        self.assertEqual(list(self.models_dir.iterdir()), [])
+
+    def test_redirects_only_to_https_model_hosts(self):
+        for location in (f"http://127.0.0.1:{self.port}/cdn/ggml-small-q8_0.bin",
+                         "https://example.invalid/ggml-small-q8_0.bin"):
+            self.redirect = location
+            self.assertEqual(self.download("small-q8_0")[-1], {"state": "failed", "reason": "unreachable"})
+        self.assertTrue(d.model_host("us.aws.cdn.hf.co") and d.model_host("cdn-lfs.huggingface.co"))
+        self.assertFalse(d.model_host("huggingface.co.example.com") or d.model_host("evilhf.co"))
+
+    def test_the_4_bit_model_is_made_from_the_f16_file(self):
+        tool = self.directory / "whisper-quantize"
+        tool.write_text(f"#!/bin/sh\n[ \"$3\" = q4_0 ] && cp \"$1\" \"$2\"\n")
+        tool.chmod(0o755)
+        events = self.download("small-q4_0", str(tool))
+        self.assertEqual([e["state"] for e in events][-2:], ["quantizing", "ready"])
+        self.assertEqual(sorted(p.name for p in self.models_dir.iterdir()), ["ggml-small-q4_0.bin"])
+        tool.write_text("#!/bin/sh\nexit 1\n")
+        (self.models_dir / "ggml-small-q4_0.bin").unlink()
+        self.assertEqual(self.download("small-q4_0", str(tool))[-1], {"state": "failed", "reason": "quantize"})
+        self.assertEqual(list(self.models_dir.iterdir()), [])
+
+    def test_cancel(self):
+        self.assertEqual(self.download("small-q8_0", cancel=True)[-1], {"state": "failed", "reason": "cancelled"})
+        self.assertFalse((self.models_dir / "ggml-small-q8_0.bin").exists())
 
 
 RECORDER = r'''

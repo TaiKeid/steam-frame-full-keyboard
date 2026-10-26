@@ -18,14 +18,29 @@ class Dictation {
         // Paused answers capture(false): every phrase spoken before it has
         // been announced.
         // Partial: the words so far of the phrase being spoken, with live words on.
-        enum class Kind { Level, Phrase, Ready, Partial, Text, Dropped, Stopped, Paused, Error, Test };
+        // Download: a model download's state in `text` (progress, quantizing,
+        // ready or failed), its bytes and, on failure, the reason.
+        enum class Kind {
+            Level,
+            Phrase,
+            Ready,
+            Partial,
+            Text,
+            Dropped,
+            Stopped,
+            Paused,
+            Error,
+            Test,
+            Download
+        };
         Kind kind{};
         std::uint64_t id{};
         int level{};
         bool ok{};
-        std::string text;   // Recognized text; never logged.
-        bool device{};      // Text: recognized on the Frame by the fallback.
-        std::string reason; // Always one of the protocol's fixed codes.
+        std::string text;              // Recognized text; never logged.
+        bool device{};                 // Text: recognized on the Frame by the fallback.
+        std::uint64_t done{}, total{}; // Download progress in bytes.
+        std::string reason;            // Always one of the protocol's fixed codes.
     };
     struct Target {
         std::string server; // host[:port], the user's own server
@@ -55,6 +70,10 @@ class Dictation {
     // before it saw the cancel are discarded, never delivered late.
     bool cancel();
     bool test();
+    // Fetches an on-device model (`small-q8_0`, `small-q5_1` or `small-q4_0`)
+    // into `directory`; progress arrives as Download events.
+    bool download(const std::string& model, const std::filesystem::path& directory);
+    bool cancel_download();
     // Sends the keep-alive, reads a bounded number of packets and notices a
     // helper that exited. Never blocks.
     void tick(double now);

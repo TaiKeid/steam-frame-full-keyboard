@@ -51,6 +51,8 @@ struct Options {
     TextOutput* text_output{};
     // Tests replace the dictation helper; empty uses the installed one.
     fs::path dictation_helper;
+    // Where on-device models are kept; empty is ~/.local/share/framekeyboard/models.
+    fs::path models_dir;
     std::vector<std::string> dictation_arguments;
     // Tests replace the clipboard writer; null writes the X clipboard.
     Clipboard* clipboard{};
@@ -212,6 +214,8 @@ class App {
     void allow_slow_work();
     void rebuild_cycle_entries();
     void action(const ControlAction& action);
+    // Saves the pending Settings and closes them, as Apply does.
+    void apply_settings();
     void refresh_typing();
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
@@ -298,6 +302,8 @@ class App {
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
     bool pending_dictation_direct_{};
+    bool pending_dictation_fallback_{};
+    std::string pending_dictation_device_model_{"small-q8_0"};
     std::string pending_dictation_, pending_dictation_server_;
     // The address popup's own one-line field (docs/dictation.md, entering
     // the server address). It types only here, never into the target.
@@ -307,7 +313,11 @@ class App {
         std::string error;
     };
     std::optional<AddressEntry> address_;
-    bool confirm_clear_favorites_{};
+    // A question over Settings: clearing favorites, or downloading the
+    // on-device model, either on its own or before applying the settings
+    // that need it.
+    enum class Confirm { None, ClearFavorites, Download, DownloadAndApply };
+    Confirm confirm_{Confirm::None};
     void address_key(const std::string& key);
     // The Dictation card's connection line: empty until Test runs.
     std::string dictation_test_;
@@ -563,6 +573,30 @@ class App {
     std::uint64_t direct_request_{}, native_request_{};
     std::uint64_t direct_failures_{}; // output failures seen when the session started
     std::unique_ptr<Dictation> dictation_;
+    // Starts the helper object on first use; the process starts on demand.
+    Dictation& dictation();
+    // On-device models (docs/dictation.md, On-device recognition).
+    fs::path models_dir_;
+    fs::path model_path(const std::string& model) const;
+    bool model_ready(const std::string& model) const;
+    // Settings that need the model: On device, or the server with fallback.
+    static bool needs_model(const std::string& mode, bool fallback) {
+        return mode == "device" || (mode == "server" && fallback);
+    }
+    // A model download in progress; the mic key shows it and waits.
+    struct ModelDownload {
+        std::string model;
+        std::uint64_t done{}, total{};
+        bool quantizing{};
+    };
+    std::optional<ModelDownload> download_;
+    // 0–1 while downloading, below 0 while the model is prepared.
+    double model_download_share() const;
+    void start_download(const std::string& model);
+    void delete_model(const std::string& model);
+    // The last phrase came from the fallback on the Frame; the editor's
+    // counter says so quietly until a server phrase arrives.
+    bool device_fallback_{};
     bool capturing_{};
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps
     // so the bars redraw only on visible changes, and not at all in silence.

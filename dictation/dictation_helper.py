@@ -8,6 +8,7 @@ import array
 import collections
 import contextlib
 import ctypes
+import hashlib
 import http.client
 import io
 import json
@@ -65,6 +66,22 @@ DEFAULT_PORT = 8031
 DEVICE_IDLE = 60.0  # the on-device model is unloaded after this long unused
 DEVICE_START_TIMEOUT = 30.0
 DEVICE_THREADS = 4
+# The on-device models (docs/dictation.md, On-device recognition), from
+# Hugging Face ggerganov/whisper.cpp at a pinned revision: the file fetched,
+# its size and SHA-256. The 4-bit model is made on the Frame from the f16 file.
+MODEL_REVISION = "5359861c739e955e79d9a303bcbc70fb988958b1"
+MODELS = {
+    "small-q8_0": ("ggml-small-q8_0.bin", 264464607,
+                   "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f"),
+    "small-q5_1": ("ggml-small-q5_1.bin", 190085487,
+                   "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"),
+    "small-q4_0": ("ggml-small.bin", 487601967,
+                   "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
+}
+MODEL_HOST = "huggingface.co"
+DOWNLOAD_TIMEOUT = 30.0
+DOWNLOAD_CHUNK = 1 << 20
+QUANTIZE_TIMEOUT = 600.0
 UPLOAD_NAME = "phrase.wav"
 RECORDER = ["pw-record", "--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16",
             "--media-role", "Communication", "-"]
@@ -482,6 +499,132 @@ class Engine:
                 stream.close()
 
 
+def model_file(name):
+    """The file a downloaded model is used from."""
+    return "ggml-small-q4_0.bin" if name == "small-q4_0" else MODELS[name][0]
+
+
+def model_host(host):
+    # Hugging Face redirects downloads to its CDN; content is checked by hash.
+    return bool(host) and (host == MODEL_HOST or host.endswith("." + MODEL_HOST) or host.endswith(".hf.co"))
+
+
+class Download(threading.Thread):
+    """Fetches one model into `directory` on its own thread. A temporary
+    file is renamed into place only after its size and SHA-256 match, so a
+    model file that exists is a whole, verified one. `report(state, **values)`
+    must be safe to call from this thread."""
+
+    def __init__(self, name, directory, quantize, ca_file, report, origin=(MODEL_HOST, 443)):
+        super().__init__(daemon=True)
+        self.name, self.directory, self.quantize = name, directory, quantize
+        self.origin = origin  # tests serve the model locally
+        self.ca_file, self.report = ca_file, report
+        self.cancelled = False
+        self.client = None
+
+    def cancel(self):
+        self.cancelled = True
+        client = self.client
+        if client and client.sock:
+            with contextlib.suppress(OSError):
+                client.sock.shutdown(socket.SHUT_RDWR)
+
+    def run(self):
+        try:
+            self.fetch()
+            self.report("ready")
+        except Failure as failure:
+            self.report("failed", reason="cancelled" if self.cancelled else str(failure))
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(os.path.join(self.directory, MODELS[self.name][0] + ".part"))
+
+    def fetch(self):
+        source, size, digest = MODELS[self.name]
+        try:
+            os.makedirs(self.directory, mode=0o700, exist_ok=True)
+        except OSError:
+            raise Failure("disk")
+        final = os.path.join(self.directory, source)
+        part = final + ".part"
+        (host, port), path = self.origin, f"/ggerganov/whisper.cpp/resolve/{MODEL_REVISION}/{source}"
+        for _ in range(5):
+            context = ssl.create_default_context(cafile=self.ca_file)
+            self.client = http.client.HTTPSConnection(host, port, timeout=DOWNLOAD_TIMEOUT, context=context)
+            try:
+                self.client.request("GET", path, headers={"User-Agent": "FullKeyboard-Dictation/1"})
+                response = self.client.getresponse()
+                if response.status in (301, 302, 303, 307, 308):
+                    location = urlsplit(response.getheader("Location") or "")
+                    if location.scheme != "https" or not (model_host(location.hostname) or
+                                                          location.hostname == self.origin[0]):
+                        raise Failure("unreachable")
+                    host, port = location.hostname, location.port or 443
+                    path = location.path + (f"?{location.query}" if location.query else "")
+                    self.client.close()
+                    continue
+                if response.status != 200:
+                    raise Failure("unreachable")
+                self.save(response, part, size, digest)
+                break
+            except (OSError, http.client.HTTPException):
+                raise Failure("unreachable")
+            finally:
+                self.client.close()
+        else:
+            raise Failure("unreachable")
+        os.replace(part, final)
+        if self.name == "small-q4_0":
+            self.make_q4(final)
+
+    def save(self, response, part, size, digest):
+        hashed, done, reported = hashlib.sha256(), 0, -1
+        try:
+            with open(part, "wb") as output:
+                os.fchmod(output.fileno(), 0o600)
+                while True:
+                    if self.cancelled:
+                        raise Failure("cancelled")
+                    data = response.read(DOWNLOAD_CHUNK)
+                    if not data:
+                        break
+                    done += len(data)
+                    if done > size:
+                        raise Failure("checksum")
+                    try:
+                        output.write(data)
+                    except OSError:
+                        raise Failure("disk")
+                    hashed.update(data)
+                    percent = done * 100 // size
+                    if percent != reported:
+                        reported = percent
+                        self.report("progress", done=done, total=size)
+        except OSError:
+            raise Failure("disk")
+        if done != size or hashed.hexdigest() != digest:
+            raise Failure("checksum")
+
+    def make_q4(self, f16):
+        output = os.path.join(self.directory, model_file(self.name))
+        try:
+            if not self.quantize or not os.path.isfile(self.quantize):
+                raise Failure("quantize")
+            self.report("quantizing")
+            done = subprocess.run([self.quantize, f16, output + ".part", "q4_0"], stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=QUANTIZE_TIMEOUT)
+            if done.returncode != 0:
+                raise Failure("quantize")
+            os.replace(output + ".part", output)
+        except (OSError, subprocess.TimeoutExpired):
+            raise Failure("quantize")
+        finally:
+            for leftover in (f16, output + ".part"):
+                with contextlib.suppress(OSError):
+                    os.unlink(leftover)
+
+
 def recognize(target, key, pcm, prompt, connection, ca_file, fallback=True):
     """Runs on the worker thread. Returns ("text", text), ("device-text", text)
     when the fallback recognized it on the Frame, ("dropped", reason) or
@@ -557,6 +700,9 @@ class Helper:
     def __init__(self, peer, recorder, key_file, ca_file, engine=None):
         self.peer, self.recorder_command, self.key_file, self.ca_file = peer, recorder, key_file, ca_file
         self.engine = Engine(engine)
+        self.quantize = os.path.join(os.path.dirname(engine), "whisper-quantize") if engine else None
+        self.download = None
+        self.download_events = queue.Queue()
         self.target = None
         self.key = None
         self.capturing = False
@@ -617,6 +763,12 @@ class Helper:
             self.send("cancelled")
         elif op == "test":
             self.start_test()
+        elif op == "download" and message.get("model") in MODELS and isinstance(message.get("directory"), str) \
+                and os.path.isabs(message["directory"]):
+            self.start_download(message["model"], message["directory"])
+        elif op == "download-cancel":
+            if self.download:
+                self.download.cancel()
         else:
             raise Failure("invalid-command")
 
@@ -765,6 +917,18 @@ class Helper:
         # A partial never falls back: the final request will, if it must.
         self.jobs.put((self.target, self.key, bytes(phrase), self.live_prompt, connection, False))
 
+    def start_download(self, name, directory):
+        if self.download and self.download.is_alive():
+            self.send("download", state="failed", reason="busy")
+            return
+
+        def report(state, **values):
+            self.download_events.put(dict(state=state, **values))
+            with contextlib.suppress(OSError):
+                os.write(self.wake_write, b"x")
+        self.download = Download(name, directory, self.quantize, self.ca_file, report)
+        self.download.start()
+
     def start_test(self):
         if self.target is None:
             self.send("test", ok=False, reason="not-configured")
@@ -794,6 +958,12 @@ class Helper:
     def finish_request(self):
         with contextlib.suppress(BlockingIOError):
             os.read(self.wake_read, 64)
+        while True:
+            try:
+                event = self.download_events.get_nowait()
+            except queue.Empty:
+                break
+            self.send("download", **event)
         while True:
             try:
                 connection, (kind, value) = self.results.get_nowait()

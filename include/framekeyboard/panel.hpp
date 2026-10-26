@@ -15,7 +15,8 @@ constexpr int panel_height = 600;
 constexpr int popup_margin = 200;
 constexpr int texture_height = panel_height + 2 * popup_margin;
 // TextField shows a value that opens its own editor, such as a server address.
-enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField };
+// Note: a Settings row without a control, its text across the card.
+enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField, Note };
 enum class ControlKind {
     None,
     Settings,
@@ -45,6 +46,11 @@ enum class ControlKind {
     DictationKeep,
     ChooseSendGap,
     DictationDirect,
+    // On device: the model row's button (Download, Cancel or Delete), the
+    // server's fallback switch and the development model format.
+    ModelAction,
+    DictationFallback,
+    ChooseDeviceModel,
     ChooseDictation,
     DictationServer,
     DictationTest,
@@ -107,6 +113,7 @@ struct FieldLabel {
     bool left{};
     bool enabled{true};
     double size{22};
+    bool wrap{}, warning{}; // a Note row: wrapped, in the warning colour
 };
 // The dictation editor as the panel draws it.
 struct DictationView {
@@ -174,6 +181,9 @@ struct PanelView {
     bool dictation_available{};
     // The mic key shows level bars instead of its icon while capturing.
     bool dictation_capturing{};
+    // A speech model download, 0–1, or below 0 while it is prepared: the mic
+    // key shows, disabled, with the progress along its foot.
+    std::optional<double> dictation_download;
     // Six levels, 0–8, oldest first. Each of the five bars eases from one
     // level to the next one, so the newest enters on the right; the easing
     // started at `dictation_level_since` and takes dictation_level_period.

@@ -488,6 +488,36 @@ Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir, const
     }
     return p;
 }
+namespace {
+// The on-device models, as the helper names them (dictation_helper.py, MODELS):
+// the file used and the download size in MB. 4-bit downloads the f16 file.
+struct DeviceModel {
+    const char *name, *file;
+    int megabytes;
+};
+constexpr DeviceModel device_models[]{{"small-q8_0", "ggml-small-q8_0.bin", 264},
+                                      {"small-q5_1", "ggml-small-q5_1.bin", 190},
+                                      {"small-q4_0", "ggml-small-q4_0.bin", 488}};
+const DeviceModel* device_model(const std::string& model) {
+    for (const auto& entry : device_models) {
+        if (model == entry.name) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+} // namespace
+bool valid_device_model(const std::string& model) {
+    return device_model(model) != nullptr;
+}
+std::string device_model_file(const std::string& model) {
+    const auto* entry = device_model(model);
+    return entry ? entry->file : "";
+}
+int device_model_megabytes(const std::string& model) {
+    const auto* entry = device_model(model);
+    return entry ? entry->megabytes : 0;
+}
 bool valid_dictation_server(const std::string& server) {
     // The helper's own check (dictation_helper.py, Target) is the authority;
     // this one only keeps a typo from reaching it.
@@ -611,6 +641,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
         }
+        if (auto* developer = field(document.get(), "developer_options", json_type_boolean, true)) {
+            settings.developer_options = json_object_get_boolean(developer);
+        }
         try {
             // Hand-edited dictation fields fail on their own: dictation stays
             // off, and the layout, language and every other setting still load.
@@ -618,8 +651,17 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             settings.dictation_server = text(document.get(), "dictation_server", "", true);
             settings.dictation_url = text(document.get(), "dictation_url", "", true);
             settings.dictation_model = text(document.get(), "dictation_model", "", true);
-            if (settings.dictation != "off" && settings.dictation != "server") {
-                throw std::runtime_error("dictation must be \"off\" or \"server\"");
+            if (settings.dictation != "off" && settings.dictation != "server" &&
+                settings.dictation != "device") {
+                throw std::runtime_error("dictation must be \"off\", \"server\" or \"device\"");
+            }
+            settings.dictation_device_model =
+                text(document.get(), "dictation_device_model", "small-q8_0", true);
+            if (!valid_device_model(settings.dictation_device_model)) {
+                throw std::runtime_error("dictation_device_model is not an on-device model");
+            }
+            if (auto* fallback = field(document.get(), "dictation_fallback", json_type_boolean, true)) {
+                settings.dictation_fallback = json_object_get_boolean(fallback);
             }
             if (!settings.dictation_server.empty() &&
                 !valid_dictation_server(settings.dictation_server)) {
@@ -634,6 +676,8 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             settings.dictation_server.clear();
             settings.dictation_url.clear();
             settings.dictation_model.clear();
+            settings.dictation_device_model = "small-q8_0";
+            settings.dictation_fallback = false;
         }
         try {
             // Like the dictation fields, a bad value fails on its own.
@@ -781,6 +825,10 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->dictation_send_paste));
         json_object_object_add(document.get(), "dictation_direct",
                                json_object_new_boolean(settings->dictation_direct));
+        json_object_object_add(document.get(), "dictation_fallback",
+                               json_object_new_boolean(settings->dictation_fallback));
+        json_object_object_add(document.get(), "dictation_device_model",
+                               json_object_new_string(settings->dictation_device_model.c_str()));
         // dictation_url and dictation_model are kept as they are in the file.
         json_object_object_add(document.get(), "dictation",
                                json_object_new_string(settings->dictation.c_str()));

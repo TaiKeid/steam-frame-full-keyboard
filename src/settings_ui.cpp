@@ -158,6 +158,14 @@ void SettingsUi::append(PanelView& view) const {
         for (std::size_t j = 0; j < cards_[i].fields.size(); ++j) {
             const auto& field = cards_[i].fields[j];
             const auto bounds = field_bounds(i, j);
+            if (field.style == ControlStyle::Note) {
+                const Rect text{r.x + row_left, bounds.y, r.width - row_left - row_right, bounds.height};
+                if (intersects(text, clip)) {
+                    view.field_labels.push_back(
+                        {field.label, text, clip, true, field.enabled, 16, true, true});
+                }
+                continue;
+            }
             const double label_width = bounds.x - label_gap - (r.x + row_left);
             // A note becomes a smaller second line, keeping the row one control high.
             const bool noted = !field.note.empty();

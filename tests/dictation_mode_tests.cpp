@@ -262,6 +262,19 @@ while True:
     if op == "test":
         send(op="test", ok=scenario != "fail", **({} if scenario != "fail" else {"reason": "unreachable"}))
         continue
+    if op == "configure":
+        with open(os.path.join(os.path.dirname(sys.argv[0]), "configures"), "a") as log:
+            log.write(json.dumps(message) + "\n")
+        continue
+    if op == "download":
+        # Halfway at once, then the verified file half a second later.
+        send(op="download", state="progress", done=50, total=100)
+        import time
+        time.sleep(0.5)
+        os.makedirs(message["directory"], exist_ok=True)
+        open(os.path.join(message["directory"], "ggml-small-q8_0.bin"), "wb").write(b"model")
+        send(op="download", state="ready")
+        continue
     if scenario == "silent":
         continue
     if op == "capture" and message["on"]:
@@ -283,7 +296,8 @@ while True:
             send(op="phrase", id=phrase)
     elif op == "prompt":
         prompts.write(message["text"].encode() + b"\0")
-        send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)])
+        send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)],
+             **({"device": True} if scenario == "fallback" else {}))
     elif op == "cancel":
         send(op="cancelled")
 )PY";
@@ -427,6 +441,24 @@ template <class Done> void wait_until(App& app, Done done) {
     require(done(), "the fake helper answered");
 }
 void click(App& app, const std::string& id) {
+    // A Settings row below or above its card's view scrolls into it first.
+    for (int step = 0; step < 40; ++step) {
+        const auto view = app.view();
+        const auto control = std::find_if(view.controls.begin(), view.controls.end(),
+                                          [&](const Control& c) { return c.id == id; });
+        if (control == view.controls.end() || !control->clip) {
+            break;
+        }
+        const auto& r = control->bounds;
+        const auto& clip = *control->clip;
+        const double y = r.y + r.height / 2;
+        if (y >= clip.y && y <= clip.y + clip.height) {
+            break;
+        }
+        app.move(0, r.x + 5, clip.y + clip.height / 2);
+        app.scroll(0, 0, y > clip.y + clip.height ? 1 : -1);
+        settle(app);
+    }
     for (const auto& control : app.view().controls) {
         if (control.id == id) {
             const double x = control.bounds.x + control.bounds.width / 2;
@@ -1162,7 +1194,8 @@ void field_tests() {
     app.tick(clock += .1);
     require(!app.view().disabled_keys.contains("Dictation-send"), "a new field enables Send again");
     press(app, "Dictation-send");
-    settle(app);
+    // Send first waits for the helper to confirm the pause, in real time.
+    wait_until(app, [&] { return !sink.text.empty(); });
     require(sink.text == std::vector<std::string>{"hia"}, "and the text goes there");
 }
 
@@ -1199,6 +1232,136 @@ bool field_label(App& app, const std::string& text) {
     const auto view = app.view();
     return std::any_of(view.field_labels.begin(), view.field_labels.end(),
                        [&](const FieldLabel& label) { return label.text == text; });
+}
+
+// The configure messages the fake helper received, one JSON object a line.
+std::string configures(const fs::path& directory) {
+    std::ifstream file(directory / "configures");
+    return {std::istreambuf_iterator<char>(file), {}};
+}
+
+// On-device dictation: the model download after confirmation, progress on
+// the mic key, the device target, Delete, the fallback and its mark.
+void device_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "main");
+    write_config(directory.path, R"(,"dictation":"off","dictation_server":"127.0.0.1")");
+    Sink sink;
+    App app(options, sink);
+    app.show_settings();
+    click(app, "dictation");
+    click(app, "choose:dictation:device");
+    require(field_label(app, "Model") && !field_label(app, "Server"),
+            "On device shows the model row instead of the server");
+    click(app, "apply");
+    auto view = app.view();
+    require(view.settings && view.confirm && view.confirm->title == "Download the speech model?" &&
+                view.confirm->body.find("264 MB") != std::string::npos,
+            "Apply asks before downloading, naming the size");
+    click(app, "confirm-cancel");
+    click(app, "settings"); // Back
+    std::vector<std::string> errors;
+    require(load_settings(directory.path, errors).dictation == "off" &&
+                !fs::exists(directory.path / "models"),
+            "Cancel downloads and applies nothing");
+
+    app.show_settings();
+    click(app, "dictation");
+    click(app, "choose:dictation:device");
+    click(app, "apply");
+    click(app, "confirm-accept");
+    app.flush_settings();
+    require(!app.view().settings && load_settings(directory.path, errors).dictation == "device",
+            "Download applies the settings");
+    require(app.view().dictation_download == 0.0, "the download starts at once");
+    wait_until(app, [&] { return app.view().dictation_download == .5; });
+    view = app.view();
+    require(*view.dictation_download == .5 && !hidden_key(view, *find(view, "Dictation")) &&
+                view.disabled_keys.contains("Dictation") &&
+                view.status == "Downloading the speech model: 50%",
+            "the mic key shows the progress and waits; the keyboard keeps working");
+    press(app, "KeyA");
+    require(sink.text == std::vector<std::string>{"a"}, "keys type during the download");
+    wait_until(app, [&] { return app.view().dictation_available; });
+    require(!app.view().disabled_keys.contains("Dictation") &&
+                app.view().status == "The speech model is ready.",
+            "a verified model makes the mic key usable");
+    open_editor(app);
+    wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+    require(configures(directory.path)
+                        .find(R"("device": ")" + (directory.path / "models").string() +
+                              "/ggml-small-q8_0.bin\"") != std::string::npos &&
+                configures(directory.path).find(R"("server")") == std::string::npos,
+            "on device, phrases go to the downloaded model and no server");
+    press(app, "Escape");
+    press(app, "Escape"); // asked, then discarded
+
+    app.show_settings();
+    require(field_label(app, "Ready"), "the model row says the model is ready");
+    click(app, "model-action");
+    require(!fs::exists(directory.path / "models/ggml-small-q8_0.bin") && field_label(app, "264 MB"),
+            "Delete removes the model");
+    click(app, "apply");
+    require(app.view().confirm.has_value(), "On device without the model asks again");
+    click(app, "confirm-cancel");
+    click(app, "settings"); // Back
+    require(!app.view().dictation_available, "without the model the mic key is hidden");
+
+    // A weaker language says so under the selector; English does not.
+    auto warns = [](App& shown) {
+        const auto labels = shown.view().field_labels;
+        return std::any_of(labels.begin(), labels.end(), [](const FieldLabel& label) {
+            return label.warning && label.text.find("low accuracy") != std::string::npos;
+        });
+    };
+    app.show_settings();
+    require(!warns(app) && !field_label(app, "Format"),
+            "English has no warning, and the model format is a development option");
+    click(app, "settings"); // Back
+    write_config(directory.path, R"(,"dictation":"device")", "ja-romaji");
+    App japanese(options, sink);
+    japanese.show_settings();
+    require(warns(japanese), "a language other than English or Spanish warns on device");
+}
+
+// The server's fallback to the device: offered as a switch, it needs the
+// model, configures the helper with both, and marks fallback text quietly.
+void fallback_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "fallback");
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","developer_options":true)");
+    fs::create_directories(directory.path / "models");
+    std::ofstream(directory.path / "models/ggml-small-q8_0.bin") << "model";
+    Sink sink;
+    App app(options, sink);
+    app.show_settings();
+    require(field_label(app, "Fall back to on device") && !field_label(app, "Model"),
+            "the server offers the fallback; the model row waits for it");
+    click(app, "dictation-fallback");
+    require(field_label(app, "Model") && field_label(app, "Format"),
+            "the fallback shows the model row, and development builds its format");
+    click(app, "apply");
+    require(!app.view().confirm, "a model already there needs no download");
+    open_editor(app);
+    wait_until(app, [&] { return !editor_text(app).empty(); });
+    require(configures(directory.path).find(R"("fallback": true)") != std::string::npos &&
+                configures(directory.path).find(R"("server": "127.0.0.1")") != std::string::npos,
+            "the helper gets the server and the model for its fallback");
+    require(app.view().dictation->counter.starts_with("On device · "),
+            "a phrase from the fallback is marked quietly in the editor");
 }
 
 void card_tests() {
@@ -1415,6 +1578,8 @@ int main() {
         language_tests();
         direct_tests();
         direct_paste_tests();
+        device_tests();
+        fallback_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

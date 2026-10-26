@@ -134,6 +134,13 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       keyboard_(output_) {
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
+    models_dir_ = options.models_dir;
+    if (models_dir_.empty()) {
+        const char* data = std::getenv("XDG_DATA_HOME");
+        const char* home = std::getenv("HOME");
+        models_dir_ = (data && *data ? fs::path(data) : fs::path(home ? home : "") / ".local/share") /
+                      "framekeyboard/models";
+    }
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     persisted_active_ = settings_.active;
     auto fallback_status = [&](const std::string& message) {
@@ -198,6 +205,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
+    pending_dictation_fallback_ = settings_.dictation_fallback;
+    pending_dictation_device_model_ = settings_.dictation_device_model;
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
     prepare_swipe();
     update_settings_ui();
@@ -257,14 +266,15 @@ std::vector<Control> App::controls() const {
                 {"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
         }
         append_move_handle();
-        if (confirm_clear_favorites_) {
+        if (confirm_ != Confirm::None) {
             const Rect panel = confirm_popup_bounds;
             add({ControlKind::ConfirmCancel},
                 {"confirm-cancel", "Cancel", {panel.x + 40, panel.y + 160, 210, 52}});
-            add({ControlKind::ConfirmAccept}, {"confirm-accept",
-                                               "Clear",
-                                               {panel.x + panel.width - 250, panel.y + 160, 210, 52},
-                                               true});
+            add({ControlKind::ConfirmAccept},
+                {"confirm-accept",
+                 confirm_ == Confirm::ClearFavorites ? "Clear" : "Download",
+                 {panel.x + panel.width - 250, panel.y + 160, 210, 52},
+                 true});
         }
         if (address_) {
             // The popup's geometry: a raised panel over the cards, the field, a
@@ -543,6 +553,62 @@ void App::update_settings_ui() {
                     ? (pending_dictation_server_.empty() ? "No server set" : "Not tested")
                     : dictation_test_;
     test.enabled = !pending_dictation_server_.empty();
+    // On device (docs/dictation.md, On-device recognition): the model's row,
+    // its development format and the warning for weaker languages.
+    std::vector<SettingField> dictation_fields{
+        field(ControlKind::ChooseDictation,
+              dropdown("dictation", "Dictation", pending_dictation_,
+                       {{"off", "Off"}, {"server", "Your server"}, {"device", "On device"}}))};
+    const auto& pending_language = profiles_.languages.at(pending_.language).dictation_language;
+    const bool device = pending_dictation_ == "device";
+    if (device && !pending_language.empty() && pending_language != "en" && pending_language != "es") {
+        dictation_fields.push_back(
+            SettingField{"device-accuracy",
+                         "This language has low accuracy on the device. Your own speech server gives "
+                         "much better results.",
+                         "", ControlStyle::Note});
+    }
+    if (!device) {
+        dictation_fields.push_back(server);
+        dictation_fields.push_back(test);
+        dictation_fields.push_back(
+            field(ControlKind::DictationFallback,
+                  checkbox("dictation-fallback", "Fall back to on device",
+                           pending_dictation_fallback_ && pending_dictation_ == "server",
+                           pending_dictation_ == "server", "When the server fails")));
+    }
+    if (needs_model(pending_dictation_, pending_dictation_fallback_)) {
+        const auto& model = pending_dictation_device_model_;
+        auto row = field(ControlKind::ModelAction,
+                         SettingField{"model-action", "Model", "Download", ControlStyle::Button});
+        // The note fits the label column; the button says what it does.
+        if (download_) {
+            row.value = "Cancel";
+            row.note =
+                download_->quantizing
+                    ? "Preparing"
+                    : std::to_string(static_cast<int>(model_download_share() * 100)) + "% downloaded";
+        } else if (model_ready(model)) {
+            row.value = "Delete";
+            row.note = "Ready";
+        } else {
+            row.note = std::to_string(device_model_megabytes(model)) + " MB";
+        }
+        dictation_fields.push_back(row);
+        if (settings_.developer_options) {
+            dictation_fields.push_back(
+                field(ControlKind::ChooseDeviceModel, dropdown("device-model", "Format", model,
+                                                               {{"small-q8_0", "8-bit (default)"},
+                                                                {"small-q5_1", "5-bit"},
+                                                                {"small-q4_0", "4-bit"}})));
+        }
+    }
+    dictation_fields.push_back(send_gap);
+    dictation_fields.push_back(
+        field(ControlKind::DictationDirect,
+              checkbox("dictation-direct", "Type as I speak",
+                       pending_dictation_direct_ && pending_dictation_ != "off",
+                       pending_dictation_ != "off", "Skips the editor but lower accuracy")));
     auto favorites = field(ControlKind::ClearFavorites, SettingField{"clear-favorites", "Favorites",
                                                                      "Clear all", ControlStyle::Button});
     favorites.note =
@@ -571,15 +637,7 @@ void App::update_settings_ui() {
            field(ControlKind::EmojiCloseOnSelect,
                  checkbox("emoji-close-on-select", "Close emoji picker after choosing",
                           pending_emoji_close_on_select_))}},
-         {"dictation",
-          "Dictation",
-          {field(ControlKind::ChooseDictation, dropdown("dictation", "Dictation", pending_dictation_,
-                                                        {{"off", "Off"}, {"server", "Your server"}})),
-           server, test, send_gap,
-           field(ControlKind::DictationDirect,
-                 checkbox("dictation-direct", "Type as I speak",
-                          pending_dictation_direct_ && pending_dictation_ != "off",
-                          pending_dictation_ != "off", "Skips the editor but lower accuracy"))}},
+         {"dictation", "Dictation", dictation_fields},
          {"experimental",
           "Experimental",
           {field(ControlKind::ReplaceNativeKeyboard,
@@ -604,6 +662,9 @@ PanelView App::geometry() const {
         v.emoji.emplace().width = emoji_width_;
     }
     v.dictation_available = dictation_available();
+    if (download_) {
+        v.dictation_download = model_download_share();
+    }
     if (dictation_open_) {
         v.layout = &dictation_layout_.layout;
         v.composing = false;
@@ -755,6 +816,22 @@ PanelView App::build_view(bool picker) const {
     }
     v.dictation_available = dictation_available();
     v.dictation_capturing = capturing_;
+    if (download_) {
+        // The download never blocks the keyboard: the mic key waits and shows
+        // its progress, and the status line says what it is.
+        v.dictation_download = model_download_share();
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::Dictation && key.action == "mic") {
+                v.disabled_keys.insert(key.id);
+            }
+        }
+        if (v.status.empty()) {
+            v.status = download_->quantizing
+                           ? "Preparing the speech model…"
+                           : "Downloading the speech model: " +
+                                 std::to_string(static_cast<int>(*v.dictation_download * 100)) + "%";
+        }
+    }
     v.dictation_levels = mic_levels_;
     v.dictation_level_since = mic_level_since_;
     if (dictation_open_) {
@@ -772,10 +849,15 @@ PanelView App::build_view(bool picker) const {
             v.disabled_keys.insert("Dictation-undo");
         }
     }
-    if (settings_open_ && confirm_clear_favorites_) {
+    if (settings_open_ && confirm_ == Confirm::ClearFavorites) {
         v.confirm =
             PanelView::ConfirmView{confirm_popup_bounds, "Clear all favorites?",
                                    "All saved layout and language pairs are removed when you Apply."};
+    } else if (settings_open_ && confirm_ != Confirm::None) {
+        v.confirm = PanelView::ConfirmView{
+            confirm_popup_bounds, "Download the speech model?",
+            "Whisper small, " + std::to_string(device_model_megabytes(pending_dictation_device_model_)) +
+                " MB from Hugging Face, for dictation on the device."};
     }
     if (settings_open_ && address_) {
         PanelView::AddressView popup;
@@ -806,7 +888,7 @@ PanelView App::build_view(bool picker) const {
     return v;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
-    if (address_ || confirm_clear_favorites_) {
+    if (address_ || confirm_ != Confirm::None) {
         return false; // nothing under a popup scrolls
     }
     if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
@@ -919,7 +1001,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
-    if (settings_open_ && !address_ && !confirm_clear_favorites_ && settings_ui_.down(pointer, x, y)) {
+    if (settings_open_ && !address_ && confirm_ == Confirm::None && settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;
         return false;
@@ -1385,7 +1467,7 @@ void App::show_settings() {
     pause_capture(); // Dictation pauses; its phrases still arrive in the editor.
     cancel();
     address_.reset();
-    confirm_clear_favorites_ = false;
+    confirm_ = Confirm::None;
     settings_open_ = true;
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
@@ -1401,14 +1483,16 @@ void App::show_settings() {
     pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
+    pending_dictation_fallback_ = settings_.dictation_fallback;
+    pending_dictation_device_model_ = settings_.dictation_device_model;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
 }
 void App::back() {
-    if (address_ || confirm_clear_favorites_) {
+    if (address_ || confirm_ != Confirm::None) {
         address_.reset();
-        confirm_clear_favorites_ = false;
+        confirm_ = Confirm::None;
         pressed_controls_.clear();
         hovered_.clear();
     } else if (settings_ui_.popup_open()) {
@@ -1419,7 +1503,7 @@ void App::back() {
         cancel();
         settings_open_ = false;
         address_.reset();
-        confirm_clear_favorites_ = false;
+        confirm_ = Confirm::None;
     }
     dirty = true;
 }
@@ -1430,7 +1514,7 @@ void App::summon() {
     cancel();
     settings_open_ = false;
     address_.reset();
-    confirm_clear_favorites_ = false;
+    confirm_ = Confirm::None;
     recenter_ = true;
     status_.clear();
 }
@@ -1578,6 +1662,9 @@ void App::reload() {
         settings_.dictation_direct = updated_settings.dictation_direct;
         settings_.dictation = updated_settings.dictation;
         settings_.dictation_server = updated_settings.dictation_server;
+        settings_.dictation_fallback = updated_settings.dictation_fallback;
+        settings_.dictation_device_model = updated_settings.dictation_device_model;
+        settings_.developer_options = updated_settings.developer_options;
         settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
@@ -1596,6 +1683,8 @@ void App::reload() {
     pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
+    pending_dictation_fallback_ = settings_.dictation_fallback;
+    pending_dictation_device_model_ = settings_.dictation_device_model;
     swipe_prepared_.clear(); // Reread an edited word list.
     prepare_swipe();
     rebuild_cycle_entries();
@@ -1986,6 +2075,34 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     }
     return false;
 }
+void App::apply_settings() {
+    // Prepare/activate first. A failed candidate must leave all saved state intact.
+    activate(pending_);
+    settings_.favorites = pending_favorites_;
+    settings_.hide_numpad = pending_hide_numpad_;
+    settings_.use_drag_to_move = pending_use_drag_to_move_;
+    settings_.auto_leveling = pending_auto_leveling_;
+    settings_.replace_native_keyboard = pending_replace_native_keyboard_;
+    settings_.start_with_steamos = pending_start_with_steamos_;
+    settings_.swipe_typing = pending_swipe_typing_;
+    settings_.emoji_close_on_select = pending_emoji_close_on_select_;
+    settings_.dictation_send_gap = pending_dictation_send_gap_;
+    settings_.dictation_send_paste = pending_dictation_send_paste_;
+    settings_.dictation_direct = pending_dictation_direct_;
+    settings_.dictation = pending_dictation_;
+    settings_.dictation_server = pending_dictation_server_;
+    settings_.dictation_fallback = pending_dictation_fallback_;
+    settings_.dictation_device_model = pending_dictation_device_model_;
+    prepare_swipe();
+    default_ = settings_.active;
+    persisted_active_ = settings_.active;
+    startup_status_.clear();
+    rebuild_cycle_entries();
+    save();
+    settings_open_ = false;
+    address_.reset();
+    confirm_ = Confirm::None;
+}
 void App::action(const ControlAction& command) {
     const auto kind = command.kind;
     if (output_.text_pending() &&
@@ -2108,30 +2225,50 @@ void App::action(const ControlAction& command) {
         cancel();
         recenter_ = true;
     } else if (kind == ControlKind::Apply) {
-        // Prepare/activate first. A failed candidate must leave all saved state intact.
-        activate(pending_);
-        settings_.favorites = pending_favorites_;
-        settings_.hide_numpad = pending_hide_numpad_;
-        settings_.use_drag_to_move = pending_use_drag_to_move_;
-        settings_.auto_leveling = pending_auto_leveling_;
-        settings_.replace_native_keyboard = pending_replace_native_keyboard_;
-        settings_.start_with_steamos = pending_start_with_steamos_;
-        settings_.swipe_typing = pending_swipe_typing_;
-        settings_.emoji_close_on_select = pending_emoji_close_on_select_;
-        settings_.dictation_send_gap = pending_dictation_send_gap_;
-        settings_.dictation_send_paste = pending_dictation_send_paste_;
-        settings_.dictation_direct = pending_dictation_direct_;
-        settings_.dictation = pending_dictation_;
-        settings_.dictation_server = pending_dictation_server_;
-        prepare_swipe();
-        default_ = settings_.active;
-        persisted_active_ = settings_.active;
-        startup_status_.clear();
-        rebuild_cycle_entries();
-        save();
-        settings_open_ = false;
-        address_.reset();
-        confirm_clear_favorites_ = false;
+        if (needs_model(pending_dictation_, pending_dictation_fallback_) && !download_ &&
+            !model_ready(pending_dictation_device_model_)) {
+            // The model is downloaded only once the user agrees; Download
+            // then applies the settings too.
+            settings_ui_.close_popup();
+            confirm_ = Confirm::DownloadAndApply;
+            pressed_controls_.clear();
+            hovered_.clear();
+            return;
+        }
+        apply_settings();
+    } else if (kind == ControlKind::ConfirmAccept &&
+               (confirm_ == Confirm::Download || confirm_ == Confirm::DownloadAndApply)) {
+        const auto model = pending_dictation_device_model_;
+        const bool apply = confirm_ == Confirm::DownloadAndApply;
+        confirm_ = Confirm::None;
+        if (apply) {
+            apply_settings();
+        } else {
+            update_settings_ui();
+        }
+        start_download(model);
+    } else if (kind == ControlKind::ModelAction) {
+        // The model row's button: Download asks first, Cancel and Delete act.
+        settings_ui_.close_popup();
+        pressed_controls_.clear();
+        hovered_.clear();
+        if (download_) {
+            dictation().cancel_download();
+        } else if (model_ready(pending_dictation_device_model_)) {
+            delete_model(pending_dictation_device_model_);
+            update_settings_ui();
+        } else {
+            confirm_ = Confirm::Download;
+        }
+    } else if (kind == ControlKind::DictationFallback) {
+        pending_dictation_fallback_ = !pending_dictation_fallback_;
+        update_settings_ui();
+    } else if (kind == ControlKind::ChooseDeviceModel) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_dictation_device_model_ = command.value;
+        settings_ui_.close_popup();
+        update_settings_ui();
     } else if (kind == ControlKind::Reload) {
         reload();
     } else if (kind == ControlKind::ToggleDropdown) {
@@ -2194,16 +2331,16 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
     } else if (kind == ControlKind::ClearFavorites && !pending_favorites_.empty()) {
         settings_ui_.close_popup();
-        confirm_clear_favorites_ = true;
+        confirm_ = Confirm::ClearFavorites;
         pressed_controls_.clear();
         hovered_.clear();
-    } else if (kind == ControlKind::ConfirmAccept && confirm_clear_favorites_) {
+    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::ClearFavorites) {
         // Pending like every Settings change: Apply saves it, Back keeps them.
         pending_favorites_.clear();
-        confirm_clear_favorites_ = false;
+        confirm_ = Confirm::None;
         update_settings_ui();
     } else if (kind == ControlKind::ConfirmCancel) {
-        confirm_clear_favorites_ = false;
+        confirm_ = Confirm::None;
     } else if (kind == ControlKind::AddressKey && address_) {
         address_key(command.value);
     } else if (kind == ControlKind::AddressRecent && address_) {
@@ -2721,7 +2858,7 @@ void App::close_panel() {
     if (resident_replacement()) {
         settings_open_ = false;
         address_.reset();
-        confirm_clear_favorites_ = false;
+        confirm_ = Confirm::None;
         dismiss_requested_ = true;
     } else {
         quit_ = true;
@@ -3008,9 +3145,14 @@ bool App::dictation_available() const {
         return true; // image exports show the mode whatever the settings
     }
     const auto& language = profiles_.languages.at(settings_.active.language);
+    if (language.dictation_language.empty()) {
+        return false;
+    }
+    if (settings_.dictation == "device") {
+        return !download_ && model_ready(settings_.dictation_device_model);
+    }
     return settings_.dictation == "server" &&
-           (!settings_.dictation_server.empty() || !settings_.dictation_url.empty()) &&
-           !language.dictation_language.empty();
+           (!settings_.dictation_server.empty() || !settings_.dictation_url.empty());
 }
 
 void App::open_dictation() {
@@ -3165,8 +3307,9 @@ void App::set_dictation_view(PanelView& view) const {
         editor.counter =
             "Sending " + std::to_string(sending_->done) + "/" + std::to_string(sending_->total);
     } else {
-        editor.counter =
-            std::to_string(editor_.length()) + "/" + std::to_string(DictationEditor::dictation_limit);
+        // A quiet mark while phrases come from the fallback on the Frame.
+        editor.counter = (device_fallback_ ? "On device · " : "") + std::to_string(editor_.length()) +
+                         "/" + std::to_string(DictationEditor::dictation_limit);
         editor.at_limit = !editor_.can_dictate();
     }
     view.dictation = std::move(editor);
@@ -3360,20 +3503,23 @@ bool App::start_capture() {
         dirty = true;
         return false;
     }
-    if (!dictation_) {
-        dictation_ =
-            std::make_unique<Dictation>(options_.config_dir / "dictation-key", options_.dictation_helper,
-                                        options_.dictation_arguments);
-    }
     const auto& language = profiles_.languages.at(settings_.active.language);
     Dictation::Target target;
-    // A URL from config.json replaces the server address.
-    (settings_.dictation_url.empty() ? target.server : target.url) =
-        settings_.dictation_url.empty() ? settings_.dictation_server : settings_.dictation_url;
-    target.model = settings_.dictation_model;
     target.language = language.dictation_language;
-    target.live = !dictation_open_; // Type as I speak types words as they settle
-    if (!dictation_->configure(target) || !dictation_->capture(true)) {
+    if (settings_.dictation == "device") {
+        target.device = model_path(settings_.dictation_device_model).string();
+    } else {
+        // A URL from config.json replaces the server address.
+        (settings_.dictation_url.empty() ? target.server : target.url) =
+            settings_.dictation_url.empty() ? settings_.dictation_server : settings_.dictation_url;
+        target.model = settings_.dictation_model;
+        target.live = !dictation_open_; // Type as I speak types words as they settle
+        if (settings_.dictation_fallback && model_ready(settings_.dictation_device_model)) {
+            target.device = model_path(settings_.dictation_device_model).string();
+            target.fallback = true;
+        }
+    }
+    if (!dictation().configure(target) || !dictation_->capture(true)) {
         dictation_message("Dictation could not start.", true);
         return false;
     }
@@ -3837,6 +3983,8 @@ std::string dictation_problem(const std::string& reason) {
         {"backlog-full", "Too much speech is waiting for recognition."},
         {"keyboard-stalled", "Dictation stopped while the keyboard was busy."},
         {"helper-exited", "The dictation helper stopped."},
+        {"model-missing", "The speech model is missing. Download it in Settings."},
+        {"device-failed", "Recognition on the device failed."},
     };
     const auto found = messages.find(reason);
     return found != messages.end() ? found->second : "Dictation stopped.";
@@ -3879,6 +4027,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     case Kind::Text: {
         if (!pending_phrases_.erase(event.id)) {
             break; // cancelled meanwhile
+        }
+        if (event.device != device_fallback_) {
+            // The fallback recognized it on the Frame; said quietly, never blocking.
+            device_fallback_ = event.device;
+            if (direct_ && event.device) {
+                status_ = "Recognized on the device: the speech server did not answer.";
+            }
+            dirty = true;
         }
         if (direct_) {
             direct_phrase(live_rest(event.id, event.text));
@@ -3943,6 +4099,32 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     }
     case Kind::Paused:
         awaiting_pause_ = false;
+        break;
+    case Kind::Download:
+        if (!download_) {
+            break;
+        }
+        if (event.text == "progress") {
+            download_->done = event.done;
+            download_->total = event.total;
+        } else if (event.text == "quantizing") {
+            download_->quantizing = true;
+        } else if (event.text == "ready" || event.text == "failed") {
+            std::cout << "Model download " << event.text << (event.reason.empty() ? "" : ": ")
+                      << event.reason << ".\n"
+                      << std::flush;
+            status_ = event.text == "ready"         ? "The speech model is ready."
+                      : event.reason == "cancelled" ? ""
+                      : event.reason == "checksum"
+                          ? "The speech model download was corrupted. Try again."
+                      : event.reason == "disk" ? "The speech model could not be saved. Check free space."
+                      : event.reason == "quantize"
+                          ? "The speech model could not be prepared."
+                          : "The speech model could not be downloaded. Check the network.";
+            download_.reset();
+            update_settings_ui();
+        }
+        dirty = true;
         break;
     case Kind::Test:
         // Only the Dictation card's Test asks. The line under the row label is
@@ -4011,15 +4193,61 @@ void App::address_key(const std::string& key) {
     }
 }
 
-void App::test_dictation_server() {
-    if (pending_dictation_server_.empty()) {
-        return;
-    }
+Dictation& App::dictation() {
     if (!dictation_) {
         dictation_ =
             std::make_unique<Dictation>(options_.config_dir / "dictation-key", options_.dictation_helper,
                                         options_.dictation_arguments);
     }
+    return *dictation_;
+}
+
+double App::model_download_share() const {
+    if (!download_ || download_->quantizing) {
+        return -1;
+    }
+    return download_->total
+               ? static_cast<double>(download_->done) / static_cast<double>(download_->total)
+               : 0;
+}
+
+fs::path App::model_path(const std::string& model) const {
+    return models_dir_ / device_model_file(model);
+}
+
+bool App::model_ready(const std::string& model) const {
+    // The helper renames a model into place only once verified.
+    std::error_code error;
+    return valid_device_model(model) && fs::is_regular_file(model_path(model), error);
+}
+
+void App::start_download(const std::string& model) {
+    if (download_ || !valid_device_model(model) || model_ready(model)) {
+        return;
+    }
+    if (!dictation().download(model, models_dir_)) {
+        status_ = "The speech model could not be downloaded: the dictation helper did not start.";
+        dirty = true;
+        return;
+    }
+    download_ =
+        ModelDownload{model, 0, static_cast<std::uint64_t>(device_model_megabytes(model)) * 1000000};
+    std::cout << "Model download started (" << model << ").\n" << std::flush;
+    dirty = true;
+}
+
+void App::delete_model(const std::string& model) {
+    std::error_code error;
+    fs::remove(model_path(model), error);
+    std::cout << "Model deleted (" << model << ").\n" << std::flush;
+    dirty = true;
+}
+
+void App::test_dictation_server() {
+    if (pending_dictation_server_.empty()) {
+        return;
+    }
+    dictation();
     // The pending address, before Apply; the next capture configures the
     // saved one again.
     Dictation::Target target;

@@ -19,7 +19,8 @@ std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
 }
 bool hidden_key(const PanelView& view, const Key& key) {
     if (key.action_kind == ActionKind::Dictation && key.action == "mic") {
-        return !view.dictation_available && !view.dictation; // its slot stays empty
+        // Its slot stays empty, unless a model download is on its way.
+        return !view.dictation_available && !view.dictation && !view.dictation_download;
     }
     return view.hide_numpad && !view.settings &&
            (key.action == "NumLock" || key.action.starts_with("Numpad"));
@@ -514,6 +515,21 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
                             : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
                                                                                 : 32;
         draw_icon(cr, key.icon, face, disabled ? disabled_legend(t) : t.legend, size);
+        if (key.icon == Icon::Mic && view.dictation_download) {
+            // A slim track along the face's foot fills as the model arrives,
+            // and stays full while it is prepared.
+            const Rect track{face.x + 14, face.y + face.height - 16, face.width - 28, 4};
+            rounded(cr, track, 2);
+            cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .15);
+            cairo_fill(cr);
+            const double share =
+                *view.dictation_download < 0 ? 1 : std::clamp(*view.dictation_download, 0.0, 1.0);
+            if (share > 0) {
+                rounded(cr, {track.x, track.y, std::max(4.0, track.width * share), track.height}, 2);
+                source(cr, mix(t.latched, t.legend, .35));
+                cairo_fill(cr);
+            }
+        }
         return;
     }
     if (key.action_kind == ActionKind::Flick) {
@@ -1066,6 +1082,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             animating_ |= phase < 1;
             mic_changed = !full && (previous_->view.dictation_capturing != view.dictation_capturing ||
                                     previous_->view.dictation_levels != view.dictation_levels ||
+                                    previous_->view.dictation_download != view.dictation_download ||
                                     phase != mic_phase_);
             mic_phase_ = phase;
         }
@@ -1468,9 +1485,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_save(cr);
                 cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
                 cairo_clip(cr);
+                const Color warning{.96, .72, .35}; // the editor's and address popup's amber
                 label(cr, field.text, field.bounds, field.size, view.language->font,
-                      field.enabled ? t.legend : disabled_legend(t), field.left,
-                      field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT);
+                      !field.enabled  ? disabled_legend(t)
+                      : field.warning ? warning
+                                      : t.legend,
+                      field.left && !field.wrap, field.left ? PANGO_ALIGN_LEFT : PANGO_ALIGN_RIGHT,
+                      field.wrap);
                 cairo_restore(cr);
             }
         }
