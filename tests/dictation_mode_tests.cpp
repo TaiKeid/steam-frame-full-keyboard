@@ -118,6 +118,12 @@ void layout_tests() {
           "Numpad7", "Dictation", "Dictation-send", "Dictation-undo"}) {
         require(has(kept), "dictation mode keeps editing keys and adds its own");
     }
+    const auto& zero = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
+                                     [](const Key& key) { return key.id == "Numpad0"; });
+    const auto& decimal = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
+                                        [](const Key& key) { return key.id == "NumpadDecimal"; });
+    require(zero.secondary_label.empty() && decimal.secondary_label == "Del",
+            "the numpad keeps Del but loses Ins, which the editor cannot use");
     const auto& send = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
                                      [](const Key& key) { return key.id == "Dictation-send"; });
     require(send.bounds.x == 724 && send.bounds.x + send.bounds.width == 1020,

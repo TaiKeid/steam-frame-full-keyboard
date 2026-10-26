@@ -66,7 +66,11 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
             paste = key.bounds;
         }
         if (!removed(key)) {
-            result.layout.keys.push_back(key);
+            auto copy = key;
+            if (copy.action_kind == ActionKind::Key && copy.action == "Numpad0") {
+                copy.secondary_label.clear(); // Insert does nothing in the editor; only 0 remains
+            }
+            result.layout.keys.push_back(std::move(copy));
         }
     }
     // Send spans the right-hand modifier group; layouts without it get none.
