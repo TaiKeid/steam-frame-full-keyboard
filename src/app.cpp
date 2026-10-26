@@ -4376,7 +4376,14 @@ bool App::tick_dictation(double now) {
         return false;
     }
     const bool was_dirty = dirty;
-    dictation_->tick(now);
+    // The helper watches for the keep-alive only while it captures or has
+    // phrases or a test in hand; otherwise neither process needs to wake. It
+    // goes on a few seconds longer, so no transition can miss it.
+    if (capturing_ || phrases_pending() || awaiting_pause_ || send_wait_since_ ||
+        dictation_test_ == "Testing…") {
+        alive_until_ = now + 5;
+    }
+    dictation_->tick(now, now < alive_until_);
     while (const auto event = dictation_->next()) {
         dictation_event(*event, now);
     }

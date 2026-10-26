@@ -610,6 +610,7 @@ class App {
     // A game is running and this capture hears its sound: the status line
     // says so while capturing. The helper reports it once per capture.
     bool game_sound_{};
+    double alive_until_{}; // The helper gets keep-alives until then.
     // How long Send waits for one phrase to be recognized, and the restart of
     // that wait when a phrase comes back.
     double recognition_limit() const;

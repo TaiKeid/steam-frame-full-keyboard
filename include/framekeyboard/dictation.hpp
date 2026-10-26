@@ -80,9 +80,10 @@ class Dictation {
     // into `directory`; progress arrives as Download events.
     bool download(const std::string& model, const std::filesystem::path& directory);
     bool cancel_download();
-    // Sends the keep-alive, reads a bounded number of packets and notices a
-    // helper that exited. Never blocks.
-    void tick(double now);
+    // Sends the keep-alive when `keep_alive`, reads a bounded number of
+    // packets and notices a helper that exited. Never blocks. The helper
+    // needs the keep-alive only while it captures or has phrases.
+    void tick(double now, bool keep_alive = true);
     std::optional<Event> next();
     // Closing the socket makes the helper stop the recorder and exit. Returns
     // at once; tick() or the destructor reaps the child.

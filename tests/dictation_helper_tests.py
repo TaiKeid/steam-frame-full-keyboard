@@ -972,6 +972,23 @@ class Helper(unittest.TestCase):
         helper.send(op="prompt", id=helper.receive("ready")["id"], text="")
         self.assertEqual(helper.receive("error")["reason"], "backlog-full")
 
+    def test_an_idle_helper_sleeps_and_needs_no_keep_alive(self):
+        helper = self.start()
+        time.sleep(0.5)
+
+        def switches():
+            total = 0
+            for task in Path(f"/proc/{helper.process.pid}/task").iterdir():
+                for line in (task / "status").read_text().splitlines():
+                    if line.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
+                        total += int(line.split()[1])
+            return total
+        before = switches()
+        time.sleep(3)  # no keep-alive meanwhile
+        self.assertLess(switches() - before, 4, "idle, the helper does not wake")
+        helper.send(op="capture", on=True)
+        self.assertEqual(helper.receive("ready")["id"], 1)
+
     def test_levels_are_dropped_while_the_keyboard_is_not_reading(self):
         helper = self.start(speech(1.0), mode="loop")
         helper.send(op="capture", on=True)

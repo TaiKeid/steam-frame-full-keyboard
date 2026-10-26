@@ -518,6 +518,12 @@ class Engine:
                 return "error", "device-failed"
             return "text", reply["text"]
 
+    def idle_wait(self, now):
+        """Seconds until the loaded engine is due to unload; None when none is loaded."""
+        if self.process is None:
+            return None
+        return max(0.25, self.used + DEVICE_IDLE - now + 0.1)
+
     def unload_if_idle(self, now):
         if self.lock.acquire(blocking=False):
             try:
@@ -1208,7 +1214,11 @@ class Helper:
                 watched = [self.peer, self.wake_read]
                 if self.recorder:
                     watched.append(self.recorder.stdout)
-                readable, _, _ = select.select(watched, [], [], 0.25)
+                # Idle, the helper sleeps until a packet, a download event or
+                # the engine's unload; it checks timeouts only while busy.
+                busy = self.capturing or self.queue or self.inflight
+                timeout = 0.25 if busy else self.engine.idle_wait(time.monotonic())
+                readable, _, _ = select.select(watched, [], [], timeout)
                 if self.peer in readable:
                     data, _, flags, _ = self.peer.recvmsg(MAX_PACKET)
                     if not data:

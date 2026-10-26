@@ -279,8 +279,8 @@ bool Dictation::cancel_download() {
     return fd_ >= 0 && send(packet("download-cancel"));
 }
 
-void Dictation::tick(double now) {
-    if (fd_ >= 0 && now >= alive_at_) {
+void Dictation::tick(double now, bool keep_alive) {
+    if (fd_ >= 0 && keep_alive && now >= alive_at_) {
         send(packet("alive"));
         alive_at_ = now + alive_interval;
     }
