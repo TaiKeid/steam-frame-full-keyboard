@@ -457,7 +457,25 @@ double mic_phase(const PanelView& view, double now) {
     const double sampled = std::floor(now / frame) * frame;
     return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
 }
-void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double phase = 1) {
+// A bright segment circling just inside the mic key's face while phrases
+// are being recognized; one lap takes 1.2 s.
+void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
+    const Rect r{face.x + 1.5, face.y + 1.5, face.width - 3, face.height - 3};
+    const double radius = std::max(1.0, t.radius - 1.5);
+    const double perimeter = 2 * (r.width + r.height - 4 * radius) + 2 * 3.141592653589793 * radius;
+    const double segment = perimeter * .22;
+    const double dash[]{segment, perimeter - segment};
+    cairo_save(cr);
+    rounded(cr, r, radius);
+    cairo_set_dash(cr, dash, 2, -std::fmod(time / 1.2, 1.0) * perimeter);
+    cairo_set_line_width(cr, 2.5);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .85);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double phase = 1,
+              double ring = 0) {
     const auto& t = *view.theme;
     const auto modifiers = view.keyboard->modifiers();
     std::set<int> legend_modifiers;
@@ -506,6 +524,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
             rounded(cr, {cx - 18 + static_cast<double>(i) * 8, cy - height / 2, 4, height}, 2);
             cairo_fill(cr);
         }
+        if (view.dictation_recognizing) {
+            draw_ring(cr, t, face, ring);
+        }
         return;
     }
     if (key.icon != Icon::None) {
@@ -515,6 +536,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
                             : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
                                                                                 : 32;
         draw_icon(cr, key.icon, face, disabled ? disabled_legend(t) : t.legend, size);
+        if (key.icon == Icon::Mic && view.dictation_recognizing) {
+            draw_ring(cr, t, face, ring);
+        }
         if (key.icon == Icon::Mic && view.dictation_download) {
             // A slim track along the face's foot fills as the model arrives,
             // and stays full while it is prepared.
@@ -1080,11 +1104,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             // The bars ease while a level is passing through.
             const double phase = view.dictation_capturing ? mic_phase(view, now) : 1;
             animating_ |= phase < 1;
-            mic_changed = !full && (previous_->view.dictation_capturing != view.dictation_capturing ||
-                                    previous_->view.dictation_levels != view.dictation_levels ||
-                                    previous_->view.dictation_download != view.dictation_download ||
-                                    phase != mic_phase_);
+            // The recognition ring steps at 30 fps while it shows.
+            const double ring = view.dictation_recognizing ? std::floor(now * 30) / 30 : 0;
+            animating_ |= view.dictation_recognizing;
+            mic_changed =
+                !full && (previous_->view.dictation_capturing != view.dictation_capturing ||
+                          previous_->view.dictation_levels != view.dictation_levels ||
+                          previous_->view.dictation_download != view.dictation_download ||
+                          previous_->view.dictation_recognizing != view.dictation_recognizing ||
+                          ring != ring_time_ || phase != mic_phase_);
             mic_phase_ = phase;
+            ring_time_ = ring;
         }
         if (!full &&
             (changed_target || animation.amount != old_amount || mic_changed ||
@@ -1358,7 +1388,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
                     });
                 if (intersects) {
-                    draw_key(cr, view, key, animations_.at(key.id).amount, mic_phase_);
+                    draw_key(cr, view, key, animations_.at(key.id).amount, mic_phase_, ring_time_);
                 }
             }
             cairo_restore(cr);

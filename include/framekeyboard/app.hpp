@@ -508,6 +508,10 @@ class App {
     // before it confirms a pause.
     bool phrases_pending() const { return !pending_phrases_.empty() || awaiting_pause_; }
     bool awaiting_pause_{};
+    // The phrase being spoken, so the recognition ring leaves it out.
+    std::uint64_t speaking_id_{};
+    // A phrase was spoken and its text is not back yet, in either mode.
+    bool recognizing() const;
     // Type as I speak (docs/dictation.md): with the setting on, the mic key
     // captures on the normal keyboard and phrases go straight to the target
     // through the output queue, after keys already queued.

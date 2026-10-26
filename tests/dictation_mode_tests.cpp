@@ -301,6 +301,8 @@ while True:
             send(op="phrase", id=phrase)
     elif op == "prompt":
         prompts.write(message["text"].encode() + b"\0")
+        if scenario == "noanswer":
+            continue  # recognition that takes its time
         send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)],
              **({"device": True} if scenario == "fallback" else {}))
     elif op == "cancel":
@@ -742,6 +744,33 @@ void direct_tests() {
         std::vector<std::string> errors;
         require(load_settings(directory.path, errors).dictation_direct,
                 "the Dictation card turns Type as I speak on");
+    }
+    {
+        // The mic key's ring: only while a spoken phrase waits for its text.
+        options.dictation_arguments = {"--scenario", "noanswer"};
+        Sink sink;
+        App app(options, sink);
+        const auto asked = prompts_sent(directory.path).size();
+        press(app, "Dictation");
+        require(app.view().dictation_capturing && !app.view().dictation_recognizing,
+                "no ring while the phrase is still being spoken");
+        press(app, "Dictation");
+        wait_until(app, [&] { return prompts_sent(directory.path).size() == asked + 1; });
+        require(app.view().dictation_recognizing, "a paused phrase waiting for its text shows the ring");
+        press(app, "Escape");
+        require(!app.view().dictation_recognizing, "Esc drops the phrase and the ring");
+        // The editor shows it the same way.
+        write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+        App editor(options, sink);
+        press(editor, "Dictation");
+        press(editor, "Dictation");
+        wait_until(editor, [&] { return prompts_sent(directory.path).size() == asked + 2; });
+        require(editor.dictation_open() && editor.view().dictation_recognizing,
+                "in the editor, a phrase being recognized shows the ring too");
+        write_config(directory.path,
+                     R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+        options.dictation_arguments = {"--scenario", "direct"};
+        fs::remove(directory.path / "prompts");
     }
     {
         // Turned on from dictation mode, it returns to the main keyboard.

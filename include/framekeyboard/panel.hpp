@@ -181,6 +181,9 @@ struct PanelView {
     bool dictation_available{};
     // The mic key shows level bars instead of its icon while capturing.
     bool dictation_capturing{};
+    // Phrases are being recognized, in the editor or Type as I speak: a
+    // segment circles the mic key's border, at 30 fps, until their text is back.
+    bool dictation_recognizing{};
     // A speech model download, 0–1, or below 0 while it is prepared: the mic
     // key shows, disabled, with the progress along its foot.
     std::optional<double> dictation_download;
@@ -290,6 +293,7 @@ class PanelRenderer {
     std::optional<Rect> trail_extent_;
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
+    double ring_time_{};  // The recognition ring's time, sampled at 30 fps, when last drawn.
     bool animating_{};
 };
 } // namespace framekeyboard

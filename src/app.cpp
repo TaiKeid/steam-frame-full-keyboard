@@ -816,6 +816,7 @@ PanelView App::build_view(bool picker) const {
     }
     v.dictation_available = dictation_available();
     v.dictation_capturing = capturing_;
+    v.dictation_recognizing = recognizing();
     if (download_) {
         // The download never blocks the keyboard: the mic key waits and shows
         // its progress, and the status line says what it is.
@@ -3621,6 +3622,12 @@ std::string tail(const std::string& text, std::size_t limit) {
 }
 } // namespace
 
+bool App::recognizing() const {
+    // Not the phrase still being spoken: only those waiting for their text.
+    return std::any_of(pending_phrases_.begin(), pending_phrases_.end(),
+                       [&](const auto& phrase) { return !capturing_ || phrase.first != speaking_id_; });
+}
+
 void App::dictation_message(std::string text, bool error) {
     if (dictation_open_) {
         notice_ = std::move(text);
@@ -4016,6 +4023,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     }
     case Kind::Phrase:
         pending_phrases_.emplace(event.id, 0);
+        speaking_id_ = event.id;
         break;
     case Kind::Ready: {
         // Answered at once: the profile's prompt, then the text before the

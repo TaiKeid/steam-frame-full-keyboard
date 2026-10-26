@@ -54,6 +54,7 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 - The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send, which commits, or Esc, which discards.
 - **Pause:** the phrase being spoken ends at the pause, and its audio is recognized and inserted. Resuming starts a new phrase.
+- **Mic key while recognizing** (owner, 2026-10-27): while a spoken phrase waits for its text, in the editor or Type as I speak, a short bright segment circles just inside the mic key's border at 30 fps; the phrase still being spoken does not count. On device, recognition takes seconds, and this shows it is under way.
 - **Mic key while capturing:** five vertical bars replace the mic icon. They stay in place while the speech level passes through them from right to left, each bar easing to its new height; the left ones are fainter. They are flat during silence.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
