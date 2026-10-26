@@ -563,7 +563,9 @@ class Engine:
                 return None
             self.buffer += data
         line, _, self.buffer = self.buffer.partition(b"\n")
-        return line.decode("utf-8", "replace")
+        # Whisper's tokens can split a character, and the engine passes its
+        # bytes on as they are: a broken character is dropped, not replaced.
+        return line.decode("utf-8", "ignore")
 
     def _stop(self):
         process, self.process = self.process, None

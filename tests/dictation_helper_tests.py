@@ -484,6 +484,11 @@ while True:
     sys.stdin.buffer.read(header["samples"] * 2)
     with open(os.environ["FK_ENGINE_LOG"], "a") as log:
         log.write("prompt " + header["prompt"] + "\n")
+    if os.environ.get("FK_ENGINE_BROKEN"):
+        # A character cut in two, as Whisper's tokens can leave it.
+        sys.stdout.buffer.write(b'{"text":" \xe6\x97\xa5\xe6\x9c"}\n')
+        sys.stdout.flush()
+        continue
     print(json.dumps({"text": " on device %d" % header["samples"]}), flush=True)
 '''
 
@@ -854,6 +859,17 @@ class Helper(unittest.TestCase):
         self.assertEqual(self.server.requests, [])
         self.assertEqual(log.read_text().count("start"), 1)
         self.assertIn("prompt Before.\n", log.read_text())
+
+    def test_a_character_the_engine_cut_in_two_is_dropped(self):
+        engine, model, log = fake_engine(self)
+        os.environ["FK_ENGINE_BROKEN"] = "1"
+        self.addCleanup(os.environ.pop, "FK_ENGINE_BROKEN", None)
+        helper = Process(self, TWO_PHRASES, engine=engine)
+        helper.send(op="configure", device=str(model), language="ja")
+        helper.send(op="capture", on=True)
+        helper.receive("ready")
+        helper.send(op="prompt", id=1, text="")
+        self.assertEqual(helper.receive("text")["text"], "日")
 
     def test_fallback_recognizes_on_device_when_the_server_cannot(self):
         engine, model, _ = fake_engine(self)
