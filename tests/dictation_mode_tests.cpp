@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
@@ -46,7 +47,8 @@ struct Sink : KeySink {
     }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
-        if (busy) {
+        // Like the local text path, which holds at most 32 characters at once.
+        if (busy || g_utf8_strlen(value.c_str(), -1) > 32) {
             return false;
         }
         if (commits_before_failure == 0) {
@@ -239,6 +241,8 @@ peer = socket.socket(fileno=3)
 prompts = open(os.path.join(os.path.dirname(sys.argv[0]), "prompts"), "ab", buffering=0)
 scenario = sys.argv[sys.argv.index("--scenario") + 1]
 replies = ["Hello there.", "Again."]
+if scenario == "long":
+    replies = ["This phrase is much longer than thirty-two characters, so it goes out in pieces."]
 phrase = 0
 def send(**m):
     peer.send(json.dumps(m).encode())
@@ -790,6 +794,24 @@ void direct_tests() {
         wait_until(app, [&] { return sink.text.size() == 2; });
         require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
                 "Enter retries the phrase, then the next follows");
+    }
+    {
+        // A long phrase goes out in commits the target takes at once.
+        options.dictation_arguments = {"--scenario", "long"};
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 3; });
+        std::string typed;
+        for (const auto& piece : sink.text) {
+            typed += piece;
+        }
+        require(typed == "This phrase is much longer than thirty-two characters, so it goes out in "
+                         "pieces." &&
+                    app.view().status.empty(),
+                "a long phrase is typed in full, 32 characters at a time");
+        options.dictation_arguments = {"--scenario", "direct"};
     }
     {
         // The dashboard closing keeps the panel until the last phrase is typed.

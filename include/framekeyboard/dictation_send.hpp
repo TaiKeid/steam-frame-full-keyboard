@@ -28,4 +28,7 @@ struct SendPiece {
 std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks);
 // The same text pasted in one piece, then the final Enter.
 std::vector<SendPiece> paste_pieces(const std::string& text);
+// Valid UTF-8 text cut into commits of at most 32 code points, the most the
+// local text path takes at once (Gamescope's temporary Unicode keymap).
+std::vector<std::string> text_commits(const std::string& text);
 } // namespace framekeyboard

@@ -508,7 +508,8 @@ class App {
     bool direct_active() const {
         return direct_ && (capturing_ || phrases_pending() || !direct_waiting_.empty());
     }
-    static constexpr std::size_t max_direct_waiting = 8;
+    // Waiting commits, each at most 32 code points: about 1000 characters.
+    static constexpr std::size_t max_direct_waiting = 32;
     // Stops capture and drops every phrase not yet typed, with a status.
     void stop_direct(std::string status);
     void direct_phrase(const std::string& text);
@@ -517,7 +518,8 @@ class App {
     void tick_direct(double now);
     // Shows a dictation message over the editor, or in direct mode on the status line.
     void dictation_message(std::string text, bool error);
-    // Recognized phrases waiting for room in the output queue, in order.
+    // Recognized phrases waiting for room in the output queue, in order,
+    // cut into commits the target takes at once.
     std::deque<std::string> direct_waiting_;
     // The phrases of this capture session as the prompt's context, at most
     // 200 code points; never logged.

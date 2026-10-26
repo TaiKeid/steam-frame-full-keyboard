@@ -92,6 +92,17 @@ void paste() {
     require(pieces.back().begin == pasted[1].begin, "both end where the trimmed text ends");
     require(paste_pieces(" \n").empty(), "nothing to paste without text");
 }
+void commits() {
+    std::string text = "ab";
+    for (int i = 0; i < 40; ++i) {
+        text += "日";
+    }
+    const auto pieces = text_commits(text);
+    require(pieces.size() == 2 && pieces[0].size() == 2 + 30 * 3 && pieces[1] == "日日日日日日日日日日",
+            "commits hold at most 32 code points, cut between characters");
+    require(text_commits("").empty() && text_commits("short") == std::vector<std::string>{"short"},
+            "short text is one commit");
+}
 } // namespace
 
 int main() {
@@ -101,6 +112,7 @@ int main() {
         line_breaks();
         single_line();
         paste();
+        commits();
         std::cout << "Dictation send tests passed\n";
         return 0;
     } catch (const std::exception& error) {

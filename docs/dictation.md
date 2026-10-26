@@ -155,7 +155,7 @@ Esc in dictation mode is local and never reaches the application.
 The **Type as I speak** switch on the Dictation card skips the editor. The mic key starts and stops capture on the normal keyboard, and each phrase is typed into the focused application as soon as its text returns.
 
 - No character limit and no counter; the output queue paces delivery.
-- **Order:** each phrase is one entry in the output queue, after keys already queued. While the queue is full, a composer reading is in progress, or a failure waits for its retry, recognized phrases wait in order. More than eight waiting pause listening, with a status; what was said still types.
+- **Order:** each phrase goes into the output queue after keys already queued, cut into commits of at most 32 characters, the most the local text path takes at once. While the queue is full, a composer reading is in progress, or a failure waits for its retry, recognized phrases wait in order. More than about 1000 characters waiting pause listening, with a status; what was said still types.
 - **Delivery:** phrases are always typed, never pasted, even with Send set to Paste.
 - **Uncertain delivery:** if a phrase fails partway, listening pauses and the status line asks for Enter. Enter retries only the characters that had not arrived, then the waiting phrases follow. A phrase the target refuses outright waits at the front, and Enter, which is then not sent, tries it again.
 - Undo last phrase is not offered, because the cursor in the target may have moved.
@@ -702,6 +702,8 @@ First part: the helper connected to the editor.
   - an immediate rejection waiting for Enter;
   - a failure after part of a phrase arrived, retrying only the rest;
   - passthrough lasting until the last phrase is typed, and hiding the panel stopping it.
+- **First headset try (r20):** nothing reached Kate. The log of the next build showed why: a 30-character phrase was typed, but the local text path refused an 85-character one outright, since Gamescope's temporary Unicode keymap holds at most 32 characters, and everything after it waited for Enter. Phrases are now cut into 32-character commits like Send's; the test target refuses longer commits the same way.
+- **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
 ## Open questions
 

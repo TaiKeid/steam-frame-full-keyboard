@@ -3521,9 +3521,13 @@ void App::direct_phrase(const std::string& phrase) {
     direct_typed_ = true;
     direct_context_ = tail(direct_context_ + text, 200);
     std::cout << "Type as I speak: phrase of " << g_utf8_strlen(text.c_str(), -1)
-              << " characters recognized, " << direct_waiting_.size() << " already waiting.\n"
+              << " characters recognized, " << direct_waiting_.size() << " commits already waiting.\n"
               << std::flush;
-    direct_waiting_.push_back(std::move(text));
+    // Each commit is one queue entry; the local text path takes at most 32
+    // code points at once and refuses more.
+    for (auto& commit : text_commits(text)) {
+        direct_waiting_.push_back(std::move(commit));
+    }
 }
 
 void App::flush_direct(double now) {
@@ -3539,7 +3543,7 @@ void App::flush_direct(double now) {
             dirty = true;
             break;
         }
-        std::cout << "Type as I speak: phrase queued for output.\n" << std::flush;
+        std::cout << "Type as I speak: commit queued for output.\n" << std::flush;
         direct_waiting_.pop_front();
         dirty = true;
     }
@@ -3552,7 +3556,7 @@ void App::flush_direct(double now) {
     if (reason != direct_wait_reason_) {
         direct_wait_reason_ = reason;
         if (!reason.empty()) {
-            std::cout << "Type as I speak: " << direct_waiting_.size() << " phrases waiting (" << reason
+            std::cout << "Type as I speak: " << direct_waiting_.size() << " commits waiting (" << reason
                       << ").\n"
                       << std::flush;
         }

@@ -20,6 +20,16 @@ void add_text(std::vector<SendPiece>& pieces, const std::string& text, std::size
 }
 } // namespace
 
+std::vector<std::string> text_commits(const std::string& text) {
+    std::vector<SendPiece> pieces;
+    add_text(pieces, text, 0, text.size());
+    std::vector<std::string> result;
+    for (auto& piece : pieces) {
+        result.push_back(std::move(piece.text));
+    }
+    return result;
+}
+
 std::vector<SendPiece> paste_pieces(const std::string& text) {
     const auto first = text.find_first_not_of(" \n");
     if (first == std::string::npos) {
