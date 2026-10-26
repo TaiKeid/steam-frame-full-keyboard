@@ -14,10 +14,10 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 - **No server in this repository.** This repository does not ship or vendor a server. The documentation describes a reference setup with an existing open-source server.
 - **Reference engine:** whisper.cpp's `whisper-server` with the large-v3-turbo model on a GPU, with Whisper's normal 30 s window. On the measured servers it transcribed a 3 s phrase in 0.09–0.24 s, with Japanese at about 3.4% and English at 3.4% errors.
 - **Languages:**
-  - English, Spanish, Japanese and Chinese first, measured in M5a; then every other bundled language Whisper supports: German, French, Italian, Brazilian Portuguese, Russian, Ukrainian and Korean (owner, 2026-10-27), without measurements of their own yet. One multilingual Whisper model covers all of them, on a server or on device.
+  - English, Spanish, Japanese and Chinese first, measured in M5a; then every other bundled language Whisper supports: German, French, Italian, Brazilian Portuguese, Russian, Ukrainian and Korean (owner, 2026-10-26), without measurements of their own yet. One multilingual Whisper model covers all of them, on a server or on device.
   - On device: one multilingual model for every dictation language. English and Spanish are the ones it does well; for the others, Settings warns that accuracy is low and a self-hosted server gives better results (owner, 2026-10-26).
   - A language profile without dictation support hides the mic key. Only Japanese JIS has none: it types through the system's own input method, which the keyboard cannot deliver dictated text to.
-- **On device by default** (owner, 2026-10-27), which needs the model downloaded first: the mic key appears once it is. Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
+- **On device by default** (owner, 2026-10-26), which needs the model downloaded first: the mic key appears once it is. Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
 - **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk. The keyboard never reads the clipboard; it writes it only when Send is set to Paste (owner decision, 2026-10-25), and then holds just the sent text.
 - **Release:** not in 0.9.0.
@@ -54,8 +54,8 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 - The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send, which commits, or Esc, which discards.
 - **Pause:** the phrase being spoken ends at the pause, and its audio is recognized and inserted. Resuming starts a new phrase.
-- **Mic key while recognizing** (owner, 2026-10-27): while a spoken phrase waits for its text, in the editor or Type as I speak, a short bright segment circles just inside the mic key's border at 30 fps; the phrase still being spoken does not count. On device, recognition takes seconds, and this shows it is under way.
-- **Where speech is recognized** (owner, 2026-10-27): a small icon says where phrases go: a headset for On device, a computer for Self-hosted, a cloud for a hosted provider. On the keyboard it sits in the mic key's top-right corner, telling before anyone speaks whether audio leaves the headset; in the editor it sits left of the counter. With the fallback, it turns to the headset while phrases come from the device and back on the next server phrase.
+- **Mic key while recognizing** (owner, 2026-10-26): while a spoken phrase waits for its text, in the editor or Type as I speak, a short bright segment circles just inside the mic key's border at 30 fps; the phrase still being spoken does not count. On device, recognition takes seconds, and this shows it is under way.
+- **Where speech is recognized** (owner, 2026-10-26): a small icon says where phrases go: a headset for On device, a computer for Self-hosted, a cloud for a hosted provider. On the keyboard it sits in the mic key's top-right corner, telling before anyone speaks whether audio leaves the headset; in the editor it sits left of the counter. With the fallback, it turns to the headset while phrases come from the device and back on the next server phrase.
 - **Mic key while capturing:** five vertical bars replace the mic icon. They stay in place while the speech level passes through them from right to left, each bar easing to its new height; the left ones are fainter. They are flat during silence.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
@@ -189,7 +189,7 @@ On a recognizer failure, capture stops, and the failed phrase and every phrase q
 
 A new **Dictation** card is placed third: Languages and Layouts, General, Dictation, Experimental. It contains:
 
-- **Dictation** dropdown, saved as `dictation`, with three choices in this order (owner, 2026-10-27):
+- **Dictation** dropdown, saved as `dictation`, with three choices in this order (owner, 2026-10-26):
   - **Off**;
   - **On device**, the default: every dictation language. With a language other than English or Spanish, a line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
   - **Self-hosted** (`server`): the user's own speech server.
@@ -226,13 +226,13 @@ Mic key visibility: the mic key appears only when dictation is usable and the ac
 - **On device:** the model is ready and not being downloaded.
 - **Server:** a server address is set.
 
-The modes never fall back on their own. Audio never goes to a server while the user chose on-device recognition. In Server mode, a **Fall back to on device** switch (default off) lets a phrase the server could not recognize, because it is unreachable or timed out, be recognized on the Frame instead, once the model is downloaded; it is shown without blocking or covering anything, so the user knows (owner, 2026-10-27).
+The modes never fall back on their own. Audio never goes to a server while the user chose on-device recognition. In Server mode, a **Fall back to on device** switch (default off) lets a phrase the server could not recognize, because it is unreachable or timed out, be recognized on the Frame instead, once the model is downloaded; it is shown without blocking or covering anything, so the user knows (owner, 2026-10-26).
 
 Four cards no longer fit the 1564 px settings viewport. Today three 509 px cards with 18 px gaps fill it almost exactly (1563 px), which hides that the row scrolls. Cards become slightly narrower, so three show in full and the start of the fourth is cut off at the right edge, hinting that the row scrolls horizontally. About 470 px gives three full cards and a visible 100 px of Experimental. Labels must still fit beside the controls: at 470 px the label space beside a 318 px dropdown shrinks from about 123 to 84 px, so the dropdown narrows too. The exact widths are settled with rendered settings images. The change ships with the Dictation card; with only three narrower cards the row would end in empty space instead of a cut-off card.
 
 ## On-device recognition
 
-Recognition on the Frame's CPU when no server is used, or as an opt-in fallback when the server fails. It works best in English and Spanish; other languages are allowed with a warning (see [Settings](#settings)). Decisions by the owner on 2026-10-27, after the [M6 measurements](#m6-measurements-2026-10-27):
+Recognition on the Frame's CPU when no server is used, or as an opt-in fallback when the server fails. It works best in English and Spanish; other languages are allowed with a warning (see [Settings](#settings)). Decisions by the owner on 2026-10-26, after the [M6 measurements](#m6-measurements-2026-10-26):
 
 - **Model:** multilingual Whisper small, one model for every language. The default is 8-bit (`ggml-small-q8_0.bin`, 264 MB, about 2 s per phrase, 426 MiB loaded). Development builds offer a **Model** dropdown to compare formats: 8-bit, 5-bit (hosted, 190 MB) and 4-bit (made on the Frame from the 488 MB f16 file).
 - **Download:** only after the user confirms it in Settings, which names the size. From Hugging Face `ggerganov/whisper.cpp` at a pinned revision over verified HTTPS, with each file's SHA-256 built into the release; a temporary file is renamed into place under `~/.local/share/framekeyboard/models/`. Progress shows on the main keyboard without blocking it, and the mic key is disabled until the model is ready. **Delete model** removes it, and `uninstall.sh` too.
@@ -395,16 +395,16 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - All of App's typed text goes through one `TextOutput`, so the editor can take the target's place.
   - A retry after a per-character timeout types only the unacknowledged rest, instead of retyping delivered characters.
   - Shift+Enter starts a new line in multi-line Steam fields, such as the friends chat message box, and Enter still sends.
-- [ ] **M1 Reference server and microphone:** server part done 2026-10-25; microphone checks partly done. Results are in [M1 results](#m1-results-2026-10-25).
+- [ ] **M1 Reference server and microphone:** server part done 2026-10-25; microphone checks mostly done. Results are in [M1 results](#m1-results-2026-10-25) and the [game test](#game-test-2026-10-26). Open: the deliberate gate checks below, and the macOS and Windows guide steps.
   - Done: `whisper-server` on a Linux desktop with a GPU. The fields, the `/inference` fallback and the ignored `model` field are verified.
   - Done: what the server logs (no transcripts) and that uploads stay in memory without `--convert`.
   - Done: the [setup guide](speech-server.md) for Windows, macOS and Linux. Only Linux is verified; the macOS and Windows steps are untested.
   - Done: end-to-end time from the Frame for 3 s and 10 s phrases over Wi-Fi.
   - **Microphone on the Frame:**
     - Done: `pw-record` at 16 kHz mono 16-bit records the headset microphone in raw samples. It links to the default source by name.
-    - Done in part: taking the headset off silences the microphone. Recording while a game plays sound is not tested.
+    - Done: taking the headset off silences the microphone. Recording while a game plays sound is tested: SteamOS's voice filters cut words, so the helper records the microphone itself ([game test](#game-test-2026-10-26)).
     - Done in part: level samples with steady background noise, which found the noise gate. Not tested: whether the gate clips the start of a word, breathing, quiet speech, short answers and speech running past 25 s. These need a quiet room with no other speakers, and fit the live tests in M3c.
-- [ ] **M2 Helper, server path:** built and tested 2026-10-25 (see [M2 results](#m2-results-2026-10-25)). The update handoff now waits for the helper (M3c). Still open: the cost of `pw-record` itself, which needs the real microphone. Capture, level, phrase detection, requests and the [protocol](#helper-protocol), plus:
+- [x] **M2 Helper, server path:** built and tested 2026-10-25 (see [M2 results](#m2-results-2026-10-25)). The update handoff waits for the helper (M3c). `pw-record` itself, measured with the real microphone during the [game test](#game-test-2026-10-26): 0.4% of a core on average, at most 2%, and 8 MiB. Capture, level, phrase detection, requests and the [protocol](#helper-protocol), plus:
   - **Lifetime:**
     - The helper exits when the keyboard's socket closes or the keyboard stops making progress, and takes `pw-record` with it.
     - A blocked request can be cancelled.
@@ -418,7 +418,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - **Cost:** measure the helper's CPU and memory on the Frame while capturing and while idle in dictation mode. Full Keyboard should stay as light as possible.
   - **HTTPS and keys:** `dictation_url`, HTTPS verified against the system certificates, and the key file sent only over HTTPS to that host, with no redirects.
   - Host tests with WAV fixtures, a fake `pw-record` and a local fake server, including an HTTPS server with a test certificate authority; no microphone needed.
-- [ ] **M3a Editor and key routing, English:** built and host-tested 2026-10-25 (see [M3a results](#m3a-results-2026-10-25)); not yet tried in the headset.
+- [x] **M3a Editor and key routing, English:** built and host-tested 2026-10-25 (see [M3a results](#m3a-results-2026-10-25)); typing, routing and the layout used in the headset from the first dev build on.
   - `DictationEditor` and its tests.
   - The dictation mode layout, with editor keys handled in App before `KeyboardState`. Typed text goes through `TextOutput`.
   - Minimal config parsing and the English profile's `dictation` entry, so dictation can be configured in `config.json` before M4.
@@ -433,21 +433,21 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Progress while sending. On failure, only the unsent rest stays in the editor, and the final Enter is tracked separately, so a retry cannot send twice.
   - Line breaks: Shift+Enter in multi-line Steam fields, and single spaces in single-line Steam fields.
   - Delivery verified with the dedicated receiver before any application.
-- [ ] **M3c Live dictation:** first part built and host-tested 2026-10-25 (see [M3c results](#m3c-results-2026-10-25)); the dashboard and target rules, stick scrolling and the live checks are open.
+- [ ] **M3c Live dictation:** built and host-tested 2026-10-25 (see [M3c results](#m3c-results-2026-10-25)) and used in the headset since, with the dashboard and target rules and stick scrolling. With a game running, the keyboard process, mic bars included, used 3.3% of a core on average ([game test](#game-test-2026-10-26)). Open: a real update while dictating, and the table's suspend, tracking loss and native fallback rows, which [Dashboard, passthrough and focus](#dashboard-passthrough-and-focus) does not cover yet.
   - The helper connected to the editor: phrases, overlays, Esc rules, phrase undo and the mic bars, whose cost is measured with a game running.
   - **Presentation and lifecycle:**
     - A table of what capture, pending phrases and the editor do on dashboard close, X, target loss, native fallback, tracking loss, suspend, Quit and update.
     - Automatic passthrough is tracked apart from the user's own toggle.
-- [ ] **M4 Settings:** built 2026-10-26: the Dictation card (mode, server, Test, Send), narrower cards with the cut-off fourth, and the address popup (see [M4 results](#m4-results-2026-10-26)); not yet tried in the headset.
+- [x] **M4 Settings:** built 2026-10-26: the Dictation card (mode, server, Test, Send), narrower cards with the cut-off fourth, and the address popup (see [M4 results](#m4-results-2026-10-26)); used in the headset since, including Test and the recent servers.
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
   - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
   - Self-hosted servers only; the API key state waits for third-party providers (see [Further work](#further-work)).
-- [ ] **M5a Languages:** built and host-tested 2026-10-26, and the languages measured against the reference server (see [M5a results](#m5a-results-2026-10-26)); not yet tried in the headset.
+- [x] **M5a Languages:** built and host-tested 2026-10-26, and the languages measured against the reference server (see [M5a results](#m5a-results-2026-10-26)). In the headset, the romaji, flick and Pinyin composers commit into the editor ([Headset results](#headset-results-2026-10-26)). The owner cannot judge Spanish, Japanese and Chinese accuracy by ear; the measurement stands for it.
   - Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
-- [ ] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)); with live words and Paste, it worked for the owner in a desktop text editor the same day. A target change, a full queue and uncertain delivery are tested on the host only.
+- [x] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)). With live words and Paste it worked in a desktop editor, a browser and Steam fields, and the field change and Esc rules held in the headset ([Headset results](#headset-results-2026-10-26)). A full queue and uncertain delivery cannot be produced on purpose in the headset; host tests cover them.
   - Its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
-- [ ] **M6 On-device mode:** measured and decided 2026-10-27 (see [M6 measurements](#m6-measurements-2026-10-27) and [On-device recognition](#on-device-recognition)); engine, download, Settings and fallback built and host-tested the same day (see [M6 results](#m6-results-2026-10-27)); the game measurement and headset tries are open.
+- [ ] **M6 On-device mode:** measured and decided 2026-10-26 (see [M6 measurements](#m6-measurements-2026-10-26) and [On-device recognition](#on-device-recognition)); engine, download, Settings and fallback built and host-tested the same day (see [M6 results](#m6-results-2026-10-26)), and tried in the headset ([Headset results](#headset-results-2026-10-26)). Open: the time per phrase with a game running. In the [game test](#game-test-2026-10-26), on-device phrases took 7–12 s, against the 3 s limit, but they were long and their audio mangled by the noise filter, which can make Whisper decode a phrase several times. To be measured again on r35 with short spoken phrases.
   - The engine built from pinned whisper.cpp, run from the helper through pipes.
   - Model download after confirmation, with progress on the keyboard and the mic disabled meanwhile; Delete model; the development Model dropdown.
   - One multilingual model for all dictation languages; English and Spanish are its good ones, and the others show the low-accuracy warning in Settings (owner, 2026-10-26). `small.en` is not offered: it gained nothing.
@@ -728,7 +728,7 @@ First part: the helper connected to the editor.
 - **Third headset try (r24, live words, Paste):** worked well in a desktop text editor (owner, 2026-10-26).
 - **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
-## M6 measurements (2026-10-27)
+## M6 measurements (2026-10-26)
 
 Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decoding, `nice 10`, the M0 benchmark built for `armv8.6-a+dotprod+fp16+i8mm` from whisper.cpp v1.9.5, and the 20 FLEURS clips per language from the [measurements](#measurements-2026-10-24). The f16 models came from the pinned revision with their SHA-256 checked and were quantized on the development machine; the 3 s phrases are the first 3 s of eight clips with 0.6 s of silence.
 
@@ -749,9 +749,9 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
 - **Threads:** 4 is the knee; 6 saves only 0.1 s.
 - **Loading** takes about 0.3 s and the first recognition about 2 s.
 - **Not yet measured:** CPU load in detail (the old benchmark does not report it; all threads stay busy while recognizing) and the effect on a running game.
-- **Other dictation forks** (checked 2026-10-27): none quantizes or targets the Frame's CPU features; one uses f16 `small.en` on the CPU, another f16 models through Vulkan on the GPU, which faulted the GPU during VR.
+- **Other dictation forks** (checked 2026-10-26): none quantizes or targets the Frame's CPU features; one uses f16 `small.en` on the CPU, another f16 models through Vulkan on the GPU, which faulted the GPU during VR.
 
-## M6 results (2026-10-27)
+## M6 results (2026-10-26)
 
 - **Engine:** `framekeyboard-whisper` (`src/whisper_engine.cpp`) loads the model once and answers requests on stdin and stdout: a JSON header line, then 16-bit samples; one JSON line back. It runs at `nice 10`, without core dumps, and prints nothing else. `tools/build-whisper.sh` builds whisper.cpp v1.9.5 for the CPU from the pinned checkout; CMake takes it through `FRAMEKEYBOARD_WHISPER_DIR` (presets: `FRAMEKEYBOARD_WHISPER_HOST`, `FRAMEKEYBOARD_WHISPER_FRAME`) and installs the engine and whisper.cpp's `whisper-quantize` in `lib/framekeyboard`.
 - **Helper:**
@@ -771,16 +771,16 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
 - **First headset try (r27, owner):** 8-bit and 4-bit worked; 5-bit failed once, then worked. All three downloads had succeeded, so the failure was in recognizing: the engine's 10 s limit, shared with the server, is short for 5-bit (about 5 s for a short phrase, more for a long one) after a model switch. Device recognition now has 30 s (the fallback: the server's time plus that), a timeout says the device took too long instead of blaming the server, and the log records dictation error codes in every mode. More testing to follow.
 - **Owner decisions after the try:** On device is the default; Apply asks to download only when it changes the mode, the fallback or the format, so the default never offers a download on unrelated changes. Turning on Type as I speak from dictation mode returns to the main keyboard.
 
-## Headset results (2026-10-27)
+## Headset results (2026-10-26)
 
-The owner tried r32 against the [M6 test list](#m6-results-2026-10-27):
+The owner tried r32 against the [M6 test list](#m6-results-2026-10-26):
 - **On device:** downloads of all three formats with progress and Cancel, short and long phrases in each, format switches, Delete, Russian, Japanese and Chinese, and the ring all worked; unloading after a minute was not noticeable. Accuracy in Spanish, Japanese and Chinese could not be judged by the owner.
 - **Type as I speak:** live words with Paste in a desktop editor, a browser and Steam fields; on device about 2 s per phrase; the field change and Esc rules: all as specified.
 - **Editor composers:** romaji with Convert, the candidate band, Enter and Esc, and flick with Send in Tab's place worked; Pinyin was not tried.
 - **Fallback:** phrases failed with "cannot be reached" instead of falling back. The saved configuration had the fallback off, and the helper's fallback worked on the Frame against an unreachable address, but took 22 s: the owner's firewall drops connections to closed ports, and the helper waited out two 10 s connection attempts. Connecting now gives up after 3 s. To be retried with the switch on.
 - **Language during recognition:** the language button could be pressed while a phrase was still being recognized; it now waits until every phrase is recognized and typed.
 - **With a game running:** words were skipped, on device and with the self-hosted server alike, and the fans ramped up. Since the server gave the same result, the audio reaching Whisper was already worse. Measured and fixed in the [game test](#game-test-2026-10-26).
-- **Update while dictating:** for later.
+- **Update while dictating:** for later. Losing the editor text is accepted (owner, again on 2026-10-26); the check is that the update completes cleanly.
 
 ## Game test (2026-10-26)
 
@@ -807,7 +807,6 @@ The owner dictated with a game running locally and speech played from a phone, o
 The owner settled the behavior questions and the proposals on 2026-10-25; the rules are in the sections above. Still open:
 
 - **Reply length cap (M2):** measure false rejections per language before fixing 25 characters a second.
-- **Mic bars:** the cost of redrawing them with a game running (measured in M3c).
 - **Proposals:** the remaining items marked *proposal* above.
 
 ## Further work
