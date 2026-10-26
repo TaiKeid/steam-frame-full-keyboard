@@ -7,6 +7,12 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+
+// FrameKeyboard: a changed area of the image, in whole pixels.
+struct TextureRect {
+    int x, y, width, height;
+};
 
 /**
  * OpenVR が指定する GPU・拡張で作った Vulkan のデバイス一式。
@@ -96,7 +102,11 @@ public:
      * @param error 失敗したときの理由
      * @return 成功したら true
      */
-    bool update(uint64_t overlayHandle, const uint8_t* rgba, std::string& error);
+    // FrameKeyboard: with `damage`, only those areas changed since the last
+    // update; each image also catches up on what changed while the other
+    // one was current. Null means the whole image changed.
+    bool update(uint64_t overlayHandle, const uint8_t* rgba, std::string& error,
+                const std::vector<TextureRect>* damage = nullptr);
 
     /** @return 作成済みなら true */
     bool ready() const { return fence_ != VK_NULL_HANDLE; }
@@ -110,6 +120,9 @@ private:
     VkImage images_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
     VkDeviceMemory imageMemory_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
     bool imageUsed_[2] = {false, false};  ///< 一度でも書いたか（レイアウト遷移の元を決める）
+    // FrameKeyboard: areas each image lacks, or the whole of it.
+    std::vector<TextureRect> stale_[2];
+    bool staleAll_[2] = {true, true};
     int next_ = 0;                        ///< 次に書く画像
     VkBuffer staging_ = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory_ = VK_NULL_HANDLE;

@@ -623,6 +623,7 @@ PanelView App::build_view(bool picker) const {
     v.dictation_available = dictation_available();
     v.dictation_capturing = capturing_;
     v.dictation_levels = mic_levels_;
+    v.dictation_level_since = mic_level_since_;
     if (dictation_open_) {
         // The mode has its own keys; swipe and composition are off in it.
         v.layout = &dictation_layout_.layout;
@@ -2966,7 +2967,8 @@ bool App::start_capture() {
         return false;
     }
     capturing_ = true;
-    mic_levels_.assign(5, 0);
+    mic_levels_.assign(6, 0);
+    mic_incoming_.clear();
     notice_.clear();
     notice_error_ = false;
     editor_repeat_.reset();
@@ -3040,13 +3042,9 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         if (!capturing_ || mic_levels_.empty()) {
             break;
         }
-        // The newest level enters on the right; the others step left.
-        auto levels = mic_levels_;
-        levels.erase(levels.begin());
-        levels.push_back(std::clamp(event.level * 9 / 256, 0, 8));
-        if (levels != mic_levels_) {
-            mic_levels_ = std::move(levels);
-            dirty = true;
+        mic_incoming_.push_back(std::clamp(event.level * 9 / 256, 0, 8));
+        if (mic_incoming_.size() > 3) {
+            mic_incoming_.pop_front(); // Fall behind no more than a few bars.
         }
         break;
     }
@@ -3124,6 +3122,19 @@ bool App::tick_dictation(double now) {
     dictation_->tick(now);
     while (const auto event = dictation_->next()) {
         dictation_event(*event, now);
+    }
+    // The next level starts sliding in once the previous one has arrived.
+    if (capturing_ && mic_levels_.size() == 6 && !mic_incoming_.empty() &&
+        now >= mic_level_since_ + dictation_level_period) {
+        mic_levels_.erase(mic_levels_.begin());
+        mic_levels_.push_back(mic_incoming_.front());
+        mic_incoming_.pop_front();
+        // On pace, the next starts where this one's slot began; after a pause,
+        // now.
+        mic_level_since_ = now - mic_level_since_ < 2 * dictation_level_period
+                               ? mic_level_since_ + dictation_level_period
+                               : now;
+        dirty = true;
     }
     // One more word every 20 ms; after a slow frame the missed ones at once.
     while (reveal_ && now >= reveal_->next) {

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 using namespace framekeyboard;
 namespace {
@@ -25,11 +26,15 @@ class Comparison {
     PanelRenderer incremental, full;
     double now = 100;
     unsigned frames{};
+    std::vector<unsigned char> before;
     void frame(const PanelView& view, const char* phase) {
         now += 1.0 / 60;
-        incremental.paint(view, now);
-        full.paint(view, now, true);
         auto* a = incremental.surface();
+        const auto size = static_cast<std::size_t>(cairo_image_surface_get_stride(a)) * texture_height;
+        before.assign(cairo_image_surface_get_data(a), cairo_image_surface_get_data(a) + size);
+        const bool painted = incremental.paint(view, now);
+        full.paint(view, now, true);
+        require_damage(painted, phase);
         auto* b = full.surface();
         for (int y = 0; y < texture_height; ++y) {
             const auto* actual = cairo_image_surface_get_data(a) + y * cairo_image_surface_get_stride(a);
@@ -46,6 +51,34 @@ class Comparison {
             throw std::runtime_error("animation scheduling differs");
         }
         ++frames;
+    }
+    // A partial upload copies only the reported damage: every pixel that
+    // changed must lie inside it, and nothing may change without a paint.
+    void require_damage(bool painted, const char* phase) {
+        auto* a = incremental.surface();
+        const int stride = cairo_image_surface_get_stride(a);
+        const auto* now_pixels = cairo_image_surface_get_data(a);
+        const auto& damage = incremental.damage();
+        for (int y = 0; y < texture_height; ++y) {
+            if (std::memcmp(before.data() + y * stride, now_pixels + y * stride, panel_width * 4) == 0) {
+                continue;
+            }
+            for (int x = 0; x < panel_width; ++x) {
+                if (std::memcmp(before.data() + y * stride + x * 4, now_pixels + y * stride + x * 4,
+                                4) == 0) {
+                    continue;
+                }
+                const bool covered =
+                    painted &&
+                    (damage.empty() || std::any_of(damage.begin(), damage.end(), [&](const Rect& r) {
+                         return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+                     }));
+                if (!covered) {
+                    throw std::runtime_error(std::string(phase) + ": pixel " + std::to_string(x) + "," +
+                                             std::to_string(y) + " changed outside the damage");
+                }
+            }
+        }
     }
     void settle(const PanelView& view, const char* phase) {
         for (int i = 0; i < 7; ++i) {
@@ -298,6 +331,25 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "instant press");
     keyboard.up(0);
     compare.frame(view, "instant release");
+    if (has_key(layout, "Dictation")) {
+        // The mic key's scrolling bars and the dictation editor repaint only
+        // their own areas.
+        view.dictation_available = true;
+        view.dictation_capturing = true;
+        view.dictation_levels = {0, 0, 0, 0, 0, 0};
+        compare.frame(view, "listening");
+        for (int level : {3, 8, 5, 0, 0, 0, 0, 0}) {
+            view.dictation_levels.erase(view.dictation_levels.begin());
+            view.dictation_levels.push_back(level);
+            view.dictation_level_since = compare.now;
+            // Each bar glides into place over several frames.
+            for (int i = 0; i < 6; ++i) {
+                compare.frame(view, "level bars glide");
+            }
+        }
+        view.dictation_capturing = false;
+        compare.frame(view, "paused");
+    }
     std::cout << language.id << ": " << compare.frames << " frames pixel-identical\n";
 }
 } // namespace

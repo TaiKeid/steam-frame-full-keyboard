@@ -3,6 +3,7 @@
 
 #include "openvr.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -363,7 +364,8 @@ void OverlayTexture::destroy() {
     context_ = nullptr;
 }
 
-bool OverlayTexture::update(uint64_t overlayHandle, const uint8_t* rgba, std::string& error) {
+bool OverlayTexture::update(uint64_t overlayHandle, const uint8_t* rgba, std::string& error,
+                            const std::vector<TextureRect>* damage) {
     if (!ready()) {
         error = "テクスチャが作られていません";
         return false;
@@ -371,7 +373,66 @@ bool OverlayTexture::update(uint64_t overlayHandle, const uint8_t* rgba, std::st
     const int index = next_;
     next_ = 1 - next_;
     const VkImage image = images_[index];
-    std::memcpy(stagingMapped_, rgba, static_cast<size_t>(width_) * height_ * 4);
+    // FrameKeyboard: copy only what this image lacks: this update's damage
+    // plus what changed while the other image was current. Many or large
+    // areas go whole, where one copy is cheaper than many small ones.
+    std::vector<TextureRect> areas;
+    bool whole = !damage || !imageUsed_[index] || staleAll_[index];
+    if (!whole) {
+        areas = stale_[index];
+        areas.insert(areas.end(), damage->begin(), damage->end());
+        long long covered = 0;
+        for (const auto& r : areas) {
+            covered += static_cast<long long>(r.width) * r.height;
+        }
+        whole = areas.size() > 24 || covered * 2 > static_cast<long long>(width_) * height_;
+    }
+    const int other = 1 - index;
+    if (!damage || staleAll_[other]) {
+        staleAll_[other] = true;
+        stale_[other].clear();
+    } else {
+        stale_[other].insert(stale_[other].end(), damage->begin(), damage->end());
+        if (stale_[other].size() > 24) {
+            staleAll_[other] = true;
+            stale_[other].clear();
+        }
+    }
+    // Until this upload succeeds, the image counts as wholly stale.
+    staleAll_[index] = true;
+    stale_[index].clear();
+    std::vector<VkBufferImageCopy> regions;
+    if (whole) {
+        std::memcpy(stagingMapped_, rgba, static_cast<size_t>(width_) * height_ * 4);
+        VkBufferImageCopy region {};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {static_cast<uint32_t>(width_), static_cast<uint32_t>(height_), 1};
+        regions.push_back(region);
+    } else {
+        for (const auto& r : areas) {
+            const int x = std::clamp(r.x, 0, width_), y = std::clamp(r.y, 0, height_);
+            const int w = std::clamp(r.x + r.width, 0, width_) - x;
+            const int h = std::clamp(r.y + r.height, 0, height_) - y;
+            if (w <= 0 || h <= 0) {
+                continue;
+            }
+            // The staging buffer mirrors the image row for row, so each area
+            // keeps its own offset and both images can be fed from it.
+            const size_t offset = (static_cast<size_t>(y) * width_ + x) * 4;
+            for (int row = 0; row < h; ++row) {
+                const size_t at = offset + static_cast<size_t>(row) * width_ * 4;
+                std::memcpy(static_cast<uint8_t*>(stagingMapped_) + at, rgba + at, static_cast<size_t>(w) * 4);
+            }
+            VkBufferImageCopy region {};
+            region.bufferOffset = offset;
+            region.bufferRowLength = static_cast<uint32_t>(width_);
+            region.bufferImageHeight = static_cast<uint32_t>(height_);
+            region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            region.imageOffset = {x, y, 0};
+            region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+            regions.push_back(region);
+        }
+    }
 
     // FrameKeyboard: stop on allocation/command errors before using an invalid resource.
     if (const auto checked = vkResetCommandBuffer(commandBuffer_, 0); checked != VK_SUCCESS) {
@@ -401,10 +462,10 @@ bool OverlayTexture::update(uint64_t overlayHandle, const uint8_t* rgba, std::st
     vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
                          nullptr, 0, nullptr, 1, &toDst);
 
-    VkBufferImageCopy region {};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {static_cast<uint32_t>(width_), static_cast<uint32_t>(height_), 1};
-    vkCmdCopyBufferToImage(commandBuffer_, staging_, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    if (!regions.empty()) {
+        vkCmdCopyBufferToImage(commandBuffer_, staging_, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<uint32_t>(regions.size()), regions.data());
+    }
 
     // OpenVR に渡すときは TRANSFER_SRC_OPTIMAL にしておく決まり
     VkImageMemoryBarrier toSrc = toDst;
@@ -441,6 +502,7 @@ bool OverlayTexture::update(uint64_t overlayHandle, const uint8_t* rgba, std::st
         return false;
     }
     imageUsed_[index] = true;
+    staleAll_[index] = false; // FrameKeyboard: now complete.
 
     vr::VRVulkanTextureData_t data {};
     data.m_nImage = reinterpret_cast<uint64_t>(image);

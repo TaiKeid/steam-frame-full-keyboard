@@ -428,7 +428,11 @@ class App {
     bool capturing_{};
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps
     // so the bars redraw only on visible changes, and not at all in silence.
-    std::vector<int> mic_levels_;
+    std::vector<int> mic_levels_; // Six, as PanelView::dictation_levels.
+    // Levels arrive in bursts as audio is read; they enter the bars one
+    // every dictation_level_period, so the glide keeps a steady pace.
+    std::deque<int> mic_incoming_;
+    double mic_level_since_{};
     // A phrase shown word by word, as if typed: editor bytes [start, end)
     // were inserted, and those before `shown` are visible.
     struct Reveal {

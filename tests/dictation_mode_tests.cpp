@@ -361,8 +361,8 @@ void live_tests() {
         require(app.dictation_open() && app.view().dictation->capturing,
                 "the mic key opens the mode and starts listening");
         wait_until(app, [&] { return app.view().dictation_levels.back() > 0; });
-        require(app.view().dictation_levels.size() == 5 && app.view().dictation_levels.front() == 0,
-                "the newest level enters on the right of five bars");
+        require(app.view().dictation_levels.size() == 6 && app.view().dictation_levels.front() == 0,
+                "the newest level slides in on the right of five bars");
         require(app.view().dictation_capturing && !control_enabled(app, "settings"),
                 "the mic key shows the level; Settings waits");
         press(app, "KeyA");

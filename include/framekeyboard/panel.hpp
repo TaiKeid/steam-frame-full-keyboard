@@ -112,6 +112,8 @@ struct DictationView {
     std::string notice;      // A band over the editor's foot: waiting, an error or a question.
     bool notice_error{};
 };
+// The helper's level interval; the mic key's bars move one place in it.
+constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
 constexpr double dictation_notice_height = 46;
 struct PanelView {
@@ -151,7 +153,11 @@ struct PanelView {
     bool dictation_available{};
     // The mic key shows level bars instead of its icon while capturing.
     bool dictation_capturing{};
-    std::vector<int> dictation_levels; // 0–8, oldest first
+    // Six levels, 0–8, oldest first: five bars and the one sliding out on
+    // the left. The newest started sliding in from the right at
+    // `dictation_level_since`, taking dictation_level_period to arrive.
+    std::vector<int> dictation_levels;
+    double dictation_level_since{};
     // Dictation mode's editor; its keys are in `layout`.
     std::optional<DictationView> dictation;
 };
@@ -199,6 +205,9 @@ class PanelRenderer {
     std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }
     cairo_surface_t* surface() const { return surface_; }
+    // Surface pixels the last paint that returned true changed, as whole-pixel
+    // rectangles inside the surface; empty means everything.
+    const std::vector<Rect>& damage() const { return damage_; }
     std::vector<unsigned char> rgba() const;
     void write_png(const fs::path& path) const;
 
@@ -227,6 +236,8 @@ class PanelRenderer {
     cairo_surface_t* trail_{};
     std::vector<std::pair<double, double>> trail_points_; // Already in the layer.
     std::optional<Rect> trail_extent_;
+    std::vector<Rect> damage_;
+    double mic_phase_{1}; // How far the bars had slid when last drawn.
     bool animating_{};
 };
 } // namespace framekeyboard
