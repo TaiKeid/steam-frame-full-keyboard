@@ -8,14 +8,14 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 
 - **Two recognition modes, chosen in Settings:**
   - **Server:** a speech server the user hosts on a machine with a capable GPU. It gives the best quality and speed and covers all dictation languages. A hosted OpenAI-compatible provider can take its place through `config.json` (see [hosted providers](#hosted-providers)).
-  - **On device:** Whisper small on the Frame's CPU, for English and Spanish only. It is a fallback: in the measurements it took about 5 s per phrase and loaded the CPU heavily, and larger models were unusable on the Frame alongside VR.
+  - **On device:** Whisper small on the Frame's CPU, best for English and Spanish; other dictation languages are allowed with a low-accuracy warning (owner, 2026-10-26). It is a fallback: in the measurements it took about 5 s per phrase and loaded the CPU heavily, and larger models were unusable on the Frame alongside VR.
 - **The keyboard asks only for the server's address,** as `host:port` in Settings. Model choice and every other recognition setting live in the server's own configuration. An optional model name exists only in the configuration file, for servers without a default model.
 - **We don't build a server.** Users run an existing OpenAI-compatible server, `whisper-server` as the reference; the documentation gives setup instructions only.
 - **No server in this repository.** This repository does not ship or vendor a server. The documentation describes a reference setup with an existing open-source server.
 - **Reference engine:** whisper.cpp's `whisper-server` with the large-v3-turbo model on a GPU, with Whisper's normal 30 s window. On the measured servers it transcribed a 3 s phrase in 0.09–0.24 s, with Japanese at about 3.4% and English at 3.4% errors.
 - **Languages:**
   - English, Spanish, Japanese and Chinese first. One multilingual Whisper model covers all of them on a server.
-  - On device: English and Spanish only.
+  - On device: one multilingual model for every dictation language. English and Spanish are the ones it does well; for the others, Settings warns that accuracy is low and a self-hosted server gives better results (owner, 2026-10-26).
   - A language profile without dictation support hides the mic key. Japanese JIS, which types through the system's own input method, and Korean have none.
 - **Off by default.** Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
@@ -189,7 +189,7 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
 
 - **Dictation** dropdown, saved as `dictation`, with three choices:
   - **Off**, the default;
-  - **On device**: English and Spanish only;
+  - **On device**: every dictation language. With a language other than English or Spanish, a line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
   - **Server**: the user's own speech server.
 - **On device:**
   - The card shows the model's state: not downloaded, downloading, ready or failed.
@@ -218,7 +218,7 @@ Fallback: `dictation_server` can also be edited in `config.json`, over SSH or in
 Full Keyboard never scans the network or discovers servers. It contacts only the address the user typed: Test checks that address, and phrases go to it while capturing.
 
 Mic key visibility: the mic key appears only when dictation is usable and the active language profile has a `dictation` object, holding the Whisper language code and, for Japanese and Chinese, the script prompt.
-- **On device:** the model is ready and the language is English or Spanish.
+- **On device:** the model is ready.
 - **Server:** a server address is set.
 
 The modes never fall back to each other automatically. Audio must not go to a server while the user chose on-device recognition, and on-device recognition cannot cover the server's languages.
@@ -227,7 +227,7 @@ Four cards no longer fit the 1564 px settings viewport. Today three 509 px cards
 
 ## On-device recognition
 
-A fallback for English and Spanish when no server is available.
+A fallback when no server is available. It works best in English and Spanish; other languages are allowed with a warning (see [Settings](#settings)).
 
 - **Model:** Whisper small, about 190 MB at 5-bit quantization. It is downloaded on Apply, like the earlier model-download design: pinned revision, SHA-256 built into the release, verified HTTPS, a temporary file renamed into place, and stored under `~/.local/share/framekeyboard/models/`. `uninstall.sh` removes it.
 - **Engine:** whisper.cpp at a pinned commit, built for the Frame's CPU outside Git (`armv8.6-a+dotprod+fp16+i8mm`, no GPU backend), with only its license in `third_party/`.
@@ -444,7 +444,8 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
   - whisper.cpp build and small model download and delete.
-  - English and Spanish only.
+  - One multilingual model for all dictation languages; English and Spanish are its good ones, and the others show the low-accuracy warning in Settings (owner, 2026-10-26).
+  - Whether `small.en` is worth offering to English-only users is part of the measurements.
   - Measure threads, the English-only model and the effect on a running game; acceptance limits for latency and CPU load agreed with the owner first.
 
 ## Measurements (2026-10-24)
