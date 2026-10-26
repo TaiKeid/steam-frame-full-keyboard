@@ -260,6 +260,8 @@ if scenario == "long":
     replies = ["This phrase is much longer than thirty-two characters, so it goes out in pieces."]
 if scenario == "live":
     replies = ["Hello there, how are you?"]
+if scenario == "liveshift":
+    replies = ["I have 25 dollars and fifty cents."]
 if scenario == "verylong":
     replies = [" ".join("word%d" % i for i in range(60))]
 phrase = 0
@@ -303,6 +305,10 @@ while True:
         phrase += 1
         send(op="level", value=200)
         send(op="phrase", id=phrase)
+        if scenario == "liveshift":
+            # Whisper rewrites words it already guessed three times.
+            for guess in ["I have twenty five dollars"] * 3 + ["I have 25 dollars and fifty"] * 3:
+                send(op="partial", id=phrase, text=guess)
         if scenario == "live":
             # Growing guesses while the phrase is spoken.
             for guess in ["Hello th", "Hello there how", "Hello there how are",
@@ -918,6 +924,24 @@ void direct_tests() {
         wait_until(app, [&] { return sink.text.size() == 3; });
         require(sink.text.back() == " are you?",
                 "the final text continues where the typed words end in it, punctuation aside");
+        options.dictation_arguments = {"--scenario", "direct"};
+    }
+    {
+        // Whisper rewrites words already typed ("twenty five" becomes "25"):
+        // typing goes on after them, and nothing is skipped or repeated.
+        options.dictation_arguments = {"--scenario", "liveshift"};
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 3; });
+        std::string typed;
+        for (const auto& piece : sink.text) {
+            typed += piece;
+        }
+        require(typed == "I have twenty five dollars and fifty cents.",
+                "a rewritten number neither drops the next word nor repeats itself");
         options.dictation_arguments = {"--scenario", "direct"};
     }
     {

@@ -3752,6 +3752,40 @@ bool same_word(const std::string& a, const std::string& b) {
     };
     return bare(a) == bare(b);
 }
+
+// Where the typed words end in `words`: the end of the cheapest alignment of
+// all of them with a start of `words`, the latest among equals. Besides
+// adding, dropping or changing a word, one word may stand for two ("25" for
+// "twenty five") at the cost of one change, so a rewritten number or
+// compound is neither skipped nor repeated.
+std::size_t live_end(const std::vector<std::string>& typed, const std::vector<std::string>& words) {
+    const auto n = typed.size(), m = words.size();
+    std::vector<std::vector<std::size_t>> cost(n + 1, std::vector<std::size_t>(m + 1));
+    for (std::size_t j = 0; j <= m; ++j) {
+        cost[0][j] = j;
+    }
+    for (std::size_t i = 1; i <= n; ++i) {
+        cost[i][0] = i;
+        for (std::size_t j = 1; j <= m; ++j) {
+            auto& best = cost[i][j];
+            best = std::min({cost[i - 1][j] + 1, cost[i][j - 1] + 1,
+                             cost[i - 1][j - 1] + (same_word(typed[i - 1], words[j - 1]) ? 0 : 1)});
+            if (i >= 2) {
+                best = std::min(best, cost[i - 2][j - 1] + 1); // two typed words became one
+            }
+            if (j >= 2) {
+                best = std::min(best, cost[i - 1][j - 2] + 1); // one typed word became two
+            }
+        }
+    }
+    std::size_t end = 0;
+    for (std::size_t j = 1; j <= m; ++j) {
+        if (cost[n][j] <= cost[n][end]) {
+            end = j;
+        }
+    }
+    return end;
+}
 } // namespace
 
 std::vector<std::string> App::live_tokens(const std::string& text) const {
@@ -3815,10 +3849,12 @@ void App::live_partial(std::uint64_t id, const std::string& text) {
            })) {
         ++agreed;
     }
-    if (agreed > live.typed.size()) {
-        direct_phrase(live_join(newest, live.typed.size(), agreed));
-        live.typed.insert(live.typed.end(),
-                          newest.begin() + static_cast<std::ptrdiff_t>(live.typed.size()),
+    // Typed words cannot be revised; typing goes on where they end in the
+    // agreed words, which Whisper rewriting an earlier word can move.
+    const auto end = live_end(live.typed, {newest.begin(), newest.begin() + static_cast<std::ptrdiff_t>(agreed)});
+    if (agreed > end) {
+        direct_phrase(live_join(newest, end, agreed));
+        live.typed.insert(live.typed.end(), newest.begin() + static_cast<std::ptrdiff_t>(end),
                           newest.begin() + static_cast<std::ptrdiff_t>(agreed));
     }
 }
@@ -3831,29 +3867,10 @@ std::string App::live_rest(std::uint64_t id, const std::string& text) {
     const auto typed = std::move(live_->typed);
     live_.reset();
     // Typed words cannot be revised. The final text continues where the
-    // typed words end in it, found by the cheapest alignment, so a word the
-    // final text added or dropped is neither repeated nor lost.
+    // typed words end in it, so a word the final text added, dropped or
+    // rewrote is neither repeated nor lost.
     const auto words = live_tokens(text);
-    const auto n = typed.size(), m = words.size();
-    std::vector<std::size_t> previous(m + 1), current(m + 1);
-    for (std::size_t j = 0; j <= m; ++j) {
-        previous[j] = j;
-    }
-    for (std::size_t i = 1; i <= n; ++i) {
-        current[0] = i;
-        for (std::size_t j = 1; j <= m; ++j) {
-            current[j] = std::min({previous[j] + 1, current[j - 1] + 1,
-                                   previous[j - 1] + (same_word(typed[i - 1], words[j - 1]) ? 0 : 1)});
-        }
-        std::swap(previous, current);
-    }
-    std::size_t end = 0;
-    for (std::size_t j = 1; j <= m; ++j) {
-        if (previous[j] <= previous[end]) {
-            end = j;
-        }
-    }
-    return live_join(words, end, m);
+    return live_join(words, live_end(typed, words), words.size());
 }
 
 void App::flush_direct(double now) {

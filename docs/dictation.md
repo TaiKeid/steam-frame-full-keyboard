@@ -730,6 +730,7 @@ First part: the helper connected to the editor.
 | Three guesses, exact, aligned (chosen) | 3.4% | 3.3% | 3.5% | 10.1% | 72–84%, a median 2.8–3.6 s early |
 
   Holding back more of the newest guess helped Japanese only slowly (5.5% to 4.2% with eight characters held) and Spanish not at all; the mistakes were early words Whisper later changed, which a third agreeing guess catches. A clip took 9–12 partial requests.
+- **Rewritten words (review, 2026-10-26):** Whisper sometimes rewrites words already typed, such as "twenty five" becoming "25"; typing on after the typed word count then skipped or repeated words, and the final alignment could drop the word after a rewritten number. Live words and the final text now share one alignment in which one word may also stand for two at the cost of one change. Replayed on the same FLEURS guesses from the reference server: English 3.4% and Spanish 3.3% unchanged, Japanese 3.5% to 3.6% (two clips differ, one better, one worse), Chinese 10.1% unchanged with one repeated character gone.
 - **Third headset try (r24, live words, Paste):** worked well in a desktop text editor (owner, 2026-10-26).
 - **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
