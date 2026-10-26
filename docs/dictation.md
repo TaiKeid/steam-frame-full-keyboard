@@ -400,10 +400,10 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - All of App's typed text goes through one `TextOutput`, so the editor can take the target's place.
   - A retry after a per-character timeout types only the unacknowledged rest, instead of retyping delivered characters.
   - Shift+Enter starts a new line in multi-line Steam fields, such as the friends chat message box, and Enter still sends.
-- [ ] **M1 Reference server and microphone:** server part done 2026-10-25; microphone checks mostly done. Results are in [M1 results](#m1-results-2026-10-25) and the [game test](#game-test-2026-10-26). Open: the deliberate gate checks below, and the macOS and Windows guide steps.
+- [ ] **M1 Reference server and microphone:** server part done 2026-10-25; microphone checks mostly done. Results are in [M1 results](#m1-results-2026-10-25) and the [game test](#game-test-2026-10-26). Open: the deliberate gate checks below.
   - Done: `whisper-server` on a Linux desktop with a GPU. The fields, the `/inference` fallback and the ignored `model` field are verified.
   - Done: what the server logs (no transcripts) and that uploads stay in memory without `--convert`.
-  - Done: the [setup guide](speech-server.md) for Windows, macOS and Linux. Only Linux is verified; the macOS and Windows steps are untested.
+  - Done: the [setup guide](speech-server.md) for Windows, macOS and Linux, verified on Linux. The macOS and Windows steps stay marked untested in the guide and are not part of M1 (owner, 2026-10-26; see [Further work](#further-work)).
   - Done: end-to-end time from the Frame for 3 s and 10 s phrases over Wi-Fi.
   - **Microphone on the Frame:**
     - Done: `pw-record` at 16 kHz mono 16-bit records the headset microphone in raw samples. It links to the default source by name.
@@ -816,6 +816,7 @@ The owner settled the behavior questions and the proposals on 2026-10-25; the ru
 
 ## Further work
 
+- **Speech server guide:** try the macOS server and LaunchAgent steps and the Windows steps on real machines; until then the guide marks them untested.
 - **Third-party providers:** Settings support for hosted OpenAI-compatible providers, including the API key state with Delete key. Deferred by the owner on 2026-10-25; the helper and `config.json` already support `dictation_url` and the key file.
 
 - Before release: the README's privacy note says the app does not read clipboard contents; add that Send set to Paste writes the sent text to it.
