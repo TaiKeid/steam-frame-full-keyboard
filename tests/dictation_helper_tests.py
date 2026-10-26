@@ -558,7 +558,7 @@ class Device(unittest.TestCase):
 class Process:
     """The real helper on a private socket, with a fake recorder streaming `audio`."""
 
-    def __init__(self, test, audio, mode="stay", key=None, ca=None, engine=None, pipewire=None):
+    def __init__(self, test, audio, mode="stay", key=None, ca=None, engine=None, pipewire=None, game_check=None):
         self.directory = Path(tempfile.mkdtemp())
         test.addCleanup(shutil.rmtree, self.directory, True)
         (self.directory / "audio.raw").write_bytes(audio)
@@ -575,7 +575,8 @@ class Process:
         self.sock, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         args = [sys.executable, "-I", str(HELPER), "--fd", str(child.fileno()), "--key-file", str(key_file)] + \
                ([] if pipewire else ["--recorder", str(wrapper)]) + (["--ca-file", ca] if ca else []) + \
-               (["--engine", str(engine)] if engine else [])
+               (["--engine", str(engine)] if engine else []) + \
+               (["--game-check", str(game_check)] if game_check is not None else [])
         env = dict(os.environ, FK_RECORDER_PID=str(self.pid_file))
         if pipewire:
             env.update(self.fake_pipewire(pipewire, script, mode))
@@ -620,13 +621,16 @@ class Process:
         """The next packet with this op, skipping levels; keeps the helper alive meanwhile."""
         skipped = ("level",) if op == "phrase" else ("level", "phrase")
         deadline = time.monotonic() + timeout
+        alive = time.monotonic()
         while time.monotonic() < deadline:
+            # As the keyboard does, even while packets keep coming.
+            if keep_alive and time.monotonic() - alive > 0.5:
+                self.send(op="alive")
+                alive = time.monotonic()
             self.sock.settimeout(0.3)
             try:
                 data = self.sock.recv(65536)
             except socket.timeout:
-                if keep_alive:
-                    self.send(op="alive")
                 continue
             if not data:
                 raise EOFError
@@ -778,7 +782,7 @@ class Helper(unittest.TestCase):
         self.assertIn("node.autoconnect = false", " ".join(helper.tools()))
 
     def test_a_game_started_during_capture_is_noticed_at_the_next_phrase(self):
-        helper = self.start(pipewire={"dump": pipewire_dump(filtered=False)}, mode="loop")
+        helper = self.start(pipewire={"dump": pipewire_dump(filtered=False)}, mode="loop", game_check=0.5)
         helper.send(op="capture", on=True)
         helper.receive("phrase")
         (helper.directory / "dump.json").write_text(json.dumps(pipewire_dump()))
@@ -786,6 +790,14 @@ class Helper(unittest.TestCase):
         helper.send(op="capture", on=False)
         helper.receive("paused")
         self.assertEqual([m["op"] for m in Process.seen].count("microphone"), 0)
+
+    def test_without_a_game_the_graph_is_not_read_for_every_phrase(self):
+        helper = self.start(pipewire={"dump": pipewire_dump(filtered=False)}, mode="loop")
+        helper.send(op="capture", on=True)
+        for _ in range(4):
+            helper.receive("phrase")
+        dumps = [line for line in helper.tools() if line.split()[0].endswith("pw-dump")]
+        self.assertEqual(len(dumps), 1, "only capture start looks, then once every 20 s")
 
     def test_a_refused_link_records_the_default_source(self):
         helper = self.start(pipewire={"dump": pipewire_dump(), "link": False})

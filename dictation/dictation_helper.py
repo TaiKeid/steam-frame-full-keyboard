@@ -101,6 +101,7 @@ MANAGER_REMOTE = "pipewire-0-manager"
 DIRECT_NODE = "framekeyboard-dictation"
 LINK_WAIT = 1.0  # for the recorder's input port to appear
 STALL_TIMEOUT = 1.0  # a linked recorder that delivers nothing is replaced
+GAME_CHECK = 20.0  # how often a phrase start looks again for a game's filters
 
 
 class Failure(Exception):
@@ -796,6 +797,8 @@ class Helper:
         self.recorder = None
         self.direct = False  # the recorder is linked to the microphone itself
         self.notified = False  # the keyboard heard that game sound may come through
+        self.checked = 0.0  # when the graph was last looked at
+        self.game_check = GAME_CHECK
         self.last_audio = 0.0
         self.pending_audio = b""
         self.detector = PhraseDetector()
@@ -906,7 +909,8 @@ class Helper:
         self.recorder = recorder
         os.set_blocking(self.recorder.stdout.fileno(), False)
         self.pending_audio = b""
-        self.last_audio = time.monotonic()
+        # Finding and linking the microphone can take a moment.
+        self.last_audio = self.last_packet = time.monotonic()
 
     def start_direct(self):
         """A recorder linked to the microphone in front of the smart filters, or None."""
@@ -957,6 +961,10 @@ class Helper:
             return filtered_microphone(json.loads(listing.stdout))
         except (OSError, ValueError, subprocess.SubprocessError):
             return None
+        finally:
+            # The wait was this process's own: audio and keep-alives queued
+            # meanwhile are not a stalled link or keyboard.
+            self.checked = self.last_audio = self.last_packet = time.monotonic()
 
     def notify(self, filtered):
         # The filters are linked only while a game runs; then its sound
@@ -1008,8 +1016,9 @@ class Helper:
         if kind == "level":
             self.send_level(event[1])
         elif kind == "start":
-            if self.direct and not self.notified:
-                # A game may have started since capture did.
+            if self.direct and not self.notified and time.monotonic() - self.checked > self.game_check:
+                # A game may have started since capture did. Each look runs
+                # pw-dump, so it is not repeated for every phrase.
                 microphone = self.microphone()
                 self.notify(microphone is not None and microphone[2])
             self.current = self.next_id
@@ -1284,6 +1293,7 @@ def main():
     parser.add_argument("--recorder", default="")
     parser.add_argument("--ca-file", default=None)
     parser.add_argument("--engine", default=None)
+    parser.add_argument("--game-check", type=float, default=GAME_CHECK)
     args = parser.parse_args()
     harden()
     peer = socket.socket(fileno=args.fd)
@@ -1295,7 +1305,9 @@ def main():
     def interrupted(signum, frame):
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, interrupted)
-    Helper(peer, recorder, args.key_file, args.ca_file, args.engine or engine_path()).run()
+    helper = Helper(peer, recorder, args.key_file, args.ca_file, args.engine or engine_path())
+    helper.game_check = args.game_check
+    helper.run()
     return 0
 
 
