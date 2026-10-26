@@ -73,6 +73,9 @@ class Dictation {
     // before it saw the cancel are discarded, never delivered late.
     bool cancel();
     bool test();
+    // Tests `target`, such as an address not yet applied, without changing
+    // the one phrases still waiting are recognized with.
+    bool test(const Target& target);
     // Fetches an on-device model (`small-q8_0`, `small-q5_1` or `small-q4_0`)
     // into `directory`; progress arrives as Download events.
     bool download(const std::string& model, const std::filesystem::path& directory);

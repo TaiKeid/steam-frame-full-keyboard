@@ -4328,14 +4328,14 @@ void App::test_dictation_server() {
         return;
     }
     dictation();
-    // The pending address, before Apply; the next capture configures the
-    // saved one again.
+    // The pending address, before Apply. Phrases still waiting keep the
+    // target they were spoken for.
     Dictation::Target target;
     target.server = pending_dictation_server_;
     target.model = settings_.dictation_model;
     target.language = profiles_.languages.at(settings_.active.language).dictation_language;
     dictation_test_ =
-        dictation_->configure(target) && dictation_->test() ? "Testing…" : "Helper stopped";
+        dictation_->test(target) ? "Testing…" : "Helper stopped";
     update_settings_ui();
     dirty = true;
 }

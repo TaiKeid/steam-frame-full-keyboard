@@ -844,7 +844,7 @@ class Helper:
             # Everything sent before this belongs to the cancelled phrases.
             self.send("cancelled")
         elif op == "test":
-            self.start_test()
+            self.start_test(message)
         elif op == "download" and message.get("model") in MODELS and isinstance(message.get("directory"), str) \
                 and os.path.isabs(message["directory"]):
             self.start_download(message["model"], message["directory"])
@@ -1081,8 +1081,19 @@ class Helper:
         self.download = Download(name, directory, self.quantize, self.ca_file, report)
         self.download.start()
 
-    def start_test(self):
-        if self.target is None:
+    def start_test(self, message):
+        # A target in the packet, such as an address not yet applied, is
+        # tested on its own; phrases still waiting keep the configured one.
+        target, key = self.target, self.key
+        if "server" in message or "url" in message:
+            try:
+                target = Target(message.get("server"), message.get("url"), message.get("model"),
+                                message.get("language"), None, False, self.engine)
+                key = read_key(self.key_file) if target.https else None
+            except Failure as failure:
+                self.send("test", ok=False, reason=str(failure))
+                return
+        if target is None:
             self.send("test", ok=False, reason="not-configured")
             return
         if self.inflight:
@@ -1091,7 +1102,7 @@ class Helper:
         connection = Connection()
         self.inflight = ("test", None, connection)
         self.started = time.monotonic()
-        self.jobs.put((self.target, self.key, b"\0\0" * (RATE // 2), "", connection, False))
+        self.jobs.put((target, key, b"\0\0" * (RATE // 2), "", connection, False))
 
     def work(self):
         while True:

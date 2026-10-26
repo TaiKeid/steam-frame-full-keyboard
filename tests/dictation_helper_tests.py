@@ -923,6 +923,23 @@ class Helper(unittest.TestCase):
         with wave.open(io.BytesIO(self.server.requests[0][2]["file"])) as wav:
             self.assertEqual(wav.getnframes(), 8000)
 
+    def test_an_unapplied_address_is_tested_without_moving_waiting_phrases(self):
+        other = FakeServer()
+        self.addCleanup(other.close)
+        self.server.delay = 0.5  # the first phrase is still being recognized
+        helper = self.start()
+        helper.send(op="capture", on=True)
+        first = helper.receive("ready")
+        helper.send(op="prompt", id=first["id"], text="")
+        helper.send(op="capture", on=False)
+        second = helper.receive("ready", timeout=10)
+        helper.send(op="test", server=f"127.0.0.1:{other.port}", language="en")
+        self.assertEqual(helper.receive("test"), {"op": "test", "ok": True})
+        helper.send(op="prompt", id=second["id"], text="")
+        helper.receive("text")
+        self.assertEqual(len(other.requests), 1, "only the test went to the tested address")
+        self.assertEqual(len(self.server.requests), 2, "both phrases went to the configured server")
+
     def test_server_failure_stops_capture(self):
         self.server.reply = lambda path, f: (429, b"")
         helper = self.start()

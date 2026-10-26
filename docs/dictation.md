@@ -363,7 +363,7 @@ Keyboard to helper:
 | `{"op":"capture","on":true}` / `{"op":"capture","on":false}` | Start or resume capture, or pause it. Pausing ends the phrase being spoken, which is still recognized. |
 | `{"op":"prompt","id":N,"text":"…"}` | The prompt for phrase N, sent in answer to `ready`: the profile's script prompt, then the context, at most 200 code points in all. |
 | `{"op":"cancel"}` | Stop capture and drop every pending phrase. The helper answers `cancelled`. |
-| `{"op":"test"}` | Send half a second of silence to the configured target. |
+| `{"op":"test"}`, optionally with `"server"` or `"url"`, `"model"` and `"language"` | Send half a second of silence to the configured target, or to the one given, such as an address not yet applied; phrases still waiting keep the configured target. |
 | `{"op":"alive"}` | Sent at least every 0.5 s while the keyboard runs. Without one for 2 s, the helper stops capture and drops pending phrases. |
 
 Helper to keyboard:
