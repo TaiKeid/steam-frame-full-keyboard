@@ -956,6 +956,20 @@ class Helper(unittest.TestCase):
         helper.send(op="prompt", id=helper.receive("ready")["id"], text="")
         self.assertEqual(helper.receive("error")["reason"], "backlog-full")
 
+    def test_levels_are_dropped_while_the_keyboard_is_not_reading(self):
+        helper = self.start(speech(1.0), mode="loop")
+        helper.send(op="capture", on=True)
+        helper.receive("phrase")
+        # Alive packets keep coming, but nothing is read for 8 s while the
+        # recorder streams speech at twice real time.
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            helper.send(op="alive")
+            time.sleep(0.2)
+        self.assertIsNone(helper.process.poll(), "the helper is still running")
+        helper.send(op="capture", on=False)
+        helper.receive("paused", timeout=20)
+
     def test_a_stalled_keyboard_stops_capture(self):
         helper = self.start(zeros(1))
         helper.send(op="capture", on=True)

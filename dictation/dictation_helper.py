@@ -820,8 +820,11 @@ class Helper:
             self.drop_all()
 
     def send_level(self, value):
-        # Levels are only for display: drop them rather than wait for the keyboard.
-        with contextlib.suppress(BlockingIOError, InterruptedError):
+        # Levels are only for display: drop them rather than wait for the
+        # keyboard. MSG_DONTWAIT alone still waits on a socket with a timeout.
+        if not select.select([], [self.peer], [], 0)[1]:
+            return
+        with contextlib.suppress(BlockingIOError, InterruptedError, socket.timeout):
             self.peer.send(json.dumps({"op": "level", "value": value}).encode(), socket.MSG_DONTWAIT)
 
     def command(self, message):
