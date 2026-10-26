@@ -594,7 +594,12 @@ void App::update_settings_ui() {
             row.value = "Delete";
             row.note = "Ready";
         } else {
-            row.note = std::to_string(device_model_megabytes(model)) + " MB";
+            // 4-bit downloads more than it keeps, which a lone size makes look odd.
+            const int download = device_model_megabytes(model),
+                      kept = device_model_kept_megabytes(model);
+            row.note = download == kept
+                           ? std::to_string(download) + " MB"
+                           : std::to_string(download) + " → " + std::to_string(kept) + " MB";
         }
         dictation_fields.push_back(row);
         if (settings_.developer_options) {
@@ -819,6 +824,9 @@ PanelView App::build_view(bool picker) const {
     v.dictation_available = dictation_available();
     v.dictation_capturing = capturing_;
     v.dictation_recognizing = recognizing();
+    if (v.dictation_available || download_) {
+        v.dictation_where = recognition_place();
+    }
     if (download_) {
         // The download never blocks the keyboard: the mic key waits and shows
         // its progress, and the status line says what it is.
@@ -857,10 +865,15 @@ PanelView App::build_view(bool picker) const {
             PanelView::ConfirmView{confirm_popup_bounds, "Clear all favorites?",
                                    "All saved layout and language pairs are removed when you Apply."};
     } else if (settings_open_ && confirm_ != Confirm::None) {
+        const auto& model = pending_dictation_device_model_;
+        const int download = device_model_megabytes(model), kept = device_model_kept_megabytes(model);
         v.confirm = PanelView::ConfirmView{
             confirm_popup_bounds, "Download the speech model?",
-            "Whisper small, " + std::to_string(device_model_megabytes(pending_dictation_device_model_)) +
-                " MB from Hugging Face, for dictation on the device."};
+            download == kept
+                ? "Whisper small, " + std::to_string(download) +
+                      " MB from Hugging Face, for dictation on the device."
+                : "Whisper small, " + std::to_string(download) + " MB from Hugging Face, made into a " +
+                      std::to_string(kept) + " MB 4-bit model on the device."};
     }
     if (settings_open_ && address_) {
         PanelView::AddressView popup;
@@ -3317,9 +3330,9 @@ void App::set_dictation_view(PanelView& view) const {
         editor.counter =
             "Sending " + std::to_string(sending_->done) + "/" + std::to_string(sending_->total);
     } else {
-        // A quiet mark while phrases come from the fallback on the Frame.
-        editor.counter = (device_fallback_ ? "On device · " : "") + std::to_string(editor_.length()) +
-                         "/" + std::to_string(DictationEditor::dictation_limit);
+        editor.counter =
+            std::to_string(editor_.length()) + "/" + std::to_string(DictationEditor::dictation_limit);
+        editor.where = recognition_place();
         editor.at_limit = !editor_.can_dictate();
     }
     view.dictation = std::move(editor);
@@ -3623,6 +3636,21 @@ std::string tail(const std::string& text, std::size_t limit) {
     return g_utf8_offset_to_pointer(text.c_str(), static_cast<glong>(count - limit));
 }
 } // namespace
+
+Icon App::recognition_place() const {
+    if (settings_.dictation == "device") {
+        return Icon::Headset;
+    }
+    if (settings_.dictation != "server") {
+        return Icon::None;
+    }
+    // The fallback's phrases came from the headset; the next server phrase
+    // turns it back.
+    if (device_fallback_) {
+        return Icon::Headset;
+    }
+    return settings_.dictation_url.empty() ? Icon::Computer : Icon::Cloud;
+}
 
 bool App::recognizing() const {
     // Not the phrase still being spoken: only those waiting for their text.

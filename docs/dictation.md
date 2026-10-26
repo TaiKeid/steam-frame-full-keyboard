@@ -55,6 +55,7 @@ The mockup is incomplete; where it differs, the rules below apply.
 - The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send, which commits, or Esc, which discards.
 - **Pause:** the phrase being spoken ends at the pause, and its audio is recognized and inserted. Resuming starts a new phrase.
 - **Mic key while recognizing** (owner, 2026-10-27): while a spoken phrase waits for its text, in the editor or Type as I speak, a short bright segment circles just inside the mic key's border at 30 fps; the phrase still being spoken does not count. On device, recognition takes seconds, and this shows it is under way.
+- **Where speech is recognized** (owner, 2026-10-27): a small icon says where phrases go: a headset for On device, a computer for Self-hosted, a cloud for a hosted provider. On the keyboard it sits in the mic key's top-right corner, telling before anyone speaks whether audio leaves the headset; in the editor it sits left of the counter. With the fallback, it turns to the headset while phrases come from the device and back on the next server phrase.
 - **Mic key while capturing:** five vertical bars replace the mic icon. They stay in place while the speech level passes through them from right to left, each bar easing to its new height; the left ones are fainter. They are flat during silence.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
@@ -194,7 +195,7 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - **Self-hosted** (`server`): the user's own speech server.
 - **On device:**
   - The card shows the model's state: not downloaded, downloading with its progress, ready or failed.
-  - Applying a change to On device, the fallback or the format without the model asks first, naming the download size; only then the download starts. Any other Apply does not ask, so the default needs the model row's **Download**. Its progress also shows on the main keyboard without blocking it, and the mic key stays disabled until the model is ready.
+  - Applying a change to On device, the fallback or the format without the model asks first, naming the download size, and for 4-bit also what it keeps: it downloads the 488 MB f16 file and makes a 145 MB model, shown as "488 → 145 MB" so it does not look larger than 5-bit; only then the download starts. Any other Apply does not ask, so the default needs the model row's **Download**. Its progress also shows on the main keyboard without blocking it, and the mic key stays disabled until the model is ready.
   - **Delete model** removes the downloaded model.
   - **Model** dropdown, development builds only, to compare formats: 8-bit (default), 5-bit and 4-bit.
 - **Server:**
@@ -761,7 +762,7 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
   - **Settings:** the Dictation card offers On device. Its Model row shows the size, the progress or Ready, with Download, Cancel or Delete; with `developer_options` in `config.json`, a Format row picks 8-, 5- or 4-bit. A language other than English or Spanish shows the low-accuracy warning as an amber line under the selector. Server mode adds **Fall back to on device**.
   - **Download:** Apply with a setting that needs a missing model asks first ("Download the speech model?", naming the size); Download applies and starts it, Cancel applies nothing.
   - **Progress:** the mic key stays shown but disabled, with a slim progress track along its foot, and the status line says "Downloading the speech model: 45%". Typing goes on meanwhile.
-  - **Fallback mark:** in the editor the counter reads "On device · 412/900" while phrases come from the fallback; Type as I speak says so on the status line.
+  - **Fallback mark:** at first the editor's counter read "On device · 412/900" while phrases came from the fallback; the owner found it cut off and asked for an icon instead (see [Where speech is recognized](#mic-key)).
 - **Tests:**
   - helper: the engine loaded once and unloaded when idle, a missing model or engine, cancel, phrases on device with the keyboard's prompt, the fallback with its mark, no fallback without the switch; downloads from a local HTTPS server with a test certificate authority, with a redirect, a wrong file never kept, redirects only to HTTPS model hosts, the 4-bit conversion and its failure, cancel;
   - App: the confirmation, Cancel applying nothing, progress on the mic key with typing going on, the device target, Delete, the warning, the development Format row, the fallback's configuration and its mark.

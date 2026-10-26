@@ -601,6 +601,9 @@ class App {
     // The last phrase came from the fallback on the Frame; the editor's
     // counter says so quietly until a server phrase arrives.
     bool device_fallback_{};
+    // Where speech is recognized now: the headset, the user's computer, a
+    // hosted provider, or none without dictation.
+    Icon recognition_place() const;
     bool capturing_{};
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps
     // so the bars redraw only on visible changes, and not at all in silence.

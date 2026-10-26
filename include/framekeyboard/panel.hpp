@@ -123,6 +123,7 @@ struct DictationView {
     std::size_t cursor{};    // Byte offset into `text`.
     double scroll{};         // Content pixels scrolled out above the frame.
     std::string counter;     // For example "412/900".
+    Icon where{Icon::None};  // Where speech is recognized, shown left of the counter.
     bool at_limit{};         // Dictation cannot continue; the counter turns amber.
     bool sending{};          // Locked: dimmed text and no caret.
     std::size_t uncertain{}; // Leading bytes that may already have reached the target.
@@ -184,6 +185,9 @@ struct PanelView {
     // Phrases are being recognized, in the editor or Type as I speak: a
     // segment circles the mic key's border, at 30 fps, until their text is back.
     bool dictation_recognizing{};
+    // Where speech is recognized, a small icon in the mic key's corner on
+    // the keyboard: the headset, the user's computer or a hosted provider.
+    Icon dictation_where{Icon::None};
     // A speech model download, 0–1, or below 0 while it is prepared: the mic
     // key shows, disabled, with the progress along its foot.
     std::optional<double> dictation_download;

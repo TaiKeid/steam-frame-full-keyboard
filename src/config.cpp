@@ -491,13 +491,14 @@ Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir, const
 namespace {
 // The on-device models, as the helper names them (dictation_helper.py, MODELS):
 // the file used and the download size in MB. 4-bit downloads the f16 file.
+// The 4-bit model downloads the 488 MB f16 file and is made on the device.
 struct DeviceModel {
     const char *name, *file;
-    int megabytes;
+    int megabytes, kept_megabytes;
 };
-constexpr DeviceModel device_models[]{{"small-q8_0", "ggml-small-q8_0.bin", 264},
-                                      {"small-q5_1", "ggml-small-q5_1.bin", 190},
-                                      {"small-q4_0", "ggml-small-q4_0.bin", 488}};
+constexpr DeviceModel device_models[]{{"small-q8_0", "ggml-small-q8_0.bin", 264, 264},
+                                      {"small-q5_1", "ggml-small-q5_1.bin", 190, 190},
+                                      {"small-q4_0", "ggml-small-q4_0.bin", 488, 145}};
 const DeviceModel* device_model(const std::string& model) {
     for (const auto& entry : device_models) {
         if (model == entry.name) {
@@ -517,6 +518,10 @@ std::string device_model_file(const std::string& model) {
 int device_model_megabytes(const std::string& model) {
     const auto* entry = device_model(model);
     return entry ? entry->megabytes : 0;
+}
+int device_model_kept_megabytes(const std::string& model) {
+    const auto* entry = device_model(model);
+    return entry ? entry->kept_megabytes : 0;
 }
 bool valid_dictation_server(const std::string& server) {
     // The helper's own check (dictation_helper.py, Target) is the authority;

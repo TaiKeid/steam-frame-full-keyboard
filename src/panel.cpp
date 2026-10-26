@@ -329,6 +329,43 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(0, 7.5, 0, 11);
         line(-4, 11, 4, 11);
         break;
+    case Icon::Headset: {
+        // A VR headset seen from the front: a rounded visor with a notch
+        // for the nose and short strap stubs.
+        const double l = -10, r = 10, t = -5, b = 5, k = 3.5;
+        cairo_new_path(cr);
+        cairo_move_to(cr, l + k, t);
+        cairo_line_to(cr, r - k, t);
+        cairo_arc(cr, r - k, t + k, k, -.5 * pi, 0);
+        cairo_line_to(cr, r, b - k);
+        cairo_arc(cr, r - k, b - k, k, 0, .5 * pi);
+        cairo_line_to(cr, 3, b);
+        cairo_arc_negative(cr, 0, b, 3, 0, pi);
+        cairo_line_to(cr, l + k, b);
+        cairo_arc(cr, l + k, b - k, k, .5 * pi, pi);
+        cairo_line_to(cr, l, t + k);
+        cairo_arc(cr, l + k, t + k, k, pi, 1.5 * pi);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
+        line(-12.5, -1, -10, -1);
+        line(10, -1, 12.5, -1);
+        break;
+    }
+    case Icon::Computer:
+        // A monitor on a stand.
+        rounded(cr, {-10, -8, 20, 13}, 2);
+        cairo_stroke(cr);
+        line(0, 5, 0, 9);
+        line(-5, 9, 5, 9);
+        break;
+    case Icon::Cloud:
+        cairo_new_path(cr);
+        cairo_arc(cr, -6.5, 2.5, 3.5, .5 * pi, 1.5 * pi);
+        cairo_arc(cr, 0, -1, 5.5, pi, 2 * pi);
+        cairo_arc(cr, 6.5, 2.5, 3.5, 1.5 * pi, 2.5 * pi);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
+        break;
     case Icon::Undo:
         cairo_arc_negative(cr, 1, 1, 8, -.15 * pi, -1.0 * pi);
         cairo_stroke(cr);
@@ -457,6 +494,31 @@ double mic_phase(const PanelView& view, double now) {
     const double sampled = std::floor(now / frame) * frame;
     return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
 }
+// The width of a label's text, measured as label() draws it.
+double text_width(cairo_t* cr, const std::string& text, double size, const std::string& family) {
+    auto* layout = pango_cairo_create_layout(cr);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, family.c_str());
+    pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+    pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+    pango_layout_set_font_description(layout, font);
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    pango_font_description_free(font);
+    g_object_unref(layout);
+    return width;
+}
+// Where speech is recognized, small in the mic key's top-right corner; the
+// editor shows it by its counter instead.
+void draw_where(cairo_t* cr, const PanelView& view, const Rect& face) {
+    if (view.dictation_where == Icon::None || view.dictation) {
+        return;
+    }
+    const auto& t = *view.theme;
+    draw_icon(cr, view.dictation_where, {face.x + face.width - 30, face.y + 4, 26, 24},
+              mix(t.legend, t.top, .35), 14);
+}
 // A bright segment circling just inside the mic key's face while phrases
 // are being recognized; one lap takes 1.2 s.
 void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
@@ -527,6 +589,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         if (view.dictation_recognizing) {
             draw_ring(cr, t, face, ring);
         }
+        draw_where(cr, view, face);
         return;
     }
     if (key.icon != Icon::None) {
@@ -538,6 +601,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         draw_icon(cr, key.icon, face, disabled ? disabled_legend(t) : t.legend, size);
         if (key.icon == Icon::Mic && view.dictation_recognizing) {
             draw_ring(cr, t, face, ring);
+        }
+        if (key.icon == Icon::Mic) {
+            draw_where(cr, view, face);
         }
         if (key.icon == Icon::Mic && view.dictation_download) {
             // A slim track along the face's foot fills as the model arrives,
@@ -998,6 +1064,15 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         // Quiet while there is room; amber once dictation has reached its limit.
         label(cr, editor.counter, *counter, t.small_font_size * 1.3, view.language->font,
               editor.at_limit ? amber : disabled_legend(t), false, PANGO_ALIGN_RIGHT);
+        if (editor.where != Icon::None) {
+            // Where speech is recognized, just left of the count.
+            const double width =
+                text_width(cr, editor.counter, t.small_font_size * 1.3, view.language->font);
+            draw_icon(cr, editor.where,
+                      {counter->x + counter->width - 4 - width - 32,
+                       counter->y + (counter->height - 26) / 2, 26, 26},
+                      disabled_legend(t), 16);
+        }
     }
 }
 } // namespace
@@ -1112,6 +1187,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                           previous_->view.dictation_levels != view.dictation_levels ||
                           previous_->view.dictation_download != view.dictation_download ||
                           previous_->view.dictation_recognizing != view.dictation_recognizing ||
+                          previous_->view.dictation_where != view.dictation_where ||
                           ring != ring_time_ || phase != mic_phase_);
             mic_phase_ = phase;
             ring_time_ = ring;

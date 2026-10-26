@@ -115,6 +115,8 @@ bool valid_dictation_server(const std::string& server);
 bool valid_device_model(const std::string& model);
 std::string device_model_file(const std::string& model);
 int device_model_megabytes(const std::string& model);
+// The size kept once downloaded: smaller for 4-bit, which is made from f16.
+int device_model_kept_megabytes(const std::string& model);
 // Whether a valid server address is on the user's own network: private and
 // link-local IPv4 and IPv6, loopback, Tailscale's 100.64.0.0/10 and ts.net
 // names, single-label names and the local suffixes. Others get a warning,

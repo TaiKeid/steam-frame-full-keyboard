@@ -1355,6 +1355,7 @@ void device_tests() {
     press(app, "KeyA");
     require(sink.text == std::vector<std::string>{"a"}, "keys type during the download");
     wait_until(app, [&] { return app.view().dictation_available; });
+    require(app.view().dictation_where == Icon::Headset, "on device, the mic key shows the headset");
     require(!app.view().disabled_keys.contains("Dictation") &&
                 app.view().status == "The speech model is ready.",
             "a verified model makes the mic key usable");
@@ -1451,15 +1452,21 @@ void fallback_tests() {
     click(app, "dictation-fallback");
     require(field_label(app, "Model") && field_label(app, "Format"),
             "the fallback shows the model row, and development builds its format");
+    click(app, "device-model");
+    click(app, "choose:device-model:small-q4_0");
+    require(field_label(app, "488 → 145 MB"), "4-bit shows what it downloads and what it keeps");
+    click(app, "device-model");
+    click(app, "choose:device-model:small-q8_0");
     click(app, "apply");
     require(!app.view().confirm, "a model already there needs no download");
+    require(app.view().dictation_where == Icon::Computer, "self-hosted, the mic key shows the computer");
     open_editor(app);
     wait_until(app, [&] { return !editor_text(app).empty(); });
     require(configures(directory.path).find(R"("fallback": true)") != std::string::npos &&
                 configures(directory.path).find(R"("server": "127.0.0.1")") != std::string::npos,
             "the helper gets the server and the model for its fallback");
-    require(app.view().dictation->counter.starts_with("On device · "),
-            "a phrase from the fallback is marked quietly in the editor");
+    require(app.view().dictation->where == Icon::Headset && app.view().dictation->counter == "12/900",
+            "a phrase from the fallback shows the headset by the counter");
 }
 
 void card_tests() {

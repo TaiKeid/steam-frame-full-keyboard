@@ -51,9 +51,13 @@ enum class Icon {
     Symbols,
     Flags,
     Clear,
-    // Dictation.
+    // Dictation; where speech is recognized: the headset, the user's own
+    // computer, or a hosted provider.
     Mic,
-    Undo
+    Undo,
+    Headset,
+    Computer,
+    Cloud
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.
