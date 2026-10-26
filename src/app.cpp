@@ -3548,9 +3548,12 @@ bool App::start_capture() {
         dictation_message("Dictation could not start.", true);
         return false;
     }
+    // Listening again before the last session's phrases are typed continues
+    // that session, its spacing and context included.
+    const bool new_session = !dictation_open_ && !direct_active();
     capturing_ = true;
     game_sound_ = false;
-    if (!dictation_open_) {
+    if (new_session) {
         // A new Type as I speak session: its own context and spacing, and
         // the field it types into.
         direct_ = true;

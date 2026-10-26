@@ -314,7 +314,7 @@ while True:
             for guess in ["Hello th", "Hello there how", "Hello there how are",
                           "Hello there how are you"]:
                 send(op="partial", id=phrase, text=guess)
-        if scenario == "direct":
+        if scenario in ("direct", "slowdirect"):
             # The first phrase ends at a pause while capture goes on.
             send(op="ready", id=phrase)
             phrase += 1
@@ -323,6 +323,9 @@ while True:
         prompts.write(message["text"].encode() + b"\0")
         if scenario == "noanswer":
             continue  # recognition that takes its time
+        if scenario == "slowdirect" and message["id"] == 2:
+            import time
+            time.sleep(0.3)  # still being recognized when listening resumes
         send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)],
              **({"device": True} if scenario == "fallback" else {}))
     elif op == "cancel":
@@ -924,6 +927,21 @@ void direct_tests() {
         wait_until(app, [&] { return sink.text.size() == 3; });
         require(sink.text.back() == " are you?",
                 "the final text continues where the typed words end in it, punctuation aside");
+        options.dictation_arguments = {"--scenario", "direct"};
+    }
+    {
+        // Listening again before the last phrase is typed continues the
+        // session: the phrase still gets its joining space.
+        options.dictation_arguments = {"--scenario", "slowdirect"};
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 1; });
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() >= 2; });
+        require(sink.text[0] == "Hello there." && sink.text[1] == " Again.",
+                "a quick restart keeps the session's spacing");
         options.dictation_arguments = {"--scenario", "direct"};
     }
     {
