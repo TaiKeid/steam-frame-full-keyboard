@@ -23,7 +23,7 @@ The emoji key is disabled (drawn with the theme's disabled color, not clickable)
 
 - **Side column:** the same, except that the emoji key becomes a Back key that returns to the main layout.
 - **Category row:** across the top of the main area. Recent comes first, with a clock icon, followed by the Unicode groups: Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places, Activities, Objects, Symbols, Flags. Each tab has its own line icon. If the tabs don't fit, they scroll horizontally, and Recent stays fixed at the left like a frozen table column.
-- **Grid:** one horizontal strip covering every category in tab order, filled column by column. Tapping a tab scrolls the grid to that category. The highlighted tab follows the scroll position.
+- **Grid:** one horizontal strip covering every category in tab order, filled column by column. It sits in a well recessed into the case, drawn like the dictation editor's. Tapping a tab scrolls the grid to that category. The highlighted tab follows the scroll position.
 - **Bottom:** a space bar under the grid.
 - **Right side:** Backspace and Enter, with the arrow keys below them.
 - **Compact (no numpad) mode:** the keyboard keeps its compact width, unlike Settings, which widens it. The grid shrinks to fit: fewer columns are visible at once.

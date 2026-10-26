@@ -82,7 +82,7 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 - The editor holds plain text with line breaks. Tab characters are not supported.
 - **Cursor:** a laser click places it, using Pango's position lookup. The arrows, Home and End move it. There is no text selection.
-- **Scrolling:** the thumbstick scrolls the editor. With the dashboard open, the overlay requests SteamVR's scroll events; in passthrough, a new stick action is read directly. The view follows the cursor as text is inserted.
+- **Scrolling:** the thumbstick scrolls the editor a line a step while the laser points at it. With the dashboard open, the overlay requests SteamVR's scroll events; in passthrough, the stick is read directly, as for the emoji grid. Pressing on the text and dragging scrolls it like a touch screen; a press released where it began places the cursor. Scrolling works while listening too. The view follows the cursor as text is inserted.
 - **Counter:** a character counter shows, for example, `412/900`. Characters are counted as Unicode code points, not bytes.
   - Dictation cannot start or continue at 900 characters or more.
   - A phrase still pending when 900 is reached is inserted, up to the hard cap.
@@ -625,7 +625,8 @@ First part: the helper connected to the editor.
 - **Cancel:** the helper now answers `cancel` with `cancelled`, and the client discards everything sent before it, so a phrase that started just before a cancel cannot linger as pending.
 - **Hiding:** until the dashboard rules exist, hiding the keyboard pauses listening; phrases already spoken are still recognized.
 - **Tests:** `dictation-mode` drives the keyboard against a scripted helper: opening and listening, the read-only editor, pausing with a phrase inserted, resuming, Send while listening, Esc in each state with Keep and Discard, X, and a server error. Every App in the suite uses a stand-in helper; one early run started the real helper from the build directory against 127.0.0.1 with nothing listening, which is why. Host CTest passes with 34 suites and 3 optional CJK skips; ARM64 builds clean.
-- **Not yet:** automatic passthrough and the dashboard rules, the target-lost rule in replacement mode, stick scrolling, the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
+- **Scrolling (owner report: it did not scroll):** the stick, a line a step, in the dashboard and in passthrough, and a laser drag on the text. A tap places the cursor on release, so a drag never moves it. The emoji grid now sits in the same recessed well as the editor.
+- **Not yet:** automatic passthrough and the dashboard rules, the target-lost rule in replacement mode, the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
 
 ## Open questions
 

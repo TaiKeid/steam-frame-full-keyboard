@@ -437,6 +437,16 @@ class App {
     };
     std::optional<Reveal> reveal_;
     void finish_reveal();
+    // A laser press in the editor: dragged, it scrolls the text like a touch
+    // screen; released where it began, it places the cursor.
+    struct EditorDrag {
+        unsigned pointer{};
+        double x{}, y{}, scroll{};
+        bool scrolling{};
+    };
+    std::optional<EditorDrag> editor_drag_;
+    double editor_scroll_limit() const;
+    double editor_line_height() const;
     // Phrases announced and not yet inserted or dropped, with the time each
     // was handed to the recognizer (zero while still being spoken).
     std::map<std::uint64_t, double> pending_phrases_;

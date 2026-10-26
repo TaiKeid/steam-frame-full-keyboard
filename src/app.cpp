@@ -650,6 +650,19 @@ PanelView App::build_view(bool picker) const {
     return v;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
+    if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
+        pointer_positions_.contains(pointer) && std::isfinite(dy)) {
+        const auto [x, y] = pointer_positions_.at(pointer);
+        const auto v = geometry();
+        if (v.dictation && v.dictation->bounds.contains(x, y)) {
+            // One step is one line, as in a desktop editor.
+            const double old = editor_scroll_;
+            editor_scroll_ =
+                std::clamp(editor_scroll_ + dy * editor_line_height(), 0.0, editor_scroll_limit());
+            dirty |= editor_scroll_ != old;
+            return editor_scroll_ != old;
+        }
+    }
     if (emoji_open_ && interaction_active_ && !dragging_ && pointer_positions_.contains(pointer)) {
         const auto [x, y] = pointer_positions_.at(pointer);
         // The grid only scrolls sideways; an up/down stick scrolls it too.
@@ -677,6 +690,21 @@ bool App::move(unsigned pointer, double x, double y) {
         return false;
     }
     pointer_positions_[pointer] = {x, y};
+    if (editor_drag_ && editor_drag_->pointer == pointer) {
+        // Past a small dead zone the text follows the laser.
+        if (!editor_drag_->scrolling && std::abs(y - editor_drag_->y) > 8) {
+            editor_drag_->scrolling = true;
+        }
+        if (editor_drag_->scrolling) {
+            const double scroll =
+                std::clamp(editor_drag_->scroll - (y - editor_drag_->y), 0.0, editor_scroll_limit());
+            if (scroll != editor_scroll_) {
+                editor_scroll_ = scroll;
+                dirty = true;
+            }
+        }
+        return false;
+    }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_move(x, y);
     }
@@ -755,14 +783,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (dictation_open_ && !settings_open_ && v.dictation && v.dictation->bounds.contains(x, y)) {
-        if (sending_ || capturing_ || confirm_discard_ || reveal_) {
-            return false; // locked while it sends, listens, asks or types a phrase
+        if (!sending_ && !confirm_discard_ && !editor_drag_) {
+            editor_drag_ = EditorDrag{pointer, x, y, editor_scroll_};
         }
-        const auto area = editor_text_area(v);
-        editor_.set_cursor(editor_index_at(v, x - area.x, y - area.y + editor_scroll_));
-        editor_goal_x_.reset();
-        follow_cursor();
-        dirty = true;
         return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
@@ -933,6 +956,21 @@ bool App::up(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
         return false;
     }
+    if (editor_drag_ && editor_drag_->pointer == pointer) {
+        const auto drag = *std::exchange(editor_drag_, std::nullopt);
+        // A tap places the cursor, unless the editor is locked: listening,
+        // sending, asking or showing a phrase.
+        if (!drag.scrolling && dictation_open_ && !capturing_ && !sending_ && !confirm_discard_ &&
+            !reveal_ && !send_wait_since_) {
+            const auto v = geometry();
+            const auto area = editor_text_area(v);
+            editor_.set_cursor(editor_index_at(v, drag.x - area.x, drag.y - area.y + drag.scroll));
+            editor_goal_x_.reset();
+            follow_cursor();
+            dirty = true;
+        }
+        return false;
+    }
     if (settings_open_ && settings_ui_.up(pointer)) {
         pressed_controls_.erase(pointer);
         dirty = true;
@@ -996,6 +1034,9 @@ bool App::up(unsigned pointer, double x, double y) {
 }
 
 void App::cancel_pointer(unsigned pointer) {
+    if (editor_drag_ && editor_drag_->pointer == pointer) {
+        editor_drag_.reset();
+    }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_track_.reset();
     }
@@ -1031,6 +1072,7 @@ void App::cancel(bool discard_composition) {
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
     editor_repeat_.reset();
+    editor_drag_.reset();
     pointer_positions_.clear();
     // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
     flick_track_.reset();
@@ -2426,7 +2468,25 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
         // Settings rarely overflows; its ends are not worth tracking.
         return settings_ui_.scrolls_at(x, y) ? std::optional{ScrollRoom{true, true}} : std::nullopt;
     }
+    if (dictation_open_) {
+        const auto v = geometry();
+        if (v.dictation && v.dictation->bounds.contains(x, y) && editor_scroll_limit() > 0) {
+            return ScrollRoom{editor_scroll_ > 0, editor_scroll_ < editor_scroll_limit()};
+        }
+        return {};
+    }
     return emoji_open_ ? emoji_.scroll_room(x, y) : std::nullopt;
+}
+double App::editor_scroll_limit() const {
+    const auto v = geometry();
+    if (!v.dictation) {
+        return 0;
+    }
+    return std::max(0.0, editor_content_height(v) - editor_text_area(v).height);
+}
+double App::editor_line_height() const {
+    const auto v = geometry();
+    return v.dictation ? editor_caret(v, 0).height : 25;
 }
 bool App::emoji_available() const {
     if (!emoji_font_) {

@@ -704,14 +704,11 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
     }
     return {};
 }
-void draw_editor(cairo_t* cr, const PanelView& view) {
-    const auto& t = *view.theme;
-    const auto& editor = *view.dictation;
-    const auto& r = editor.bounds;
+// A well recessed into the case, the opposite of a keycap: darker than the
+// case, shaded under its top edge, with a faint rim and a light catch on its
+// lower lip. Every colour derives from the theme. Returns the well's colour.
+Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     const double radius = t.radius + 2;
-    // A well recessed into the case, the opposite of a keycap: darker than
-    // the case, shaded under its top edge, with a faint rim and a light catch
-    // on its lower lip. Every colour derives from the theme.
     const Color well{t.surface.r * .55, t.surface.g * .55, t.surface.b * .55};
     rounded(cr, r, radius);
     source(cr, well);
@@ -738,6 +735,18 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     cairo_line_to(cr, r.x + r.width - radius, r.y + r.height - 1.5);
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .06);
     cairo_stroke(cr);
+    return well;
+}
+// The emoji grid's well reaches a little past the cells, like the editor's.
+Rect emoji_well(const Rect& grid) {
+    return {grid.x - 6, grid.y - 6, grid.width + 12, grid.height + 12};
+}
+void draw_editor(cairo_t* cr, const PanelView& view) {
+    const auto& t = *view.theme;
+    const auto& editor = *view.dictation;
+    const auto& r = editor.bounds;
+    const double radius = t.radius + 2;
+    const auto well = draw_well(cr, t, r);
 
     const auto area = editor_text_area(view);
     cairo_save(cr);
@@ -1241,6 +1250,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 draw_icon(cr, tab.icon, tab.bounds, t.legend, 24);
                 cairo_restore(cr);
             }
+            draw_well(cr, t, emoji_well(picker.grid));
             cairo_save(cr);
             cairo_rectangle(cr, picker.grid.x, picker.grid.y, picker.grid.width, picker.grid.height);
             cairo_clip(cr);

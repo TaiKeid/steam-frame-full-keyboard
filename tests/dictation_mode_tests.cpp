@@ -430,6 +430,44 @@ void live_tests() {
     }
 }
 
+void scroll_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    Sink sink;
+    App app(options, sink);
+    open_editor(app);
+    type_text(app, "a\nb\nc\nd\ne\nf\ng\nh");
+    auto view = app.view();
+    const auto bounds = view.dictation->bounds;
+    const double x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+    app.move(0, x, y);
+    require(view.dictation->scroll > 0 && app.scroll_room(0) && app.scroll_room(0)->back &&
+                !app.scroll_room(0)->forward,
+            "a tall text scrolls, following the cursor to the end");
+    require(app.scroll(0, 0, -100) && app.view().dictation->scroll == 0,
+            "stick steps scroll back to the top");
+    require(app.scroll(0, 0, 1) && app.view().dictation->scroll > 0, "one step scrolls a line");
+    const double line = app.view().dictation->scroll;
+    // The laser drags the text like a touch screen.
+    app.down(1, x, y, clock);
+    app.move(1, x, y - 2 * line);
+    require(app.view().dictation->scroll == 3 * line, "dragging up scrolls down");
+    const auto text = editor_text(app);
+    const auto cursor = app.view().dictation->cursor;
+    app.up(1, x, y - 2 * line);
+    require(app.view().dictation->cursor == cursor && editor_text(app) == text,
+            "a drag does not move the cursor");
+    app.down(1, bounds.x + 20, bounds.y + 12, clock);
+    app.up(1, bounds.x + 20, bounds.y + 12);
+    require(app.view().dictation->cursor != cursor, "a tap still places the cursor");
+}
+
 void send_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -551,6 +589,7 @@ int main() {
         layout_tests();
         mode_tests();
         send_tests();
+        scroll_tests();
         live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
