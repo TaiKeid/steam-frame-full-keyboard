@@ -327,6 +327,24 @@ void asynchronous_text() {
     auto replaced = first;
     replaced.insert(replaced.end(), {"\b", "\b", "\b", "h", "e", "l", "p"});
     require(text.commits == replaced, "deletions precede the replacement text in one request stream");
+    // Send slows the gap; the next character waits for the longer one.
+    wrapper.set_character_gap(.04);
+    require(!wrapper.commit_text("ab") && wrapper.text_pending(), "a slower commit starts");
+    now += .03;
+    for (int i = 0; i < 5; ++i) {
+        text.pump();
+        sink->pump();
+    }
+    require(text.commits.back() == "a", "the next character waits for the longer gap");
+    now += .011;
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        now += .005;
+        return wrapper.commit_text("ab");
+    });
+    require(text.commits.back() == "b", "and follows once it has passed");
+    wrapper.set_character_gap(GamescopeText::default_character_gap);
     // Characters missing from the keymap still need Gamescope's temporary
     // keymap; splitting them would only add keymap switches.
     require(!wrapper.commit_text("日本") && wrapper.text_pending(), "CJK commit is asynchronous");

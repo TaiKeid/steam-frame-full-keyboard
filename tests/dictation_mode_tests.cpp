@@ -55,6 +55,8 @@ struct Sink : KeySink {
     }
     std::size_t delivered_characters() const override { return acknowledged; }
     bool single_line_target() const override { return single_line; }
+    std::vector<double> gaps;
+    void set_character_gap(double seconds) override { gaps.push_back(seconds); }
 };
 void write_config(const fs::path& directory, const std::string& extra) {
     std::ofstream(directory / "config.json")
@@ -100,6 +102,7 @@ void settings_tests() {
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"speech.local:8031")");
     std::vector<std::string> errors;
     auto settings = load_settings(directory.path, errors);
+    require(settings.dictation_send_gap == 40, "Send's pace defaults to 40 ms");
     require(errors.empty() && settings.dictation == "server" &&
                 settings.dictation_server == "speech.local:8031",
             "dictation settings load");
@@ -285,6 +288,8 @@ void send_tests() {
         expected.insert(expected.end(), {{KEY_ENTER, 1}, {KEY_ENTER, 0}});
         require(sink.keys == expected, "inner breaks are Shift+Enter; only the last Enter is plain");
         require(!app.dictation_open(), "a sent text returns to the normal keyboard");
+        require(!sink.gaps.empty() && sink.gaps.front() == .04 && sink.gaps.back() == .02,
+                "Send types at its own pace, 40 ms by default, then restores the usual one");
         press(app, "Dictation");
         require(editor_text(app).empty(), "and leaves the editor empty");
     }

@@ -51,6 +51,9 @@ class KeySink {
     // The target holds one line, so Shift+Enter cannot break it, such as a
     // Steam search field. Unknown targets take line breaks.
     virtual bool single_line_target() const { return false; }
+    // The minimum gap between characters typed one at a time, for transports
+    // that pace them (GamescopeText::set_character_gap).
+    virtual void set_character_gap(double) {}
     // Unknown until the receiving system reports its lock state.
     virtual std::optional<bool> num_lock_state() { return {}; }
 };

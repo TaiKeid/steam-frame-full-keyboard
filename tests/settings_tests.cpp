@@ -1299,6 +1299,40 @@ void auto_leveling_settings() {
     load_settings(directory.path, errors);
     require(!errors.empty(), "Auto leveling requires a JSON boolean");
 }
+void dictation_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    app.show_settings();
+    require(control(app.view(), "send-gap").label.find("40") != std::string::npos,
+            "Send's pace starts at 40 ms");
+    select(app, "send-gap", "20");
+    require(saved(app).dictation_send_gap == 40, "the pace stays pending until Apply");
+    click(app, "apply");
+    require(saved(app).dictation_send_gap == 20, "Apply saves the pace");
+    {
+        App reopened(options, sink);
+        reopened.show_settings();
+        require(control(reopened.view(), "send-gap").label.find("20") != std::string::npos,
+                "the pace survives restart");
+    }
+    for (const auto* value : {"25", "\"30\""}) {
+        std::ofstream(directory.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},)"
+            << R"("dictation":"server","dictation_server":"host","dictation_send_gap_ms":)" << value
+            << "}";
+        std::vector<std::string> errors;
+        const auto settings = load_settings(directory.path, errors);
+        require(errors.size() == 1 && settings.dictation_send_gap == 40 &&
+                    settings.dictation == "server",
+                "a bad pace falls back to 40 ms on its own");
+    }
+    require(sink.events.empty(), "dictation settings send no desktop input");
+}
+
 void native_replacement_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -1554,6 +1588,7 @@ int main() {
         launch_startup();
         numpad_settings();
         app_settings();
+        dictation_settings();
         behavior_settings();
         auto_leveling_settings();
         native_replacement_settings();

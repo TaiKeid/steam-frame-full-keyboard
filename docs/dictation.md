@@ -111,7 +111,7 @@ Esc in dictation mode is local and never reaches the application.
   - Only the final Enter is a plain Enter.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the existing output queue. Each line break is a native key entry. Each piece goes out once the previous one is delivered, so a failure knows exactly what arrived.
-  - Plain text to local apps goes either as whole commits or one acknowledged character at a time, at least 20 ms apart. The second way takes about 30 s for 900 characters. M3b measures both before choosing.
+  - Plain text to local apps goes one acknowledged character at a time; whole commits scrambled it in the [M3b test](#m3b-results-2026-10-25). Send waits 40 ms between characters by default, about 37 s for 900 characters. The **Send pace** setting offers 30 and 20 ms, faster but more likely to swap neighbouring characters when the Frame is busy. Other typing keeps 20 ms.
   - Sending waits until no key is held, so a held modifier cannot turn letters into shortcuts.
   - The editor is locked and shows progress while sending: delivered text leaves the editor as it goes, the rest is dimmed without a caret, and the counter shows `Sending 120/412`. Esc stops sending.
   - If delivery fails or is interrupted (Esc, hiding the panel, losing the target, or no answer for 5 s), the unsent remainder stays in the editor and the mode stays open, as failed Japanese commits stay in the preedit today. Send continues from there.
@@ -394,7 +394,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Profiles with a composer hide the mic key until M5a.
   - Swipe and the emoji key are unavailable in dictation mode.
   - A `--render-dictation` image export for reviewing the look.
-- [ ] **M3b Send:** built and host-tested 2026-10-25, and the A/B test run (see [M3b results](#m3b-results-2026-10-25)); the character gap and application checks are open.
+- [ ] **M3b Send:** built and host-tested 2026-10-25, and the A/B test run and the pace made a setting (see [M3b results](#m3b-results-2026-10-25)); the application checks are open.
   - **A/B test of plain-text delivery:** whole commits of up to 32 characters against one acknowledged character at a time, 20 ms apart. The swipe fix that introduced the second way was measured only on replacements.
     - Test the dedicated receiver first, then an X11 browser under load.
     - Count scrambled and reordered text, and time a 900-character text.
@@ -606,7 +606,8 @@ What this means for the design:
 
   - Whole commits are unusable for plain text: Gamescope's temporary keymap leaked into the text (`zxcvbnm,./1234567890-=qwerty`), and words were lost or reordered even with the Frame idle. Send keeps one character at a time.
   - The gap trades speed for order under heavy load. A 30 ms run was cut short twice when the receiver lost focus, and nothing was sent after that.
-- **Not yet:** the owner's choice of character gap, delivery into applications, and a check in the headset.
+  - **Decision (owner):** a **Send pace** setting with 40 ms (the default), 30 ms and 20 ms, so real use can decide. It is saved as `dictation_send_gap_ms` and sits in the Experimental card until M4's Dictation card. Send sets the gap while it types (`KeySink::set_character_gap`, down to `GamescopeText`) and restores 20 ms afterwards, so swiped words keep their pace.
+- **Not yet:** delivery into applications and a check in the headset, including which pace holds up in real use.
 
 ## Open questions
 

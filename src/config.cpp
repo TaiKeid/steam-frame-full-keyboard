@@ -594,6 +594,18 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             settings.dictation_url.clear();
             settings.dictation_model.clear();
         }
+        try {
+            // Like the dictation fields, a bad value fails on its own.
+            if (auto* gap = field(document.get(), "dictation_send_gap_ms", json_type_int, true)) {
+                const auto value = json_object_get_int(gap);
+                if (value != 20 && value != 30 && value != 40) {
+                    throw std::runtime_error("bad value");
+                }
+                settings.dictation_send_gap = value;
+            }
+        } catch (const std::exception&) {
+            errors.push_back("config.json: dictation_send_gap_ms must be 20, 30 or 40; using 40");
+        }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
                 throw std::runtime_error("too many favorites");
@@ -698,6 +710,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->swipe_typing));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
+        json_object_object_add(document.get(), "dictation_send_gap_ms",
+                               json_object_new_int(settings->dictation_send_gap));
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

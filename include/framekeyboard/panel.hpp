@@ -40,6 +40,7 @@ enum class ControlKind {
     ReplaceNativeKeyboard,
     StartWithSteamos,
     EmojiCloseOnSelect,
+    ChooseSendGap,
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,

@@ -15,10 +15,15 @@ class GamescopeText {
     // Deletions run as Gamescope delete_left actions before the text, in the
     // same request stream, so they cannot interleave with its temporary keymap.
     // With per_character, each character is its own commit, sent after the
-    // previous one is acknowledged and at least 20 ms later: Gamescope then types
+    // previous one is acknowledged and at least the character gap later: Gamescope then types
     // characters its ordinary keymap has without a temporary keymap, and they
     // arrive spaced apart.
     bool commit(const std::string& text, std::size_t delete_before = 0, bool per_character = false);
+    // The minimum gap between per-character commits. Dictation's Send sets a
+    // longer one while it types: under heavy load, 20 ms still let IBus swap
+    // neighbouring characters now and then (docs/dictation.md, M3b results).
+    static constexpr double default_character_gap = .02;
+    void set_character_gap(double seconds);
     bool pending() const;
     // Characters of the most recent commit that Gamescope acknowledged. Only a
     // per-character commit can end with part of its text acknowledged.

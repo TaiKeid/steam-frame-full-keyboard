@@ -30,7 +30,7 @@ struct GamescopeText::State {
     // one's acknowledgement and at least character_gap after it was sent: an
     // asynchronous X input method (IBus through XIM) under load reordered keys
     // that were only an acknowledgement (about 5 ms) apart.
-    static constexpr double character_gap = .02;
+    double character_gap = default_character_gap;
     std::string remaining;
     std::size_t acknowledged{}; // Characters of `submitted`, kept after its result is consumed.
     double next_character{};
@@ -202,6 +202,9 @@ bool GamescopeText::failed() const {
 bool GamescopeText::pending() const {
     return state_->result != State::Result::None;
 }
+void GamescopeText::set_character_gap(double seconds) {
+    state_->character_gap = seconds;
+}
 std::size_t GamescopeText::acknowledged() const {
     return state_->acknowledged;
 }
@@ -253,7 +256,7 @@ bool GamescopeText::commit(const std::string& text, std::size_t delete_before, b
         s.remaining.erase(0, character.size());
         gamescope_input_method_set_string(s.input, character.c_str());
         gamescope_input_method_commit(s.input, s.serial);
-        s.next_character = s.clock() + State::character_gap;
+        s.next_character = s.clock() + s.character_gap;
     } else {
         // Gamescope's temporary Unicode keymap holds at most 32 characters.
         gamescope_input_method_set_string(s.input, text.c_str());

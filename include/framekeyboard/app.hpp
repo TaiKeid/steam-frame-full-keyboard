@@ -252,6 +252,7 @@ class App {
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
     bool pending_emoji_close_on_select_{};
+    int pending_dictation_send_gap_{40};
     bool native_fallback_{};
     bool replacement_available_{};
     std::string replacement_unavailable_reason_;

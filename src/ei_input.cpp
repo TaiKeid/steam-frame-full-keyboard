@@ -113,10 +113,17 @@ void EiSink::service_text() {
     if (!text_ && clock_() >= text_retry_at_) {
         try {
             text_ = std::make_unique<GamescopeText>(text_socket_.string(), clock_);
+            text_->set_character_gap(character_gap_);
         } catch (const std::exception&) {
             text_retry_at_ = clock_() + text_retry_delay_;
             text_retry_delay_ = std::min(30.0, text_retry_delay_ * 2);
         }
+    }
+}
+void EiSink::set_character_gap(double seconds) {
+    character_gap_ = seconds;
+    if (text_) {
+        text_->set_character_gap(seconds);
     }
 }
 bool EiSink::text_available() {

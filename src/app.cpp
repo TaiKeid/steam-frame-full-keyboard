@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/text_input.hpp"
 #include "framekeyboard/updates.hpp"
 #include <utility>
 
@@ -191,6 +192,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_dictation_send_gap_ = settings_.dictation_send_gap;
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
     prepare_swipe();
     update_settings_ui();
@@ -403,6 +405,11 @@ void App::update_settings_ui() {
     for (auto& choice : language_choices) {
         choice.enabled = fits(profiles_, {pending_.layout, choice.id, pending_.theme});
     }
+    // Send types one character at a time; slower keeps the order under load.
+    auto send_gap = field(ControlKind::ChooseSendGap,
+                          dropdown("send-gap", "Send pace", std::to_string(pending_dictation_send_gap_),
+                                   {{"40", "40 ms (default)"}, {"30", "30 ms"}, {"20", "20 ms"}}));
+    send_gap.note = "Dictation";
     settings_ui_.set_cards(
         {{"languages",
           "Languages and Layouts",
@@ -434,7 +441,9 @@ void App::update_settings_ui() {
            field(ControlKind::StartWithSteamos,
                  checkbox("start-with-steamos", "Start with SteamOS",
                           pending_start_with_steamos_ && pending_replace_native_keyboard_,
-                          pending_replace_native_keyboard_))}}});
+                          pending_replace_native_keyboard_)),
+           // Dictation gets a card of its own in M4, when narrower cards make room.
+           send_gap}}});
 }
 PanelView App::geometry() const {
     PanelView v;
@@ -1134,6 +1143,7 @@ void App::show_settings() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_dictation_send_gap_ = settings_.dictation_send_gap;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -1297,6 +1307,7 @@ void App::reload() {
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
+        settings_.dictation_send_gap = updated_settings.dictation_send_gap;
         settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
@@ -1310,6 +1321,7 @@ void App::reload() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_dictation_send_gap_ = settings_.dictation_send_gap;
     swipe_prepared_.clear(); // Reread an edited word list.
     prepare_swipe();
     rebuild_cycle_entries();
@@ -1795,6 +1807,7 @@ void App::action(const ControlAction& command) {
         settings_.start_with_steamos = pending_start_with_steamos_;
         settings_.swipe_typing = pending_swipe_typing_;
         settings_.emoji_close_on_select = pending_emoji_close_on_select_;
+        settings_.dictation_send_gap = pending_dictation_send_gap_;
         prepare_swipe();
         default_ = settings_.active;
         persisted_active_ = settings_.active;
@@ -1848,6 +1861,12 @@ void App::action(const ControlAction& command) {
         choose_swipe(command.index);
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
+        update_settings_ui();
+    } else if (kind == ControlKind::ChooseSendGap) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_dictation_send_gap_ = std::stoi(command.value);
+        settings_ui_.close_popup();
         update_settings_ui();
     } else if (kind == ControlKind::EmojiCloseOnSelect) {
         pending_emoji_close_on_select_ = !pending_emoji_close_on_select_;
@@ -2825,6 +2844,8 @@ bool App::tick_send(double now) {
         switch (piece.kind) {
         case SendPiece::Kind::Text:
         case SendPiece::Kind::Space:
+            // Only Send types at the chosen pace; it is reset when Send ends.
+            output_.set_character_gap(settings_.dictation_send_gap / 1000.0);
             accepted = output_.commit_text(piece.text);
             break;
         case SendPiece::Kind::Break:
@@ -2857,6 +2878,7 @@ bool App::tick_send(double now) {
         follow_cursor();
         if (++s.next == s.pieces.size()) {
             sending_.reset();
+            output_.set_character_gap(GamescopeText::default_character_gap);
             editor_.clear();
             editor_scroll_ = 0;
             close_dictation();
@@ -2888,6 +2910,7 @@ void App::stop_send(bool attempted) {
     }
     // The editor keeps what is left, so the queue must not retry it as well.
     output_.cancel();
+    output_.set_character_gap(GamescopeText::default_character_gap);
     output_.take_status();
     if (piece.kind == SendPiece::Kind::Enter) {
         editor_.erase_front(editor_.text().size());

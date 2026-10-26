@@ -39,6 +39,8 @@ class EiSink : public KeySink {
     // Measurement only: forces every multi-character commit to go whole (false)
     // or per character (true) instead of the on_keymap() choice.
     void force_per_character(std::optional<bool> value) { per_character_ = value; }
+    // Kept across text reconnections.
+    void set_character_gap(double seconds) override;
     EiSink(const EiSink&) = delete;
     EiSink& operator=(const EiSink&) = delete;
 
@@ -52,6 +54,7 @@ class EiSink : public KeySink {
     std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> keymap_{nullptr, xkb_keymap_unref};
     xkb_layout_index_t group_{};
     std::optional<bool> per_character_;
+    double character_gap_{GamescopeText::default_character_gap};
     std::optional<bool> num_lock_;
     fs::path socket_, text_socket_;
     std::unique_ptr<GamescopeText> text_;
