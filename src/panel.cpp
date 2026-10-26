@@ -1421,30 +1421,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             for (const auto& card : view.cards) {
                 draw_settings_card(cr, t, card.bounds);
             }
-            // Hairlines between rows, inside each card's scrolling body.
-            for (const auto& control : view.controls) {
-                if (!control.clip || (control.style != ControlStyle::Dropdown &&
-                                      control.style != ControlStyle::Checkbox)) {
-                    continue;
-                }
-                const auto& clip = *control.clip;
-                cairo_save(cr);
-                cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
-                cairo_clip(cr);
-                const double y = std::round(control.bounds.y - 10) + .5;
-                cairo_move_to(cr, clip.x + 16, y);
-                cairo_line_to(cr, clip.x + clip.width - 16, y);
-                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
-                cairo_set_line_width(cr, 1);
-                cairo_stroke(cr);
-                cairo_restore(cr);
-            }
             for (const auto& card : view.cards) {
                 // Titles stay fixed while the card's fields scroll beneath them;
                 // quieter than the rows, like a section header.
                 label(cr, card.title,
                       {card.bounds.x + 30, card.bounds.y + 12, card.bounds.width - 60, 32}, 19,
                       view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
+                // One quiet line under the title; rows are set apart by space
+                // alone, as most of them configure similar things.
+                const double y = std::round(card.bounds.y + 50) + .5;
+                cairo_move_to(cr, card.bounds.x + 16, y);
+                cairo_line_to(cr, card.bounds.x + card.bounds.width - 16, y);
+                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
+                cairo_set_line_width(cr, 1);
+                cairo_stroke(cr);
             }
             cairo_restore(cr);
             for (const auto& field : view.field_labels) {
