@@ -90,6 +90,12 @@ class App {
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
     void cancel_pointer(unsigned pointer);
+    // The pointer holds a repeating key, such as Backspace, in the keyboard
+    // or the dictation editor. It stays held after the laser leaves the
+    // panel, until the trigger's release (docs/architecture.md, Input and focus).
+    bool holds_repeat(unsigned pointer) const {
+        return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer);
+    }
     void cancel(bool discard_composition = true);
     bool tick(double now);
     // Whether the image changed and needs uploading.

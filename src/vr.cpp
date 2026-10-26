@@ -320,6 +320,66 @@ class StickReader {
     };
     std::array<Stick, vr::k_unMaxTrackedDeviceCount> sticks_{};
 };
+// A Frame controller's trigger, read from its render model, so a capture can
+// end on the trigger's release even when the laser is off our overlays and
+// SteamVR sends us no button event. Other controllers are not watched.
+class TriggerWatch {
+  public:
+    void begin(vr::TrackedDeviceIndex_t device, double now) {
+        neutral_.reset();
+        release_.begin(now);
+        auto models = vr_models();
+        auto input = vr_input();
+        if (!models || !input) {
+            return;
+        }
+        const auto role = vr_system()->GetControllerRoleForTrackedDeviceIndex(device);
+        if (role != vr::TrackedControllerRole_LeftHand && role != vr::TrackedControllerRole_RightHand) {
+            return;
+        }
+        const bool left = role == vr::TrackedControllerRole_LeftHand;
+        char model[1024]{};
+        vr::ETrackedPropertyError error{};
+        vr_system()->GetStringTrackedDeviceProperty(device, vr::Prop_RenderModelName_String, model,
+                                                    sizeof(model), &error);
+        const std::string expected = left ? "{frame_controller}frame_controller_left"
+                                          : "{frame_controller}frame_controller_right";
+        if (error || model != expected ||
+            input->GetInputSourceHandle(left ? "/user/hand/left" : "/user/hand/right", &hand_) !=
+                vr::VRInputError_None) {
+            return;
+        }
+        vr::VRControllerState_t released{};
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t neutral{};
+        if (models->GetComponentState(model, "trigger", &released, &mode, &neutral)) {
+            model_ = model;
+            neutral_ = from_vr(neutral.mTrackingToComponentRenderModel);
+        }
+    }
+    void reset() { neutral_.reset(); }
+    bool watching() const { return neutral_.has_value(); }
+    bool released(double now) {
+        if (!neutral_) {
+            return false;
+        }
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t current{};
+        if (!vr_models()->GetComponentStateForDevicePath(model_.c_str(), "trigger", hand_, &mode,
+                                                         &current)) {
+            return release_.update(std::nullopt, now);
+        }
+        const auto angle =
+            component_rotation_degrees(*neutral_, from_vr(current.mTrackingToComponentRenderModel));
+        return release_.update(angle, now);
+    }
+
+  private:
+    std::string model_;
+    vr::VRInputValueHandle_t hand_{};
+    std::optional<Transform> neutral_;
+    TriggerReleaseGuard release_;
+};
 class LaserDrag {
   public:
     bool start(const GrabSample& input, const PanelPlacement& placement, double now, MoveSource source,
@@ -330,10 +390,9 @@ class LaserDrag {
         }
         started_ = updated_ = now;
         transform_.begin(*pose, placement.transform(), input.ray_direction);
-        trigger_release_.begin(now);
-        trigger_neutral_.reset();
+        trigger_.reset();
         if (source == MoveSource::Laser) {
-            prepare_trigger();
+            trigger_.begin(input.device, now);
         }
         return true;
     }
@@ -345,9 +404,7 @@ class LaserDrag {
         }
         resize_ = resize;
         started_ = updated_ = now;
-        trigger_release_.begin(now);
-        trigger_neutral_.reset();
-        prepare_trigger();
+        trigger_.begin(device, now);
         return true;
     }
     // A lost ray or the movement time limit ends the resize; a ray off the
@@ -381,62 +438,16 @@ class LaserDrag {
     }
     // Whether a laser capture can end on the trigger's own release, without
     // a pointer event: only for a Frame controller with a calibrated trigger.
-    bool watches_trigger() const { return source() != MoveSource::Grip && trigger_neutral_.has_value(); }
-    bool trigger_released(double now) {
-        if (source() == MoveSource::Grip || !trigger_neutral_) {
-            return false;
-        }
-        vr::RenderModel_ControllerMode_State_t mode{};
-        vr::RenderModel_ComponentState_t current{};
-        if (!vr_models()->GetComponentStateForDevicePath(trigger_model_.c_str(), "trigger",
-                                                         trigger_hand_, &mode, &current)) {
-            return trigger_release_.update(std::nullopt, now);
-        }
-        const auto angle = component_rotation_degrees(*trigger_neutral_,
-                                                      from_vr(current.mTrackingToComponentRenderModel));
-        return trigger_release_.update(angle, now);
-    }
+    bool watches_trigger() const { return source() != MoveSource::Grip && trigger_.watching(); }
+    bool trigger_released(double now) { return source() != MoveSource::Grip && trigger_.released(now); }
     void stop() { capture_.reset(); }
 
   private:
-    void prepare_trigger() {
-        auto models = vr_models();
-        auto input = vr_input();
-        if (!models || !input) {
-            return;
-        }
-        const auto role = vr_system()->GetControllerRoleForTrackedDeviceIndex(device());
-        if (role != vr::TrackedControllerRole_LeftHand && role != vr::TrackedControllerRole_RightHand) {
-            return;
-        }
-        const bool left = role == vr::TrackedControllerRole_LeftHand;
-        char model[1024]{};
-        vr::ETrackedPropertyError error{};
-        vr_system()->GetStringTrackedDeviceProperty(device(), vr::Prop_RenderModelName_String, model,
-                                                    sizeof(model), &error);
-        const std::string expected = left ? "{frame_controller}frame_controller_left"
-                                          : "{frame_controller}frame_controller_right";
-        if (error || model != expected ||
-            input->GetInputSourceHandle(left ? "/user/hand/left" : "/user/hand/right", &trigger_hand_) !=
-                vr::VRInputError_None) {
-            return;
-        }
-        vr::VRControllerState_t released{};
-        vr::RenderModel_ControllerMode_State_t mode{};
-        vr::RenderModel_ComponentState_t neutral{};
-        if (models->GetComponentState(model, "trigger", &released, &mode, &neutral)) {
-            trigger_model_ = model;
-            trigger_neutral_ = from_vr(neutral.mTrackingToComponentRenderModel);
-        }
-    }
     PanelDrag transform_;
     PanelResize resize_;
     MoveCapture capture_;
     double started_{}, updated_{};
-    std::string trigger_model_;
-    vr::VRInputValueHandle_t trigger_hand_{};
-    std::optional<Transform> trigger_neutral_;
-    TriggerReleaseGuard trigger_release_;
+    TriggerWatch trigger_;
 };
 // Passthrough pointer. Outside the dashboard SteamVR sends overlay mouse events
 // only to overlays that claim scene input, which takes input from the focused
@@ -1311,6 +1322,37 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::array<std::pair<double, double>, 2> scene_last{};
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
+    // A repeating key, such as Backspace, held when its laser left the panel:
+    // it stays down until the trigger's release, read from the controller,
+    // since no button event arrives off our overlay (docs/architecture.md, Input and focus).
+    struct KeyHold {
+        unsigned pointer{};
+        vr::TrackedDeviceIndex_t device{};
+        double since{};
+        TriggerWatch trigger;
+    };
+    std::optional<KeyHold> key_hold;
+    // Whether leaving the panel keeps the device's repeating key held. The
+    // passthrough pointer reads its trigger itself; a SteamVR laser needs a
+    // Frame controller's trigger to watch, or the key is released as before.
+    auto keeps_held_key = [&](vr::TrackedDeviceIndex_t device, double now, bool passthrough) {
+        for (const auto& [pointer, owner] : pointer_devices) {
+            if (owner != device || !app.holds_repeat(pointer)) {
+                continue;
+            }
+            if (passthrough) {
+                return true;
+            }
+            TriggerWatch trigger;
+            trigger.begin(device, now);
+            if (!trigger.watching()) {
+                return false;
+            }
+            key_hold = KeyHold{pointer, device, now, trigger};
+            return true;
+        }
+        return false;
+    };
     auto cancel_device = [&](vr::TrackedDeviceIndex_t device) {
         for (auto it = pointer_devices.begin(); it != pointer_devices.end();) {
             if (it->second == device) {
@@ -1769,7 +1811,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 // Focus events do not contain cursorIndex. The runtime adapter
                 // resolves the device through actual pointer events only.
-                lifecycle.pointer_left(device, drag.active());
+                lifecycle.pointer_left(device, drag.active() || keeps_held_key(device, now, false));
                 break;
             case vr::VREvent_OverlayHidden:
             case vr::VREvent_Modal_Cancel:
@@ -1881,7 +1923,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         if (sample.device < hovered_devices.size()) {
                             hovered_devices[sample.device] = false;
                         }
-                        lifecycle.pointer_left(sample.device, drag.active());
+                        lifecycle.pointer_left(
+                            sample.device, drag.active() || keeps_held_key(sample.device, now, true));
                     }
                 }
                 if (sample.released) {
@@ -1952,6 +1995,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (drag.active() && drag.trigger_released(now)) {
             stop_drag(true);
+        }
+        if (key_hold) {
+            const auto pointer = key_hold->pointer;
+            if (!app.holds_repeat(pointer)) {
+                key_hold.reset(); // released back over the panel, or cancelled
+            } else if (key_hold->trigger.released(now) || now - key_hold->since > 30) {
+                app.cancel_pointer(pointer);
+                feedback.cancel_pointer(pointer);
+                pointer_devices.erase(pointer);
+                key_hold.reset();
+            }
         }
         if (drag.active() && drag.source() == MoveSource::Grip) {
             const bool held = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {

@@ -79,6 +79,15 @@ Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.
 
+A held repeating key, such as Backspace or an arrow, or the dictation editor's
+held Backspace, stays down when its laser drifts off the panel, so the user can
+hold it while watching the text. SteamVR sends no button event away from our
+overlay, so the VR loop reads that Frame controller's trigger component, as a
+panel drag does, and releases the key when the trigger lets go, when it comes
+back over the panel and is released there, or after 30 s. A controller whose
+trigger cannot be read releases the key on leaving, as before. The passthrough
+pointer reads its triggers anyway and needs nothing extra.
+
 The controller consumes text and native-control results before advancing to the
 next entry. Steam named controls acknowledge delivery through the helper; local
 native controls complete when submitted to libei/uinput. Physical holds must end
