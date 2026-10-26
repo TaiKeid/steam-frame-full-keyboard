@@ -79,10 +79,11 @@ Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.
 
-A held key that has started to repeat, such as Backspace or an arrow, or the
-dictation editor's held Backspace, stays down when its laser drifts off the
-panel, so the user can hold it while watching the text. A key left before it
-repeats, 0.5 s after the press, is released as before. SteamVR sends no button event away from our
+A held repeating key, such as Backspace or an arrow, or the dictation editor's
+held Backspace, stays down when its laser drifts off the panel, from the press
+on, so the user can hold it while watching the text. Waiting for the first
+repeat was tried and dropped: holding from the press worked as well (owner,
+2026-10-26). SteamVR sends no button event away from our
 overlay, so the VR loop reads that Frame controller's trigger component, as a
 panel drag does, and releases the key when the trigger lets go, when it comes
 back over the panel and is released there, or after 30 s. A controller whose

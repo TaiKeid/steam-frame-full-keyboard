@@ -90,13 +90,11 @@ class App {
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
     void cancel_pointer(unsigned pointer);
-    // The pointer holds a key, such as Backspace, that has started to repeat,
-    // in the keyboard or the dictation editor. It then stays held after the
-    // laser leaves the panel, until the trigger's release; a key still
-    // waiting to repeat is released (docs/architecture.md, Input and focus).
-    bool holds_repeat(unsigned pointer, double now) const {
-        return keyboard_.repeating(pointer, now) ||
-               (editor_repeat_ && editor_repeat_->pointer == pointer && editor_repeat_->repeating);
+    // The pointer holds a repeating key, such as Backspace, in the keyboard
+    // or the dictation editor. It stays held after the laser leaves the
+    // panel, until the trigger's release (docs/architecture.md, Input and focus).
+    bool holds_repeat(unsigned pointer) const {
+        return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer);
     }
     void cancel(bool discard_composition = true);
     bool tick(double now);
@@ -457,7 +455,6 @@ class App {
         EditorCommand command{EditorCommand::None};
         std::string text; // When the held key types text instead.
         double next{};
-        bool repeating{}; // The first repeat has happened.
     };
     bool dictation_available() const;
     void open_dictation();

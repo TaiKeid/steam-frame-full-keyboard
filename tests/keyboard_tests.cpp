@@ -177,8 +177,7 @@ void state_tests(const fk::Layout& layout) {
     state.up(1);
     sink.events.clear();
     state.down(0, key(layout, "Backspace"), 5);
-    require(!state.repeating(0, 5.4) && !state.repeating(1, 6), "a held Backspace waits to repeat");
-    require(state.repeating(0, 5.5), "then repeats from 0.5 s on");
+    require(state.repeats(0) && !state.repeats(1), "a held Backspace repeats, from the press on");
     state.tick(5.49);
     require(sink.events.size() == 1, "repeat delay");
     state.tick(5.51);
@@ -187,9 +186,9 @@ void state_tests(const fk::Layout& layout) {
     require(state.active() && sink.events.back() == std::pair<int, int>{KEY_BACKSPACE, 2},
             "long hold keeps repeating without replaying a backlog");
     state.up(0);
-    require(!state.repeating(0, 40), "a released key no longer repeats");
+    require(!state.repeats(0), "a released key no longer repeats");
     state.down(0, key(layout, "CapsLock"), 40.5);
-    require(!state.repeating(0, 41.5), "a lock key does not repeat");
+    require(!state.repeats(0), "a lock key does not repeat");
     state.up(0);
     state.down(0, key(layout, "ShiftLeft"), 41);
     state.down(1, key(layout, "ArrowLeft"), 41);

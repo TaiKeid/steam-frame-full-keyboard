@@ -110,11 +110,10 @@ class KeyboardState {
     bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0);
     bool up(unsigned pointer);
     bool pointer_pressed(unsigned pointer) const { return presses_.contains(pointer); }
-    // The pointer holds a repeating key that has started to repeat.
-    bool repeating(unsigned pointer, double now) const {
+    // The pointer holds a key that repeats, or will once held long enough.
+    bool repeats(unsigned pointer) const {
         const auto press = presses_.find(pointer);
-        return press != presses_.end() && press->second.repeat_code != 0 &&
-               now >= press->second.repeat_at;
+        return press != presses_.end() && press->second.repeat_code != 0;
     }
     void cancel_pointer(unsigned pointer);
     void cancel_all();
