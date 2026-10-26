@@ -526,6 +526,8 @@ class App {
     // The target refused the front phrase outright, so the queue kept no
     // retry: it waits for Enter, which is not sent, or Esc.
     bool direct_blocked_{};
+    // The last reason waiting phrases could not go out, logged once per change.
+    std::string direct_wait_reason_;
     std::uint64_t direct_request_{}, native_request_{};
     std::uint64_t direct_failures_{}; // output failures seen when the session started
     std::unique_ptr<Dictation> dictation_;

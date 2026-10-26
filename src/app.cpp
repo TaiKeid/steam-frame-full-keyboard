@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <glib.h>
+#include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
 #include <tuple>
@@ -3384,7 +3385,10 @@ bool App::start_capture() {
         direct_typed_ = false;
         direct_request_ = native_request_;
         direct_failures_ = output_.failures();
+        direct_wait_reason_.clear();
         status_.clear();
+        // Diagnostics carry counts and fixed codes only, never text.
+        std::cout << "Type as I speak started for request " << native_request_ << ".\n" << std::flush;
     }
     mic_levels_.assign(6, 0);
     mic_incoming_.clear();
@@ -3475,6 +3479,9 @@ void App::set_native_request(std::uint64_t request) {
         return;
     }
     native_request_ = request;
+    if (direct_active()) {
+        std::cout << "Type as I speak sees request " << request << ".\n" << std::flush;
+    }
     if (direct_active() && request != direct_request_) {
         // Text still queued was meant for the old field.
         output_.cancel();
@@ -3483,6 +3490,8 @@ void App::set_native_request(std::uint64_t request) {
 }
 
 void App::stop_direct(std::string status) {
+    std::cout << "Type as I speak stopped: " << (status.empty() ? "panel hidden" : status) << '\n'
+              << std::flush;
     cancel_capture();
     direct_waiting_.clear();
     direct_blocked_ = false;
@@ -3511,6 +3520,9 @@ void App::direct_phrase(const std::string& phrase) {
     }
     direct_typed_ = true;
     direct_context_ = tail(direct_context_ + text, 200);
+    std::cout << "Type as I speak: phrase of " << g_utf8_strlen(text.c_str(), -1)
+              << " characters recognized, " << direct_waiting_.size() << " already waiting.\n"
+              << std::flush;
     direct_waiting_.push_back(std::move(text));
 }
 
@@ -3520,14 +3532,30 @@ void App::flush_direct(double now) {
     while (!direct_waiting_.empty() && !direct_blocked_ && !composing_text() && output_.can_queue(1) &&
            output_.admit(true, now)) {
         if (!output_.commit_text(direct_waiting_.front())) {
+            std::cout << "Type as I speak: the target refused a phrase.\n" << std::flush;
             direct_blocked_ = true;
             pause_capture();
             status_ = "A phrase did not reach the app. Press Enter to try again, or Esc to drop it.";
             dirty = true;
             break;
         }
+        std::cout << "Type as I speak: phrase queued for output.\n" << std::flush;
         direct_waiting_.pop_front();
         dirty = true;
+    }
+    const std::string reason = direct_waiting_.empty() ? ""
+                               : direct_blocked_       ? "refused, waiting for Enter"
+                               : composing_text()      ? "composer reading in progress"
+                               : !output_.enabled()    ? "output disabled"
+                               : output_.can_queue(1)  ? "output not admitted"
+                                                       : "output failed or full";
+    if (reason != direct_wait_reason_) {
+        direct_wait_reason_ = reason;
+        if (!reason.empty()) {
+            std::cout << "Type as I speak: " << direct_waiting_.size() << " phrases waiting (" << reason
+                      << ").\n"
+                      << std::flush;
+        }
     }
     if (direct_waiting_.size() > max_direct_waiting && capturing_) {
         // What was said still types; listening waits for typing to catch up.
@@ -3545,6 +3573,7 @@ void App::tick_direct(double now) {
             // Text may not have arrived. Listening pauses; the output's status
             // asks for Enter, which retries the rest, and waiting phrases follow.
             direct_failures_ = output_.failures();
+            std::cout << "Type as I speak: output failure; listening paused.\n" << std::flush;
             pause_capture();
         }
         flush_direct(now);
@@ -3639,8 +3668,15 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     }
     case Kind::Dropped:
         pending_phrases_.erase(event.id);
+        if (direct_) {
+            std::cout << "Type as I speak: the helper dropped a phrase (" << event.reason << ").\n"
+                      << std::flush;
+        }
         break;
     case Kind::Stopped:
+        if (direct_) {
+            std::cout << "Type as I speak: capture stopped (" << event.reason << ").\n" << std::flush;
+        }
         capturing_ = false;
         mic_levels_.clear();
         if (event.reason != "silence") {
@@ -3652,6 +3688,9 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         // The helper dropped every pending phrase; text already in stays,
         // and recognized phrases still type.
         const bool active = capturing_ || phrases_pending();
+        if (direct_) {
+            std::cout << "Type as I speak: helper error (" << event.reason << ").\n" << std::flush;
+        }
         capturing_ = false;
         mic_levels_.clear();
         pending_phrases_.clear();
