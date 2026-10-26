@@ -1220,7 +1220,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                     if (keymap_->composing()) {
                         status_ = "Accent pending";
                     }
-                } else if (!local) {
+                } else if (!local && !(key->action_kind == ActionKind::Key &&
+                                       is_modifier(key_code(key->action)))) {
+                    // A latched Shift or AltGr belongs to the accented letter
+                    // that follows, so only other keys end a pending accent.
                     keymap_->cancel_compose();
                     status_.clear();
                 }

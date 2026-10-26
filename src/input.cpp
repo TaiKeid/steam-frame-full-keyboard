@@ -357,6 +357,11 @@ std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, 
     const auto symbol = this->symbol(key, modifiers, caps, num);
     char buffer[64]{};
     const int size = xkb_keysym_to_utf8(symbol, buffer, sizeof(buffer));
+    // A right Alt that selects the third level is AltGr in this keymap, also on
+    // geometry whose own label says Alt.
+    if (symbol == XKB_KEY_ISO_Level3_Shift) {
+        return "AltGr";
+    }
     // Dead keys have no standalone UTF-8 output. Show the accent the target
     // keymap will compose, instead of falling back to a misleading US legend.
     switch (symbol) {
@@ -372,6 +377,41 @@ std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, 
         return "¨";
     case XKB_KEY_dead_cedilla:
         return "¸";
+    case XKB_KEY_dead_macron:
+        return "¯";
+    case XKB_KEY_dead_breve:
+        return "˘";
+    case XKB_KEY_dead_abovedot:
+        return "˙";
+    case XKB_KEY_dead_abovering:
+        return "˚";
+    case XKB_KEY_dead_doubleacute:
+        return "˝";
+    case XKB_KEY_dead_caron:
+        return "ˇ";
+    case XKB_KEY_dead_ogonek:
+        return "˛";
+    case XKB_KEY_dead_iota:
+        return "ͺ";
+    case XKB_KEY_dead_abovecomma:
+        return "᾿";
+    case XKB_KEY_dead_abovereversedcomma:
+        return "῾";
+    case XKB_KEY_dead_currency:
+        return "¤";
+    // Accents without a spacing form are shown on a dotted circle, as on keycaps.
+    case XKB_KEY_dead_belowdot:
+        return "◌̣";
+    case XKB_KEY_dead_hook:
+        return "◌̉";
+    case XKB_KEY_dead_horn:
+        return "◌̛";
+    case XKB_KEY_dead_stroke:
+        return "◌̸";
+    case XKB_KEY_dead_belowcomma:
+        return "◌̦";
+    case XKB_KEY_dead_greek: // Prefixes a Latin letter to type its Greek counterpart.
+        return "α";
     default:
         break;
     }
