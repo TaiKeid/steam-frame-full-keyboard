@@ -5,6 +5,7 @@
 - Settings has a new look that matches the keyboard: its cards are raised panels instead of outlined boxes, buttons and dropdowns look like keycaps, checkboxes are switches, and dropdown lists open as a raised menu.
 - In Settings, the cards now glide when scrolled with the thumbstick, and can also be dragged with the laser, like a touch screen. Scrollbars light up under the laser.
 - Choosing a theme in Settings shows it at once; Back returns to the saved theme.
+- Ten new themes: Ember, Plum, Crimson, Navy and Mono in dark tones with their own accent colors; Neon, whose latched and pressed keys light up in neon tubes; Cinematic, dark blue with orange; and the light Porcelain, Blossom and Lilac.
 - Settings can clear all favorite layout and language pairs at once, after asking.
 - Fixed a retry after a stalled app typing the start of a word twice. Plain-ASCII words go to local apps one character at a time. If the app stopped acknowledging partway through, pressing Enter to retry typed the whole word again, so *hello* could become *hehello*. The retry now types only the characters that had not been acknowledged.
 - Shift+Enter now starts a new line in Steam's friends chat and other multi-line Steam text boxes when Full Keyboard replaces Steam's keyboard; Enter still sends. It used to show "Control unavailable in Steam fields". Other shortcuts in Steam fields remain unavailable.
