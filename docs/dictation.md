@@ -45,7 +45,8 @@ The mockup is incomplete; where it differs, the rules below apply.
 - **Send** takes the place of the right-hand Alt to Ctrl keys.
 - **Undo last phrase** takes the first freed side slot, directly above the mic key.
 - Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
-- The toolbar stays. Settings and the language button work only while not capturing; X, Pin, Recenter and Esc keep working.
+- The toolbar stays. Opening Settings pauses capture (owner decision); Settings waits only while Send runs. The language button works only while not capturing. X, Pin, Recenter and Esc keep working.
+- **Update:** when an update is ready to install, dictation is discarded: capture stops, pending phrases and the editor text are dropped, and the helper is stopped. The keyboard restarts anyway, which would lose the text (owner decision).
 - Swipe typing and the emoji key are unavailable in dictation mode until they can type into the editor.
 
 ### Capturing
@@ -381,7 +382,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
     - Done: `pw-record` at 16 kHz mono 16-bit records the headset microphone in raw samples. It links to the default source by name.
     - Done in part: taking the headset off silences the microphone. Recording while a game plays sound is not tested.
     - Done in part: level samples with steady background noise, which found the noise gate. Not tested: whether the gate clips the start of a word, breathing, quiet speech, short answers and speech running past 25 s. These need a quiet room with no other speakers, and fit the live tests in M3c.
-- [ ] **M2 Helper, server path:** built and tested 2026-10-25 (see [M2 results](#m2-results-2026-10-25)). Still open: the update handoff waiting for the helper, which comes with App integration in M3c, and the cost of `pw-record` itself, which needs the real microphone. Capture, level, phrase detection, requests and the [protocol](#helper-protocol), plus:
+- [ ] **M2 Helper, server path:** built and tested 2026-10-25 (see [M2 results](#m2-results-2026-10-25)). The update handoff now waits for the helper (M3c). Still open: the cost of `pw-record` itself, which needs the real microphone. Capture, level, phrase detection, requests and the [protocol](#helper-protocol), plus:
   - **Lifetime:**
     - The helper exits when the keyboard's socket closes or the keyboard stops making progress, and takes `pw-record` with it.
     - A blocked request can be cancelled.
@@ -636,6 +637,7 @@ First part: the helper connected to the editor.
 - **Scrolling (owner report: it did not scroll):** the stick, a line a step, in the dashboard and in passthrough, and a laser drag on the text. A tap places the cursor on release, so a drag never moves it. The emoji grid now sits in the same recessed well as the editor.
 - **Dashboard rules:** closing the dashboard while listening turns on dictation's own passthrough, so the panel stays open and listening continues; the VR loop reports the dashboard to App each frame before deciding whether the panel may show (`App::dashboard_visibility`). It is tracked apart from the user's toggle: `passthrough()` is either, the toolbar button shows either, and turning it off ends both. It lasts until dictation mode ends, so a paused editor stays open; then, with the dashboard closed, the panel hides unless the user's own passthrough is on. Not yet tried in the headset.
 - **Field closed (replacement mode):** `ReplacementPresentation::hold()` keeps the panel shown and editable after Steam's request ends while `App::dictation_holds_panel()` (listening, phrases pending, sending, or text). Held without a field, output stays disabled and Send waits with a notice; a new request takes over through the normal handoff, and X or the fallback drops the hold at once. Listening now pauses only when the panel really hides (`App::panel_hidden()`), not during the input pause of a handoff.
+- **Settings and updates:** opening Settings pauses listening; phrases already spoken still arrive in the editor. A prepared update discards dictation and stops the helper at once (`App::end_dictation_for_update`); App is destroyed before `Updates::handoff()`, and `~Dictation` waits up to 1 s for the helper, then kills it, so the handoff starts only once the helper has gone. Its recorder ends on its next write to the closed pipe.
 - **Pause confirmation:** the helper answers `capture` off with `paused`, and App counts phrases as pending until it arrives, so Send right after resuming cannot miss a phrase the helper was just announcing (a race the host tests caught).
 - **Not yet:** the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
 

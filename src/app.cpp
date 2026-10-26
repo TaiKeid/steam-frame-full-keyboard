@@ -268,9 +268,10 @@ std::vector<Control> App::controls() const {
         return Rect{left, top, width, 42};
     };
     add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
-    // Settings and the language button wait while dictation listens.
+    // Opening Settings pauses dictation; it waits only while Send runs. The
+    // language button waits while dictation listens.
     const bool listening = dictation_open_ && (capturing_ || send_wait_since_);
-    result.back().enabled = !listening;
+    result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
     add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
     add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
                              button(2, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
@@ -1114,6 +1115,7 @@ bool App::tick(double now) {
             dirty = true;
         }
         if (updates_->prepared()) {
+            end_dictation_for_update();
             set_interaction_active(false);
             quit_ = true;
         }
@@ -1196,7 +1198,8 @@ void App::report_status(const std::string& message) {
     dirty = true;
 }
 void App::show_settings() {
-    close_emoji(); // Settings returns to the keyboard, not the picker.
+    close_emoji();   // Settings returns to the keyboard, not the picker.
+    pause_capture(); // Dictation pauses; its phrases still arrive in the editor.
     cancel();
     settings_open_ = true;
     pending_ = settings_.active;
@@ -3045,6 +3048,20 @@ void App::cancel_capture() {
     waiting_ = false;
     send_wait_since_.reset();
     dirty = true;
+}
+
+void App::end_dictation_for_update() {
+    // An update restarts the keyboard, which loses the editor anyway: discard
+    // everything, and let the helper and its recorder start exiting now. The
+    // handoff runs only after App is gone, and ~Dictation waits for the
+    // helper (docs/dictation.md, M2 lifetime).
+    if (dictation_open_) {
+        discard_dictation();
+    }
+    cancel_capture();
+    if (dictation_) {
+        dictation_->stop();
+    }
 }
 
 void App::discard_dictation() {

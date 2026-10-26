@@ -116,6 +116,10 @@ class App {
     // The panel left the view; listening pauses. A pause in interaction,
     // such as Steam handing over a new field, does not.
     void panel_hidden();
+    // A prepared update discards dictation and stops its helper, which has
+    // exited by the time App is destroyed and the handoff starts.
+    void end_dictation_for_update();
+    bool dictation_helper_running() const { return dictation_ && dictation_->running(); }
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }

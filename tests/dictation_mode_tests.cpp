@@ -380,8 +380,8 @@ void live_tests() {
         wait_until(app, [&] { return app.view().dictation_levels.back() > 0; });
         require(app.view().dictation_levels.size() == 6 && app.view().dictation_levels.front() == 0,
                 "the newest level slides in on the right of five bars");
-        require(app.view().dictation_capturing && !control_enabled(app, "settings"),
-                "the mic key shows the level; Settings waits");
+        require(app.view().dictation_capturing && control_enabled(app, "settings"),
+                "the mic key shows the level; Settings stays available");
         press(app, "KeyA");
         require(editor_text(app).empty(), "the editor is read-only while listening");
         press(app, "Dictation");
@@ -392,7 +392,6 @@ void live_tests() {
         require(editor_text(app) == "Hello there." && !app.view().dictation->capturing &&
                     !app.view().dictation->revealing,
                 "pausing recognizes the phrase and inserts it, typing waiting meanwhile");
-        require(control_enabled(app, "settings"), "Settings works again when paused");
         press(app, "Dictation");
         require(app.view().dictation->capturing, "the mic key resumes");
         press(app, "Dictation-send");
@@ -677,6 +676,35 @@ void field_tests() {
     require(sink.text == std::vector<std::string>{"hia"}, "and the text goes there");
 }
 
+void settings_and_update_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "main");
+    Sink sink;
+    App app(options, sink);
+    press(app, "Dictation");
+    require(control_enabled(app, "settings"), "Settings stays available while listening");
+    app.show_settings();
+    require(!app.view().dictation_capturing, "opening Settings pauses dictation");
+    app.back();
+    wait_until(app, [&] { return !editor_text(app).empty() && !app.view().dictation->revealing; });
+    require(app.dictation_open() && editor_text(app) == "Hello there.",
+            "the phrase spoken before Settings is kept, and the mode is still open");
+    press(app, "Dictation");
+    require(app.view().dictation->capturing && app.dictation_helper_running(), "listening again");
+    app.end_dictation_for_update();
+    require(!app.dictation_open() && !app.dictation_helper_running(),
+            "an update discards dictation and stops its helper");
+    press(app, "Dictation");
+    require(editor_text(app).empty(), "nothing of the old text survives");
+    require(sink.text.empty() && sink.keys.empty(), "nothing reached the target");
+}
+
 void send_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -802,6 +830,7 @@ int main() {
         paste_tests();
         passthrough_tests();
         field_tests();
+        settings_and_update_tests();
         live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
