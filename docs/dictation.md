@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: designed, with the groundwork in place (2026-10-25); M1 is next. Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration (2026-10-25); M3a is next. Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -318,6 +318,40 @@ The repository ships instructions only, no server code; they are in [speech serv
 | Panel | Editor drawing, greyed text, overlays, counter, mic bars, Settings text fields | The bars redraw only the mic key's damaged region. If the full texture upload per frame is too costly with a game running, the bars move to a separate small overlay like the passthrough cursors. |
 | VR | Passthrough while capturing, stick scrolling in both modes | |
 
+### Helper protocol
+
+The keyboard starts `dictation/dictation_helper.py` with `python3 -I` and a private `SOCK_SEQPACKET` socket on descriptor 3. Standard input, output and error go to `/dev/null`. Each packet is one JSON object of at most 16 KB. The helper never prints and has no other channel.
+
+Keyboard to helper:
+
+| Packet | Meaning |
+| --- | --- |
+| `{"op":"configure","server":"host:port"}` or `{"op":"configure","url":"https://…/v1"}`, with optional `"model"` and `"language"` | Recognition target for the following session. `server` defaults to port 8031 and path `/v1`, and may fall back to `/inference`; `url` is used as given. |
+| `{"op":"capture","on":true}` / `{"op":"capture","on":false}` | Start or resume capture, or pause it. Pausing ends the phrase being spoken, which is still recognized. |
+| `{"op":"prompt","id":N,"text":"…"}` | The context for phrase N, at most 200 code points, sent in answer to `ready`. |
+| `{"op":"cancel"}` | Stop capture and drop every pending phrase. |
+| `{"op":"test"}` | Send half a second of silence to the configured target. |
+| `{"op":"alive"}` | Sent at least every 0.5 s while the keyboard runs. Without one for 2 s, the helper stops capture and drops pending phrases. |
+
+Helper to keyboard:
+
+| Packet | Meaning |
+| --- | --- |
+| `{"op":"level","value":0…255}` | Speech level for the mic bars, at most 15 times a second while capturing. |
+| `{"op":"phrase","id":N}` | A phrase started. |
+| `{"op":"ready","id":N}` | Phrase N ended and is next to be recognized; the keyboard answers with `prompt`. Sent only when no request is in flight and the previous text was delivered. |
+| `{"op":"text","id":N,"text":"…"}` | Cleaned text for phrase N. |
+| `{"op":"dropped","id":N,"reason":R}` | Phrase N produced nothing usable: `empty`, `invalid` or `too-long`. |
+| `{"op":"capture","on":false,"reason":R}` | Capture stopped by itself: `silence` after 60 s without speech, or an error code. |
+| `{"op":"error","reason":R}` | A fixed error code. Capture stops and pending phrases are dropped. |
+| `{"op":"test","ok":true}` / `{"op":"test","ok":false,"reason":R}` | The Test result. |
+
+Error codes: `no-microphone`, `capture-stopped`, `not-configured`, `unreachable`, `timeout`, `server-error`, `bad-reply`, `key-rejected`, `rate-limited`, `backlog-full`, `keyboard-stalled`, `invalid-command`.
+
+- **Timing:** phrase detection counts samples, not wall-clock time, so a test recorder can stream a recording at full speed. Only `alive` and the request timeout use the clock.
+- **Backlog:** at most 8 phrases and 120 s of audio wait for recognition. Beyond that, the helper reports `backlog-full`.
+- **Shutdown:** the helper exits on socket end-of-file, `SIGTERM` or a stall, and stops `pw-record` first. If the helper is killed, `pw-record` dies on its next write to the closed pipe.
+
 ## Milestones
 
 Revised on 2026-10-25 after a second review of this plan. Every milestone keeps its acceptance conditions; a checkbox is marked only once they pass.
@@ -339,7 +373,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
     - Done: `pw-record` at 16 kHz mono 16-bit records the headset microphone in raw samples. It links to the default source by name.
     - Done in part: taking the headset off silences the microphone. Recording while a game plays sound is not tested.
     - Done in part: level samples with steady background noise, which found the noise gate. Not tested: whether the gate clips the start of a word, breathing, quiet speech, short answers and speech running past 25 s. These need a quiet room with no other speakers, and fit the live tests in M3c.
-- [ ] **M2 Helper, server path:** capture, level, phrase detection, requests and the protocol, plus:
+- [ ] **M2 Helper, server path:** built and tested 2026-10-25 (see [M2 results](#m2-results-2026-10-25)). Still open: the update handoff waiting for the helper, which comes with App integration in M3c, and the cost of `pw-record` itself, which needs the real microphone. Capture, level, phrase detection, requests and the [protocol](#helper-protocol), plus:
   - **Lifetime:**
     - The helper exits when the keyboard's socket closes or the keyboard stops making progress, and takes `pw-record` with it.
     - A blocked request can be cancelled.
@@ -504,6 +538,28 @@ What this means for the design:
 - **Phrase detection:** exact zeros mean certain silence, but the gate's hold is longer than the 0.6 s end-of-phrase pause. Detecting the end of a phrase therefore still needs the adaptive noise floor, measured while the gate is open and ignoring zero frames.
 - **Word starts:** the 0.3 s pre-roll cannot restore audio the gate muted. Whether the gate clips the start of a word is the main open microphone question; it is tested by transcribing known sentences in M3c.
 - **Headset off:** a microphone stopped by taking the headset off looks like silence, so the 60 s silence stop ends such a session. Reading the microphone node's state to report it sooner is a *proposal* for M2.
+
+## M2 results (2026-10-25)
+
+- **Helper:** `dictation/dictation_helper.py` follows the [protocol](#helper-protocol). It uses only the standard library and runs on Python 3.12, the Frame's version, and later.
+  - **Phrase detection:** the floor is the quietest open-gate frame of the last 2 s. Until it has 0.5 s of open-gate audio, the default floor is used, and each phrase is re-checked against the floor when it ends, so steady noise at the start of a session is dropped rather than sent.
+  - **Requests:** one worker thread sends them, so capture never waits for the network, and the main loop can abort a request.
+- **Keyboard client:** `Dictation` (`src/dictation.cpp`) spawns the helper with output to `/dev/null` and keeps only its own end of the socket nonblocking. It sends `alive` every 0.25 s. Text must be valid UTF-8 of at most 8 KB; a reason outside the fixed list becomes `bad-reply`; and a helper that exits or sends an oversized packet becomes `helper-exited`. App does not use it yet; that is M3c.
+- **Host tests:**
+  - **Helper (34 tests):** phrase detection on synthetic audio (gate zeros, background noise, clicks, long speech, 60 s of silence, levels), text cleanup and targets.
+  - **Requests:** fields, the fallback, status codes, oversized and invalid replies, redirects, timeouts, and HTTPS with a throwaway certificate authority, including the key going only to HTTPS.
+  - **The helper process with a fake recorder:** one request at a time with the keyboard's prompt, pause, cancel, recorder loss, the backlog, a stalled keyboard, end of file, and a killed helper leaving no recorder. Nothing is printed, and core dumps are off.
+  - **Client (C++):** these tests also run against the real helper.
+- **On the Frame:** both suites pass, under Python 3.12 with SteamVR running.
+- **Cost on the Frame,** with synthetic audio from a fake recorder at real-time pace and SteamVR running:
+
+| Case | Helper CPU | Memory |
+| --- | --- | --- |
+| Running, not capturing | 0.00% of one core | 21.0 MiB |
+| Capturing gate zeros | 0.60% | 21.1 MiB |
+| Capturing continuous speech over noise | 0.79% | 21.9 MiB |
+
+  Phrase detection worked in real time: the phrase started at 0.1 s and split at exactly 25.0 s. `pw-record`'s own cost is not measured yet, because measuring it needs the real microphone; it belongs with the M3c live tests.
 
 ## Open questions
 

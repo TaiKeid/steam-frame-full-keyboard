@@ -44,7 +44,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -156,6 +156,8 @@ foreach(bridge_file native_bridge.py steam_bridge.js)
 endforeach()
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/update")
 configure_file(update/update_helper.py update/update_helper.py COPYONLY)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dictation")
+configure_file(dictation/dictation_helper.py dictation/dictation_helper.py COPYONLY)
 include(CTest)
 if(BUILD_TESTING)
     add_executable(vr-lifecycle-tests tests/vr_lifecycle_tests.cpp)
@@ -184,6 +186,15 @@ if(BUILD_TESTING)
         add_test(NAME update-helper COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/update_helper_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/update/update_helper.py")
+    endif()
+    add_executable(dictation-tests tests/dictation_tests.cpp)
+    target_link_libraries(dictation-tests PRIVATE keyboard_core)
+    target_compile_options(dictation-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME dictation COMMAND dictation-tests "${CMAKE_CURRENT_SOURCE_DIR}/dictation/dictation_helper.py")
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME dictation-helper COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/dictation_helper_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/dictation/dictation_helper.py")
     endif()
     add_executable(native-replacement-tests tests/native_replacement_tests.cpp)
     target_link_libraries(native-replacement-tests PRIVATE keyboard_core)
@@ -313,6 +324,7 @@ install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyb
 install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
 install(FILES bridge/native_bridge.py bridge/steam_bridge.js DESTINATION share/framekeyboard/bridge)
 install(FILES update/update_helper.py DESTINATION share/framekeyboard/update)
+install(FILES dictation/dictation_helper.py DESTINATION share/framekeyboard/dictation)
 install(FILES third_party/README.md DESTINATION third_party)
 install(FILES third_party/openvr/LICENSE DESTINATION third_party/openvr)
 install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overlay_texture)

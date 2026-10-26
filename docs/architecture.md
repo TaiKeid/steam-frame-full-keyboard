@@ -197,6 +197,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Japanese reading and conversion | `src/japanese.cpp` |
 | Swipe keys, word lists, decoding and worker | `src/swipe.cpp`, `include/framekeyboard/swipe.hpp`; encoder module `src/swipe_engine.cpp` |
 | Emoji table, picker layout and grid, glyph worker | `src/emoji.cpp`, `src/emoji_glyphs.cpp`; table `emoji/emoji.tsv` from `tools/emoji_table.py` |
+| Dictation helper and its client (not yet used by App) | `dictation/dictation_helper.py`, `src/dictation.cpp`, `include/framekeyboard/dictation.hpp`; protocol in [dictation](dictation.md#helper-protocol) |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |
