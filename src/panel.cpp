@@ -718,6 +718,89 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
     }
     return {};
 }
+// Settings surfaces, in the keyboard's language: raised panels and keycaps
+// instead of outlines. Every colour derives from the theme.
+Color mix(Color a, Color b, double amount) {
+    return {a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount};
+}
+// A soft shadow under a raised shape: a few widening, fading rings.
+void soft_shadow(cairo_t* cr, const Rect& r, double radius, double depth) {
+    for (int i = 1; i <= 4; ++i) {
+        const double spread = i * depth / 4;
+        rounded(cr, {r.x - spread / 2, r.y + spread / 2, r.width + spread, r.height + spread / 2},
+                radius + spread);
+        cairo_set_source_rgba(cr, 0, 0, 0, .09);
+        cairo_fill(cr);
+    }
+}
+void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
+    const double radius = t.radius + 4;
+    soft_shadow(cr, r, radius, 8);
+    rounded(cr, r, radius);
+    source(cr, mix(t.surface, t.bottom, .45));
+    cairo_fill(cr);
+    // A faint light along the top edge, as on the keycaps.
+    cairo_move_to(cr, r.x + radius, r.y + 1.5);
+    cairo_line_to(cr, r.x + r.width - radius, r.y + 1.5);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+}
+// A keycap face for buttons and dropdowns: the keys' own gradient and hover.
+void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool selected, bool enabled) {
+    rounded(cr, r, t.radius);
+    if (selected && enabled) {
+        source(cr, t.latched);
+        cairo_fill(cr);
+    } else if (!enabled) {
+        source(cr, mix(t.bottom, t.surface, .4));
+        cairo_fill(cr);
+    } else {
+        gradient(cr, r, hovered ? t.hover : t.top, t.middle, t.bottom);
+    }
+}
+// A switch in place of a checkbox: a recessed track and a keycap knob that
+// moves right, over the latched colour, when on.
+void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hovered, bool enabled) {
+    constexpr double width = 56, height = 30;
+    const Rect track{r.x + r.width - width, r.y + (r.height - height) / 2, width, height};
+    cairo_push_group(cr);
+    rounded(cr, track, height / 2);
+    if (on) {
+        source(cr, t.latched);
+        cairo_fill(cr);
+    } else {
+        source(cr, Color{t.surface.r * .55, t.surface.g * .55, t.surface.b * .55});
+        cairo_fill_preserve(cr);
+        cairo_save(cr);
+        cairo_clip(cr);
+        auto* shade = cairo_pattern_create_linear(0, track.y, 0, track.y + 8);
+        cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, .5);
+        cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, 0);
+        cairo_set_source(cr, shade);
+        cairo_paint(cr);
+        cairo_pattern_destroy(shade);
+        cairo_restore(cr);
+        // The well's rim, so the track reads on a dark card.
+        rounded(cr, {track.x + .5, track.y + .5, track.width - 1, track.height - 1}, height / 2);
+        source(cr, mix(t.surface, t.bottom, .8));
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+    }
+    const double knob = height - 6;
+    const Rect cap{on ? track.x + track.width - knob - 3 : track.x + 3, track.y + 3, knob, knob};
+    rounded(cr, {cap.x, cap.y + 1, cap.width, cap.height}, knob / 2);
+    cairo_set_source_rgba(cr, 0, 0, 0, .3);
+    cairo_fill(cr);
+    rounded(cr, cap, knob / 2);
+    // Off, the knob is a light keycap; on, it is nearly the legend's white.
+    const Color top = on ? t.legend : mix(t.top, t.legend, .35);
+    gradient(cr, cap, hovered && enabled ? mix(top, t.legend, .3) : top,
+             on ? t.legend : mix(t.middle, t.legend, .25),
+             on ? mix(t.legend, t.bottom, .25) : mix(t.bottom, t.legend, .1));
+    cairo_pop_group_to_source(cr);
+    cairo_paint_with_alpha(cr, enabled ? 1 : .4);
+}
 // A well recessed into the case, the opposite of a keycap: darker than the
 // case, shaded under its top edge, with a faint rim and a light catch on its
 // lower lip. Every colour derives from the theme. Returns the well's colour.
@@ -1336,14 +1419,32 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_rectangle(cr, 18, 78, 1564, 476);
             cairo_clip(cr);
             for (const auto& card : view.cards) {
-                rounded(cr, card.bounds, 7);
-                source(cr, t.legend);
-                cairo_set_line_width(cr, 1.5);
+                draw_settings_card(cr, t, card.bounds);
+            }
+            // Hairlines between rows, inside each card's scrolling body.
+            for (const auto& control : view.controls) {
+                if (!control.clip || (control.style != ControlStyle::Dropdown &&
+                                      control.style != ControlStyle::Checkbox)) {
+                    continue;
+                }
+                const auto& clip = *control.clip;
+                cairo_save(cr);
+                cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
+                cairo_clip(cr);
+                const double y = std::round(control.bounds.y - 10) + .5;
+                cairo_move_to(cr, clip.x + 16, y);
+                cairo_line_to(cr, clip.x + clip.width - 16, y);
+                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
+                cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
-                // Titles stay fixed while the card's fields scroll beneath them.
+                cairo_restore(cr);
+            }
+            for (const auto& card : view.cards) {
+                // Titles stay fixed while the card's fields scroll beneath them;
+                // quieter than the rows, like a section header.
                 label(cr, card.title,
-                      {card.bounds.x + 14, card.bounds.y + 8, card.bounds.width - 28, 32}, 22,
-                      view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+                      {card.bounds.x + 30, card.bounds.y + 12, card.bounds.width - 60, 32}, 19,
+                      view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
             }
             cairo_restore(cr);
             for (const auto& field : view.field_labels) {
@@ -1377,6 +1478,49 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
             const auto r = control.bounds;
             const auto legend = control.enabled ? t.legend : disabled_legend(t);
+            const bool hovered = control.enabled && view.hovered_controls.contains(control.id);
+            if (view.settings && control.style != ControlStyle::Scrollbar) {
+                switch (control.style) {
+                case ControlStyle::Checkbox:
+                    draw_switch(cr, t, r, control.selected, hovered, control.enabled);
+                    break;
+                case ControlStyle::MenuItem:
+                    // Only the item under the laser and the current choice show.
+                    if (hovered || control.selected) {
+                        rounded(cr, {r.x + 5, r.y + 3, r.width - 10, r.height - 6}, t.radius);
+                        source(cr, control.selected && control.enabled ? t.latched : t.hover);
+                        cairo_fill(cr);
+                    }
+                    label(cr, control.label, {r.x + 20, r.y, r.width - 40, r.height}, 21,
+                          view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                    break;
+                case ControlStyle::Dropdown: {
+                    draw_cap(cr, t, r, hovered, control.selected, control.enabled);
+                    label(cr, control.label, {r.x + 18, r.y, r.width - 62, r.height}, 21,
+                          view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                    const double x = r.x + r.width - 26, y = r.y + r.height / 2;
+                    cairo_move_to(cr, x - 6, y - 3);
+                    cairo_line_to(cr, x, y + 3);
+                    cairo_line_to(cr, x + 6, y - 3);
+                    cairo_set_source_rgba(cr, legend.r, legend.g, legend.b, .75);
+                    cairo_set_line_width(cr, 2);
+                    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+                    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+                    cairo_stroke(cr);
+                    break;
+                }
+                default:
+                    draw_cap(cr, t, r, hovered, control.selected, control.enabled);
+                    if (control.icon != Icon::None) {
+                        draw_icon(cr, control.icon, r, legend);
+                    } else {
+                        label(cr, control.label, r, 21, view.language->font, legend);
+                    }
+                    break;
+                }
+                cairo_restore(cr);
+                return;
+            }
             const auto color =
                 control.enabled && control.selected
                     ? t.latched
@@ -1453,13 +1597,18 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         // Popup is the last layer and deliberately bypasses both card and case clips.
         if (view.popup) {
+            // A raised menu over the cards, its edge drawn by light and shadow.
             const auto r = *view.popup;
-            rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 5);
-            source(cr, t.legend);
+            const Rect panel{r.x - 4, r.y - 4, r.width + 8, r.height + 8};
+            soft_shadow(cr, panel, t.radius + 4, 14);
+            rounded(cr, panel, t.radius + 4);
+            source(cr, mix(t.bottom, t.surface, .25));
             cairo_fill(cr);
-            rounded(cr, r, 3);
-            source(cr, t.bottom);
-            cairo_fill(cr);
+            cairo_move_to(cr, panel.x + t.radius + 4, panel.y + 1.5);
+            cairo_line_to(cr, panel.x + panel.width - t.radius - 4, panel.y + 1.5);
+            cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+            cairo_set_line_width(cr, 1);
+            cairo_stroke(cr);
             for (const auto& control : view.controls) {
                 if (control.style == ControlStyle::MenuItem || control.id == "scroll-menu") {
                     draw_control(control);
