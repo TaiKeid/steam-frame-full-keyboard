@@ -4,10 +4,10 @@
 
 #include <algorithm>
 #include <fstream>
-#include <map>
 #include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
+#include <map>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -758,8 +758,14 @@ void direct_tests() {
     {
         // The mic key's ring: only while a spoken phrase waits for its text.
         options.dictation_arguments = {"--scenario", "noanswer"};
+        // A favorite, so the language button shows.
+        write_config(
+            directory.path,
+            R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true,)"
+            R"("favorites":[{"id":"pair","name":"Pair","layout":"international-full","language":"de-de"}])");
         Sink sink;
         App app(options, sink);
+        require(control_enabled(app, "language-cycle"), "the language button shows and works");
         const auto asked = prompts_sent(directory.path).size();
         press(app, "Dictation");
         require(app.view().dictation_capturing && !app.view().dictation_recognizing,
@@ -767,6 +773,7 @@ void direct_tests() {
         press(app, "Dictation");
         wait_until(app, [&] { return prompts_sent(directory.path).size() == asked + 1; });
         require(app.view().dictation_recognizing, "a paused phrase waiting for its text shows the ring");
+        require(!control_enabled(app, "language-cycle"), "the language waits until the phrase is in");
         press(app, "Escape");
         require(!app.view().dictation_recognizing, "Esc drops the phrase and the ring");
         // The editor shows it the same way.
@@ -1412,6 +1419,30 @@ void fallback_tests() {
                  R"(,"dictation":"server","dictation_server":"127.0.0.1","developer_options":true)");
     fs::create_directories(directory.path / "models");
     std::ofstream(directory.path / "models/ggml-small-q8_0.bin") << "model";
+    {
+        // From On device, as a fresh install has it: choose Self-hosted,
+        // turn the fallback on and Apply.
+        write_config(directory.path, R"(,"dictation":"device","dictation_server":"127.0.0.1")");
+        Sink sink;
+        App app(options, sink);
+        app.show_settings();
+        click(app, "dictation");
+        click(app, "choose:dictation:server");
+        click(app, "dictation-fallback");
+        click(app, "apply");
+        app.flush_settings();
+        std::vector<std::string> errors;
+        const auto saved = load_settings(directory.path, errors);
+        require(!app.view().settings && saved.dictation == "server" && saved.dictation_fallback,
+                "Self-hosted with the fallback is saved");
+        open_editor(app);
+        wait_until(app, [&] { return !editor_text(app).empty(); });
+        require(configures(directory.path).find(R"("fallback": true)") != std::string::npos,
+                "and the helper is told to fall back");
+        fs::remove(directory.path / "configures");
+    }
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","developer_options":true)");
     Sink sink;
     App app(options, sink);
     app.show_settings();

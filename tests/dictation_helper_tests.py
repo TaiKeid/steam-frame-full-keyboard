@@ -306,6 +306,15 @@ class Requests(unittest.TestCase):
         finally:
             d.REQUEST_TIMEOUT = previous
 
+    def test_a_host_that_never_answers_fails_fast(self):
+        # A silently dropping host: connect() hangs until CONNECT_TIMEOUT,
+        # not the whole request time, so the fallback can start.
+        previous, d.CONNECT_TIMEOUT = d.CONNECT_TIMEOUT, 0.3
+        self.addCleanup(setattr, d, "CONNECT_TIMEOUT", previous)
+        started = time.monotonic()
+        self.assertEqual(self.recognize(d.Target(server="10.255.255.1:8031")), ("error", "unreachable"))
+        self.assertLess(time.monotonic() - started, 2.0)
+
     def test_https_sends_the_key_and_verifies_the_certificate(self):
         with tempfile.TemporaryDirectory() as directory:
             ca = make_ca(directory)

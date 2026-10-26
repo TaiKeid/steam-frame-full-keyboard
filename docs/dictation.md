@@ -769,6 +769,17 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
 - **First headset try (r27, owner):** 8-bit and 4-bit worked; 5-bit failed once, then worked. All three downloads had succeeded, so the failure was in recognizing: the engine's 10 s limit, shared with the server, is short for 5-bit (about 5 s for a short phrase, more for a long one) after a model switch. Device recognition now has 30 s (the fallback: the server's time plus that), a timeout says the device took too long instead of blaming the server, and the log records dictation error codes in every mode. More testing to follow.
 - **Owner decisions after the try:** On device is the default; Apply asks to download only when it changes the mode, the fallback or the format, so the default never offers a download on unrelated changes. Turning on Type as I speak from dictation mode returns to the main keyboard.
 
+## Headset results (2026-10-27)
+
+The owner tried r32 against the [M6 test list](#m6-results-2026-10-27):
+- **On device:** downloads of all three formats with progress and Cancel, short and long phrases in each, format switches, Delete, Russian, Japanese and Chinese, and the ring all worked; unloading after a minute was not noticeable. Accuracy in Spanish, Japanese and Chinese could not be judged by the owner.
+- **Type as I speak:** live words with Paste in a desktop editor, a browser and Steam fields; on device about 2 s per phrase; the field change and Esc rules: all as specified.
+- **Editor composers:** romaji with Convert, the candidate band, Enter and Esc, and flick with Send in Tab's place worked; Pinyin was not tried.
+- **Fallback:** phrases failed with "cannot be reached" instead of falling back. The saved configuration had the fallback off, and the helper's fallback worked on the Frame against an unreachable address, but took 22 s: the owner's firewall drops connections to closed ports, and the helper waited out two 10 s connection attempts. Connecting now gives up after 3 s. To be retried with the switch on.
+- **Language during recognition:** the language button could be pressed while a phrase was still being recognized; it now waits until every phrase is recognized and typed.
+- **With a game running:** words were skipped, on device and with the self-hosted server alike, and the fans ramped up. Since the server gave the same result, the audio reaching Whisper was already worse: game sound in the microphone, the helper missing audio under load, or PipeWire's audio filter, which restarts as games start and stop. Not yet measured.
+- **Update while dictating:** for later.
+
 ## Open questions
 
 The owner settled the behavior questions and the proposals on 2026-10-25; the rules are in the sections above. Still open:

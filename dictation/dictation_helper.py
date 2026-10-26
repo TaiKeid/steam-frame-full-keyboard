@@ -58,6 +58,9 @@ MAX_PACKET = 16384
 MAX_REPLY = 64 * 1024
 MAX_PROMPT = 200
 REQUEST_TIMEOUT = 10.0
+# A server that is off, asleep or behind a dropping firewall never refuses;
+# give up on connecting sooner than on an answer, so the fallback starts.
+CONNECT_TIMEOUT = 3.0
 ALIVE_TIMEOUT = 2.0
 MAX_QUEUED = 8
 MAX_QUEUED_FRAMES = 120 * FRAMES_PER_SECOND
@@ -329,14 +332,15 @@ def post(target, path, body, headers, connection, ca_file):
     def connect():
         if target.https:
             context = ssl.create_default_context(cafile=ca_file)
-            return http.client.HTTPSConnection(target.host, target.port, timeout=REQUEST_TIMEOUT,
+            return http.client.HTTPSConnection(target.host, target.port, timeout=CONNECT_TIMEOUT,
                                                context=context)
-        return http.client.HTTPConnection(target.host, target.port, timeout=REQUEST_TIMEOUT)
+        return http.client.HTTPConnection(target.host, target.port, timeout=CONNECT_TIMEOUT)
 
     for attempt in range(2):
         client = connect()
         try:
             client.connect()
+            client.sock.settimeout(REQUEST_TIMEOUT)
         except ssl.SSLError:
             client.close()
             raise Failure("unreachable")

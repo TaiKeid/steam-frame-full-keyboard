@@ -339,8 +339,10 @@ std::vector<Control> App::controls() const {
     };
     add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
     // Opening Settings pauses dictation; it waits only while Send runs. The
-    // language button waits while dictation listens.
-    const bool listening = capturing_ || send_wait_since_;
+    // language button waits while dictation listens and until every phrase
+    // is recognized and typed: their joining and context follow the language.
+    const bool listening = capturing_ || send_wait_since_ || phrases_pending() ||
+                           !direct_waiting_.empty() || direct_paste_.has_value();
     result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
     add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
     add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
