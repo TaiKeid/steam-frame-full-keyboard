@@ -130,6 +130,9 @@ void gradient(cairo_t* cr, Rect r, Color top, Color middle, Color bottom) {
     cairo_fill(cr);
     cairo_pattern_destroy(pattern);
 }
+Color mix(Color a, Color b, double amount) {
+    return {a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount};
+}
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
            Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER,
            bool wrap = false) {
@@ -481,7 +484,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         source(cr, t.latched);
         cairo_fill(cr);
     } else if (view.hovered_keys.contains(key.id) && !disabled) {
-        gradient(cr, face, t.hover, t.middle, t.bottom);
+        // The whole face lifts toward the hover colour, not only its top.
+        gradient(cr, face, mix(t.hover, t.legend, .1), mix(t.middle, t.hover, .85),
+                 mix(t.bottom, t.hover, .5));
     } else {
         gradient(cr, face, t.top, t.middle, t.bottom);
     }
@@ -721,9 +726,6 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
 }
 // Settings surfaces, in the keyboard's language: raised panels and keycaps
 // instead of outlines. Every colour derives from the theme.
-Color mix(Color a, Color b, double amount) {
-    return {a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount};
-}
 // A soft shadow under a raised shape: a few widening, fading rings.
 void soft_shadow(cairo_t* cr, const Rect& r, double radius, double depth) {
     for (int i = 1; i <= 4; ++i) {
