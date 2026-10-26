@@ -64,7 +64,8 @@ int main() {
             continue;
         }
         std::string text;
-        std::getline(input >> std::ws, text);
+        input.get(); // the one space before the text, which may itself start with spaces
+        std::getline(input, text);
         text = unescape(text);
         // The first call submits; repeating the same call reports the result.
         bool done = false;

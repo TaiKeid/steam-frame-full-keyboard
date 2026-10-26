@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, its delivery A/B test still open (2026-10-25). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, and its delivery A/B test run (2026-10-25). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -394,7 +394,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Profiles with a composer hide the mic key until M5a.
   - Swipe and the emoji key are unavailable in dictation mode.
   - A `--render-dictation` image export for reviewing the look.
-- [ ] **M3b Send:** built and host-tested 2026-10-25 (see [M3b results](#m3b-results-2026-10-25)); the A/B test and the receiver checks are open.
+- [ ] **M3b Send:** built and host-tested 2026-10-25, and the A/B test run (see [M3b results](#m3b-results-2026-10-25)); the character gap and application checks are open.
   - **A/B test of plain-text delivery:** whole commits of up to 32 characters against one acknowledged character at a time, 20 ms apart. The swipe fix that introduced the second way was measured only on replacements.
     - Test the dedicated receiver first, then an X11 browser under load.
     - Count scrambled and reordered text, and time a 900-character text.
@@ -594,8 +594,19 @@ What this means for the design:
 - **Target:** `KeySink::single_line_target()` is true for a Steam field without `multiline`; every other target takes Shift+Enter.
 - **Failure:** the remainder stays, as described in [Send](#send). A text that went one character at a time keeps only the unacknowledged rest; the queue's own retry is dropped, so the main keyboard's Enter cannot retype it.
 - **Tests:** `dictation-send` covers pieces, chunking, trimming and both line-break rules. `dictation-mode` covers sending with Shift+Enter, a single-line field, waiting for a held key, the lock, Esc, a per-character failure keeping only the rest, and an Enter failure retried alone. Host CTest passes with 34 suites and 3 optional CJK skips, and the ARM64 build is clean.
-- **Delivery A/B:** not yet run. The disposable Brave receiver from the swipe fix, driven by `text-replace-probe` with its new `whole` and `paced` commands, never got keyboard focus with the headset idle. It needs the headset worn. Until then Send uses the existing choice: plain ASCII goes one character at a time, about 20 s for 900 characters.
-- **Not yet:** the A/B test, delivery into the dedicated receiver and then applications, and a check in the headset.
+- **Delivery A/B (Frame, headset worn):** a disposable Brave receiver, driven by `text-replace-probe` with its new `whole` and `paced` commands, received the same 900-character English text. The load was 12 busy loops on the 8 cores, plus a page that stays busy for 10 ms on every key.
+
+  | Setup | Exact runs | Wrong characters | Time for 900 |
+  | --- | --- | --- | --- |
+  | Whole 32-character commits, idle | 0 of 2 | 667 and 887 | 1.3 s |
+  | Whole commits, load | 0 of 2 | 568 and 1111 | 1.2 s |
+  | One character at a time, 20 ms, idle | 2 of 2 | 0 | 18 s |
+  | One character at a time, 20 ms, load | 4 of 7 | 4 swapped neighbours in 6300 | 19 s |
+  | One character at a time, 40 ms, load | 5 of 5 | 0 | 37.5 s |
+
+  - Whole commits are unusable for plain text: Gamescope's temporary keymap leaked into the text (`zxcvbnm,./1234567890-=qwerty`), and words were lost or reordered even with the Frame idle. Send keeps one character at a time.
+  - The gap trades speed for order under heavy load. A 30 ms run was cut short twice when the receiver lost focus, and nothing was sent after that.
+- **Not yet:** the owner's choice of character gap, delivery into applications, and a check in the headset.
 
 ## Open questions
 
