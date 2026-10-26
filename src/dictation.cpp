@@ -181,6 +181,9 @@ bool Dictation::configure(const Target& target) {
             add("url", t.url);
             add("model", t.model);
             add("language", t.language);
+            if (t.live) {
+                json_object_object_add(object, "live", json_object_new_boolean(true));
+            }
         },
         &target));
 }
@@ -267,7 +270,8 @@ void Dictation::tick(double now) {
             }
             event.kind = Event::Kind::Level;
             event.level = std::clamp(json_object_get_int(value), 0, 255);
-        } else if (op == "phrase" || op == "ready" || op == "text" || op == "dropped") {
+        } else if (op == "phrase" || op == "ready" || op == "partial" || op == "text" ||
+                   op == "dropped") {
             const auto id = id_of(message.get());
             if (!id) {
                 continue;
@@ -290,10 +294,13 @@ void Dictation::tick(double now) {
                 const char* value = json_object_get_string(text);
                 if (length > max_text || !g_utf8_validate(value, static_cast<gssize>(length), nullptr) ||
                     std::string_view(value, length).find('\0') != std::string_view::npos) {
+                    if (op == "partial") {
+                        continue; // only an interim guess; the phrase's own text still follows
+                    }
                     event.kind = Event::Kind::Dropped;
                     event.reason = "invalid";
                 } else {
-                    event.kind = Event::Kind::Text;
+                    event.kind = op == "partial" ? Event::Kind::Partial : Event::Kind::Text;
                     event.text.assign(value, length);
                 }
             }

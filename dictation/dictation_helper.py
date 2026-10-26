@@ -39,6 +39,10 @@ END_FRAMES = 30  # 0.6 s without speech ends a phrase
 TAIL_FRAMES = 10  # quiet kept after the last speech frame
 MIN_SPEECH_FRAMES = 12  # shorter bursts are clicks, not speech
 MAX_PHRASE_FRAMES = 25 * FRAMES_PER_SECOND
+# Live words: while a phrase is spoken, its audio so far is recognized once
+# 1.5 s are in and again after every further second.
+LIVE_FIRST_FRAMES = 3 * FRAMES_PER_SECOND // 2
+LIVE_EVERY_FRAMES = FRAMES_PER_SECOND
 SILENCE_STOP_FRAMES = 60 * FRAMES_PER_SECOND
 LEVEL_EVERY = 4  # 12.5 level packets a second
 ZERO_DB = -90.0  # exact zeros: the Frame's noise gate is closed
@@ -406,6 +410,10 @@ class Helper:
         self.detector = PhraseDetector()
         self.next_id = 1
         self.current = None  # id of the phrase being spoken
+        self.live = False  # recognize the phrase being spoken as it grows
+        self.live_prompt = None  # its prompt, asked for once and kept for the final request
+        self.live_asked = False
+        self.live_frames = 0  # its length at the last partial request
         self.queue = collections.deque()
         self.inflight = None  # (kind, phrase or None, Connection)
         self.results = queue.Queue()
@@ -443,7 +451,10 @@ class Helper:
             self.set_capture(message["on"])
         elif op == "prompt" and isinstance(message.get("id"), int) and isinstance(message.get("text"), str):
             head = self.queue[0] if self.queue else None
-            if head and head.id == message["id"] and head.prompt is None and self.inflight is None:
+            if (self.live_asked and self.live_prompt is None and message["id"] == self.current and
+                    not self.queue):
+                self.live_prompt = message["text"][-MAX_PROMPT:]
+            elif head and head.id == message["id"] and head.prompt is None and self.inflight is None:
                 head.prompt = message["text"][-MAX_PROMPT:]
         elif op == "cancel":
             self.drop_all()
@@ -462,6 +473,7 @@ class Helper:
             self.target = None
             raise
         self.key = read_key(self.key_file) if self.target.https else None
+        self.live = message.get("live") is True
 
     # Capture
     def set_capture(self, on):
@@ -531,6 +543,7 @@ class Helper:
         elif kind == "start":
             self.current = self.next_id
             self.next_id += 1
+            self.live_prompt, self.live_asked, self.live_frames = None, False, 0
             self.send("phrase", id=self.current)
         elif kind == "end":
             self.end_phrase(event[1])
@@ -541,6 +554,7 @@ class Helper:
 
     def end_phrase(self, pcm):
         ident, self.current = self.current, None
+        prompt, self.live_prompt, self.live_asked = self.live_prompt, None, False
         if ident is None:
             return
         if pcm is None:
@@ -550,11 +564,19 @@ class Helper:
         if len(self.queue) >= MAX_QUEUED or queued > MAX_QUEUED_FRAMES:
             self.fail("backlog-full")
             return
-        self.queue.append(Phrase(ident, pcm))
+        phrase = Phrase(ident, pcm)
+        if prompt is not None:
+            # Live words asked for this phrase's prompt before its first
+            # partial; the final request uses the same one.
+            phrase.prompt, phrase.ready_sent = prompt, True
+        self.queue.append(phrase)
 
     # Recognition
     def pump(self):
-        if self.inflight or not self.queue:
+        if self.inflight:
+            return
+        if not self.queue:
+            self.pump_live()
             return
         head = self.queue[0]
         if head.prompt is None:
@@ -566,6 +588,25 @@ class Helper:
         self.inflight = ("phrase", head, connection)
         self.started = time.monotonic()
         self.jobs.put((self.target, self.key, head.pcm, head.prompt, connection))
+
+    def pump_live(self):
+        """Recognizes the phrase being spoken so far, once nothing else waits."""
+        phrase = self.detector.phrase
+        if not self.live or not self.capturing or self.current is None or phrase is None:
+            return
+        frames = len(phrase) // FRAME_BYTES
+        if frames < LIVE_FIRST_FRAMES or frames - self.live_frames < LIVE_EVERY_FRAMES:
+            return
+        if self.live_prompt is None:
+            if not self.live_asked:
+                self.live_asked = True
+                self.send("ready", id=self.current)
+            return
+        connection = Connection()
+        self.inflight = ("partial", self.current, connection)
+        self.started = time.monotonic()
+        self.live_frames = frames
+        self.jobs.put((self.target, self.key, bytes(phrase), self.live_prompt, connection))
 
     def start_test(self):
         if self.target is None:
@@ -611,6 +652,12 @@ class Helper:
                     self.send("test", ok=False, reason=value)
                 else:
                     self.send("test", ok=True)
+            elif job == "partial":
+                # The words so far; one that returned nothing is simply skipped.
+                if kind == "text":
+                    self.send("partial", id=phrase, text=value)
+                elif kind == "error":
+                    self.fail(value)
             elif kind == "text":
                 self.queue.popleft()
                 self.send("text", id=phrase.id, text=value)
@@ -640,6 +687,7 @@ class Helper:
             self.capturing = False
         self.detector.reset()
         self.current = None
+        self.live_prompt, self.live_asked, self.live_frames = None, False, 0
         self.queue.clear()
         if self.inflight:
             self.inflight[2].abort()

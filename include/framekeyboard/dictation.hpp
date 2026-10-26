@@ -17,7 +17,8 @@ class Dictation {
     struct Event {
         // Paused answers capture(false): every phrase spoken before it has
         // been announced.
-        enum class Kind { Level, Phrase, Ready, Text, Dropped, Stopped, Paused, Error, Test };
+        // Partial: the words so far of the phrase being spoken, with live words on.
+        enum class Kind { Level, Phrase, Ready, Partial, Text, Dropped, Stopped, Paused, Error, Test };
         Kind kind{};
         std::uint64_t id{};
         int level{};
@@ -29,6 +30,7 @@ class Dictation {
         std::string server; // host[:port], the user's own server
         std::string url;    // or a full base URL from config.json
         std::string model, language;
+        bool live{}; // also recognize each phrase as it grows (Type as I speak)
     };
     // `helper` and `arguments` exist for tests; empty uses the installed helper.
     explicit Dictation(std::filesystem::path key_file, std::filesystem::path helper = {},

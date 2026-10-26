@@ -514,6 +514,22 @@ class App {
     // Stops capture and drops every phrase not yet typed, with a status.
     void stop_direct(std::string status);
     void direct_phrase(const std::string& text);
+    // Live words (docs/dictation.md, Type as I speak): the phrase being
+    // spoken, its last partial guesses and the words typed from them. A word
+    // is typed once three guesses in a row agree on it exactly.
+    struct LiveWords {
+        std::uint64_t id{};
+        std::deque<std::vector<std::string>> guesses; // the last three; never logged
+        std::vector<std::string> typed;
+    };
+    std::optional<LiveWords> live_;
+    // Words, or in Japanese and Chinese characters.
+    std::vector<std::string> live_tokens(const std::string& text) const;
+    std::string live_join(const std::vector<std::string>& tokens, std::size_t from,
+                          std::size_t to) const;
+    void live_partial(std::uint64_t id, const std::string& text);
+    // The final text's words not yet typed live.
+    std::string live_rest(std::uint64_t id, const std::string& text);
     // Hands waiting phrases to the output queue as room appears.
     void flush_direct(double now);
     void tick_direct(double now);

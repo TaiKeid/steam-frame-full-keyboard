@@ -3372,6 +3372,7 @@ bool App::start_capture() {
         settings_.dictation_url.empty() ? settings_.dictation_server : settings_.dictation_url;
     target.model = settings_.dictation_model;
     target.language = language.dictation_language;
+    target.live = !dictation_open_; // Type as I speak types words as they settle
     if (!dictation_->configure(target) || !dictation_->capture(true)) {
         dictation_message("Dictation could not start.", true);
         return false;
@@ -3419,6 +3420,7 @@ void App::cancel_capture() {
     if (dictation_) {
         dictation_->cancel();
     }
+    live_.reset();
     capturing_ = false;
     mic_levels_.clear();
     pending_phrases_.clear();
@@ -3527,6 +3529,135 @@ void App::direct_phrase(const std::string& phrase) {
               << " characters recognized, " << direct_waiting_.size() << " phrases already waiting.\n"
               << std::flush;
     direct_waiting_.push_back(std::move(text));
+}
+
+namespace {
+bool spaced_language(const std::string& language) {
+    return language != "ja" && language != "zh";
+}
+// Whether two guesses' words are the same word, ignoring case and the
+// punctuation around it, which Whisper often settles only later.
+bool same_word(const std::string& a, const std::string& b) {
+    auto bare = [](const std::string& word) {
+        gchar* lower = g_utf8_strdown(word.c_str(), -1);
+        std::string result(lower);
+        g_free(lower);
+        while (!result.empty()) {
+            const char* last = g_utf8_find_prev_char(result.c_str(), result.c_str() + result.size());
+            if (!g_unichar_ispunct(g_utf8_get_char(last))) {
+                break;
+            }
+            result.erase(static_cast<std::size_t>(last - result.c_str()));
+        }
+        while (!result.empty() && g_unichar_ispunct(g_utf8_get_char(result.c_str()))) {
+            result.erase(0, static_cast<std::size_t>(g_utf8_next_char(result.c_str()) - result.c_str()));
+        }
+        return result;
+    };
+    return bare(a) == bare(b);
+}
+} // namespace
+
+std::vector<std::string> App::live_tokens(const std::string& text) const {
+    const auto& language = profiles_.languages.at(settings_.active.language).dictation_language;
+    std::vector<std::string> tokens;
+    std::string word;
+    for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
+        const std::string character(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+        if (!spaced_language(language)) {
+            tokens.push_back(character);
+        } else if (g_unichar_isspace(g_utf8_get_char(p))) {
+            if (!word.empty()) {
+                tokens.push_back(std::move(word));
+                word.clear();
+            }
+        } else {
+            word += character;
+        }
+    }
+    if (!word.empty()) {
+        tokens.push_back(std::move(word));
+    }
+    return tokens;
+}
+
+std::string App::live_join(const std::vector<std::string>& tokens, std::size_t from,
+                           std::size_t to) const {
+    const bool spaced =
+        spaced_language(profiles_.languages.at(settings_.active.language).dictation_language);
+    std::string result;
+    for (auto i = from; i < to && i < tokens.size(); ++i) {
+        if (spaced && !result.empty()) {
+            result += ' ';
+        }
+        result += tokens[i];
+    }
+    return result;
+}
+
+void App::live_partial(std::uint64_t id, const std::string& text) {
+    if (!live_ || live_->id != id) {
+        live_ = LiveWords{id, {}, {}};
+    }
+    auto& live = *live_;
+    live.guesses.push_back(live_tokens(text));
+    if (live.guesses.size() > 3) {
+        live.guesses.pop_front();
+    }
+    if (live.guesses.size() < 3) {
+        return;
+    }
+    // Words all three guesses agree on exactly, but never the newest guess's
+    // last word, which may be cut off mid-word. Measured on test speech,
+    // fewer guesses or a looser match locked in early mistakes
+    // (docs/dictation.md, M5b results).
+    const auto& newest = live.guesses.back();
+    std::size_t agreed = 0;
+    while (agreed + 1 < newest.size() &&
+           std::all_of(live.guesses.begin(), live.guesses.end(), [&](const auto& guess) {
+               return agreed < guess.size() && guess[agreed] == newest[agreed];
+           })) {
+        ++agreed;
+    }
+    if (agreed > live.typed.size()) {
+        direct_phrase(live_join(newest, live.typed.size(), agreed));
+        live.typed.insert(live.typed.end(),
+                          newest.begin() + static_cast<std::ptrdiff_t>(live.typed.size()),
+                          newest.begin() + static_cast<std::ptrdiff_t>(agreed));
+    }
+}
+
+std::string App::live_rest(std::uint64_t id, const std::string& text) {
+    if (!live_ || live_->id != id || live_->typed.empty()) {
+        live_.reset();
+        return text;
+    }
+    const auto typed = std::move(live_->typed);
+    live_.reset();
+    // Typed words cannot be revised. The final text continues where the
+    // typed words end in it, found by the cheapest alignment, so a word the
+    // final text added or dropped is neither repeated nor lost.
+    const auto words = live_tokens(text);
+    const auto n = typed.size(), m = words.size();
+    std::vector<std::size_t> previous(m + 1), current(m + 1);
+    for (std::size_t j = 0; j <= m; ++j) {
+        previous[j] = j;
+    }
+    for (std::size_t i = 1; i <= n; ++i) {
+        current[0] = i;
+        for (std::size_t j = 1; j <= m; ++j) {
+            current[j] = std::min({previous[j] + 1, current[j - 1] + 1,
+                                   previous[j - 1] + (same_word(typed[i - 1], words[j - 1]) ? 0 : 1)});
+        }
+        std::swap(previous, current);
+    }
+    std::size_t end = 0;
+    for (std::size_t j = 1; j <= m; ++j) {
+        if (previous[j] <= previous[end]) {
+            end = j;
+        }
+    }
+    return live_join(words, end, m);
 }
 
 void App::flush_direct(double now) {
@@ -3739,12 +3870,18 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         pending_phrases_[event.id] = now;
         break;
     }
+    case Kind::Partial:
+        if (direct_ && pending_phrases_.contains(event.id)) {
+            live_partial(event.id, event.text);
+            flush_direct(now);
+        }
+        break;
     case Kind::Text: {
         if (!pending_phrases_.erase(event.id)) {
             break; // cancelled meanwhile
         }
         if (direct_) {
-            direct_phrase(event.text);
+            direct_phrase(live_rest(event.id, event.text));
             flush_direct(now);
             break;
         }

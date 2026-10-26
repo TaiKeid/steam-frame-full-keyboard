@@ -154,6 +154,10 @@ Esc in dictation mode is local and never reaches the application.
 
 The **Type as I speak** switch on the Dictation card skips the editor. The mic key starts and stops capture on the normal keyboard, and each phrase is typed into the focused application as soon as its text returns.
 
+- **Live words** (owner decision, 2026-10-26): while a phrase is spoken, the helper recognizes its audio so far once 1.5 s are in and then every second, whenever nothing else waits. A word is typed once three guesses in a row agree on it exactly, never the newest guess's last word. When the phrase ends, its final text types the rest, continuing where the typed words end in it by the cheapest alignment, so a word the final text added or dropped is neither repeated nor lost. Typed words are never revised.
+  - The prompt is asked for once, before the first partial, and the final request reuses it, so the phrase's own early words never become its context.
+  - Each partial uploads the phrase so far: several times the audio of the final request alone, still to the user's own server only. The editor does not use live words.
+
 - No character limit and no counter; the output queue paces delivery.
 - **Order:** each phrase goes into the output queue after keys already queued, cut into commits of at most 32 characters, the most the local text path takes at once. While the queue is full, a composer reading is in progress, or a failure waits for its retry, recognized phrases wait in order. More than about 1000 characters waiting pause listening, with a status; what was said still types.
 - **Delivery:** phrases follow the **Send** setting. Typed, they go out a character at a time at the chosen pace. With **Paste**, each phrase replaces the clipboard and is pasted with Ctrl+V like Send's text, without Enter; the next phrase waits until the application has taken it. Steam's own fields keep their direct path. If the clipboard is unavailable or Ctrl+V cannot be pressed, the session types instead; if the application does not take a pasted phrase within 2 s, listening pauses, since it may still arrive.
@@ -704,6 +708,16 @@ First part: the helper connected to the editor.
   - passthrough lasting until the last phrase is typed, and hiding the panel stopping it.
 - **First headset try (r20):** nothing reached Kate. The log of the next build showed why: a 30-character phrase was typed, but the local text path refused an 85-character one outright, since Gamescope's temporary Unicode keymap holds at most 32 characters, and everything after it waited for Enter. Phrases are now cut into 32-character commits like Send's; the test target refuses longer commits the same way.
 - **Second headset try (r22):** the text arrived, but a character at a time while Send was set to Paste; the owner expected pasting. Phrases now follow the Send setting.
+- **Live words** (owner's choice over shorter phrases): measured by replaying the FLEURS clips against the reference server with partials at 1.5 s and then every second, as the helper sends them. Error rates of the assembled text against recognizing each clip whole:
+
+| Agreement | English | Spanish | Japanese | Chinese | Words typed before the phrase ended |
+| --- | --- | --- | --- | --- | --- |
+| Final text only | 3.4% | 2.6% | 3.0% | 10.1% | none |
+| Two guesses, loose match, aligned by count | 3.4% | 3.7% | 5.5% | 10.6% | 88–97% |
+| Two guesses, aligned | 3.4–3.6% | 3.5% | 5.4% | 10.6% | 88–97% |
+| Three guesses, exact, aligned (chosen) | 3.4% | 3.3% | 3.5% | 10.1% | 72–84%, a median 2.8–3.6 s early |
+
+  Holding back more of the newest guess helped Japanese only slowly (5.5% to 4.2% with eight characters held) and Spanish not at all; the mistakes were early words Whisper later changed, which a third agreeing guess catches. A clip took 9–12 partial requests.
 - **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
 ## Open questions

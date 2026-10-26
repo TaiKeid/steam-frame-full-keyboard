@@ -243,6 +243,8 @@ scenario = sys.argv[sys.argv.index("--scenario") + 1]
 replies = ["Hello there.", "Again."]
 if scenario == "long":
     replies = ["This phrase is much longer than thirty-two characters, so it goes out in pieces."]
+if scenario == "live":
+    replies = ["Hello there, how are you?"]
 phrase = 0
 def send(**m):
     peer.send(json.dumps(m).encode())
@@ -269,6 +271,11 @@ while True:
         phrase += 1
         send(op="level", value=200)
         send(op="phrase", id=phrase)
+        if scenario == "live":
+            # Growing guesses while the phrase is spoken.
+            for guess in ["Hello th", "Hello there how", "Hello there how are",
+                          "Hello there how are you"]:
+                send(op="partial", id=phrase, text=guess)
         if scenario == "direct":
             # The first phrase ends at a pause while capture goes on.
             send(op="ready", id=phrase)
@@ -794,6 +801,22 @@ void direct_tests() {
         wait_until(app, [&] { return sink.text.size() == 2; });
         require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
                 "Enter retries the phrase, then the next follows");
+    }
+    {
+        // Live words: typed once two guesses agree, the rest with the final text.
+        options.dictation_arguments = {"--scenario", "live"};
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"Hello", " there how"} &&
+                    app.view().dictation_capturing,
+                "words three guesses agree on type while still listening; the newest word waits");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 3; });
+        require(sink.text.back() == " are you?",
+                "the final text continues where the typed words end in it, punctuation aside");
+        options.dictation_arguments = {"--scenario", "direct"};
     }
     {
         // A long phrase goes out in commits the target takes at once.

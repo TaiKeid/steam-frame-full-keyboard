@@ -469,6 +469,41 @@ class Helper(unittest.TestCase):
         helper.send(op="prompt", id=ready["id"], text="")
         self.assertEqual(helper.receive("text")["text"], "hello")
 
+    def test_live_words_recognize_the_phrase_as_it_grows(self):
+        helper = Process(self, speech(1.0), mode="loop")
+        helper.send(op="configure", server=f"127.0.0.1:{self.server.port}", language="en", live=True)
+        helper.send(op="capture", on=True)
+        self.assertEqual(helper.receive("phrase")["id"], 1)
+        # The prompt is asked for once, while the phrase is still being spoken.
+        self.assertEqual(helper.receive("ready")["id"], 1)
+        self.assertTrue(helper.recorder_alive())
+        helper.send(op="prompt", id=1, text="Before.")
+        self.assertEqual(helper.receive("partial"), {"op": "partial", "id": 1, "text": "hello"})
+        helper.receive("partial")
+        helper.send(op="capture", on=False)
+        self.assertEqual(helper.receive("text"), {"op": "text", "id": 1, "text": "hello"})
+        self.assertNotIn("ready", [m["op"] for m in helper.seen])
+        # Every request, partial or final, carries the same prompt; each
+        # partial uploads the phrase so far, so later ones are longer.
+        prompts = [r[2]["prompt"] for r in self.server.requests]
+        sizes = [len(r[2]["file"]) for r in self.server.requests]
+        self.assertGreaterEqual(len(prompts), 3)
+        self.assertEqual(set(prompts), {b"Before."})
+        self.assertEqual(sizes, sorted(sizes))
+        self.assertGreater(sizes[1], sizes[0])
+
+    def test_without_live_words_nothing_is_recognized_early(self):
+        helper = self.start(speech(1.0), mode="loop")
+        helper.send(op="capture", on=True)
+        helper.receive("phrase")
+        time.sleep(2.0)
+        helper.send(op="capture", on=False)
+        ready = helper.receive("ready")
+        helper.send(op="prompt", id=ready["id"], text="")
+        helper.receive("text")
+        self.assertEqual(len(self.server.requests), 1)
+        self.assertNotIn("partial", [m["op"] for m in helper.seen])
+
     def test_every_pause_is_confirmed(self):
         helper = self.start(speech(1.0), mode="loop")
         helper.send(op="capture", on=False)
