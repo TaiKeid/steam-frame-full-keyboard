@@ -29,6 +29,9 @@ std::size_t DictationEditor::length() const {
 
 void DictationEditor::replace(std::size_t start, std::size_t end, const std::string& insertion) {
     text_.replace(start, end - start, insertion);
+    if (start < uncertain_) {
+        uncertain_ = 0; // the user is correcting the marked text
+    }
     const auto removed = end - start;
     std::erase_if(phrases_, [&](const Phrase& p) {
         // An edit inside a phrase, or one that removes part of it, invalidates
@@ -109,6 +112,17 @@ void DictationEditor::clear() {
     text_.clear();
     cursor_ = 0;
     phrases_.clear();
+    uncertain_ = 0;
+}
+
+void DictationEditor::erase_front(std::size_t bytes) {
+    bytes = std::min(bytes, text_.size());
+    replace(0, bytes, "");
+    cursor_ = cursor_ > bytes ? cursor_ - bytes : 0;
+}
+
+void DictationEditor::mark_uncertain(std::size_t bytes) {
+    uncertain_ = std::min(bytes, text_.size());
 }
 
 bool DictationEditor::insert_phrase(const std::string& input, bool spaced) {

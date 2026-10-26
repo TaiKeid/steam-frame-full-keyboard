@@ -36,6 +36,9 @@ class EiSink : public KeySink {
     }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
     std::optional<bool> num_lock_state() override { return num_lock_; }
+    // Measurement only: forces every multi-character commit to go whole (false)
+    // or per character (true) instead of the on_keymap() choice.
+    void force_per_character(std::optional<bool> value) { per_character_ = value; }
     EiSink(const EiSink&) = delete;
     EiSink& operator=(const EiSink&) = delete;
 
@@ -48,6 +51,7 @@ class EiSink : public KeySink {
     std::unique_ptr<xkb_context, decltype(&xkb_context_unref)> xkb_{nullptr, xkb_context_unref};
     std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> keymap_{nullptr, xkb_keymap_unref};
     xkb_layout_index_t group_{};
+    std::optional<bool> per_character_;
     std::optional<bool> num_lock_;
     fs::path socket_, text_socket_;
     std::unique_ptr<GamescopeText> text_;

@@ -96,12 +96,14 @@ struct FieldLabel {
 // The dictation editor as the panel draws it.
 struct DictationView {
     bool operator==(const DictationView&) const = default;
-    Rect bounds;          // Panel coordinates of the editor's frame.
-    std::string text;     // Never logged.
-    std::size_t cursor{}; // Byte offset into `text`.
-    double scroll{};      // Content pixels scrolled out above the frame.
-    std::string counter;  // For example "412/900".
-    bool at_limit{};      // Dictation cannot continue; the counter turns amber.
+    Rect bounds;             // Panel coordinates of the editor's frame.
+    std::string text;        // Never logged.
+    std::size_t cursor{};    // Byte offset into `text`.
+    double scroll{};         // Content pixels scrolled out above the frame.
+    std::string counter;     // For example "412/900".
+    bool at_limit{};         // Dictation cannot continue; the counter turns amber.
+    bool sending{};          // Locked: dimmed text and no caret.
+    std::size_t uncertain{}; // Leading bytes that may already have reached the target.
 };
 struct PanelView {
     const Layout* layout{};

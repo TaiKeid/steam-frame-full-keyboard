@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built and host-tested (2026-10-25). M3b is next. Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, its delivery A/B test still open (2026-10-25). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -105,19 +105,19 @@ Esc in dictation mode is local and never reaches the application.
 - **Send** types the editor text into the focused application, presses Enter, clears the editor and returns to the normal keyboard. It is disabled while the editor is empty.
 - **Enter** in the editor only adds a line break.
 - **Line breaks:**
-  - Those at the start and end are dropped.
+  - Line breaks and spaces at the start and end are dropped.
   - Those between paragraphs are kept and sent as Shift+Enter, so chat applications insert a line break instead of sending early.
-  - A Steam field that holds only one line, such as search, cannot take Shift+Enter. There each run of line breaks becomes a single space, so `a\n\n\nb` is sent as `a b`. Multi-line Steam fields, such as the friends chat message box, keep the line breaks.
+  - A Steam field that holds only one line, such as search, cannot take Shift+Enter. There each run of line breaks, with the spaces around it, becomes a single space, so `a\n\n\nb` is sent as `a b`. Multi-line Steam fields, such as the friends chat message box, keep the line breaks.
   - Only the final Enter is a plain Enter.
 - **Delivery:**
-  - Text is cut into commits of at most 32 code points through the existing output queue. Each line break is a native key entry, so text with many lines goes out in several batches as the queue drains.
+  - Text is cut into commits of at most 32 code points through the existing output queue. Each line break is a native key entry. Each piece goes out once the previous one is delivered, so a failure knows exactly what arrived.
   - Plain text to local apps goes either as whole commits or one acknowledged character at a time, at least 20 ms apart. The second way takes about 30 s for 900 characters. M3b measures both before choosing.
   - Sending waits until no key is held, so a held modifier cannot turn letters into shortcuts.
-  - The editor is locked and shows progress while sending.
-  - If delivery fails or is interrupted, the unsent remainder stays in the editor and the mode stays open, as failed Japanese commits stay in the preedit today.
+  - The editor is locked and shows progress while sending: delivered text leaves the editor as it goes, the rest is dimmed without a caret, and the counter shows `Sending 120/412`. Esc stops sending.
+  - If delivery fails or is interrupted (Esc, hiding the panel, losing the target, or no answer for 5 s), the unsent remainder stays in the editor and the mode stays open, as failed Japanese commits stay in the preedit today. Send continues from there.
     - Text the target acknowledged leaves the editor.
-    - A commit that timed out may have arrived anyway, so the editor marks where delivery became uncertain.
-    - The final Enter is tracked on its own, so a retry never sends the message twice.
+    - A commit that timed out may have arrived anyway, so the editor underlines the text that may have arrived in amber: the one character that timed out when text went one character at a time, or the whole commit otherwise. Editing the marked text removes the mark.
+    - The final Enter is tracked on its own, so a retry never sends the message twice. If only the Enter fails, the editor is empty and Send presses just Enter.
 - **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be cancelled with Esc and ends after the request timeout.
 - **Target:** Send types into whatever has keyboard focus at that moment. Switching windows mid-dictation is the user's choice.
 
@@ -394,7 +394,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Profiles with a composer hide the mic key until M5a.
   - Swipe and the emoji key are unavailable in dictation mode.
   - A `--render-dictation` image export for reviewing the look.
-- [ ] **M3b Send:**
+- [ ] **M3b Send:** built and host-tested 2026-10-25 (see [M3b results](#m3b-results-2026-10-25)); the A/B test and the receiver checks are open.
   - **A/B test of plain-text delivery:** whole commits of up to 32 characters against one acknowledged character at a time, 20 ms apart. The swipe fix that introduced the second way was measured only on replacements.
     - Test the dedicated receiver first, then an X11 browser under load.
     - Count scrambled and reordered text, and time a 900-character text.
@@ -586,6 +586,16 @@ What this means for the design:
   - `dictation-mode`: settings, layout, the mic key's visibility, typing, Shift, Backspace, Enter, arrows, Home, Delete, Down and End, repeat, a click placing the cursor, Esc, reopening with the text kept, and a profile change closing the mode. Nothing reaches the sink.
   - Host CTest passes with 30 suites and 3 optional CJK skips, and the ARM64 build is clean.
 - **Not yet:** stick scrolling of the editor and the discard confirmation (M3c), Send (M3b), and a check in the headset.
+
+## M3b results (2026-10-25)
+
+- **Pieces:** `send_pieces()` (`src/dictation_send.cpp`) cuts the editor text into commits of at most 32 code points, Shift+Enter breaks or single-line spaces, and the final Enter. Each piece records the editor bytes it covers.
+- **Sending:** App sends one piece at a time through `OutputController`, starting once no key is held and earlier output has drained. The queue's new `completed()` counter, with `failures()`, tells a delivered piece from a failed or cancelled one. Breaks and Enter go through the queue's new `tap()`, which presses a chord and releases it in reverse.
+- **Target:** `KeySink::single_line_target()` is true for a Steam field without `multiline`; every other target takes Shift+Enter.
+- **Failure:** the remainder stays, as described in [Send](#send). A text that went one character at a time keeps only the unacknowledged rest; the queue's own retry is dropped, so the main keyboard's Enter cannot retype it.
+- **Tests:** `dictation-send` covers pieces, chunking, trimming and both line-break rules. `dictation-mode` covers sending with Shift+Enter, a single-line field, waiting for a held key, the lock, Esc, a per-character failure keeping only the rest, and an Enter failure retried alone. Host CTest passes with 34 suites and 3 optional CJK skips, and the ARM64 build is clean.
+- **Delivery A/B:** not yet run. The disposable Brave receiver from the swipe fix, driven by `text-replace-probe` with its new `whole` and `paced` commands, never got keyboard focus with the headset idle. It needs the headset worn. Until then Send uses the existing choice: plain ASCII goes one character at a time, about 20 s for 900 characters.
+- **Not yet:** the A/B test, delivery into the dedicated receiver and then applications, and a check in the headset.
 
 ## Open questions
 

@@ -48,6 +48,9 @@ class KeySink {
     // cancels or consumes a timeout. Releases remain allowed through this barrier.
     virtual bool output_blocked() const { return false; }
     virtual int shortcut_code(xkb_keysym_t, int fallback) { return fallback; }
+    // The target holds one line, so Shift+Enter cannot break it, such as a
+    // Steam search field. Unknown targets take line breaks.
+    virtual bool single_line_target() const { return false; }
     // Unknown until the receiving system reports its lock state.
     virtual std::optional<bool> num_lock_state() { return {}; }
 };

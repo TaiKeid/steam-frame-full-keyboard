@@ -107,6 +107,16 @@ bool OutputController::taps_then_text(int code, std::size_t count, const std::st
     }
     return enqueue_text(text); // Drains the whole sequence.
 }
+bool OutputController::tap(const std::vector<int>& codes) {
+    if (!enabled_ || failed_ || codes.empty() || queue_.size() >= capacity) {
+        return false;
+    }
+    auto entry = std::make_shared<Entry>();
+    entry->codes = codes; // Not held: released as soon as all are delivered.
+    queue_.push_back(entry);
+    drain();
+    return true;
+}
 bool OutputController::enqueue_text(const std::string& text, std::shared_ptr<Entry> entry) {
     if (text.empty()) {
         return true;
@@ -347,6 +357,7 @@ void OutputController::drain() {
             }
         }
         queue_.pop_front();
+        ++completed_;
         if (entry->held) {
             entry->repeat_at = now_ + .5;
             for (int code : entry->released_modifiers) {

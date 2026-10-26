@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <linux/input-event-codes.h>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -26,16 +27,34 @@ struct TemporaryDirectory {
         fs::remove_all(path, ignored);
     }
 };
-// Records everything that would reach the target.
+// Records everything that would reach the target, and fails on request.
 struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
     std::vector<std::string> text;
+    bool single_line{}, fail_enter{};
+    int commits_before_failure{-1}; // -1 never fails
+    std::size_t acknowledged{};     // characters of a failed commit that arrived
     void send(int code, int value) override { keys.emplace_back(code, value); }
+    Delivery deliver_key(int code, int value) override {
+        if (fail_enter && code == KEY_ENTER && value == 1) {
+            return Delivery::Failure;
+        }
+        send(code, value);
+        return Delivery::Success;
+    }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
+        if (commits_before_failure == 0) {
+            return false;
+        }
+        if (commits_before_failure > 0) {
+            --commits_before_failure;
+        }
         text.push_back(value);
         return true;
     }
+    std::size_t delivered_characters() const override { return acknowledged; }
+    bool single_line_target() const override { return single_line; }
 };
 void write_config(const fs::path& directory, const std::string& extra) {
     std::ofstream(directory / "config.json")
@@ -64,6 +83,11 @@ void press(App& app, const std::string& id, unsigned pointer = 0) {
     app.up(pointer, x, y);
     clock += .1;
     app.tick(clock);
+}
+void settle(App& app) {
+    for (int i = 0; i < 100; ++i) {
+        app.tick(clock += .02);
+    }
 }
 std::string editor_text(App& app) {
     const auto view = app.view();
@@ -155,7 +179,7 @@ void mode_tests() {
     require(app.dictation_open(), "the mic key opens dictation mode");
     require(app.view().disabled_keys.contains("Dictation-send") &&
                 app.view().disabled_keys.contains("Dictation-undo"),
-            "Send waits for M3b; Undo needs a phrase");
+            "Send needs text; Undo needs a phrase");
 
     press(app, "ShiftLeft");
     for (const auto* id : {"KeyH", "KeyI", "Space", "KeyT", "KeyO"}) {
@@ -223,6 +247,130 @@ void mode_tests() {
     require(!app.dictation_open() && !app.view().dictation_available,
             "a profile without dictation closes the mode and hides the mic key");
 }
+void type_text(App& app, const std::string& text) {
+    // The editor's own typing path, as keys would type it.
+    for (char c : text) {
+        if (c == '\n') {
+            press(app, "Enter");
+        } else if (c == ' ') {
+            press(app, "Space");
+        } else {
+            press(app, std::string("Key") + static_cast<char>(c - 'a' + 'A'));
+        }
+    }
+}
+using Keys = std::vector<std::pair<int, int>>;
+
+void send_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+
+    {
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        type_text(app, "\nhi\n\nthere\n");
+        require(!app.view().disabled_keys.contains("Dictation-send"), "Send is ready with text");
+        press(app, "Dictation-send");
+        settle(app);
+        require(sink.text == std::vector<std::string>{"hi", "there"}, "the text arrives in order");
+        const Keys shift_enter{{KEY_LEFTSHIFT, 1}, {KEY_ENTER, 1}, {KEY_ENTER, 0}, {KEY_LEFTSHIFT, 0}};
+        Keys expected = shift_enter;
+        expected.insert(expected.end(), shift_enter.begin(), shift_enter.end());
+        expected.insert(expected.end(), {{KEY_ENTER, 1}, {KEY_ENTER, 0}});
+        require(sink.keys == expected, "inner breaks are Shift+Enter; only the last Enter is plain");
+        require(!app.dictation_open(), "a sent text returns to the normal keyboard");
+        press(app, "Dictation");
+        require(editor_text(app).empty(), "and leaves the editor empty");
+    }
+    {
+        Sink sink;
+        sink.single_line = true;
+        App app(options, sink);
+        press(app, "Dictation");
+        type_text(app, "a\n\nb");
+        press(app, "Dictation-send");
+        settle(app);
+        require(sink.text == std::vector<std::string>{"a", " ", "b"} &&
+                    sink.keys == Keys{{KEY_ENTER, 1}, {KEY_ENTER, 0}},
+                "a single-line field gets one space for the breaks");
+    }
+    {
+        // A key held by the other hand delays Send; the editor is locked
+        // while it sends, and Esc stops it with the rest kept.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        type_text(app, std::string(40, 'a') + " " + std::string(40, 'b'));
+        const auto [hx, hy] = key_center(app, "ArrowLeft");
+        app.down(1, hx, hy, clock);
+        press(app, "Dictation-send");
+        settle(app);
+        require(sink.text.empty() && app.view().dictation->sending, "Send waits for the held key");
+        app.up(1, hx, hy);
+        app.tick(clock += .02);
+        require(sink.text.size() == 1 && editor_text(app).size() == 81 - 32,
+                "delivered text leaves the editor as it goes");
+        press(app, "KeyZ");
+        require(editor_text(app).size() == 81 - 64, "the editor ignores keys while it sends");
+        press(app, "Escape");
+        settle(app);
+        require(app.dictation_open() && !app.view().dictation->sending &&
+                    editor_text(app) == std::string(17, 'b'),
+                "Esc stops sending; what was not sent stays");
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() && sink.text.back() == std::string(17, 'b'),
+                "Send continues with the rest");
+    }
+    {
+        // A commit sent one character at a time fails after three of them.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        type_text(app, std::string(40, 'c'));
+        sink.commits_before_failure = 1;
+        sink.acknowledged = 3;
+        press(app, "Dictation-send");
+        settle(app);
+        const auto view = app.view();
+        require(app.dictation_open() && view.dictation->text == std::string(5, 'c') &&
+                    view.dictation->uncertain == 1,
+                "only the unacknowledged rest stays, its first character marked");
+        require(!app.view().disabled_keys.contains("Dictation-send"), "Send can try again");
+        sink.commits_before_failure = -1;
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() && sink.text.back() == std::string(5, 'c'),
+                "the retry sends only the rest");
+    }
+    {
+        // Enter fails after all text arrived: a retry presses only Enter.
+        Sink sink;
+        sink.fail_enter = true;
+        App app(options, sink);
+        press(app, "Dictation");
+        type_text(app, "done");
+        press(app, "Dictation-send");
+        settle(app);
+        require(app.dictation_open() && editor_text(app).empty() && sink.text.size() == 1,
+                "the text left the editor; the mode stays");
+        require(!app.view().disabled_keys.contains("Dictation-send"),
+                "Send stays available for the Enter");
+        sink.fail_enter = false;
+        sink.keys.clear();
+        press(app, "Dictation-send");
+        settle(app);
+        require(sink.text.size() == 1 && sink.keys == Keys{{KEY_ENTER, 1}, {KEY_ENTER, 0}} &&
+                    !app.dictation_open(),
+                "the retry presses Enter without the text");
+    }
+}
 } // namespace
 
 int main() {
@@ -230,6 +378,7 @@ int main() {
         settings_tests();
         layout_tests();
         mode_tests();
+        send_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

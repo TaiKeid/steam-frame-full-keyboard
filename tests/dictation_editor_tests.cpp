@@ -121,6 +121,37 @@ void undo() {
             "typing right after a phrase leaves it intact");
 }
 
+void sent_text() {
+    DictationEditor editor;
+    editor.insert_phrase("One.", true);
+    editor.insert_phrase("Two.", true);
+    editor.set_cursor(6);
+    editor.erase_front(4);
+    require(editor.text() == " Two." && editor.cursor() == 2,
+            "delivered text leaves the front; the cursor stays on its character");
+    require(editor.undo_phrase() && editor.text().empty(),
+            "a phrase after the delivered text stays undoable");
+    editor.type("abcdef");
+    editor.erase_front(99);
+    require(editor.empty() && editor.cursor() == 0, "erasing past the end empties the editor");
+
+    editor.type("abcdef");
+    editor.mark_uncertain(3);
+    require(editor.uncertain() == 3, "the uncertain start is marked");
+    editor.type("g");
+    require(editor.uncertain() == 3, "typing after the mark keeps it");
+    editor.set_cursor(3);
+    editor.type("h");
+    require(editor.uncertain() == 3, "typing right after the mark keeps it too");
+    editor.set_cursor(2);
+    editor.backspace();
+    require(editor.uncertain() == 0, "correcting the marked text removes the mark");
+    editor.mark_uncertain(99);
+    require(editor.uncertain() == editor.text().size(), "the mark stays inside the text");
+    editor.clear();
+    require(editor.uncertain() == 0, "clearing removes it");
+}
+
 void context() {
     DictationEditor editor;
     std::string text;
@@ -141,6 +172,7 @@ int main() {
         limits();
         joining();
         undo();
+        sent_text();
         context();
         std::cout << "Dictation editor tests passed\n";
         return 0;

@@ -13,6 +13,8 @@ using namespace framekeyboard;
 //   commit <text>       commit text through Gamescope, as a tap or swipe does
 //   replace <n> <text>  delete n characters, then commit text, as picking a
 //                       swipe alternative does
+//   whole <text>        commit text as one request, even plain ASCII
+//   paced <text>        commit text one acknowledged character at a time
 // and prints "ok" or "fail" once Gamescope confirms or rejects it. Nothing is
 // sent without a command. "\n" in text stands for a line break.
 namespace {
@@ -52,7 +54,12 @@ int main() {
         std::size_t deletions = 0;
         if (command == "replace") {
             input >> deletions;
-        } else if (command != "commit") {
+        }
+        if (command == "whole" || command == "paced") {
+            sink.force_per_character(command == "paced");
+        } else if (command == "commit" || command == "replace") {
+            sink.force_per_character({});
+        } else {
             std::cout << "fail" << std::endl;
             continue;
         }

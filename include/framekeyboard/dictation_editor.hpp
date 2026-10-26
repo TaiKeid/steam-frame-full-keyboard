@@ -32,6 +32,13 @@ class DictationEditor {
     void left();
     void right();
     void clear();
+    // Removes delivered text from the start, keeping the cursor on the same
+    // character where it survives.
+    void erase_front(std::size_t bytes);
+    // Marks the first `bytes` as text that may already have reached the target,
+    // after Send failed. An edit before the mark's end removes it.
+    void mark_uncertain(std::size_t bytes);
+    std::size_t uncertain() const { return uncertain_; }
 
     // A recognized phrase at the cursor, joined to its neighbours: a space at
     // either edge where needed in space-separated languages, and no final
@@ -54,6 +61,7 @@ class DictationEditor {
     void replace(std::size_t start, std::size_t end, const std::string& insertion);
     std::string text_;
     std::size_t cursor_{};
+    std::size_t uncertain_{}; // bytes from the start
     std::vector<Phrase> phrases_;
 };
 } // namespace framekeyboard

@@ -137,6 +137,9 @@ bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
 // reached with at most Shift, Control and Alt. Only the current group counts,
 // because Gamescope presses the key without changing the group.
 bool EiSink::on_keymap(const std::string& text) const {
+    if (per_character_) {
+        return *per_character_;
+    }
     if (g_utf8_strlen(text.c_str(), -1) < 2) {
         return false;
     }

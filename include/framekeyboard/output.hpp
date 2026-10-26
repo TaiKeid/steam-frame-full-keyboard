@@ -29,6 +29,9 @@ class OutputController : public KeySink, public TextOutput {
     // Counts delivery failures, so callers can tell that text they assumed
     // was in the target may not be (a failed or timed-out request).
     std::uint64_t failures() const { return failures_; }
+    // Counts entries delivered in full. With failures(), tells a sender that
+    // its entry arrived, rather than being dropped by a cancel.
+    std::uint64_t completed() const { return completed_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
     void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now);
     bool text_press(unsigned pointer, const std::string& text, double now) override;
@@ -60,6 +63,10 @@ class OutputController : public KeySink, public TextOutput {
     // once. A failure found while delivering it drops the rest; no later part
     // is admitted again as fresh input. Nothing is queued if `text` is invalid.
     bool taps_then_text(int code, std::size_t count, const std::string& text) override;
+    // Presses `codes` in order as one entry, then releases them in reverse
+    // once all are delivered, as a chord such as Shift+Enter.
+    bool tap(const std::vector<int>& codes);
+    bool single_line_target() const override { return target_.single_line_target(); }
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
@@ -95,7 +102,7 @@ class OutputController : public KeySink, public TextOutput {
     std::map<int, unsigned> delivered_;
     double now_{};
     bool enabled_{}, failed_{};
-    std::uint64_t failures_{};
+    std::uint64_t failures_{}, completed_{};
     std::string status_;
     bool status_changed_{};
 };

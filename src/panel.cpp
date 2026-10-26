@@ -729,7 +729,32 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     // The measuring layout itself, so the text lands exactly where App's
     // cursor moves expect it.
     auto* layout = editor_layout(view);
-    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .92);
+    const Color amber{.96, .72, .35};
+    if (editor.uncertain) {
+        // Text that may already have arrived: an amber underline on each of
+        // its line pieces, quiet enough to read through.
+        cairo_set_source_rgba(cr, amber.r, amber.g, amber.b, .75);
+        auto* iter = pango_layout_get_iter(layout);
+        do {
+            auto* line = pango_layout_iter_get_line_readonly(iter);
+            if (static_cast<std::size_t>(line->start_index) >= editor.uncertain) {
+                break;
+            }
+            int range[2]{}, *ranges = nullptr, count = 0;
+            range[1] = static_cast<int>(editor.uncertain);
+            pango_layout_line_get_x_ranges(line, range[0], range[1], &ranges, &count);
+            const int baseline = pango_layout_iter_get_baseline(iter);
+            for (int i = 0; i < count; ++i) {
+                const double x0 = area.x + ranges[2 * i] / static_cast<double>(PANGO_SCALE);
+                const double x1 = area.x + ranges[2 * i + 1] / static_cast<double>(PANGO_SCALE);
+                cairo_rectangle(cr, x0, area.y - editor.scroll + baseline / PANGO_SCALE + 3, x1 - x0, 2);
+            }
+            g_free(ranges);
+            cairo_fill(cr);
+        } while (pango_layout_iter_next_line(iter));
+        pango_layout_iter_free(iter);
+    }
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, editor.sending ? .5 : .92);
     cairo_move_to(cr, area.x, area.y - editor.scroll);
     pango_cairo_show_layout(cr, layout);
     PangoRectangle caret;
@@ -737,12 +762,14 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     int width = 0, height = 0;
     pango_layout_get_pixel_size(layout, &width, &height);
     g_object_unref(layout);
-    rounded(cr,
-            {area.x + caret.x / PANGO_SCALE - 1, area.y - editor.scroll + caret.y / PANGO_SCALE + 2, 2,
-             std::max(1.0, caret.height / static_cast<double>(PANGO_SCALE) - 4)},
-            1);
-    source(cr, t.legend);
-    cairo_fill(cr);
+    if (!editor.sending) {
+        rounded(cr,
+                {area.x + caret.x / PANGO_SCALE - 1, area.y - editor.scroll + caret.y / PANGO_SCALE + 2,
+                 2, std::max(1.0, caret.height / static_cast<double>(PANGO_SCALE) - 4)},
+                1);
+        source(cr, t.legend);
+        cairo_fill(cr);
+    }
     cairo_restore(cr);
     if (height > area.height) {
         // A slim indicator in the well's right margin, as quiet as a hint.
@@ -757,7 +784,7 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     if (const auto counter = dictation_counter_bounds(view)) {
         // Quiet while there is room; amber once dictation has reached its limit.
         label(cr, editor.counter, *counter, t.small_font_size * 1.3, view.language->font,
-              editor.at_limit ? Color{.96, .72, .35} : disabled_legend(t), false, PANGO_ALIGN_RIGHT);
+              editor.at_limit ? amber : disabled_legend(t), false, PANGO_ALIGN_RIGHT);
     }
 }
 } // namespace

@@ -3,6 +3,7 @@
 #include "cjk.hpp"
 #include "dictation_editor.hpp"
 #include "dictation_mode.hpp"
+#include "dictation_send.hpp"
 #include "emoji_glyphs.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
@@ -389,6 +390,28 @@ class App {
     void run_editor_command(EditorCommand command);
     // Keeps the cursor's line inside the editor after an edit or a move.
     void follow_cursor();
+    // Send (docs/dictation.md, Send). Pieces go to the output queue one at a
+    // time, each once the previous one is delivered, so a failure knows how
+    // much arrived; delivered text leaves the editor as it goes.
+    struct Sending {
+        std::vector<SendPiece> pieces;
+        std::size_t next{}; // The piece in flight, or the next one.
+        std::size_t sent{}; // Editor bytes already delivered and erased.
+        bool in_flight{};
+        std::uint64_t completed{}, failures{}; // The queue's counters before the piece.
+        double since{-1};                      // When the piece was first offered.
+        std::size_t total{}, done{};           // Code points, for the counter.
+    };
+    bool can_send() const;
+    void start_send();
+    bool tick_send(double now);
+    // Ends a send that has not finished. With `attempted`, the piece in flight
+    // may have arrived, so the editor marks it.
+    void stop_send(bool attempted);
+    std::optional<Sending> sending_;
+    // Everything but the final Enter arrived; Send with an empty editor
+    // presses only Enter, so the text is never sent twice.
+    bool enter_pending_{};
     bool dictation_open_{};
     DictationEditor editor_;
     EditorOutput editor_output_{editor_};

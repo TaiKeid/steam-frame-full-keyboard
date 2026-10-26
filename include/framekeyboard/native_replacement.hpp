@@ -33,6 +33,7 @@ class NativeReplacement : public KeySink {
     const State& state() const { return state_; }
     const char* unavailable_reason() const;
     void route(bool remote) { remote_ = remote; }
+    bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool remote() const { return remote_; }
     void dismiss_request();
     // A prepared update hands the open request back to Steam, as Quit does,

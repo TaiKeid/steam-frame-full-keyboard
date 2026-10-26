@@ -609,8 +609,10 @@ PanelView App::build_view(bool picker) const {
         v.flick_preview.reset();
         v.swipe_trail.clear();
         set_dictation_view(v);
-        v.disabled_keys.insert("Dictation-send"); // Delivery arrives with M3b.
-        if (!editor_.can_undo()) {
+        if (!can_send()) {
+            v.disabled_keys.insert("Dictation-send");
+        }
+        if (sending_ || !editor_.can_undo()) {
             v.disabled_keys.insert("Dictation-undo");
         }
     }
@@ -730,6 +732,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (dictation_open_ && !settings_open_ && v.dictation && v.dictation->bounds.contains(x, y)) {
+        if (sending_) {
+            return false; // the editor is locked while it sends
+        }
         const auto area = editor_text_area(v);
         editor_.set_cursor(editor_index_at(v, x - area.x, y - area.y + editor_scroll_));
         editor_goal_x_.reset();
@@ -1075,6 +1080,7 @@ bool App::tick(double now) {
     }
     finish_swipe(false);
     dirty |= output_.tick(now);
+    dirty |= tick_send(now);
     forget_failed_swipe();
     update_output_status();
     return dirty || renderer.animating();
@@ -2607,6 +2613,10 @@ void App::close_dictation() {
     if (!dictation_open_) {
         return;
     }
+    if (sending_) {
+        stop_send(sending_->in_flight);
+    }
+    enter_pending_ = false;
     dictation_open_ = false;
     text_output_ = options_.text_output ? options_.text_output : &output_;
     // Held editor keys must not turn into presses on the keyboard's keys. The
@@ -2650,15 +2660,32 @@ void App::set_dictation_view(PanelView& view) const {
     editor.text = editor_.text();
     editor.cursor = editor_.cursor();
     editor.scroll = editor_scroll_;
-    editor.counter =
-        std::to_string(editor_.length()) + "/" + std::to_string(DictationEditor::dictation_limit);
-    editor.at_limit = !editor_.can_dictate();
+    editor.uncertain = editor_.uncertain();
+    if (sending_) {
+        editor.sending = true;
+        editor.counter =
+            "Sending " + std::to_string(sending_->done) + "/" + std::to_string(sending_->total);
+    } else {
+        editor.counter =
+            std::to_string(editor_.length()) + "/" + std::to_string(DictationEditor::dictation_limit);
+        editor.at_limit = !editor_.can_dictate();
+    }
     view.dictation = std::move(editor);
 }
 
 bool App::dictation_down(unsigned pointer, const Key& key, double now) {
     if (keyboard_.pointer_pressed(pointer)) {
         return false;
+    }
+    if (sending_) {
+        // The editor is locked while it sends; Esc stops sending.
+        if (key.action_kind != ActionKind::Key || key.action != "Escape" ||
+            !keyboard_.down(pointer, key, now, true, 0)) {
+            return false;
+        }
+        stop_send(sending_->in_flight);
+        dirty = true;
+        return true;
     }
     if (key.action_kind == ActionKind::Dictation) {
         // Mic, Send and Undo act on release, like toolbar buttons.
@@ -2722,12 +2749,159 @@ void App::dictation_key_up(const Key& key) {
             open_dictation();
         }
         // Capture starts here once the helper is connected (M3c).
+    } else if (key.action == "send") {
+        start_send();
     } else if (key.action == "undo") {
         if (editor_.undo_phrase()) {
             editor_goal_x_.reset();
             follow_cursor();
         }
     }
+    dirty = true;
+}
+
+namespace {
+// Characters a piece adds to Send's counter; a line break counts as one.
+std::size_t counted(const SendPiece& piece) {
+    switch (piece.kind) {
+    case SendPiece::Kind::Text:
+        return static_cast<std::size_t>(g_utf8_strlen(piece.text.c_str(), -1));
+    case SendPiece::Kind::Enter:
+        return 0;
+    default:
+        return 1;
+    }
+}
+} // namespace
+
+bool App::can_send() const {
+    return !sending_ && (editor_.text().find_first_not_of(" \n") != std::string::npos ||
+                         (enter_pending_ && editor_.empty()));
+}
+
+void App::start_send() {
+    if (!can_send()) {
+        return;
+    }
+    Sending send;
+    if (editor_.text().find_first_not_of(" \n") == std::string::npos) {
+        // Only the final Enter is left; the editor holds nothing to send.
+        send.pieces = {{SendPiece::Kind::Enter, {}, 0, editor_.text().size()}};
+    } else {
+        send.pieces = send_pieces(editor_.text(), !output_.single_line_target());
+    }
+    for (const auto& piece : send.pieces) {
+        send.total += counted(piece);
+    }
+    keymap_->cancel_compose();
+    editor_repeat_.reset();
+    editor_.mark_uncertain(0);
+    status_.clear();
+    sending_ = std::move(send);
+    dirty = true;
+}
+
+bool App::tick_send(double now) {
+    if (!sending_) {
+        return false;
+    }
+    auto& s = *sending_;
+    if (s.since < 0) {
+        s.since = now;
+    }
+    const auto& piece = s.pieces[s.next];
+    if (!s.in_flight) {
+        // A held key could turn letters into shortcuts, and earlier output
+        // must arrive first. Every editor key is ignored meanwhile, so this ends.
+        if (keyboard_.active() || output_.text_pending()) {
+            return false;
+        }
+        if (s.next == 0 && output_.retry_available()) {
+            output_.cancel(); // text the main keyboard failed to send stays unsent
+        }
+        s.completed = output_.completed();
+        s.failures = output_.failures();
+        bool accepted = false;
+        switch (piece.kind) {
+        case SendPiece::Kind::Text:
+        case SendPiece::Kind::Space:
+            accepted = output_.commit_text(piece.text);
+            break;
+        case SendPiece::Kind::Break:
+            accepted = output_.tap({KEY_LEFTSHIFT, KEY_ENTER});
+            break;
+        case SendPiece::Kind::Enter:
+            accepted = output_.tap({KEY_ENTER});
+            break;
+        }
+        if (!accepted) {
+            // A target briefly busy with an earlier request accepts it later.
+            if (output_.failures() != s.failures || now - s.since > 2) {
+                stop_send(false);
+                return true;
+            }
+            return false;
+        }
+        s.in_flight = true;
+    }
+    if (output_.failures() != s.failures) {
+        stop_send(true);
+        return true;
+    }
+    if (output_.completed() != s.completed) {
+        editor_.erase_front(piece.end - s.sent);
+        s.sent = piece.end;
+        s.done += counted(piece);
+        s.in_flight = false;
+        s.since = now;
+        follow_cursor();
+        if (++s.next == s.pieces.size()) {
+            sending_.reset();
+            editor_.clear();
+            editor_scroll_ = 0;
+            close_dictation();
+        }
+        return true;
+    }
+    // Hiding the panel or losing the target cancels the queue without a
+    // failure; a target that never answers is given up the same way.
+    if (!output_.text_pending() || now - s.since > 5) {
+        stop_send(true);
+        return true;
+    }
+    return false;
+}
+
+void App::stop_send(bool attempted) {
+    const auto s = std::move(*sending_);
+    sending_.reset();
+    const auto& piece = s.pieces[s.next];
+    std::size_t keep = piece.begin, uncertain = attempted ? piece.end : piece.begin;
+    if (attempted && piece.kind == SendPiece::Kind::Text) {
+        // A text sent one character at a time reports which characters were
+        // acknowledged: only the one that timed out may have arrived.
+        const auto rest = output_.retry_text();
+        if (!rest.empty() && rest.size() < piece.text.size() && piece.text.ends_with(rest)) {
+            keep = piece.end - rest.size();
+            uncertain = keep + static_cast<std::size_t>(g_utf8_next_char(rest.c_str()) - rest.c_str());
+        }
+    }
+    // The editor keeps what is left, so the queue must not retry it as well.
+    output_.cancel();
+    output_.take_status();
+    if (piece.kind == SendPiece::Kind::Enter) {
+        editor_.erase_front(editor_.text().size());
+        enter_pending_ = true;
+        status_ = "The text was sent, but Enter was not confirmed. Send presses Enter again.";
+    } else {
+        editor_.erase_front(keep - s.sent);
+        editor_.mark_uncertain(uncertain - keep);
+        status_ =
+            uncertain > keep
+                ? "Sending stopped. The rest stays here; the marked start may already have arrived."
+                : "Sending stopped. The rest stays here; Send continues.";
+    }
+    follow_cursor();
     dirty = true;
 }
 
