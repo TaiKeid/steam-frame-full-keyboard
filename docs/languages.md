@@ -17,6 +17,31 @@ does not automatically select Russian. Updating the app preserves your selection
 | Portuguese, Brazil | `pt-br` | Brazilian ABNT2 full-size | Brazilian XKB, including extra slash and keypad separator |
 | Russian | `ru-ru` | US full-size | Russian ЙЦУКЕН |
 | Ukrainian | `uk-ua` | US full-size | Ukrainian ЙЦУКЕН |
+| French, Canada | `fr-ca` | International full-size | Canadian French, accents on dead keys |
+| Arabic | `ar` | International full-size | Arabic XKB, legends right to left |
+| Croatian | `hr-hr` | International full-size | Croatian QWERTZ |
+| Czech | `cs-cz` | International full-size | Czech QWERTZ, accented letters on the number row |
+| Danish | `da-dk` | International full-size | Danish XKB |
+| Dutch | `nl-nl` | US full-size | US international with AltGr dead keys; ' and " stay plain |
+| Estonian | `et-ee` | International full-size | Estonian XKB |
+| Finnish | `fi-fi` | International full-size | Finnish XKB |
+| Greek | `el-gr` | US full-size | Greek XKB, tonos and dialytika dead keys |
+| Hebrew | `he-il` | US full-size | Hebrew SI-1452, legends right to left |
+| Hindi | `hi-in` | International full-size | Devanagari InScript |
+| Hungarian | `hu-hu` | International full-size | Hungarian QWERTZ, 0 left of 1 |
+| Indonesian | `id-id` | US full-size | US XKB, the standard layout there |
+| Latvian | `lv-lv` | US full-size | Latvian, letters on AltGr |
+| Lithuanian | `lt-lt` | US full-size | Lithuanian, letters on the number row |
+| Malay | `ms-my` | US full-size | US XKB, the standard layout there |
+| Norwegian | `nb-no` | International full-size | Norwegian XKB |
+| Polish | `pl-pl` | US full-size | Polish programmer, letters on AltGr |
+| Romanian | `ro-ro` | International full-size | Romanian standard, ș and ț with comma below |
+| Slovak | `sk-sk` | International full-size | Slovak QWERTZ |
+| Slovenian | `sl-si` | International full-size | Slovenian QWERTZ |
+| Swedish | `sv-se` | International full-size | Swedish XKB |
+| Thai | `th-th` | International full-size | Thai Kedmanee |
+| Turkish | `tr-tr` | International full-size | Turkish Q |
+| Vietnamese | `vi-vn` | US full-size | Vietnamese XKB, tone keys on the number row |
 | Simplified Chinese | `zh-cn-pinyin` | US full-size | Local Pinyin with candidates |
 | Traditional Chinese | `zh-tw-pinyin` | US full-size | Local Pinyin with Traditional output |
 | Korean | `ko-kr` | US full-size | Local two-set Hangul |
@@ -29,8 +54,32 @@ status line; choose a layout with the needed keys first
 type the current language switches to the most likely one for it: a favorite
 pair, another variant of the same language, the layout's own language, or US
 English. Theme selection is unchanged.
-French and Spanish regional variants beyond France and Spain, Chinese Zhuyin,
-Cangjie and Wubi, and Korean Hanja conversion are not included.
+
+Languages listed with International full-size also work on US full-size,
+except those with characters only on the extra key left of Z: Arabic, Danish,
+French (Canada), Hindi, Norwegian, Swedish and Thai, which Settings dims there.
+All of them work on International and UK full-size. AltGr is the right Alt
+key; its legend reads AltGr whenever the language uses it.
+
+Accents on dead keys, such as the Czech caron or the Greek tonos, are typed before the letter,
+and Shift may be pressed after the accent for a capital. On the Vietnamese
+layout the number-row tone keys add a combining mark after the letter; AltGr
+with the same key is a dead tone typed before the letter, which gives the
+single precomposed letter that some apps handle better. Indonesian and Malay
+use the US layout, which is standard there, and differ in their dictation
+language. Dutch uses US international with AltGr dead keys, so an apostrophe
+before n or s stays an apostrophe.
+
+Arabic and Hebrew keys show their legends as they appear in right-to-left text,
+so a bracket key shows the bracket it adds to the text. In the dictation
+editor, right-to-left text aligns to the right, and the arrow keys move the
+cursor the way they point on screen, stepping over a letter together with its
+marks, as in Thai or Hindi. The headset's own Noto fonts draw the Arabic,
+Hebrew, Devanagari, Thai and Greek legends.
+
+Spanish regional variants beyond Spain, French beyond France and Canada,
+Chinese Zhuyin, Cangjie and Wubi, Korean Hanja conversion, Vietnamese Telex and
+other Indic scripts are not included.
 
 ## Independent layout selection
 
@@ -107,7 +156,8 @@ path. A build without an engine rejects its profile on Apply while retaining the
 previous profile. A saved unsupported composition profile falls back to English
 at launch with an error message.
 
-Automated tests cover profile legends, Chinese script conversion/candidates,
+Automated tests cover profile legends, sample letters, AltGr levels and dead
+keys of every national keymap, Chinese script conversion/candidates,
 Korean syllables/editing, and commit ordering. A dedicated receiver checks Unicode
 transport separately from composition. Fluent-speaker review and per-application
 acceptance are still needed; passing a local conversion test does not establish
