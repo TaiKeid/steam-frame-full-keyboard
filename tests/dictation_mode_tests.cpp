@@ -360,15 +360,21 @@ void live_tests() {
         press(app, "Dictation");
         require(app.dictation_open() && app.view().dictation->capturing,
                 "the mic key opens the mode and starts listening");
-        wait_until(app, [&] { return app.view().dictation_level > 0; });
+        wait_until(app, [&] { return app.view().dictation_levels.back() > 0; });
+        require(app.view().dictation_levels.size() == 5 && app.view().dictation_levels.front() == 0,
+                "the newest level enters on the right of five bars");
         require(app.view().dictation_capturing && !control_enabled(app, "settings"),
                 "the mic key shows the level; Settings waits");
         press(app, "KeyA");
         require(editor_text(app).empty(), "the editor is read-only while listening");
         press(app, "Dictation");
         wait_until(app, [&] { return !editor_text(app).empty(); });
-        require(editor_text(app) == "Hello there." && !app.view().dictation->capturing,
-                "pausing recognizes the phrase and inserts it");
+        require(editor_text(app) == "Hello" && app.view().dictation->revealing,
+                "a phrase appears word by word");
+        press(app, "KeyA"); // ignored; the press's tick shows the rest
+        require(editor_text(app) == "Hello there." && !app.view().dictation->capturing &&
+                    !app.view().dictation->revealing,
+                "pausing recognizes the phrase and inserts it, typing waiting meanwhile");
         require(control_enabled(app, "settings"), "Settings works again when paused");
         press(app, "Dictation");
         require(app.view().dictation->capturing, "the mic key resumes");
@@ -388,7 +394,7 @@ void live_tests() {
         require(!app.dictation_open(), "Esc with an empty editor leaves");
         press(app, "Dictation");
         press(app, "Dictation");
-        wait_until(app, [&] { return !editor_text(app).empty(); });
+        wait_until(app, [&] { return !editor_text(app).empty() && !app.view().dictation->revealing; });
         const auto said = editor_text(app);
         press(app, "Escape");
         require(app.view().dictation->notice == "Discard text?", "Esc with text asks first");
@@ -403,7 +409,7 @@ void live_tests() {
         press(app, "Dictation");
         require(editor_text(app).empty(), "the discarded text is gone");
         press(app, "Dictation");
-        wait_until(app, [&] { return !editor_text(app).empty(); });
+        wait_until(app, [&] { return !editor_text(app).empty() && !app.view().dictation->revealing; });
         click(app, "close");
         require(!app.dictation_open(), "X ends the mode");
         app.set_interaction_active(true);

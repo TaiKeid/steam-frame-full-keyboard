@@ -473,14 +473,17 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
         gradient(cr, face, t.top, t.middle, t.bottom);
     }
     if (listening) {
-        // Five bars move with the speech level, tallest in the middle; flat
-        // dots in silence.
-        static constexpr double weights[]{.45, .75, 1, .75, .45};
+        // A waveform scrolling right to left: the newest level enters on
+        // the right, older ones fade as they move left; flat dots in silence.
+        const auto& levels = view.dictation_levels;
         const double cx = face.x + face.width / 2, cy = face.y + face.height / 2;
-        source(cr, t.legend);
-        for (int i = 0; i < 5; ++i) {
-            const double height = 4 + 30 * weights[i] * view.dictation_level / 8.0;
-            rounded(cr, {cx - 18 + i * 8, cy - height / 2, 4, height}, 2);
+        const double count = static_cast<double>(levels.size());
+        for (std::size_t i = 0; i < levels.size(); ++i) {
+            const double height = 4 + 30 * levels[i] / 8.0;
+            const double alpha = .4 + .6 * (static_cast<double>(i) + 1) / count;
+            cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, alpha);
+            rounded(cr, {cx - count * 4 + static_cast<double>(i) * 8 + 2, cy - height / 2, 4, height},
+                    2);
             cairo_fill(cr);
         }
         return;
@@ -925,7 +928,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         animating_ |= !view.settings && progress < 1;
         const bool mic_changed = !full && key.icon == Icon::Mic &&
                                  (previous_->view.dictation_capturing != view.dictation_capturing ||
-                                  previous_->view.dictation_level != view.dictation_level);
+                                  previous_->view.dictation_levels != view.dictation_levels);
         if (!full &&
             (changed_target || animation.amount != old_amount || mic_changed ||
              previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id))) {

@@ -622,7 +622,7 @@ PanelView App::build_view(bool picker) const {
     }
     v.dictation_available = dictation_available();
     v.dictation_capturing = capturing_;
-    v.dictation_level = mic_level_;
+    v.dictation_levels = mic_levels_;
     if (dictation_open_) {
         // The mode has its own keys; swipe and composition are off in it.
         v.layout = &dictation_layout_.layout;
@@ -755,8 +755,8 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (dictation_open_ && !settings_open_ && v.dictation && v.dictation->bounds.contains(x, y)) {
-        if (sending_ || capturing_ || confirm_discard_) {
-            return false; // locked while it sends, listens or asks
+        if (sending_ || capturing_ || confirm_discard_ || reveal_) {
+            return false; // locked while it sends, listens, asks or types a phrase
         }
         const auto area = editor_text_area(v);
         editor_.set_cursor(editor_index_at(v, x - area.x, y - area.y + editor_scroll_));
@@ -2666,6 +2666,7 @@ void App::close_dictation() {
         cancel_capture();
     }
     send_wait_since_.reset();
+    reveal_.reset();
     confirm_discard_ = false;
     notice_.clear();
     notice_error_ = false;
@@ -2712,6 +2713,12 @@ void App::set_dictation_view(PanelView& view) const {
     editor.bounds = panel_rect(view, dictation_layout_.editor);
     editor.text = editor_.text();
     editor.cursor = editor_.cursor();
+    if (reveal_) {
+        // The caret follows the words as they appear.
+        editor.text.erase(reveal_->shown, reveal_->end - reveal_->shown);
+        editor.cursor = reveal_->shown;
+        editor.revealing = true;
+    }
     editor.scroll = editor_scroll_;
     editor.uncertain = editor_.uncertain();
     editor.capturing = capturing_;
@@ -2758,6 +2765,15 @@ bool App::dictation_down(unsigned pointer, const Key& key, double now) {
         dictation_key_pointer_ = pointer;
         dirty = true;
         return true;
+    }
+    if (reveal_) {
+        // Typing waits while a phrase appears; Esc finishes it at once and
+        // then acts, as the mode's own keys do on release.
+        if (key.action_kind == ActionKind::Key && key.action == "Escape") {
+            finish_reveal();
+        } else {
+            return false;
+        }
     }
     if (confirm_discard_) {
         // The question is modal: its buttons answer it, and Esc again discards.
@@ -2830,6 +2846,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double now) {
 }
 
 void App::dictation_key_up(const Key& key) {
+    finish_reveal(); // The mode's keys act on the whole text.
     if (key.action == "mic") {
         // Start, pause, resume, pause; from the normal keyboard it opens the
         // mode and starts at once.
@@ -2889,7 +2906,7 @@ bool App::start_capture() {
         return false;
     }
     capturing_ = true;
-    mic_level_ = 0;
+    mic_levels_.assign(5, 0);
     notice_.clear();
     notice_error_ = false;
     editor_repeat_.reset();
@@ -2907,7 +2924,7 @@ void App::pause_capture() {
         dictation_->capture(false);
     }
     capturing_ = false;
-    mic_level_ = 0;
+    mic_levels_.clear();
     dirty = true;
 }
 
@@ -2916,7 +2933,7 @@ void App::cancel_capture() {
         dictation_->cancel();
     }
     capturing_ = false;
-    mic_level_ = 0;
+    mic_levels_.clear();
     pending_phrases_.clear();
     waiting_ = false;
     send_wait_since_.reset();
@@ -2960,9 +2977,15 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     using Kind = Dictation::Event::Kind;
     switch (event.kind) {
     case Kind::Level: {
-        const int level = capturing_ ? std::clamp(event.level * 9 / 256, 0, 8) : 0;
-        if (level != mic_level_) {
-            mic_level_ = level;
+        if (!capturing_ || mic_levels_.empty()) {
+            break;
+        }
+        // The newest level enters on the right; the others step left.
+        auto levels = mic_levels_;
+        levels.erase(levels.begin());
+        levels.push_back(std::clamp(event.level * 9 / 256, 0, 8));
+        if (levels != mic_levels_) {
+            mic_levels_ = std::move(levels);
             dirty = true;
         }
         break;
@@ -2981,9 +3004,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         }
         const auto& language = profiles_.languages.at(settings_.active.language);
         const bool spaced = language.dictation_language != "ja" && language.dictation_language != "zh";
+        finish_reveal();
+        // The phrase and its joining spaces go in at the cursor in one piece,
+        // so joining and Undo work as usual; the view reveals it word by word.
+        const auto start = editor_.cursor();
+        const auto size = editor_.text().size();
         if (editor_.insert_phrase(event.text, spaced)) {
+            reveal_ = Reveal{start, start + editor_.text().size() - size, start, now};
             editor_goal_x_.reset();
-            follow_cursor();
             dirty = true;
         }
         if (!editor_.can_dictate() && capturing_) {
@@ -2996,7 +3024,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         break;
     case Kind::Stopped:
         capturing_ = false;
-        mic_level_ = 0;
+        mic_levels_.clear();
         if (event.reason != "silence") {
             notice_ = dictation_problem(event.reason);
             notice_error_ = true;
@@ -3006,7 +3034,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     case Kind::Error:
         // The helper dropped every pending phrase; text already in stays.
         capturing_ = false;
-        mic_level_ = 0;
+        mic_levels_.clear();
         pending_phrases_.clear();
         send_wait_since_.reset();
         if (dictation_open_) {
@@ -3020,6 +3048,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     }
 }
 
+void App::finish_reveal() {
+    if (reveal_) {
+        reveal_.reset();
+        follow_cursor();
+        dirty = true;
+    }
+}
+
 bool App::tick_dictation(double now) {
     if (!dictation_) {
         return false;
@@ -3028,6 +3064,23 @@ bool App::tick_dictation(double now) {
     dictation_->tick(now);
     while (const auto event = dictation_->next()) {
         dictation_event(*event, now);
+    }
+    // One more word every 20 ms; after a slow frame the missed ones at once.
+    while (reveal_ && now >= reveal_->next) {
+        const auto& text = editor_.text();
+        auto& shown = reveal_->shown;
+        while (shown < reveal_->end && text[shown] == ' ') {
+            ++shown;
+        }
+        while (shown < reveal_->end && text[shown] != ' ') {
+            ++shown;
+        }
+        reveal_->next += .02;
+        if (shown >= reveal_->end) {
+            reveal_.reset();
+        }
+        follow_cursor();
+        dirty = true;
     }
     const bool waiting =
         std::any_of(pending_phrases_.begin(), pending_phrases_.end(),
@@ -3319,7 +3372,7 @@ void App::follow_cursor() {
     }
     const auto view = geometry();
     const auto area = editor_text_area(view);
-    const auto caret = editor_caret(view, editor_.cursor());
+    const auto caret = editor_caret(view, view.dictation->cursor);
     const double content = editor_content_height(view);
     if (caret.y < editor_scroll_) {
         editor_scroll_ = caret.y;

@@ -426,7 +426,17 @@ class App {
     bool phrases_pending() const { return !pending_phrases_.empty(); }
     std::unique_ptr<Dictation> dictation_;
     bool capturing_{};
-    int mic_level_{}; // 0–8, so the bars redraw only on visible changes
+    // The mic key's last five levels, 0–8, oldest first; cut to nine steps
+    // so the bars redraw only on visible changes, and not at all in silence.
+    std::vector<int> mic_levels_;
+    // A phrase shown word by word, as if typed: editor bytes [start, end)
+    // were inserted, and those before `shown` are visible.
+    struct Reveal {
+        std::size_t start{}, end{}, shown{};
+        double next{};
+    };
+    std::optional<Reveal> reveal_;
+    void finish_reveal();
     // Phrases announced and not yet inserted or dropped, with the time each
     // was handed to the recognizer (zero while still being spoken).
     std::map<std::uint64_t, double> pending_phrases_;

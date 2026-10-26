@@ -108,6 +108,7 @@ struct DictationView {
     bool sending{};          // Locked: dimmed text and no caret.
     std::size_t uncertain{}; // Leading bytes that may already have reached the target.
     bool capturing{};        // Read-only: dimmed text, caret kept.
+    bool revealing{};        // A phrase is still appearing word by word; read-only.
     std::string notice;      // A band over the editor's foot: waiting, an error or a question.
     bool notice_error{};
 };
@@ -150,7 +151,7 @@ struct PanelView {
     bool dictation_available{};
     // The mic key shows level bars instead of its icon while capturing.
     bool dictation_capturing{};
-    int dictation_level{}; // 0–8
+    std::vector<int> dictation_levels; // 0–8, oldest first
     // Dictation mode's editor; its keys are in `layout`.
     std::optional<DictationView> dictation;
 };

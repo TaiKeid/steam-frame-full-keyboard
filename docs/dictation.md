@@ -52,11 +52,11 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 - The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send, which commits, or Esc, which discards.
 - **Pause:** the phrase being spoken ends at the pause, and its audio is recognized and inserted. Resuming starts a new phrase.
-- **Mic key while capturing:** five vertical bars replace the mic icon and move with the speech level. They are flat during silence.
+- **Mic key while capturing:** five vertical bars replace the mic icon as a waveform scrolling right to left: each new level enters on the right, and older bars fade as they move left. They are flat during silence.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
   - The Frame splits speech at pauses of about 0.6 s, and at 25 s at the latest.
-  - Each phrase is sent to the recognizer while capture continues, and is inserted at the cursor as soon as its text returns.
+  - Each phrase is sent to the recognizer while capture continues, and is inserted at the cursor as soon as its text returns. It appears word by word, one word every 20 ms, as if typed very fast; typing into the editor waits until it has appeared, and Esc or the mode's keys show the rest at once.
   - Silence is never sent, which prevents most of Whisper's invented phrases.
 - **Context:** each phrase includes up to 200 characters of the text before the cursor as Whisper's prompt. This improves casing, punctuation and names, and makes inserting in the middle of the text read naturally.
 - **Script prompts:** for Chinese the prompt also fixes the script, because Whisper otherwise mixes simplified and traditional characters. For Japanese it uses 、 and 。, which Whisper often omits.
@@ -614,7 +614,8 @@ What this means for the design:
 
 First part: the helper connected to the editor.
 
-- **Mic key:** from the normal keyboard it opens dictation mode and starts listening; in the mode it pauses and resumes. While listening the key takes the theme's latched colour and shows five level bars, flat in silence. Its level is cut to nine steps, and only the key repaints when it changes.
+- **Mic key:** from the normal keyboard it opens dictation mode and starts listening; in the mode it pauses and resumes. While listening the key takes the theme's latched colour and shows the last five levels as bars scrolling right to left, flat in silence (owner request after the first try). Levels are cut to nine steps, and only the key repaints when the picture changes, so silence repaints nothing.
+- **Typed look:** a phrase goes into the editor whole, so joining and Undo are unchanged, but the view reveals it one word every 20 ms with the caret following (owner request). Typing and clicks wait meanwhile; Esc, Mic, Send and Undo show the rest at once and then act.
 - **Listening:** the editor's text dims, the editor is read-only, and Settings and the language button wait. Undo, Send, Esc and X keep working.
 - **Phrases:** App answers each `ready` with the 200 code points before the cursor and inserts the text at the cursor with the joining rules. A phrase waiting over a second for its text shows "Waiting for recognition…" in a band over the editor's foot. At 900 characters listening pauses.
 - **Esc:** listening, it stops and drops the phrases not yet inserted; with an empty editor it leaves; with text it asks "Discard text?" with Discard and Keep, and Esc again discards. Other keys wait while it asks.
