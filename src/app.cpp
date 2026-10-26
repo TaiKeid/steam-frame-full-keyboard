@@ -1432,6 +1432,7 @@ bool App::tick(double now) {
             }
             // Repeats never catch up after a stall, like the output queue's.
             editor_repeat_->next = now + .04;
+            editor_repeat_->repeating = true;
             dirty = true;
         }
     }

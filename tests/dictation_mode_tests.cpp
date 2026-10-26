@@ -417,14 +417,16 @@ void mode_tests() {
         app.down(0, x, y, clock);
         app.tick(clock + .3);
         require(editor_text(app) == "yi tx\n2", "one deletion on press");
+        require(!app.holds_repeat(0, clock + .3),
+                "before repeating, leaving the panel would release it");
         app.tick(clock + .6);
         app.tick(clock + .65);
         require(editor_text(app) == "yi tx", "held Backspace repeats");
         // The VR loop keeps it held past the panel's edge until the trigger lets go.
-        require(app.holds_repeat(0) && !app.holds_repeat(1),
-                "the editor's held Backspace counts as repeating");
+        require(app.holds_repeat(0, clock + .65) && !app.holds_repeat(1, clock + .65),
+                "once repeating, the editor's held Backspace stays held off the panel");
         app.up(0, x, y);
-        require(!app.holds_repeat(0), "and no longer once released");
+        require(!app.holds_repeat(0, clock + .7), "and no longer once released");
         clock += 1;
         app.tick(clock);
         require(editor_text(app) == "yi tx", "release stops the repeat");

@@ -1322,8 +1322,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::array<std::pair<double, double>, 2> scene_last{};
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
-    // A repeating key, such as Backspace, held when its laser left the panel:
-    // it stays down until the trigger's release, read from the controller,
+    // A key, such as Backspace, already repeating when its laser left the
+    // panel: it stays down until the trigger's release, read from the controller,
     // since no button event arrives off our overlay (docs/architecture.md, Input and focus).
     struct KeyHold {
         unsigned pointer{};
@@ -1337,7 +1337,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // Frame controller's trigger to watch, or the key is released as before.
     auto keeps_held_key = [&](vr::TrackedDeviceIndex_t device, double now, bool passthrough) {
         for (const auto& [pointer, owner] : pointer_devices) {
-            if (owner != device || !app.holds_repeat(pointer)) {
+            if (owner != device || !app.holds_repeat(pointer, now)) {
                 continue;
             }
             if (passthrough) {
@@ -1998,7 +1998,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (key_hold) {
             const auto pointer = key_hold->pointer;
-            if (!app.holds_repeat(pointer)) {
+            if (!app.holds_repeat(pointer, now)) {
                 key_hold.reset(); // released back over the panel, or cancelled
             } else if (key_hold->trigger.released(now) || now - key_hold->since > 30) {
                 app.cancel_pointer(pointer);
