@@ -1,7 +1,9 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/clipboard.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include <chrono>
 #include <iostream>
+#include <linux/input-event-codes.h>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -15,6 +17,10 @@ using namespace framekeyboard;
 //                       swipe alternative does
 //   whole <text>        commit text as one request, even plain ASCII
 //   paced <text>        commit text one acknowledged character at a time
+//   clip <text>         write text to the clipboard, as paste Send does; it
+//                       never reads the clipboard
+//   paste               press Ctrl+V, then wait up to 2 s for an application
+//                       to take the clipboard's text
 // and prints "ok" or "fail" once Gamescope confirms or rejects it. Nothing is
 // sent without a command. "\n" in text stands for a line break.
 namespace {
@@ -47,10 +53,45 @@ int main() {
     std::cerr << (sink.shortcut_code(XKB_KEY_a, -1) < 0 ? "no target keymap\n" : "target keymap\n");
     std::cout << "ready" << std::endl;
     std::string line;
+    std::unique_ptr<Clipboard> clipboard;
     while (std::getline(std::cin, line)) {
         std::istringstream input(line);
         std::string command;
         input >> command;
+        if (command == "clip") {
+            std::string text;
+            input.get();
+            std::getline(input, text);
+            if (!clipboard) {
+                clipboard = make_x_clipboard();
+            }
+            const auto number = clipboard->write(unescape(text));
+            std::optional<bool> owned;
+            for (int i = 0; i < 200 && !(owned = clipboard->result(number)); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            // Let Gamescope's own fetch of the new clipboard pass.
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            std::cout << (owned.value_or(false) ? "ok" : "fail") << std::endl;
+            continue;
+        }
+        if (command == "paste") {
+            const auto served = clipboard ? clipboard->served() : 0;
+            const int v = sink.shortcut_code(XKB_KEY_v, KEY_V);
+            sink.send(KEY_LEFTCTRL, 1);
+            sink.send(v, 1);
+            sink.send(v, 0);
+            sink.send(KEY_LEFTCTRL, 0);
+            bool taken = false;
+            for (int i = 0; i < 400 && clipboard && !taken; ++i) {
+                sink.pump();
+                taken = clipboard->served() != served;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::cout << (taken ? "ok" : "fail") << std::endl;
+            continue;
+        }
         std::size_t deletions = 0;
         if (command == "replace") {
             input >> deletions;

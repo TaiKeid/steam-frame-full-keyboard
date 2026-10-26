@@ -80,9 +80,12 @@ struct Settings {
     std::string dictation_server; // host[:port]
     std::string dictation_url;    // or a full base URL
     std::string dictation_model;
-    // Milliseconds between characters while Send types: 40, 30 or 20. Slower
+    // Milliseconds between characters while Send types: 20, 30 or 40. Slower
     // keeps their order under heavy load (docs/dictation.md, M3b results).
-    int dictation_send_gap{40};
+    int dictation_send_gap{20};
+    // Send pastes through the clipboard instead of typing; Steam's own fields
+    // keep their direct path.
+    bool dictation_send_paste{};
 };
 // Whether a server address or URL is one the dictation helper accepts.
 bool valid_dictation_server(const std::string& server);

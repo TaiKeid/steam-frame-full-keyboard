@@ -603,8 +603,15 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 }
                 settings.dictation_send_gap = value;
             }
+            if (auto* paste = field(document.get(), "dictation_send_paste", json_type_boolean, true)) {
+                settings.dictation_send_paste = json_object_get_boolean(paste);
+            }
         } catch (const std::exception&) {
-            errors.push_back("config.json: dictation_send_gap_ms must be 20, 30 or 40; using 40");
+            errors.push_back(
+                "config.json: dictation_send_gap_ms must be 20, 30 or 40 and dictation_send_paste a "
+                "boolean; Send types at 20 ms");
+            settings.dictation_send_gap = 20;
+            settings.dictation_send_paste = false;
         }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
@@ -712,6 +719,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->emoji_close_on_select));
         json_object_object_add(document.get(), "dictation_send_gap_ms",
                                json_object_new_int(settings->dictation_send_gap));
+        json_object_object_add(document.get(), "dictation_send_paste",
+                               json_object_new_boolean(settings->dictation_send_paste));
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

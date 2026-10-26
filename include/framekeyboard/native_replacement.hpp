@@ -34,6 +34,7 @@ class NativeReplacement : public KeySink {
     const char* unavailable_reason() const;
     void route(bool remote) { remote_ = remote; }
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
+    bool steam_field_target() const override { return remote_ && state_.active; }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
     bool remote() const { return remote_; }
     void dismiss_request();

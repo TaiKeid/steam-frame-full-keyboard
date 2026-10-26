@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cjk.hpp"
+#include "clipboard.hpp"
 #include "dictation.hpp"
 #include "dictation_editor.hpp"
 #include "dictation_mode.hpp"
@@ -50,6 +51,8 @@ struct Options {
     // Tests replace the dictation helper; empty uses the installed one.
     fs::path dictation_helper;
     std::vector<std::string> dictation_arguments;
+    // Tests replace the clipboard writer; null writes the X clipboard.
+    Clipboard* clipboard{};
 };
 
 class App {
@@ -256,7 +259,8 @@ class App {
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
     bool pending_emoji_close_on_select_{};
-    int pending_dictation_send_gap_{40};
+    int pending_dictation_send_gap_{20};
+    bool pending_dictation_send_paste_{};
     bool native_fallback_{};
     bool replacement_available_{};
     std::string replacement_unavailable_reason_;
@@ -406,7 +410,19 @@ class App {
         std::uint64_t completed{}, failures{}; // The queue's counters before the piece.
         double since{-1};                      // When the piece was first offered.
         std::size_t total{}, done{};           // Code points, for the counter.
+        // A paste: 0 not begun, 1 taking the clipboard, 2 letting Gamescope
+        // fetch it, 3 Ctrl+V sent, waiting for the application's request,
+        // 4 a short wait for it to insert the text before Enter.
+        int paste_stage{};
+        std::uint64_t paste_write{}, paste_served{};
+        double paste_at{};
     };
+    bool tick_paste(double now);
+    // Erases a delivered piece from the editor and moves on; after the last,
+    // the mode closes.
+    void finish_piece(double now);
+    Clipboard* clipboard();
+    std::unique_ptr<Clipboard> clipboard_;
     bool can_send() const;
     void start_send();
     bool tick_send(double now);

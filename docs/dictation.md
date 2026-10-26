@@ -19,7 +19,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
   - A language profile without dictation support hides the mic key.
 - **Off by default.** Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
-- **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk, and the system clipboard is never read or written.
+- **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk. The keyboard never reads the clipboard; it writes it only when Send is set to Paste (owner decision, 2026-10-25), and then holds just the sent text.
 - **Release:** not in 0.9.0.
 - **Credit:** the helper process, `pw-record` capture, transcript cleanup and repetition guard follow the dictation pull request by amirhh00 and adepssimius (`TaiKeid/steam-frame-full-keyboard#2`). That pull request vendored whisper.cpp and ggml into the repository and ran them on the Frame, and is not merged; its ideas are reimplemented on the current code.
 
@@ -111,7 +111,13 @@ Esc in dictation mode is local and never reaches the application.
   - Only the final Enter is a plain Enter.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the existing output queue. Each line break is a native key entry. Each piece goes out once the previous one is delivered, so a failure knows exactly what arrived.
-  - Plain text to local apps goes one acknowledged character at a time; whole commits scrambled it in the [M3b test](#m3b-results-2026-10-25). Send waits 40 ms between characters by default, about 37 s for 900 characters. The **Send pace** setting offers 30 and 20 ms, faster but more likely to swap neighbouring characters when the Frame is busy. Other typing keeps 20 ms.
+  - Plain text to local apps goes one acknowledged character at a time; whole commits scrambled it in the [M3b test](#m3b-results-2026-10-25). Send waits 20 ms between characters by default, about 19 s for 900 characters (owner decision). The **Send** setting also offers 30 and 40 ms, slower but steadier when the Frame is busy. Other typing keeps 20 ms.
+  - **Paste:** the fourth choice of the **Send** setting. Send writes the text to the clipboard, line breaks included, presses Ctrl+V, and waits until the application takes the text before the final Enter.
+    - The keyboard owns the clipboard on every X display, since Steam uses `:0` and the applications it starts use `:1`, and Gamescope does not copy one to the other. It answers requests for its own text and never asks for anyone else's. The text stays there until something else is copied or the keyboard exits.
+    - Gamescope fetches a new clipboard at once, so Send waits 150 ms before Ctrl+V; Enter follows 100 ms after the application's request.
+    - If no application asks for the text within 2 s, the text stays in the editor and Enter is not pressed. An interruption after Ctrl+V marks the whole text as possibly arrived.
+    - Steam's own fields reached through native keyboard replacement keep the direct path, which already inserts text at once; the clipboard cannot reach them.
+    - Applications that paste with another shortcut, such as terminals, do not take it.
   - Sending waits until no key is held, so a held modifier cannot turn letters into shortcuts.
   - The editor is locked and shows progress while sending: delivered text leaves the editor as it goes, the rest is dimmed without a caret, and the counter shows `Sending 120/412`. Esc stops sending.
   - If delivery fails or is interrupted (Esc, hiding the panel, losing the target, or no answer for 5 s), the unsent remainder stays in the editor and the mode stays open, as failed Japanese commits stay in the preedit today. Send continues from there.
@@ -615,6 +621,7 @@ What this means for the design:
 First part: the helper connected to the editor.
 
 - **Mic key:** from the normal keyboard it opens dictation mode and starts listening; in the mode it pauses and resumes. While listening the key takes the theme's latched colour and shows the last five levels as bars scrolling right to left, flat in silence (owner request after the first try). Levels are cut to nine steps, and only the key repaints when the picture changes, so silence repaints nothing.
+- **Gliding waveform (owner request):** levels arrive in bursts as audio is read, so App queues them and starts one bar every 80 ms, the helper's level interval; between starts the panel slides the bars left every frame, the oldest sliding out. Flat dots never move, so silence repaints nothing. This became affordable with partial texture uploads, where a mic key repaint copies only that key to the GPU.
 - **Typed look:** a phrase goes into the editor whole, so joining and Undo are unchanged, but the view reveals it one word every 20 ms with the caret following (owner request). Typing and clicks wait meanwhile; Esc, Mic, Send and Undo show the rest at once and then act.
 - **Listening:** the editor's text dims, the editor is read-only, and Settings and the language button wait. Undo, Send, Esc and X keep working.
 - **Phrases:** App answers each `ready` with the 200 code points before the cursor and inserts the text at the cursor with the joining rules. A phrase waiting over a second for its text shows "Waiting for recognition…" in a band over the editor's foot. At 900 characters listening pauses.
@@ -637,6 +644,8 @@ The owner settled the behavior questions and the proposals on 2026-10-25; the ru
 - **Proposals:** the remaining items marked *proposal* above.
 
 ## Further work
+
+- Before release: the README's privacy note says the app does not read clipboard contents; add that Send set to Paste writes the sent text to it.
 
 - Swipe typing into the editor. It needs a suggestion row, and dictation mode has no room for one yet.
 - Text selection in the editor.

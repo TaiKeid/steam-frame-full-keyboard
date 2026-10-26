@@ -193,6 +193,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
+    pending_dictation_send_paste_ = settings_.dictation_send_paste;
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
     prepare_swipe();
     update_settings_ui();
@@ -417,10 +418,16 @@ void App::update_settings_ui() {
     for (auto& choice : language_choices) {
         choice.enabled = fits(profiles_, {pending_.layout, choice.id, pending_.theme});
     }
-    // Send types one character at a time; slower keeps the order under load.
-    auto send_gap = field(ControlKind::ChooseSendGap,
-                          dropdown("send-gap", "Send pace", std::to_string(pending_dictation_send_gap_),
-                                   {{"40", "40 ms (default)"}, {"30", "30 ms"}, {"20", "20 ms"}}));
+    // Send types one character at a time, slower keeping the order under
+    // load, or pastes through the clipboard.
+    auto send_gap = field(
+        ControlKind::ChooseSendGap,
+        dropdown("send-gap", "Send",
+                 pending_dictation_send_paste_ ? "paste" : std::to_string(pending_dictation_send_gap_),
+                 {{"20", "Type, 20 ms (default)"},
+                  {"30", "Type, 30 ms"},
+                  {"40", "Type, 40 ms"},
+                  {"paste", "Paste"}}));
     send_gap.note = "Dictation";
     settings_ui_.set_cards(
         {{"languages",
@@ -1207,6 +1214,7 @@ void App::show_settings() {
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
+    pending_dictation_send_paste_ = settings_.dictation_send_paste;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -1371,6 +1379,7 @@ void App::reload() {
         settings_.swipe_typing = updated_settings.swipe_typing;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
+        settings_.dictation_send_paste = updated_settings.dictation_send_paste;
         settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
@@ -1385,6 +1394,7 @@ void App::reload() {
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
+    pending_dictation_send_paste_ = settings_.dictation_send_paste;
     swipe_prepared_.clear(); // Reread an edited word list.
     prepare_swipe();
     rebuild_cycle_entries();
@@ -1878,6 +1888,7 @@ void App::action(const ControlAction& command) {
         settings_.swipe_typing = pending_swipe_typing_;
         settings_.emoji_close_on_select = pending_emoji_close_on_select_;
         settings_.dictation_send_gap = pending_dictation_send_gap_;
+        settings_.dictation_send_paste = pending_dictation_send_paste_;
         prepare_swipe();
         default_ = settings_.active;
         persisted_active_ = settings_.active;
@@ -1935,7 +1946,10 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::ChooseSendGap) {
         pressed_controls_.clear();
         hovered_.clear();
-        pending_dictation_send_gap_ = std::stoi(command.value);
+        pending_dictation_send_paste_ = command.value == "paste";
+        if (!pending_dictation_send_paste_) {
+            pending_dictation_send_gap_ = std::stoi(command.value);
+        }
         settings_ui_.close_popup();
         update_settings_ui();
     } else if (kind == ControlKind::EmojiCloseOnSelect) {
@@ -3182,6 +3196,7 @@ namespace {
 std::size_t counted(const SendPiece& piece) {
     switch (piece.kind) {
     case SendPiece::Kind::Text:
+    case SendPiece::Kind::Paste:
         return static_cast<std::size_t>(g_utf8_strlen(piece.text.c_str(), -1));
     case SendPiece::Kind::Enter:
         return 0;
@@ -3205,6 +3220,9 @@ void App::start_send() {
     if (editor_.text().find_first_not_of(" \n") == std::string::npos) {
         // Only the final Enter is left; the editor holds nothing to send.
         send.pieces = {{SendPiece::Kind::Enter, {}, 0, editor_.text().size()}};
+    } else if (settings_.dictation_send_paste && !output_.steam_field_target()) {
+        // Steam's own fields take text directly; the clipboard cannot reach them.
+        send.pieces = paste_pieces(editor_.text());
     } else {
         send.pieces = send_pieces(editor_.text(), !output_.single_line_target());
     }
@@ -3228,6 +3246,9 @@ bool App::tick_send(double now) {
         s.since = now;
     }
     const auto& piece = s.pieces[s.next];
+    if (piece.kind == SendPiece::Kind::Paste) {
+        return tick_paste(now);
+    }
     if (!s.in_flight) {
         // A held key could turn letters into shortcuts, and earlier output
         // must arrive first. Every editor key is ignored meanwhile, so this ends.
@@ -3253,6 +3274,8 @@ bool App::tick_send(double now) {
         case SendPiece::Kind::Enter:
             accepted = output_.tap({KEY_ENTER});
             break;
+        case SendPiece::Kind::Paste:
+            break; // tick_paste
         }
         if (!accepted) {
             // A target briefly busy with an earlier request accepts it later.
@@ -3269,6 +3292,22 @@ bool App::tick_send(double now) {
         return true;
     }
     if (output_.completed() != s.completed) {
+        finish_piece(now);
+        return true;
+    }
+    // Hiding the panel or losing the target cancels the queue without a
+    // failure; a target that never answers is given up the same way.
+    if (!output_.text_pending() || now - s.since > 5) {
+        stop_send(true);
+        return true;
+    }
+    return false;
+}
+
+void App::finish_piece(double now) {
+    auto& s = *sending_;
+    const auto& piece = s.pieces[s.next];
+    {
         editor_.erase_front(piece.end - s.sent);
         s.sent = piece.end;
         s.done += counted(piece);
@@ -3282,15 +3321,92 @@ bool App::tick_send(double now) {
             editor_scroll_ = 0;
             close_dictation();
         }
+    }
+}
+
+Clipboard* App::clipboard() {
+    if (options_.clipboard) {
+        return options_.clipboard;
+    }
+    if (!clipboard_) {
+        clipboard_ = make_x_clipboard();
+    }
+    return clipboard_.get();
+}
+
+bool App::tick_paste(double now) {
+    auto& s = *sending_;
+    const auto& piece = s.pieces[s.next];
+    auto give_up = [&](const char* why) {
+        stop_send(false);
+        status_ = why;
+        return true;
+    };
+    switch (s.paste_stage) {
+    case 0:
+        // As for typing: nothing held, earlier output delivered.
+        if (keyboard_.active() || output_.text_pending()) {
+            return false;
+        }
+        if (output_.retry_available()) {
+            output_.cancel();
+        }
+        // Written, never read: the keyboard owns the clipboard with this text.
+        s.paste_write = clipboard()->write(piece.text);
+        s.paste_stage = 1;
+        s.paste_at = now;
+        return false;
+    case 1:
+        if (const auto owned = clipboard()->result(s.paste_write)) {
+            if (!*owned) {
+                return give_up("The clipboard is not available. The text stays here.");
+            }
+            s.paste_stage = 2;
+            s.paste_at = now;
+        } else if (now - s.paste_at > 1) {
+            return give_up("The clipboard is not available. The text stays here.");
+        }
+        return false;
+    case 2: {
+        // Gamescope fetches a new clipboard at once; let that pass, so the
+        // next request is the application's paste.
+        if (now - s.paste_at < .15) {
+            return false;
+        }
+        s.paste_served = clipboard()->served();
+        s.completed = output_.completed();
+        s.failures = output_.failures();
+        const int v = output_.shortcut_code(XKB_KEY_v, KEY_V);
+        if (!output_.tap({KEY_LEFTCTRL, v})) {
+            return now - s.paste_at > 2 ? give_up("Paste could not be pressed. The text stays here.")
+                                        : false;
+        }
+        s.paste_stage = 3;
+        s.in_flight = true; // From here an interrupted paste may have arrived.
+        s.paste_at = now;
+        return false;
+    }
+    case 3:
+        if (output_.failures() != s.failures) {
+            return give_up("Paste could not be pressed. The text stays here.");
+        }
+        if (clipboard()->served() != s.paste_served) {
+            s.paste_stage = 4;
+            s.paste_at = now;
+        } else if (now - s.paste_at > 2) {
+            return give_up("The application did not take the pasted text. It stays here.");
+        }
+        return false;
+    default:
+        // The application has the text; give it a moment to insert it
+        // before Enter, which would otherwise overtake it.
+        if (now - s.paste_at < .1 || output_.text_pending()) {
+            return false;
+        }
+        s.since = now;
+        finish_piece(now);
         return true;
     }
-    // Hiding the panel or losing the target cancels the queue without a
-    // failure; a target that never answers is given up the same way.
-    if (!output_.text_pending() || now - s.since > 5) {
-        stop_send(true);
-        return true;
-    }
-    return false;
 }
 
 void App::stop_send(bool attempted) {

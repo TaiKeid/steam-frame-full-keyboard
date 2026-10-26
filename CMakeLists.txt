@@ -19,6 +19,7 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(NATIVE REQUIRED IMPORTED_TARGET cairo pangocairo harfbuzz xkbcommon json-c)
 pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb)
 # SteamOS libei 1.4.1 crashes on an aborted negotiation. Keep the fixed client
 # inside this app; never replace the runtime library used by Steam itself.
 add_subdirectory(third_party/libei)
@@ -44,9 +45,9 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 # Frame already supplies these engines. Minimal host builds can still run the
 # ordinary keyboard; unsupported composition profiles fail explicitly on Apply.

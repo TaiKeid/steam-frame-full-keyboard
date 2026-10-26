@@ -1307,28 +1307,39 @@ void dictation_settings() {
     CaptureSink sink;
     App app(options, sink);
     app.show_settings();
-    require(control(app.view(), "send-gap").label.find("40") != std::string::npos,
-            "Send's pace starts at 40 ms");
-    select(app, "send-gap", "20");
-    require(saved(app).dictation_send_gap == 40, "the pace stays pending until Apply");
+    require(control(app.view(), "send-gap").label.find("20 ms") != std::string::npos,
+            "Send types at 20 ms by default");
+    select(app, "send-gap", "40");
+    require(saved(app).dictation_send_gap == 20, "the choice stays pending until Apply");
     click(app, "apply");
-    require(saved(app).dictation_send_gap == 20, "Apply saves the pace");
+    require(saved(app).dictation_send_gap == 40 && !saved(app).dictation_send_paste,
+            "Apply saves the pace");
     {
         App reopened(options, sink);
         reopened.show_settings();
-        require(control(reopened.view(), "send-gap").label.find("20") != std::string::npos,
+        require(control(reopened.view(), "send-gap").label.find("40 ms") != std::string::npos,
                 "the pace survives restart");
     }
-    for (const auto* value : {"25", "\"30\""}) {
+    app.show_settings();
+    select(app, "send-gap", "paste");
+    click(app, "apply");
+    require(saved(app).dictation_send_paste && saved(app).dictation_send_gap == 40,
+            "Paste is saved apart from the pace");
+    {
+        App reopened(options, sink);
+        reopened.show_settings();
+        require(control(reopened.view(), "send-gap").label == "Paste", "Paste survives restart");
+    }
+    for (const auto* value : {R"("dictation_send_gap_ms":25)", R"("dictation_send_gap_ms":"30")",
+                              R"("dictation_send_paste":"yes")"}) {
         std::ofstream(directory.path / "config.json")
             << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},)"
-            << R"("dictation":"server","dictation_server":"host","dictation_send_gap_ms":)" << value
-            << "}";
+            << R"("dictation":"server","dictation_server":"host",)" << value << "}";
         std::vector<std::string> errors;
         const auto settings = load_settings(directory.path, errors);
-        require(errors.size() == 1 && settings.dictation_send_gap == 40 &&
-                    settings.dictation == "server",
-                "a bad pace falls back to 40 ms on its own");
+        require(errors.size() == 1 && settings.dictation_send_gap == 20 &&
+                    !settings.dictation_send_paste && settings.dictation == "server",
+                "a bad Send setting falls back to typing at 20 ms on its own");
     }
     require(sink.events.empty(), "dictation settings send no desktop input");
 }

@@ -103,7 +103,10 @@ Dictation is being built and is not released yet; the design is in [dictation](d
 - `dictation_server`: the user's own speech server as `host` or `host:port`; port 8031 is assumed.
 - `dictation_url`: instead of a server, a full base URL of a hosted OpenAI-compatible provider, such as `https://api.groq.com/openai/v1`.
 - `dictation_model`: the model name, for servers and providers that need one.
-- `dictation_send_gap_ms`: how many milliseconds Send waits between characters, `40` (the default), `30` or `20`. Slower keeps characters in order when the Frame is busy. It is the **Send pace** row of the Experimental card, until Dictation has a card of its own. Any other value falls back to 40 with a message.
+- `dictation_send_gap_ms`: how many milliseconds Send waits between characters, `20` (the default), `30` or `40`. Slower keeps characters in order when the Frame is busy.
+- `dictation_send_paste`: `true` makes Send paste through the clipboard instead of typing; the keyboard writes the clipboard but never reads it.
+
+Both are the **Send** row of the Experimental card, until Dictation has a card of its own. An invalid value of either falls back to typing at 20 ms with a message.
 
 The API key for a provider is not stored here, but in `dictation-key` beside `config.json`, readable only by the user (see [speech server setup](speech-server.md#hosted-providers)). An invalid dictation field turns dictation off with a message and leaves every other setting as it is. Saving from Settings keeps these fields.
 

@@ -32,7 +32,7 @@ and two-controller ownership. Host tests do not establish physical VR behavior.
 
 The image is retained between paints. Hover/press/release updates clear and redraw only damaged key regions, including overlapping neighboring ink in the original drawing order. Cairo recording surfaces measure ink bounds when the visual model changes; the bounds cover the entire press travel and include text outside the face rectangle. Profile snapshots compare values rather than pointer addresses so Reload cannot reuse stale geometry. Modifier/lock legends, composition/candidates, settings, status, and profile changes use full redraws. Pixel-comparison tests run the same interaction sequence against an always-full renderer.
 
-`PanelTexture` prefers Cairo's native premultiplied BGRA bytes on little-endian systems, using `VK_FORMAT_B8G8R8A8_UNORM` and `VROverlayFlags_IsPremultiplied`. It checks Vulkan format support and OpenVR flag acceptance, and falls back to straight RGBA conversion if setup or submission fails. Rejected native textures stay alive until VR shutdown. Both GPU images still receive full uploads; partial CPU painting does not introduce stale alternate textures. The visible 60 Hz pose loop and 80 ms Graphite animation duration are unchanged.
+`PanelTexture` prefers Cairo's native premultiplied BGRA bytes on little-endian systems, using `VK_FORMAT_B8G8R8A8_UNORM` and `VROverlayFlags_IsPremultiplied`. It checks Vulkan format support and OpenVR flag acceptance, and falls back to straight RGBA conversion if setup or submission fails. Rejected native textures stay alive until VR shutdown. Uploads are partial: the renderer reports the whole-pixel rectangles each paint changed (`PanelRenderer::damage()`), and `OverlayTexture` copies only those, plus whatever changed while the other of its two images was current, so neither image goes stale. A full repaint, more than 24 areas or more than half the image goes whole. The rendering test checks that every changed pixel lies inside the reported damage. The visible 60 Hz pose loop and 80 ms Graphite animation duration are unchanged.
 
 The HTML in `design/` is a keycap design artifact only. Settings uses native card geometry rather than that older HTML toolbar. It is not an embedded browser requirement for the native app.
 
@@ -199,6 +199,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Emoji table, picker layout and grid, glyph worker | `src/emoji.cpp`, `src/emoji_glyphs.cpp`; table `emoji/emoji.tsv` from `tools/emoji_table.py` |
 | Dictation editor and mode layout | `src/dictation_editor.cpp`, `src/dictation_mode.cpp`; App routing in `src/app.cpp`, drawing in `src/panel.cpp` |
 | Dictation Send | `src/dictation_send.cpp` cuts the text into deliveries; App sends them one at a time through `OutputController` |
+| Clipboard writer | `src/clipboard.cpp`: owns the X clipboard on every display for paste Send, through XCB on its own thread; never reads it |
 | Dictation helper and its client (not yet used by App) | `dictation/dictation_helper.py`, `src/dictation.cpp`, `include/framekeyboard/dictation.hpp`; protocol in [dictation](dictation.md#helper-protocol) |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |

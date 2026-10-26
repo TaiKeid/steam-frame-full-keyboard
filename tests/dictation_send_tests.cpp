@@ -82,6 +82,16 @@ void single_line() {
     require(pieces[4].text == "c d", "spaces without a break are ordinary text");
     require_cover(text, pieces);
 }
+void paste() {
+    const std::string text = " \nOne\n\ntwo \n";
+    const auto pieces = send_pieces(text, true);
+    const auto pasted = paste_pieces(text);
+    require(pasted.size() == 2 && pasted[0].kind == Kind::Paste && pasted[0].text == "One\n\ntwo" &&
+                pasted[0].begin == 0 && pasted[1].kind == Kind::Enter && pasted[1].end == text.size(),
+            "a paste is the trimmed text in one piece, then Enter");
+    require(pieces.back().begin == pasted[1].begin, "both end where the trimmed text ends");
+    require(paste_pieces(" \n").empty(), "nothing to paste without text");
+}
 } // namespace
 
 int main() {
@@ -90,6 +100,7 @@ int main() {
         chunks();
         line_breaks();
         single_line();
+        paste();
         std::cout << "Dictation send tests passed\n";
         return 0;
     } catch (const std::exception& error) {

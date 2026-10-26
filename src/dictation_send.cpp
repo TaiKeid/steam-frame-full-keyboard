@@ -20,6 +20,16 @@ void add_text(std::vector<SendPiece>& pieces, const std::string& text, std::size
 }
 } // namespace
 
+std::vector<SendPiece> paste_pieces(const std::string& text) {
+    const auto first = text.find_first_not_of(" \n");
+    if (first == std::string::npos) {
+        return {};
+    }
+    const auto last = text.find_last_not_of(" \n") + 1;
+    return {{SendPiece::Kind::Paste, text.substr(first, last - first), 0, last},
+            {SendPiece::Kind::Enter, {}, last, text.size()}};
+}
+
 std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks) {
     const auto first = text.find_first_not_of(" \n");
     if (first == std::string::npos) {

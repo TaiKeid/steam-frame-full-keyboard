@@ -56,6 +56,8 @@ struct Sink : KeySink {
     }
     std::size_t delivered_characters() const override { return acknowledged; }
     bool single_line_target() const override { return single_line; }
+    bool steam_field{};
+    bool steam_field_target() const override { return steam_field; }
     std::vector<double> gaps;
     void set_character_gap(double seconds) override { gaps.push_back(seconds); }
 };
@@ -103,7 +105,8 @@ void settings_tests() {
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"speech.local:8031")");
     std::vector<std::string> errors;
     auto settings = load_settings(directory.path, errors);
-    require(settings.dictation_send_gap == 40, "Send's pace defaults to 40 ms");
+    require(settings.dictation_send_gap == 20 && !settings.dictation_send_paste,
+            "Send types at 20 ms by default");
     require(errors.empty() && settings.dictation == "server" &&
                 settings.dictation_server == "speech.local:8031",
             "dictation settings load");
@@ -468,6 +471,109 @@ void scroll_tests() {
     require(app.view().dictation->cursor != cursor, "a tap still places the cursor");
 }
 
+// Records what Send writes and counts an application's request for it once
+// Ctrl+V reaches the sink, as the X clipboard's served() would.
+struct FakeClipboard : Clipboard {
+    const Sink* sink{};
+    std::vector<std::string> written;
+    bool available{true}, taken{true};
+    std::uint64_t write(const std::string& text) override {
+        written.push_back(text);
+        return written.size();
+    }
+    std::optional<bool> result(std::uint64_t) const override { return available; }
+    std::uint64_t served() const override {
+        std::uint64_t pastes = 0;
+        bool control = false;
+        for (const auto& [code, value] : sink->keys) {
+            if (code == KEY_LEFTCTRL) {
+                control = value != 0;
+            } else if (code == KEY_V && value == 1 && control && taken) {
+                ++pastes;
+            }
+        }
+        return pastes;
+    }
+};
+
+void paste_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_send_paste":true)");
+    use_fake_helper(options, directory.path, "silent");
+    {
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "\nhi\n\nthere\n");
+        press(app, "Dictation-send");
+        settle(app);
+        require(clipboard.written == std::vector<std::string>{"hi\n\nthere"},
+                "paste writes the trimmed text, line breaks and all, to the clipboard");
+        const Keys expected{{KEY_LEFTCTRL, 1}, {KEY_V, 1},     {KEY_V, 0},
+                            {KEY_LEFTCTRL, 0}, {KEY_ENTER, 1}, {KEY_ENTER, 0}};
+        require(sink.keys == expected && sink.text.empty(),
+                "Ctrl+V, then Enter once the application took the text; nothing typed");
+        require(!app.dictation_open(), "a pasted text returns to the normal keyboard");
+    }
+    {
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        clipboard.taken = false;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "kept");
+        press(app, "Dictation-send");
+        for (int i = 0; i < 200; ++i) {
+            app.tick(clock += .02);
+        }
+        require(app.dictation_open() && editor_text(app) == "kept" &&
+                    std::none_of(sink.keys.begin(), sink.keys.end(),
+                                 [](const auto& key) { return key.first == KEY_ENTER; }),
+                "a paste nobody takes keeps the text and never presses Enter");
+    }
+    {
+        Sink sink;
+        sink.single_line = true;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        clipboard.available = false;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "kept");
+        press(app, "Dictation-send");
+        settle(app);
+        require(app.dictation_open() && editor_text(app) == "kept" && sink.keys.empty(),
+                "without a clipboard nothing is pressed and the text stays");
+    }
+    {
+        Sink sink;
+        sink.steam_field = true;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "steam");
+        press(app, "Dictation-send");
+        settle(app);
+        require(clipboard.written.empty() && sink.text == std::vector<std::string>{"steam"},
+                "Steam's own fields keep the direct path");
+    }
+    options.clipboard = nullptr;
+}
+
 void send_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -493,8 +599,8 @@ void send_tests() {
         expected.insert(expected.end(), {{KEY_ENTER, 1}, {KEY_ENTER, 0}});
         require(sink.keys == expected, "inner breaks are Shift+Enter; only the last Enter is plain");
         require(!app.dictation_open(), "a sent text returns to the normal keyboard");
-        require(!sink.gaps.empty() && sink.gaps.front() == .04 && sink.gaps.back() == .02,
-                "Send types at its own pace, 40 ms by default, then restores the usual one");
+        require(!sink.gaps.empty() && sink.gaps.front() == .02 && sink.gaps.back() == .02,
+                "Send sets its own pace, 20 ms by default, and restores the usual one");
         open_editor(app);
         require(editor_text(app).empty(), "and leaves the editor empty");
     }
@@ -590,6 +696,7 @@ int main() {
         mode_tests();
         send_tests();
         scroll_tests();
+        paste_tests();
         live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
