@@ -5,6 +5,7 @@ The public name is **Full Keyboard for Steam Frame**; the launcher label is **Fu
 ## Prepare
 
 - Resolve independent-review findings and update the changelog.
+- Run the [upkeep checklist](upkeep.md): `tools/check-upstream.sh`, and the private-behavior checks after any SteamOS or Steam update since the last release.
 - The project owner sets the version in `CMakeLists.txt` and updates README archive examples. Contributors must leave release versions unchanged; see [version ownership](../CONTRIBUTING.md#version-ownership).
 - Run host tests and build the ARM64 package from a matching Frame sysroot.
 - Run the safe ARM64 core tests on Frame and record the manual checks in [acceptance](acceptance.md). Do not turn untested items into claims.

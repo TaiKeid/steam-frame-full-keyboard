@@ -129,6 +129,7 @@ The visible panel polls input and follows the dashboard at a target 60 Hz. While
 - [Roadmap](docs/plan.md) and [changelog](CHANGELOG.md)
 - [Contributing and bug reports](CONTRIBUTING.md)
 - [Release checklist](docs/releasing.md)
+- [Upkeep of third-party code and SteamOS dependencies](docs/upkeep.md)
 - [Third-party code and licenses](third_party/README.md)
 
 Please report the app version, SteamOS version, affected app, whether it is a desktop or floating window, and steps to reproduce. Remove private text from screenshots and logs.
