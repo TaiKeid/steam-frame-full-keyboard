@@ -392,10 +392,21 @@ def multipart(fields, audio):
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
+TLS_CONTEXTS = {}  # by certificate file; a context is safe to share between threads
+
+
+def tls_context(ca_file):
+    # Loading the system certificates takes milliseconds, and live words send
+    # a request every second.
+    if ca_file not in TLS_CONTEXTS:
+        TLS_CONTEXTS[ca_file] = ssl.create_default_context(cafile=ca_file)
+    return TLS_CONTEXTS[ca_file]
+
+
 def post(target, path, body, headers, connection, ca_file):
     def connect():
         if target.https:
-            context = ssl.create_default_context(cafile=ca_file)
+            context = tls_context(ca_file)
             return http.client.HTTPSConnection(target.host, target.port, timeout=CONNECT_TIMEOUT,
                                                context=context)
         return http.client.HTTPConnection(target.host, target.port, timeout=CONNECT_TIMEOUT)
