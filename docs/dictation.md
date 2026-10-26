@@ -52,7 +52,7 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 - The mic key starts and stops capture: start, pause, resume, pause. Leaving the mode is done with Send, which commits, or Esc, which discards.
 - **Pause:** the phrase being spoken ends at the pause, and its audio is recognized and inserted. Resuming starts a new phrase.
-- **Mic key while capturing:** five vertical bars replace the mic icon as a waveform scrolling right to left: each new level enters on the right, and older bars fade as they move left. They are flat during silence.
+- **Mic key while capturing:** five vertical bars replace the mic icon. They stay in place while the speech level passes through them from right to left, each bar easing to its new height; the left ones are fainter. They are flat during silence.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
   - The Frame splits speech at pauses of about 0.6 s, and at 25 s at the latest.
@@ -620,8 +620,8 @@ What this means for the design:
 
 First part: the helper connected to the editor.
 
-- **Mic key:** from the normal keyboard it opens dictation mode and starts listening; in the mode it pauses and resumes. While listening the key takes the theme's latched colour and shows the last five levels as bars scrolling right to left, flat in silence (owner request after the first try). Levels are cut to nine steps, and only the key repaints when the picture changes, so silence repaints nothing.
-- **Gliding waveform (owner request):** levels arrive in bursts as audio is read, so App queues them and starts one bar every 80 ms, the helper's level interval; between starts the panel slides the bars left every frame, the oldest sliding out. Flat dots never move, so silence repaints nothing. This became affordable with partial texture uploads, where a mic key repaint copies only that key to the GPU.
+- **Mic key:** from the normal keyboard it opens dictation mode and starts listening; in the mode it pauses and resumes. While listening the key takes the theme's latched colour and shows five level bars, flat in silence (see the waveform below). Levels are cut to nine steps, and only the key repaints when the picture changes, so silence repaints nothing.
+- **Waveform (owner requests):** five bars stay in place; levels pass from right to left through their heights. Levels arrive in bursts as audio is read, so App queues them and starts one every 80 ms, the helper's level interval, and each bar eases from its old height to its new one meanwhile. The easing is redrawn 30 times a second, every other display frame, half the uploads of 60 (owner choice after measuring about 1.3 ms per upload). Flat dots never change, so silence repaints nothing. Partial texture uploads make this affordable: a mic key repaint copies only that key to the GPU.
 - **Typed look:** a phrase goes into the editor whole, so joining and Undo are unchanged, but the view reveals it one word every 20 ms with the caret following (owner request). Typing and clicks wait meanwhile; Esc, Mic, Send and Undo show the rest at once and then act.
 - **Listening:** the editor's text dims, the editor is read-only, and Settings and the language button wait. Undo, Send, Esc and X keep working.
 - **Phrases:** App answers each `ready` with the 200 code points before the cursor and inserts the text at the cursor with the joining rules. A phrase waiting over a second for its text shows "Waiting for recognition…" in a band over the editor's foot. At 900 characters listening pauses.

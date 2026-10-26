@@ -440,14 +440,18 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
     cairo_stroke(cr);
     cairo_restore(cr);
 }
-// How far the mic key's bars have slid toward their places, 0–1. Flat dots
-// look the same wherever they are, so silence never moves.
+// How far the mic key's bars have eased toward their new heights, 0–1.
+// Flat dots do not change, so silence repaints nothing. The easing is
+// sampled 30 times a second, so it repaints and uploads every other display
+// frame: half the cost of 60 (owner choice).
 double mic_phase(const PanelView& view, double now) {
     const auto& levels = view.dictation_levels;
     if (std::all_of(levels.begin(), levels.end(), [](int level) { return level == 0; })) {
         return 1;
     }
-    return std::clamp((now - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
+    constexpr double frame = 1.0 / 30;
+    const double sampled = std::floor(now / frame) * frame;
+    return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
 }
 void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double phase = 1) {
     const auto& t = *view.theme;
@@ -482,24 +486,20 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         gradient(cr, face, t.top, t.middle, t.bottom);
     }
     if (listening) {
-        // A waveform gliding right to left: the newest level slides in on
-        // the right while the oldest slides out on the left, fading as the
-        // bars move left; flat dots in silence.
+        // Five bars that stay in place; each eases from its old height to its
+        // new one as a level passes from right to left, fading toward the
+        // left; flat dots in silence.
         const auto& levels = view.dictation_levels;
         const double cx = face.x + face.width / 2, cy = face.y + face.height / 2;
-        const double left = cx - 20, right = cx + 20; // five places of 8
-        cairo_save(cr);
-        cairo_rectangle(cr, left, face.y, right - left, face.height);
-        cairo_clip(cr);
-        for (std::size_t i = 0; i < levels.size(); ++i) {
-            const double x = left + 2 + (static_cast<double>(i) - phase) * 8;
-            const double height = 4 + 30 * levels[i] / 8.0;
-            const double alpha = .35 + .65 * std::clamp((x + 2 - left) / (right - left), 0.0, 1.0);
+        for (std::size_t i = 0; i + 1 < levels.size(); ++i) {
+            const double level = levels[i] + (levels[i + 1] - levels[i]) * phase;
+            const double height = 4 + 30 * level / 8.0;
+            const double alpha =
+                .35 + .65 * (static_cast<double>(i) + 1) / static_cast<double>(levels.size() - 1);
             cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, alpha);
-            rounded(cr, {x, cy - height / 2, 4, height}, 2);
+            rounded(cr, {cx - 18 + static_cast<double>(i) * 8, cy - height / 2, 4, height}, 2);
             cairo_fill(cr);
         }
-        cairo_restore(cr);
         return;
     }
     if (key.icon != Icon::None) {
@@ -951,7 +951,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         animating_ |= !view.settings && progress < 1;
         bool mic_changed = false;
         if (key.icon == Icon::Mic) {
-            // The bars glide every frame while a level is moving through.
+            // The bars ease while a level is passing through.
             const double phase = view.dictation_capturing ? mic_phase(view, now) : 1;
             animating_ |= phase < 1;
             mic_changed = !full && (previous_->view.dictation_capturing != view.dictation_capturing ||

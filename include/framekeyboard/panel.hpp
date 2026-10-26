@@ -112,7 +112,7 @@ struct DictationView {
     std::string notice;      // A band over the editor's foot: waiting, an error or a question.
     bool notice_error{};
 };
-// The helper's level interval; the mic key's bars move one place in it.
+// The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
 constexpr double dictation_notice_height = 46;
@@ -153,9 +153,9 @@ struct PanelView {
     bool dictation_available{};
     // The mic key shows level bars instead of its icon while capturing.
     bool dictation_capturing{};
-    // Six levels, 0–8, oldest first: five bars and the one sliding out on
-    // the left. The newest started sliding in from the right at
-    // `dictation_level_since`, taking dictation_level_period to arrive.
+    // Six levels, 0–8, oldest first. Each of the five bars eases from one
+    // level to the next one, so the newest enters on the right; the easing
+    // started at `dictation_level_since` and takes dictation_level_period.
     std::vector<int> dictation_levels;
     double dictation_level_since{};
     // Dictation mode's editor; its keys are in `layout`.
