@@ -1473,6 +1473,46 @@ void fallback_tests() {
             "a phrase from the fallback shows the headset by the counter");
 }
 
+// Esc in Type as I speak drops text already queued but not yet typed, and
+// is not sent itself, whether or not listening was still on.
+void direct_esc_tests() {
+    for (const bool paused : {false, true}) {
+        TemporaryDirectory directory;
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+        use_fake_helper(options, directory.path, "direct");
+        Sink sink;
+        sink.busy = true; // the target is still taking earlier characters
+        App app(options, sink);
+        press(app, "Dictation");
+        for (int i = 0; i < 50; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            app.tick(clock += .01);
+        }
+        if (paused) {
+            press(app, "Dictation");
+            for (int i = 0; i < 50; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                app.tick(clock += .01);
+            }
+        }
+        const auto keys = sink.keys.size();
+        press(app, "Escape");
+        sink.busy = false;
+        for (int i = 0; i < 50; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            app.tick(clock += .01);
+        }
+        require(sink.text.empty() && sink.keys.size() == keys,
+                paused ? "Esc after pausing drops the queued phrases and is not sent"
+                       : "Esc while listening drops the queued phrases and is not sent");
+    }
+}
+
 // Send pressed while listening waits for the last phrase, then starts in
 // the tick that phrase arrives, while it is still appearing word by word.
 // Sending erases delivered text, so the reveal must end first.
@@ -1747,6 +1787,7 @@ int main() {
         fallback_tests();
         microphone_tests();
         send_during_reveal_tests();
+        direct_esc_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

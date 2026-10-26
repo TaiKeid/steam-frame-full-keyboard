@@ -519,9 +519,11 @@ class App {
     // The capture session was started that way; its phrases go to the target.
     bool direct_{};
     // Capturing, or phrases not yet typed.
+    // A session lasts until its last phrase is out of the output queue too,
+    // so Esc and a field change can still drop it.
     bool direct_active() const {
         return direct_ && (capturing_ || phrases_pending() || !direct_waiting_.empty() ||
-                           direct_paste_.has_value());
+                           direct_paste_.has_value() || output_.text_pending());
     }
     // Characters waiting before listening pauses.
     static constexpr long max_direct_waiting = 1000;
