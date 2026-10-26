@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <glib.h>
 #include <linux/input-event-codes.h>
 #include <linux/uinput.h>
 #include <stdexcept>
@@ -269,6 +270,33 @@ LanguageMap::LanguageMap(const Language& language) : language_(language) {
         context_ = nullptr;
         throw std::runtime_error("language keymap is unavailable");
     }
+    // The letters' base level decides the direction; punctuation is neutral.
+    int letters = 0, rtl = 0;
+    auto* state = xkb_state_new(keymap_);
+    for (int code :
+         {KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O, KEY_P, KEY_A, KEY_S, KEY_D,
+          KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L, KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M}) {
+        const auto ch = state ? xkb_state_key_get_utf32(state, static_cast<xkb_keycode_t>(code + 8)) : 0;
+        if (!g_unichar_isalpha(ch)) {
+            continue;
+        }
+        ++letters;
+        switch (g_unichar_get_script(ch)) {
+        case G_UNICODE_SCRIPT_ARABIC:
+        case G_UNICODE_SCRIPT_HEBREW:
+        case G_UNICODE_SCRIPT_SYRIAC:
+        case G_UNICODE_SCRIPT_THAANA:
+        case G_UNICODE_SCRIPT_NKO:
+            ++rtl;
+            break;
+        default:
+            break;
+        }
+    }
+    if (state) {
+        xkb_state_unref(state);
+    }
+    right_to_left_ = rtl * 2 > letters;
 }
 LanguageMap::~LanguageMap() {
     if (compose_) {

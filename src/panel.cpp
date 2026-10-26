@@ -198,8 +198,14 @@ void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
 }
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
            Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER,
-           bool wrap = false) {
+           bool wrap = false, bool right_to_left = false) {
     auto* layout = pango_cairo_create_layout(cr);
+    if (right_to_left) {
+        // A lone bracket then mirrors as it does in that script's text.
+        pango_layout_set_auto_dir(layout, FALSE);
+        pango_context_set_base_dir(pango_layout_get_context(layout), PANGO_DIRECTION_RTL);
+        pango_layout_context_changed(layout);
+    }
     auto* font = pango_font_description_new();
     pango_font_description_set_family(font, family.c_str());
     pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
@@ -773,14 +779,19 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     const bool utility =
         g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
     const auto legend = disabled ? disabled_legend(t) : t.legend;
+    // Character legends of a right-to-left keymap; names such as "Enter ↵" stay as written.
+    auto right_to_left = [&](const std::string& value) {
+        return view.keymap->right_to_left() && g_utf8_strlen(value.c_str(), -1) <= 2;
+    };
     if (!secondary.empty()) {
         label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40}, t.small_font_size,
-              view.language->font, legend, true);
+              view.language->font, legend, true, PANGO_ALIGN_CENTER, false, right_to_left(secondary));
         label(cr, text, {face.x, face.y + face.height * .4, face.width, face.height * .55},
-              t.font_size * .85, view.language->font, legend, true);
+              t.font_size * .85, view.language->font, legend, true, PANGO_ALIGN_CENTER, false,
+              right_to_left(text));
     } else {
         label(cr, text, face, utility ? t.small_font_size : t.font_size, view.language->font, legend,
-              true);
+              true, PANGO_ALIGN_CENTER, false, right_to_left(text));
     }
 }
 } // namespace
@@ -877,6 +888,27 @@ std::size_t editor_index_at(const PanelView& view, double x, double y) {
         p = g_utf8_next_char(p);
     }
     g_object_unref(layout);
+    return static_cast<std::size_t>(p - text.c_str());
+}
+std::size_t editor_move(const PanelView& view, std::size_t index, int direction) {
+    auto* layout = editor_layout(view);
+    int moved = 0, trailing = 0;
+    pango_layout_move_cursor_visually(layout, TRUE, static_cast<int>(index), 0, direction, &moved,
+                                      &trailing);
+    g_object_unref(layout);
+    const auto& text = view.dictation->text;
+    // Pango marks the ends of the text with -1 and G_MAXINT.
+    if (moved < 0) {
+        return 0;
+    }
+    if (moved == G_MAXINT || static_cast<std::size_t>(moved) >= text.size()) {
+        return text.size();
+    }
+    // A trailing position is after that many characters of the cluster at `moved`.
+    const char* p = text.c_str() + moved;
+    for (int i = 0; i < trailing && *p; ++i) {
+        p = g_utf8_next_char(p);
+    }
     return static_cast<std::size_t>(p - text.c_str());
 }
 std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size_t index) {

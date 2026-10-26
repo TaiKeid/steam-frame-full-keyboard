@@ -91,6 +91,9 @@ class LanguageMap {
     std::string legend(const Key& key, const std::set<int>& modifiers, bool caps, bool num) const;
     xkb_keysym_t symbol(const Key& key, const std::set<int>& modifiers, bool caps, bool num) const;
     static bool printable(xkb_keysym_t symbol);
+    // Whether the letter keys type a right-to-left script, so their legends
+    // are laid out as in that script's text.
+    bool right_to_left() const { return right_to_left_; }
     std::string compose(xkb_keysym_t symbol);
     bool composing() const;
     void cancel_compose();
@@ -100,6 +103,7 @@ class LanguageMap {
     xkb_context* context_{};
     xkb_keymap* keymap_{};
     xkb_compose_state* compose_{};
+    bool right_to_left_{};
 };
 
 class KeyboardState {

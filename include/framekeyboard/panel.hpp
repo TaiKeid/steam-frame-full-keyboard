@@ -229,6 +229,9 @@ struct EditorCaret {
 Rect editor_text_area(const PanelView& view); // Panel coordinates inside the frame.
 EditorCaret editor_caret(const PanelView& view, std::size_t index);
 std::size_t editor_index_at(const PanelView& view, double x, double y);
+// The cursor one character to the left (direction -1) or right (+1) on screen:
+// backwards in right-to-left text, and over a whole cluster with its marks.
+std::size_t editor_move(const PanelView& view, std::size_t index, int direction);
 // The visual line holding `index`, as byte offsets [start, end) without its break.
 std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size_t index);
 double editor_content_height(const PanelView& view);

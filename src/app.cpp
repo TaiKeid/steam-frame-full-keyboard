@@ -4781,10 +4781,10 @@ void App::run_editor_command(EditorCommand command) {
         editor_.type("\n");
         break;
     case EditorCommand::Left:
-        editor_.left();
+        editor_.set_cursor(editor_move(view, editor_.cursor(), -1));
         break;
     case EditorCommand::Right:
-        editor_.right();
+        editor_.set_cursor(editor_move(view, editor_.cursor(), 1));
         break;
     case EditorCommand::Up:
     case EditorCommand::Down: {
