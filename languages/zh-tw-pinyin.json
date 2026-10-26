@@ -22,5 +22,9 @@
   "input_method": "chinese-pinyin-traditional",
   "swipe": {
     "lexicon": "zh-pinyin"
+  },
+  "dictation": {
+    "language": "zh",
+    "prompt": "好的，沒問題。"
   }
 }

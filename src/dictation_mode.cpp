@@ -73,8 +73,13 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
             result.layout.keys.push_back(std::move(copy));
         }
     }
-    // Send spans the right-hand modifier group; layouts without it get none.
-    if (const auto send = bounds_of(main, {"AltRight", "MetaRight", "ContextMenu", "ControlRight"})) {
+    // Send spans the right-hand modifier group. Layouts without one, such as
+    // flick, give it Tab's freed slot.
+    auto send = bounds_of(main, {"AltRight", "MetaRight", "ContextMenu", "ControlRight"});
+    if (!send) {
+        send = bounds_of(main, {"Tab"});
+    }
+    if (send) {
         result.layout.keys.push_back(dictation_key("send", "Send", *send, Icon::None));
     }
     if (paste) {

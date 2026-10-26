@@ -94,5 +94,9 @@
     "Comma": "、",
     "Period": "。",
     "Slash": "・"
+  },
+  "dictation": {
+    "language": "ja",
+    "prompt": "はい、そうですね。"
   }
 }

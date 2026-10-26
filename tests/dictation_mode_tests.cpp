@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/cjk.hpp"
 #include "framekeyboard/dictation_mode.hpp"
 
 #include <algorithm>
@@ -61,10 +62,11 @@ struct Sink : KeySink {
     std::vector<double> gaps;
     void set_character_gap(double seconds) override { gaps.push_back(seconds); }
 };
-void write_config(const fs::path& directory, const std::string& extra) {
+void write_config(const fs::path& directory, const std::string& extra,
+                  const std::string& language = "en-us", const std::string& layout = "en-us-full") {
     std::ofstream(directory / "config.json")
-        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},)"
-        << R"("hide_numpad":false)" << extra << "}";
+        << R"({"schema_version":1,"active":{"layout":")" << layout << R"(","language":")" << language
+        << R"(","theme":"graphite"},"hide_numpad":false)" << extra << "}";
 }
 const Key* find(const PanelView& view, const std::string& id) {
     for (const auto& key : view.layout->keys) {
@@ -142,9 +144,44 @@ void settings_tests() {
                 !valid_dictation_url("https://u@x/v1") && !valid_dictation_url("https://x/v1?key=1"),
             "dictation URLs");
     const auto profiles = load_profiles({}, {});
-    require(profiles.languages.at("en-us").dictation_language == "en" &&
-                profiles.languages.at("ja-romaji").dictation_language.empty(),
-            "English profiles offer dictation; others wait for later milestones");
+    const auto& languages = profiles.languages;
+    require(languages.at("en-us").dictation_language == "en" &&
+                languages.at("en-us").dictation_prompt.empty() &&
+                languages.at("es-es").dictation_language == "es" &&
+                languages.at("es-es").dictation_prompt.empty(),
+            "English and Spanish dictate with the editor's context alone");
+    for (const auto* id : {"ja-romaji", "ja-kana", "ja-flick"}) {
+        require(languages.at(id).dictation_language == "ja" &&
+                    languages.at(id).dictation_prompt == "はい、そうですね。",
+                "Japanese prompts for punctuation");
+    }
+    require(languages.at("zh-cn-pinyin").dictation_prompt == "好的，没问题。" &&
+                languages.at("zh-tw-pinyin").dictation_prompt == "好的，沒問題。" &&
+                languages.at("zh-tw-pinyin").dictation_language == "zh",
+            "Chinese prompts fix the script");
+    require(languages.at("ja-jis").dictation_language.empty() &&
+                languages.at("ko-kr").dictation_language.empty(),
+            "external JIS, which types through a system IME, and Korean have no dictation");
+    auto profile = [](const std::string& prompt) {
+        return R"({"schema_version":1,"id":"xx-test","name":"Test","locale":"en-US",
+            "keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},
+            "legends":{"source":"keymap","overrides":{}},"font_families":["sans-serif"],
+            "dictation":{"language":"en","prompt":")" +
+               prompt + R"("}})";
+    };
+    std::string longest;
+    for (int i = 0; i < 60; ++i) {
+        longest += "é";
+    }
+    require(parse_language(profile(longest)).dictation_prompt == longest,
+            "a prompt holds 60 characters");
+    bool rejected = false;
+    try {
+        parse_language(profile(longest + "e"));
+    } catch (const std::exception&) {
+        rejected = true;
+    }
+    require(rejected, "a longer prompt is rejected");
 }
 
 void layout_tests() {
@@ -176,6 +213,12 @@ void layout_tests() {
             "Send spans right Alt to Ctrl");
     require(mode.editor.y < 0 && mode.editor.x > 174 && mode.editor.x + mode.editor.width == main.width,
             "the editor runs from Esc to the right edge and rises above the keys");
+    const auto& flick = profiles.layouts.at("ja-flick-12");
+    const auto flick_mode = dictation_layout(flick, flick.width);
+    const auto flick_send = std::find_if(flick_mode.layout.keys.begin(), flick_mode.layout.keys.end(),
+                                         [](const Key& key) { return key.id == "Dictation-send"; });
+    require(flick_send != flick_mode.layout.keys.end() && flick_send->bounds == Rect{120, 138, 150, 62},
+            "without right-hand modifiers, Send takes Tab's slot");
 }
 
 // A stand-in helper: capture on starts a phrase, capture off ends it, and
@@ -184,8 +227,10 @@ void layout_tests() {
 // touches audio or the network; every App here uses it, so no test can
 // start the real helper and its recorder.
 const char* fake_helper = R"PY(
-import json, socket, sys
+import json, os, socket, sys
 peer = socket.socket(fileno=3)
+# Every prompt the keyboard sends, NUL-separated, for the tests to read.
+prompts = open(os.path.join(os.path.dirname(sys.argv[0]), "prompts"), "ab", buffering=0)
 scenario = sys.argv[sys.argv.index("--scenario") + 1]
 replies = ["Hello there.", "Again."]
 phrase = 0
@@ -215,6 +260,7 @@ while True:
         send(op="level", value=200)
         send(op="phrase", id=phrase)
     elif op == "prompt":
+        prompts.write(message["text"].encode() + b"\0")
         send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)])
     elif op == "cancel":
         send(op="cancelled")
@@ -331,7 +377,7 @@ void mode_tests() {
     press(app, "Dictation");
     require(app.dictation_open() && editor_text(app).empty(), "the discarded text is gone");
 
-    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    app.apply({"international-full", "de-de", "graphite"});
     app.tick(clock += .1);
     require(!app.dictation_open() && !app.view().dictation_available,
             "a profile without dictation closes the mode and hides the mic key");
@@ -461,6 +507,159 @@ void live_tests() {
         require(view.dictation->notice_error &&
                     view.dictation->notice == "The speech server cannot be reached.",
                 "a recognizer failure stops listening and says why");
+    }
+}
+
+// The prompts the fake helper received, in order.
+std::vector<std::string> prompts_sent(const fs::path& directory) {
+    std::ifstream file(directory / "prompts", std::ios::binary);
+    std::vector<std::string> result;
+    for (std::string prompt; std::getline(file, prompt, '\0');) {
+        result.push_back(prompt);
+    }
+    return result;
+}
+bool control_in_editor(App& app, const std::string& id) {
+    const auto view = app.view();
+    const auto& editor = view.dictation->bounds;
+    return std::any_of(view.controls.begin(), view.controls.end(), [&](const Control& control) {
+        const auto& r = control.bounds;
+        return control.id == id && r.x >= editor.x && r.x + r.width <= editor.x + editor.width &&
+               r.y >= editor.y && r.y + r.height <= editor.y + editor.height;
+    });
+}
+bool has_control(App& app, const std::string& id) {
+    const auto controls = app.view().controls;
+    return std::any_of(controls.begin(), controls.end(),
+                       [&](const Control& control) { return control.id == id; });
+}
+
+void language_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "main");
+    const std::string server = R"(,"dictation":"server","dictation_server":"127.0.0.1")";
+    {
+        // A profile's prompt and the editor's context share Whisper's 200
+        // code points; the context gives way.
+        fs::create_directories(directory.path / "languages");
+        std::ofstream(directory.path / "languages" / "xx-test.json")
+            << R"({"schema_version":1,"id":"xx-test","name":"Test","locale":"en-US",
+            "keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},
+            "legends":{"source":"keymap","overrides":{}},"font_families":["sans-serif"],
+            "dictation":{"language":"en","prompt":"Abc."}})";
+        write_config(directory.path, server, "xx-test");
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+        type_text(app, std::string(250, 'a'));
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return prompts_sent(directory.path).size() == 2; });
+        const auto prompts = prompts_sent(directory.path);
+        require(prompts[0] == "Abc." && prompts[1] == "Abc." + std::string(196, 'a'),
+                "the prompt comes first and the context fills the rest of 200");
+    }
+    fs::remove(directory.path / "prompts");
+    write_config(directory.path, server, "ja-romaji");
+    {
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return !editor_text(app).empty(); });
+        require(editor_text(app) == "H" && app.view().dictation->revealing,
+                "without spaces, a phrase appears a character at a time");
+        settle(app);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return editor_text(app) == "Hello there.Again."; });
+        const auto prompts = prompts_sent(directory.path);
+        require(prompts.size() == 2 && prompts[0] == "はい、そうですね。" &&
+                    prompts[1] == "はい、そうですね。Hello there.",
+                "Japanese phrases join without a space, prompted for punctuation");
+
+        type_text(app, "kana");
+        auto view = app.view();
+        const auto& editor = *view.dictation;
+        require(editor.text == "Hello there.Again.かな" && editor.preedit_begin == 18 &&
+                    editor.preedit_end == editor.text.size() && editor.cursor == editor.preedit_end &&
+                    !editor.candidates,
+                "the reading shows at the cursor; the band waits for candidates");
+        const auto convert = std::find_if(view.controls.begin(), view.controls.end(),
+                                          [](const Control& c) { return c.id == "ime-convert"; });
+        require(convert != view.controls.end() &&
+                    convert->bounds.x + convert->bounds.width < editor.bounds.x &&
+                    convert->label == "変換\nConvert",
+                "Convert moves beside the editor, its label on two lines");
+        press(app, "Escape");
+        require(app.dictation_open() && editor_text(app) == "Hello there.Again." &&
+                    app.view().dictation->notice.empty(),
+                "Esc cancels the reading, not the mode");
+        type_text(app, "kana");
+        press(app, "Enter");
+        view = app.view();
+        require(view.dictation->text == "Hello there.Again.かな" &&
+                    view.dictation->preedit_end == view.dictation->preedit_begin &&
+                    !view.dictation->candidates && !has_control(app, "ime-convert"),
+                "Enter commits the reading into the editor");
+        type_text(app, "ne");
+        press(app, "Dictation");
+        require(app.view().dictation->capturing && editor_text(app) == "Hello there.Again.かなね",
+                "the mic key commits the reading before listening");
+        press(app, "Escape");
+        type_text(app, "no");
+        require(sink.text.empty() && sink.keys.empty(), "nothing reached the target");
+        press(app, "Dictation-send");
+        wait_until(app, [&] { return !app.dictation_open(); });
+        require(sink.text == std::vector<std::string>{"Hello there.Again.かなねの"},
+                "Send commits the reading, then sends everything");
+    }
+    write_config(directory.path, server, "ja-flick", "ja-flick-12");
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+        settle(app);
+        key_center(app, "Dictation-send"); // shown
+        press(app, "Flick-ka");
+        press(app, "Flick-a");
+        auto view = app.view();
+        require(view.dictation->text == "Hello there.かあ" &&
+                    view.dictation->preedit_end > view.dictation->preedit_begin,
+                "flick keys compose in the editor");
+        press(app, "Enter");
+        view = app.view();
+        require(view.dictation->text == "Hello there.かあ" &&
+                    view.dictation->preedit_end == view.dictation->preedit_begin,
+                "and commit into it");
+    }
+    if (!CjkComposer::supported("chinese-pinyin-simplified")) {
+        std::cout << "Pinyin in dictation mode skipped: engine absent.\n";
+        return;
+    }
+    write_config(directory.path, server, "zh-cn-pinyin");
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+        settle(app);
+        type_text(app, "nihao");
+        require(control_in_editor(app, "cjk-candidate-0") && app.view().dictation->candidates,
+                "Pinyin candidates sit in the band");
+        press(app, "Space");
+        const auto text = editor_text(app);
+        require(text.size() > 12 && text.starts_with("Hello there.") &&
+                    !app.view().dictation->candidates,
+                "Space chooses the first candidate into the editor");
     }
 }
 
@@ -940,6 +1139,7 @@ int main() {
         settings_and_update_tests();
         card_tests();
         live_tests();
+        language_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

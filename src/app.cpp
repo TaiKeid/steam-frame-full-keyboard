@@ -426,6 +426,45 @@ std::vector<Control> App::controls() const {
         result[i].bounds.x = body.x + result[i].bounds.x * scale;
         result[i].bounds.width *= scale;
     }
+    if (dictation_open_ && !settings_open_) {
+        // The candidate row, panel x 20 to 1575, would cover the editor. It
+        // moves into the band over the editor's foot while a reading is in
+        // progress, and is hidden otherwise.
+        const auto editor = panel_rect(geometry, dictation_layout_.editor);
+        const double row = body.x + 20 * scale;
+        const double fit = (editor.width - 24) / (1555 * scale);
+        const double top = editor.y + editor.height - dictation_notice_height + 5;
+        const bool reading = composing_text();
+        // Convert takes the side column's free slot instead, beside Esc and
+        // as large as Undo, its label on two lines.
+        std::optional<Rect> side;
+        const auto& keys = dictation_layout_.layout.keys;
+        const auto undo = std::find_if(keys.begin(), keys.end(),
+                                       [](const Key& key) { return key.id == "Dictation-undo"; });
+        const auto esc = std::find_if(keys.begin(), keys.end(), [](const Key& key) {
+            return key.action_kind == ActionKind::Key && key.action == "Escape";
+        });
+        if (undo != keys.end() && esc != keys.end()) {
+            side = panel_rect(geometry,
+                              {undo->bounds.x, esc->bounds.y, undo->bounds.width, undo->bounds.height});
+        }
+        for (std::size_t i = ime_start; i < result.size();) {
+            auto& control = result[i];
+            if (control.bounds.y != 148) {
+                ++i;
+            } else if (!reading) {
+                result.erase(result.begin() + static_cast<std::ptrdiff_t>(i));
+            } else if (control.action.kind == ControlKind::ImeConvert && side) {
+                control.bounds = *side;
+                control.label = "変換\nConvert";
+                ++i;
+            } else {
+                control.bounds = {editor.x + 12 + (control.bounds.x - row) * fit, top,
+                                  control.bounds.width * fit, 36};
+                ++i;
+            }
+        }
+    }
     // Swipe suggestions scale the same way, but never start before the end of
     // the first toolbar row or reach the close button; many share the room.
     if (!swipe_candidates_.empty()) {
@@ -713,12 +752,11 @@ PanelView App::build_view(bool picker) const {
     v.dictation_levels = mic_levels_;
     v.dictation_level_since = mic_level_since_;
     if (dictation_open_) {
-        // The mode has its own keys; swipe and composition are off in it.
+        // The mode has its own keys, with the composers' labels and flick
+        // preview; swipe is off in it. The reading shows in the editor.
         v.layout = &dictation_layout_.layout;
         v.composing = false;
         v.preedit.clear();
-        v.key_labels.clear();
-        v.flick_preview.reset();
         v.swipe_trail.clear();
         set_dictation_view(v);
         if (!can_send()) {
@@ -914,7 +952,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
         if (dictation_open_) {
-            return dictation_down(pointer, *key, now);
+            return dictation_down(pointer, *key, x, y, now);
         }
         if (key->action_kind == ActionKind::Dictation) {
             // The mic key opens dictation mode on release, like a toolbar button.
@@ -1086,6 +1124,7 @@ bool App::up(unsigned pointer, double x, double y) {
         // sending, asking or showing a phrase.
         if (!drag.scrolling && dictation_open_ && !capturing_ && !sending_ && !confirm_discard_ &&
             !reveal_ && !send_wait_since_) {
+            commit_composition(); // A reading stays where it was typed.
             const auto v = geometry();
             const auto area = editor_text_area(v);
             editor_.set_cursor(editor_index_at(v, drag.x - area.x, drag.y - area.y + drag.scroll));
@@ -1588,14 +1627,14 @@ void App::commit_japanese() {
     if (text.empty()) {
         return;
     }
-    if (options_.input == InputBackend::None) {
+    if (options_.input == InputBackend::None && !dictation_open_) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
     } else if (text_output_->commit_text(text)) {
         composition_.cancel();
         status_.clear();
     } else {
-        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        commit_failed();
     }
 }
 bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) {
@@ -1824,9 +1863,35 @@ void App::commit_cjk() {
         return;
     }
     const auto text = cjk_->text();
-    if (!text.empty() && (options_.input == InputBackend::None || text_output_->commit_text(text))) {
+    // In dictation mode the editor takes the text, even in a preview.
+    if (!text.empty() && ((options_.input == InputBackend::None && !dictation_open_) ||
+                          text_output_->commit_text(text))) {
         cjk_->cancel();
         status_.clear();
+    } else {
+        commit_failed();
+    }
+}
+bool App::composing_text() const {
+    return !composition_.empty() || (cjk_ && !cjk_->empty());
+}
+bool App::commit_composition() {
+    if (!composing_text()) {
+        return true;
+    }
+    try {
+        commit_japanese();
+        commit_cjk();
+    } catch (const std::exception& error) {
+        status_ = error.what();
+    }
+    dirty = true;
+    return !composing_text();
+}
+void App::commit_failed() {
+    if (dictation_open_) {
+        notice_ = "The editor is full. Send or shorten the text to type more.";
+        notice_error_ = true;
     } else {
         status_ = "Text was not sent. Release other keys and check the target/input connection.";
     }
@@ -1925,6 +1990,7 @@ void App::action(const ControlAction& command) {
         } else if (kind == ControlKind::CjkCandidate) {
             choose_cjk(command.index);
         }
+        follow_cursor(); // In dictation mode the reading sits at the cursor.
         return;
     }
     if ((kind >= ControlKind::ImeToggle && kind <= ControlKind::ImeCandidate)) {
@@ -1950,6 +2016,7 @@ void App::action(const ControlAction& command) {
         } else if (kind == ControlKind::ImeCandidate) {
             composition_.choose(command.index);
         }
+        follow_cursor();
         return;
     }
     if (kind == ControlKind::Updates && settings_open_) {
@@ -2210,6 +2277,7 @@ std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
 }
 bool App::flick_up(unsigned pointer, double x, double y) {
     finish_flick();
+    follow_cursor(); // In dictation mode the reading grows at the cursor.
     move(pointer, x, y);
     dirty = true;
     return true;
@@ -2900,14 +2968,18 @@ bool App::dictation_available() const {
         return true; // image exports show the mode whatever the settings
     }
     const auto& language = profiles_.languages.at(settings_.active.language);
-    // Composer profiles wait until their commits can go into the editor.
     return settings_.dictation == "server" &&
            (!settings_.dictation_server.empty() || !settings_.dictation_url.empty()) &&
-           !language.dictation_language.empty() && language.input_method == "xkb";
+           !language.dictation_language.empty();
 }
 
 void App::open_dictation() {
     if (dictation_open_ || settings_open_ || !dictation_available()) {
+        return;
+    }
+    // A reading in progress goes to the target first, as before any other
+    // key; one that cannot stays, and the mode does not open.
+    if (!commit_composition()) {
         return;
     }
     close_emoji();
@@ -2965,6 +3037,21 @@ void App::show_dictation() {
         "through what was said.\nA third paragraph makes the text taller than the editor, so the "
         "scroll indicator appears at its right edge.");
     editor_.set_cursor(editor_.text().find(" in one go"));
+    // Composer profiles also show a reading with its candidates.
+    if (japanese()) {
+        for (const char c : std::string("nihongo")) {
+            composition_.roman(c);
+        }
+        try {
+            convert_japanese();
+        } catch (const std::exception&) {
+            // Without Anthy the reading stays unconverted.
+        }
+    } else if (cjk_ && cjk_->chinese()) {
+        for (const char c : std::string("nihao")) {
+            cjk_->type(c);
+        }
+    }
     follow_cursor();
 }
 
@@ -2996,9 +3083,35 @@ void App::set_dictation_view(PanelView& view) const {
     }
     editor.scroll = editor_scroll_;
     editor.uncertain = editor_.uncertain();
+    // A composer's reading appears at the cursor, as in a text field, and its
+    // candidates take the band over the editor's foot.
+    std::string preedit;
+    std::pair<std::size_t, std::size_t> active;
+    if (!composition_.empty()) {
+        preedit = composition_.preedit();
+        active = composition_.active_range();
+    } else if (cjk_ && !cjk_->empty()) {
+        preedit = cjk_->preedit();
+    }
+    if (!preedit.empty()) {
+        const auto at = editor.cursor;
+        editor.text.insert(at, preedit);
+        if (editor.uncertain > at) {
+            editor.uncertain += preedit.size();
+        }
+        editor.preedit_begin = at;
+        editor.preedit_end = at + preedit.size();
+        editor.active_begin = at + active.first;
+        editor.active_end = at + active.second;
+        editor.cursor = editor.preedit_end;
+        // The band shows once there is something to choose.
+        editor.candidates = !composition_.candidates().empty() || (cjk_ && !cjk_->candidates().empty());
+    }
     editor.capturing = capturing_;
     if (confirm_discard_) {
         editor.notice = "Discard text?";
+    } else if (editor.candidates) {
+        // Typing is under way; a notice returns once the reading is committed.
     } else if (!notice_.empty()) {
         editor.notice = notice_;
         editor.notice_error = notice_error_;
@@ -3019,7 +3132,7 @@ void App::set_dictation_view(PanelView& view) const {
     view.dictation = std::move(editor);
 }
 
-bool App::dictation_down(unsigned pointer, const Key& key, double now) {
+bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, double now) {
     if (keyboard_.pointer_pressed(pointer)) {
         return false;
     }
@@ -3061,11 +3174,25 @@ bool App::dictation_down(unsigned pointer, const Key& key, double now) {
         discard_dictation();
         return true;
     }
+    // While listening the editor is read-only, and keys only show as pressed.
+    const bool editable = !capturing_ && !send_wait_since_;
+    if (key.action_kind == ActionKind::Flick) {
+        if (!editable) {
+            return keyboard_.down(pointer, key, now, true, 0);
+        }
+        // Kana keys compose as on the normal keyboard; the reading commits
+        // into the editor.
+        clear_editor_error();
+        return flick_down(pointer, key, x, y, now);
+    }
     // Capture the symbol before a latched Shift is consumed by down().
     const auto modifiers = keyboard_.modifiers();
     const auto symbol = key.action_kind == ActionKind::Key
                             ? keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num())
                             : XKB_KEY_NoSymbol;
+    // The composers take their keys as on the normal keyboard, Esc included
+    // while a reading is in progress; text_output_ commits into the editor.
+    const bool ime = editable && (japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers));
     const bool old_num = keyboard_.num();
     // Every key is local here: it shows as pressed and latches, but sends nothing.
     if (!keyboard_.down(pointer, key, now, true, 0)) {
@@ -3075,6 +3202,18 @@ bool App::dictation_down(unsigned pointer, const Key& key, double now) {
     if (keyboard_.num() != old_num) {
         settings_.num_lock = keyboard_.num();
         save();
+    }
+    if (ime) {
+        clear_editor_error();
+        try {
+            japanese_key(key, true, modifiers);
+            cjk_key(key, true, modifiers);
+        } catch (const std::exception& error) {
+            status_ = error.what();
+        }
+        editor_goal_x_.reset();
+        follow_cursor();
+        return true;
     }
     if (key.action_kind != ActionKind::Key || is_modifier(key_code(key.action)) ||
         key.action == "CapsLock" || key.action == "NumLock") {
@@ -3093,12 +3232,13 @@ bool App::dictation_down(unsigned pointer, const Key& key, double now) {
         }
         return true;
     }
-    if (capturing_ || send_wait_since_) {
-        return true; // Read-only while listening; the key only shows as pressed.
+    if (!editable) {
+        return true;
     }
-    if (notice_error_) {
-        notice_.clear();
-        notice_error_ = false;
+    clear_editor_error();
+    // Any other key ends the reading first, so the text keeps its order.
+    if (!commit_composition()) {
+        return true;
     }
     if (const auto command = editor_command(key, symbol); command != EditorCommand::None) {
         keymap_->cancel_compose();
@@ -3122,8 +3262,16 @@ bool App::dictation_down(unsigned pointer, const Key& key, double now) {
     return true;
 }
 
+void App::clear_editor_error() {
+    if (notice_error_) {
+        notice_.clear();
+        notice_error_ = false;
+    }
+}
+
 void App::dictation_key_up(const Key& key) {
-    finish_reveal(); // The mode's keys act on the whole text.
+    finish_reveal();      // The mode's keys act on the whole text,
+    commit_composition(); // including a reading still being composed.
     if (key.action == "mic") {
         // Start, pause, resume, pause; from the normal keyboard it opens the
         // mode and starts at once.
@@ -3283,11 +3431,15 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     case Kind::Phrase:
         pending_phrases_.emplace(event.id, 0);
         break;
-    case Kind::Ready:
-        // Answered at once: the prompt is the text before the cursor now.
-        dictation_->prompt(event.id, editor_.context());
+    case Kind::Ready: {
+        // Answered at once: the profile's prompt, then the text before the
+        // cursor now, together within Whisper's 200 code points.
+        const auto& prompt = profiles_.languages.at(settings_.active.language).dictation_prompt;
+        const auto room = 200 - static_cast<std::size_t>(g_utf8_strlen(prompt.c_str(), -1));
+        dictation_->prompt(event.id, prompt + editor_.context(room));
         pending_phrases_[event.id] = now;
         break;
+    }
     case Kind::Text: {
         if (!pending_phrases_.erase(event.id) || !dictation_open_) {
             break; // cancelled meanwhile
@@ -3300,7 +3452,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         const auto start = editor_.cursor();
         const auto size = editor_.text().size();
         if (editor_.insert_phrase(event.text, spaced)) {
-            reveal_ = Reveal{start, start + editor_.text().size() - size, start, now};
+            reveal_ = Reveal{start, start + editor_.text().size() - size, start, now, spaced};
             editor_goal_x_.reset();
             dirty = true;
         }
@@ -3447,17 +3599,23 @@ bool App::tick_dictation(double now) {
                                : now;
         dirty = true;
     }
-    // One more word every 20 ms; after a slow frame the missed ones at once.
+    // One more word every 20 ms; Japanese and Chinese, without spaces, one
+    // more character every 10 ms, about as fast. After a slow frame the
+    // missed ones appear at once.
     while (reveal_ && now >= reveal_->next) {
         const auto& text = editor_.text();
         auto& shown = reveal_->shown;
-        while (shown < reveal_->end && text[shown] == ' ') {
-            ++shown;
+        if (reveal_->spaced) {
+            while (shown < reveal_->end && text[shown] == ' ') {
+                ++shown;
+            }
+            while (shown < reveal_->end && text[shown] != ' ') {
+                ++shown;
+            }
+        } else if (shown < reveal_->end) {
+            shown = static_cast<std::size_t>(g_utf8_next_char(text.c_str() + shown) - text.c_str());
         }
-        while (shown < reveal_->end && text[shown] != ' ') {
-            ++shown;
-        }
-        reveal_->next += .02;
+        reveal_->next += reveal_->spaced ? .02 : .01;
         if (shown >= reveal_->end) {
             reveal_.reset();
         }

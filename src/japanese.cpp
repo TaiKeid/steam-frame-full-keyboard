@@ -393,6 +393,18 @@ std::string JapaneseComposer::preedit(bool mark_active) const {
     }
     return result;
 }
+std::pair<std::size_t, std::size_t> JapaneseComposer::active_range() const {
+    if (!converting()) {
+        return {};
+    }
+    std::size_t begin = 0;
+    for (int i = 0; i < active_; ++i) {
+        const auto& segment = segments_[static_cast<std::size_t>(i)];
+        begin += segment.candidates[static_cast<std::size_t>(segment.selected)].size();
+    }
+    const auto& active = segments_[static_cast<std::size_t>(active_)];
+    return {begin, begin + active.candidates[static_cast<std::size_t>(active.selected)].size()};
+}
 std::string JapaneseComposer::commit_text() {
     drain(true);
     return preedit();

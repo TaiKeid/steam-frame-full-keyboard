@@ -657,8 +657,9 @@ PangoLayout* editor_layout(const PanelView& view) {
 } // namespace
 Rect editor_text_area(const PanelView& view) {
     const auto& r = view.dictation->bounds;
+    const double band = view.dictation->candidates ? dictation_notice_height : 0;
     return {r.x + editor_padding_x, r.y + editor_padding_y, r.width - 2 * editor_padding_x,
-            r.height - 2 * editor_padding_y};
+            r.height - 2 * editor_padding_y - band};
 }
 EditorCaret editor_caret(const PanelView& view, std::size_t index) {
     auto* layout = editor_layout(view);
@@ -853,29 +854,48 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     // cursor moves expect it.
     auto* layout = editor_layout(view);
     const Color amber{.96, .72, .35};
-    if (editor.uncertain) {
-        // Text that may already have arrived: an amber underline on each of
-        // its line pieces, quiet enough to read through.
-        cairo_set_source_rgba(cr, amber.r, amber.g, amber.b, .75);
+    // Underlines a byte range of the text on each of its line pieces.
+    auto underline = [&](std::size_t begin, std::size_t end, double thickness) {
         auto* iter = pango_layout_get_iter(layout);
         do {
             auto* line = pango_layout_iter_get_line_readonly(iter);
-            if (static_cast<std::size_t>(line->start_index) >= editor.uncertain) {
+            const auto start = static_cast<std::size_t>(line->start_index);
+            if (start >= end) {
                 break;
             }
-            int range[2]{}, *ranges = nullptr, count = 0;
-            range[1] = static_cast<int>(editor.uncertain);
-            pango_layout_line_get_x_ranges(line, range[0], range[1], &ranges, &count);
+            if (start + static_cast<std::size_t>(line->length) <= begin) {
+                continue;
+            }
+            int *ranges = nullptr, count = 0;
+            pango_layout_line_get_x_ranges(line, static_cast<int>(begin), static_cast<int>(end), &ranges,
+                                           &count);
             const int baseline = pango_layout_iter_get_baseline(iter);
             for (int i = 0; i < count; ++i) {
                 const double x0 = area.x + ranges[2 * i] / static_cast<double>(PANGO_SCALE);
                 const double x1 = area.x + ranges[2 * i + 1] / static_cast<double>(PANGO_SCALE);
-                cairo_rectangle(cr, x0, area.y - editor.scroll + baseline / PANGO_SCALE + 3, x1 - x0, 2);
+                cairo_rectangle(cr, x0, area.y - editor.scroll + baseline / PANGO_SCALE + 3, x1 - x0,
+                                thickness);
             }
             g_free(ranges);
             cairo_fill(cr);
         } while (pango_layout_iter_next_line(iter));
         pango_layout_iter_free(iter);
+    };
+    if (editor.uncertain) {
+        // Text that may already have arrived: an amber underline, quiet
+        // enough to read through.
+        cairo_set_source_rgba(cr, amber.r, amber.g, amber.b, .75);
+        underline(0, editor.uncertain, 2);
+    }
+    if (editor.preedit_end > editor.preedit_begin) {
+        // A reading not yet committed, underlined as in a text field; the
+        // segment being converted more strongly.
+        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .55);
+        underline(editor.preedit_begin, editor.preedit_end, 1.5);
+        if (editor.active_end > editor.active_begin) {
+            source(cr, t.legend);
+            underline(editor.active_begin, editor.active_end, 3);
+        }
     }
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b,
                           editor.sending || editor.capturing ? .5 : .92);
@@ -905,9 +925,10 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .22);
         cairo_fill(cr);
     }
-    if (!editor.notice.empty()) {
+    if (!editor.notice.empty() || editor.candidates) {
         // A band across the well's foot, darker than the well, so it reads as
-        // laid over the text rather than part of it.
+        // laid over the text rather than part of it. Candidates are controls
+        // drawn on it.
         const Rect band{r.x + 1, r.y + r.height - dictation_notice_height, r.width - 2,
                         dictation_notice_height - 1};
         cairo_save(cr);
@@ -922,6 +943,10 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         cairo_set_line_width(cr, 1);
         cairo_stroke(cr);
         cairo_restore(cr);
+    }
+    if (!editor.notice.empty()) {
+        const Rect band{r.x + 1, r.y + r.height - dictation_notice_height, r.width - 2,
+                        dictation_notice_height - 1};
         label(cr, editor.notice, {band.x + editor_padding_x, band.y, band.width - 280, band.height},
               t.small_font_size * 1.3, view.language->font,
               editor.notice_error ? amber : Color{t.legend.r, t.legend.g, t.legend.b}, false,
@@ -1578,7 +1603,27 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 draw_control(control);
             }
         }
-        if (!view.status.empty()) {
+        if (!view.status.empty() && view.dictation && !view.settings) {
+            // The editor covers the status line, so it moves up into the
+            // toolbar row, between the left buttons and the next control or
+            // the counter, wrapping onto a second line when long.
+            double left = body.x + 18, right = body.x + body.width - 18;
+            for (const auto& control : view.controls) {
+                if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 400) {
+                    left = std::max(left, control.bounds.x + control.bounds.width);
+                }
+            }
+            for (const auto& control : view.controls) {
+                if (control.bounds.y < 56 && control.bounds.x >= left) {
+                    right = std::min(right, control.bounds.x);
+                }
+            }
+            if (const auto counter = dictation_counter_bounds(view)) {
+                right = std::min(right, counter->x);
+            }
+            label(cr, view.status, {left + 12, 12, right - left - 24, 42}, 15, view.language->font,
+                  t.legend, false, PANGO_ALIGN_LEFT, true);
+        } else if (!view.status.empty()) {
             // A compact toolbar's second row takes the left of the status line.
             const double inset = compact_toolbar(view) ? 88 : 18;
             label(cr, view.status,

@@ -216,6 +216,12 @@ class App {
     bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_cjk();
     void choose_cjk(int index);
+    // Either composer has a reading in progress.
+    bool composing_text() const;
+    // Commits any reading through text_output_; false when it could not.
+    bool commit_composition();
+    // A commit that could not go out: the target, or in dictation mode the full editor.
+    void commit_failed();
     bool unicode_mode() const;
     bool external_jis() const;
     bool text_key(const Key& key, const std::set<int>& mods) const;
@@ -435,7 +441,9 @@ class App {
     // Rebuilds the mode's keys when the layout or the hidden numpad changed.
     void refresh_dictation_layout();
     void set_dictation_view(PanelView& view) const;
-    bool dictation_down(unsigned pointer, const Key& key, double now);
+    bool dictation_down(unsigned pointer, const Key& key, double x, double y, double now);
+    // Typing again clears an error shown over the editor.
+    void clear_editor_error();
     void dictation_key_up(const Key& key);
     EditorCommand editor_command(const Key& key, xkb_keysym_t symbol) const;
     void run_editor_command(EditorCommand command);
@@ -499,6 +507,7 @@ class App {
     struct Reveal {
         std::size_t start{}, end{}, shown{};
         double next{};
+        bool spaced{true}; // false: Japanese and Chinese appear a character at a time
     };
     std::optional<Reveal> reveal_;
     void finish_reveal();

@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, and its delivery A/B test run (2026-10-25). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, and its delivery A/B test run (2026-10-25); M3c live dictation and M4 Settings built and partly tried in the headset; M5a languages built, host-tested and measured against the reference server (2026-10-26). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -16,7 +16,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 - **Languages:**
   - English, Spanish, Japanese and Chinese first. One multilingual Whisper model covers all of them on a server.
   - On device: English and Spanish only.
-  - A language profile without dictation support hides the mic key.
+  - A language profile without dictation support hides the mic key. Japanese JIS, which types through the system's own input method, and Korean have none.
 - **Off by default.** Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
 - **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk. The keyboard never reads the clipboard; it writes it only when Send is set to Paste (owner decision, 2026-10-25), and then holds just the sent text.
@@ -42,9 +42,10 @@ The mockup is incomplete; where it differs, the rules below apply.
 
 - An editor replaces the function-key row. Esc stays at its left.
 - **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy and Paste side keys.
-- **Send** takes the place of the right-hand Alt to Ctrl keys.
+- **Send** takes the place of the right-hand Alt to Ctrl keys. Layouts without them, such as flick, put it in Tab's place.
 - **Undo last phrase** takes the first freed side slot, directly above the mic key.
 - Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
+- The status line, which the editor covers, moves into the toolbar row, wrapping onto a second line when long.
 - The toolbar stays. Opening Settings pauses capture (owner decision); Settings waits only while Send runs. The language button works only while not capturing. X, Pin, Recenter and Esc keep working.
 - **Update:** when an update is ready to install, dictation is discarded: capture stops, pending phrases and the editor text are dropped, and the helper is stopped. The keyboard restarts anyway, which would lose the text (owner decision).
 - Swipe typing and the emoji key are unavailable in dictation mode until they can type into the editor.
@@ -57,10 +58,14 @@ The mockup is incomplete; where it differs, the rules below apply.
 - **Editor while capturing:** a waveform overlay covers the editor and the existing text is greyed out. The editor is read-only. The insertion point stays visible.
 - **Phrases:**
   - The Frame splits speech at pauses of about 0.6 s, and at 25 s at the latest.
-  - Each phrase is sent to the recognizer while capture continues, and is inserted at the cursor as soon as its text returns. It appears word by word, one word every 20 ms, as if typed very fast; typing into the editor waits until it has appeared, and Esc or the mode's keys show the rest at once.
+  - Each phrase is sent to the recognizer while capture continues, and is inserted at the cursor as soon as its text returns. It appears word by word, one word every 20 ms, as if typed very fast; Japanese and Chinese, without spaces, appear a character every 10 ms; typing into the editor waits until it has appeared, and Esc or the mode's keys show the rest at once.
   - Silence is never sent, which prevents most of Whisper's invented phrases.
 - **Context:** each phrase includes up to 200 characters of the text before the cursor as Whisper's prompt. This improves casing, punctuation and names, and makes inserting in the middle of the text read naturally.
-- **Script prompts:** for Chinese the prompt also fixes the script, because Whisper otherwise mixes simplified and traditional characters. For Japanese it uses 、 and 。, which Whisper often omits.
+- **Script prompts:** a language profile can put a short sentence before the context, up to 60 characters (see [M5a results](#m5a-results-2026-10-26)):
+  - Chinese: 好的，没问题。 for simplified and 好的，沒問題。 for traditional. They fix the script, which Whisper otherwise chooses by itself, and keep Chinese punctuation.
+  - Japanese: はい、そうですね。. Without it Whisper often leaves out 、 and 。, and a context without them makes every following phrase leave them out too.
+  - English and Spanish need none.
+  - Short conversational sentences were chosen over descriptions such as 以下是普通话的句子。: Whisper repeated descriptive prompts as text on short unclear phrases, and these brought fewer invented phrases than no prompt at all.
 - **Joining:**
   - In space-separated languages (English, Spanish), a space is added at either edge where needed; in Japanese and Chinese, none.
   - Whisper's casing is kept. The context prompt already tells it when a phrase continues a sentence, and lowercasing would break "I" and names.
@@ -89,7 +94,12 @@ The mockup is incomplete; where it differs, the rules below apply.
   - A phrase still pending when 900 is reached is inserted, up to the hard cap.
   - Manual typing is allowed up to 1000 characters; the counter may then show `1000/900`.
 - **Undo last phrase:** removes the most recently inserted phrase. Repeated presses remove earlier phrases. A phrase whose text was edited since is no longer undoable.
-- **Composers:** Japanese and Chinese composers commit into the editor instead of the application. Preedit and candidates keep their usual place.
+- **Composers:** Japanese and Chinese composers commit into the editor instead of the application, with the same keys as on the normal keyboard; the toolbar's composer buttons stay.
+  - The reading being composed shows in the editor at the cursor, underlined as in a text field, with the segment being converted underlined more strongly.
+  - **Convert** moves beside the editor, into the side column's free slot next to Esc, as large as Undo, its label on two lines. It is shown while a reading is composed.
+  - Candidates fill the band over the editor's foot while there are any to choose; the text above it stays in view.
+  - Any key that edits the editor, the mic key, Send, Undo and a tap in the text commit the reading first. Esc cancels the reading before it acts on the editor. Closing the mode drops a reading not yet committed.
+  - Before the mode opens, a reading in progress goes to the application, as before any other key.
 
 ### Esc
 
@@ -200,7 +210,7 @@ Fallback: `dictation_server` can also be edited in `config.json`, over SSH or in
 
 Full Keyboard never scans the network or discovers servers. It contacts only the address the user typed: Test checks that address, and phrases go to it while capturing.
 
-Mic key visibility: the mic key appears only when dictation is usable and the active language profile has a `dictation` object, holding the Whisper language code and, for Chinese, the script.
+Mic key visibility: the mic key appears only when dictation is usable and the active language profile has a `dictation` object, holding the Whisper language code and, for Japanese and Chinese, the script prompt.
 - **On device:** the model is ready and the language is English or Spanish.
 - **Server:** a server address is set.
 
@@ -231,7 +241,7 @@ The keyboard knows only the server address. Each phrase is one plain HTTP reques
 - `POST http://<host>:<port>/v1/audio/transcriptions` as `multipart/form-data`, with these fields:
   - `file`: the phrase as a 16 kHz mono 16-bit WAV;
   - `language`: the Whisper code from the language profile;
-  - `prompt`: the context text;
+  - `prompt`: the profile's script prompt followed by the context text;
   - `response_format=json` and `temperature=0`.
 - The reply is JSON with a `text` field.
 - **Path fallback:** if the server answers 404 on `/v1/audio/transcriptions`, the keyboard tries whisper.cpp's default `/inference` once, with the same fields, and remembers which path worked. A `whisper-server` started without `--inference-path` therefore works too.
@@ -335,7 +345,7 @@ Keyboard to helper:
 | --- | --- |
 | `{"op":"configure","server":"host:port"}` or `{"op":"configure","url":"https://…/v1"}`, with optional `"model"` and `"language"` | Recognition target for the following session. `server` defaults to port 8031 and path `/v1`, and may fall back to `/inference`; `url` is used as given. |
 | `{"op":"capture","on":true}` / `{"op":"capture","on":false}` | Start or resume capture, or pause it. Pausing ends the phrase being spoken, which is still recognized. |
-| `{"op":"prompt","id":N,"text":"…"}` | The context for phrase N, at most 200 code points, sent in answer to `ready`. |
+| `{"op":"prompt","id":N,"text":"…"}` | The prompt for phrase N, sent in answer to `ready`: the profile's script prompt, then the context, at most 200 code points in all. |
 | `{"op":"cancel"}` | Stop capture and drop every pending phrase. The helper answers `cancelled`. |
 | `{"op":"test"}` | Send half a second of silence to the configured target. |
 | `{"op":"alive"}` | Sent at least every 0.5 s while the keyboard runs. Without one for 2 s, the helper stops capture and drops pending phrases. |
@@ -400,7 +410,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - `DictationEditor` and its tests.
   - The dictation mode layout, with editor keys handled in App before `KeyboardState`. Typed text goes through `TextOutput`.
   - Minimal config parsing and the English profile's `dictation` entry, so dictation can be configured in `config.json` before M4.
-  - Profiles with a composer hide the mic key until M5a.
+  - Profiles with a composer hide the mic key until M5a (lifted there).
   - Swipe and the emoji key are unavailable in dictation mode.
   - A `--render-dictation` image export for reviewing the look.
 - [ ] **M3b Send:** built and host-tested 2026-10-25, and the A/B test run and the pace made a setting (see [M3b results](#m3b-results-2026-10-25)); the application checks are open.
@@ -421,7 +431,8 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Narrower cards with the cut-off fourth card.
   - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
   - Self-hosted servers only; the API key state waits for third-party providers (see [Further work](#further-work)).
-- [ ] **M5a Languages:** Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
+- [ ] **M5a Languages:** built and host-tested 2026-10-26, and the languages measured against the reference server (see [M5a results](#m5a-results-2026-10-26)); not yet tried in the headset.
+  - Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
   - whisper.cpp build and small model download and delete.
@@ -651,6 +662,28 @@ First part: the helper connected to the editor.
 - **Address popup:** opens from the Server field over a dimmed Settings; a raised panel with the title, the field as a recessed well with a caret, a hint line (amber for a non-local address, red for an invalid one), recent servers as chips, and the key grid as keycaps. Keys act on press; the popup is modal and closes with Settings.
 - **Tests:** `dictation-mode` chooses the mode in the card, tests the connection against the scripted helper, types, corrects, rejects and accepts addresses in the popup, checks the warning, Esc, the modal Apply and the recent servers, and checks the saved file; the settings, emoji and native-replacement tests scroll to the cut-off Experimental card.
 
+## M5a results (2026-10-26)
+
+- **Profiles:** `dictation` objects for Spanish (`es`), the romaji, kana and flick Japanese profiles (`ja`) and both Pinyin profiles (`zh`), with the script prompts above. Japanese JIS and Korean have none.
+- **Language measurement:** the 20 FLEURS clips per language from the [measurements](#measurements-2026-10-24), sent through the helper's own request and cleanup to the reference server (large-v3-turbo on a GPU). Each clip is one phrase of a session, prompted as the keyboard prompts it: the profile's prompt, then the text dictated so far. Errors are word error rates for Spanish and English and character error rates for Japanese and Chinese, punctuation removed; punctuation counts commas and full stops against the references.
+
+| Language and prompt | Errors | Punctuation (reference) | Script |
+| --- | --- | --- | --- |
+| English, context | 3.4% | 43 (54) | |
+| Spanish, no prompt or context | 2.6% | 43 (57) | |
+| Spanish, context | 3.7% | 37 (57) | |
+| Japanese, no prompt or context | 3.3% | 22 (52) | |
+| Japanese, context | 3.0% | 0 (52) | |
+| Japanese, はい、そうですね。 and context | 3.1% | 57 (52) | |
+| Chinese, no prompt or context | 10.1% | 10 (50) | simplified |
+| Chinese, 好的，没问题。 and context | 10.6% | 57 (50) | 0 traditional-only characters |
+| Chinese, 好的，沒問題。 and context | 10.7% | 59 (50) | 220 traditional-only, 3 simplified-only |
+
+- **Short phrases:** the first 0.8 s and 1.5 s of every clip, cut mid-word, as a first phrase with only the prompt. Whisper invents a stock phrase for many of them with or without a prompt: "Gracias." for 27 of 40 Spanish cuts, ご視聴ありがとうございました and 请不吝点赞 订阅 转发… for Japanese and Chinese. The chosen prompts lowered that: Japanese from 26 to 12 of 40, Chinese from 18 to 4 (simplified) and 1 (traditional). Descriptive prompts were worse: 以下は、日本語の文章です。 came back as text 23 times, and 以下是普通话的句子。 raised Chinese to 23. A conversational English prompt raised "Thank you." from 2 to 11, and Spanish prompts did not help, so neither has one.
+- **Recognition time:** 0.15–0.18 s per phrase in every configuration.
+- **Composers in the editor:** romaji, kana, flick and Pinyin keys compose as on the normal keyboard and commit through the editor's `TextOutput`. Rendered with `--render-dictation`, which adds a sample reading for composer profiles.
+- **Tests:** `dictation-mode` checks the profiles and the 60-character limit, the prompt sent for each phrase and its trimming to 200 code points, Japanese joining and the character-by-character reveal, a romaji reading shown at the cursor, Convert beside the editor, Esc, Enter, the mic key and Send committing the reading, flick input with Send in Tab's place, and Pinyin candidates in the band where the Pinyin engine is installed.
+
 ## Open questions
 
 The owner settled the behavior questions and the proposals on 2026-10-25; the rules are in the sections above. Still open:
@@ -665,6 +698,7 @@ The owner settled the behavior questions and the proposals on 2026-10-25; the ru
 
 - Before release: the README's privacy note says the app does not read clipboard contents; add that Send set to Paste writes the sent text to it.
 
+- **Stock phrases:** Whisper's invented phrases for short unclear audio, such as "Gracias.", ご視聴ありがとうございました and 请不吝点赞 订阅 转发…, could be dropped when a short phrase returns exactly one of them. Measure how often real phrases produce them first.
 - Swipe typing into the editor. It needs a suggestion row, and dictation mode has no room for one yet.
 - Text selection in the editor.
 - Live partial text while speaking, which needs a streaming server protocol.

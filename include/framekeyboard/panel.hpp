@@ -122,6 +122,12 @@ struct DictationView {
     bool revealing{};        // A phrase is still appearing word by word; read-only.
     std::string notice;      // A band over the editor's foot: waiting, an error or a question.
     bool notice_error{};
+    // A composer's reading, already in `text` at the cursor: underlined, its
+    // converting segment more strongly. Byte ranges into `text`.
+    std::size_t preedit_begin{}, preedit_end{}, active_begin{}, active_end{};
+    // The composer's candidates fill the band over the editor's foot; the
+    // text area then ends above it. Convert sits beside the editor instead.
+    bool candidates{};
 };
 // The server address popup over Settings, in panel coordinates.
 constexpr Rect address_popup_bounds{300, 36, 1000, 508};

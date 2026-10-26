@@ -111,9 +111,9 @@ Both are the **Send** row of the Dictation card in Settings, which also sets `di
 
 The API key for a provider is not stored here, but in `dictation-key` beside `config.json`, readable only by the user (see [speech server setup](speech-server.md#hosted-providers)). An invalid dictation field turns dictation off with a message and leaves every other setting as it is. Saving from Settings keeps these fields.
 
-A language profile offers dictation with a `dictation` object holding its Whisper language code, for example `"dictation": {"language": "en"}`. The bundled English profiles have one. The mic key shows when dictation is configured, the active language has a `dictation` object and uses the `xkb` input method; composition profiles follow later.
+A language profile offers dictation with a `dictation` object holding its Whisper language code, for example `"dictation": {"language": "en"}`, and optionally a `prompt` of at most 60 characters that goes before the editor's text in Whisper's prompt, to fix the script or punctuation, for example `"dictation": {"language": "zh", "prompt": "好的，没问题。"}`. The bundled English, Spanish, Japanese (except external JIS) and Chinese profiles have one. The mic key shows when dictation is configured and the active language has a `dictation` object. With a composer, readings commit into the editor.
 
-In dictation mode the keyboard edits a local editor and sends nothing to the target. The function keys, Tab, Insert, Ctrl, Super, Alt, Steam, Menu, Copy, Paste and the emoji key give way to the editor, a Send key and an Undo key. Esc leaves the mode and keeps the text for the next time. Swipe typing is off in it.
+In dictation mode the keyboard edits a local editor and sends nothing to the target. The function keys, Tab, Insert, Ctrl, Super, Alt, Steam, Menu, Copy, Paste and the emoji key give way to the editor, a Send key (in Tab's place on the flick layout) and an Undo key. Esc stops listening, leaves an empty editor, or asks before discarding text. Swipe typing is off in it.
 
 ## Implementation order
 

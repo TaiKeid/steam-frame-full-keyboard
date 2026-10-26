@@ -23,5 +23,8 @@
   ],
   "swipe": {
     "lexicon": "es-es"
+  },
+  "dictation": {
+    "language": "es"
   }
 }

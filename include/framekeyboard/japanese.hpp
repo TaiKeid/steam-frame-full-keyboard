@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace framekeyboard {
@@ -26,6 +27,8 @@ class JapaneseComposer {
     void cancel();
     void unconvert();
     std::string preedit(bool mark_active = false) const;
+    // Byte range of the active segment in preedit(); empty while not converting.
+    std::pair<std::size_t, std::size_t> active_range() const;
     std::string commit_text();
     bool empty() const { return reading_.empty() && pending_.empty(); }
     bool converting() const { return !segments_.empty(); }

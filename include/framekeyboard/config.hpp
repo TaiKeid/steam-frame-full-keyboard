@@ -8,6 +8,9 @@
 
 namespace framekeyboard {
 namespace fs = std::filesystem;
+// A language profile's dictation prompt, in code points; the rest of Whisper's
+// 200 is the editor's context.
+constexpr std::size_t max_dictation_prompt = 60;
 struct Color {
     bool operator==(const Color&) const = default;
     double r{}, g{}, b{};
@@ -43,6 +46,9 @@ struct Language {
     std::string swipe_lexicon;
     // Whisper language code for dictation; empty means the profile has no dictation.
     std::string dictation_language;
+    // Text put before each phrase's context in Whisper's prompt, to fix the
+    // script or punctuation style (docs/dictation.md, Script prompts).
+    std::string dictation_prompt;
 };
 struct Selection {
     bool operator==(const Selection&) const = default;

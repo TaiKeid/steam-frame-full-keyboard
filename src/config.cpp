@@ -407,6 +407,14 @@ Language parse_language(const std::string& json) {
                          [](char c) { return c >= 'a' && c <= 'z'; })) {
             throw std::runtime_error("dictation language must be a Whisper language code");
         }
+        // The prompt shares Whisper's 200 code points with the editor's context.
+        l.dictation_prompt = text(dictation, "prompt", "", true);
+        if (!g_utf8_validate(l.dictation_prompt.c_str(), static_cast<gssize>(l.dictation_prompt.size()),
+                             nullptr) ||
+            static_cast<std::size_t>(g_utf8_strlen(l.dictation_prompt.c_str(), -1)) >
+                max_dictation_prompt) {
+            throw std::runtime_error("dictation prompt must be UTF-8 of at most 60 characters");
+        }
     }
     if (auto* swipe = field(o, "swipe", json_type_object, true)) {
         // Swipe needs letters it can send as text or Pinyin for the composer.

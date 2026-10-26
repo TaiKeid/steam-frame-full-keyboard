@@ -19,5 +19,9 @@
     "Noto Sans",
     "sans-serif"
   ],
-  "input_method": "japanese-romaji"
+  "input_method": "japanese-romaji",
+  "dictation": {
+    "language": "ja",
+    "prompt": "はい、そうですね。"
+  }
 }
