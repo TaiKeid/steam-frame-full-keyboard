@@ -17,7 +17,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
   - English, Spanish, Japanese and Chinese first. One multilingual Whisper model covers all of them on a server.
   - On device: one multilingual model for every dictation language. English and Spanish are the ones it does well; for the others, Settings warns that accuracy is low and a self-hosted server gives better results (owner, 2026-10-26).
   - A language profile without dictation support hides the mic key. Japanese JIS, which types through the system's own input method, and Korean have none.
-- **Off by default.** Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
+- **On device by default** (owner, 2026-10-27), which needs the model downloaded first: the mic key appears once it is. Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
 - **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk. The keyboard never reads the clipboard; it writes it only when Send is set to Paste (owner decision, 2026-10-25), and then holds just the sent text.
 - **Release:** not in 0.9.0.
@@ -188,12 +188,12 @@ On a recognizer failure, capture stops, and the failed phrase and every phrase q
 A new **Dictation** card is placed third: Languages and Layouts, General, Dictation, Experimental. It contains:
 
 - **Dictation** dropdown, saved as `dictation`, with three choices:
-  - **Off**, the default;
-  - **On device**: every dictation language. With a language other than English or Spanish, a line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
+  - **Off**;
+  - **On device**, the default: every dictation language. With a language other than English or Spanish, a line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
   - **Server**: the user's own speech server.
 - **On device:**
   - The card shows the model's state: not downloaded, downloading with its progress, ready or failed.
-  - Applying On device without the model asks first, naming the download size; only then the download starts. Its progress also shows on the main keyboard without blocking it, and the mic key stays disabled until the model is ready.
+  - Applying a change to On device, the fallback or the format without the model asks first, naming the download size; only then the download starts. Any other Apply does not ask, so the default needs the model row's **Download**. Its progress also shows on the main keyboard without blocking it, and the mic key stays disabled until the model is ready.
   - **Delete model** removes the downloaded model.
   - **Model** dropdown, development builds only, to compare formats: 8-bit (default), 5-bit and 4-bit.
 - **Server:**
@@ -764,6 +764,9 @@ Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decod
 - **Tests:**
   - helper: the engine loaded once and unloaded when idle, a missing model or engine, cancel, phrases on device with the keyboard's prompt, the fallback with its mark, no fallback without the switch; downloads from a local HTTPS server with a test certificate authority, with a redirect, a wrong file never kept, redirects only to HTTPS model hosts, the 4-bit conversion and its failure, cancel;
   - App: the confirmation, Cancel applying nothing, progress on the mic key with typing going on, the device target, Delete, the warning, the development Format row, the fallback's configuration and its mark.
+
+- **First headset try (r27, owner):** 8-bit and 4-bit worked; 5-bit failed once, then worked. All three downloads had succeeded, so the failure was in recognizing: the engine's 10 s limit, shared with the server, is short for 5-bit (about 5 s for a short phrase, more for a long one) after a model switch. Device recognition now has 30 s (the fallback: the server's time plus that), a timeout says the device took too long instead of blaming the server, and the log records dictation error codes in every mode. More testing to follow.
+- **Owner decisions after the try:** On device is the default; Apply asks to download only when it changes the mode, the fallback or the format, so the default never offers a download on unrelated changes. Turning on Type as I speak from dictation mode returns to the main keyboard.
 
 ## Open questions
 

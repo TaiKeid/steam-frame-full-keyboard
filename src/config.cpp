@@ -647,7 +647,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         try {
             // Hand-edited dictation fields fail on their own: dictation stays
             // off, and the layout, language and every other setting still load.
-            settings.dictation = text(document.get(), "dictation", "off", true);
+            settings.dictation = text(document.get(), "dictation", "device", true);
             settings.dictation_server = text(document.get(), "dictation_server", "", true);
             settings.dictation_url = text(document.get(), "dictation_url", "", true);
             settings.dictation_model = text(document.get(), "dictation_model", "", true);

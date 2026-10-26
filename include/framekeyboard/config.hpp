@@ -82,7 +82,9 @@ struct Settings {
     // Dictation (docs/dictation.md). The Dictation card in Settings edits the
     // mode and server; the URL and model are kept as they are in the file. An
     // invalid value turns dictation off without affecting any other setting.
-    std::string dictation{"off"}; // "off", "server" or "device"
+    // "off", "server" or "device"; on device by default, which needs the
+    // model downloaded first (owner, 2026-10-27).
+    std::string dictation{"device"};
     std::string dictation_server; // host[:port]
     std::string dictation_url;    // or a full base URL
     std::string dictation_model;

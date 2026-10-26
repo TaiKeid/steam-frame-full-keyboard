@@ -99,7 +99,7 @@ The small emoji key at the top of the left column opens the emoji picker in plac
 
 Dictation is being built and is not released yet; the design is in [dictation](dictation.md). Until its Settings card exists, it is configured in `config.json`:
 
-- `dictation`: `"off"` (the default), `"server"` or `"device"`, recognition on the Frame with a downloaded model.
+- `dictation`: `"device"` (the default), recognition on the Frame once its model is downloaded; `"server"`; or `"off"`.
 - `dictation_device_model`: the on-device model, `"small-q8_0"` (the default); `"small-q5_1"` and `"small-q4_0"` exist for comparison.
 - `dictation_fallback`: `true` lets Server mode recognize a phrase on the Frame when the server cannot, once the model is downloaded.
 - `developer_options`: `true` shows development-only rows in Settings, such as the on-device model's format.

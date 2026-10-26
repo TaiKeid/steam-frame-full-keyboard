@@ -117,6 +117,11 @@ void settings_tests() {
     auto settings = load_settings(directory.path, errors);
     require(settings.dictation_send_gap == 20 && !settings.dictation_send_paste,
             "Send types at 20 ms by default");
+    write_config(directory.path, "");
+    require(load_settings(directory.path, errors).dictation == "device" &&
+                load_settings(directory.path, errors).dictation_device_model == "small-q8_0",
+            "dictation is on device by default, with the 8-bit model");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"speech.local:8031")");
     require(errors.empty() && settings.dictation == "server" &&
                 settings.dictation_server == "speech.local:8031",
             "dictation settings load");
@@ -738,6 +743,21 @@ void direct_tests() {
         require(load_settings(directory.path, errors).dictation_direct,
                 "the Dictation card turns Type as I speak on");
     }
+    {
+        // Turned on from dictation mode, it returns to the main keyboard.
+        write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        require(app.dictation_open(), "the mic key opened dictation mode");
+        app.show_settings();
+        click(app, "dictation-direct");
+        click(app, "apply");
+        app.tick(clock += .1);
+        require(!app.dictation_open() && !app.view().settings,
+                "Type as I speak returns to the main keyboard");
+    }
     const std::string direct =
         R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)";
     write_config(directory.path, direct);
@@ -1308,11 +1328,19 @@ void device_tests() {
     require(!fs::exists(directory.path / "models/ggml-small-q8_0.bin") && field_label(app, "264 MB"),
             "Delete removes the model");
     click(app, "apply");
-    require(app.view().confirm.has_value(), "On device without the model asks again");
-    click(app, "confirm-cancel");
-    click(app, "settings"); // Back
-    require(!app.view().dictation_available, "without the model the mic key is hidden");
+    require(!app.view().confirm && !app.view().dictation_available,
+            "an unchanged mode does not ask again; without the model the mic key is hidden");
 
+    // With On device already saved, an unrelated Apply never offers the download.
+    write_config(directory.path, "");
+    {
+        App fresh(options, sink);
+        fresh.show_settings();
+        click(fresh, "hide-numpad");
+        click(fresh, "apply");
+        require(!fresh.view().settings && !fresh.view().confirm && !fresh.view().dictation_available,
+                "the default needs the model row's Download, not every Apply");
+    }
     // A weaker language says so under the selector; English does not.
     auto warns = [](App& shown) {
         const auto labels = shown.view().field_labels;

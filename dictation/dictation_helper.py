@@ -65,6 +65,9 @@ CHARS_PER_SECOND = 25
 DEFAULT_PORT = 8031
 DEVICE_IDLE = 60.0  # the on-device model is unloaded after this long unused
 DEVICE_START_TIMEOUT = 30.0
+# On the Frame a phrase takes about 2 s at 8-bit but 5 s or more at 5-bit,
+# and a new model loads first.
+DEVICE_TIMEOUT = 30.0
 DEVICE_THREADS = 4
 # The on-device models (docs/dictation.md, On-device recognition), from
 # Hugging Face ggerganov/whisper.cpp at a pinned revision: the file fetched,
@@ -427,13 +430,15 @@ class Engine:
             try:
                 self.process.stdin.write(header + pcm)
                 self.process.stdin.flush()
-                line = self._line(REQUEST_TIMEOUT)
+                line = self._line(DEVICE_TIMEOUT)
             except OSError:
                 line = None
             self.used = time.monotonic()
             if line is None:
+                died = self.process.poll() is not None
                 self._stop()
-                return "error", "cancelled" if connection.aborted else "device-failed"
+                return "error", ("cancelled" if connection.aborted else
+                                 "device-failed" if died else "timeout")
             try:
                 reply = json.loads(line)
             except ValueError:
@@ -999,8 +1004,16 @@ class Helper:
             else:
                 self.fail(value)
 
+    def request_limit(self):
+        """How long the request in flight may take: the device is slower than a
+        server, and a fallback runs after the server gave up."""
+        target = self.target
+        if self.inflight and self.inflight[0] != "test" and target and target.device:
+            return DEVICE_TIMEOUT if not target.paths else REQUEST_TIMEOUT * 2 + DEVICE_TIMEOUT
+        return REQUEST_TIMEOUT
+
     def check_timeout(self):
-        if self.inflight and time.monotonic() - self.started > REQUEST_TIMEOUT + 1:
+        if self.inflight and time.monotonic() - self.started > self.request_limit() + 1:
             job = self.inflight[0]
             self.inflight[2].abort()
             self.inflight = None

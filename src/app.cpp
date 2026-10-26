@@ -1393,7 +1393,9 @@ bool App::tick(double now) {
     refresh_typing();
     update_emoji(now);
     if (dictation_open_) {
-        if (!dictation_available()) {
+        // Type as I speak never uses the editor: turning it on returns to
+        // the main keyboard. The editor's text stays in memory, as on Esc.
+        if (!dictation_available() || settings_.dictation_direct) {
             close_dictation(); // the profile or settings no longer allow it
         } else {
             refresh_dictation_layout();
@@ -2225,7 +2227,12 @@ void App::action(const ControlAction& command) {
         cancel();
         recenter_ = true;
     } else if (kind == ControlKind::Apply) {
-        if (needs_model(pending_dictation_, pending_dictation_fallback_) && !download_ &&
+        // Only a change to the settings that need the model asks: with On
+        // device as the default, any other Apply must not offer a download.
+        const bool changed = pending_dictation_ != settings_.dictation ||
+                             pending_dictation_fallback_ != settings_.dictation_fallback ||
+                             pending_dictation_device_model_ != settings_.dictation_device_model;
+        if (changed && needs_model(pending_dictation_, pending_dictation_fallback_) && !download_ &&
             !model_ready(pending_dictation_device_model_)) {
             // The model is downloaded only once the user agrees; Download
             // then applies the settings too.
@@ -3969,7 +3976,10 @@ void App::tick_direct(double now) {
 
 namespace {
 // What the editor says about a helper error; the codes are fixed.
-std::string dictation_problem(const std::string& reason) {
+std::string dictation_problem(const std::string& reason, bool device) {
+    if (device && reason == "timeout") {
+        return "Recognition on the device took too long.";
+    }
     static const std::map<std::string, std::string> messages{
         {"no-microphone", "No microphone. Put the headset on, then press the mic key."},
         {"capture-stopped", "The system stopped the microphone."},
@@ -4069,13 +4079,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         }
         break;
     case Kind::Stopped:
-        if (direct_) {
-            std::cout << "Type as I speak: capture stopped (" << event.reason << ").\n" << std::flush;
-        }
+        // Codes only, in every mode, never text.
+        std::cout << (direct_ ? "Type as I speak" : "Dictation") << ": capture stopped (" << event.reason
+                  << ").\n"
+                  << std::flush;
         capturing_ = false;
         mic_levels_.clear();
         if (event.reason != "silence") {
-            dictation_message(dictation_problem(event.reason), true);
+            dictation_message(dictation_problem(event.reason, settings_.dictation == "device"), true);
         }
         dirty = true;
         break;
@@ -4083,16 +4094,16 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         // The helper dropped every pending phrase; text already in stays,
         // and recognized phrases still type.
         const bool active = capturing_ || phrases_pending();
-        if (direct_) {
-            std::cout << "Type as I speak: helper error (" << event.reason << ").\n" << std::flush;
-        }
+        std::cout << (direct_ ? "Type as I speak" : "Dictation") << ": helper error (" << event.reason
+                  << ").\n"
+                  << std::flush;
         capturing_ = false;
         mic_levels_.clear();
         pending_phrases_.clear();
         awaiting_pause_ = false;
         send_wait_since_.reset();
         if (dictation_open_ || (direct_ && active)) {
-            dictation_message(dictation_problem(event.reason), true);
+            dictation_message(dictation_problem(event.reason, settings_.dictation == "device"), true);
         }
         dirty = true;
         break;

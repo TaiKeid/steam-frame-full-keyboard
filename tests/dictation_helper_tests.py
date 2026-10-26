@@ -515,6 +515,22 @@ class Device(unittest.TestCase):
         self.assertEqual(d.Engine(None).recognize(str(model), "en", "", PCM, d.Connection()),
                          ("error", "device-failed"))
 
+    def test_a_slow_engine_times_out_and_a_dead_one_failed(self):
+        engine, model, _ = fake_engine(self)
+        slow = engine.parent / "slow"
+        slow.write_text("#!/bin/sh\necho '{\"ready\":true}'\nexec sleep 30\n")
+        slow.chmod(0o755)
+        dead = engine.parent / "dead"
+        dead.write_text("#!/bin/sh\necho '{\"ready\":true}'\nread line\nexit 1\n")
+        dead.chmod(0o755)
+        limit = d.DEVICE_TIMEOUT
+        d.DEVICE_TIMEOUT = 0.5
+        self.addCleanup(setattr, d, "DEVICE_TIMEOUT", limit)
+        for path, reason in ((slow, "timeout"), (dead, "device-failed")):
+            e = d.Engine(str(path))
+            self.addCleanup(e.close)
+            self.assertEqual(e.recognize(str(model), "en", "", PCM, d.Connection()), ("error", reason))
+
     def test_cancel_kills_the_engine(self):
         engine, model, _ = fake_engine(self)
         e = d.Engine(str(engine))
