@@ -107,6 +107,15 @@ class App {
     // passthrough, which lasts until dictation mode ends
     // (docs/dictation.md, Dashboard, passthrough and focus). True when it did.
     bool dashboard_visibility(bool visible);
+    // Dictation has something going (listening, phrases on the way, sending
+    // or text), so replacement mode keeps the panel after Steam's field closes.
+    bool dictation_holds_panel() const;
+    // Shown without a Steam field to type into: the editor keeps working,
+    // but nothing is sent until the user picks a field.
+    void set_field_needed(bool needed);
+    // The panel left the view; listening pauses. A pause in interaction,
+    // such as Steam handing over a new field, does not.
+    void panel_hidden();
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }
@@ -306,6 +315,7 @@ class App {
     bool dragging_{}, resizing_{};
     bool passthrough_{};
     bool dictation_passthrough_{}; // Tracked apart from the user's toggle.
+    bool field_needed_{};
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;
@@ -448,7 +458,10 @@ class App {
     void discard_dictation();
     bool tick_dictation(double now);
     void dictation_event(const Dictation::Event& event, double now);
-    bool phrases_pending() const { return !pending_phrases_.empty(); }
+    // Phrases not yet inserted, including any the helper may still announce
+    // before it confirms a pause.
+    bool phrases_pending() const { return !pending_phrases_.empty() || awaiting_pause_; }
+    bool awaiting_pause_{};
     std::unique_ptr<Dictation> dictation_;
     bool capturing_{};
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps

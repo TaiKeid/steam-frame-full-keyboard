@@ -9,6 +9,7 @@ VrLifecycle::VrLifecycle(bool background_start, VrLifecycleEffects effects)
 void VrLifecycle::begin_frame(const Frame& frame) {
     const auto& native = frame.native;
     native_ = native;
+    presentation_.hold(frame.dictation_hold);
     presentation_.update(frame.replacement_enabled, native);
     if (frame.watchdog_stalled) {
         presentation_.fallback();
@@ -49,12 +50,14 @@ void VrLifecycle::dashboard_visibility(bool visible) {
     }
 }
 void VrLifecycle::dismiss() {
+    presentation_.hold(false); // X discarded dictation; never reshown this frame.
     hide();
     presentation_.dismiss();
     effects_.dismiss_request();
     show_pending_ = false;
 }
 void VrLifecycle::fallback() {
+    presentation_.hold(false);
     presentation_.fallback();
     hide();
 }

@@ -471,10 +471,13 @@ class Helper:
             self.start_recorder()
             self.capturing = True
             self.detector.idle = 0
-        elif not on and self.capturing:
-            self.stop_recorder()
-            self.capturing = False
-            self.end_phrase(self.detector.finish())  # pausing ends the phrase being spoken
+        elif not on:
+            if self.capturing:
+                self.stop_recorder()
+                self.capturing = False
+                self.end_phrase(self.detector.finish())  # pausing ends the phrase being spoken
+            # Every phrase spoken before the pause has now been announced.
+            self.send("paused")
 
     def start_recorder(self):
         try:

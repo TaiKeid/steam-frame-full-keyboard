@@ -133,7 +133,7 @@ Esc in dictation mode is local and never reaches the application.
 - **Dashboard closed while not capturing:** the keyboard hides as usual. The dictation state (mode, editor text, cursor, scroll) is kept in memory and restored when the keyboard opens again. A paused editor whose capture already turned passthrough on stays open, because that passthrough lasts until the mode ends.
 - **X** discards everything, without asking: capture stops, pending phrases and the editor text are dropped, and dictation mode ends.
 - **Typing target lost**, for example when Steam's field closes:
-  - **Editor mode:** dictation continues into the editor and the panel stays open. The user can select the right field and Send there. In replacement mode this needs its own presentation rule, because today the panel hides when Steam's request ends, whatever passthrough says.
+  - **Editor mode:** dictation continues into the editor and the panel stays open. The user can select the right field and Send there. In replacement mode, dictation holds the panel while it listens, has phrases on the way, sends, or has text; without a Steam field the editor keeps working but nothing is sent, Send is disabled and the editor says "The text field closed. Select a text field to send." The focused application never receives text it did not ask for. A new field takes over through the usual handoff, and the stock keyboard's fallback always wins over the hold.
   - **Type as I speak:** capture stops at once, and phrases not yet typed are discarded.
 - **Switching windows** is handled the same way as closing and reopening the dashboard.
 - **Unchanged:** held keys are still released on hide and target change, and the stock keyboard fallback is unchanged.
@@ -350,6 +350,7 @@ Helper to keyboard:
 | `{"op":"dropped","id":N,"reason":R}` | Phrase N produced nothing usable: `empty`, `invalid` or `too-long`. |
 | `{"op":"capture","on":false,"reason":R}` | Capture stopped by itself: `silence` after 60 s without speech, or an error code. |
 | `{"op":"error","reason":R}` | A fixed error code. Capture stops and pending phrases are dropped. |
+| `{"op":"paused"}` | The answer to `capture` off. Every phrase spoken before the pause has been announced, so Send can wait for exactly those. |
 | `{"op":"cancelled"}` | The answer to `cancel`. The keyboard ignores every capture packet sent before it, such as a phrase that started just before the cancel arrived. |
 | `{"op":"test","ok":true}` / `{"op":"test","ok":false,"reason":R}` | The Test result. |
 
@@ -634,7 +635,9 @@ First part: the helper connected to the editor.
 - **Tests:** `dictation-mode` drives the keyboard against a scripted helper: opening and listening, the read-only editor, pausing with a phrase inserted, resuming, Send while listening, Esc in each state with Keep and Discard, X, and a server error. Every App in the suite uses a stand-in helper; one early run started the real helper from the build directory against 127.0.0.1 with nothing listening, which is why. Host CTest passes with 34 suites and 3 optional CJK skips; ARM64 builds clean.
 - **Scrolling (owner report: it did not scroll):** the stick, a line a step, in the dashboard and in passthrough, and a laser drag on the text. A tap places the cursor on release, so a drag never moves it. The emoji grid now sits in the same recessed well as the editor.
 - **Dashboard rules:** closing the dashboard while listening turns on dictation's own passthrough, so the panel stays open and listening continues; the VR loop reports the dashboard to App each frame before deciding whether the panel may show (`App::dashboard_visibility`). It is tracked apart from the user's toggle: `passthrough()` is either, the toolbar button shows either, and turning it off ends both. It lasts until dictation mode ends, so a paused editor stays open; then, with the dashboard closed, the panel hides unless the user's own passthrough is on. Not yet tried in the headset.
-- **Not yet:** the target-lost rule in replacement mode, the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
+- **Field closed (replacement mode):** `ReplacementPresentation::hold()` keeps the panel shown and editable after Steam's request ends while `App::dictation_holds_panel()` (listening, phrases pending, sending, or text). Held without a field, output stays disabled and Send waits with a notice; a new request takes over through the normal handoff, and X or the fallback drops the hold at once. Listening now pauses only when the panel really hides (`App::panel_hidden()`), not during the input pause of a handoff.
+- **Pause confirmation:** the helper answers `capture` off with `paused`, and App counts phrases as pending until it arrives, so Send right after resuming cannot miss a phrase the helper was just announcing (a race the host tests caught).
+- **Not yet:** the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
 
 ## Open questions
 

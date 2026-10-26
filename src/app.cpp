@@ -1172,11 +1172,6 @@ void App::set_interaction_active(bool active) {
     // The keyboard always reopens on its main layout.
     close_emoji();
     cancel();
-    if (!active) {
-        // Until the dashboard rules keep the panel open while listening,
-        // hiding pauses; phrases already spoken are still recognized.
-        pause_capture();
-    }
     interaction_active_ = active;
     if (active) {
         refresh_typing();
@@ -1435,12 +1430,14 @@ void App::refresh_typing() {
         backend_ready_ && !(native_session_ && external_jis());
     dirty |= typing_ready_ != typing_ready;
     typing_ready_ = typing_ready;
-    if (output_.enabled() && !(interaction_active_ && typing_ready_)) {
+    if (output_.enabled() && !(interaction_active_ && typing_ready_ && !field_needed_)) {
         // Transport loss ends key ownership, but unsent composition stays for
         // an explicit retry once text delivery is available again.
         cancel(false);
     }
-    output_.set_enabled(interaction_active_ && typing_ready_);
+    // A panel held open for dictation without a Steam field sends nothing:
+    // the focused application did not ask for this text.
+    output_.set_enabled(interaction_active_ && typing_ready_ && !field_needed_);
 }
 void App::convert_japanese() {
     // Anthy loads its library and dictionary lazily on first conversion.
@@ -2469,6 +2466,20 @@ void App::set_passthrough(bool on) {
     status_.clear();
     dirty = true;
 }
+bool App::dictation_holds_panel() const {
+    return dictation_open_ &&
+           (capturing_ || phrases_pending() || sending_ || send_wait_since_ || !editor_.empty());
+}
+void App::set_field_needed(bool needed) {
+    if (needed != field_needed_) {
+        field_needed_ = needed;
+        dirty = true;
+    }
+}
+void App::panel_hidden() {
+    // Phrases already spoken are still recognized and inserted.
+    pause_capture();
+}
 bool App::dashboard_visibility(bool visible) {
     if (visible || !dictation_open_ || !capturing_ || !interaction_active_ || passthrough()) {
         return false;
@@ -2820,6 +2831,8 @@ void App::set_dictation_view(PanelView& view) const {
         editor.notice_error = notice_error_;
     } else if (waiting_) {
         editor.notice = "Waiting for recognition…";
+    } else if (field_needed_) {
+        editor.notice = "The text field closed. Select a text field to send.";
     }
     if (sending_) {
         editor.sending = true;
@@ -3011,9 +3024,10 @@ void App::pause_capture() {
     if (!capturing_) {
         return;
     }
-    // The phrase being spoken ends here and is still recognized.
-    if (dictation_) {
-        dictation_->capture(false);
+    // The phrase being spoken ends here and is still recognized; Send waits
+    // for the helper to confirm, so a phrase it is just announcing is not missed.
+    if (dictation_ && dictation_->capture(false)) {
+        awaiting_pause_ = true;
     }
     capturing_ = false;
     mic_levels_.clear();
@@ -3027,6 +3041,7 @@ void App::cancel_capture() {
     capturing_ = false;
     mic_levels_.clear();
     pending_phrases_.clear();
+    awaiting_pause_ = false;
     waiting_ = false;
     send_wait_since_.reset();
     dirty = true;
@@ -3124,12 +3139,16 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         capturing_ = false;
         mic_levels_.clear();
         pending_phrases_.clear();
+        awaiting_pause_ = false;
         send_wait_since_.reset();
         if (dictation_open_) {
             notice_ = dictation_problem(event.reason);
             notice_error_ = true;
         }
         dirty = true;
+        break;
+    case Kind::Paused:
+        awaiting_pause_ = false;
         break;
     case Kind::Test:
         break;
@@ -3223,7 +3242,7 @@ std::size_t counted(const SendPiece& piece) {
 } // namespace
 
 bool App::can_send() const {
-    return !sending_ && !send_wait_since_ && !confirm_discard_ &&
+    return !sending_ && !send_wait_since_ && !confirm_discard_ && !field_needed_ &&
            (editor_.text().find_first_not_of(" \n") != std::string::npos ||
             (enter_pending_ && editor_.empty()) || capturing_ || phrases_pending());
 }

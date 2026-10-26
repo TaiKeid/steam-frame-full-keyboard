@@ -53,6 +53,7 @@ class VrLifecycle {
         bool replacement_enabled{};
         NativeReplacement::State native;
         bool routed_remote{}, watchdog_stalled{}, relaunch{};
+        bool dictation_hold{}; // App::dictation_holds_panel()
         double now{};
     };
     void begin_frame(const Frame& frame);
@@ -68,6 +69,7 @@ class VrLifecycle {
     void tracking_sampled(bool valid, double now);
     bool waiting_for_tracking() const { return tracking_.waiting(); }
     bool panel_requested() const { return presentation_.show(); }
+    bool held_without_field() const { return presentation_.held_without_field(); }
     bool visible() const { return visible_; }
     // Call after placement work; only successful runtime presentation consumes a pending show.
     void present(bool placement_ready, bool dashboard_visible, bool compositor_visible, double now);

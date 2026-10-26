@@ -469,6 +469,17 @@ class Helper(unittest.TestCase):
         helper.send(op="prompt", id=ready["id"], text="")
         self.assertEqual(helper.receive("text")["text"], "hello")
 
+    def test_every_pause_is_confirmed(self):
+        helper = self.start(speech(1.0), mode="loop")
+        helper.send(op="capture", on=False)
+        helper.receive("paused")  # even when nothing was listening
+        helper.send(op="capture", on=True)
+        phrase = helper.receive("phrase")
+        time.sleep(0.3)
+        helper.send(op="capture", on=False)
+        helper.receive("paused")  # after the phrase it ends was announced
+        self.assertEqual(helper.receive("ready")["id"], phrase["id"])
+
     def test_cancel_drops_pending_phrases(self):
         self.server.delay = 2
         helper = self.start()

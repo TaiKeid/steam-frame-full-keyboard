@@ -844,6 +844,28 @@ void handoff_status() {
     }
     fs::remove_all(directory);
 }
+void dictation_hold() {
+    ReplacementPresentation view;
+    view.update(true, {2, true, true, true, true});
+    require(view.show() && view.interactive() && view.remote(), "a Steam field shows the panel");
+    view.hold(true);
+    view.update(true, {2, false, false, false, true});
+    require(view.show() && view.interactive() && !view.remote() && view.held_without_field(),
+            "dictation keeps the panel after the field closes, with nothing routed to Steam");
+    view.update(true, {3, true, true, false, true});
+    require(view.show() && !view.interactive() && !view.held_without_field(),
+            "a new field takes over through the usual handoff");
+    view.update(true, {3, true, true, true, true});
+    require(view.interactive() && view.remote(), "and receives the text once Steam acknowledges it");
+    view.update(true, {3, false, false, false, true});
+    view.hold(false);
+    require(!view.show() && !view.interactive(), "without dictation the closed field hides the panel");
+    view.hold(true);
+    view.update(true, {4, true, true, true, true});
+    view.fallback();
+    require(!view.show() && !view.held_without_field(),
+            "the stock keyboard's fallback wins over the hold");
+}
 void resident_visibility() {
     {
         ReplacementPresentation background(true);
@@ -1362,6 +1384,7 @@ int main(int argc, char** argv) {
         app_commit();
         handoff_status();
         resident_visibility();
+        dictation_hold();
         tracking_recovery();
         idle_wakeups();
         resident_close();

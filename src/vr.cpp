@@ -1418,6 +1418,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 },
             .hide_overlay =
                 [&] {
+                    app.panel_hidden();
                     resizers.hide();
                     check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard");
                 },
@@ -1513,7 +1514,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                .routed_remote = replacement.remote(),
                                .watchdog_stalled = replacement_stalled.exchange(false),
                                .relaunch = instance.poll_recenter(),
+                               .dictation_hold = app.dictation_holds_panel(),
                                .now = now});
+        app.set_field_needed(lifecycle.held_without_field());
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
         if (passthrough_requests.take(replace, native, dashboard_visible)) {
             std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;

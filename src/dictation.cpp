@@ -297,6 +297,8 @@ void Dictation::tick(double now) {
                     event.text.assign(value, length);
                 }
             }
+        } else if (op == "paused") {
+            event.kind = Event::Kind::Paused;
         } else if (op == "capture") {
             event.kind = Event::Kind::Stopped;
             event.reason = reason_of(message.get());

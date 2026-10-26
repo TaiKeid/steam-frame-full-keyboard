@@ -182,6 +182,11 @@ while True:
         break
     message = json.loads(data)
     op = message["op"]
+    if op == "capture" and not message["on"]:
+        if scenario != "silent":
+            send(op="ready", id=phrase)
+        send(op="paused")
+        continue
     if scenario == "silent":
         continue
     if op == "capture" and message["on"]:
@@ -191,8 +196,6 @@ while True:
         phrase += 1
         send(op="level", value=200)
         send(op="phrase", id=phrase)
-    elif op == "capture":
-        send(op="ready", id=phrase)
     elif op == "prompt":
         send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)])
     elif op == "cancel":
@@ -204,10 +207,20 @@ void use_fake_helper(Options& options, const fs::path& directory, const char* sc
     options.dictation_helper = script;
     options.dictation_arguments = {"--scenario", scenario};
 }
+// Ticks until the helper has confirmed the last pause.
+void settle_pause(App& app) {
+    for (int i = 0; i < 300 && app.view().dictation && app.dictation_holds_panel() &&
+                    !app.view().dictation->capturing && app.view().dictation->text.empty();
+         ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        app.tick(clock += .01);
+    }
+}
 // Opens dictation mode with the mic key, which starts listening, and pauses.
 void open_editor(App& app) {
     press(app, "Dictation");
     press(app, "Dictation");
+    settle_pause(app);
 }
 
 void mode_tests() {
@@ -234,6 +247,7 @@ void mode_tests() {
     require(app.dictation_open() && app.view().dictation->capturing,
             "the mic key opens dictation mode and listens");
     press(app, "Dictation");
+    settle_pause(app);
     require(app.view().disabled_keys.contains("Dictation-send") &&
                 app.view().disabled_keys.contains("Dictation-undo"),
             "Send needs text; Undo needs a phrase");
@@ -596,6 +610,7 @@ void passthrough_tests() {
                 "closing the dashboard while listening keeps the panel open");
         press(app, "Dictation");
         require(app.passthrough(), "pausing keeps it open until the mode ends");
+        settle_pause(app);
         press(app, "Escape");
         require(!app.dictation_open() && !app.passthrough(),
                 "leaving the mode ends dictation's passthrough");
@@ -618,6 +633,48 @@ void passthrough_tests() {
         app.set_passthrough(false);
         require(!app.passthrough(), "the user can still turn it off");
     }
+}
+
+void field_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    Sink sink;
+    App app(options, sink);
+    require(!app.dictation_holds_panel(), "no hold outside dictation");
+    press(app, "Dictation");
+    require(app.dictation_holds_panel(), "listening holds the panel");
+    press(app, "Dictation");
+    settle_pause(app);
+    require(!app.dictation_holds_panel(), "a paused, empty editor does not");
+    type_text(app, "hi");
+    require(app.dictation_holds_panel(), "text in the editor does");
+    app.set_field_needed(true);
+    app.tick(clock += .1);
+    require(app.view().disabled_keys.contains("Dictation-send") &&
+                app.view().dictation->notice == "The text field closed. Select a text field to send.",
+            "without a field Send waits and says why");
+    type_text(app, "a");
+    require(editor_text(app) == "hia", "the editor keeps working");
+    app.set_interaction_active(false);
+    app.set_interaction_active(true);
+    press(app, "Dictation");
+    app.set_interaction_active(false); // a handoff pauses input, not listening
+    require(app.view().dictation->capturing, "listening continues through a handoff");
+    app.set_interaction_active(true);
+    app.panel_hidden();
+    require(!app.view().dictation->capturing, "hiding the panel pauses listening");
+    app.set_field_needed(false);
+    app.tick(clock += .1);
+    require(!app.view().disabled_keys.contains("Dictation-send"), "a new field enables Send again");
+    press(app, "Dictation-send");
+    settle(app);
+    require(sink.text == std::vector<std::string>{"hia"}, "and the text goes there");
 }
 
 void send_tests() {
@@ -744,6 +801,7 @@ int main() {
         scroll_tests();
         paste_tests();
         passthrough_tests();
+        field_tests();
         live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;

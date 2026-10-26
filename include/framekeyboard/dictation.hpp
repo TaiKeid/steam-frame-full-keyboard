@@ -15,7 +15,9 @@ namespace framekeyboard {
 class Dictation {
   public:
     struct Event {
-        enum class Kind { Level, Phrase, Ready, Text, Dropped, Stopped, Error, Test };
+        // Paused answers capture(false): every phrase spoken before it has
+        // been announced.
+        enum class Kind { Level, Phrase, Ready, Text, Dropped, Stopped, Paused, Error, Test };
         Kind kind{};
         std::uint64_t id{};
         int level{};

@@ -170,23 +170,32 @@ class ReplacementPresentation {
         bypass_request_ = state_.request;
         managed_ = true;
     }
+    // Dictation keeps the panel open after Steam's field closes, so its text
+    // can be sent to another field (docs/dictation.md, typing target lost).
+    void hold(bool on) { held_ = on; }
+    // Shown only because dictation holds it: there is no Steam field, and
+    // the focused application must not receive its text.
+    bool held_without_field() const { return holding() && enabled_ && managed_ && !requested(); }
     bool show() const {
-        return !startup_hidden_ &&
-               (!enabled_ || (!managed_ && !dismissed_) ||
-                (state_.available && state_.open && state_.eligible &&
-                 state_.request != bypass_request_ && state_.request != dismissed_request_));
+        return !startup_hidden_ && (!enabled_ || (!managed_ && !dismissed_) || requested() || holding());
     }
     bool interactive() const {
-        return !startup_hidden_ &&
-               (!enabled_ || (!managed_ && !dismissed_) || (show() && state_.active));
+        return !startup_hidden_ && (!enabled_ || (!managed_ && !dismissed_) ||
+                                    (show() && state_.active) || held_without_field());
     }
     bool remote() const { return enabled_ && managed_ && show() && state_.active && !state_.local; }
     bool fallback_requested() const { return state_.open && state_.request == bypass_request_; }
 
   private:
+    // The stock keyboard's fallback always wins over dictation's hold.
+    bool holding() const { return held_ && !fallback_requested(); }
+    bool requested() const {
+        return state_.available && state_.open && state_.eligible && state_.request != bypass_request_ &&
+               state_.request != dismissed_request_;
+    }
     NativeReplacement::State state_;
     bool enabled_{}, managed_{}, dismissed_{};
-    bool startup_hidden_{};
+    bool startup_hidden_{}, held_{};
     std::uint64_t bypass_request_{}, dismissed_request_{};
 };
 } // namespace framekeyboard
