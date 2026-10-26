@@ -188,13 +188,13 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
 
 Settings has no text fields, and its cards cover the keys. Selecting the Server field opens an **address popup** over Settings, with its own one-line field and a small hardcoded keyboard. The address is set rarely, so this stays deliberately simple.
 
-- **Keys:** lowercase letters, digits, and `.` `-` `_` `:` `/` `[` `]` `?` (the exact set is a *proposal*). They type only characters that can appear in an address. There is no Space, Shift, Ctrl, Alt, Super, numpad, swipe or Paste; host names ignore case.
-- **Editing keys:** Backspace and the arrows. Enter acts on press: it accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels.
+- **Keys:** lowercase letters, digits, and `.` `-` `:` `[` `]`, the characters a `host:port` address can hold, in a 12-column grid: `Esc 1–0 ⌫`, `q–p - .`, `a–l : [ ]`, `z–m ← → Enter`. There is no Space, Shift, Ctrl, Alt, Super, numpad, swipe or Paste; host names ignore case. Every key acts on press.
+- **Editing keys:** Backspace and the arrows. Enter accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels. While the popup is open, nothing under it responds.
 - **No Paste:** Full Keyboard never reads the clipboard, here or anywhere else.
 - **Local only:** the popup types only into its field, never into Steam or the focused application, even with Replace native keyboard on.
 - **Size:** smaller than the main keyboard, so it fits inside the panel. The layout is hardcoded and does not follow the active layout or language.
-- **Validation:** an invalid value keeps the popup open with a short reason.
-- **Recent servers:** up to five recent servers that passed Test are listed under the field (*proposal*).
+- **Validation:** an invalid value keeps the popup open with a short reason. A valid address outside the local network shows an amber warning that speech would cross the internet unencrypted; private and link-local IPv4 and IPv6, loopback, Tailscale (`100.64.0.0/10`, `*.ts.net`), single-label names and the `.local`, `.lan`, `.home`, `.home.arpa` and `.internal` suffixes count as local.
+- **Recent servers:** up to five servers that passed Test, newest first, are offered as chips under the field; one press fills the field. They are saved as `dictation_recent_servers`.
 
 Fallback: `dictation_server` can also be edited in `config.json`, over SSH or in Desktop Mode, like every other setting.
 
@@ -416,7 +416,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - **Presentation and lifecycle:**
     - A table of what capture, pending phrases and the editor do on dashboard close, X, target loss, native fallback, tracking loss, suspend, Quit and update.
     - Automatic passthrough is tracked apart from the user's own toggle.
-- [ ] **M4 Settings:** step 1 built 2026-10-26: the Dictation card (mode, server, Test, Send) and narrower cards with the cut-off fourth (see [M4 results](#m4-results-2026-10-26)). Next: the address popup.
+- [ ] **M4 Settings:** built 2026-10-26: the Dictation card (mode, server, Test, Send), narrower cards with the cut-off fourth, and the address popup (see [M4 results](#m4-results-2026-10-26)); not yet tried in the headset.
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
   - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
@@ -648,7 +648,8 @@ First part: the helper connected to the editor.
 - **Dictation card (third):** Dictation (Off / Your server), Server, Connection with Test, and Send, which moved from Experimental. Apply saves `dictation` and `dictation_server`; `dictation_url` and `dictation_model` stay as they are in the file.
   - **Server** is drawn as a small recessed text field, since it holds typed text; selecting it opens the address popup in the next step.
   - **Test** sends half a second of silence to the pending address through the helper, before Apply. The line under the row label is narrow, so the result is a word or two: Reachable, Unreachable, No answer, Server error, Bad reply, Helper stopped.
-- **Tests:** `dictation-mode` chooses the mode in the card, tests the connection against the scripted helper and checks the saved file; the settings, emoji and native-replacement tests scroll to the cut-off Experimental card.
+- **Address popup:** opens from the Server field over a dimmed Settings; a raised panel with the title, the field as a recessed well with a caret, a hint line (amber for a non-local address, red for an invalid one), recent servers as chips, and the key grid as keycaps. Keys act on press; the popup is modal and closes with Settings.
+- **Tests:** `dictation-mode` chooses the mode in the card, tests the connection against the scripted helper, types, corrects, rejects and accepts addresses in the popup, checks the warning, Esc, the modal Apply and the recent servers, and checks the saved file; the settings, emoji and native-replacement tests scroll to the cut-off Experimental card.
 
 ## Open questions
 

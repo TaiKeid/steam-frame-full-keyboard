@@ -105,6 +105,7 @@ Dictation is being built and is not released yet; the design is in [dictation](d
 - `dictation_model`: the model name, for servers and providers that need one.
 - `dictation_send_gap_ms`: how many milliseconds Send waits between characters, `20` (the default), `30` or `40`. Slower keeps characters in order when the Frame is busy.
 - `dictation_send_paste`: `true` makes Send paste through the clipboard instead of typing; the keyboard writes the clipboard but never reads it.
+- `dictation_recent_servers`: up to five server addresses that passed the Dictation card's Test, newest first, offered when entering the address. Unusable entries are skipped.
 
 Both are the **Send** row of the Dictation card in Settings, which also sets `dictation` (Off or Your server) and shows `dictation_server`, with a **Test** of the connection. An invalid value of the Send fields falls back to typing at 20 ms with a message.
 

@@ -86,9 +86,16 @@ struct Settings {
     // Send pastes through the clipboard instead of typing; Steam's own fields
     // keep their direct path.
     bool dictation_send_paste{};
+    // Up to five servers that passed the Dictation card's Test, newest first.
+    std::vector<std::string> dictation_recent_servers;
 };
 // Whether a server address or URL is one the dictation helper accepts.
 bool valid_dictation_server(const std::string& server);
+// Whether a valid server address is on the user's own network: private and
+// link-local IPv4 and IPv6, loopback, Tailscale's 100.64.0.0/10 and ts.net
+// names, single-label names and the local suffixes. Others get a warning,
+// as speech to them would cross the internet unencrypted.
+bool local_dictation_server(const std::string& server);
 bool valid_dictation_url(const std::string& url);
 
 fs::path default_config_dir();

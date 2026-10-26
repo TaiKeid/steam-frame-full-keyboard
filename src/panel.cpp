@@ -1568,7 +1568,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_restore(cr);
         };
         for (const auto& control : view.controls) {
-            if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu") {
+            if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
+                !control.id.starts_with("address-")) {
                 draw_control(control);
             }
         }
@@ -1615,6 +1616,58 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_stroke(cr);
             for (const auto& control : view.controls) {
                 if (control.style == ControlStyle::MenuItem || control.id == "scroll-menu") {
+                    draw_control(control);
+                }
+            }
+        }
+        if (view.address) {
+            // The server address popup: the case dims, and a raised panel
+            // holds the field, its hint, recent servers and the keys.
+            const auto& popup = *view.address;
+            rounded(cr, body, t.surface_radius);
+            cairo_set_source_rgba(cr, 0, 0, 0, .45);
+            cairo_fill(cr);
+            const double radius = t.radius + 6;
+            soft_shadow(cr, popup.panel, radius, 18);
+            rounded(cr, popup.panel, radius);
+            source(cr, mix(t.surface, t.bottom, .5));
+            cairo_fill(cr);
+            cairo_move_to(cr, popup.panel.x + radius, popup.panel.y + 1.5);
+            cairo_line_to(cr, popup.panel.x + popup.panel.width - radius, popup.panel.y + 1.5);
+            cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+            cairo_set_line_width(cr, 1);
+            cairo_stroke(cr);
+            label(cr, "Server address",
+                  {popup.panel.x + 30, popup.panel.y + 18, popup.panel.width - 140, 32}, 19,
+                  view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
+            draw_well(cr, t, popup.field);
+            auto* text = pango_cairo_create_layout(cr);
+            auto* font = pango_font_description_new();
+            pango_font_description_set_family(font, view.language->font.c_str());
+            pango_font_description_set_absolute_size(font, 26 * PANGO_SCALE);
+            pango_layout_set_font_description(text, font);
+            pango_font_description_free(font);
+            pango_layout_set_text(text, popup.text.c_str(), static_cast<int>(popup.text.size()));
+            int width = 0, height = 0;
+            pango_layout_get_pixel_size(text, &width, &height);
+            const double x = popup.field.x + 20, y = popup.field.y + (popup.field.height - height) / 2;
+            cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .95);
+            cairo_move_to(cr, x, y);
+            pango_cairo_show_layout(cr, text);
+            PangoRectangle caret;
+            pango_layout_index_to_pos(text, static_cast<int>(popup.cursor), &caret);
+            g_object_unref(text);
+            rounded(cr, {x + caret.x / PANGO_SCALE - 1, y + 4, 2, height - 8.0}, 1);
+            source(cr, t.legend);
+            cairo_fill(cr);
+            using Tone = PanelView::AddressView::Tone;
+            label(cr, popup.message, popup.hint, 17, view.language->font,
+                  popup.tone == Tone::Error     ? Color{.95, .48, .42}
+                  : popup.tone == Tone::Warning ? Color{.96, .72, .35}
+                                                : disabled_legend(t),
+                  false, PANGO_ALIGN_LEFT);
+            for (const auto& control : view.controls) {
+                if (control.id.starts_with("address-")) {
                     draw_control(control);
                 }
             }

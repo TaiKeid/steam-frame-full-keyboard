@@ -283,6 +283,15 @@ class App {
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
     std::string pending_dictation_, pending_dictation_server_;
+    // The address popup's own one-line field (docs/dictation.md, entering
+    // the server address). It types only here, never into the target.
+    struct AddressEntry {
+        std::string text;
+        std::size_t cursor{};
+        std::string error;
+    };
+    std::optional<AddressEntry> address_;
+    void address_key(const std::string& key);
     // The Dictation card's connection line: empty until Test runs.
     std::string dictation_test_;
     void test_dictation_server();

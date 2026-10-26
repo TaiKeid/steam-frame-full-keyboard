@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -522,6 +523,38 @@ bool valid_dictation_server(const std::string& server) {
     }
     return true;
 }
+bool local_dictation_server(const std::string& server) {
+    std::string host = server;
+    if (host.starts_with('[')) {
+        host = host.substr(1, host.find(']') - 1);
+    } else if (const auto colon = host.find(':'); colon != std::string::npos) {
+        host = host.substr(0, colon);
+    }
+    std::transform(host.begin(), host.end(), host.begin(), [](char c) { return g_ascii_tolower(c); });
+    if (host.find(':') != std::string::npos) {
+        // IPv6: loopback, unique local fc00::/7 and link-local fe80::/10.
+        return host == "::1" || host.starts_with("fc") || host.starts_with("fd") ||
+               host.starts_with("fe8") || host.starts_with("fe9") || host.starts_with("fea") ||
+               host.starts_with("feb");
+    }
+    int octets[4]{};
+    char tail = 0;
+    if (std::sscanf(host.c_str(), "%d.%d.%d.%d%c", &octets[0], &octets[1], &octets[2], &octets[3],
+                    &tail) == 4) {
+        const int a = octets[0], b = octets[1];
+        return a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31) ||
+               (a == 169 && b == 254) || (a == 100 && b >= 64 && b <= 127);
+    }
+    if (host.find('.') == std::string::npos) {
+        return true; // a single-label name only resolves locally
+    }
+    for (const char* suffix : {".local", ".lan", ".home", ".home.arpa", ".internal", ".ts.net"}) {
+        if (host.ends_with(suffix)) {
+            return true;
+        }
+    }
+    return false;
+}
 bool valid_dictation_url(const std::string& url) {
     const bool https = url.starts_with("https://");
     if (!https && !url.starts_with("http://")) {
@@ -605,6 +638,19 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             }
             if (auto* paste = field(document.get(), "dictation_send_paste", json_type_boolean, true)) {
                 settings.dictation_send_paste = json_object_get_boolean(paste);
+            }
+            // Only a convenience list: unusable entries are skipped quietly.
+            if (auto* recent =
+                    field(document.get(), "dictation_recent_servers", json_type_array, true)) {
+                for (std::size_t i = 0; i < json_object_array_length(recent) &&
+                                        settings.dictation_recent_servers.size() < 5;
+                     ++i) {
+                    auto* item = json_object_array_get_idx(recent, i);
+                    if (json_object_is_type(item, json_type_string) &&
+                        valid_dictation_server(json_object_get_string(item))) {
+                        settings.dictation_recent_servers.push_back(json_object_get_string(item));
+                    }
+                }
             }
         } catch (const std::exception&) {
             errors.push_back(
@@ -726,6 +772,11 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_string(settings->dictation.c_str()));
         json_object_object_add(document.get(), "dictation_server",
                                json_object_new_string(settings->dictation_server.c_str()));
+        auto* recent = json_object_new_array();
+        for (const auto& server : settings->dictation_recent_servers) {
+            json_object_array_add(recent, json_object_new_string(server.c_str()));
+        }
+        json_object_object_add(document.get(), "dictation_recent_servers", recent);
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

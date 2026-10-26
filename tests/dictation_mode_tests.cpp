@@ -123,6 +123,21 @@ void settings_tests() {
     for (const auto* server : {"", "host:", "host:99999", "a b", "[fd00::1", "http://host"}) {
         require(!valid_dictation_server(server), "invalid server addresses fail");
     }
+    for (const auto* local : {"192.168.0.14:8031", "10.1.2.3", "172.20.0.1", "127.0.0.1", "100.84.61.34",
+                              "169.254.1.1", "[fd00::1]:9000", "[::1]", "speech", "speech.local",
+                              "box.lan", "pc.tail1234.ts.net", "nas.home.arpa"}) {
+        require(local_dictation_server(local), "private, Tailscale and local names count as local");
+    }
+    for (const auto* remote :
+         {"8.8.8.8", "172.32.0.1", "100.128.0.1", "speech.example.com", "[2001:db8::1]:8031"}) {
+        require(!local_dictation_server(remote), "public addresses do not");
+    }
+    write_config(directory.path,
+                 R"(,"dictation_recent_servers":["a.local","bad host",7,"b.local:9","c","d","e","f"])");
+    settings = load_settings(directory.path, errors);
+    require(settings.dictation_recent_servers ==
+                std::vector<std::string>{"a.local", "b.local:9", "c", "d", "e"},
+            "recent servers keep five valid entries");
     require(valid_dictation_url("https://api.example.com/openai/v1") &&
                 !valid_dictation_url("https://u@x/v1") && !valid_dictation_url("https://x/v1?key=1"),
             "dictation URLs");
@@ -741,6 +756,60 @@ void card_tests() {
     require(errors.empty() && saved.dictation == "server" && saved.dictation_server == "127.0.0.1",
             "the mode and server are saved");
     require(sink.text.empty() && sink.keys.empty(), "the card sends nothing to the target");
+
+    // The address popup: its own field and keys, Enter checks, Esc cancels.
+    app.show_settings();
+    auto type = [&](const std::string& keys) {
+        for (char c : keys) {
+            click(app, std::string("address-key-") + c);
+        }
+    };
+    click(app, "dictation-server");
+    require(app.view().address && app.view().address->text == "127.0.0.1",
+            "the popup opens on the address");
+    for (int i = 0; i < 9; ++i) {
+        click(app, "address-key-backspace");
+    }
+    type("speech.example.com");
+    require(app.view().address->tone == PanelView::AddressView::Tone::Warning,
+            "a public address shows the warning");
+    for (int i = 0; i < 3; ++i) {
+        click(app, "address-key-backspace");
+    }
+    type("local:");
+    click(app, "address-key-enter");
+    require(app.view().address && app.view().address->tone == PanelView::AddressView::Tone::Error,
+            "an invalid address keeps the popup open with a reason");
+    type("8031");
+    click(app, "address-key-enter");
+    require(!app.view().address, "a valid address closes the popup");
+    const auto shown = app.view();
+    require(std::any_of(shown.controls.begin(), shown.controls.end(),
+                        [](const Control& c) {
+                            return c.id == "dictation-server" && c.label == "speech.example.local:8031";
+                        }),
+            "the card shows the pending address");
+    click(app, "dictation-server");
+    type("x");
+    click(app, "address-key-esc");
+    require(!app.view().address, "Esc cancels");
+    click(app, "dictation-test");
+    wait_until(app, [&] { return field_label(app, "Reachable"); });
+    click(app, "dictation-server");
+    require(std::any_of(app.view().controls.begin(), app.view().controls.end(),
+                        [](const Control& c) { return c.id == "address-recent-0"; }),
+            "a tested server is offered among the recent ones");
+    click(app, "address-recent-1");
+    require(app.view().address->text == "127.0.0.1", "a recent server fills the field");
+    click(app, "apply");
+    require(app.view().address.has_value(), "the popup is modal: Settings underneath waits");
+    click(app, "address-key-esc");
+    click(app, "apply");
+    require(!app.view().address && !app.view().settings, "Apply saves and closes Settings");
+    app.flush_settings();
+    const auto recent = load_settings(directory.path, errors).dictation_recent_servers;
+    require(recent == std::vector<std::string>{"speech.example.local:8031", "127.0.0.1"},
+            "recent servers are saved, newest first");
 }
 
 void send_tests() {

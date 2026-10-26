@@ -255,6 +255,53 @@ std::vector<Control> App::controls() const {
                 {"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
         }
         append_move_handle();
+        if (address_) {
+            // The popup's geometry: a raised panel over the cards, the field, a
+            // hint line, recent servers and a 12-column key grid.
+            const Rect panel = address_popup_bounds;
+            add({ControlKind::AddressKey, 0, "esc"}, {"address-close",
+                                                      "Cancel",
+                                                      {panel.x + panel.width - 78, panel.y + 14, 60, 42},
+                                                      false,
+                                                      Icon::Close});
+            double x = panel.x + 30;
+            const auto& recent = settings_.dictation_recent_servers;
+            for (std::size_t i = 0; i < recent.size(); ++i) {
+                const double width = 32 + 11.5 * static_cast<double>(recent[i].size());
+                if (x + width > panel.x + panel.width - 30) {
+                    break;
+                }
+                add({ControlKind::AddressRecent, 0, recent[i]},
+                    {"address-recent-" + std::to_string(i), recent[i], {x, panel.y + 172, width, 40}});
+                x += width + 10;
+            }
+            static const std::vector<std::vector<std::string>> rows{
+                {"esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "backspace"},
+                {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "-", "."},
+                {"a", "s", "d", "f", "g", "h", "j", "k", "l", ":", "[", "]"},
+                {"z", "x", "c", "v", "b", "n", "m", "left", "right", "enter"}};
+            constexpr double key = 70, height = 56, gap = 8;
+            for (std::size_t r = 0; r < rows.size(); ++r) {
+                double left = panel.x + (panel.width - (12 * (key + gap) - gap)) / 2;
+                const double top = panel.y + 230 + static_cast<double>(r) * (height + gap);
+                for (const auto& value : rows[r]) {
+                    const double width = value == "enter" ? 3 * key + 2 * gap : key;
+                    Control control{"address-key-" + value,
+                                    value == "esc"     ? "Esc"
+                                    : value == "left"  ? "←"
+                                    : value == "right" ? "→"
+                                    : value == "enter" ? "Enter"
+                                                       : value,
+                                    {left, top, width, height}};
+                    if (value == "backspace") {
+                        control.label = "Backspace";
+                        control.icon = Icon::Backspace;
+                    }
+                    add({ControlKind::AddressKey, 0, value}, control);
+                    left += width + gap;
+                }
+            }
+        }
         return result;
     }
     // One row: Settings, Recenter, Pin, passthrough, language. Compact:
@@ -386,6 +433,7 @@ std::vector<Control> App::controls() const {
         }
     }
     append_move_handle();
+
     return result;
 }
 void App::update_settings_ui() {
@@ -666,6 +714,24 @@ PanelView App::build_view(bool picker) const {
             v.disabled_keys.insert("Dictation-undo");
         }
     }
+    if (settings_open_ && address_) {
+        PanelView::AddressView popup;
+        popup.panel = address_popup_bounds;
+        popup.field = {popup.panel.x + 30, popup.panel.y + 70, popup.panel.width - 60, 60};
+        popup.hint = {popup.panel.x + 30, popup.panel.y + 136, popup.panel.width - 60, 28};
+        popup.text = address_->text;
+        popup.cursor = address_->cursor;
+        if (!address_->error.empty()) {
+            popup.message = address_->error;
+            popup.tone = PanelView::AddressView::Tone::Error;
+        } else if (valid_dictation_server(address_->text) && !local_dictation_server(address_->text)) {
+            popup.message = "Outside your local network: speech would cross the internet unencrypted.";
+            popup.tone = PanelView::AddressView::Tone::Warning;
+        } else {
+            popup.message = "Host name or IP address, with :port if not 8031";
+        }
+        v.address = std::move(popup);
+    }
     for (const auto& [pointer, target] : hovered_) {
         (void)pointer;
         if (target.kind == HoverTarget::Kind::Key) {
@@ -677,6 +743,9 @@ PanelView App::build_view(bool picker) const {
     return v;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
+    if (address_) {
+        return false; // nothing under the popup scrolls
+    }
     if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer) && std::isfinite(dy)) {
         const auto [x, y] = pointer_positions_.at(pointer);
@@ -759,6 +828,9 @@ bool App::move(unsigned pointer, double x, double y) {
             it->action.kind != ControlKind::ScrollMenu) {
             continue;
         }
+        if (v.address && !it->id.starts_with("address-")) {
+            continue; // the address popup is modal
+        }
         if (it->hit(x, y)) {
             target = {HoverTarget::Kind::Control, it->id};
             break;
@@ -784,7 +856,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
-    if (settings_open_ && settings_ui_.down(pointer, x, y)) {
+    if (settings_open_ && !address_ && settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;
         return false;
@@ -802,6 +874,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                          [&](const Control& item) { return item.id == hovered_[pointer].id; });
         if (control != v.controls.rend()) {
             pressed_controls_[pointer] = {control->id, control->action};
+            if (control->id.starts_with("address-")) {
+                // The popup's keys act on press, Enter included; the release
+                // only ends the press.
+                pressed_controls_[pointer].action = {};
+                action(control->action);
+            }
         }
         return false;
     }
@@ -1238,13 +1316,18 @@ void App::show_settings() {
     dirty = true;
 }
 void App::back() {
-    if (settings_ui_.popup_open()) {
+    if (address_) {
+        address_.reset();
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (settings_ui_.popup_open()) {
         settings_ui_.close_popup();
         pressed_controls_.clear();
         hovered_.clear();
     } else if (settings_open_) {
         cancel();
         settings_open_ = false;
+        address_.reset();
     }
     dirty = true;
 }
@@ -1254,6 +1337,7 @@ void App::summon() {
     close_emoji();
     cancel();
     settings_open_ = false;
+    address_.reset();
     recenter_ = true;
     status_.clear();
 }
@@ -1922,6 +2006,7 @@ void App::action(const ControlAction& command) {
         rebuild_cycle_entries();
         save();
         settings_open_ = false;
+        address_.reset();
     } else if (kind == ControlKind::Reload) {
         reload();
     } else if (kind == ControlKind::ToggleDropdown) {
@@ -1978,7 +2063,14 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::DictationTest) {
         test_dictation_server();
     } else if (kind == ControlKind::DictationServer) {
-        // The address popup arrives in the next step of M4.
+        settings_ui_.close_popup();
+        address_ = AddressEntry{pending_dictation_server_, pending_dictation_server_.size(), {}};
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (kind == ControlKind::AddressKey && address_) {
+        address_key(command.value);
+    } else if (kind == ControlKind::AddressRecent && address_) {
+        address_ = AddressEntry{command.value, command.value.size(), {}};
     } else if (kind == ControlKind::ChooseSendGap) {
         pressed_controls_.clear();
         hovered_.clear();
@@ -2487,6 +2579,7 @@ void App::close_panel() {
     set_interaction_active(false);
     if (resident_replacement()) {
         settings_open_ = false;
+        address_.reset();
         dismiss_requested_ = true;
     } else {
         quit_ = true;
@@ -3206,6 +3299,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     case Kind::Test:
         // Only the Dictation card's Test asks. The line under the row label is
         // narrow, so the answer is a word or two.
+        if (event.ok && valid_dictation_server(pending_dictation_server_)) {
+            // A server that answered becomes the first of the recent ones.
+            auto& recent = settings_.dictation_recent_servers;
+            std::erase(recent, pending_dictation_server_);
+            recent.insert(recent.begin(), pending_dictation_server_);
+            recent.resize(std::min<std::size_t>(recent.size(), 5));
+            save();
+        }
         dictation_test_ = event.ok                           ? "Reachable"
                           : event.reason == "timeout"        ? "No answer"
                           : event.reason == "server-error"   ? "Server error"
@@ -3224,6 +3325,41 @@ void App::finish_reveal() {
         reveal_.reset();
         follow_cursor();
         dirty = true;
+    }
+}
+
+void App::address_key(const std::string& key) {
+    auto& entry = *address_;
+    if (key == "esc") {
+        address_.reset();
+    } else if (key == "enter") {
+        // Accepted only as the pending setting; Apply saves it as usual.
+        if (entry.text.empty()) {
+            entry.error = "Enter an address, such as speech.local:8031";
+        } else if (!valid_dictation_server(entry.text)) {
+            entry.error = "Use a host name or IP address, optionally with :port";
+        } else {
+            if (entry.text != pending_dictation_server_) {
+                pending_dictation_server_ = entry.text;
+                dictation_test_.clear();
+            }
+            address_.reset();
+            update_settings_ui();
+        }
+    } else if (key == "backspace") {
+        if (entry.cursor > 0) {
+            entry.text.erase(--entry.cursor, 1);
+        }
+        entry.error.clear();
+    } else if (key == "left") {
+        entry.cursor = entry.cursor > 0 ? entry.cursor - 1 : 0;
+    } else if (key == "right") {
+        entry.cursor = std::min(entry.cursor + 1, entry.text.size());
+    } else if (key.size() == 1 && entry.text.size() < 261) {
+        // Only the popup's own characters ever arrive: lowercase letters,
+        // digits and . - : [ ].
+        entry.text.insert(entry.cursor++, key);
+        entry.error.clear();
     }
 }
 

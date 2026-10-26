@@ -47,6 +47,10 @@ enum class ControlKind {
     ChooseDictation,
     DictationServer,
     DictationTest,
+    // The server address popup: a key (its value is the character, or
+    // backspace, left, right, enter or esc), a recent server, or close.
+    AddressKey,
+    AddressRecent,
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,
@@ -116,6 +120,8 @@ struct DictationView {
     std::string notice;      // A band over the editor's foot: waiting, an error or a question.
     bool notice_error{};
 };
+// The server address popup over Settings, in panel coordinates.
+constexpr Rect address_popup_bounds{300, 36, 1000, 508};
 // The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
@@ -164,6 +170,17 @@ struct PanelView {
     double dictation_level_since{};
     // Dictation mode's editor; its keys are in `layout`.
     std::optional<DictationView> dictation;
+    // The server address popup over Settings; its keys and chips are
+    // controls whose ids start with "address-".
+    struct AddressView {
+        bool operator==(const AddressView&) const = default;
+        Rect panel, field, hint;
+        std::string text; // a server address, never anything typed elsewhere
+        std::size_t cursor{};
+        std::string message;
+        enum class Tone { Quiet, Warning, Error } tone{Tone::Quiet};
+    };
+    std::optional<AddressView> address;
 };
 
 // Dictation editor text geometry, shared by painting and App's cursor moves.
