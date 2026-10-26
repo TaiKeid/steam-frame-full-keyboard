@@ -416,7 +416,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - **Presentation and lifecycle:**
     - A table of what capture, pending phrases and the editor do on dashboard close, X, target loss, native fallback, tracking loss, suspend, Quit and update.
     - Automatic passthrough is tracked apart from the user's own toggle.
-- [ ] **M4 Settings:**
+- [ ] **M4 Settings:** step 1 built 2026-10-26: the Dictation card (mode, server, Test, Send) and narrower cards with the cut-off fourth (see [M4 results](#m4-results-2026-10-26)). Next: the address popup.
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
   - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
@@ -641,6 +641,14 @@ First part: the helper connected to the editor.
 - **Settings and updates:** opening Settings pauses listening; phrases already spoken still arrive in the editor. A prepared update discards dictation and stops the helper at once (`App::end_dictation_for_update`); App is destroyed before `Updates::handoff()`, and `~Dictation` waits up to 1 s for the helper, then kills it, so the handoff starts only once the helper has gone. Its recorder ends on its next write to the closed pipe.
 - **Pause confirmation:** the helper answers `capture` off with `paused`, and App counts phrases as pending until it arrives, so Send right after resuming cannot miss a phrase the helper was just announcing (a race the host tests caught).
 - **Not yet:** the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
+
+## M4 results (2026-10-26)
+
+- **Cards:** 470 px wide instead of 509, dropdowns 290 px instead of 318: three cards show in full and about 100 px of Experimental is cut off at the right edge; the row scrolls sideways with the stick or the horizontal scrollbar. Labels such as "Close emoji picker after choosing" still fit.
+- **Dictation card (third):** Dictation (Off / Your server), Server, Connection with Test, and Send, which moved from Experimental. Apply saves `dictation` and `dictation_server`; `dictation_url` and `dictation_model` stay as they are in the file.
+  - **Server** is drawn as a small recessed text field, since it holds typed text; selecting it opens the address popup in the next step.
+  - **Test** sends half a second of silence to the pending address through the helper, before Apply. The line under the row label is narrow, so the result is a word or two: Reachable, Unreachable, No answer, Server error, Bad reply, Helper stopped.
+- **Tests:** `dictation-mode` chooses the mode in the card, tests the connection against the scripted helper and checks the saved file; the settings, emoji and native-replacement tests scroll to the cut-off Experimental card.
 
 ## Open questions
 

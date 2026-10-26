@@ -5,11 +5,12 @@
 
 namespace framekeyboard {
 namespace {
-// Three production cards fit without a scrollbar for a two-pixel overflow.
-constexpr double card_width = 509, card_gap = 18, row_height = 76, menu_row_height = 52;
+// Three cards show in full and about 100 px of the fourth is cut off at the
+// right edge, so the row visibly scrolls (docs/dictation.md, Settings).
+constexpr double card_width = 470, card_gap = 18, row_height = 76, menu_row_height = 52;
 // Rows are space-between: labels start at the left inset, controls end at the
 // right inset, clear of the card's vertical scrollbar.
-constexpr double row_left = 30, row_right = 24, label_gap = 14, dropdown_width = 318, checkbox_size = 56;
+constexpr double row_left = 30, row_right = 24, label_gap = 14, dropdown_width = 290, checkbox_size = 56;
 constexpr int visible_choices = 5;
 bool intersects(Rect a, Rect b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;

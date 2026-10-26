@@ -721,6 +721,11 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_int(settings->dictation_send_gap));
         json_object_object_add(document.get(), "dictation_send_paste",
                                json_object_new_boolean(settings->dictation_send_paste));
+        // dictation_url and dictation_model are kept as they are in the file.
+        json_object_object_add(document.get(), "dictation",
+                               json_object_new_string(settings->dictation.c_str()));
+        json_object_object_add(document.get(), "dictation_server",
+                               json_object_new_string(settings->dictation_server.c_str()));
     }
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';

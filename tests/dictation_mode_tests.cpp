@@ -187,6 +187,9 @@ while True:
             send(op="ready", id=phrase)
         send(op="paused")
         continue
+    if op == "test":
+        send(op="test", ok=scenario != "fail", **({} if scenario != "fail" else {"reason": "unreachable"}))
+        continue
     if scenario == "silent":
         continue
     if op == "capture" and message["on"]:
@@ -705,6 +708,41 @@ void settings_and_update_tests() {
     require(sink.text.empty() && sink.keys.empty(), "nothing reached the target");
 }
 
+bool field_label(App& app, const std::string& text) {
+    const auto view = app.view();
+    return std::any_of(view.field_labels.begin(), view.field_labels.end(),
+                       [&](const FieldLabel& label) { return label.text == text; });
+}
+
+void card_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"off","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    Sink sink;
+    App app(options, sink);
+    require(!app.view().dictation_available, "dictation starts off");
+    app.show_settings();
+    require(field_label(app, "Not tested") && control_enabled(app, "dictation-test"),
+            "the card shows the server, not yet tested");
+    click(app, "dictation-test");
+    wait_until(app, [&] { return field_label(app, "Reachable"); });
+    click(app, "dictation");
+    click(app, "choose:dictation:server");
+    click(app, "apply");
+    require(app.view().dictation_available, "Apply turns dictation on with the saved server");
+    app.flush_settings();
+    std::vector<std::string> errors;
+    const auto saved = load_settings(directory.path, errors);
+    require(errors.empty() && saved.dictation == "server" && saved.dictation_server == "127.0.0.1",
+            "the mode and server are saved");
+    require(sink.text.empty() && sink.keys.empty(), "the card sends nothing to the target");
+}
+
 void send_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -831,6 +869,7 @@ int main() {
         passthrough_tests();
         field_tests();
         settings_and_update_tests();
+        card_tests();
         live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;

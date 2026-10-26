@@ -47,6 +47,11 @@ bool has(const PanelView& view, const std::string& id) {
                        [&](const Control& c) { return c.id == id; });
 }
 void click(App& app, const std::string& id, unsigned pointer = 0) {
+    if (!has(app.view(), id) && app.view().settings) {
+        // The Experimental card is cut off at the right until the row scrolls.
+        app.move(pointer, 800, 300);
+        app.scroll(pointer, 1000, 0);
+    }
     const auto c = control(app.view(), id);
     const double x = c.bounds.x + c.bounds.width / 2, y = c.bounds.y + c.bounds.height / 2;
     require(c.hit(x, y), "test clicks a visible control");
@@ -959,9 +964,14 @@ void app_settings() {
     require(!app.pinned(), "pin can be disabled");
 
     app.show_settings();
-    require(app.view().cards.size() == 3 && app.view().cards[1].title == "General" &&
-                app.view().cards[2].title == "Experimental",
-            "production settings contains Languages and Layouts, General and Experimental cards");
+    const auto cards = app.view().cards;
+    require(cards.size() == 4 && cards[1].title == "General" && cards[2].title == "Dictation" &&
+                cards[3].title == "Experimental",
+            "production settings contains Languages and Layouts, General, Dictation and Experimental");
+    require(cards[3].bounds.x + cards[3].bounds.width >
+                    SettingsUi::viewport.x + SettingsUi::viewport.width &&
+                cards[3].bounds.x < SettingsUi::viewport.x + SettingsUi::viewport.width - 80,
+            "the fourth card is cut off at the right edge, showing that the row scrolls");
     require(has(app.view(), "apply") && has(app.view(), "reload"), "settings toolbar actions");
     const auto update_button = control(app.view(), "updates");
     require(update_button.label == "Check for updates" &&
@@ -1157,7 +1167,7 @@ void behavior_settings() {
     app.set_dragging(false);
     app.show_settings();
     const auto settings_view = app.view();
-    require(settings_view.cards.size() == 3 && settings_view.cards[1].title == "General" &&
+    require(settings_view.cards.size() == 4 && settings_view.cards[1].title == "General" &&
                 !control(settings_view, "use-drag-to-move").selected,
             "General card has an unchecked movement preference");
     const auto numpad_bounds = control(settings_view, "hide-numpad").bounds;
@@ -1352,7 +1362,13 @@ void native_replacement_settings() {
     CaptureSink sink;
     App app(options, sink);
     require(!app.replace_native_keyboard(), "replacement defaults off");
-    app.show_settings();
+    // Experimental is the fourth card, cut off until the row scrolls.
+    auto open = [&] {
+        app.show_settings();
+        app.move(0, 800, 300);
+        app.scroll(0, 1000, 0);
+    };
+    open();
     const auto view = app.view();
     const auto experimental = view.cards.back().bounds;
     const auto startup = control(view, "start-with-steamos");
@@ -1379,7 +1395,7 @@ void native_replacement_settings() {
             "pending replacement enables startup editing");
     click(app, "start-with-steamos");
     app.back();
-    app.show_settings();
+    open();
     require(!control(app.view(), "replace-native-keyboard").selected, "Back discards replacement edit");
     require(!control(app.view(), "start-with-steamos").selected, "Back discards startup edits too");
     click(app, "replace-native-keyboard");
@@ -1388,21 +1404,21 @@ void native_replacement_settings() {
     require(app.replace_native_keyboard() && saved(app).replace_native_keyboard,
             "Apply persists replacement");
     require(app.start_with_steamos() && saved(app).start_with_steamos, "Apply persists startup opt-in");
-    app.show_settings();
+    open();
     click(app, "replace-native-keyboard");
     require(!control(app.view(), "start-with-steamos").enabled &&
                 !control(app.view(), "start-with-steamos").selected,
             "unchecking replacement disables and unchecks effective startup");
     click(app, "apply");
     require(!app.start_with_steamos(), "saved replacement-off cannot autostart");
-    app.show_settings();
+    open();
     click(app, "replace-native-keyboard");
     require(control(app.view(), "start-with-steamos").enabled &&
                 control(app.view(), "start-with-steamos").selected,
             "reenabling replacement restores the saved startup choice");
     click(app, "apply");
     app.set_native_session(true);
-    app.show_settings();
+    open();
     click(app, "native-fallback");
     require(app.take_native_fallback() && !app.take_native_fallback(), "escape is consumed once");
     require(saved(app).replace_native_keyboard, "escape does not disable future replacement requests");
@@ -1494,7 +1510,7 @@ void scroll_cards() {
         return view;
     };
     auto view = snapshot();
-    require(view.cards.size() == 3 && !has(view, "test-3-field-0"),
+    require(view.cards.size() == 4 && !has(view, "test-3-field-0"),
             "offscreen cards have no hit controls");
     require(!has(view, "test-0-field-9"), "vertically clipped fields have no controls");
     require(ui.scroll(200, 200, 0, 2), "card scrolls vertically");

@@ -715,7 +715,8 @@ void app_tests() {
     app.show_settings();
     const auto card = app.view().cards.front().bounds;
     app.move(0, card.x + card.width / 2, card.y + card.height - 40);
-    require(!app.scroll_room(0), "settings cards that fit take no scroll events");
+    // Four cards no longer fit: the row scrolls toward the cut-off fourth.
+    require(app.scroll_room(0).has_value(), "the settings row takes scroll events");
     app.back();
 
     // Tone images that arrive after the popup opens are drawn, even above the

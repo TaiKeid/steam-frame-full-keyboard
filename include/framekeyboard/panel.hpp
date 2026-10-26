@@ -14,7 +14,8 @@ constexpr int panel_height = 600;
 // Logical UI and placement coordinates still describe the 1600 x 600 case.
 constexpr int popup_margin = 200;
 constexpr int texture_height = panel_height + 2 * popup_margin;
-enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle };
+// TextField shows a value that opens its own editor, such as a server address.
+enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField };
 enum class ControlKind {
     None,
     Settings,
@@ -43,6 +44,9 @@ enum class ControlKind {
     DictationDiscard,
     DictationKeep,
     ChooseSendGap,
+    ChooseDictation,
+    DictationServer,
+    DictationTest,
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,

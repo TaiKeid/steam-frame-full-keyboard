@@ -282,6 +282,10 @@ class App {
     bool pending_emoji_close_on_select_{};
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
+    std::string pending_dictation_, pending_dictation_server_;
+    // The Dictation card's connection line: empty until Test runs.
+    std::string dictation_test_;
+    void test_dictation_server();
     bool native_fallback_{};
     bool replacement_available_{};
     std::string replacement_unavailable_reason_;

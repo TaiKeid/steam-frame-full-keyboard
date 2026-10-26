@@ -194,6 +194,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_ = settings_.dictation;
+    pending_dictation_server_ = settings_.dictation_server;
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
     prepare_swipe();
     update_settings_ui();
@@ -429,7 +431,20 @@ void App::update_settings_ui() {
                   {"30", "Type, 30 ms"},
                   {"40", "Type, 40 ms"},
                   {"paste", "Paste"}}));
-    send_gap.note = "Dictation";
+    // Dictation (docs/dictation.md, Settings): the mode, the user's own
+    // server, a connection check and how Send delivers. Self-hosted only;
+    // on-device recognition joins the mode list in M6.
+    auto server =
+        field(ControlKind::DictationServer,
+              SettingField{"dictation-server", "Server",
+                           pending_dictation_server_.empty() ? "Not set" : pending_dictation_server_,
+                           ControlStyle::TextField});
+    auto test = field(ControlKind::DictationTest,
+                      SettingField{"dictation-test", "Connection", "Test", ControlStyle::Button});
+    test.note = dictation_test_.empty()
+                    ? (pending_dictation_server_.empty() ? "No server set" : "Not tested")
+                    : dictation_test_;
+    test.enabled = !pending_dictation_server_.empty();
     settings_ui_.set_cards(
         {{"languages",
           "Languages and Layouts",
@@ -453,6 +468,11 @@ void App::update_settings_ui() {
            field(ControlKind::EmojiCloseOnSelect,
                  checkbox("emoji-close-on-select", "Close emoji picker after choosing",
                           pending_emoji_close_on_select_))}},
+         {"dictation",
+          "Dictation",
+          {field(ControlKind::ChooseDictation, dropdown("dictation", "Dictation", pending_dictation_,
+                                                        {{"off", "Off"}, {"server", "Your server"}})),
+           server, test, send_gap}},
          {"experimental",
           "Experimental",
           {field(ControlKind::ReplaceNativeKeyboard,
@@ -461,9 +481,7 @@ void App::update_settings_ui() {
            field(ControlKind::StartWithSteamos,
                  checkbox("start-with-steamos", "Start with SteamOS",
                           pending_start_with_steamos_ && pending_replace_native_keyboard_,
-                          pending_replace_native_keyboard_)),
-           // Dictation gets a card of its own in M4, when narrower cards make room.
-           send_gap}}});
+                          pending_replace_native_keyboard_))}}});
 }
 PanelView App::geometry() const {
     PanelView v;
@@ -1213,6 +1231,8 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_ = settings_.dictation;
+    pending_dictation_server_ = settings_.dictation_server;
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
@@ -1378,6 +1398,8 @@ void App::reload() {
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
         settings_.dictation_send_paste = updated_settings.dictation_send_paste;
+        settings_.dictation = updated_settings.dictation;
+        settings_.dictation_server = updated_settings.dictation_server;
         settings_writer_.reconcile(settings_);
         keyboard_.set_num(settings_.num_lock);
     }
@@ -1393,6 +1415,8 @@ void App::reload() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_ = settings_.dictation;
+    pending_dictation_server_ = settings_.dictation_server;
     swipe_prepared_.clear(); // Reread an edited word list.
     prepare_swipe();
     rebuild_cycle_entries();
@@ -1889,6 +1913,8 @@ void App::action(const ControlAction& command) {
         settings_.emoji_close_on_select = pending_emoji_close_on_select_;
         settings_.dictation_send_gap = pending_dictation_send_gap_;
         settings_.dictation_send_paste = pending_dictation_send_paste_;
+        settings_.dictation = pending_dictation_;
+        settings_.dictation_server = pending_dictation_server_;
         prepare_swipe();
         default_ = settings_.active;
         persisted_active_ = settings_.active;
@@ -1943,6 +1969,16 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
         update_settings_ui();
+    } else if (kind == ControlKind::ChooseDictation) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_dictation_ = command.value;
+        settings_ui_.close_popup();
+        update_settings_ui();
+    } else if (kind == ControlKind::DictationTest) {
+        test_dictation_server();
+    } else if (kind == ControlKind::DictationServer) {
+        // The address popup arrives in the next step of M4.
     } else if (kind == ControlKind::ChooseSendGap) {
         pressed_controls_.clear();
         hovered_.clear();
@@ -3168,6 +3204,17 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         awaiting_pause_ = false;
         break;
     case Kind::Test:
+        // Only the Dictation card's Test asks. The line under the row label is
+        // narrow, so the answer is a word or two.
+        dictation_test_ = event.ok                           ? "Reachable"
+                          : event.reason == "timeout"        ? "No answer"
+                          : event.reason == "server-error"   ? "Server error"
+                          : event.reason == "bad-reply"      ? "Bad reply"
+                          : event.reason == "helper-exited"  ? "Helper stopped"
+                          : event.reason == "not-configured" ? "No server set"
+                                                             : "Unreachable";
+        update_settings_ui();
+        dirty = true;
         break;
     }
 }
@@ -3178,6 +3225,27 @@ void App::finish_reveal() {
         follow_cursor();
         dirty = true;
     }
+}
+
+void App::test_dictation_server() {
+    if (pending_dictation_server_.empty()) {
+        return;
+    }
+    if (!dictation_) {
+        dictation_ =
+            std::make_unique<Dictation>(options_.config_dir / "dictation-key", options_.dictation_helper,
+                                        options_.dictation_arguments);
+    }
+    // The pending address, before Apply; the next capture configures the
+    // saved one again.
+    Dictation::Target target;
+    target.server = pending_dictation_server_;
+    target.model = settings_.dictation_model;
+    target.language = profiles_.languages.at(settings_.active.language).dictation_language;
+    dictation_test_ =
+        dictation_->configure(target) && dictation_->test() ? "Testing…" : "Helper stopped";
+    update_settings_ui();
+    dirty = true;
 }
 
 bool App::tick_dictation(double now) {

@@ -73,9 +73,9 @@ struct Settings {
     bool swipe_typing{};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
-    // Dictation (docs/dictation.md). Read here and kept by every save; the
-    // Dictation card that edits them comes later. An invalid value turns
-    // dictation off without affecting any other setting.
+    // Dictation (docs/dictation.md). The Dictation card in Settings edits the
+    // mode and server; the URL and model are kept as they are in the file. An
+    // invalid value turns dictation off without affecting any other setting.
     std::string dictation{"off"}; // "off" or "server"
     std::string dictation_server; // host[:port]
     std::string dictation_url;    // or a full base URL

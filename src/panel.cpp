@@ -1484,6 +1484,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     label(cr, control.label, {r.x + 20, r.y, r.width - 40, r.height}, 21,
                           view.language->font, legend, false, PANGO_ALIGN_LEFT);
                     break;
+                case ControlStyle::TextField: {
+                    // A small well, as the dictation editor is, since it holds
+                    // typed text; hover lifts its rim.
+                    draw_well(cr, t, r);
+                    if (hovered) {
+                        rounded(cr, {r.x + .5, r.y + .5, r.width - 1, r.height - 1}, t.radius + 2);
+                        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .18);
+                        cairo_set_line_width(cr, 1);
+                        cairo_stroke(cr);
+                    }
+                    label(cr, control.label, {r.x + 18, r.y, r.width - 36, r.height}, 21,
+                          view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                    break;
+                }
                 case ControlStyle::Dropdown: {
                     draw_cap(cr, t, r, hovered, control.selected, control.enabled);
                     label(cr, control.label, {r.x + 18, r.y, r.width - 62, r.height}, 21,
