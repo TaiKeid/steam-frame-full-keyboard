@@ -3,6 +3,7 @@
 #include "framekeyboard/dictation_mode.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <glib.h>
 #include <iostream>
@@ -791,6 +792,11 @@ void direct_tests() {
         press(app, "Dictation");
         wait_until(app, [&] { return prompts_sent(directory.path).size() == asked + 1; });
         require(app.view().dictation_recognizing, "a paused phrase waiting for its text shows the ring");
+        // The ring steps at 30 fps: a 60 Hz frame between steps paints nothing.
+        const double step = std::floor(clock * 30) / 30 + 2.0 / 30;
+        require(app.paint(step + .001) && app.renderer.animating(), "the ring paints at a step");
+        require(!app.paint(step + .017), "and skips the frame before the next step");
+        require(app.paint(step + 1.0 / 30 + .001), "and paints at the next step");
         require(!control_enabled(app, "language-cycle"), "the language waits until the phrase is in");
         press(app, "Escape");
         require(!app.view().dictation_recognizing, "Esc drops the phrase and the ring");

@@ -263,6 +263,9 @@ class PanelRenderer {
     // Case coordinates to the layout's own key coordinates, as hit_key uses.
     std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }
+    // When an animation can next change a pixel: now for key presses, the
+    // next 30 fps step for the mic key's bars and ring.
+    double next_change() const { return next_change_; }
     cairo_surface_t* surface() const { return surface_; }
     // Surface pixels the last paint that returned true changed, as whole-pixel
     // rectangles inside the surface; empty means everything.
@@ -298,6 +301,7 @@ class PanelRenderer {
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
     double ring_time_{};  // The recognition ring's time, sampled at 30 fps, when last drawn.
+    double next_change_{};
     bool animating_{};
 };
 } // namespace framekeyboard

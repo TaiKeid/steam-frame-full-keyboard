@@ -1447,6 +1447,9 @@ bool App::tick(double now) {
     return dirty || renderer.animating();
 }
 bool App::paint(double now) {
+    if (!dirty && renderer.animating() && now < renderer.next_change()) {
+        return false; // between the steps of a 30 fps animation
+    }
     dirty = false;
     return renderer.paint(view(), now);
 }

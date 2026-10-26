@@ -1136,6 +1136,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     bool full = force_full || scene_changed || view.settings;
     std::vector<Rect> damage;
     animating_ = false;
+    next_change_ = now;
+    bool continuous = false; // an animation that changes every frame
     if (const auto handle = panel_move_handle_bounds(view)) {
         const bool held = std::any_of(view.controls.begin(), view.controls.end(), [](const Control& c) {
             return c.style == ControlStyle::MoveHandle && c.selected;
@@ -1152,6 +1154,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         move_handle_.amount =
             move_handle_.from + (target - move_handle_.from) * handle_ease_out(progress);
         animating_ |= progress < 1;
+        continuous |= progress < 1;
         full |= changed || move_handle_.amount != old_amount;
     } else {
         move_handle_ = {};
@@ -1174,6 +1177,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                : std::clamp((now - animation.started) * 1000 / t.duration_ms, 0.0, 1.0);
         animation.amount = animation.from + (animation.target - animation.from) * progress;
         animating_ |= !view.settings && progress < 1;
+        continuous |= !view.settings && progress < 1;
         bool mic_changed = false;
         if (key.icon == Icon::Mic) {
             // The bars ease while a level is passing through.
@@ -1198,6 +1202,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             damage.push_back(key_bounds_.at(key.id));
         }
     }
+    // The mic key's bars and ring step at 30 fps; between steps a 60 Hz
+    // frame would rebuild and compare the whole view for no new pixel.
+    next_change_ = continuous ? now : (std::floor(now * 30) + 1) / 30;
     // A clip edge through a key can drop parts of its legend glyphs. Damage
     // a changed area together with every key it touches, each whole, as
     // separate pixel-aligned rectangles: the clip's edges then run only
