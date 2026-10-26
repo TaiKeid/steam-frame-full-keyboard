@@ -329,7 +329,7 @@ Keyboard to helper:
 | `{"op":"configure","server":"host:port"}` or `{"op":"configure","url":"https://…/v1"}`, with optional `"model"` and `"language"` | Recognition target for the following session. `server` defaults to port 8031 and path `/v1`, and may fall back to `/inference`; `url` is used as given. |
 | `{"op":"capture","on":true}` / `{"op":"capture","on":false}` | Start or resume capture, or pause it. Pausing ends the phrase being spoken, which is still recognized. |
 | `{"op":"prompt","id":N,"text":"…"}` | The context for phrase N, at most 200 code points, sent in answer to `ready`. |
-| `{"op":"cancel"}` | Stop capture and drop every pending phrase. |
+| `{"op":"cancel"}` | Stop capture and drop every pending phrase. The helper answers `cancelled`. |
 | `{"op":"test"}` | Send half a second of silence to the configured target. |
 | `{"op":"alive"}` | Sent at least every 0.5 s while the keyboard runs. Without one for 2 s, the helper stops capture and drops pending phrases. |
 
@@ -344,6 +344,7 @@ Helper to keyboard:
 | `{"op":"dropped","id":N,"reason":R}` | Phrase N produced nothing usable: `empty`, `invalid` or `too-long`. |
 | `{"op":"capture","on":false,"reason":R}` | Capture stopped by itself: `silence` after 60 s without speech, or an error code. |
 | `{"op":"error","reason":R}` | A fixed error code. Capture stops and pending phrases are dropped. |
+| `{"op":"cancelled"}` | The answer to `cancel`. The keyboard ignores every capture packet sent before it, such as a phrase that started just before the cancel arrived. |
 | `{"op":"test","ok":true}` / `{"op":"test","ok":false,"reason":R}` | The Test result. |
 
 Error codes: `no-microphone`, `capture-stopped`, `not-configured`, `unreachable`, `timeout`, `server-error`, `bad-reply`, `key-rejected`, `rate-limited`, `backlog-full`, `keyboard-stalled`, `invalid-command`.
@@ -402,7 +403,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Progress while sending. On failure, only the unsent rest stays in the editor, and the final Enter is tracked separately, so a retry cannot send twice.
   - Line breaks: Shift+Enter in multi-line Steam fields, and single spaces in single-line Steam fields.
   - Delivery verified with the dedicated receiver before any application.
-- [ ] **M3c Live dictation:**
+- [ ] **M3c Live dictation:** first part built and host-tested 2026-10-25 (see [M3c results](#m3c-results-2026-10-25)); the dashboard and target rules, stick scrolling and the live checks are open.
   - The helper connected to the editor: phrases, overlays, Esc rules, phrase undo and the mic bars, whose cost is measured with a game running.
   - **Presentation and lifecycle:**
     - A table of what capture, pending phrases and the editor do on dashboard close, X, target loss, native fallback, tracking loss, suspend, Quit and update.
@@ -608,6 +609,22 @@ What this means for the design:
   - The gap trades speed for order under heavy load. A 30 ms run was cut short twice when the receiver lost focus, and nothing was sent after that.
   - **Decision (owner):** a **Send pace** setting with 40 ms (the default), 30 ms and 20 ms, so real use can decide. It is saved as `dictation_send_gap_ms` and sits in the Experimental card until M4's Dictation card. Send sets the gap while it types (`KeySink::set_character_gap`, down to `GamescopeText`) and restores 20 ms afterwards, so swiped words keep their pace.
 - **Not yet:** delivery into applications and a check in the headset, including which pace holds up in real use.
+
+## M3c results (2026-10-25)
+
+First part: the helper connected to the editor.
+
+- **Mic key:** from the normal keyboard it opens dictation mode and starts listening; in the mode it pauses and resumes. While listening the key takes the theme's latched colour and shows five level bars, flat in silence. Its level is cut to nine steps, and only the key repaints when it changes.
+- **Listening:** the editor's text dims, the editor is read-only, and Settings and the language button wait. Undo, Send, Esc and X keep working.
+- **Phrases:** App answers each `ready` with the 200 code points before the cursor and inserts the text at the cursor with the joining rules. A phrase waiting over a second for its text shows "Waiting for recognition…" in a band over the editor's foot. At 900 characters listening pauses.
+- **Esc:** listening, it stops and drops the phrases not yet inserted; with an empty editor it leaves; with text it asks "Discard text?" with Discard and Keep, and Esc again discards. Other keys wait while it asks.
+- **X:** discards everything without asking.
+- **Send while listening:** listening pauses, Send waits for the pending phrases, then sends; Esc ends the wait, and after 20 s it gives up with a notice.
+- **Errors:** a helper error stops listening and shows its reason in amber in the band; the text already inserted stays.
+- **Cancel:** the helper now answers `cancel` with `cancelled`, and the client discards everything sent before it, so a phrase that started just before a cancel cannot linger as pending.
+- **Hiding:** until the dashboard rules exist, hiding the keyboard pauses listening; phrases already spoken are still recognized.
+- **Tests:** `dictation-mode` drives the keyboard against a scripted helper: opening and listening, the read-only editor, pausing with a phrase inserted, resuming, Send while listening, Esc in each state with Keep and Discard, X, and a server error. Every App in the suite uses a stand-in helper; one early run started the real helper from the build directory against 127.0.0.1 with nothing listening, which is why. Host CTest passes with 34 suites and 3 optional CJK skips; ARM64 builds clean.
+- **Not yet:** automatic passthrough and the dashboard rules, the target-lost rule in replacement mode, stick scrolling, the waveform over the editor, the update handoff waiting for the helper, measuring the cost of the bars and of `pw-record`, and the live checks.
 
 ## Open questions
 

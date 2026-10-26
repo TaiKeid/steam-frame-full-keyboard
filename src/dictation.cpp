@@ -215,7 +215,15 @@ bool Dictation::prompt(std::uint64_t id, const std::string& text) {
 }
 
 bool Dictation::cancel() {
-    return send(packet("cancel"));
+    if (!send(packet("cancel"))) {
+        return false;
+    }
+    ++cancels_;
+    // Events already read but not yet taken are just as stale.
+    std::erase_if(events_, [](const Event& event) {
+        return event.kind != Event::Kind::Test && event.reason != "helper-exited";
+    });
+    return true;
 }
 
 bool Dictation::test() {
@@ -244,6 +252,12 @@ void Dictation::tick(double now) {
             continue;
         }
         const std::string op = json_object_get_string(op_value);
+        if (op == "cancelled") {
+            if (cancels_) {
+                --cancels_;
+            }
+            continue;
+        }
         Event event;
         if (op == "level") {
             json_object* value{};
@@ -300,6 +314,12 @@ void Dictation::tick(double now) {
         } else {
             continue;
         }
+        // Packets sent before the helper saw a cancel belong to the cancelled
+        // phrases; the socket keeps order, so `cancelled` ends them. A Test
+        // result is not part of capture.
+        if (cancels_ && event.kind != Event::Kind::Test) {
+            continue;
+        }
         if (events_.size() < max_events) {
             events_.push_back(std::move(event));
         }
@@ -321,6 +341,7 @@ std::optional<Dictation::Event> Dictation::next() {
 
 void Dictation::lost() {
     stop();
+    cancels_ = 0;
     Event event;
     event.kind = Event::Kind::Error;
     event.reason = "helper-exited";

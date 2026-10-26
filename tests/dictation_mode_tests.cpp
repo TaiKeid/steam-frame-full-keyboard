@@ -6,6 +6,7 @@
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
+#include <thread>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -159,6 +160,53 @@ void layout_tests() {
             "the editor runs from Esc to the right edge and rises above the keys");
 }
 
+// A stand-in helper: capture on starts a phrase, capture off ends it, and
+// each prompt is answered with the next scripted text. `fail` reports an
+// unreachable server instead, and `silent` never hears anything. It never
+// touches audio or the network; every App here uses it, so no test can
+// start the real helper and its recorder.
+const char* fake_helper = R"PY(
+import json, socket, sys
+peer = socket.socket(fileno=3)
+scenario = sys.argv[sys.argv.index("--scenario") + 1]
+replies = ["Hello there.", "Again."]
+phrase = 0
+def send(**m):
+    peer.send(json.dumps(m).encode())
+while True:
+    data = peer.recv(65536)
+    if not data:
+        break
+    message = json.loads(data)
+    op = message["op"]
+    if scenario == "silent":
+        continue
+    if op == "capture" and message["on"]:
+        if scenario == "fail":
+            send(op="error", reason="unreachable")
+            continue
+        phrase += 1
+        send(op="level", value=200)
+        send(op="phrase", id=phrase)
+    elif op == "capture":
+        send(op="ready", id=phrase)
+    elif op == "prompt":
+        send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)])
+    elif op == "cancel":
+        send(op="cancelled")
+)PY";
+void use_fake_helper(Options& options, const fs::path& directory, const char* scenario) {
+    const auto script = directory / "fake_helper.py";
+    std::ofstream(script) << fake_helper;
+    options.dictation_helper = script;
+    options.dictation_arguments = {"--scenario", scenario};
+}
+// Opens dictation mode with the mic key, which starts listening, and pauses.
+void open_editor(App& app) {
+    press(app, "Dictation");
+    press(app, "Dictation");
+}
+
 void mode_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -166,6 +214,7 @@ void mode_tests() {
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
     options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
     {
         write_config(directory.path, "");
         Sink sink;
@@ -179,7 +228,9 @@ void mode_tests() {
     App app(options, sink);
     require(app.view().dictation_available, "the mic key shows once dictation is configured");
     press(app, "Dictation");
-    require(app.dictation_open(), "the mic key opens dictation mode");
+    require(app.dictation_open() && app.view().dictation->capturing,
+            "the mic key opens dictation mode and listens");
+    press(app, "Dictation");
     require(app.view().disabled_keys.contains("Dictation-send") &&
                 app.view().disabled_keys.contains("Dictation-undo"),
             "Send needs text; Undo needs a phrase");
@@ -236,14 +287,14 @@ void mode_tests() {
             "nothing typed in dictation mode reaches the target");
 
     press(app, "Escape");
+    press(app, "Escape");
     require(!app.dictation_open() && sink.keys.empty(),
-            "Esc leaves the mode without reaching the target");
+            "Esc, asked twice, discards and leaves without reaching the target");
     press(app, "KeyQ");
     require(sink.text == std::vector<std::string>{"q"},
             "after the mode, keys type into the target again");
     press(app, "Dictation");
-    require(app.dictation_open() && editor_text(app) == "zyi tx",
-            "the editor keeps its text until it is sent");
+    require(app.dictation_open() && editor_text(app).empty(), "the discarded text is gone");
 
     app.apply({"en-us-full", "ja-romaji", "graphite"});
     app.tick(clock += .1);
@@ -264,6 +315,115 @@ void type_text(App& app, const std::string& text) {
 }
 using Keys = std::vector<std::pair<int, int>>;
 
+// Ticks with real pauses until the helper's answers have arrived.
+template <class Done> void wait_until(App& app, Done done) {
+    for (int i = 0; i < 300 && !done(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        app.tick(clock += .01);
+    }
+    require(done(), "the fake helper answered");
+}
+void click(App& app, const std::string& id) {
+    for (const auto& control : app.view().controls) {
+        if (control.id == id) {
+            const double x = control.bounds.x + control.bounds.width / 2;
+            const double y = control.bounds.y + control.bounds.height / 2;
+            app.down(0, x, y, clock);
+            app.up(0, x, y);
+            app.tick(clock += .1);
+            return;
+        }
+    }
+    throw std::runtime_error("missing control " + id);
+}
+bool control_enabled(App& app, const std::string& id) {
+    for (const auto& control : app.view().controls) {
+        if (control.id == id) {
+            return control.enabled;
+        }
+    }
+    return false;
+}
+
+void live_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "main");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    {
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(app.dictation_open() && app.view().dictation->capturing,
+                "the mic key opens the mode and starts listening");
+        wait_until(app, [&] { return app.view().dictation_level > 0; });
+        require(app.view().dictation_capturing && !control_enabled(app, "settings"),
+                "the mic key shows the level; Settings waits");
+        press(app, "KeyA");
+        require(editor_text(app).empty(), "the editor is read-only while listening");
+        press(app, "Dictation");
+        wait_until(app, [&] { return !editor_text(app).empty(); });
+        require(editor_text(app) == "Hello there." && !app.view().dictation->capturing,
+                "pausing recognizes the phrase and inserts it");
+        require(control_enabled(app, "settings"), "Settings works again when paused");
+        press(app, "Dictation");
+        require(app.view().dictation->capturing, "the mic key resumes");
+        press(app, "Dictation-send");
+        wait_until(app, [&] { return !app.dictation_open(); });
+        require(sink.text == std::vector<std::string>{"Hello there. Again."},
+                "Send while listening waits for the phrase, then sends everything");
+    }
+    {
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Escape");
+        require(app.dictation_open() && !app.view().dictation->capturing && editor_text(app).empty(),
+                "Esc while listening stops and drops the phrase, staying in the mode");
+        press(app, "Escape");
+        require(!app.dictation_open(), "Esc with an empty editor leaves");
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return !editor_text(app).empty(); });
+        const auto said = editor_text(app);
+        press(app, "Escape");
+        require(app.view().dictation->notice == "Discard text?", "Esc with text asks first");
+        press(app, "KeyB");
+        require(editor_text(app) == said, "the question ignores other keys");
+        click(app, "dictation-keep");
+        require(app.dictation_open() && app.view().dictation->notice.empty() && editor_text(app) == said,
+                "Keep returns to the editor");
+        press(app, "Escape");
+        press(app, "Escape");
+        require(!app.dictation_open(), "Esc again discards");
+        press(app, "Dictation");
+        require(editor_text(app).empty(), "the discarded text is gone");
+        press(app, "Dictation");
+        wait_until(app, [&] { return !editor_text(app).empty(); });
+        click(app, "close");
+        require(!app.dictation_open(), "X ends the mode");
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        require(editor_text(app).empty(), "and discards its text without asking");
+        require(sink.text.empty() && sink.keys.empty(), "nothing reached the target");
+    }
+    {
+        options.dictation_arguments = {"--scenario", "fail"};
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return !app.view().dictation->capturing; });
+        const auto view = app.view();
+        require(view.dictation->notice_error &&
+                    view.dictation->notice == "The speech server cannot be reached.",
+                "a recognizer failure stops listening and says why");
+    }
+}
+
 void send_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -272,11 +432,12 @@ void send_tests() {
     options.input = InputBackend::Ei;
     options.start_enabled = true;
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
 
     {
         Sink sink;
         App app(options, sink);
-        press(app, "Dictation");
+        open_editor(app);
         type_text(app, "\nhi\n\nthere\n");
         require(!app.view().disabled_keys.contains("Dictation-send"), "Send is ready with text");
         press(app, "Dictation-send");
@@ -290,14 +451,14 @@ void send_tests() {
         require(!app.dictation_open(), "a sent text returns to the normal keyboard");
         require(!sink.gaps.empty() && sink.gaps.front() == .04 && sink.gaps.back() == .02,
                 "Send types at its own pace, 40 ms by default, then restores the usual one");
-        press(app, "Dictation");
+        open_editor(app);
         require(editor_text(app).empty(), "and leaves the editor empty");
     }
     {
         Sink sink;
         sink.single_line = true;
         App app(options, sink);
-        press(app, "Dictation");
+        open_editor(app);
         type_text(app, "a\n\nb");
         press(app, "Dictation-send");
         settle(app);
@@ -310,7 +471,7 @@ void send_tests() {
         // while it sends, and Esc stops it with the rest kept.
         Sink sink;
         App app(options, sink);
-        press(app, "Dictation");
+        open_editor(app);
         type_text(app, std::string(40, 'a') + " " + std::string(40, 'b'));
         const auto [hx, hy] = key_center(app, "ArrowLeft");
         app.down(1, hx, hy, clock);
@@ -337,7 +498,7 @@ void send_tests() {
         // A commit sent one character at a time fails after three of them.
         Sink sink;
         App app(options, sink);
-        press(app, "Dictation");
+        open_editor(app);
         type_text(app, std::string(40, 'c'));
         sink.commits_before_failure = 1;
         sink.acknowledged = 3;
@@ -359,7 +520,7 @@ void send_tests() {
         Sink sink;
         sink.fail_enter = true;
         App app(options, sink);
-        press(app, "Dictation");
+        open_editor(app);
         type_text(app, "done");
         press(app, "Dictation-send");
         settle(app);
@@ -384,6 +545,7 @@ int main() {
         layout_tests();
         mode_tests();
         send_tests();
+        live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

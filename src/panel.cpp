@@ -462,14 +462,28 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount)
                          (key.action == "CapsLock" && view.keyboard->caps()) ||
                          (key.action == "NumLock" && view.keyboard->num());
     const bool disabled = view.disabled_keys.contains(key.id);
+    const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
     rounded(cr, face, t.radius);
-    if (latched) {
+    if (latched || listening) {
         source(cr, t.latched);
         cairo_fill(cr);
     } else if (view.hovered_keys.contains(key.id) && !disabled) {
         gradient(cr, face, t.hover, t.middle, t.bottom);
     } else {
         gradient(cr, face, t.top, t.middle, t.bottom);
+    }
+    if (listening) {
+        // Five bars move with the speech level, tallest in the middle; flat
+        // dots in silence.
+        static constexpr double weights[]{.45, .75, 1, .75, .45};
+        const double cx = face.x + face.width / 2, cy = face.y + face.height / 2;
+        source(cr, t.legend);
+        for (int i = 0; i < 5; ++i) {
+            const double height = 4 + 30 * weights[i] * view.dictation_level / 8.0;
+            rounded(cr, {cx - 18 + i * 8, cy - height / 2, 4, height}, 2);
+            cairo_fill(cr);
+        }
+        return;
     }
     if (key.icon != Icon::None) {
         const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
@@ -754,7 +768,8 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         } while (pango_layout_iter_next_line(iter));
         pango_layout_iter_free(iter);
     }
-    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, editor.sending ? .5 : .92);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b,
+                          editor.sending || editor.capturing ? .5 : .92);
     cairo_move_to(cr, area.x, area.y - editor.scroll);
     pango_cairo_show_layout(cr, layout);
     PangoRectangle caret;
@@ -780,6 +795,28 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         rounded(cr, {r.x + r.width - 7, y, 3, thumb}, 1.5);
         cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .22);
         cairo_fill(cr);
+    }
+    if (!editor.notice.empty()) {
+        // A band across the well's foot, darker than the well, so it reads as
+        // laid over the text rather than part of it.
+        const Rect band{r.x + 1, r.y + r.height - dictation_notice_height, r.width - 2,
+                        dictation_notice_height - 1};
+        cairo_save(cr);
+        rounded(cr, r, radius);
+        cairo_clip(cr);
+        cairo_rectangle(cr, band.x, band.y, band.width, band.height);
+        cairo_set_source_rgb(cr, well.r * .6, well.g * .6, well.b * .6);
+        cairo_fill(cr);
+        cairo_move_to(cr, band.x, band.y + .5);
+        cairo_line_to(cr, band.x + band.width, band.y + .5);
+        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .08);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+        cairo_restore(cr);
+        label(cr, editor.notice, {band.x + editor_padding_x, band.y, band.width - 280, band.height},
+              t.small_font_size * 1.3, view.language->font,
+              editor.notice_error ? amber : Color{t.legend.r, t.legend.g, t.legend.b}, false,
+              PANGO_ALIGN_LEFT);
     }
     if (const auto counter = dictation_counter_bounds(view)) {
         // Quiet while there is room; amber once dictation has reached its limit.
@@ -886,8 +923,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                : std::clamp((now - animation.started) * 1000 / t.duration_ms, 0.0, 1.0);
         animation.amount = animation.from + (animation.target - animation.from) * progress;
         animating_ |= !view.settings && progress < 1;
+        const bool mic_changed = !full && key.icon == Icon::Mic &&
+                                 (previous_->view.dictation_capturing != view.dictation_capturing ||
+                                  previous_->view.dictation_level != view.dictation_level);
         if (!full &&
-            (changed_target || animation.amount != old_amount ||
+            (changed_target || animation.amount != old_amount || mic_changed ||
              previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id))) {
             damage.push_back(key_bounds_.at(key.id));
         }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cjk.hpp"
+#include "dictation.hpp"
 #include "dictation_editor.hpp"
 #include "dictation_mode.hpp"
 #include "dictation_send.hpp"
@@ -46,6 +47,9 @@ struct Options {
     SwipeEncoderFactory swipe_encoder;
     // Tests capture typed text here instead of the output queue; null uses the queue.
     TextOutput* text_output{};
+    // Tests replace the dictation helper; empty uses the installed one.
+    fs::path dictation_helper;
+    std::vector<std::string> dictation_arguments;
 };
 
 class App {
@@ -410,6 +414,27 @@ class App {
     // may have arrived, so the editor marks it.
     void stop_send(bool attempted);
     std::optional<Sending> sending_;
+    // Live dictation (docs/dictation.md, Capturing). The helper starts on the
+    // first capture and stays until the keyboard exits.
+    bool start_capture();
+    void pause_capture();
+    // Stops capture and drops every phrase not yet inserted.
+    void cancel_capture();
+    void discard_dictation();
+    bool tick_dictation(double now);
+    void dictation_event(const Dictation::Event& event, double now);
+    bool phrases_pending() const { return !pending_phrases_.empty(); }
+    std::unique_ptr<Dictation> dictation_;
+    bool capturing_{};
+    int mic_level_{}; // 0–8, so the bars redraw only on visible changes
+    // Phrases announced and not yet inserted or dropped, with the time each
+    // was handed to the recognizer (zero while still being spoken).
+    std::map<std::uint64_t, double> pending_phrases_;
+    bool waiting_{}; // A phrase has waited over a second for its text.
+    std::string notice_;
+    bool notice_error_{};
+    bool confirm_discard_{};
+    std::optional<double> send_wait_since_; // Send waits for pending phrases.
     // Everything but the final Enter arrived; Send with an empty editor
     // presses only Enter, so the text is never sent twice.
     bool enter_pending_{};

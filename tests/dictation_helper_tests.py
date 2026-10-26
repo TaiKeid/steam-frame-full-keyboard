@@ -476,6 +476,7 @@ class Helper(unittest.TestCase):
         helper.send(op="prompt", id=helper.receive("ready")["id"], text="")
         time.sleep(0.3)
         helper.send(op="cancel")
+        helper.receive("cancelled")  # ends everything that belongs to the cancelled phrases
         with self.assertRaises(TimeoutError):
             helper.receive("text", timeout=3)
         self.assertFalse(helper.recorder_alive())

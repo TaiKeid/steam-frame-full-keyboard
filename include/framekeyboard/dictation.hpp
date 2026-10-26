@@ -42,6 +42,8 @@ class Dictation {
     bool capture(bool on);
     // The context for phrase `id`; at most the last 200 code points are sent.
     bool prompt(std::uint64_t id, const std::string& text);
+    // Stops capture and drops every pending phrase. Events the helper sent
+    // before it saw the cancel are discarded, never delivered late.
     bool cancel();
     bool test();
     // Sends the keep-alive, reads a bounded number of packets and notices a
@@ -65,5 +67,6 @@ class Dictation {
     double alive_at_{};
     int fd_{-1};
     int child_{-1};
+    unsigned cancels_{}; // Sent and not yet confirmed by `cancelled`.
 };
 } // namespace framekeyboard

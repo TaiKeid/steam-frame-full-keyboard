@@ -40,6 +40,8 @@ enum class ControlKind {
     ReplaceNativeKeyboard,
     StartWithSteamos,
     EmojiCloseOnSelect,
+    DictationDiscard,
+    DictationKeep,
     ChooseSendGap,
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
@@ -105,7 +107,12 @@ struct DictationView {
     bool at_limit{};         // Dictation cannot continue; the counter turns amber.
     bool sending{};          // Locked: dimmed text and no caret.
     std::size_t uncertain{}; // Leading bytes that may already have reached the target.
+    bool capturing{};        // Read-only: dimmed text, caret kept.
+    std::string notice;      // A band over the editor's foot: waiting, an error or a question.
+    bool notice_error{};
 };
+// The notice band over the editor's foot, in panel units.
+constexpr double dictation_notice_height = 46;
 struct PanelView {
     const Layout* layout{};
     const Theme* theme{};
@@ -141,6 +148,9 @@ struct PanelView {
     const EmojiGlyphs* emoji_glyphs{};
     // Dictation is usable, so the layout's mic key shows.
     bool dictation_available{};
+    // The mic key shows level bars instead of its icon while capturing.
+    bool dictation_capturing{};
+    int dictation_level{}; // 0–8
     // Dictation mode's editor; its keys are in `layout`.
     std::optional<DictationView> dictation;
 };

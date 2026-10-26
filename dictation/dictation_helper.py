@@ -447,6 +447,8 @@ class Helper:
                 head.prompt = message["text"][-MAX_PROMPT:]
         elif op == "cancel":
             self.drop_all()
+            # Everything sent before this belongs to the cancelled phrases.
+            self.send("cancelled")
         elif op == "test":
             self.start_test()
         else:
