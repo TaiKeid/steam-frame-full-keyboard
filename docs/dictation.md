@@ -800,6 +800,7 @@ The owner dictated with a game running locally and speech played from a phone, o
 
 - **Fix:** while capturing, the helper looks for the one microphone that smart source filters target (`pw-dump`), starts `pw-record` without automatic linking, and links the microphone's channels to it through the manager socket. Without that socket, a single clear target or a working link within 1 s, it records the default source as before. A linked recorder that delivers nothing for 1 s, such as after a lost link, is replaced by the default source for the rest of that capture. Without a game this records the same audio as before.
 - **Game sound:** the microphone then hears the game too, quietly. While the filters are linked, at capture start or at a later phrase start, the status line says game sound may be picked up. With game sound under the speech, the phrase detector found pauses less often, so phrases can run longer.
+- **On the headset (r35):** with a game running, the owner found accuracy good, and the notice appeared.
 
 ## Open questions
 
