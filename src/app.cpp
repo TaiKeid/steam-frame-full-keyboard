@@ -225,7 +225,7 @@ std::vector<Control> App::controls() const {
     };
     PanelView geometry;
     geometry.layout = &profiles_.layouts.at(settings_.active.layout);
-    geometry.theme = &profiles_.themes.at(settings_.active.theme);
+    geometry.theme = &shown_theme();
     geometry.language = &profiles_.languages.at(settings_.active.language);
     geometry.hide_numpad = settings_.hide_numpad;
     geometry.settings = settings_open_;
@@ -255,6 +255,15 @@ std::vector<Control> App::controls() const {
                 {"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
         }
         append_move_handle();
+        if (confirm_clear_favorites_) {
+            const Rect panel = confirm_popup_bounds;
+            add({ControlKind::ConfirmCancel},
+                {"confirm-cancel", "Cancel", {panel.x + 40, panel.y + 160, 210, 52}});
+            add({ControlKind::ConfirmAccept}, {"confirm-accept",
+                                               "Clear",
+                                               {panel.x + panel.width - 250, panel.y + 160, 210, 52},
+                                               true});
+        }
         if (address_) {
             // The popup's geometry: a raised panel over the cards, the field, a
             // hint line, recent servers and a 12-column key grid.
@@ -493,6 +502,11 @@ void App::update_settings_ui() {
                     ? (pending_dictation_server_.empty() ? "No server set" : "Not tested")
                     : dictation_test_;
     test.enabled = !pending_dictation_server_.empty();
+    auto favorites = field(ControlKind::ClearFavorites, SettingField{"clear-favorites", "Favorites",
+                                                                     "Clear all", ControlStyle::Button});
+    favorites.note =
+        pending_favorites_.empty() ? "None saved" : std::to_string(pending_favorites_.size()) + " saved";
+    favorites.enabled = !pending_favorites_.empty();
     settings_ui_.set_cards(
         {{"languages",
           "Languages and Layouts",
@@ -500,7 +514,7 @@ void App::update_settings_ui() {
                  dropdown("layout", "Layout", pending_.layout, choices(profiles_.layouts))),
            field(ControlKind::ChooseLanguage,
                  dropdown("language", "Language", pending_.language, language_choices)),
-           field(ControlKind::Favorite, checkbox("favorite", "Favorite", favorite)),
+           field(ControlKind::Favorite, checkbox("favorite", "Favorite", favorite)), favorites,
            field(ControlKind::SwipeTyping,
                  checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
                           "Powered by FUTO Swipe"))}},
@@ -534,7 +548,7 @@ void App::update_settings_ui() {
 PanelView App::geometry() const {
     PanelView v;
     v.layout = &profiles_.layouts.at(settings_.active.layout);
-    v.theme = &profiles_.themes.at(settings_.active.theme);
+    v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
     v.hide_numpad = settings_.hide_numpad;
     v.settings = settings_open_;
@@ -555,7 +569,7 @@ PanelView App::geometry() const {
 PanelView App::build_view(bool picker) const {
     PanelView v;
     v.layout = &profiles_.layouts.at(settings_.active.layout);
-    v.theme = &profiles_.themes.at(settings_.active.theme);
+    v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
@@ -714,6 +728,11 @@ PanelView App::build_view(bool picker) const {
             v.disabled_keys.insert("Dictation-undo");
         }
     }
+    if (settings_open_ && confirm_clear_favorites_) {
+        v.confirm =
+            PanelView::ConfirmView{confirm_popup_bounds, "Clear all favorites?",
+                                   "All saved layout and language pairs are removed when you Apply."};
+    }
     if (settings_open_ && address_) {
         PanelView::AddressView popup;
         popup.panel = address_popup_bounds;
@@ -743,8 +762,8 @@ PanelView App::build_view(bool picker) const {
     return v;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
-    if (address_) {
-        return false; // nothing under the popup scrolls
+    if (address_ || confirm_clear_favorites_) {
+        return false; // nothing under a popup scrolls
     }
     if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer) && std::isfinite(dy)) {
@@ -828,8 +847,8 @@ bool App::move(unsigned pointer, double x, double y) {
             it->action.kind != ControlKind::ScrollMenu) {
             continue;
         }
-        if (v.address && !it->id.starts_with("address-")) {
-            continue; // the address popup is modal
+        if (const auto prefix = v.modal_prefix(); !prefix.empty() && !it->id.starts_with(prefix)) {
+            continue; // a popup over Settings is modal
         }
         if (it->hit(x, y)) {
             target = {HoverTarget::Kind::Control, it->id};
@@ -856,7 +875,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
-    if (settings_open_ && !address_ && settings_ui_.down(pointer, x, y)) {
+    if (settings_open_ && !address_ && !confirm_clear_favorites_ && settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;
         return false;
@@ -1252,6 +1271,9 @@ bool App::tick(double now) {
     finish_swipe(false);
     dirty |= output_.tick(now);
     dirty |= tick_dictation(now);
+    if (settings_open_) {
+        dirty |= settings_ui_.tick(now);
+    }
     dirty |= tick_send(now);
     forget_failed_swipe();
     update_output_status();
@@ -1297,6 +1319,8 @@ void App::show_settings() {
     close_emoji();   // Settings returns to the keyboard, not the picker.
     pause_capture(); // Dictation pauses; its phrases still arrive in the editor.
     cancel();
+    address_.reset();
+    confirm_clear_favorites_ = false;
     settings_open_ = true;
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
@@ -1316,8 +1340,9 @@ void App::show_settings() {
     dirty = true;
 }
 void App::back() {
-    if (address_) {
+    if (address_ || confirm_clear_favorites_) {
         address_.reset();
+        confirm_clear_favorites_ = false;
         pressed_controls_.clear();
         hovered_.clear();
     } else if (settings_ui_.popup_open()) {
@@ -1328,6 +1353,7 @@ void App::back() {
         cancel();
         settings_open_ = false;
         address_.reset();
+        confirm_clear_favorites_ = false;
     }
     dirty = true;
 }
@@ -1338,6 +1364,7 @@ void App::summon() {
     cancel();
     settings_open_ = false;
     address_.reset();
+    confirm_clear_favorites_ = false;
     recenter_ = true;
     status_.clear();
 }
@@ -2007,6 +2034,7 @@ void App::action(const ControlAction& command) {
         save();
         settings_open_ = false;
         address_.reset();
+        confirm_clear_favorites_ = false;
     } else if (kind == ControlKind::Reload) {
         reload();
     } else if (kind == ControlKind::ToggleDropdown) {
@@ -2067,6 +2095,18 @@ void App::action(const ControlAction& command) {
         address_ = AddressEntry{pending_dictation_server_, pending_dictation_server_.size(), {}};
         pressed_controls_.clear();
         hovered_.clear();
+    } else if (kind == ControlKind::ClearFavorites && !pending_favorites_.empty()) {
+        settings_ui_.close_popup();
+        confirm_clear_favorites_ = true;
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (kind == ControlKind::ConfirmAccept && confirm_clear_favorites_) {
+        // Pending like every Settings change: Apply saves it, Back keeps them.
+        pending_favorites_.clear();
+        confirm_clear_favorites_ = false;
+        update_settings_ui();
+    } else if (kind == ControlKind::ConfirmCancel) {
+        confirm_clear_favorites_ = false;
     } else if (kind == ControlKind::AddressKey && address_) {
         address_key(command.value);
     } else if (kind == ControlKind::AddressRecent && address_) {
@@ -2580,6 +2620,7 @@ void App::close_panel() {
     if (resident_replacement()) {
         settings_open_ = false;
         address_.reset();
+        confirm_clear_favorites_ = false;
         dismiss_requested_ = true;
     } else {
         quit_ = true;

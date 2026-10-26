@@ -21,9 +21,12 @@ void SettingsUi::set_cards(std::vector<SettingsCard> cards) {
     capture_.reset();
     cards_ = std::move(cards);
     horizontal_ = std::clamp(horizontal_, 0.0, horizontal_limit());
+    horizontal_target_ = std::clamp(horizontal_target_, 0.0, horizontal_limit());
     for (std::size_t i = 0; i < cards_.size(); ++i) {
         auto& offset = vertical_[cards_[i].id];
         offset = std::clamp(offset, 0.0, vertical_limit(i));
+        auto& target = vertical_target_[cards_[i].id];
+        target = std::clamp(target, 0.0, vertical_limit(i));
     }
     if (const auto* field = open_field_definition(); field && !field->choices.empty()) {
         first_choice_ = std::clamp(
@@ -202,7 +205,9 @@ void SettingsUi::append(PanelView& view) const {
         }
     }
     for (const auto& bar : scrollbars()) {
-        view.controls.push_back({bar.id, "", bar.thumb, false, Icon::None, ControlStyle::Scrollbar});
+        // Selected while dragged, so it stays lit off the thumb too.
+        view.controls.push_back({bar.id, "", bar.thumb, capture_ && capture_->bar.id == bar.id,
+                                 Icon::None, ControlStyle::Scrollbar});
         if (bar.id == "scroll-menu") {
             view.controls.back().action.kind = ControlKind::ScrollMenu;
         }
@@ -218,10 +223,32 @@ void SettingsUi::close_popup() {
 }
 void SettingsUi::reset() {
     cancel();
-    horizontal_ = 0;
+    horizontal_ = horizontal_target_ = 0;
     for (auto& [id, offset] : vertical_) {
         offset = 0;
     }
+    for (auto& [id, offset] : vertical_target_) {
+        offset = 0;
+    }
+}
+bool SettingsUi::tick(double now) {
+    const double elapsed = last_tick_ < 0 ? 0 : std::clamp(now - last_tick_, 0.0, .1);
+    last_tick_ = now;
+    // Exponential easing, about 70 ms to cover most of a step.
+    const double amount = 1 - std::exp(-elapsed / .07);
+    bool moved = false;
+    auto ease = [&](double& shown, double target) {
+        if (shown == target) {
+            return;
+        }
+        shown = std::abs(target - shown) < .5 ? target : shown + (target - shown) * amount;
+        moved = true;
+    };
+    ease(horizontal_, horizontal_target_);
+    for (auto& [id, target] : vertical_target_) {
+        ease(vertical_[id], target);
+    }
+    return moved;
 }
 void SettingsUi::toggle(const std::string& id) {
     if (open_field_ == id) {
@@ -272,16 +299,17 @@ bool SettingsUi::scroll(double x, double y, double dx, double dy) {
     if (dx == 0) {
         for (std::size_t i = 0; i < cards_.size(); ++i) {
             if (card_bounds(i).contains(x, y) && vertical_limit(i) > 0) {
-                auto& offset = vertical_[cards_[i].id];
-                const double old = offset;
-                offset = std::clamp(offset + dy * 52, 0.0, vertical_limit(i));
-                return offset != old;
+                auto& target = vertical_target_[cards_[i].id];
+                const double old = target;
+                target = std::clamp(target + dy * 52, 0.0, vertical_limit(i));
+                return target != old;
             }
         }
     }
-    const double old = horizontal_;
-    horizontal_ = std::clamp(horizontal_ + (dx != 0 ? dx : dy) * 100, 0.0, horizontal_limit());
-    return horizontal_ != old;
+    const double old = horizontal_target_;
+    horizontal_target_ =
+        std::clamp(horizontal_target_ + (dx != 0 ? dx : dy) * 100, 0.0, horizontal_limit());
+    return horizontal_target_ != old;
 }
 bool SettingsUi::scrolls_at(double x, double y) const {
     if (popup_open()) {
@@ -322,9 +350,44 @@ bool SettingsUi::down(unsigned pointer, double x, double y) {
             return true;
         }
     }
+    if (!popup_open() && !drag_ && !capture_ && viewport.contains(x, y)) {
+        Drag drag;
+        drag.pointer = pointer;
+        drag.x = x;
+        drag.y = y;
+        drag.horizontal = horizontal_;
+        for (std::size_t i = 0; i < cards_.size(); ++i) {
+            if (card_bounds(i).contains(x, y) && vertical_limit(i) > 0) {
+                drag.card = i;
+                drag.vertical = vertical_[cards_[i].id];
+            }
+        }
+        drag_ = drag;
+    }
     return false;
 }
 bool SettingsUi::move(unsigned pointer, double x, double y) {
+    if (drag_ && drag_->pointer == pointer) {
+        auto& drag = *drag_;
+        const double dx = x - drag.x, dy = y - drag.y;
+        if (!drag.active && std::hypot(dx, dy) > 12) {
+            drag.active = true;
+            // Up and down scroll the card under the press when it can;
+            // otherwise the row follows the laser sideways.
+            drag.sideways = std::abs(dx) > std::abs(dy) || !drag.card;
+        }
+        if (!drag.active) {
+            return false;
+        }
+        if (drag.sideways) {
+            horizontal_ = horizontal_target_ = std::clamp(drag.horizontal - dx, 0.0, horizontal_limit());
+        } else {
+            const auto& id = cards_[*drag.card].id;
+            vertical_[id] = vertical_target_[id] =
+                std::clamp(drag.vertical - dy, 0.0, vertical_limit(*drag.card));
+        }
+        return true;
+    }
     if (!capture_ || capture_->pointer != pointer) {
         return false;
     }
@@ -338,13 +401,18 @@ bool SettingsUi::move(unsigned pointer, double x, double y) {
         choice_remainder_ = 0;
         first_choice_ = static_cast<int>(std::round(offset));
     } else if (bar.horizontal) {
-        horizontal_ = offset;
+        horizontal_ = horizontal_target_ = offset;
     } else {
-        vertical_[cards_[bar.card].id] = offset;
+        vertical_[cards_[bar.card].id] = vertical_target_[cards_[bar.card].id] = offset;
     }
     return true;
 }
 bool SettingsUi::up(unsigned pointer) {
+    if (drag_ && drag_->pointer == pointer) {
+        const bool active = drag_->active;
+        drag_.reset();
+        return active; // a drag's release is not a click
+    }
     if (capture_ && capture_->pointer == pointer) {
         capture_.reset();
         return true;
@@ -356,6 +424,7 @@ void SettingsUi::cancel_pointer(unsigned pointer) {
 }
 void SettingsUi::cancel() {
     capture_.reset();
+    drag_.reset();
     close_popup();
 }
 } // namespace framekeyboard

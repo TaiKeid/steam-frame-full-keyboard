@@ -51,6 +51,10 @@ void click(App& app, const std::string& id, unsigned pointer = 0) {
         // The Experimental card is cut off at the right until the row scrolls.
         app.move(pointer, 800, 300);
         app.scroll(pointer, 1000, 0);
+        static double now = 100;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
     }
     const auto c = control(app.view(), id);
     const double x = c.bounds.x + c.bounds.width / 2, y = c.bounds.y + c.bounds.height / 2;
@@ -1309,6 +1313,59 @@ void auto_leveling_settings() {
     load_settings(directory.path, errors);
     require(!errors.empty(), "Auto leveling requires a JSON boolean");
 }
+void clear_favorites() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    app.show_settings();
+    require(!control(app.view(), "clear-favorites").enabled, "nothing to clear at first");
+    click(app, "favorite");
+    click(app, "apply");
+    require(saved(app).favorites.size() == 1, "one favorite saved");
+    app.show_settings();
+    click(app, "clear-favorites");
+    require(app.view().confirm.has_value(), "Clear all asks first");
+    const auto apply = control(app.view(), "apply");
+    app.down(0, apply.bounds.x + 5, apply.bounds.y + 5, 1);
+    app.up(0, apply.bounds.x + 5, apply.bounds.y + 5);
+    require(app.view().settings && app.view().confirm.has_value(), "the question is modal");
+    click(app, "confirm-cancel");
+    require(!app.view().confirm && control(app.view(), "clear-favorites").enabled,
+            "Cancel keeps the favorites");
+    click(app, "clear-favorites");
+    click(app, "confirm-accept");
+    require(!control(app.view(), "clear-favorites").enabled, "Clear empties the pending list");
+    app.back();
+    require(saved(app).favorites.size() == 1, "Back keeps the saved favorites");
+    app.show_settings();
+    click(app, "clear-favorites");
+    click(app, "confirm-accept");
+    click(app, "apply");
+    require(saved(app).favorites.empty(), "Apply saves the cleared list");
+}
+void theme_preview() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(app.view().theme->id == "graphite", "Graphite to start");
+    app.show_settings();
+    select(app, "theme", "midnight");
+    require(app.view().theme->id == "midnight", "a chosen theme shows at once in Settings");
+    app.back();
+    require(app.view().theme->id == "graphite" && saved(app).active.theme == "graphite",
+            "Back returns to the saved theme");
+    app.show_settings();
+    select(app, "theme", "midnight");
+    click(app, "apply");
+    require(app.view().theme->id == "midnight" && saved(app).active.theme == "midnight",
+            "Apply keeps it");
+}
 void dictation_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -1367,6 +1424,9 @@ void native_replacement_settings() {
         app.show_settings();
         app.move(0, 800, 300);
         app.scroll(0, 1000, 0);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(100 + i * .05);
+        }
     };
     open();
     const auto view = app.view();
@@ -1504,7 +1564,15 @@ void scroll_cards() {
         cards.push_back(std::move(card));
     }
     ui.set_cards(cards);
+    double now = 0;
+    // Steps ease the cards toward their target; let them arrive.
+    auto settle = [&] {
+        for (int i = 0; i < 40; ++i) {
+            ui.tick(now += .05);
+        }
+    };
     auto snapshot = [&] {
+        settle();
         PanelView view;
         ui.append(view);
         return view;
@@ -1514,6 +1582,13 @@ void scroll_cards() {
             "offscreen cards have no hit controls");
     require(!has(view, "test-0-field-9"), "vertically clipped fields have no controls");
     require(ui.scroll(200, 200, 0, 2), "card scrolls vertically");
+    {
+        PanelView moving;
+        ui.tick(now += .016);
+        ui.append(moving);
+        require(has(moving, "test-0-field-0"), "a step glides instead of jumping");
+        require(ui.tick(now += .016), "and keeps moving on the next frame");
+    }
     view = snapshot();
     require(!has(view, "test-0-field-0") && has(view, "test-1-field-0"),
             "each card owns its vertical offset");
@@ -1538,6 +1613,15 @@ void scroll_cards() {
     require(ui.pressed(1), "scrollbar ownership exposed for tracking loss cleanup");
     ui.cancel_pointer(1);
     require(!ui.move(1, x, y), "cancel stops scrollbar movement");
+    ui.reset();
+    // The laser drags the cards like a touch screen, past a dead zone.
+    require(!ui.down(4, 600, 300), "a press on a card leaves its control pressed");
+    require(!ui.move(4, 595, 300), "a small movement is still a press");
+    require(ui.move(4, 60, 300), "a longer one scrolls the row sideways");
+    view = snapshot();
+    require(!has(view, "test-0-field-1"), "the row followed the laser");
+    require(ui.up(4), "the drag's release is not a click");
+    require(!ui.down(4, 200, 300) && !ui.up(4), "a plain press and release stays a click");
     ui.reset();
     ui.toggle("test-0-field-4");
     view = snapshot();
@@ -1616,6 +1700,8 @@ int main() {
         numpad_settings();
         app_settings();
         dictation_settings();
+        theme_preview();
+        clear_favorites();
         behavior_settings();
         auto_leveling_settings();
         native_replacement_settings();

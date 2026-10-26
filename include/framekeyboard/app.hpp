@@ -110,6 +110,11 @@ class App {
     // Dictation has something going (listening, phrases on the way, sending
     // or text), so replacement mode keeps the panel after Steam's field closes.
     bool dictation_holds_panel() const;
+    // While Settings is open the chosen theme shows at once; Back returns to
+    // the saved one, since it never changed.
+    const Theme& shown_theme() const {
+        return profiles_.themes.at(settings_open_ ? pending_.theme : settings_.active.theme);
+    }
     // Shown without a Steam field to type into: the editor keeps working,
     // but nothing is sent until the user picks a field.
     void set_field_needed(bool needed);
@@ -291,6 +296,7 @@ class App {
         std::string error;
     };
     std::optional<AddressEntry> address_;
+    bool confirm_clear_favorites_{};
     void address_key(const std::string& key);
     // The Dictation card's connection line: empty until Test runs.
     std::string dictation_test_;

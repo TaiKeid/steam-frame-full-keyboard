@@ -41,9 +41,15 @@ class SettingsUi {
     // Whether scroll() could move anything at this point: an open list longer
     // than its popup, an overflowing card, or cards wider than the panel.
     bool scrolls_at(double x, double y) const;
+    // A press on a scrollbar captures it at once. A press elsewhere on the
+    // cards becomes a touch-like drag once it moves past a small dead zone;
+    // until then the control under it keeps its press.
     bool down(unsigned pointer, double x, double y);
     bool move(unsigned pointer, double x, double y);
     bool up(unsigned pointer);
+    // Stick and wheel steps set where the cards are going; tick() eases
+    // them there. True while anything moved.
+    bool tick(double now);
     bool pressed(unsigned pointer) const { return capture_ && capture_->pointer == pointer; }
     void cancel_pointer(unsigned pointer);
     void cancel();
@@ -65,8 +71,18 @@ class SettingsUi {
     };
     std::vector<Scrollbar> scrollbars() const;
     std::vector<SettingsCard> cards_;
-    std::map<std::string, double> vertical_;
-    double horizontal_{};
+    // Shown offsets, and the targets that steps ease them toward. Drags and
+    // scrollbars move both at once.
+    std::map<std::string, double> vertical_, vertical_target_;
+    double horizontal_{}, horizontal_target_{};
+    double last_tick_{-1};
+    struct Drag {
+        unsigned pointer{};
+        double x{}, y{}, horizontal{}, vertical{};
+        std::optional<std::size_t> card; // the card under the press, if it scrolls
+        bool active{}, sideways{};
+    };
+    std::optional<Drag> drag_;
     std::string open_field_;
     int first_choice_{};
     double choice_remainder_{};

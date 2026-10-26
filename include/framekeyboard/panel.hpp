@@ -51,6 +51,9 @@ enum class ControlKind {
     // backspace, left, right, enter or esc), a recent server, or close.
     AddressKey,
     AddressRecent,
+    ClearFavorites, // asks first
+    ConfirmAccept,
+    ConfirmCancel,
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,
@@ -122,6 +125,7 @@ struct DictationView {
 };
 // The server address popup over Settings, in panel coordinates.
 constexpr Rect address_popup_bounds{300, 36, 1000, 508};
+constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
 // The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
@@ -181,6 +185,16 @@ struct PanelView {
         enum class Tone { Quiet, Warning, Error } tone{Tone::Quiet};
     };
     std::optional<AddressView> address;
+    // A question over Settings; its buttons are controls whose ids start
+    // with "confirm-".
+    struct ConfirmView {
+        bool operator==(const ConfirmView&) const = default;
+        Rect panel;
+        std::string title, body;
+    };
+    std::optional<ConfirmView> confirm;
+    // The prefix of the open modal's controls; nothing else responds.
+    std::string modal_prefix() const { return address ? "address-" : confirm ? "confirm-" : ""; }
 };
 
 // Dictation editor text geometry, shared by painting and App's cursor moves.

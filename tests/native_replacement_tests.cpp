@@ -1088,6 +1088,10 @@ void resident_close() {
                          [&](const Control& c) { return c.id == id; })) {
             app.move(3, 800, 300);
             app.scroll(3, 1000, 0);
+            static double now = 100;
+            for (int i = 0; i < 40; ++i) {
+                app.tick(now += .05);
+            }
         }
         for (const auto& c : app.view().controls) {
             if (c.id != id) {
