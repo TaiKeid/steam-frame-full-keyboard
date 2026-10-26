@@ -4168,6 +4168,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         pending_phrases_.clear();
         awaiting_pause_ = false;
         send_wait_since_.reset();
+        if (event.reason == "helper-exited" && download_) {
+            // Nothing will report on the download; the mic key and Settings
+            // would wait for it until the keyboard restarts.
+            std::cout << "Model download failed: helper-exited.\n" << std::flush;
+            download_.reset();
+            status_ = "The speech model download stopped. Try again.";
+            update_settings_ui();
+        }
         if (dictation_open_ || (direct_ && active)) {
             dictation_message(dictation_problem(event.reason, settings_.dictation == "device"), true);
         }

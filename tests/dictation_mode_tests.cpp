@@ -285,6 +285,11 @@ while True:
         with open(os.path.join(os.path.dirname(sys.argv[0]), "configures"), "a") as log:
             log.write(json.dumps(message) + "\n")
         continue
+    if op == "download" and scenario == "diedownloading":
+        send(op="download", state="progress", done=50, total=100)
+        import time
+        time.sleep(0.2)
+        sys.exit(1)
     if op == "download":
         # Halfway at once, then the verified file half a second later.
         send(op="download", state="progress", done=50, total=100)
@@ -1555,6 +1560,31 @@ void direct_esc_tests() {
     }
 }
 
+// A helper that exits mid-download leaves nothing to report on it: the
+// download ends at once, the mic key returns and Settings can start again.
+void download_helper_exit_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "diedownloading");
+    write_config(directory.path, R"(,"dictation":"off","dictation_server":"127.0.0.1")");
+    Sink sink;
+    App app(options, sink);
+    app.show_settings();
+    click(app, "dictation");
+    click(app, "choose:dictation:device");
+    click(app, "apply");
+    click(app, "confirm-accept");
+    wait_until(app, [&] { return app.view().dictation_download == .5; });
+    wait_until(app, [&] { return !app.view().dictation_download; });
+    require(app.view().status == "The speech model download stopped. Try again.",
+            "a helper that exits mid-download ends it and says so");
+}
+
 // Send waits for a slow phrase as long as recognition may take: on the
 // device 30 s, which a game can make necessary, not a fixed 20 s.
 void send_wait_tests() {
@@ -1858,6 +1888,7 @@ int main() {
         send_during_reveal_tests();
         direct_esc_tests();
         send_wait_tests();
+        download_helper_exit_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {
