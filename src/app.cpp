@@ -691,12 +691,12 @@ PanelView App::build_view(bool picker) const {
     if (settings_open_) {
         settings_ui_.append(v);
     }
-    v.status = resizing_   ? "Release trigger to keep this size"
-               : dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
-                                                         : "Release trigger to place keyboard")
-                           : !status_.empty() ? status_
-                           : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
-                                                       : startup_status_;
+    v.status = resizing_          ? "Release trigger to keep this size"
+               : dragging_        ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
+                                                                : "Release trigger to place keyboard")
+               : !status_.empty() ? status_
+               : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
+                                           : startup_status_;
     if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
@@ -3857,7 +3857,8 @@ void App::live_partial(std::uint64_t id, const std::string& text) {
     }
     // Typed words cannot be revised; typing goes on where they end in the
     // agreed words, which Whisper rewriting an earlier word can move.
-    const auto end = live_end(live.typed, {newest.begin(), newest.begin() + static_cast<std::ptrdiff_t>(agreed)});
+    const auto end =
+        live_end(live.typed, {newest.begin(), newest.begin() + static_cast<std::ptrdiff_t>(agreed)});
     if (agreed > end) {
         direct_phrase(live_join(newest, end, agreed));
         live.typed.insert(live.typed.end(), newest.begin() + static_cast<std::ptrdiff_t>(end),
@@ -4368,8 +4369,7 @@ void App::test_dictation_server() {
     target.server = pending_dictation_server_;
     target.model = settings_.dictation_model;
     target.language = profiles_.languages.at(settings_.active.language).dictation_language;
-    dictation_test_ =
-        dictation_->test(target) ? "Testing…" : "Helper stopped";
+    dictation_test_ = dictation_->test(target) ? "Testing…" : "Helper stopped";
     update_settings_ui();
     dirty = true;
 }

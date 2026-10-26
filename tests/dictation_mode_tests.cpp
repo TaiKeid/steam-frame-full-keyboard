@@ -1536,7 +1536,8 @@ void direct_esc_tests() {
         options.mode = Mode::Vr;
         options.input = InputBackend::Ei;
         options.start_enabled = true;
-        write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+        write_config(directory.path,
+                     R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
         use_fake_helper(options, directory.path, "direct");
         Sink sink;
         sink.busy = true; // the target is still taking earlier characters
@@ -1629,8 +1630,10 @@ void send_during_reveal_tests() {
         options.mode = Mode::Vr;
         options.input = InputBackend::Ei;
         options.start_enabled = true;
-        write_config(directory.path, paste ? R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_send_paste":true)"
-                                           : R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+        write_config(
+            directory.path,
+            paste ? R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_send_paste":true)"
+                  : R"(,"dictation":"server","dictation_server":"127.0.0.1")");
         use_fake_helper(options, directory.path, "verylong");
         Sink sink;
         FakeClipboard clipboard;

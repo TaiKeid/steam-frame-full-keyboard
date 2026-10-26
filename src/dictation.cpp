@@ -250,8 +250,10 @@ bool Dictation::test(const Target& target) {
         "test",
         [](json_object* object, const void* data) {
             const auto& t = *static_cast<const Target*>(data);
-            for (const auto& [key, value] :
-                 {std::pair{"server", &t.server}, {"url", &t.url}, {"model", &t.model}, {"language", &t.language}}) {
+            for (const auto& [key, value] : {std::pair{"server", &t.server},
+                                             {"url", &t.url},
+                                             {"model", &t.model},
+                                             {"language", &t.language}}) {
                 if (!value->empty()) {
                     json_object_object_add(object, key, json_object_new_string(value->c_str()));
                 }
