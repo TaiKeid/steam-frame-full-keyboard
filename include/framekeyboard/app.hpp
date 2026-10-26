@@ -97,8 +97,16 @@ class App {
     bool pinned() const { return settings_.pinned; }
     // Experimental, not saved: the panel stays open while the dashboard is
     // closed, and VR reads the controllers itself so the focused app keeps its input.
-    bool passthrough() const { return passthrough_; }
+    // Either the user's toggle or dictation's own, which keeps the panel open
+    // while it listens with the dashboard closed.
+    bool passthrough() const { return passthrough_ || dictation_passthrough_; }
+    // Turning passthrough off also ends dictation's.
     void set_passthrough(bool on);
+    // VR reports the dashboard each frame before deciding whether the panel
+    // may show. Closing it while dictation listens turns on dictation's
+    // passthrough, which lasts until dictation mode ends
+    // (docs/dictation.md, Dashboard, passthrough and focus). True when it did.
+    bool dashboard_visibility(bool visible);
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }
@@ -297,6 +305,7 @@ class App {
     std::map<unsigned, std::pair<double, double>> pointer_positions_;
     bool dragging_{}, resizing_{};
     bool passthrough_{};
+    bool dictation_passthrough_{}; // Tracked apart from the user's toggle.
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;

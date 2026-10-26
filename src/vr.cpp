@@ -1519,6 +1519,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;
             app.set_passthrough(true);
         }
+        if (app.dashboard_visibility(dashboard_visible)) {
+            std::cout << "Passthrough turned on to keep dictation listening.\n" << std::flush;
+        }
         const bool panel_presentable = dashboard_visible || app.passthrough();
         lifecycle.dashboard_visibility(panel_presentable);
         const bool scene = app.passthrough() && !dashboard_visible;

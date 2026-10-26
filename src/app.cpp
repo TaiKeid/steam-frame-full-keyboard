@@ -275,8 +275,8 @@ std::vector<Control> App::controls() const {
     add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
                              button(2, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
     add({ControlKind::Passthrough},
-        {"passthrough", passthrough_ ? "Close with the dashboard" : "Stay open over apps",
-         button(3, 0, 1), passthrough_, passthrough_ ? Icon::PassthroughOn : Icon::PassthroughOff});
+        {"passthrough", passthrough() ? "Close with the dashboard" : "Stay open over apps",
+         button(3, 0, 1), passthrough(), passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
     if (!settings_.favorites.empty()) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
@@ -1841,7 +1841,7 @@ void App::action(const ControlAction& command) {
         status_.clear();
         save();
     } else if (kind == ControlKind::Passthrough) {
-        set_passthrough(!passthrough_);
+        set_passthrough(!passthrough());
     } else if (kind == ControlKind::LanguageCycle) {
         const auto& entries = cycle_entries_;
         if (entries.size() > 1) {
@@ -2457,13 +2457,26 @@ void App::close_panel() {
     }
 }
 void App::set_passthrough(bool on) {
-    if (on == passthrough_) {
+    const bool was = passthrough();
+    passthrough_ = on;
+    if (!on) {
+        dictation_passthrough_ = false;
+    }
+    if (passthrough() == was) {
         return;
     }
     cancel(false);
-    passthrough_ = on;
     status_.clear();
     dirty = true;
+}
+bool App::dashboard_visibility(bool visible) {
+    if (visible || !dictation_open_ || !capturing_ || !interaction_active_ || passthrough()) {
+        return false;
+    }
+    // The VR loop switches to the passthrough pointer and releases presses.
+    dictation_passthrough_ = true;
+    dirty = true;
+    return true;
 }
 bool App::take_dismissal() {
     return std::exchange(dismiss_requested_, false);
@@ -2742,6 +2755,9 @@ void App::close_dictation() {
     }
     send_wait_since_.reset();
     reveal_.reset();
+    // Dictation's passthrough ends with the mode; with the dashboard closed
+    // the panel then hides, unless the user's own toggle is on.
+    dictation_passthrough_ = false;
     confirm_discard_ = false;
     notice_.clear();
     notice_error_ = false;

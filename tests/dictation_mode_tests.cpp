@@ -574,6 +574,52 @@ void paste_tests() {
     options.clipboard = nullptr;
 }
 
+void passthrough_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        require(!app.dashboard_visibility(false) && !app.passthrough(),
+                "a paused editor hides with the dashboard as usual");
+        press(app, "Dictation");
+        require(!app.dashboard_visibility(true) && !app.passthrough(),
+                "nothing while the dashboard shows");
+        require(app.dashboard_visibility(false) && app.passthrough(),
+                "closing the dashboard while listening keeps the panel open");
+        press(app, "Dictation");
+        require(app.passthrough(), "pausing keeps it open until the mode ends");
+        press(app, "Escape");
+        require(!app.dictation_open() && !app.passthrough(),
+                "leaving the mode ends dictation's passthrough");
+    }
+    {
+        Sink sink;
+        App app(options, sink);
+        app.set_passthrough(true);
+        press(app, "Dictation");
+        require(!app.dashboard_visibility(false), "the user's own passthrough already keeps it open");
+        press(app, "Escape");
+        press(app, "Escape");
+        require(!app.dictation_open() && app.passthrough(), "and stays on after the mode");
+    }
+    {
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false), "listening with the dashboard closed");
+        app.set_passthrough(false);
+        require(!app.passthrough(), "the user can still turn it off");
+    }
+}
+
 void send_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -697,6 +743,7 @@ int main() {
         send_tests();
         scroll_tests();
         paste_tests();
+        passthrough_tests();
         live_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
