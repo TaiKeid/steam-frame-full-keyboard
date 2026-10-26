@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "ms-my",
+  "name": "Bahasa Melayu",
+  "locale": "ms-MY",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "ms"
+  }
+}

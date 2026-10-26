@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "ro-ro",
+  "name": "Română — standard",
+  "locale": "ro-RO",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ro",
+    "variant": "std",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "ro"
+  }
+}

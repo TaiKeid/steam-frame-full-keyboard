@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "sk-sk",
+  "name": "Slovenčina — QWERTZ",
+  "locale": "sk-SK",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "sk",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "sk"
+  }
+}

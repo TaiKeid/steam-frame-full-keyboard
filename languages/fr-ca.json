@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "fr-ca",
+  "name": "Français — Canada",
+  "locale": "fr-CA",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ca",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "dictation": {
+    "language": "fr"
+  }
+}

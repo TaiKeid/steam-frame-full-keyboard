@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "lt-lt",
+  "name": "Lietuvių",
+  "locale": "lt-LT",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "lt",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "lt"
+  }
+}

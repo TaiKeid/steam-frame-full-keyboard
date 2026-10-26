@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <glib.h>
 #include <iostream>
@@ -176,13 +177,14 @@ void settings_tests() {
             "Chinese prompts fix the script");
     require(languages.at("ja-jis").dictation_language.empty(),
             "external JIS, which types through a system IME, has no dictation");
-    for (const auto& [id, code] : std::map<std::string, std::string>{{"de-de", "de"},
-                                                                     {"fr-fr", "fr"},
-                                                                     {"it-it", "it"},
-                                                                     {"pt-br", "pt"},
-                                                                     {"ru-ru", "ru"},
-                                                                     {"uk-ua", "uk"},
-                                                                     {"ko-kr", "ko"}}) {
+    for (const auto& [id, code] : std::map<std::string, std::string>{
+             {"de-de", "de"}, {"fr-fr", "fr"}, {"it-it", "it"}, {"pt-br", "pt"}, {"ru-ru", "ru"},
+             {"uk-ua", "uk"}, {"ko-kr", "ko"}, {"ar", "ar"},    {"cs-cz", "cs"}, {"da-dk", "da"},
+             {"el-gr", "el"}, {"et-ee", "et"}, {"fi-fi", "fi"}, {"fr-ca", "fr"}, {"he-il", "he"},
+             {"hi-in", "hi"}, {"hr-hr", "hr"}, {"hu-hu", "hu"}, {"id-id", "id"}, {"lt-lt", "lt"},
+             {"lv-lv", "lv"}, {"ms-my", "ms"}, {"nb-no", "no"}, {"nl-nl", "nl"}, {"pl-pl", "pl"},
+             {"ro-ro", "ro"}, {"sk-sk", "sk"}, {"sl-si", "sl"}, {"sv-se", "sv"}, {"th-th", "th"},
+             {"tr-tr", "tr"}, {"vi-vn", "vi"}}) {
         require(languages.at(id).dictation_language == code && languages.at(id).dictation_prompt.empty(),
                 "every other profile dictates in its own language, without a prompt");
     }
@@ -754,6 +756,57 @@ void language_tests() {
         require(text.size() > 12 && text.starts_with("Hello there.") &&
                     !app.view().dictation->candidates,
                 "Space chooses the first candidate into the editor");
+    }
+}
+
+// The editor's arrows follow the screen: in right-to-left text Right moves
+// toward the start, and a letter with its marks is one step.
+void direction_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    const std::string server = R"(,"dictation":"server","dictation_server":"127.0.0.1")";
+    write_config(directory.path, server, "he-il");
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        for (const auto* id : {"KeyA", "KeyT", "KeyC"}) {
+            press(app, id);
+        }
+        require(editor_text(app) == "שאב", "Hebrew types into the editor");
+        press(app, "ArrowRight");
+        press(app, "KeyV");
+        require(editor_text(app) == "שאהב", "Right moves toward the start of Hebrew text");
+        press(app, "ArrowLeft");
+        press(app, "KeyB");
+        require(editor_text(app) == "שאהבנ", "Left moves toward its end");
+        // Brackets and digits keep their places in the right-to-left line.
+        for (const auto* id : {"Space", "ShiftLeft", "Digit0", "KeyG", "KeyU", "KeyK", "KeyO",
+                               "ShiftLeft", "Digit9", "Space", "Digit1", "Digit2"}) {
+            press(app, id);
+        }
+        require(editor_text(app) == "שאהבנ (עולם) 12", "Hebrew with brackets and digits");
+        // With FRAMEKEYBOARD_TEST_RENDER_DIR, an image of the right-to-left editor.
+        if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+            app.paint(clock);
+            app.renderer.write_png(fs::path(render) / "dictation-hebrew.png");
+        }
+    }
+    write_config(directory.path, server, "th-th", "international-full");
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        press(app, "KeyD");
+        press(app, "KeyY");
+        press(app, "ArrowLeft");
+        press(app, "KeyA");
+        require(editor_text(app) == "ฟกั", "Left steps over a Thai letter and its vowel mark");
     }
 }
 
@@ -1460,10 +1513,14 @@ void device_tests() {
     require(!warns(app) && !field_label(app, "Format"),
             "English has no warning, and the model format is a development option");
     click(app, "settings"); // Back
-    write_config(directory.path, R"(,"dictation":"device")", "ja-romaji");
-    App japanese(options, sink);
-    japanese.show_settings();
-    require(warns(japanese), "a language other than English or Spanish warns on device");
+    for (const auto* language : {"ja-romaji", "ar", "hi-in", "nb-no", "vi-vn", "es-es"}) {
+        write_config(directory.path, R"(,"dictation":"device")", language,
+                     std::string(language) == "ja-romaji" ? "en-us-full" : "international-full");
+        App other(options, sink);
+        other.show_settings();
+        require(warns(other) == (std::string(language) != "es-es"),
+                "a language other than English or Spanish warns on device");
+    }
 }
 
 // The server's fallback to the device: offered as a switch, it needs the
@@ -1893,6 +1950,7 @@ int main() {
         card_tests();
         live_tests();
         language_tests();
+        direction_tests();
         direct_tests();
         direct_paste_tests();
         device_tests();

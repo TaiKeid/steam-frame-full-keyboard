@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "hu-hu",
+  "name": "Magyar",
+  "locale": "hu-HU",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "hu",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "hu"
+  }
+}

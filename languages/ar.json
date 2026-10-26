@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "ar",
+  "name": "العربية",
+  "locale": "ar",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ara",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "Noto Sans Arabic",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "dictation": {
+    "language": "ar"
+  }
+}

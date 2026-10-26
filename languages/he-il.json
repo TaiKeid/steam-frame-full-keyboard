@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "he-il",
+  "name": "עברית",
+  "locale": "he-IL",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "il",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "Noto Sans Hebrew",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "he"
+  }
+}

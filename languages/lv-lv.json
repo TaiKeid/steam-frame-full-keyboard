@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "lv-lv",
+  "name": "Latviešu",
+  "locale": "lv-LV",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "lv",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "lv"
+  }
+}

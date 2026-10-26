@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "hi-in",
+  "name": "हिन्दी — InScript",
+  "locale": "hi-IN",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "in",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "Noto Sans Devanagari",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "dictation": {
+    "language": "hi"
+  }
+}

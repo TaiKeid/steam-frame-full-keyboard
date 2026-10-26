@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "hr-hr",
+  "name": "Hrvatski",
+  "locale": "hr-HR",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "hr",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "hr"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "th-th",
+  "name": "ไทย — เกษมณี",
+  "locale": "th-TH",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "th",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "Noto Sans Thai",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "dictation": {
+    "language": "th"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "nl-nl",
+  "name": "Nederlands — US international",
+  "locale": "nl-NL",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "altgr-intl",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "nl"
+  }
+}

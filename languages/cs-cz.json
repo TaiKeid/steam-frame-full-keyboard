@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "cs-cz",
+  "name": "Čeština — QWERTZ",
+  "locale": "cs-CZ",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "cz",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "cs"
+  }
+}

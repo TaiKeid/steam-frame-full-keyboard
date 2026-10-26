@@ -154,6 +154,163 @@ void unicode_input() {
     click(app, "KeyQ", false);
     require(sink.events.size() == 3, "hidden keyboard blocks Unicode");
 }
+// Each national keymap types its own letters through Unicode: plain keys,
+// AltGr levels and dead keys composed locally.
+void national_keymaps(const Profiles& profiles) {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-national-test-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    Sink sink;
+    Options options;
+    options.config_dir = path;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.start_enabled = true;
+    App app(options, sink);
+    struct Case {
+        const char* language;
+        const char* layout;
+        // Keys in order; "Shift+" and "AltGr+" latch those modifiers first.
+        std::vector<std::string> keys;
+        std::vector<std::string> typed;
+    };
+    const std::vector<Case> cases{
+        // Latching Shift keeps the pending accent for the capital.
+        {"de-de", "international-full", {"Equal", "Shift+KeyE"}, {"É"}},
+        {"tr-tr",
+         "international-full",
+         {"KeyI", "Shift+Quote", "BracketLeft", "Semicolon", "Comma"},
+         {"ı", "İ", "ğ", "ş", "ö"}},
+        {"pl-pl",
+         "en-us-full",
+         {"AltGr+KeyA", "AltGr+KeyZ", "AltGr+KeyX", "AltGr+KeyL", "Shift+AltGr+KeyS"},
+         {"ą", "ż", "ź", "ł", "Ś"}},
+        {"cs-cz",
+         "international-full",
+         {"Digit2", "Shift+Equal", "KeyD", "Equal", "KeyO", "Shift+Backquote", "KeyU", "Shift+Equal",
+          "Shift+KeyD"},
+         {"ě", "ď", "ó", "ů", "Ď"}},
+        {"sk-sk",
+         "international-full",
+         {"Digit2", "Digit3", "BracketRight", "Shift+Equal", "KeyD"},
+         {"ľ", "š", "ä", "ď"}},
+        {"hu-hu",
+         "international-full",
+         {"Backquote", "Digit0", "BracketLeft", "Backslash", "IntlBackslash", "AltGr+Digit0", "KeyO"},
+         {"0", "ö", "ő", "ű", "í", "ő"}},
+        {"ro-ro",
+         "international-full",
+         {"BracketLeft", "Semicolon", "Quote", "Backquote"},
+         {"ă", "ș", "ț", "„"}},
+        {"hr-hr",
+         "international-full",
+         {"BracketLeft", "Semicolon", "Quote", "BracketRight", "Backslash"},
+         {"š", "č", "ć", "đ", "ž"}},
+        {"sl-si", "international-full", {"BracketLeft", "Semicolon", "Backslash"}, {"š", "č", "ž"}},
+        {"et-ee", "international-full", {"BracketRight", "Backquote", "KeyS"}, {"õ", "š"}},
+        {"lv-lv",
+         "en-us-full",
+         {"AltGr+KeyA", "AltGr+KeyG", "AltGr+KeyC", "Shift+AltGr+KeyN"},
+         {"ā", "ģ", "č", "Ņ"}},
+        {"lt-lt", "en-us-full", {"Digit1", "Digit2", "Equal"}, {"ą", "č", "ž"}},
+        {"sv-se",
+         "international-full",
+         {"BracketLeft", "Semicolon", "Quote", "Equal", "KeyE"},
+         {"å", "ö", "ä", "é"}},
+        {"fi-fi",
+         "international-full",
+         {"BracketLeft", "Semicolon", "AltGr+Backslash", "KeyS"},
+         {"å", "ö", "š"}},
+        {"da-dk", "international-full", {"Semicolon", "Quote", "BracketLeft"}, {"æ", "ø", "å"}},
+        {"nb-no",
+         "international-full",
+         {"Semicolon", "Quote", "BracketLeft", "Shift+Equal", "KeyE"},
+         {"ø", "æ", "å", "è"}},
+        {"fr-ca",
+         "international-full",
+         {"BracketLeft", "KeyE", "Quote", "KeyA", "BracketRight", "KeyC", "Slash", "IntlBackslash"},
+         {"ê", "à", "ç", "é", "«"}},
+        // The apostrophe stays plain, so "zo'n" is not composed into ń.
+        {"nl-nl",
+         "en-us-full",
+         {"AltGr+KeyE", "Shift+AltGr+Quote", "KeyE", "Quote", "KeyN"},
+         {"é", "ë", "'", "n"}},
+        {"el-gr",
+         "en-us-full",
+         {"KeyA", "Semicolon", "KeyA", "KeyW", "Shift+Semicolon", "KeyI", "Semicolon", "Shift+Semicolon",
+          "KeyI"},
+         {"α", "ά", "ς", "ϊ", "ΐ"}},
+        // A dead tone before the letter composes; the plain tone key after it combines.
+        {"vi-vn",
+         "en-us-full",
+         {"Digit1", "AltGr+Digit8", "Digit2", "KeyA", "Digit8", "BracketLeft", "Digit0"},
+         {"ă", "ấ", "a", "́", "ư", "đ"}},
+        {"he-il", "en-us-full", {"KeyA", "KeyT", "Shift+Digit9"}, {"ש", "א", ")"}},
+        {"ar", "international-full", {"KeyA", "KeyH", "KeyB", "Shift+Digit9"}, {"ش", "ا", "لا", ")"}},
+        {"hi-in",
+         "international-full",
+         {"KeyK", "KeyD", "KeyE", "KeyJ", "Digit1"},
+         {"क", "्", "ा", "र", "१"}},
+        {"th-th", "international-full", {"KeyA", "KeyD", "KeyY"}, {"ฟ", "ก", "ั"}},
+        {"id-id", "en-us-full", {"KeyA", "Quote"}, {"a", "'"}},
+        {"ms-my", "en-us-full", {"KeyA", "Quote"}, {"a", "'"}},
+    };
+    for (const auto& test : cases) {
+        validate_selection(profiles, {test.layout, test.language, "graphite"});
+        app.apply({test.layout, test.language, "graphite"});
+        sink.events.clear();
+        for (const auto& step : test.keys) {
+            std::string rest = step;
+            for (const auto& [prefix, modifier] :
+                 {std::pair<std::string, std::string>{"Shift+", "ShiftLeft"}, {"AltGr+", "AltRight"}}) {
+                if (rest.starts_with(prefix)) {
+                    click(app, modifier);
+                    rest.erase(0, prefix.size());
+                }
+            }
+            click(app, rest);
+        }
+        if (sink.events != test.typed) {
+            std::string got;
+            for (const auto& event : sink.events) {
+                got += " " + event;
+            }
+            throw std::runtime_error(std::string(test.language) + " typed" + got);
+        }
+    }
+    for (const auto& [id, language] : profiles.languages) {
+        // ABNT2 and JIS languages need keys of their own layouts.
+        if (language.input_method != "xkb" ||
+            std::any_of(language.required_keys.begin(), language.required_keys.end(),
+                        [](const std::string& name) { return name != "IntlBackslash"; })) {
+            continue;
+        }
+        // Every other keymap language fits the international layout, and the
+        // US layout exactly when it needs no extra key.
+        validate_selection(profiles, {"international-full", id, "graphite"});
+        bool us = true;
+        try {
+            validate_selection(profiles, {"en-us-full", id, "graphite"});
+        } catch (const std::exception&) {
+            us = false;
+        }
+        require(us == language.required_keys.empty(), "only languages needing a key are dimmed on US");
+        // No letter or digit key is left without a legend of its own.
+        LanguageMap map(language);
+        for (const auto& k : profiles.layouts.at("international-full").keys) {
+            if (k.action.starts_with("Key") || k.action.starts_with("Digit")) {
+                require(LanguageMap::printable(map.symbol(k, {}, false, false)),
+                        "every letter and digit key types something");
+            }
+        }
+        require(map.right_to_left() == (id == "ar" || id == "he-il"),
+                "Arabic and Hebrew legends are laid out right to left");
+    }
+}
 void input_gate_recovery() {
     Sink sink;
     OutputController gate(sink);
@@ -440,6 +597,7 @@ int main(int argc, char** argv) {
                 "ABNT2 extra slash");
         require(key_code("NumpadComma") == KEY_KPCOMMA, "ABNT2 keypad separator evdev code");
         unicode_input();
+        national_keymaps(profiles);
         if (group.empty()) {
             engines();
             app_composition(profiles);

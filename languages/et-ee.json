@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "et-ee",
+  "name": "Eesti",
+  "locale": "et-EE",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ee",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "et"
+  }
+}

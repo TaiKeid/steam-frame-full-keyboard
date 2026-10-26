@@ -292,7 +292,15 @@ void app_tests() {
     };
     click_control("language");
     app.move(0, 300, 320);
-    app.scroll(0, 0, 6);
+    // Scroll the list until the choice shows, however many languages come first.
+    auto shown = [&](const std::string& id) {
+        const auto& controls = app.view().controls;
+        return std::any_of(controls.begin(), controls.end(),
+                           [&](const auto& control) { return control.id == id; });
+    };
+    for (int i = 0; i < 100 && !shown("choose:language:ja-romaji"); ++i) {
+        app.scroll(0, 0, 1);
+    }
     click_control("choose:language:ja-romaji");
     click_control("apply");
     require(app.selection().language == "ja-romaji", "dropdown activates Japanese language");

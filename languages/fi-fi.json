@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "fi-fi",
+  "name": "Suomi",
+  "locale": "fi-FI",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "fi",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "fi"
+  }
+}
