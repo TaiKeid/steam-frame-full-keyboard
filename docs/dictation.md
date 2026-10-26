@@ -174,7 +174,7 @@ The **Type as I speak** switch on the Dictation card skips the editor. The mic k
 - **Mic key while capturing** stops capture. The phrase being spoken is still recognized and typed.
 - In space-separated languages, every phrase after the first in a capture session starts with a space. The prompt uses the phrases typed in that session.
 - Other keys keep typing while capturing.
-- Available only in Server mode. On-device recognition takes about 5 s per phrase, too slow to type as you speak.
+- Available on device too, at about 2 s per phrase, without live words.
 
 ## Errors and overlays
 
