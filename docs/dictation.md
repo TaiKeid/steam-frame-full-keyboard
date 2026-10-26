@@ -156,7 +156,7 @@ The **Type as I speak** switch on the Dictation card skips the editor. The mic k
 
 - No character limit and no counter; the output queue paces delivery.
 - **Order:** each phrase goes into the output queue after keys already queued, cut into commits of at most 32 characters, the most the local text path takes at once. While the queue is full, a composer reading is in progress, or a failure waits for its retry, recognized phrases wait in order. More than about 1000 characters waiting pause listening, with a status; what was said still types.
-- **Delivery:** phrases are always typed, never pasted, even with Send set to Paste.
+- **Delivery:** phrases follow the **Send** setting. Typed, they go out a character at a time at the chosen pace. With **Paste**, each phrase replaces the clipboard and is pasted with Ctrl+V like Send's text, without Enter; the next phrase waits until the application has taken it. Steam's own fields keep their direct path. If the clipboard is unavailable or Ctrl+V cannot be pressed, the session types instead; if the application does not take a pasted phrase within 2 s, listening pauses, since it may still arrive.
 - **Uncertain delivery:** if a phrase fails partway, listening pauses and the status line asks for Enter. Enter retries only the characters that had not arrived, then the waiting phrases follow. A phrase the target refuses outright waits at the front, and Enter, which is then not sent, tries it again.
 - Undo last phrase is not offered, because the cursor in the target may have moved.
 - Esc while capturing, or while phrases are still to be typed, stops capture, drops what is not yet typed, and is not sent. Otherwise Esc is the normal key.
@@ -703,6 +703,7 @@ First part: the helper connected to the editor.
   - a failure after part of a phrase arrived, retrying only the rest;
   - passthrough lasting until the last phrase is typed, and hiding the panel stopping it.
 - **First headset try (r20):** nothing reached Kate. The log of the next build showed why: a 30-character phrase was typed, but the local text path refused an 85-character one outright, since Gamescope's temporary Unicode keymap holds at most 32 characters, and everything after it waited for Enter. Phrases are now cut into 32-character commits like Send's; the test target refuses longer commits the same way.
+- **Second headset try (r22):** the text arrived, but a character at a time while Send was set to Paste; the owner expected pasting. Phrases now follow the Send setting.
 - **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
 ## Open questions

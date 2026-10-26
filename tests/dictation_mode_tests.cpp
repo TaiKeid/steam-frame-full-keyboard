@@ -916,6 +916,66 @@ struct FakeClipboard : Clipboard {
     }
 };
 
+// Type as I speak with Send set to Paste: each phrase is pasted.
+void direct_paste_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                                 R"("dictation_send_paste":true,"dictation_direct":true)");
+    use_fake_helper(options, directory.path, "direct");
+    const Keys paste{{KEY_LEFTCTRL, 1}, {KEY_V, 1}, {KEY_V, 0}, {KEY_LEFTCTRL, 0}};
+    {
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.keys.size() == 4; });
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.keys.size() == 8; });
+        settle(app);
+        Keys twice = paste;
+        twice.insert(twice.end(), paste.begin(), paste.end());
+        require(clipboard.written == std::vector<std::string>{"Hello there.", " Again."} &&
+                    sink.keys == twice && sink.text.empty(),
+                "each phrase is written to the clipboard and pasted, nothing typed");
+    }
+    {
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        clipboard.available = false;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
+                "without a clipboard the phrases are typed instead");
+    }
+    {
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        clipboard.taken = false;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        for (int i = 0; i < 200 && app.view().dictation_capturing; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            app.tick(clock += .02);
+        }
+        require(!app.view().dictation_capturing &&
+                    app.view().status == "The app did not take a pasted phrase. Dictation paused.",
+                "a paste nobody takes pauses listening and says so");
+    }
+}
+
 void paste_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -1331,6 +1391,7 @@ int main() {
         live_tests();
         language_tests();
         direct_tests();
+        direct_paste_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

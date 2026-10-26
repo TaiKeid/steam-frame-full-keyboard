@@ -104,7 +104,7 @@ Dictation is being built and is not released yet; the design is in [dictation](d
 - `dictation_url`: instead of a server, a full base URL of a hosted OpenAI-compatible provider, such as `https://api.groq.com/openai/v1`.
 - `dictation_model`: the model name, for servers and providers that need one.
 - `dictation_send_gap_ms`: how many milliseconds Send waits between characters, `20` (the default), `30` or `40`. Slower keeps characters in order when the Frame is busy.
-- `dictation_send_paste`: `true` makes Send paste through the clipboard instead of typing; the keyboard writes the clipboard but never reads it.
+- `dictation_send_paste`: `true` makes Send, and Type as I speak for each phrase, paste through the clipboard instead of typing; the keyboard writes the clipboard but never reads it.
 - `dictation_direct`: `true` turns on Type as I speak: the mic key listens on the normal keyboard, and each phrase is typed into the focused application as soon as it is recognized, without the editor.
 - `dictation_recent_servers`: up to five server addresses that passed the Dictation card's Test, newest first, offered when entering the address. Unusable entries are skipped.
 

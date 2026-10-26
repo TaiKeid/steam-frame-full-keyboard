@@ -506,10 +506,11 @@ class App {
     bool direct_{};
     // Capturing, or phrases not yet typed.
     bool direct_active() const {
-        return direct_ && (capturing_ || phrases_pending() || !direct_waiting_.empty());
+        return direct_ && (capturing_ || phrases_pending() || !direct_waiting_.empty() ||
+                           direct_paste_.has_value());
     }
-    // Waiting commits, each at most 32 code points: about 1000 characters.
-    static constexpr std::size_t max_direct_waiting = 32;
+    // Characters waiting before listening pauses.
+    static constexpr long max_direct_waiting = 1000;
     // Stops capture and drops every phrase not yet typed, with a status.
     void stop_direct(std::string status);
     void direct_phrase(const std::string& text);
@@ -518,9 +519,22 @@ class App {
     void tick_direct(double now);
     // Shows a dictation message over the editor, or in direct mode on the status line.
     void dictation_message(std::string text, bool error);
-    // Recognized phrases waiting for room in the output queue, in order,
-    // cut into commits the target takes at once.
+    // Recognized phrases waiting for room in the output queue, in order. The
+    // front one may be partly typed already.
     std::deque<std::string> direct_waiting_;
+    // With Send set to Paste, each phrase is pasted like Send's text: 1
+    // taking the clipboard, 2 letting Gamescope fetch it, 3 Ctrl+V sent and
+    // waiting for the application's request, 4 a short wait before the next.
+    struct DirectPaste {
+        std::string text; // never logged
+        int stage{1};
+        std::uint64_t write{}, served{}, failures{};
+        double at{};
+    };
+    std::optional<DirectPaste> direct_paste_;
+    bool direct_type_only_{}; // the clipboard failed this session; phrases are typed
+    // Advances a paste; false while it waits.
+    void tick_direct_paste(double now);
     // The phrases of this capture session as the prompt's context, at most
     // 200 code points; never logged.
     std::string direct_context_;

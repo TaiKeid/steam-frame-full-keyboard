@@ -3386,6 +3386,7 @@ bool App::start_capture() {
         direct_request_ = native_request_;
         direct_failures_ = output_.failures();
         direct_wait_reason_.clear();
+        direct_type_only_ = false;
         status_.clear();
         // Diagnostics carry counts and fixed codes only, never text.
         std::cout << "Type as I speak started for request " << native_request_ << ".\n" << std::flush;
@@ -3437,6 +3438,7 @@ void App::end_dictation_for_update() {
     }
     cancel_capture();
     direct_waiting_.clear();
+    direct_paste_.reset();
     if (dictation_) {
         dictation_->stop();
     }
@@ -3494,6 +3496,7 @@ void App::stop_direct(std::string status) {
               << std::flush;
     cancel_capture();
     direct_waiting_.clear();
+    direct_paste_.reset();
     direct_blocked_ = false;
     direct_ = false;
     if (!status.empty()) {
@@ -3521,21 +3524,34 @@ void App::direct_phrase(const std::string& phrase) {
     direct_typed_ = true;
     direct_context_ = tail(direct_context_ + text, 200);
     std::cout << "Type as I speak: phrase of " << g_utf8_strlen(text.c_str(), -1)
-              << " characters recognized, " << direct_waiting_.size() << " commits already waiting.\n"
+              << " characters recognized, " << direct_waiting_.size() << " phrases already waiting.\n"
               << std::flush;
-    // Each commit is one queue entry; the local text path takes at most 32
-    // code points at once and refuses more.
-    for (auto& commit : text_commits(text)) {
-        direct_waiting_.push_back(std::move(commit));
-    }
+    direct_waiting_.push_back(std::move(text));
 }
 
 void App::flush_direct(double now) {
     // A composer's reading goes first, as before any key; phrases wait for
-    // its commit. Each phrase is one queue entry, after keys already queued.
-    while (!direct_waiting_.empty() && !direct_blocked_ && !composing_text() && output_.can_queue(1) &&
-           output_.admit(true, now)) {
-        if (!output_.commit_text(direct_waiting_.front())) {
+    // its commit. They follow keys already queued.
+    const bool paste =
+        settings_.dictation_send_paste && !direct_type_only_ && !output_.steam_field_target();
+    if (direct_paste_) {
+        tick_direct_paste(now);
+    } else if (paste && !direct_waiting_.empty() && !direct_blocked_ && !composing_text() &&
+               output_.enabled() && !keyboard_.active() && !output_.text_pending() &&
+               !output_.retry_available()) {
+        // Written, never read: the keyboard owns the clipboard with this text.
+        direct_paste_ = DirectPaste{std::move(direct_waiting_.front())};
+        direct_waiting_.pop_front();
+        direct_paste_->write = clipboard()->write(direct_paste_->text);
+        direct_paste_->at = now;
+    }
+    // Typing: at most 32 code points per commit, the most the local text
+    // path takes at once, so the front phrase goes out in pieces.
+    while (!paste && !direct_waiting_.empty() && !direct_blocked_ && !composing_text() &&
+           output_.can_queue(1) && output_.admit(true, now)) {
+        auto& front = direct_waiting_.front();
+        const auto commit = text_commits(front).front();
+        if (!output_.commit_text(commit)) {
             std::cout << "Type as I speak: the target refused a phrase.\n" << std::flush;
             direct_blocked_ = true;
             pause_capture();
@@ -3543,28 +3559,110 @@ void App::flush_direct(double now) {
             dirty = true;
             break;
         }
-        std::cout << "Type as I speak: commit queued for output.\n" << std::flush;
-        direct_waiting_.pop_front();
+        front.erase(0, commit.size());
+        if (front.empty()) {
+            direct_waiting_.pop_front();
+            std::cout << "Type as I speak: phrase queued for typing.\n" << std::flush;
+        }
         dirty = true;
+    }
+    long waiting = 0;
+    for (const auto& phrase : direct_waiting_) {
+        waiting += g_utf8_strlen(phrase.c_str(), -1);
     }
     const std::string reason = direct_waiting_.empty() ? ""
                                : direct_blocked_       ? "refused, waiting for Enter"
+                               : direct_paste_         ? "a paste in progress"
                                : composing_text()      ? "composer reading in progress"
                                : !output_.enabled()    ? "output disabled"
+                               : paste                 ? "keys or a retry before the paste"
                                : output_.can_queue(1)  ? "output not admitted"
                                                        : "output failed or full";
     if (reason != direct_wait_reason_) {
         direct_wait_reason_ = reason;
         if (!reason.empty()) {
-            std::cout << "Type as I speak: " << direct_waiting_.size() << " commits waiting (" << reason
+            std::cout << "Type as I speak: " << direct_waiting_.size() << " phrases waiting (" << reason
                       << ").\n"
                       << std::flush;
         }
     }
-    if (direct_waiting_.size() > max_direct_waiting && capturing_) {
-        // What was said still types; listening waits for typing to catch up.
+    if (waiting > max_direct_waiting && capturing_) {
+        // What was said still goes out; listening waits for it to catch up.
         pause_capture();
         status_ = "Typing fell behind, so dictation paused. The rest is still typed.";
+    }
+}
+
+void App::tick_direct_paste(double now) {
+    auto& p = *direct_paste_;
+    // Before Ctrl+V nothing reached the application, so the phrase is typed
+    // instead; after it, the phrase may have arrived and is not repeated.
+    auto type_instead = [&](const char* why) {
+        std::cout << "Type as I speak: " << why << "; typing the phrase instead.\n" << std::flush;
+        direct_waiting_.push_front(std::move(p.text));
+        direct_paste_.reset();
+        direct_type_only_ = true;
+    };
+    auto give_up = [&](const char* why, const char* message) {
+        std::cout << "Type as I speak: " << why << ".\n" << std::flush;
+        direct_paste_.reset();
+        pause_capture();
+        status_ = message;
+        dirty = true;
+    };
+    switch (p.stage) {
+    case 1:
+        if (const auto owned = clipboard()->result(p.write)) {
+            if (!*owned) {
+                return type_instead("the clipboard is not available");
+            }
+            p.stage = 2;
+            p.at = now;
+        } else if (now - p.at > 1) {
+            return type_instead("the clipboard did not answer");
+        }
+        return;
+    case 2: {
+        // Gamescope fetches a new clipboard at once; let that pass, so the
+        // next request is the application's paste.
+        if (now - p.at < .15) {
+            return;
+        }
+        p.served = clipboard()->served();
+        p.failures = output_.failures();
+        const int v = output_.shortcut_code(XKB_KEY_v, KEY_V);
+        if (!output_.tap({KEY_LEFTCTRL, v})) {
+            if (now - p.at > 2) {
+                type_instead("Ctrl+V could not be pressed");
+            }
+            return;
+        }
+        p.stage = 3;
+        p.at = now;
+        return;
+    }
+    case 3:
+        if (output_.failures() != p.failures) {
+            return give_up("Ctrl+V failed",
+                           "A phrase may not have been pasted. Dictation paused; check the text.");
+        }
+        if (clipboard()->served() != p.served) {
+            p.stage = 4;
+            p.at = now;
+        } else if (now - p.at > 2) {
+            return give_up("the application did not take the pasted phrase",
+                           "The app did not take a pasted phrase. Dictation paused.");
+        }
+        return;
+    default:
+        // The application has the text; a moment for it to insert it before
+        // the next paste replaces the clipboard.
+        if (now - p.at >= .1) {
+            std::cout << "Type as I speak: phrase pasted.\n" << std::flush;
+            direct_paste_.reset();
+            dirty = true;
+        }
+        return;
     }
 }
 
