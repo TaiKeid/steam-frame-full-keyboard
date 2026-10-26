@@ -4175,6 +4175,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         }
         dirty = true;
         break;
+    case Kind::Microphone:
+        // Said quietly in the status line, in both modes, never blocking.
+        std::cout << (direct_ ? "Type as I speak" : "Dictation")
+                  << ": recording the microphone without the game's voice filters.\n"
+                  << std::flush;
+        status_ = "Game sound may be picked up: Steam's voice filter cuts words.";
+        dirty = true;
+        break;
     case Kind::Test:
         // Only the Dictation card's Test asks. The line under the row label is
         // narrow, so the answer is a word or two.

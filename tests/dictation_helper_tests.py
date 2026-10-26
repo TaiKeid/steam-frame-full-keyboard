@@ -553,7 +553,7 @@ class Device(unittest.TestCase):
 class Process:
     """The real helper on a private socket, with a fake recorder streaming `audio`."""
 
-    def __init__(self, test, audio, mode="stay", key=None, ca=None, engine=None):
+    def __init__(self, test, audio, mode="stay", key=None, ca=None, engine=None, pipewire=None):
         self.directory = Path(tempfile.mkdtemp())
         test.addCleanup(shutil.rmtree, self.directory, True)
         (self.directory / "audio.raw").write_bytes(audio)
@@ -568,15 +568,45 @@ class Process:
             key_file.write_text(key)
             key_file.chmod(0o600)
         self.sock, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        args = [sys.executable, "-I", str(HELPER), "--fd", str(child.fileno()), "--key-file", str(key_file),
-                "--recorder", str(wrapper)] + (["--ca-file", ca] if ca else []) + \
+        args = [sys.executable, "-I", str(HELPER), "--fd", str(child.fileno()), "--key-file", str(key_file)] + \
+               ([] if pipewire else ["--recorder", str(wrapper)]) + (["--ca-file", ca] if ca else []) + \
                (["--engine", str(engine)] if engine else [])
         env = dict(os.environ, FK_RECORDER_PID=str(self.pid_file))
+        if pipewire:
+            env.update(self.fake_pipewire(pipewire, script, mode))
         self.process = subprocess.Popen(args, pass_fds=(child.fileno(),), stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         child.close()
         self.sock.settimeout(10)
         test.addCleanup(self.close)
+
+    def fake_pipewire(self, pipewire, script, mode):
+        """pw-dump, pw-link and pw-record on a private PATH, and a manager
+        socket stand-in. `pipewire`: the listing, whether pw-link succeeds,
+        and whether a linked recorder delivers audio."""
+        tools = self.directory / "bin"
+        tools.mkdir()
+        runtime = self.directory / "run"
+        runtime.mkdir()
+        (runtime / "pipewire-0-manager").touch()
+        (self.directory / "dump.json").write_text(json.dumps(pipewire["dump"]))
+        self.tool_log = self.directory / "tools.log"
+        log = f'printf "%s\\n" "$0 $*" >> {self.tool_log}\n'
+        scripts = {
+            "pw-dump": f"cat {self.directory / 'dump.json'}",
+            "pw-link": f"exit {0 if pipewire.get('link', True) else 1}",
+            # A linked recorder that delivers nothing stands for a lost link.
+            "pw-record": (f'case "$*" in *autoconnect*) [ {int(pipewire.get("audio", True))} = 1 ] || '
+                          f'exec sleep 30;; esac\n'
+                          f"exec {sys.executable} -I {script} {self.directory / 'audio.raw'} {mode}"),
+        }
+        for name, body in scripts.items():
+            (tools / name).write_text(f"#!/bin/sh\n{log}{body}\n")
+            (tools / name).chmod(0o755)
+        return {"PATH": f"{tools}:{os.environ['PATH']}", "XDG_RUNTIME_DIR": str(runtime)}
+
+    def tools(self):
+        return self.tool_log.read_text().splitlines() if self.tool_log.exists() else []
 
     def send(self, **message):
         self.sock.send(json.dumps(message).encode())
@@ -631,6 +661,57 @@ class Process:
 TWO_PHRASES = zeros(0.5) + speech(1.0) + zeros(1.0) + speech(1.0, seed=3) + zeros(1.0)
 
 
+def pipewire_dump(filtered=True, targets=1):
+    """A pw-dump listing shaped like the Frame's: the microphone, SteamOS's
+    noise-suppression filter aimed at it, the default loopback, and a speaker
+    filter that must not count."""
+    def node(ident, **props):
+        return {"id": ident, "type": "PipeWire:Interface:Node", "info": {"props": props}}
+
+    def port(ident, node_id, name, direction="out", **props):
+        return {"id": ident, "type": "PipeWire:Interface:Port",
+                "info": {"props": {"node.id": node_id, "port.name": name, "port.direction": direction, **props}}}
+    rule = '{ media.class = Audio/Source, alsa.card_name = "SM8250 LPASS", device.profile.description = "Mic" }'
+    dump = [
+        node(73, **{"node.name": "alsa_input.mic", "media.class": "Audio/Source",
+                    "alsa.card_name": "SM8250 LPASS", "device.profile.description": "Mic"}),
+        port(200, 73, "capture_FR"), port(201, 73, "capture_FL"), port(202, 73, "monitor_FL", **{"port.monitor": True}),
+        node(65, **{"node.name": "ns_capture", "node.link-group": "ns", "node.passive": True}),
+        node(66, **{"node.name": "ns_source", "node.link-group": "ns", "media.class": "Audio/Source",
+                    "filter.smart": True, "filter.smart.disabled": not filtered, "filter.smart.target": rule}),
+        node(70, **{"node.name": "alsa_loopback_device.mic", "node.link-group": "loopback",
+                    "media.class": "Audio/Source"}),
+        node(63, **{"node.name": "echo_cancel_sink", "node.link-group": "ec", "media.class": "Audio/Sink",
+                    "filter.smart": True, "filter.smart.target": "{ media.class = Audio/Sink }"}),
+        {"id": 300, "type": "PipeWire:Interface:Link",
+         "info": {"output-node-id": 73, "input-node-id": 65 if filtered else 70}},
+    ]
+    if targets == 2:
+        dump.append(node(74, **{"node.name": "alsa_input.mic2", "media.class": "Audio/Source",
+                                "alsa.card_name": "SM8250 LPASS", "device.profile.description": "Mic"}))
+    return dump
+
+
+class Microphone(unittest.TestCase):
+    def test_filter_targets_are_parsed(self):
+        self.assertEqual(d.spa_rules('{ media.class = Audio/Source, alsa.card_name = "SM8250 LPASS" }'),
+                         {"media.class": "Audio/Source", "alsa.card_name": "SM8250 LPASS"})
+        for text in (None, "", "{ }", "media.class = Audio/Source", 7):
+            self.assertIsNone(d.spa_rules(text))
+
+    def test_the_microphone_behind_the_filters_is_found(self):
+        self.assertEqual(d.filtered_microphone(pipewire_dump()),
+                         ("alsa_input.mic", ["capture_FL", "capture_FR"], True))
+        self.assertEqual(d.filtered_microphone(pipewire_dump(filtered=False))[2], False)
+
+    def test_nothing_is_bypassed_without_one_clear_target(self):
+        self.assertIsNone(d.filtered_microphone(pipewire_dump(targets=2)))
+        self.assertIsNone(d.filtered_microphone([o for o in pipewire_dump() if o["id"] != 66]))
+        self.assertIsNone(d.filtered_microphone([o for o in pipewire_dump() if o["id"] not in (200, 201)]))
+        for listing in ([], {}, None, [1, "x", {"type": "PipeWire:Interface:Node"}]):
+            self.assertIsNone(d.filtered_microphone(listing))
+
+
 class Helper(unittest.TestCase):
     def setUp(self):
         self.server = FakeServer()
@@ -668,6 +749,60 @@ class Helper(unittest.TestCase):
         self.assertFalse(helper.recorder_alive())
         helper.send(op="prompt", id=ready["id"], text="")
         self.assertEqual(helper.receive("text")["text"], "hello")
+
+    def test_capture_links_to_the_microphone_in_front_of_the_filters(self):
+        helper = self.start(pipewire={"dump": pipewire_dump()})
+        helper.send(op="capture", on=True)
+        self.assertEqual(helper.receive("microphone"), {"op": "microphone", "unfiltered": True})
+        ready = helper.receive("ready")
+        helper.send(op="prompt", id=ready["id"], text="")
+        self.assertEqual(helper.receive("text")["text"], "hello")
+        record = [line for line in helper.tools() if line.split()[0].endswith("pw-record")]
+        links = [line.split()[1:] for line in helper.tools() if line.split()[0].endswith("pw-link")]
+        self.assertEqual(len(record), 1)
+        self.assertIn("node.autoconnect = false", record[0])
+        self.assertNotIn("--media-role", record[0])
+        node = f"framekeyboard-dictation-{helper.process.pid}:input_MONO"
+        self.assertEqual(links, [["alsa_input.mic:capture_FL", node], ["alsa_input.mic:capture_FR", node]])
+
+    def test_without_a_game_there_is_no_notice(self):
+        helper = self.start(pipewire={"dump": pipewire_dump(filtered=False)})
+        helper.send(op="capture", on=True)
+        helper.receive("ready")
+        self.assertNotIn("microphone", [m["op"] for m in Process.seen])
+        self.assertIn("node.autoconnect = false", " ".join(helper.tools()))
+
+    def test_a_game_started_during_capture_is_noticed_at_the_next_phrase(self):
+        helper = self.start(pipewire={"dump": pipewire_dump(filtered=False)}, mode="loop")
+        helper.send(op="capture", on=True)
+        helper.receive("phrase")
+        (helper.directory / "dump.json").write_text(json.dumps(pipewire_dump()))
+        self.assertEqual(helper.receive("microphone"), {"op": "microphone", "unfiltered": True})
+        helper.send(op="capture", on=False)
+        helper.receive("paused")
+        self.assertEqual([m["op"] for m in Process.seen].count("microphone"), 0)
+
+    def test_a_refused_link_records_the_default_source(self):
+        helper = self.start(pipewire={"dump": pipewire_dump(), "link": False})
+        helper.send(op="capture", on=True)
+        ready = helper.receive("ready")
+        helper.send(op="prompt", id=ready["id"], text="")
+        self.assertEqual(helper.receive("text")["text"], "hello")
+        record = [line for line in helper.tools() if line.split()[0].endswith("pw-record")]
+        self.assertEqual(len(record), 2)
+        self.assertIn("--media-role Communication", record[1])
+        self.assertNotIn("microphone", [m["op"] for m in Process.seen])
+
+    def test_a_silent_link_is_replaced_by_the_default_source(self):
+        helper = self.start(pipewire={"dump": pipewire_dump(), "audio": False})
+        helper.send(op="capture", on=True)
+        helper.receive("microphone")
+        ready = helper.receive("ready")
+        helper.send(op="prompt", id=ready["id"], text="")
+        self.assertEqual(helper.receive("text")["text"], "hello")
+        record = [line for line in helper.tools() if line.split()[0].endswith("pw-record")]
+        self.assertEqual(len(record), 2)
+        self.assertIn("--media-role Communication", record[1])
 
     def test_live_words_recognize_the_phrase_as_it_grows(self):
         helper = Process(self, speech(1.0), mode="loop")

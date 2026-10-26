@@ -337,6 +337,8 @@ void Dictation::tick(double now) {
             }
         } else if (op == "paused") {
             event.kind = Event::Kind::Paused;
+        } else if (op == "microphone") {
+            event.kind = Event::Kind::Microphone;
         } else if (op == "capture") {
             event.kind = Event::Kind::Stopped;
             event.reason = reason_of(message.get());

@@ -20,6 +20,8 @@ class Dictation {
         // Partial: the words so far of the phrase being spoken, with live words on.
         // Download: a model download's state in `text` (progress, quantizing,
         // ready or failed), its bytes and, on failure, the reason.
+        // Microphone: capture bypasses SteamOS's voice filters, which a
+        // running game turned on, so game sound may be picked up.
         enum class Kind {
             Level,
             Phrase,
@@ -31,7 +33,8 @@ class Dictation {
             Paused,
             Error,
             Test,
-            Download
+            Download,
+            Microphone
         };
         Kind kind{};
         std::uint64_t id{};

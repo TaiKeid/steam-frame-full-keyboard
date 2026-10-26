@@ -373,6 +373,7 @@ Helper to keyboard:
 | `{"op":"capture","on":false,"reason":R}` | Capture stopped by itself: `silence` after 60 s without speech, or an error code. |
 | `{"op":"error","reason":R}` | A fixed error code. Capture stops and pending phrases are dropped. |
 | `{"op":"paused"}` | The answer to `capture` off. Every phrase spoken before the pause has been announced, so Send can wait for exactly those. |
+| `{"op":"microphone","unfiltered":true}` | Capture records the microphone in front of SteamOS's voice filters while they are on, which happens while a game runs, so game sound may be picked up. Sent at most once per capture; the keyboard says so in the status line. |
 | `{"op":"cancelled"}` | The answer to `cancel`. The keyboard ignores every capture packet sent before it, such as a phrase that started just before the cancel arrived. |
 | `{"op":"test","ok":true}` / `{"op":"test","ok":false,"reason":R}` | The Test result. |
 
@@ -559,7 +560,7 @@ Ping was about 8 ms. The network adds 30–50 ms to recognition, mostly for the 
 - **Source:**
   - The default source is a loopback, `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`, in front of the ALSA microphone.
   - `pw-record --raw --rate 16000 --channels 1 --format s16` links to its two channels and delivers raw samples, about 32 KB a second.
-  - The ALSA source itself and Steam's echo-cancel and noise-suppression sources gave no data to a second client, so the helper records the default source.
+  - The ALSA source itself and Steam's echo-cancel and noise-suppression sources gave no data to a second client, so the helper records the default source. The [game test](#game-test-2026-10-26) found why, and the helper now links to the microphone itself.
 - **Only while worn:** the Frame runs its microphone only while the headset is worn. Off the head, the microphone node stays suspended, and the loopback delivers exact zeros at the normal rate, not an error.
 - **Noise gate:** the default source has a noise gate.
   - About 1 s after the input drops below its threshold, it outputs exact zeros.
@@ -778,8 +779,27 @@ The owner tried r32 against the [M6 test list](#m6-results-2026-10-27):
 - **Editor composers:** romaji with Convert, the candidate band, Enter and Esc, and flick with Send in Tab's place worked; Pinyin was not tried.
 - **Fallback:** phrases failed with "cannot be reached" instead of falling back. The saved configuration had the fallback off, and the helper's fallback worked on the Frame against an unreachable address, but took 22 s: the owner's firewall drops connections to closed ports, and the helper waited out two 10 s connection attempts. Connecting now gives up after 3 s. To be retried with the switch on.
 - **Language during recognition:** the language button could be pressed while a phrase was still being recognized; it now waits until every phrase is recognized and typed.
-- **With a game running:** words were skipped, on device and with the self-hosted server alike, and the fans ramped up. Since the server gave the same result, the audio reaching Whisper was already worse: game sound in the microphone, the helper missing audio under load, or PipeWire's audio filter, which restarts as games start and stop. Not yet measured.
+- **With a game running:** words were skipped, on device and with the self-hosted server alike, and the fans ramped up. Since the server gave the same result, the audio reaching Whisper was already worse. Measured and fixed in the [game test](#game-test-2026-10-26).
 - **Update while dictating:** for later.
+
+## Game test (2026-10-26)
+
+The owner dictated with a game running locally and speech played from a phone, on device (4-bit) and then self-hosted. Both missed words.
+
+- **Not load:** PipeWire reported no errors on the microphone, filter or recorder nodes during any capture. While capturing, 55% of the 8 cores were busy, `pw-record` used about 1% and the helper almost nothing. On-device recognition raised that to 92%, with the engine at about three cores and the game's share dropping from about 160% to 145%.
+- **The voice filters:** when a game starts, SteamOS turns on WirePlumber "smart" filters on the microphone: Valve's mic EQ, WebRTC echo cancellation with automatic gain, and noise suppression, in front of the default source. Without a game they are off and the microphone feeds the default source directly. The owner hears a quiet click as they switch.
+- **Every recording goes through them:** WirePlumber redirects a stream aimed at the microphone, or at any filter stage, to the filter chain. On PipeWire's default socket a client may not create links. The session manager's socket, `pipewire-0-manager`, allows it.
+- **Four stages of the same 20 s** (game running, transcribed by the self-hosted server with dictation's settings):
+
+| Stage | Result |
+| --- | --- |
+| Microphone | Nearly word for word. |
+| After the EQ | The same. |
+| After echo cancellation | A few phrases lost. |
+| After noise suppression (the default source) | 5.5 s of the 20 s muted to exact zeros; sentences mangled. |
+
+- **Fix:** while capturing, the helper looks for the one microphone that smart source filters target (`pw-dump`), starts `pw-record` without automatic linking, and links the microphone's channels to it through the manager socket. Without that socket, a single clear target or a working link within 1 s, it records the default source as before. A linked recorder that delivers nothing for 1 s, such as after a lost link, is replaced by the default source for the rest of that capture. Without a game this records the same audio as before.
+- **Game sound:** the microphone then hears the game too, quietly. While the filters are linked, at capture start or at a later phrase start, the status line says game sound may be picked up. With game sound under the speech, the phrase detector found pauses less often, so phrases can run longer.
 
 ## Open questions
 

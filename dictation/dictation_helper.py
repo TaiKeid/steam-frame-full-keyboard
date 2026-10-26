@@ -89,8 +89,18 @@ DOWNLOAD_TIMEOUT = 30.0
 DOWNLOAD_CHUNK = 1 << 20
 QUANTIZE_TIMEOUT = 600.0
 UPLOAD_NAME = "phrase.wav"
-RECORDER = ["pw-record", "--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16",
-            "--media-role", "Communication", "-"]
+AUDIO_FORMAT = ["--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16"]
+RECORDER = ["pw-record", *AUDIO_FORMAT, "--media-role", "Communication", "-"]
+# While a game runs, SteamOS puts WirePlumber "smart" filters (echo
+# cancellation, noise suppression) between the microphone and every recording,
+# and they cut words (docs/dictation.md, Game test). The recorder then links
+# itself to the microphone instead. The default socket may not create links,
+# so it uses the session manager's socket; without one, it records the default
+# source as before.
+MANAGER_REMOTE = "pipewire-0-manager"
+DIRECT_NODE = "framekeyboard-dictation"
+LINK_WAIT = 1.0  # for the recorder's input port to appear
+STALL_TIMEOUT = 1.0  # a linked recorder that delivers nothing is replaced
 
 
 class Failure(Exception):
@@ -103,6 +113,59 @@ def harden():
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     with contextlib.suppress(OSError, AttributeError):
         ctypes.CDLL(None, use_errno=True).prctl(4, 0, 0, 0, 0)  # PR_SET_DUMPABLE
+
+
+def spa_rules(text):
+    """`{ key = value, key = "value" }`, as in filter.smart.target, or None."""
+    if not isinstance(text, str) or not text.strip().startswith("{") or not text.strip().endswith("}"):
+        return None
+    rules = {}
+    for match in re.finditer(r'([\w.-]+)\s*[=:]\s*("(?:[^"\\]|\\.)*"|[^\s,}]+)', text.strip()[1:-1]):
+        value = match.group(2)
+        rules[match.group(1)] = value[1:-1] if value.startswith('"') else value
+    return rules or None
+
+
+def filtered_microphone(dump):
+    """In a pw-dump listing, the one device that smart source filters capture
+    from: (node name, output ports, whether a filter is linked to it now).
+    None when no source filter targets exactly one device."""
+    objects = [o for o in dump if isinstance(o, dict)] if isinstance(dump, list) else []
+
+    def props(o):
+        info = o.get("info")
+        values = info.get("props") if isinstance(info, dict) else None
+        return values if isinstance(values, dict) else {}
+    nodes = [o for o in objects if o.get("type") == "PipeWire:Interface:Node"]
+    groups, targets = set(), set()
+    for node in nodes:
+        p = props(node)
+        if p.get("media.class") != "Audio/Source" or p.get("filter.smart") not in (True, "true"):
+            continue
+        rules = spa_rules(p.get("filter.smart.target"))
+        if rules is None or "node.link-group" not in p:
+            continue
+        matches = [n for n in nodes if "node.link-group" not in props(n) and
+                   all(str(props(n).get(key)) == value for key, value in rules.items())]
+        if len(matches) != 1:
+            return None
+        groups.add(p["node.link-group"])
+        targets.add(matches[0].get("id"))
+    if len(targets) != 1:
+        return None
+    target = targets.pop()
+    name = next(props(n).get("node.name") for n in nodes if n.get("id") == target)
+    ports = sorted(props(o).get("port.name") for o in objects if o.get("type") == "PipeWire:Interface:Port" and
+                   props(o).get("node.id") == target and props(o).get("port.direction") == "out" and
+                   props(o).get("port.monitor") not in (True, "true") and isinstance(props(o).get("port.name"), str))
+    if not isinstance(name, str) or not ports:
+        return None
+    # The filters' own capture streams share their source's link group.
+    by_id = {n.get("id"): props(n).get("node.link-group") for n in nodes}
+    filtered = any(o.get("type") == "PipeWire:Interface:Link" and isinstance(o.get("info"), dict) and
+                   o["info"].get("output-node-id") == target and
+                   by_id.get(o["info"].get("input-node-id")) in groups for o in objects)
+    return name, ports, filtered
 
 
 def level_db(frame):
@@ -723,6 +786,9 @@ class Helper:
         self.key = None
         self.capturing = False
         self.recorder = None
+        self.direct = False  # the recorder is linked to the microphone itself
+        self.notified = False  # the keyboard heard that game sound may come through
+        self.last_audio = 0.0
         self.pending_audio = b""
         self.detector = PhraseDetector()
         self.next_id = 1
@@ -815,18 +881,82 @@ class Helper:
             # Every phrase spoken before the pause has now been announced.
             self.send("paused")
 
-    def start_recorder(self):
-        try:
-            self.recorder = subprocess.Popen(self.recorder_command, stdin=subprocess.DEVNULL,
-                                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                             close_fds=True)
-        except OSError:
-            raise Failure("no-microphone")
+    def start_recorder(self, direct=True):
+        # Tests pass their own recorder, which is used as given.
+        recorder = self.start_direct() if direct and self.recorder_command is RECORDER else None
+        self.direct = recorder is not None
+        if recorder is None:
+            try:
+                recorder = subprocess.Popen(self.recorder_command, stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                            close_fds=True)
+            except OSError:
+                raise Failure("no-microphone")
+        self.recorder = recorder
         os.set_blocking(self.recorder.stdout.fileno(), False)
         self.pending_audio = b""
+        self.last_audio = time.monotonic()
+
+    def start_direct(self):
+        """A recorder linked to the microphone in front of the smart filters, or None."""
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+        if not runtime or not os.path.exists(os.path.join(runtime, MANAGER_REMOTE)):
+            return None
+        microphone = self.microphone()
+        if microphone is None:
+            return None
+        quiet = dict(stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     env=dict(os.environ, PIPEWIRE_REMOTE=MANAGER_REMOTE))
+        name, ports, filtered = microphone
+        node = f"{DIRECT_NODE}-{os.getpid()}"
+        try:
+            recorder = subprocess.Popen(["pw-record", *AUDIO_FORMAT, "-P",
+                                         f"{{ node.autoconnect = false, node.name = {node} }}", "-"],
+                                        stdout=subprocess.PIPE, close_fds=True, **quiet)
+        except OSError:
+            return None
+        # Every channel goes to the one mono input, as SteamOS's own filter
+        # mixes them. The links end with the recorder's port.
+        pending = list(ports)
+        deadline = time.monotonic() + LINK_WAIT
+        while pending and time.monotonic() < deadline and recorder.poll() is None:
+            try:
+                linked = subprocess.run(["pw-link", f"{name}:{pending[0]}", f"{node}:input_MONO"],
+                                        stdout=subprocess.DEVNULL, timeout=1, **quiet).returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                linked = False
+            if linked:
+                pending.pop(0)
+            else:
+                time.sleep(0.05)
+        if pending:
+            self.recorder = recorder
+            self.stop_recorder()
+            return None
+        self.notified = False
+        self.notify(filtered)
+        return recorder
+
+    def microphone(self):
+        """filtered_microphone() for the graph as it is now, or None."""
+        try:
+            listing = subprocess.run(["pw-dump"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL, timeout=2, check=True,
+                                     env=dict(os.environ, PIPEWIRE_REMOTE=MANAGER_REMOTE))
+            return filtered_microphone(json.loads(listing.stdout))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+
+    def notify(self, filtered):
+        # The filters are linked only while a game runs; then its sound
+        # reaches dictation unfiltered. Said once per capture.
+        if filtered and not self.notified:
+            self.notified = True
+            self.send("microphone", unfiltered=True)
 
     def stop_recorder(self):
         recorder, self.recorder = self.recorder, None
+        self.direct = False
         if recorder is None:
             return
         with contextlib.suppress(OSError):
@@ -845,7 +975,9 @@ class Helper:
             data = os.read(self.recorder.stdout.fileno(), FRAME_BYTES * 50)
         except BlockingIOError:
             return
-        if not data:
+        if data:
+            self.last_audio = time.monotonic()
+        else:
             self.stop_recorder()
             self.capturing = False
             self.drop_all()
@@ -865,6 +997,10 @@ class Helper:
         if kind == "level":
             self.send_level(event[1])
         elif kind == "start":
+            if self.direct and not self.notified:
+                # A game may have started since capture did.
+                microphone = self.microphone()
+                self.notify(microphone is not None and microphone[2])
             self.current = self.next_id
             self.next_id += 1
             self.live_prompt, self.live_asked, self.live_frames = None, False, 0
@@ -1078,6 +1214,15 @@ class Helper:
                     try:
                         self.read_audio()
                     except Failure as failure:
+                        self.fail(str(failure))
+                if self.capturing and self.direct and time.monotonic() - self.last_audio > STALL_TIMEOUT:
+                    # The link was lost, for example as the filters were
+                    # rearranged; the default source still works.
+                    self.stop_recorder()
+                    try:
+                        self.start_recorder(direct=False)
+                    except Failure as failure:
+                        self.capturing = False
                         self.fail(str(failure))
                 self.check_timeout()
                 if not (self.capturing or self.queue or self.inflight):

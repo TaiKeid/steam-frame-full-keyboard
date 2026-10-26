@@ -296,6 +296,8 @@ while True:
         if scenario == "fail":
             send(op="error", reason="unreachable")
             continue
+        if scenario == "game":
+            send(op="microphone", unfiltered=True)
         phrase += 1
         send(op="level", value=200)
         send(op="phrase", id=phrase)
@@ -1469,6 +1471,26 @@ void fallback_tests() {
             "a phrase from the fallback shows the headset by the counter");
 }
 
+// A game turned SteamOS's voice filters on and the helper records around
+// them: the status line says game sound may come through, without blocking.
+void microphone_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "game");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    Sink sink;
+    App app(options, sink);
+    open_editor(app);
+    wait_until(app, [&] { return !editor_text(app).empty(); });
+    require(app.view().status == "Game sound may be picked up: Steam's voice filter cuts words." &&
+                !app.view().dictation->notice_error,
+            "the bypassed filters are mentioned quietly in the status line");
+}
+
 void card_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -1685,6 +1707,7 @@ int main() {
         direct_paste_tests();
         device_tests();
         fallback_tests();
+        microphone_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {
