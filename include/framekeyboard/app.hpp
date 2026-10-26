@@ -610,6 +610,10 @@ class App {
     // A game is running and this capture hears its sound: the status line
     // says so while capturing. The helper reports it once per capture.
     bool game_sound_{};
+    // How long Send waits for one phrase to be recognized, and the restart of
+    // that wait when a phrase comes back.
+    double recognition_limit() const;
+    void send_progress(double now);
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps
     // so the bars redraw only on visible changes, and not at all in silence.
     std::vector<int> mic_levels_; // Six, as PanelView::dictation_levels.

@@ -1555,6 +1555,33 @@ void direct_esc_tests() {
     }
 }
 
+// Send waits for a slow phrase as long as recognition may take: on the
+// device 30 s, which a game can make necessary, not a fixed 20 s.
+void send_wait_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    fs::create_directories(directory.path / "models");
+    std::ofstream(directory.path / "models/ggml-small-q8_0.bin") << "model";
+    write_config(directory.path, R"(,"dictation":"device")");
+    use_fake_helper(options, directory.path, "noanswer");
+    Sink sink;
+    App app(options, sink);
+    press(app, "Dictation");
+    press(app, "Dictation-send");
+    wait_until(app, [&] { return app.view().dictation->notice == "Waiting for recognition…"; });
+    app.tick(clock += 25);
+    require(app.view().dictation->notice != "Recognition took too long. Send again when the text is in.",
+            "after 25 s on the device Send still waits");
+    app.tick(clock += 11);
+    require(app.view().dictation->notice == "Recognition took too long. Send again when the text is in.",
+            "past the device's limit it gives up and says so");
+}
+
 // Send pressed while listening waits for the last phrase, then starts in
 // the tick that phrase arrives, while it is still appearing word by word.
 // Sending erases delivered text, so the reveal must end first.
@@ -1830,6 +1857,7 @@ int main() {
         microphone_tests();
         send_during_reveal_tests();
         direct_esc_tests();
+        send_wait_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

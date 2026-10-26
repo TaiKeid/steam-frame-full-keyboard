@@ -137,7 +137,7 @@ Esc in dictation mode is local and never reaches the application.
     - Text the target acknowledged leaves the editor.
     - A commit that timed out may have arrived anyway, so the editor underlines the text that may have arrived in amber: the one character that timed out when text went one character at a time, or the whole commit otherwise. Editing the marked text removes the mark.
     - The final Enter is tracked on its own, so a retry never sends the message twice. If only the Enter fails, the editor is empty and Send presses just Enter.
-- **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be cancelled with Esc and ends after the request timeout.
+- **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be cancelled with Esc and ends when one phrase takes longer than recognition may (35 s on the device, 15 s with a server, 45 s with the fallback); each phrase recognized restarts it.
 - **Target:** Send types into whatever has keyboard focus at that moment. Switching windows mid-dictation is the user's choice.
 
 ### Dashboard, passthrough and focus
@@ -661,7 +661,7 @@ First part: the helper connected to the editor.
 - **Phrases:** App answers each `ready` with the 200 code points before the cursor and inserts the text at the cursor with the joining rules. A phrase waiting over a second for its text shows "Waiting for recognition…" in a band over the editor's foot. At 900 characters listening pauses.
 - **Esc:** listening, it stops and drops the phrases not yet inserted; with an empty editor it leaves; with text it asks "Discard text?" with Discard and Keep, and Esc again discards. Other keys wait while it asks.
 - **X:** discards everything without asking.
-- **Send while listening:** listening pauses, Send waits for the pending phrases, then sends; Esc ends the wait, and after 20 s it gives up with a notice.
+- **Send while listening:** listening pauses, Send waits for the pending phrases, then sends; Esc ends the wait, and it gives up with a notice when a phrase takes longer than recognition may (20 s at first; since 2026-10-26 the request limits and a margin).
 - **Errors:** a helper error stops listening and shows its reason in amber in the band; the text already inserted stays.
 - **Cancel:** the helper now answers `cancel` with `cancelled`, and the client discards everything sent before it, so a phrase that started just before a cancel cannot linger as pending.
 - **Hiding:** until the dashboard rules exist, hiding the keyboard pauses listening; phrases already spoken are still recognized.

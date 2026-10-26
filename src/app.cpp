@@ -4102,6 +4102,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         if (!pending_phrases_.erase(event.id)) {
             break; // cancelled meanwhile
         }
+        send_progress(now);
         if (event.device != device_fallback_) {
             // The fallback recognized it on the Frame; said quietly, never blocking.
             device_fallback_ = event.device;
@@ -4137,6 +4138,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     }
     case Kind::Dropped:
         pending_phrases_.erase(event.id);
+        send_progress(now);
         if (direct_) {
             std::cout << "Type as I speak: the helper dropped a phrase (" << event.reason << ").\n"
                       << std::flush;
@@ -4230,6 +4232,24 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         update_settings_ui();
         dirty = true;
         break;
+    }
+}
+
+double App::recognition_limit() const {
+    // The helper's own limits for one phrase (docs/dictation.md, M6): 30 s
+    // on the device, 10 s for a server and, with the fallback, the device's
+    // after it; and a margin. The helper reports a phrase that runs over.
+    const double device = 30, server = 10, margin = 5;
+    if (settings_.dictation == "device") {
+        return device + margin;
+    }
+    return server + (settings_.dictation_fallback ? device : 0) + margin;
+}
+
+void App::send_progress(double now) {
+    // Send waits for every phrase; each one recognized restarts the limit.
+    if (send_wait_since_ && *send_wait_since_ >= 0) {
+        send_wait_since_ = now;
     }
 }
 
@@ -4402,7 +4422,7 @@ bool App::tick_dictation(double now) {
         if (!phrases_pending()) {
             send_wait_since_.reset();
             start_send();
-        } else if (now - *send_wait_since_ > 20) {
+        } else if (now - *send_wait_since_ > recognition_limit()) {
             send_wait_since_.reset();
             notice_ = "Recognition took too long. Send again when the text is in.";
             notice_error_ = true;
