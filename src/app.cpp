@@ -194,6 +194,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
@@ -328,7 +329,7 @@ std::vector<Control> App::controls() const {
     add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
     // Opening Settings pauses dictation; it waits only while Send runs. The
     // language button waits while dictation listens.
-    const bool listening = dictation_open_ && (capturing_ || send_wait_since_);
+    const bool listening = capturing_ || send_wait_since_;
     result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
     add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
     add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
@@ -573,7 +574,11 @@ void App::update_settings_ui() {
           "Dictation",
           {field(ControlKind::ChooseDictation, dropdown("dictation", "Dictation", pending_dictation_,
                                                         {{"off", "Off"}, {"server", "Your server"}})),
-           server, test, send_gap}},
+           server, test, send_gap,
+           field(ControlKind::DictationDirect,
+                 checkbox("dictation-direct", "Type as I speak",
+                          pending_dictation_direct_ && pending_dictation_ != "off",
+                          pending_dictation_ != "off", "Skips the editor"))}},
          {"experimental",
           "Experimental",
           {field(ControlKind::ReplaceNativeKeyboard,
@@ -954,6 +959,25 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (dictation_open_) {
             return dictation_down(pointer, *key, x, y, now);
         }
+        if (direct_active() && key->action_kind == ActionKind::Key && key->action == "Escape") {
+            // Esc stops Type as I speak, dropping what is not yet typed, and
+            // is not sent.
+            if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
+                return false;
+            }
+            stop_direct("Dictation stopped.");
+            return true;
+        }
+        if (direct_blocked_ && key->action_kind == ActionKind::Key && key->action == "Enter") {
+            // Tries the refused phrase again; this Enter is not sent.
+            if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
+                return false;
+            }
+            direct_blocked_ = false;
+            status_.clear();
+            flush_direct(now);
+            return true;
+        }
         if (key->action_kind == ActionKind::Dictation) {
             // The mic key opens dictation mode on release, like a toolbar button.
             if (dictation_key_pointer_ || keyboard_.pointer_pressed(pointer) ||
@@ -1292,6 +1316,7 @@ bool App::tick(double now) {
             refresh_dictation_layout();
         }
     }
+    tick_direct(now);
     if (editor_repeat_ && now >= editor_repeat_->next) {
         if (!dictation_open_ || !keyboard_.pointer_pressed(editor_repeat_->pointer)) {
             editor_repeat_.reset();
@@ -1372,6 +1397,7 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
     update_settings_ui();
@@ -1548,6 +1574,7 @@ void App::reload() {
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
         settings_.dictation_send_paste = updated_settings.dictation_send_paste;
+        settings_.dictation_direct = updated_settings.dictation_direct;
         settings_.dictation = updated_settings.dictation;
         settings_.dictation_server = updated_settings.dictation_server;
         settings_writer_.reconcile(settings_);
@@ -1565,6 +1592,7 @@ void App::reload() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
     swipe_prepared_.clear(); // Reread an edited word list.
@@ -2091,6 +2119,7 @@ void App::action(const ControlAction& command) {
         settings_.emoji_close_on_select = pending_emoji_close_on_select_;
         settings_.dictation_send_gap = pending_dictation_send_gap_;
         settings_.dictation_send_paste = pending_dictation_send_paste_;
+        settings_.dictation_direct = pending_dictation_direct_;
         settings_.dictation = pending_dictation_;
         settings_.dictation_server = pending_dictation_server_;
         prepare_swipe();
@@ -2186,6 +2215,9 @@ void App::action(const ControlAction& command) {
             pending_dictation_send_gap_ = std::stoi(command.value);
         }
         settings_ui_.close_popup();
+        update_settings_ui();
+    } else if (kind == ControlKind::DictationDirect) {
+        pending_dictation_direct_ = !pending_dictation_direct_;
         update_settings_ui();
     } else if (kind == ControlKind::EmojiCloseOnSelect) {
         pending_emoji_close_on_select_ = !pending_emoji_close_on_select_;
@@ -2718,11 +2750,18 @@ void App::set_field_needed(bool needed) {
     }
 }
 void App::panel_hidden() {
+    if (direct_active()) {
+        // Type as I speak has no field to type into any more.
+        stop_direct({});
+        return;
+    }
     // Phrases already spoken are still recognized and inserted.
     pause_capture();
 }
 bool App::dashboard_visibility(bool visible) {
-    if (visible || !dictation_open_ || !capturing_ || !interaction_active_ || passthrough()) {
+    // Listening in the editor, or Type as I speak until its phrases are typed.
+    const bool keep = dictation_open_ ? capturing_ : direct_active();
+    if (visible || !keep || !interaction_active_ || passthrough()) {
         return false;
     }
     // The VR loop switches to the passthrough pointer and releases presses.
@@ -3275,7 +3314,15 @@ void App::dictation_key_up(const Key& key) {
     if (key.action == "mic") {
         // Start, pause, resume, pause; from the normal keyboard it opens the
         // mode and starts at once.
-        if (!dictation_open_) {
+        if (direct_dictation()) {
+            // Type as I speak: the normal keyboard stays; phrases type as
+            // they are recognized.
+            if (capturing_) {
+                pause_capture();
+            } else if (dictation_available()) {
+                start_capture();
+            }
+        } else if (!dictation_open_) {
             open_dictation();
             if (dictation_open_) {
                 start_capture();
@@ -3306,7 +3353,7 @@ bool App::start_capture() {
     if (capturing_ || sending_ || send_wait_since_) {
         return false;
     }
-    if (!editor_.can_dictate()) {
+    if (dictation_open_ && !editor_.can_dictate()) {
         notice_ = "The editor is full. Send or shorten the text to dictate more.";
         notice_error_ = true;
         dirty = true;
@@ -3325,12 +3372,20 @@ bool App::start_capture() {
     target.model = settings_.dictation_model;
     target.language = language.dictation_language;
     if (!dictation_->configure(target) || !dictation_->capture(true)) {
-        notice_ = "Dictation could not start.";
-        notice_error_ = true;
-        dirty = true;
+        dictation_message("Dictation could not start.", true);
         return false;
     }
     capturing_ = true;
+    if (!dictation_open_) {
+        // A new Type as I speak session: its own context and spacing, and
+        // the field it types into.
+        direct_ = true;
+        direct_context_.clear();
+        direct_typed_ = false;
+        direct_request_ = native_request_;
+        direct_failures_ = output_.failures();
+        status_.clear();
+    }
     mic_levels_.assign(6, 0);
     mic_incoming_.clear();
     notice_.clear();
@@ -3377,6 +3432,7 @@ void App::end_dictation_for_update() {
         discard_dictation();
     }
     cancel_capture();
+    direct_waiting_.clear();
     if (dictation_) {
         dictation_->stop();
     }
@@ -3391,6 +3447,116 @@ void App::discard_dictation() {
     editor_scroll_ = 0;
     status_.clear();
     close_dictation();
+}
+
+namespace {
+// The last `limit` code points of valid UTF-8 text.
+std::string tail(const std::string& text, std::size_t limit) {
+    const auto count = static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1));
+    if (count <= limit) {
+        return text;
+    }
+    return g_utf8_offset_to_pointer(text.c_str(), static_cast<glong>(count - limit));
+}
+} // namespace
+
+void App::dictation_message(std::string text, bool error) {
+    if (dictation_open_) {
+        notice_ = std::move(text);
+        notice_error_ = error;
+    } else {
+        status_ = std::move(text);
+    }
+    dirty = true;
+}
+
+void App::set_native_request(std::uint64_t request) {
+    if (request == native_request_) {
+        return;
+    }
+    native_request_ = request;
+    if (direct_active() && request != direct_request_) {
+        // Text still queued was meant for the old field.
+        output_.cancel();
+        stop_direct("Dictation stopped: the text field changed.");
+    }
+}
+
+void App::stop_direct(std::string status) {
+    cancel_capture();
+    direct_waiting_.clear();
+    direct_blocked_ = false;
+    direct_ = false;
+    if (!status.empty()) {
+        status_ = std::move(status);
+    }
+    dirty = true;
+}
+
+void App::direct_phrase(const std::string& phrase) {
+    if (!g_utf8_validate(phrase.c_str(), static_cast<gssize>(phrase.size()), nullptr)) {
+        return;
+    }
+    gchar* stripped = g_strstrip(g_strdup(phrase.c_str()));
+    std::string text(stripped);
+    g_free(stripped);
+    if (text.empty()) {
+        return;
+    }
+    // In space-separated languages every phrase after the session's first
+    // starts with a space; the target's text is never read.
+    const auto& language = profiles_.languages.at(settings_.active.language).dictation_language;
+    if (direct_typed_ && language != "ja" && language != "zh") {
+        text.insert(0, " ");
+    }
+    direct_typed_ = true;
+    direct_context_ = tail(direct_context_ + text, 200);
+    direct_waiting_.push_back(std::move(text));
+}
+
+void App::flush_direct(double now) {
+    // A composer's reading goes first, as before any key; phrases wait for
+    // its commit. Each phrase is one queue entry, after keys already queued.
+    while (!direct_waiting_.empty() && !direct_blocked_ && !composing_text() && output_.can_queue(1) &&
+           output_.admit(true, now)) {
+        if (!output_.commit_text(direct_waiting_.front())) {
+            direct_blocked_ = true;
+            pause_capture();
+            status_ = "A phrase did not reach the app. Press Enter to try again, or Esc to drop it.";
+            dirty = true;
+            break;
+        }
+        direct_waiting_.pop_front();
+        dirty = true;
+    }
+    if (direct_waiting_.size() > max_direct_waiting && capturing_) {
+        // What was said still types; listening waits for typing to catch up.
+        pause_capture();
+        status_ = "Typing fell behind, so dictation paused. The rest is still typed.";
+    }
+}
+
+void App::tick_direct(double now) {
+    if (direct_ && capturing_ && !dictation_available()) {
+        stop_direct("Dictation stopped."); // the profile or settings no longer allow it
+    }
+    if (direct_) {
+        if (output_.failures() != direct_failures_) {
+            // Text may not have arrived. Listening pauses; the output's status
+            // asks for Enter, which retries the rest, and waiting phrases follow.
+            direct_failures_ = output_.failures();
+            pause_capture();
+        }
+        flush_direct(now);
+        if (!direct_active()) {
+            direct_ = false; // the session is over once its last phrase is queued
+        }
+    }
+    // Dictation's passthrough lasts until the last phrase is typed.
+    if (!direct_ && !dictation_open_ && dictation_passthrough_ && !output_.text_pending()) {
+        dictation_passthrough_ = false;
+        dirty = true;
+    }
 }
 
 namespace {
@@ -3434,15 +3600,25 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     case Kind::Ready: {
         // Answered at once: the profile's prompt, then the text before the
         // cursor now, together within Whisper's 200 code points.
+        // Type as I speak uses the phrases of its session instead.
         const auto& prompt = profiles_.languages.at(settings_.active.language).dictation_prompt;
         const auto room = 200 - static_cast<std::size_t>(g_utf8_strlen(prompt.c_str(), -1));
-        dictation_->prompt(event.id, prompt + editor_.context(room));
+        dictation_->prompt(event.id,
+                           prompt + (direct_ ? tail(direct_context_, room) : editor_.context(room)));
         pending_phrases_[event.id] = now;
         break;
     }
     case Kind::Text: {
-        if (!pending_phrases_.erase(event.id) || !dictation_open_) {
+        if (!pending_phrases_.erase(event.id)) {
             break; // cancelled meanwhile
+        }
+        if (direct_) {
+            direct_phrase(event.text);
+            flush_direct(now);
+            break;
+        }
+        if (!dictation_open_) {
+            break;
         }
         const auto& language = profiles_.languages.at(settings_.active.language);
         const bool spaced = language.dictation_language != "ja" && language.dictation_language != "zh";
@@ -3468,24 +3644,25 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         capturing_ = false;
         mic_levels_.clear();
         if (event.reason != "silence") {
-            notice_ = dictation_problem(event.reason);
-            notice_error_ = true;
+            dictation_message(dictation_problem(event.reason), true);
         }
         dirty = true;
         break;
-    case Kind::Error:
-        // The helper dropped every pending phrase; text already in stays.
+    case Kind::Error: {
+        // The helper dropped every pending phrase; text already in stays,
+        // and recognized phrases still type.
+        const bool active = capturing_ || phrases_pending();
         capturing_ = false;
         mic_levels_.clear();
         pending_phrases_.clear();
         awaiting_pause_ = false;
         send_wait_since_.reset();
-        if (dictation_open_) {
-            notice_ = dictation_problem(event.reason);
-            notice_error_ = true;
+        if (dictation_open_ || (direct_ && active)) {
+            dictation_message(dictation_problem(event.reason), true);
         }
         dirty = true;
         break;
+    }
     case Kind::Paused:
         awaiting_pause_ = false;
         break;

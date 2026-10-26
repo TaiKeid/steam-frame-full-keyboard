@@ -17,6 +17,7 @@
 #include "swipe.hpp"
 #include <atomic>
 #include <csignal>
+#include <deque>
 #include <optional>
 #include <utility>
 
@@ -155,6 +156,9 @@ class App {
         dirty |= native_session_ != open;
         native_session_ = open;
     }
+    // The Steam keyboard request the panel serves, 0 for none. Type as I
+    // speak stops when it changes: its phrases belong to the old field.
+    void set_native_request(std::uint64_t request);
     bool allows_movement(MoveSource source) const {
         // Corner resizers work in either movement mode; only the pin locks them.
         return !pinned() &&
@@ -293,6 +297,7 @@ class App {
     bool pending_emoji_close_on_select_{};
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
+    bool pending_dictation_direct_{};
     std::string pending_dictation_, pending_dictation_server_;
     // The address popup's own one-line field (docs/dictation.md, entering
     // the server address). It types only here, never into the target.
@@ -493,6 +498,36 @@ class App {
     // before it confirms a pause.
     bool phrases_pending() const { return !pending_phrases_.empty() || awaiting_pause_; }
     bool awaiting_pause_{};
+    // Type as I speak (docs/dictation.md): with the setting on, the mic key
+    // captures on the normal keyboard and phrases go straight to the target
+    // through the output queue, after keys already queued.
+    bool direct_dictation() const { return settings_.dictation_direct && !dictation_open_; }
+    // The capture session was started that way; its phrases go to the target.
+    bool direct_{};
+    // Capturing, or phrases not yet typed.
+    bool direct_active() const {
+        return direct_ && (capturing_ || phrases_pending() || !direct_waiting_.empty());
+    }
+    static constexpr std::size_t max_direct_waiting = 8;
+    // Stops capture and drops every phrase not yet typed, with a status.
+    void stop_direct(std::string status);
+    void direct_phrase(const std::string& text);
+    // Hands waiting phrases to the output queue as room appears.
+    void flush_direct(double now);
+    void tick_direct(double now);
+    // Shows a dictation message over the editor, or in direct mode on the status line.
+    void dictation_message(std::string text, bool error);
+    // Recognized phrases waiting for room in the output queue, in order.
+    std::deque<std::string> direct_waiting_;
+    // The phrases of this capture session as the prompt's context, at most
+    // 200 code points; never logged.
+    std::string direct_context_;
+    bool direct_typed_{}; // the next phrase starts with a space
+    // The target refused the front phrase outright, so the queue kept no
+    // retry: it waits for Enter, which is not sent, or Esc.
+    bool direct_blocked_{};
+    std::uint64_t direct_request_{}, native_request_{};
+    std::uint64_t direct_failures_{}; // output failures seen when the session started
     std::unique_ptr<Dictation> dictation_;
     bool capturing_{};
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps

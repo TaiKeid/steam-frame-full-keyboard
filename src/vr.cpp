@@ -1506,6 +1506,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const auto native = replacement.state();
         app.set_replacement_available(native.available, replacement.unavailable_reason());
         app.set_native_session(native.open);
+        // Before the lifecycle routes input to a new request's owner.
+        app.set_native_request(native.open ? native.request : 0);
         const bool replace = app.replace_native_keyboard();
         // Wake the watchdog before this frame can start the helper that reads its health.
         watchdog_schedule.set_enabled(replace);

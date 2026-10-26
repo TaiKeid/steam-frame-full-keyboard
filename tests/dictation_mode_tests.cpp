@@ -46,6 +46,9 @@ struct Sink : KeySink {
     }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
+        if (busy) {
+            return false;
+        }
         if (commits_before_failure == 0) {
             return false;
         }
@@ -56,6 +59,9 @@ struct Sink : KeySink {
         return true;
     }
     std::size_t delivered_characters() const override { return acknowledged; }
+    // A busy target holds the text being delivered, so later entries queue.
+    bool busy{};
+    bool text_pending() const override { return busy; }
     bool single_line_target() const override { return single_line; }
     bool steam_field{};
     bool steam_field_target() const override { return steam_field; }
@@ -259,6 +265,11 @@ while True:
         phrase += 1
         send(op="level", value=200)
         send(op="phrase", id=phrase)
+        if scenario == "direct":
+            # The first phrase ends at a pause while capture goes on.
+            send(op="ready", id=phrase)
+            phrase += 1
+            send(op="phrase", id=phrase)
     elif op == "prompt":
         prompts.write(message["text"].encode() + b"\0")
         send(op="text", id=message["id"], text=replies[(message["id"] - 1) % len(replies)])
@@ -660,6 +671,163 @@ void language_tests() {
         require(text.size() > 12 && text.starts_with("Hello there.") &&
                     !app.view().dictation->candidates,
                 "Space chooses the first candidate into the editor");
+    }
+}
+
+// Type as I speak: phrases go straight to the target from the normal keyboard.
+void direct_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "direct");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    {
+        Sink sink;
+        App app(options, sink);
+        app.show_settings();
+        click(app, "dictation-direct");
+        click(app, "apply");
+        app.flush_settings();
+        std::vector<std::string> errors;
+        require(load_settings(directory.path, errors).dictation_direct,
+                "the Dictation card turns Type as I speak on");
+    }
+    const std::string direct =
+        R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)";
+    write_config(directory.path, direct);
+    {
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(!app.dictation_open() && app.view().dictation_capturing,
+                "the mic key listens on the normal keyboard");
+        wait_until(app, [&] { return !sink.text.empty(); });
+        require(sink.text == std::vector<std::string>{"Hello there."},
+                "a phrase is typed as soon as it is recognized");
+        press(app, "KeyQ");
+        require(sink.text.back() == "q", "keys keep typing while listening");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 3; });
+        require(sink.text.back() == " Again." && !app.view().dictation_capturing,
+                "the mic key stops; the phrase being spoken still types, after a space");
+        const auto prompts = prompts_sent(directory.path);
+        require(prompts.size() == 2 && prompts[0].empty() && prompts[1] == "Hello there.",
+                "the prompt is the session's own phrases");
+        require(std::none_of(sink.keys.begin(), sink.keys.end(),
+                             [](const auto& key) { return key.first == KEY_ESC; }),
+                "nothing else reached the target");
+
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 4; });
+        require(sink.text.back() == "Hello there.", "a new session starts without a space");
+        press(app, "Escape");
+        require(!app.view().dictation_capturing && app.view().status == "Dictation stopped.",
+                "Esc stops listening");
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(clock += .01);
+        }
+        require(sink.text.size() == 4 && sink.keys.empty(),
+                "Esc drops the phrase being spoken and is not sent");
+    }
+    fs::remove(directory.path / "prompts");
+    {
+        // A different Steam field: the phrases were meant for the old one.
+        Sink sink;
+        App app(options, sink);
+        app.set_native_request(5);
+        sink.busy = true;
+        press(app, "Dictation");
+        wait_until(app, [&] { return prompts_sent(directory.path).size() == 1; });
+        app.set_native_request(6);
+        require(!app.view().dictation_capturing &&
+                    app.view().status == "Dictation stopped: the text field changed.",
+                "a target change stops Type as I speak");
+        sink.busy = false;
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(clock += .01);
+        }
+        require(sink.text.empty(), "and nothing reaches the new field");
+    }
+    {
+        // A full output queue: phrases wait, then follow the keys in order.
+        Sink sink;
+        App app(options, sink);
+        sink.busy = true;
+        for (std::size_t i = 0; i < OutputController::capacity + 2; ++i) {
+            press(app, "KeyA");
+        }
+        press(app, "Dictation");
+        wait_until(app, [&] { return prompts_sent(directory.path).size() >= 2; });
+        press(app, "Dictation");
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(clock += .01);
+        }
+        require(sink.text.empty(), "nothing goes out while the target is busy");
+        sink.busy = false;
+        wait_until(app, [&] { return sink.text.size() == OutputController::capacity + 2; });
+        require(std::count(sink.text.begin(), sink.text.end(), "a") == OutputController::capacity &&
+                    sink.text[OutputController::capacity] == "Hello there." &&
+                    sink.text.back() == " Again.",
+                "waiting phrases type after the queued keys, in order");
+    }
+    {
+        // Uncertain delivery: listening pauses, and Enter retries the rest.
+        Sink sink;
+        App app(options, sink);
+        sink.commits_before_failure = 0;
+        press(app, "Dictation");
+        wait_until(app, [&] { return !app.view().dictation_capturing; });
+        require(sink.text.empty() && app.view().status.find("Enter") != std::string::npos,
+                "a failed phrase pauses listening and offers a retry");
+        sink.commits_before_failure = -1;
+        press(app, "Enter");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
+                "Enter retries the phrase, then the next follows");
+    }
+    {
+        // The dashboard closing keeps the panel until the last phrase is typed.
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false) && app.passthrough(),
+                "closing the dashboard while listening keeps the panel over the app");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        app.tick(clock += .1);
+        require(!app.passthrough(), "and it lets go once the phrases are typed");
+        press(app, "Dictation");
+        app.panel_hidden();
+        require(!app.view().dictation_capturing, "hiding the panel stops Type as I speak");
+    }
+    {
+        // A phrase in flight fails after part of it arrived: only the rest is retried.
+        Sink sink;
+        App app(options, sink);
+        sink.busy = true;
+        press(app, "Dictation");
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(clock += .01);
+        }
+        sink.busy = false;
+        sink.commits_before_failure = 0;
+        sink.acknowledged = 6; // "Hello " reached the target
+        wait_until(app, [&] { return !app.view().dictation_capturing; });
+        require(app.view().status.find("Enter") != std::string::npos,
+                "the failure pauses listening and the queue offers its retry");
+        sink.commits_before_failure = -1;
+        press(app, "Enter");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"there.", " Again."} && sink.keys.empty(),
+                "Enter types only what had not arrived, then the next phrase");
     }
 }
 
@@ -1140,6 +1308,7 @@ int main() {
         card_tests();
         live_tests();
         language_tests();
+        direct_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

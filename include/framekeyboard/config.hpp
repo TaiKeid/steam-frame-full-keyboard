@@ -92,6 +92,9 @@ struct Settings {
     // Send pastes through the clipboard instead of typing; Steam's own fields
     // keep their direct path.
     bool dictation_send_paste{};
+    // Type as I speak: the mic key captures on the normal keyboard and each
+    // phrase is typed into the target as soon as it is recognized.
+    bool dictation_direct{};
     // Up to five servers that passed the Dictation card's Test, newest first.
     std::vector<std::string> dictation_recent_servers;
 };

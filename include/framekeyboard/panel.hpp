@@ -44,6 +44,7 @@ enum class ControlKind {
     DictationDiscard,
     DictationKeep,
     ChooseSendGap,
+    DictationDirect,
     ChooseDictation,
     DictationServer,
     DictationTest,

@@ -1,6 +1,6 @@
 # Dictation plan
 
-Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, and its delivery A/B test run (2026-10-25); M3c live dictation and M4 Settings built and partly tried in the headset; M5a languages built, host-tested and measured against the reference server (2026-10-26). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
+Status: M0 done; M1 and M2 done except checks that need the real microphone or App integration; M3a built, host-tested and tried in the headset; M3b Send built and host-tested, and its delivery A/B test run (2026-10-25); M3c live dictation and M4 Settings built and partly tried in the headset; M5a languages built, host-tested and measured against the reference server, and M5b Type as I speak built and host-tested (2026-10-26). Not part of the 0.9.0 release. The main path sends speech to a speech server the user hosts; a limited on-device mode covers English and Spanish. The measurements behind this are in [measurements](#measurements-2026-10-24). Items marked *proposal* are Claude's suggestions that the owner has not confirmed yet. Mark milestone checkboxes only after their acceptance conditions pass.
 
 Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server elsewhere on the network, or by a small model on the Frame.
 
@@ -140,23 +140,26 @@ Esc in dictation mode is local and never reaches the application.
 
 ### Dashboard, passthrough and focus
 
-- **Dashboard closed while capturing:** passthrough is turned on automatically, so the keyboard stays open and capture continues, even if Steam asks to close the keyboard. That passthrough stays on until dictation mode ends.
+- **Dashboard closed while capturing:** passthrough is turned on automatically, so the keyboard stays open and capture continues, even if Steam asks to close the keyboard. That passthrough stays on until dictation mode ends; with Type as I speak, until the last phrase is typed.
 - **Dashboard closed while not capturing:** the keyboard hides as usual. The dictation state (mode, editor text, cursor, scroll) is kept in memory and restored when the keyboard opens again. A paused editor whose capture already turned passthrough on stays open, because that passthrough lasts until the mode ends.
 - **X** discards everything, without asking: capture stops, pending phrases and the editor text are dropped, and dictation mode ends.
 - **Typing target lost**, for example when Steam's field closes:
   - **Editor mode:** dictation continues into the editor and the panel stays open. The user can select the right field and Send there. In replacement mode, dictation holds the panel while it listens, has phrases on the way, sends, or has text; without a Steam field the editor keeps working but nothing is sent, Send is disabled and the editor says "The text field closed. Select a text field to send." The focused application never receives text it did not ask for. A new field takes over through the usual handoff, and the stock keyboard's fallback always wins over the hold.
-  - **Type as I speak:** capture stops at once, and phrases not yet typed are discarded.
+  - **Type as I speak:** capture stops at once, and phrases not yet typed are discarded, including text already queued for the old field. The status line says "Dictation stopped: the text field changed." The keyboard sees a field change only when it replaces Steam's keyboard, where each field is its own request; otherwise it cannot see which window has focus. Hiding the panel stops it the same way.
 - **Switching windows** is handled the same way as closing and reopening the dashboard.
 - **Unchanged:** held keys are still released on hide and target change, and the stock keyboard fallback is unchanged.
 - **App exit or restart:** the editor text is lost.
 
 ### Type as I speak
 
-A second checkbox, **Type as I speak**, skips the editor. The mic key starts and stops capture on the normal keyboard, and each phrase is typed into the focused application as soon as its text returns.
+The **Type as I speak** switch on the Dictation card skips the editor. The mic key starts and stops capture on the normal keyboard, and each phrase is typed into the focused application as soon as its text returns.
 
 - No character limit and no counter; the output queue paces delivery.
+- **Order:** each phrase is one entry in the output queue, after keys already queued. While the queue is full, a composer reading is in progress, or a failure waits for its retry, recognized phrases wait in order. More than eight waiting pause listening, with a status; what was said still types.
+- **Delivery:** phrases are always typed, never pasted, even with Send set to Paste.
+- **Uncertain delivery:** if a phrase fails partway, listening pauses and the status line asks for Enter. Enter retries only the characters that had not arrived, then the waiting phrases follow. A phrase the target refuses outright waits at the front, and Enter, which is then not sent, tries it again.
 - Undo last phrase is not offered, because the cursor in the target may have moved.
-- Esc while capturing stops capture and is not sent. Otherwise Esc is the normal key.
+- Esc while capturing, or while phrases are still to be typed, stops capture, drops what is not yet typed, and is not sent. Otherwise Esc is the normal key.
 - **Mic key while capturing** stops capture. The phrase being spoken is still recognized and typed.
 - In space-separated languages, every phrase after the first in a capture session starts with a space. The prompt uses the phrases typed in that session.
 - Other keys keep typing while capturing.
@@ -191,7 +194,7 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - A **Server** field, saved as `dictation_server`. It holds `host:port`, for example `speech.local:8031` or `192.168.1.20`, and port 8031 is assumed when it is left out. The default avoids 8080, which is common and which Steam on the Frame already uses for its own debugging port. This is all the keyboard asks for; everything else is configured on the server.
   - A state line: not configured, reachable or unreachable.
   - A **Test** button that checks the server.
-- **Type as I speak** checkbox, saved as `dictation_direct`, default false.
+- **Type as I speak** switch, saved as `dictation_direct`, default false; available while dictation is on.
 - **API key** state: deferred with third-party providers (owner, 2026-10-25). For now dictation is set up for a self-hosted server or, later, on-device recognition; the client's `dictation_url` and key-file support from M2 stays, configured only in `config.json`. When providers are taken up, the card shows the key's state (set or missing) with **Delete key**, never the key itself.
 
 ### Entering the server address
@@ -413,7 +416,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Profiles with a composer hide the mic key until M5a (lifted there).
   - Swipe and the emoji key are unavailable in dictation mode.
   - A `--render-dictation` image export for reviewing the look.
-- [ ] **M3b Send:** built and host-tested 2026-10-25, and the A/B test run and the pace made a setting (see [M3b results](#m3b-results-2026-10-25)); the application checks are open.
+- [x] **M3b Send:** built and host-tested 2026-10-25, and the A/B test run and the pace made a setting (see [M3b results](#m3b-results-2026-10-25)); the owner confirmed Send in real applications on 2026-10-26.
   - **A/B test of plain-text delivery:** whole commits of up to 32 characters against one acknowledged character at a time, 20 ms apart. The swipe fix that introduced the second way was measured only on replacements.
     - Test the dedicated receiver first, then an X11 browser under load.
     - Count scrambled and reordered text, and time a 900-character text.
@@ -433,7 +436,8 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Self-hosted servers only; the API key state waits for third-party providers (see [Further work](#further-work)).
 - [ ] **M5a Languages:** built and host-tested 2026-10-26, and the languages measured against the reference server (see [M5a results](#m5a-results-2026-10-26)); not yet tried in the headset.
   - Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
-- [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
+- [ ] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)); not yet tried in the headset.
+  - Its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
   - whisper.cpp build and small model download and delete.
   - English and Spanish only.
@@ -683,6 +687,21 @@ First part: the helper connected to the editor.
 - **Recognition time:** 0.15–0.18 s per phrase in every configuration.
 - **Composers in the editor:** romaji, kana, flick and Pinyin keys compose as on the normal keyboard and commit through the editor's `TextOutput`. Rendered with `--render-dictation`, which adds a sample reading for composer profiles.
 - **Tests:** `dictation-mode` checks the profiles and the 60-character limit, the prompt sent for each phrase and its trimming to 200 code points, Japanese joining and the character-by-character reveal, a romaji reading shown at the cursor, Convert beside the editor, Esc, Enter, the mic key and Send committing the reading, flick input with Send in Tab's place, and Pinyin candidates in the band where the Pinyin engine is installed.
+
+## M5b results (2026-10-26)
+
+- **Setting:** the Dictation card's **Type as I speak** switch, saved as `dictation_direct`. With it on, the mic key never opens the editor.
+- **Session:** each capture session keeps its own phrases, at most 200 code points, as the prompt's context, after the profile's script prompt, and adds the joining space in English and Spanish. The phrases stay in memory only.
+- **Target change:** VR passes the Steam keyboard request to the app each frame, before input is routed to a new owner. A different request, or none, stops the session and cancels output still queued for the old field.
+- **Tests:** `dictation-mode` with a scripted helper and a recording target:
+  - the switch saved by Apply;
+  - phrases typed while listening, keys typing in between, the joining space and the session prompt;
+  - Esc dropping the phrase being spoken without sending Esc;
+  - a request change typing nothing into the new field;
+  - phrases waiting behind a full queue of 32 keys, then typing after them in order;
+  - an immediate rejection waiting for Enter;
+  - a failure after part of a phrase arrived, retrying only the rest;
+  - passthrough lasting until the last phrase is typed, and hiding the panel stopping it.
 
 ## Open questions
 
