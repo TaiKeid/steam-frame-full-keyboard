@@ -260,6 +260,8 @@ if scenario == "long":
     replies = ["This phrase is much longer than thirty-two characters, so it goes out in pieces."]
 if scenario == "live":
     replies = ["Hello there, how are you?"]
+if scenario == "verylong":
+    replies = [" ".join("word%d" % i for i in range(60))]
 phrase = 0
 def send(**m):
     peer.send(json.dumps(m).encode())
@@ -1471,6 +1473,39 @@ void fallback_tests() {
             "a phrase from the fallback shows the headset by the counter");
 }
 
+// Send pressed while listening waits for the last phrase, then starts in
+// the tick that phrase arrives, while it is still appearing word by word.
+// Sending erases delivered text, so the reveal must end first.
+void send_during_reveal_tests() {
+    for (const bool paste : {true, false}) {
+        TemporaryDirectory directory;
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        write_config(directory.path, paste ? R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_send_paste":true)"
+                                           : R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+        use_fake_helper(options, directory.path, "verylong");
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation-send");
+        for (int i = 0; i < 2000 && app.dictation_open(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            app.tick(clock += .01);
+            app.view();
+        }
+        require(paste ? clipboard.written.size() == 1 && clipboard.written[0].starts_with("word0 ")
+                      : !sink.text.empty() && sink.text.front().starts_with("word0"),
+                paste ? "a long phrase still revealing is pasted whole, without a crash"
+                      : "a long phrase still revealing is typed, without a crash");
+    }
+}
+
 // A game turned SteamOS's voice filters on and the helper records around
 // them: the status line says game sound may come through, without blocking.
 void microphone_tests() {
@@ -1711,6 +1746,7 @@ int main() {
         device_tests();
         fallback_tests();
         microphone_tests();
+        send_during_reveal_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

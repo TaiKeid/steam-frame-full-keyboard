@@ -3282,7 +3282,7 @@ void App::set_dictation_view(PanelView& view) const {
     editor.bounds = panel_rect(view, dictation_layout_.editor);
     editor.text = editor_.text();
     editor.cursor = editor_.cursor();
-    if (reveal_) {
+    if (reveal_ && reveal_->shown <= reveal_->end && reveal_->end <= editor.text.size()) {
         // The caret follows the words as they appear.
         editor.text.erase(reveal_->shown, reveal_->end - reveal_->shown);
         editor.cursor = reveal_->shown;
@@ -4414,6 +4414,10 @@ void App::start_send() {
     if (!can_send()) {
         return;
     }
+    // Sending erases delivered text from the editor; the reveal's offsets
+    // would point past it. A Send that waited for the last phrase starts in
+    // the tick its text arrived.
+    finish_reveal();
     Sending send;
     if (editor_.text().find_first_not_of(" \n") == std::string::npos) {
         // Only the final Enter is left; the editor holds nothing to send.
@@ -4695,6 +4699,7 @@ App::EditorCommand App::editor_command(const Key& key, xkb_keysym_t symbol) cons
 }
 
 void App::run_editor_command(EditorCommand command) {
+    finish_reveal(); // a held key's repeat edits during a late phrase's reveal
     const auto view = geometry();
     const auto area = editor_text_area(view);
     const double content = editor_content_height(view);
