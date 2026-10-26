@@ -188,10 +188,10 @@ On a recognizer failure, capture stops, and the failed phrase and every phrase q
 
 A new **Dictation** card is placed third: Languages and Layouts, General, Dictation, Experimental. It contains:
 
-- **Dictation** dropdown, saved as `dictation`, with three choices:
+- **Dictation** dropdown, saved as `dictation`, with three choices in this order (owner, 2026-10-27):
   - **Off**;
   - **On device**, the default: every dictation language. With a language other than English or Spanish, a line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
-  - **Server**: the user's own speech server.
+  - **Self-hosted** (`server`): the user's own speech server.
 - **On device:**
   - The card shows the model's state: not downloaded, downloading with its progress, ready or failed.
   - Applying a change to On device, the fallback or the format without the model asks first, naming the download size; only then the download starts. Any other Apply does not ask, so the default needs the model row's **Download**. Its progress also shows on the main keyboard without blocking it, and the mic key stays disabled until the model is ready.

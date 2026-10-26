@@ -558,7 +558,7 @@ void App::update_settings_ui() {
     std::vector<SettingField> dictation_fields{
         field(ControlKind::ChooseDictation,
               dropdown("dictation", "Dictation", pending_dictation_,
-                       {{"off", "Off"}, {"server", "Your server"}, {"device", "On device"}}))};
+                       {{"off", "Off"}, {"device", "On device"}, {"server", "Self-hosted"}}))};
     const auto& pending_language = profiles_.languages.at(pending_.language).dictation_language;
     const bool device = pending_dictation_ == "device";
     if (device && !pending_language.empty() && pending_language != "en" && pending_language != "es") {

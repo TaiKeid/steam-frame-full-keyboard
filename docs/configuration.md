@@ -111,7 +111,7 @@ Dictation is being built and is not released yet; the design is in [dictation](d
 - `dictation_direct`: `true` turns on Type as I speak: the mic key listens on the normal keyboard, and each phrase is typed into the focused application as soon as it is recognized, without the editor.
 - `dictation_recent_servers`: up to five server addresses that passed the Dictation card's Test, newest first, offered when entering the address. Unusable entries are skipped.
 
-Both are the **Send** row of the Dictation card in Settings, which also sets `dictation` (Off or Your server) and shows `dictation_server`, with a **Test** of the connection, and its **Type as I speak** switch sets `dictation_direct`. An invalid value of these fields falls back to typing at 20 ms into the editor, with a message.
+Both are the **Send** row of the Dictation card in Settings, which also sets `dictation` (Off, On device or Self-hosted) and shows `dictation_server`, with a **Test** of the connection, and its **Type as I speak** switch sets `dictation_direct`. An invalid value of these fields falls back to typing at 20 ms into the editor, with a message.
 
 The API key for a provider is not stored here, but in `dictation-key` beside `config.json`, readable only by the user (see [speech server setup](speech-server.md#hosted-providers)). An invalid dictation field turns dictation off with a message and leaves every other setting as it is. Saving from Settings keeps these fields.
 
