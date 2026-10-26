@@ -56,5 +56,8 @@
     "KeyT": "ㅆ",
     "KeyO": "ㅒ",
     "KeyP": "ㅖ"
+  },
+  "dictation": {
+    "language": "ko"
   }
 }

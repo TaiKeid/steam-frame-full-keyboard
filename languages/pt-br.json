@@ -25,5 +25,8 @@
   ],
   "swipe": {
     "lexicon": "pt-br"
+  },
+  "dictation": {
+    "language": "pt"
   }
 }

@@ -20,5 +20,8 @@
   ],
   "swipe": {
     "lexicon": "ru-ru"
+  },
+  "dictation": {
+    "language": "ru"
   }
 }

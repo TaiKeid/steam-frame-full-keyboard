@@ -20,5 +20,8 @@
   ],
   "swipe": {
     "lexicon": "uk-ua"
+  },
+  "dictation": {
+    "language": "uk"
   }
 }

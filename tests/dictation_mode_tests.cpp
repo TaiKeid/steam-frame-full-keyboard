@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <map>
 #include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
@@ -172,9 +173,18 @@ void settings_tests() {
                 languages.at("zh-tw-pinyin").dictation_prompt == "好的，沒問題。" &&
                 languages.at("zh-tw-pinyin").dictation_language == "zh",
             "Chinese prompts fix the script");
-    require(languages.at("ja-jis").dictation_language.empty() &&
-                languages.at("ko-kr").dictation_language.empty(),
-            "external JIS, which types through a system IME, and Korean have no dictation");
+    require(languages.at("ja-jis").dictation_language.empty(),
+            "external JIS, which types through a system IME, has no dictation");
+    for (const auto& [id, code] : std::map<std::string, std::string>{{"de-de", "de"},
+                                                                     {"fr-fr", "fr"},
+                                                                     {"it-it", "it"},
+                                                                     {"pt-br", "pt"},
+                                                                     {"ru-ru", "ru"},
+                                                                     {"uk-ua", "uk"},
+                                                                     {"ko-kr", "ko"}}) {
+        require(languages.at(id).dictation_language == code && languages.at(id).dictation_prompt.empty(),
+                "every other profile dictates in its own language, without a prompt");
+    }
     auto profile = [](const std::string& prompt) {
         return R"({"schema_version":1,"id":"xx-test","name":"Test","locale":"en-US",
             "keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},
@@ -420,7 +430,7 @@ void mode_tests() {
     press(app, "Dictation");
     require(app.dictation_open() && editor_text(app).empty(), "the discarded text is gone");
 
-    app.apply({"international-full", "de-de", "graphite"});
+    app.apply({"ja-jis-full", "ja-jis", "graphite"});
     app.tick(clock += .1);
     require(!app.dictation_open() && !app.view().dictation_available,
             "a profile without dictation closes the mode and hides the mic key");

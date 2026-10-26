@@ -14,9 +14,9 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 - **No server in this repository.** This repository does not ship or vendor a server. The documentation describes a reference setup with an existing open-source server.
 - **Reference engine:** whisper.cpp's `whisper-server` with the large-v3-turbo model on a GPU, with Whisper's normal 30 s window. On the measured servers it transcribed a 3 s phrase in 0.09–0.24 s, with Japanese at about 3.4% and English at 3.4% errors.
 - **Languages:**
-  - English, Spanish, Japanese and Chinese first. One multilingual Whisper model covers all of them on a server.
+  - English, Spanish, Japanese and Chinese first, measured in M5a; then every other bundled language Whisper supports: German, French, Italian, Brazilian Portuguese, Russian, Ukrainian and Korean (owner, 2026-10-27), without measurements of their own yet. One multilingual Whisper model covers all of them, on a server or on device.
   - On device: one multilingual model for every dictation language. English and Spanish are the ones it does well; for the others, Settings warns that accuracy is low and a self-hosted server gives better results (owner, 2026-10-26).
-  - A language profile without dictation support hides the mic key. Japanese JIS, which types through the system's own input method, and Korean have none.
+  - A language profile without dictation support hides the mic key. Only Japanese JIS has none: it types through the system's own input method, which the keyboard cannot deliver dictated text to.
 - **On device by default** (owner, 2026-10-27), which needs the model downloaded first: the mic key appears once it is. Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
 - **Settings:** a Dictation card of its own, third, before Experimental.
 - **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk. The keyboard never reads the clipboard; it writes it only when Send is set to Paste (owner decision, 2026-10-25), and then holds just the sent text.

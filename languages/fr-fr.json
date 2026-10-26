@@ -23,5 +23,8 @@
   ],
   "swipe": {
     "lexicon": "fr-fr"
+  },
+  "dictation": {
+    "language": "fr"
   }
 }
