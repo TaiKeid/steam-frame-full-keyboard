@@ -411,6 +411,7 @@ class Engine:
         self.process = None
         self.model = None
         self.buffer = b""
+        self.ended = False  # its output closed
         self.used = 0.0
 
     def recognize(self, model, language, prompt, pcm, connection):
@@ -427,15 +428,18 @@ class Engine:
                 return "error", str(failure)
             header = json.dumps({"samples": len(pcm) // 2, "language": language or "",
                                  "prompt": prompt or ""}, ensure_ascii=False).encode() + b"\n"
+            self.ended = False
             try:
                 self.process.stdin.write(header + pcm)
                 self.process.stdin.flush()
                 line = self._line(DEVICE_TIMEOUT)
             except OSError:
-                line = None
+                line, self.ended = None, True  # a broken pipe: it is gone
             self.used = time.monotonic()
             if line is None:
-                died = self.process.poll() is not None
+                # Its output closes before it can be reaped, so an ended
+                # stream counts as dead, not as slow.
+                died = self.ended or self.process.poll() is not None
                 self._stop()
                 return "error", ("cancelled" if connection.aborted else
                                  "device-failed" if died else "timeout")
@@ -485,7 +489,10 @@ class Engine:
             if left <= 0 or not select.select([out], [], [], left)[0]:
                 return None
             data = os.read(out, 65536)
-            if not data or len(self.buffer) > MAX_REPLY:
+            if not data:
+                self.ended = True
+                return None
+            if len(self.buffer) > MAX_REPLY:
                 return None
             self.buffer += data
         line, _, self.buffer = self.buffer.partition(b"\n")
