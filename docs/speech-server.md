@@ -148,6 +148,15 @@ A working server answers with JSON such as `{"text":" And so my fellow Americans
 
 Then enter `<server-address>:8031` in Full Keyboard's Dictation settings and press Test.
 
+## Hosted providers
+
+Instead of your own server, you can use a hosted service that speaks the same OpenAI-style protocol, such as Groq, OpenAI or Mistral. Your audio then goes to that company under its terms, and it bills per minute of audio. There are no presets in Settings yet; set it up in Desktop Mode or over SSH:
+
+1. In `~/.config/framekeyboard/config.json`, set `dictation_url` to the provider's base URL, for example `https://api.groq.com/openai/v1`, and `dictation_model` to its model name, for example `whisper-large-v3-turbo`. Check the provider's documentation for current URLs and models.
+2. Put your API key on one line in `~/.config/framekeyboard/dictation-key`, then make it readable only by you: `chmod 600 ~/.config/framekeyboard/dictation-key`.
+
+The key is sent only over HTTPS and only to that URL's host. Settings shows whether a key is set and can delete it, but never shows the key.
+
 ## Privacy
 
 - Audio and text travel unencrypted on your network. Keep the server on your own network and limit the firewall rule to the Frame's address.

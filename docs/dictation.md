@@ -7,7 +7,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
 ## Decisions
 
 - **Two recognition modes, chosen in Settings:**
-  - **Server:** a speech server the user hosts on a machine with a capable GPU. It gives the best quality and speed and covers all dictation languages.
+  - **Server:** a speech server the user hosts on a machine with a capable GPU. It gives the best quality and speed and covers all dictation languages. A hosted OpenAI-compatible provider can take its place through `config.json` (see [hosted providers](#hosted-providers)).
   - **On device:** Whisper small on the Frame's CPU, for English and Spanish only. It is a fallback: in the measurements it took about 5 s per phrase and loaded the CPU heavily, and larger models were unusable on the Frame alongside VR.
 - **The keyboard asks only for the server's address,** as `host:port` in Settings. Model choice and every other recognition setting live in the server's own configuration. An optional model name exists only in the configuration file, for servers without a default model.
 - **We don't build a server.** Users run an existing OpenAI-compatible server, `whisper-server` as the reference; the documentation gives setup instructions only.
@@ -153,6 +153,7 @@ Waiting for the recognizer, errors and the discard confirmation appear as overla
 - capture stopped by the system;
 - on-device model missing or failed to load;
 - speech server not configured, unreachable or timing out;
+- API key rejected, or rate limited by a provider;
 - server error, or an unusable reply;
 - the helper exited.
 
@@ -174,6 +175,7 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - A state line: not configured, reachable or unreachable.
   - A **Test** button that checks the server.
 - **Type as I speak** checkbox, saved as `dictation_direct`, default false.
+- **API key** state, shown only when a key file exists or `dictation_url` uses HTTPS: set or missing, with **Delete key** to remove the file. The key itself is never shown.
 
 ### Entering the server address
 
@@ -231,6 +233,20 @@ The keyboard knows only the server address. Each phrase is one plain HTTP reques
 - **Timeout:** 10 s per phrase. A connection failure is retried once; that is safe because nothing is typed before the text returns.
 - **One request at a time:** a phrase is sent only after the previous one returned and was inserted. App, not the helper, supplies each phrase's prompt from the editor as it is then. Its context then includes the phrase before it, as cleaned, joined or edited. Servers answer in well under half a second, so this costs little.
 - **Reply limits:** a reply larger than 64 KB is rejected before it is parsed, and only the `text` field is read.
+- **API key:** when a key file exists, it is sent as `Authorization: Bearer <key>`, only over HTTPS, and only to the host of the configured URL. Redirects are never followed. A rejected key (HTTP 401 or 403) and a rate limit (HTTP 429) get their own error messages.
+
+### Hosted providers
+
+Decided 2026-10-25: there are no provider presets for now. The Dictation card offers only the user's own server, and a hosted provider is set up in `config.json`:
+
+- **`dictation_url`:** a full base URL such as `https://api.groq.com/openai/v1`. It takes the place of `dictation_server`, and the keyboard appends `/audio/transcriptions`. Only `http` and `https` are accepted.
+- **`dictation_model`:** the provider's model name, for example `whisper-large-v3-turbo` on Groq.
+- **Key file:** `~/.config/framekeyboard/dictation-key`, readable only by the user, holding the API key on one line.
+  - The user fills it in Desktop Mode, by pasting into a text editor, or over SSH. Full Keyboard never reads the clipboard.
+  - The key is never written to `config.json`, which users share in bug reports, and never appears in logs, arguments or the environment. The helper reads the file itself.
+  - `uninstall.sh --purge` removes it with the other settings.
+- **Providers known to speak the protocol:** Groq, OpenAI and Mistral, each at `/v1/audio/transcriptions` (Groq under `/openai/v1`). Their prices and models change; the setup guide points to them without promising either.
+- **Not supported:** providers with their own protocols, such as Deepgram and ElevenLabs.
 - **Test:** sends half a second of silence and expects a valid reply. A reply with empty text passes: any valid reply with a `text` field shows the server is reachable and speaks the protocol.
 
 **Why one request per phrase:** Whisper transcribes whole clips anyway, phrase detection is cheap on the Frame, and stateless requests keep any compatible server usable. Audio is about 32 KB per second of speech.
@@ -279,11 +295,11 @@ The repository ships instructions only, no server code; they are in [speech serv
 
 - **When audio leaves the Frame:** only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test.
 - **Plain HTTP on the local network.** Host and port only means no encryption or authentication. Anyone on the local network can reach the server, and audio and text cross the network unencrypted. Therefore:
-  - hosts are not restricted, so third-party providers can be used later. When the resolved address is not on the local network (RFC 1918, link-local, loopback, IPv6 unique-local or link-local), the Dictation card shows a red warning that the host is not local, and for plain HTTP that the traffic is unencrypted;
+  - hosts are not restricted, so hosted providers can be used. When the resolved address is not on the local network (RFC 1918, link-local, loopback, IPv6 unique-local or link-local) or Tailscale (100.64.0.0/10, `*.ts.net`, encrypted by WireGuard), the Dictation card shows a red warning naming the host. The warning says the host is not local, and for plain HTTP that the traffic is unencrypted;
   - the setup guide recommends binding the server to the LAN and firewalling it;
   - plain HTTP to a local server is accepted without any notice.
 - **HTTPS:** an `https` address is verified against the system's certificates, which covers hosted providers. Self-signed certificates get no special handling; users who want encryption on their own network can put a reverse proxy with a real certificate in front of the server.
-- **To be decided before M2:** third-party providers and API keys (see [open questions](#open-questions)).
+- **Hosted providers:** audio goes to that company under its terms. API keys go only over HTTPS to the configured host (see [hosted providers](#hosted-providers)).
 - **Other voices:** the microphone picks up nearby speech, such as a video playing on a phone, and dictation transcribes it like the user's own.
 - **Logging on the Frame:** no audio and no transcripts. Whether the server logs is up to its configuration; the setup guide points this out.
 - **Replies are untrusted input:** they are validated and cleaned as described under [capturing](#capturing), and in dictation mode they only reach the editor until Send.
@@ -335,7 +351,8 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
     - Tests check that marker phrases never show up in output.
   - **Backlog:** queued audio is bounded by bytes, duration and age. Overflow stops capture visibly.
   - **Cost:** measure the helper's CPU and memory on the Frame while capturing and while idle in dictation mode. Full Keyboard should stay as light as possible.
-  - Host tests with WAV fixtures, a fake `pw-record` and a local fake server; no microphone needed.
+  - **HTTPS and keys:** `dictation_url`, HTTPS verified against the system certificates, and the key file sent only over HTTPS to that host, with no redirects.
+  - Host tests with WAV fixtures, a fake `pw-record` and a local fake server, including an HTTPS server with a test certificate authority; no microphone needed.
 - [ ] **M3a Editor and key routing, English:**
   - `DictationEditor` and its tests.
   - The dictation mode layout, with editor keys handled in App before `KeyboardState`. Typed text goes through `TextOutput`.
@@ -359,7 +376,7 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
 - [ ] **M4 Settings:**
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
-  - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
+  - The address popup with its mini keyboard, recent servers, Test, the non-local host warning, the API key state with Delete key, and the error overlays.
 - [ ] **M5a Languages:** Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
@@ -492,10 +509,6 @@ What this means for the design:
 
 The owner settled the behavior questions and the proposals on 2026-10-25; the rules are in the sections above. Still open:
 
-- **Providers and API keys (before M2):** to be brainstormed with the owner.
-  - **Third-party providers:** supporting OpenAI-compatible providers turns the server field into a URL (`https://host/path`) rather than `host:port`.
-  - **API keys:** providers need one. Entering it (the address popup has no uppercase), storing it outside logs and Git, and sending it only to that host are open.
-  - **Tailscale:** addresses in 100.64.0.0/10 are encrypted but not local; do they get the warning?
 - **Reply length cap (M2):** measure false rejections per language before fixing 25 characters a second.
 - **Mic bars:** the cost of redrawing them with a game running (measured in M3c).
 - **Proposals:** the remaining items marked *proposal* above.
