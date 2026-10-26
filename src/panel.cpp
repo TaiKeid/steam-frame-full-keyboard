@@ -137,6 +137,65 @@ void gradient(cairo_t* cr, Rect r, Color top, Color middle, Color bottom) {
 Color mix(Color a, Color b, double amount) {
     return {a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount};
 }
+// A light theme has a dark legend on a light case.
+bool light_theme(const Theme& t) {
+    return .2126 * t.legend.r + .7152 * t.legend.g + .0722 * t.legend.b <= .5;
+}
+// Moves a colour away from the legend: darker under a light legend, lighter
+// under a dark one, so recessed surfaces keep their text readable in light
+// themes too. With a white legend this is a plain darkening.
+Color recede(const Theme& t, Color c, double amount) {
+    return mix(c, light_theme(t) ? Color{1, 1, 1} : Color{}, amount);
+}
+// A neon tube along the inside edge of a rounded shape, at `alpha` strength:
+// a soft glow falling inward, the tube in the latched gradient, and its hot
+// core. All of it stays inside the shape, so a key repaints within its bounds.
+void neon_tube(cairo_t* cr, const Theme& t, const Rect& r, double radius, double alpha = 1) {
+    const Rect tube{r.x + 2, r.y + 2, r.width - 4, r.height - 4};
+    const double tube_radius = std::max(1.0, radius - 2);
+    auto* light = cairo_pattern_create_linear(0, tube.y, 0, tube.y + tube.height);
+    cairo_pattern_add_color_stop_rgb(light, 0, t.latched_top.r, t.latched_top.g, t.latched_top.b);
+    cairo_pattern_add_color_stop_rgb(light, .5, t.latched.r, t.latched.g, t.latched.b);
+    cairo_pattern_add_color_stop_rgb(light, 1, t.latched_bottom.r, t.latched_bottom.g,
+                                     t.latched_bottom.b);
+    cairo_save(cr);
+    rounded(cr, r, radius);
+    cairo_clip(cr);
+    cairo_push_group(cr); // The layers blend among themselves, then fade together.
+    for (const auto& [width, strength] :
+         std::initializer_list<std::pair<double, double>>{{14, .1}, {8, .18}, {4.5, .4}, {2.2, 1}}) {
+        rounded(cr, tube, tube_radius);
+        cairo_set_source(cr, light);
+        cairo_set_line_width(cr, width);
+        cairo_push_group(cr);
+        cairo_stroke(cr);
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, strength);
+    }
+    rounded(cr, tube, tube_radius);
+    cairo_set_source_rgba(cr, 1, 1, 1, .45);
+    cairo_set_line_width(cr, .8);
+    cairo_stroke(cr);
+    cairo_pop_group_to_source(cr);
+    cairo_paint_with_alpha(cr, alpha);
+    cairo_restore(cr);
+    cairo_pattern_destroy(light);
+}
+// Fills a rounded shape with the latched colour in the theme's finish.
+void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
+    rounded(cr, r, radius);
+    if (t.latched_finish == "neon") {
+        // A dark face with a faint tint of the light, inside the tube.
+        gradient(cr, r, mix(t.top, t.latched_top, .1), mix(t.middle, t.latched, .1),
+                 mix(t.bottom, t.latched_bottom, .12));
+        neon_tube(cr, t, r, radius);
+    } else if (t.latched_top == t.latched && t.latched_bottom == t.latched) {
+        source(cr, t.latched);
+        cairo_fill(cr);
+    } else {
+        gradient(cr, r, t.latched_top, t.latched, t.latched_bottom);
+    }
+}
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
            Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER,
            bool wrap = false) {
@@ -514,11 +573,10 @@ double text_width(cairo_t* cr, const std::string& text, double size, const std::
 }
 // Where speech is recognized, small in the mic key's top-right corner; the
 // editor shows it by its counter instead.
-void draw_where(cairo_t* cr, const PanelView& view, const Rect& face) {
+void draw_where(cairo_t* cr, const PanelView& view, const Theme& t, const Rect& face) {
     if (view.dictation_where == Icon::None || view.dictation) {
         return;
     }
-    const auto& t = *view.theme;
     draw_icon(cr, view.dictation_where, {face.x + face.width - 30, face.y + 4, 26, 24},
               mix(t.legend, t.top, .35), 14);
 }
@@ -539,9 +597,15 @@ void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
     cairo_stroke(cr);
     cairo_restore(cr);
 }
+// A latched modifier or lock, or the mic key while it listens: drawn in the latched colour.
+bool latched_key(const PanelView& view, const Key& key, const std::set<int>& modifiers) {
+    const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
+    return modifiers.contains(code) || (key.action == "CapsLock" && view.keyboard->caps()) ||
+           (key.action == "NumLock" && view.keyboard->num()) ||
+           (view.dictation_capturing && key.icon == Icon::Mic);
+}
 void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double phase = 1,
               double ring = 0) {
-    const auto& t = *view.theme;
     const auto modifiers = view.keyboard->modifiers();
     std::set<int> legend_modifiers;
     for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
@@ -550,6 +614,17 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
             legend_modifiers.insert(code);
         }
     }
+    const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
+    const bool latched = latched_key(view, key, modifiers) && !listening;
+    const bool disabled = view.disabled_keys.contains(key.id);
+    // A latched face carries its own legend colour; everything below draws
+    // with this theme so every mark on the face follows it.
+    std::optional<Theme> inked;
+    if ((latched || listening) && view.theme->latched_legend != view.theme->legend) {
+        inked = *view.theme;
+        inked->legend = inked->latched_legend;
+    }
+    const auto& t = inked ? *inked : *view.theme;
     const auto r = key.bounds;
     // The side begins below the resting face. A fixed-size face moves down
     // over it; changing face height would make a pressed key look stretched.
@@ -557,22 +632,27 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     rounded(cr, side, t.radius);
     gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
     Rect face{r.x, r.y + amount * t.travel, r.width, r.height};
-    const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
-    const bool latched = modifiers.contains(code) ||
-                         (key.action == "CapsLock" && view.keyboard->caps()) ||
-                         (key.action == "NumLock" && view.keyboard->num());
-    const bool disabled = view.disabled_keys.contains(key.id);
-    const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
-    rounded(cr, face, t.radius);
     if (latched || listening) {
-        source(cr, t.latched);
-        cairo_fill(cr);
+        fill_latched(cr, t, face, t.radius);
     } else if (view.hovered_keys.contains(key.id) && !disabled) {
-        // The whole face lifts toward the hover colour, not only its top.
-        gradient(cr, face, mix(t.hover, t.legend, .1), mix(t.middle, t.hover, .85),
-                 mix(t.bottom, t.hover, .5));
+        rounded(cr, face, t.radius);
+        if (light_theme(t)) {
+            // A light key keeps its own shading, lightest at the top, and
+            // takes on the hover colour evenly.
+            gradient(cr, face, mix(t.top, t.hover, .7), mix(t.middle, t.hover, .7),
+                     mix(t.bottom, t.hover, .7));
+        } else {
+            // The whole face lifts toward the hover colour, not only its top.
+            gradient(cr, face, mix(t.hover, t.legend, .1), mix(t.middle, t.hover, .85),
+                     mix(t.bottom, t.hover, .5));
+        }
     } else {
+        rounded(cr, face, t.radius);
         gradient(cr, face, t.top, t.middle, t.bottom);
+    }
+    if (t.latched_finish == "neon" && !latched && !listening && amount > 0) {
+        // A pressed key lights the same tube, as far as it has travelled.
+        neon_tube(cr, t, face, t.radius, amount);
     }
     if (listening) {
         // Five bars that stay in place; each eases from its old height to its
@@ -592,7 +672,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         if (view.dictation_recognizing) {
             draw_ring(cr, t, face, ring);
         }
-        draw_where(cr, view, face);
+        draw_where(cr, view, t, face);
         return;
     }
     if (key.icon != Icon::None) {
@@ -606,7 +686,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
             draw_ring(cr, t, face, ring);
         }
         if (key.icon == Icon::Mic) {
-            draw_where(cr, view, face);
+            draw_where(cr, view, t, face);
         }
         if (key.icon == Icon::Mic && view.dictation_download) {
             // A slim track along the face's foot fills as the model arrives,
@@ -862,15 +942,22 @@ void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
 }
 // A keycap face for buttons and dropdowns: the keys' own gradient and hover.
 void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool selected, bool enabled) {
-    rounded(cr, r, t.radius);
     if (selected && enabled) {
-        source(cr, t.latched);
-        cairo_fill(cr);
-    } else if (!enabled) {
+        fill_latched(cr, t, r, t.radius);
+        return;
+    }
+    rounded(cr, r, t.radius);
+    if (!enabled) {
         source(cr, mix(t.bottom, t.surface, .4));
         cairo_fill(cr);
     } else {
-        gradient(cr, r, hovered ? t.hover : t.top, t.middle, t.bottom);
+        if (hovered && light_theme(t)) {
+            // As on the keys: a light cap keeps its shading under the hover colour.
+            gradient(cr, r, mix(t.top, t.hover, .7), mix(t.middle, t.hover, .7),
+                     mix(t.bottom, t.hover, .7));
+        } else {
+            gradient(cr, r, hovered ? t.hover : t.top, t.middle, t.bottom);
+        }
     }
 }
 // A switch in place of a checkbox: a recessed track and a keycap knob that
@@ -879,17 +966,16 @@ void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hover
     constexpr double width = 56, height = 30;
     const Rect track{r.x + r.width - width, r.y + (r.height - height) / 2, width, height};
     cairo_push_group(cr);
-    rounded(cr, track, height / 2);
     if (on) {
-        source(cr, t.latched);
-        cairo_fill(cr);
+        fill_latched(cr, t, track, height / 2);
     } else {
-        source(cr, Color{t.surface.r * .55, t.surface.g * .55, t.surface.b * .55});
+        rounded(cr, track, height / 2);
+        source(cr, recede(t, t.surface, .45));
         cairo_fill_preserve(cr);
         cairo_save(cr);
         cairo_clip(cr);
         auto* shade = cairo_pattern_create_linear(0, track.y, 0, track.y + 8);
-        cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, .5);
+        cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, light_theme(t) ? .12 : .5);
         cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, 0);
         cairo_set_source(cr, shade);
         cairo_paint(cr);
@@ -907,11 +993,12 @@ void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hover
     cairo_set_source_rgba(cr, 0, 0, 0, .3);
     cairo_fill(cr);
     rounded(cr, cap, knob / 2);
-    // Off, the knob is a light keycap; on, it is nearly the legend's white.
-    const Color top = on ? t.legend : mix(t.top, t.legend, .35);
-    gradient(cr, cap, hovered && enabled ? mix(top, t.legend, .3) : top,
-             on ? t.legend : mix(t.middle, t.legend, .25),
-             on ? mix(t.legend, t.bottom, .25) : mix(t.bottom, t.legend, .1));
+    // Off, the knob is a light keycap; on, it takes the latched legend's colour.
+    const Color ink = on ? t.latched_legend : t.legend;
+    const Color top = on ? ink : mix(t.top, t.legend, .35);
+    gradient(cr, cap, hovered && enabled ? mix(top, ink, .3) : top,
+             on ? ink : mix(t.middle, t.legend, .25),
+             on ? mix(ink, t.bottom, .25) : mix(t.bottom, t.legend, .1));
     cairo_pop_group_to_source(cr);
     cairo_paint_with_alpha(cr, enabled ? 1 : .4);
 }
@@ -920,14 +1007,15 @@ void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hover
 // lower lip. Every colour derives from the theme. Returns the well's colour.
 Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     const double radius = t.radius + 2;
-    const Color well{t.surface.r * .55, t.surface.g * .55, t.surface.b * .55};
+    const Color well = recede(t, t.surface, .45);
     rounded(cr, r, radius);
     source(cr, well);
     cairo_fill_preserve(cr);
     cairo_save(cr);
     cairo_clip(cr);
     auto* shade = cairo_pattern_create_linear(0, r.y, 0, r.y + 10);
-    cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, .55);
+    // A light field needs only a hint of shade to read as inset.
+    cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, light_theme(t) ? .12 : .55);
     cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, 0);
     cairo_set_source(cr, shade);
     cairo_paint(cr);
@@ -966,7 +1054,7 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     // The measuring layout itself, so the text lands exactly where App's
     // cursor moves expect it.
     auto* layout = editor_layout(view);
-    const Color amber{.96, .72, .35};
+    const Color amber = t.warning;
     // Underlines a byte range of the text on each of its line pieces.
     auto underline = [&](std::size_t begin, std::size_t end, double thickness) {
         auto* iter = pango_layout_get_iter(layout);
@@ -1048,7 +1136,7 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         rounded(cr, r, radius);
         cairo_clip(cr);
         cairo_rectangle(cr, band.x, band.y, band.width, band.height);
-        cairo_set_source_rgb(cr, well.r * .6, well.g * .6, well.b * .6);
+        source(cr, recede(t, well, .4));
         cairo_fill(cr);
         cairo_move_to(cr, band.x, band.y + .5);
         cairo_line_to(cr, band.x + band.width, band.y + .5);
@@ -1510,10 +1598,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     cairo_rectangle(cr, r.x, r.y, r.width, r.height);
                     cairo_clip(cr);
                 }
-                rounded(cr, tab.bounds, t.radius);
-                source(cr, tab.active ? t.latched : tab.pressed || tab.hovered ? t.hover : t.bottom);
-                cairo_fill(cr);
-                draw_icon(cr, tab.icon, tab.bounds, t.legend, 24);
+                if (tab.active) {
+                    fill_latched(cr, t, tab.bounds, t.radius);
+                } else {
+                    rounded(cr, tab.bounds, t.radius);
+                    source(cr, tab.pressed || tab.hovered ? t.hover : t.bottom);
+                    cairo_fill(cr);
+                }
+                draw_icon(cr, tab.icon, tab.bounds, tab.active ? t.latched_legend : t.legend, 24);
                 cairo_restore(cr);
             }
             draw_well(cr, t, emoji_well(picker.grid));
@@ -1524,15 +1616,21 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 const Rect face{cell.bounds.x + 3, cell.bounds.y + 3, cell.bounds.width - 6,
                                 cell.bounds.height - 6};
                 if (cell.clear) {
-                    rounded(cr, face, t.radius);
-                    source(cr, cell.pressed ? t.latched : cell.hovered ? t.hover : t.bottom);
-                    cairo_fill(cr);
-                    draw_icon(cr, Icon::Clear, face, t.legend, 24);
+                    if (cell.pressed) {
+                        fill_latched(cr, t, face, t.radius);
+                    } else {
+                        rounded(cr, face, t.radius);
+                        source(cr, cell.hovered ? t.hover : t.bottom);
+                        cairo_fill(cr);
+                    }
+                    draw_icon(cr, Icon::Clear, face, cell.pressed ? t.latched_legend : t.legend, 24);
                     continue;
                 }
-                if (cell.pressed || cell.hovered) {
+                if (cell.pressed) {
+                    fill_latched(cr, t, face, t.radius); // Like the tabs.
+                } else if (cell.hovered) {
                     rounded(cr, face, t.radius);
-                    source(cr, cell.pressed ? t.latched : t.hover); // Like the tabs.
+                    source(cr, t.hover);
                     cairo_fill(cr);
                 }
                 emoji_image(cell.text, cell.bounds);
@@ -1575,7 +1673,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .12);
                 cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
-                label(cr, preview.text[i], r, size * .5, view.language->font, t.legend, true);
+                label(cr, preview.text[i], r, size * .5, view.language->font,
+                      static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
             }
         }
         if (view.composing && !view.settings) {
@@ -1618,7 +1717,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_save(cr);
                 cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
                 cairo_clip(cr);
-                const Color warning{.96, .72, .35}; // the editor's and address popup's amber
+                const Color warning = t.warning; // the editor's and address popup's amber
                 label(cr, field.text, field.bounds, field.size, view.language->font,
                       !field.enabled  ? disabled_legend(t)
                       : field.warning ? warning
@@ -1648,12 +1747,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_clip(cr);
             }
             const auto r = control.bounds;
-            const auto legend = control.enabled ? t.legend : disabled_legend(t);
+            // Text on a selected control sits on the latched colour.
+            const auto legend = !control.enabled ? disabled_legend(t)
+                                : control.selected && control.style != ControlStyle::TextField
+                                    ? t.latched_legend
+                                    : t.legend;
             const bool hovered = control.enabled && view.hovered_controls.contains(control.id);
             if (control.style == ControlStyle::Scrollbar) {
                 // A quiet pill, lit white under the laser and while dragged.
                 rounded(cr, r, 3);
-                source(cr, control.selected || hovered ? t.legend : t.hover);
+                // A light theme's hover is a pale tint that would read as a
+                // stripe on its case; a shade of the legend stays quiet there.
+                source(cr, control.selected || hovered ? t.legend
+                           : light_theme(t)            ? mix(t.surface, t.legend, .22)
+                                                       : t.hover);
                 cairo_fill(cr);
                 cairo_restore(cr);
                 return;
@@ -1665,9 +1772,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     break;
                 case ControlStyle::MenuItem:
                     // Only the item under the laser and the current choice show.
-                    if (hovered || control.selected) {
+                    if (control.selected && control.enabled) {
+                        fill_latched(cr, t, {r.x + 5, r.y + 3, r.width - 10, r.height - 6}, t.radius);
+                    } else if (hovered) {
                         rounded(cr, {r.x + 5, r.y + 3, r.width - 10, r.height - 6}, t.radius);
-                        source(cr, control.selected && control.enabled ? t.latched : t.hover);
+                        source(cr, t.hover);
                         cairo_fill(cr);
                     }
                     label(cr, control.label, {r.x + 20, r.y, r.width - 40, r.height}, 21,
@@ -1714,14 +1823,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_restore(cr);
                 return;
             }
-            const auto color =
-                control.enabled && control.selected
-                    ? t.latched
-                    : (control.enabled && view.hovered_controls.contains(control.id) ? t.hover
-                                                                                     : t.bottom);
-            rounded(cr, r, control.style == ControlStyle::Checkbox ? 3 : t.radius);
-            source(cr, color);
-            cairo_fill_preserve(cr);
+            const double radius = control.style == ControlStyle::Checkbox ? 3 : t.radius;
+            if (control.enabled && control.selected) {
+                fill_latched(cr, t, r, radius);
+                rounded(cr, r, radius);
+            } else {
+                rounded(cr, r, radius);
+                source(cr, control.enabled && view.hovered_controls.contains(control.id) ? t.hover
+                                                                                         : t.bottom);
+                cairo_fill_preserve(cr);
+            }
             if (view.settings && control.style != ControlStyle::Scrollbar &&
                 control.style != ControlStyle::MenuItem) {
                 source(cr, legend);
@@ -1805,9 +1916,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_stroke(cr);
             for (const auto& choice : popup.choices) {
                 if (choice.hovered) {
-                    rounded(cr, choice.bounds, t.radius);
-                    source(cr, t.latched);
-                    cairo_fill(cr);
+                    fill_latched(cr, t, choice.bounds, t.radius);
                 }
                 emoji_image(choice.text, choice.bounds);
             }
@@ -1891,8 +2000,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_fill(cr);
             using Tone = PanelView::AddressView::Tone;
             label(cr, popup.message, popup.hint, 17, view.language->font,
-                  popup.tone == Tone::Error     ? Color{.95, .48, .42}
-                  : popup.tone == Tone::Warning ? Color{.96, .72, .35}
+                  popup.tone == Tone::Error     ? t.error
+                  : popup.tone == Tone::Warning ? t.warning
                                                 : disabled_legend(t),
                   false, PANGO_ALIGN_LEFT);
             for (const auto& control : view.controls) {

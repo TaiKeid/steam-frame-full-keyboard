@@ -268,6 +268,21 @@ Theme parse_theme(const std::string& json) {
     t.hover = color(o, "hover", "#969ba3");
     t.latched = color(o, "latched", "#517ca6");
     t.disabled = color(o, "disabled", "#46494d");
+    auto optional_color = [&](const char* name, Color fallback) {
+        return field(o, name, json_type_string, true) ? color(o, name) : fallback;
+    };
+    // Light amber and coral read on dark cards; a light theme's dark legend
+    // calls for deeper ones.
+    const bool light_legend = .2126 * t.legend.r + .7152 * t.legend.g + .0722 * t.legend.b > .5;
+    t.warning = optional_color("warning", light_legend ? Color{.96, .72, .35} : Color{.5, .3, 0});
+    t.error = optional_color("error", light_legend ? Color{.95, .48, .42} : Color{.66, .21, .16});
+    t.latched_top = optional_color("latched_top", t.latched);
+    t.latched_bottom = optional_color("latched_bottom", t.latched);
+    t.latched_legend = optional_color("latched_legend", t.legend);
+    t.latched_finish = text(o, "latched_finish", "flat", true);
+    if (t.latched_finish != "flat" && t.latched_finish != "neon") {
+        throw std::runtime_error("latched_finish must be flat or neon");
+    }
     t.surface_radius = number(o, "surface_radius", 0, 40);
     t.radius = number(o, "key_radius", 0, 25);
     t.depth = number(o, "key_depth", 0, 15);

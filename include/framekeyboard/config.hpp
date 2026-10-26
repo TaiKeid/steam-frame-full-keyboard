@@ -20,6 +20,15 @@ struct Theme {
     std::string id, name;
     Color surface, top, middle, bottom, side_top, side_bottom, legend;
     Color hover, latched, disabled;
+    // Notice colours for text on the case and cards; their defaults depend on
+    // whether the legend is light (dark theme) or dark (light theme).
+    Color warning, error;
+    // The latched fill runs from latched_top through latched to latched_bottom
+    // (flat by default); latched_legend is the text on it (the legend by
+    // default). The finish is "flat" or "neon" (a dark face inside a glowing
+    // tube, also drawn on pressed keys).
+    Color latched_top, latched_bottom, latched_legend;
+    std::string latched_finish{"flat"};
     double surface_radius{}, radius{}, depth{}, travel{}, duration_ms{};
     double font_size{20}, small_font_size{13}, padding{20};
 };

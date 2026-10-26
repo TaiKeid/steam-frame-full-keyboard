@@ -366,6 +366,34 @@ int main() {
             validate_selection(profiles, {layout, id, "graphite"});
             exercise(profiles.layouts.at(layout), profiles.themes.at("graphite"), language);
         }
+        // Every bundled theme paints the same frames incrementally as in full.
+        for (const auto& [id, theme] : profiles.themes) {
+            validate_selection(profiles, {"en-us-full", "en-us", id});
+            exercise(profiles.layouts.at("en-us-full"), theme, profiles.languages.at("en-us"));
+        }
+        // Notice colours default by the legend's lightness; a theme may set its own.
+        const std::string base =
+            R"({"schema_version":1,"id":"t","name":"T","surface":"#101010","surface_radius":20,)"
+            R"("key_top":"#303030","key_middle":"#282828","key_bottom":"#202020",)"
+            R"("key_side_top":"#151515","key_side_bottom":"#0a0a0a","key_radius":8,"key_depth":3.5,)"
+            R"("key_press_travel":3,"press_duration_ms":80,)";
+        const auto dark = parse_theme(base + R"("legend":"#ffffff"})");
+        const auto light = parse_theme(base + R"("legend":"#202020"})");
+        const auto custom = parse_theme(base + R"("legend":"#202020","warning":"#ff0000"})");
+        if (!(dark.warning == Color{.96, .72, .35} && light.warning.r < .6 && light.error.r < .7 &&
+              custom.warning == Color{1, 0, 0})) {
+            throw std::runtime_error("notice colours follow the legend unless the theme sets them");
+        }
+        // The latched fill is flat with the legend on it unless the theme says otherwise.
+        const auto lit = parse_theme(
+            base + R"("legend":"#ffffff","latched":"#d4a52e","latched_top":"#f6e3a1",)"
+                   R"("latched_bottom":"#9a6f17","latched_legend":"#2b1d02","latched_finish":"neon"})");
+        if (!(dark.latched_top == dark.latched && dark.latched_bottom == dark.latched &&
+              dark.latched_legend == dark.legend && dark.latched_finish == "flat" &&
+              lit.latched_top != lit.latched && lit.latched_legend != lit.legend &&
+              lit.latched_finish == "neon")) {
+            throw std::runtime_error("latched tokens default to a flat fill under the legend");
+        }
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
