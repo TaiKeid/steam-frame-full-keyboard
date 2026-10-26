@@ -605,6 +605,9 @@ class App {
     // hosted provider, or none without dictation.
     Icon recognition_place() const;
     bool capturing_{};
+    // A game is running and this capture hears its sound: the status line
+    // says so while capturing. The helper reports it once per capture.
+    bool game_sound_{};
     // The mic key's last five levels, 0–8, oldest first; cut to nine steps
     // so the bars redraw only on visible changes, and not at all in silence.
     std::vector<int> mic_levels_; // Six, as PanelView::dictation_levels.

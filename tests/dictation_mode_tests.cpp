@@ -1484,11 +1484,14 @@ void microphone_tests() {
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
     Sink sink;
     App app(options, sink);
-    open_editor(app);
-    wait_until(app, [&] { return !editor_text(app).empty(); });
-    require(app.view().status == "Game sound may be picked up: Steam's voice filter cuts words." &&
-                !app.view().dictation->notice_error,
-            "the bypassed filters are mentioned quietly in the status line");
+    const std::string notice = "Game sounds may be picked up during a play session.";
+    press(app, "Dictation");
+    wait_until(app, [&] { return app.view().status == notice; });
+    require(app.view().dictation && !app.view().dictation->notice_error,
+            "while listening in a game, the status line says game sound may come through");
+    press(app, "Dictation");
+    settle_pause(app);
+    require(app.view().status.empty(), "and it goes when listening stops");
 }
 
 void card_tests() {

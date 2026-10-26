@@ -373,7 +373,7 @@ Helper to keyboard:
 | `{"op":"capture","on":false,"reason":R}` | Capture stopped by itself: `silence` after 60 s without speech, or an error code. |
 | `{"op":"error","reason":R}` | A fixed error code. Capture stops and pending phrases are dropped. |
 | `{"op":"paused"}` | The answer to `capture` off. Every phrase spoken before the pause has been announced, so Send can wait for exactly those. |
-| `{"op":"microphone","unfiltered":true}` | Capture records the microphone in front of SteamOS's voice filters while they are on, which happens while a game runs, so game sound may be picked up. Sent at most once per capture; the keyboard says so in the status line. |
+| `{"op":"microphone","unfiltered":true}` | Capture records the microphone in front of SteamOS's voice filters while they are on, which happens while a game runs, so game sound may be picked up. Sent at most once per capture; the keyboard says so in the status line while capturing. |
 | `{"op":"cancelled"}` | The answer to `cancel`. The keyboard ignores every capture packet sent before it, such as a phrase that started just before the cancel arrived. |
 | `{"op":"test","ok":true}` / `{"op":"test","ok":false,"reason":R}` | The Test result. |
 
@@ -799,7 +799,7 @@ The owner dictated with a game running locally and speech played from a phone, o
 | After noise suppression (the default source) | 5.5 s of the 20 s muted to exact zeros; sentences mangled. |
 
 - **Fix:** while capturing, the helper looks for the one microphone that smart source filters target (`pw-dump`), starts `pw-record` without automatic linking, and links the microphone's channels to it through the manager socket. Without that socket, a single clear target or a working link within 1 s, it records the default source as before. A linked recorder that delivers nothing for 1 s, such as after a lost link, is replaced by the default source for the rest of that capture. Without a game this records the same audio as before.
-- **Game sound:** the microphone then hears the game too, quietly. While the filters are linked, at capture start or at a later phrase start, the status line says game sound may be picked up. With game sound under the speech, the phrase detector found pauses less often, so phrases can run longer.
+- **Game sound:** the microphone then hears the game too, quietly. While the filters are linked, at capture start or at a later phrase start, the status line says "Game sounds may be picked up during a play session." until capture stops (owner's wording, without mentioning filters). With game sound under the speech, the phrase detector found pauses less often, so phrases can run longer.
 - **On the headset (r35):** with a game running, the owner found accuracy good, and the notice appeared.
 
 ## Open questions

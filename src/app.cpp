@@ -694,7 +694,9 @@ PanelView App::build_view(bool picker) const {
     v.status = resizing_   ? "Release trigger to keep this size"
                : dragging_ ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
                                                          : "Release trigger to place keyboard")
-                           : (status_.empty() ? startup_status_ : status_);
+                           : !status_.empty() ? status_
+                           : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
+                                                       : startup_status_;
     if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
@@ -3547,6 +3549,7 @@ bool App::start_capture() {
         return false;
     }
     capturing_ = true;
+    game_sound_ = false;
     if (!dictation_open_) {
         // A new Type as I speak session: its own context and spacing, and
         // the field it types into.
@@ -4176,11 +4179,11 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         dirty = true;
         break;
     case Kind::Microphone:
-        // Said quietly in the status line, in both modes, never blocking.
+        // Shown in the status line only while capturing, never blocking.
         std::cout << (direct_ ? "Type as I speak" : "Dictation")
                   << ": recording the microphone without the game's voice filters.\n"
                   << std::flush;
-        status_ = "Game sound may be picked up: Steam's voice filter cuts words.";
+        game_sound_ = true;
         dirty = true;
         break;
     case Kind::Test:
