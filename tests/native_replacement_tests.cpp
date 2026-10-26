@@ -1085,7 +1085,7 @@ void resident_close() {
         return false;
     };
     auto click = [](App& app, const std::string& id) {
-        // The Experimental card is cut off at the right until the row scrolls.
+        // The Integration card is cut off at the right until the row scrolls.
         const auto shown = app.view();
         if (std::none_of(shown.controls.begin(), shown.controls.end(),
                          [&](const Control& c) { return c.id == id; })) {

@@ -1,6 +1,6 @@
 # Experimental native keyboard replacement
 
-In Settings → Experimental, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. Replacement alone changes no startup settings or Steam files. The separate **Start with SteamOS** checkbox is off by default and can only be edited while replacement is checked.
+In Settings → Integration, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. Replacement alone changes no startup settings or Steam files. The separate **Start with SteamOS** checkbox is off by default and can only be edited while replacement is checked.
 
 The current replacement bridge requires Python 3 and Steam's existing debugger at `127.0.0.1:8080`. It uses that local connection to install temporary keyboard hooks in Steam's UI. Ordinary Full Keyboard typing works without the debugger. If the debugger or required interfaces are unavailable, replacement stays inactive and native requests keep using Steam's keyboard. The saved preference is retained for a later available connection.
 

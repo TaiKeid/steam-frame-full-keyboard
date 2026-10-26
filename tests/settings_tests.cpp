@@ -48,7 +48,7 @@ bool has(const PanelView& view, const std::string& id) {
 }
 void click(App& app, const std::string& id, unsigned pointer = 0) {
     if (!has(app.view(), id) && app.view().settings) {
-        // The Experimental card is cut off at the right until the row scrolls.
+        // The Integration card is cut off at the right until the row scrolls.
         app.move(pointer, 800, 300);
         app.scroll(pointer, 1000, 0);
         static double now = 100;
@@ -970,8 +970,8 @@ void app_settings() {
     app.show_settings();
     const auto cards = app.view().cards;
     require(cards.size() == 4 && cards[1].title == "General" && cards[2].title == "Dictation" &&
-                cards[3].title == "Experimental",
-            "production settings contains Languages and Layouts, General, Dictation and Experimental");
+                cards[3].title == "Integration",
+            "production settings contains Languages and Layouts, General, Dictation and Integration");
     require(cards[3].bounds.x + cards[3].bounds.width >
                     SettingsUi::viewport.x + SettingsUi::viewport.width &&
                 cards[3].bounds.x < SettingsUi::viewport.x + SettingsUi::viewport.width - 80,
@@ -1419,7 +1419,7 @@ void native_replacement_settings() {
     CaptureSink sink;
     App app(options, sink);
     require(!app.replace_native_keyboard(), "replacement defaults off");
-    // Experimental is the fourth card, cut off until the row scrolls.
+    // Integration is the fourth card, cut off until the row scrolls.
     auto open = [&] {
         app.show_settings();
         app.move(0, 800, 300);
@@ -1430,7 +1430,7 @@ void native_replacement_settings() {
     };
     open();
     const auto view = app.view();
-    const auto experimental = view.cards.back().bounds;
+    const auto integration = view.cards.back().bounds;
     const auto startup = control(view, "start-with-steamos");
     require(!startup.enabled && !startup.selected &&
                 !startup.hit(startup.bounds.x + 4, startup.bounds.y + 4),
@@ -1443,12 +1443,12 @@ void native_replacement_settings() {
     const auto label =
         std::find_if(view.field_labels.begin(), view.field_labels.end(),
                      [](const FieldLabel& f) { return f.text == "Replace native keyboard"; });
-    require(view.cards.back().title == "Experimental" && label != view.field_labels.end(),
-            "replacement belongs to Experimental");
-    require(label->left && label->bounds.x == experimental.x + 30 &&
+    require(view.cards.back().title == "Integration" && label != view.field_labels.end(),
+            "replacement belongs to Integration");
+    require(label->left && label->bounds.x == integration.x + 30 &&
                 checkbox.x > label->bounds.x + label->bounds.width &&
-                checkbox.x + checkbox.width == experimental.x + experimental.width - 24,
-            "experimental label is at the left inset and its checkbox at the right edge");
+                checkbox.x + checkbox.width == integration.x + integration.width - 24,
+            "integration label is at the left inset and its checkbox at the right edge");
     click(app, "replace-native-keyboard");
     require(!app.replace_native_keyboard(), "replacement edit stays pending");
     require(control(app.view(), "start-with-steamos").enabled,

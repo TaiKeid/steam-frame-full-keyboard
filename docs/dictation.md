@@ -22,7 +22,7 @@ Dictation turns speech into text. The user speaks into a local editor on the key
   - On device: one multilingual model for every dictation language. English and Spanish are the ones it does well; for the others, Settings warns that accuracy is low and a self-hosted server gives better results (owner, 2026-10-26).
   - A language profile without dictation support hides the mic key. Only Japanese JIS has none: it types through the system's own input method, which the keyboard cannot deliver dictated text to.
 - **On device by default** (owner, 2026-10-26), which needs the model downloaded first: the mic key appears once it is. Audio leaves the Frame only in Server mode, only to the configured host, and only for a dictation session's phrases or a Test. That includes phrases still queued when capture stops.
-- **Settings:** a Dictation card of its own, third, before Experimental.
+- **Settings:** a Dictation card of its own, third, before Integration.
 - **Privacy:** on the Frame, audio and editor text stay in memory only. Nothing is logged or written to disk. The keyboard never reads the clipboard; it writes it only when Send is set to Paste (owner decision, 2026-10-25), and then holds just the sent text.
 - **Release:** not in 0.9.0.
 - **Credit:** the helper process, `pw-record` capture, transcript cleanup and repetition guard follow the dictation pull request by amirhh00 and adepssimius (`TaiKeid/steam-frame-full-keyboard#2`). That pull request vendored whisper.cpp and ggml into the repository and ran them on the Frame, and is not merged; its ideas are reimplemented on the current code.
@@ -196,7 +196,7 @@ On a recognizer failure, capture stops, and the failed phrase and every phrase q
 
 ## Settings
 
-A new **Dictation** card is placed third: Languages and Layouts, General, Dictation, Experimental. It contains:
+A new **Dictation** card is placed third: Languages and Layouts, General, Dictation, Integration. It contains:
 
 - **Dictation** dropdown, saved as `dictation`, with three choices in this order (owner, 2026-10-26):
   - **Off**;
@@ -237,7 +237,7 @@ Mic key visibility: the mic key appears only when dictation is usable and the ac
 
 The modes never fall back on their own. Audio never goes to a server while the user chose on-device recognition. In Server mode, a **Fall back to on device** switch (default off) lets a phrase the server could not recognize, because it is unreachable or timed out, be recognized on the Frame instead, once the model is downloaded; it is shown without blocking or covering anything, so the user knows (owner, 2026-10-26).
 
-Four cards no longer fit the 1564 px settings viewport. Today three 509 px cards with 18 px gaps fill it almost exactly (1563 px), which hides that the row scrolls. Cards become slightly narrower, so three show in full and the start of the fourth is cut off at the right edge, hinting that the row scrolls horizontally. About 470 px gives three full cards and a visible 100 px of Experimental. Labels must still fit beside the controls: at 470 px the label space beside a 318 px dropdown shrinks from about 123 to 84 px, so the dropdown narrows too. The exact widths are settled with rendered settings images. The change ships with the Dictation card; with only three narrower cards the row would end in empty space instead of a cut-off card.
+Four cards no longer fit the 1564 px settings viewport. Today three 509 px cards with 18 px gaps fill it almost exactly (1563 px), which hides that the row scrolls. Cards become slightly narrower, so three show in full and the start of the fourth is cut off at the right edge, hinting that the row scrolls horizontally. About 470 px gives three full cards and a visible 100 px of Integration. Labels must still fit beside the controls: at 470 px the label space beside a 318 px dropdown shrinks from about 123 to 84 px, so the dropdown narrows too. The exact widths are settled with rendered settings images. The change ships with the Dictation card; with only three narrower cards the row would end in empty space instead of a cut-off card.
 
 ## On-device recognition
 
