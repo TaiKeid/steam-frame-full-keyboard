@@ -579,7 +579,7 @@ void App::update_settings_ui() {
            field(ControlKind::DictationDirect,
                  checkbox("dictation-direct", "Type as I speak",
                           pending_dictation_direct_ && pending_dictation_ != "off",
-                          pending_dictation_ != "off", "Skips the editor"))}},
+                          pending_dictation_ != "off", "Skips the editor but lower accuracy"))}},
          {"experimental",
           "Experimental",
           {field(ControlKind::ReplaceNativeKeyboard,
