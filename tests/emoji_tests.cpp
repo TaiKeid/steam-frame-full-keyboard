@@ -624,6 +624,50 @@ void text_output_tests() {
     require(recorded.commits == std::vector<std::string>{"😀"} && sink.text.empty(),
             "an emoji types through the text output and nothing reaches the target past it");
 }
+// With FRAMEKEYBOARD_TEST_RENDER_DIR, an image of a held emoji's skin tones.
+void tone_render() {
+    const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR");
+    if (!render) {
+        return;
+    }
+    TemporaryDirectory directory;
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    App app(options, sink);
+    const auto [px, py] = key_center(app, "picker");
+    app.down(0, px, py, 1);
+    app.up(0, px, py);
+    wait_for_emoji(app);
+    if (!app.emoji_open()) {
+        return;
+    }
+    const auto [tx, ty] = center(app.view().emoji->tab_list[2].bounds); // after recent and smileys
+    app.down(0, tx, ty, monotonic_seconds());
+    app.up(0, tx, ty);
+    // The grid glides to the tab; a press during the glide only stops it.
+    for (const double until = monotonic_seconds() + 1.5; monotonic_seconds() < until;) {
+        app.tick(monotonic_seconds());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    wait_for_emoji(app);
+    // Waving hands are among the people, a little way down the tab.
+    const auto people = app.view();
+    const auto* wave = cell(*people.emoji, "👋");
+    require(wave, "the people tab shows a waving hand");
+    const auto [x, y] = center(wave->bounds);
+    const double now = monotonic_seconds();
+    app.down(0, x, y, now);
+    app.tick(now + .6);
+    wait_for_emoji(app);
+    require(app.view().emoji->popup.has_value(), "holding it opens its skin tones");
+    app.paint(monotonic_seconds());
+    app.renderer.write_png(fs::path(render) / "framekeyboard-emoji-tones.png");
+    app.cancel_pointer(0);
+}
 void app_tests() {
     TemporaryDirectory directory;
     TextSink sink;
@@ -910,6 +954,7 @@ int main() {
         stick_tests();
         picker_tests();
         app_tests();
+        tone_render();
         text_output_tests();
         paint_tests();
         shutdown_tests();

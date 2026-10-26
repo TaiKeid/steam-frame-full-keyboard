@@ -46,6 +46,9 @@ double visible_layout_width(const PanelView& view) {
     return removed && right > 0 ? right : view.layout->width;
 }
 namespace {
+// How far the flick preview's caps and the skin tone menu raise their soft
+// shadows; repaints cover them.
+constexpr double flick_shadow = 8, tone_shadow = 12;
 Color disabled_legend(const Theme& theme) {
     return {(theme.legend.r + theme.disabled.r) / 2, (theme.legend.g + theme.disabled.g) / 2,
             (theme.legend.b + theme.disabled.b) / 2};
@@ -717,10 +720,12 @@ std::optional<Rect> flick_preview_bounds(const PanelView& view) {
             bottom = std::max(bottom, r.y + r.height);
         }
     }
-    // Whole pixels, with room for the outline.
-    left = std::floor(left - 2);
-    top = std::floor(top - 2);
-    return Rect{left, top, std::ceil(right + 2) - left, std::ceil(bottom + 2) - top};
+    // Whole pixels, with room for the shadow, which spreads sideways by half
+    // its depth and down by all of it.
+    left = std::floor(left - flick_shadow / 2 - 1);
+    top = std::floor(top - 3); // the gutter around each cap
+    return Rect{left, top, std::ceil(right + flick_shadow / 2 + 1) - left,
+                std::ceil(bottom + flick_shadow + 1) - top};
 }
 Rect panel_case_bounds(const PanelView& view) {
     const auto p = placement(view, true);
@@ -1315,7 +1320,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (old.popup != now.popup) {
             for (const auto* popup : {&old.popup, &now.popup}) {
                 if (*popup) {
-                    damage_area(pixel_bounds((*popup)->bounds, 3));
+                    damage_area(pixel_bounds((*popup)->bounds, tone_shadow + 1));
                 }
             }
         }
@@ -1543,19 +1548,34 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         if (const auto cells = flick_cells(view)) {
             // Above the keys, like the trail; partial repaints redraw it inside their clip.
+            // Raised keycaps floating over the keys: their shadows first, so
+            // none falls on a neighbouring cap, then the caps with the keys'
+            // hover gradient and a faint light along the top edge.
             const auto& preview = *view.flick_preview;
             const double size = (*cells)[0].height;
+            auto used = [&](std::size_t i) { return i == 0 || !preview.text[i].empty(); };
             for (std::size_t i = 0; i < cells->size(); ++i) {
-                if (i > 0 && preview.text[i].empty()) {
+                if (used(i)) {
+                    soft_shadow(cr, (*cells)[i], t.radius, flick_shadow);
+                }
+            }
+            for (std::size_t i = 0; i < cells->size(); ++i) {
+                if (!used(i)) {
                     continue; // A direction this key does not use.
                 }
-                rounded(cr, (*cells)[i], t.radius);
-                source(cr, static_cast<int>(i) == preview.selected ? t.latched : t.top);
-                cairo_fill_preserve(cr);
-                source(cr, t.legend);
-                cairo_set_line_width(cr, 1.5);
+                const auto& r = (*cells)[i];
+                // A gutter in the case's colour sets each cap off from the
+                // keys beneath, as the gaps between keys do.
+                rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
+                source(cr, t.surface);
+                cairo_fill(cr);
+                draw_cap(cr, t, r, true, static_cast<int>(i) == preview.selected, true);
+                cairo_move_to(cr, r.x + t.radius, r.y + 1.5);
+                cairo_line_to(cr, r.x + r.width - t.radius, r.y + 1.5);
+                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .12);
+                cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
-                label(cr, preview.text[i], (*cells)[i], size * .5, view.language->font, t.legend, true);
+                label(cr, preview.text[i], r, size * .5, view.language->font, t.legend, true);
             }
         }
         if (view.composing && !view.settings) {
@@ -1769,14 +1789,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         // The skin tones of a held emoji, above everything in the picker.
         if (view.emoji && view.emoji->popup && !view.settings) {
+            // A raised menu, like the dropdowns: its edge drawn by light and
+            // shadow rather than an outline.
             const auto& popup = *view.emoji->popup;
             const auto r = popup.bounds;
-            rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
-            source(cr, t.legend);
+            const double radius = t.radius + 2;
+            soft_shadow(cr, r, radius, tone_shadow);
+            rounded(cr, r, radius);
+            source(cr, mix(t.bottom, t.surface, .25));
             cairo_fill(cr);
-            rounded(cr, r, t.radius);
-            source(cr, t.bottom);
-            cairo_fill(cr);
+            cairo_move_to(cr, r.x + radius, r.y + 1.5);
+            cairo_line_to(cr, r.x + r.width - radius, r.y + 1.5);
+            cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+            cairo_set_line_width(cr, 1);
+            cairo_stroke(cr);
             for (const auto& choice : popup.choices) {
                 if (choice.hovered) {
                     rounded(cr, choice.bounds, t.radius);
