@@ -170,7 +170,7 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - The card shows the model's state: not downloaded, downloading, ready or failed.
   - **Delete model** removes the downloaded model.
 - **Server:**
-  - A **Server** field, saved as `dictation_server`. It holds `host:port`, for example `studio.local:8080` or `192.168.1.20`, and port 8080 is assumed when it is left out. This is all the keyboard asks for; everything else is configured on the server.
+  - A **Server** field, saved as `dictation_server`. It holds `host:port`, for example `speech.local:8031` or `192.168.1.20`, and port 8031 is assumed when it is left out. The default avoids 8080, which is common and which Steam on the Frame already uses for its own debugging port. This is all the keyboard asks for; everything else is configured on the server.
   - A state line: not configured, reachable or unreachable.
   - A **Test** button that checks the server.
 - **Type as I speak** checkbox, saved as `dictation_direct`, default false.
@@ -245,7 +245,7 @@ The reference is whisper.cpp's `whisper-server`, at the version used in the meas
 - **Path:** `--inference-path /v1/audio/transcriptions`.
 - **Decoding:** non-speech tokens suppressed (`--suppress-nst`), no timestamps (`--no-timestamps`).
 - **No `--convert`:** the keyboard already sends 16 kHz mono WAV. With conversion on, the server writes each upload to a temporary file.
-- **Network:** listening on the LAN address (`--host`, `--port`).
+- **Network:** listening on the LAN address on port 8031 (`--host <LAN address> --port 8031`).
 
 Its request fields match the protocol above. The exact command, running it as a background service, and its logging behavior are verified and documented in M1.
 
@@ -261,7 +261,7 @@ Servers with their own protocols, such as Home Assistant's Wyoming Faster Whispe
 
 ### Setup instructions
 
-The repository ships instructions only, no server code:
+The repository ships instructions only, no server code; they are in [speech server setup](speech-server.md). They cover:
 
 - installing or building `whisper-server` on Windows, macOS and Linux:
   - **Windows:** NVIDIA (CUDA) and other GPUs (Vulkan).
@@ -284,6 +284,7 @@ The repository ships instructions only, no server code:
   - plain HTTP to a local server is accepted without any notice.
 - **HTTPS:** an `https` address is verified against the system's certificates, which covers hosted providers. Self-signed certificates get no special handling; users who want encryption on their own network can put a reverse proxy with a real certificate in front of the server.
 - **To be decided before M2:** third-party providers and API keys (see [open questions](#open-questions)).
+- **Other voices:** the microphone picks up nearby speech, such as a video playing on a phone, and dictation transcribes it like the user's own.
 - **Logging on the Frame:** no audio and no transcripts. Whether the server logs is up to its configuration; the setup guide points this out.
 - **Replies are untrusted input:** they are validated and cleaned as described under [capturing](#capturing), and in dictation mode they only reach the editor until Send.
 
@@ -313,16 +314,15 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - All of App's typed text goes through one `TextOutput`, so the editor can take the target's place.
   - A retry after a per-character timeout types only the unacknowledged rest, instead of retyping delivered characters.
   - Shift+Enter starts a new line in multi-line Steam fields, such as the friends chat message box, and Enter still sends.
-- [ ] **M1 Reference server and microphone:**
-  - Run `whisper-server` on a Linux desktop with a GPU. Verify the protocol above: its fields, the `/inference` fallback for a server started without `--inference-path`, and the `model` field.
-  - Check what the server logs, and that uploads are not written to disk; `--convert` writes them to temporary files.
-  - Write the setup guide for Windows, macOS and Linux (see [setup instructions](#setup-instructions)).
-  - Measure end-to-end time from the Frame for 3 s and 10 s phrases over Wi-Fi.
+- [ ] **M1 Reference server and microphone:** server part done 2026-10-25; microphone checks partly done. Results are in [M1 results](#m1-results-2026-10-25).
+  - Done: `whisper-server` on a Linux desktop with a GPU. The fields, the `/inference` fallback and the ignored `model` field are verified.
+  - Done: what the server logs (no transcripts) and that uploads stay in memory without `--convert`.
+  - Done: the [setup guide](speech-server.md) for Windows, macOS and Linux. Only Linux is verified; the macOS and Windows steps are untested.
+  - Done: end-to-end time from the Frame for 3 s and 10 s phrases over Wi-Fi.
   - **Microphone on the Frame:**
-    - Check that `pw-record` at 16 kHz mono 16-bit records the headset microphone in the headset session with SteamVR running.
-    - Check which source it actually links to, without relying on a fixed node number, and that stdout is raw samples, not a container.
-    - Check mute and loss of the device, and recording while a game plays sound.
-    - Record level samples for tuning phrase detection: fan noise, breathing, quiet speech, short answers and speech running past 25 s.
+    - Done: `pw-record` at 16 kHz mono 16-bit records the headset microphone in raw samples. It links to the default source by name.
+    - Done in part: taking the headset off silences the microphone. Recording while a game plays sound is not tested.
+    - Done in part: level samples with steady background noise, which found the noise gate. Not tested: whether the gate clips the start of a word, breathing, quiet speech, short answers and speech running past 25 s. These need a quiet room with no other speakers, and fit the live tests in M3c.
 - [ ] **M2 Helper, server path:** capture, level, phrase detection, requests and the protocol, plus:
   - **Lifetime:**
     - The helper exits when the keyboard's socket closes or the keyboard stops making progress, and takes `pw-record` with it.
@@ -440,7 +440,53 @@ Findings:
 - **First request is slower.** On Server B, the GPU backend compiled its shaders on the first request of a new process (7.7 s). Later processes took about 0.4 s from the driver's cache, so a long-running server pays this once.
 - **Keep the full window.** Pull request #2's window settings with an output cap still degraded every model.
 - **Chinese stays around 10%** for every model. This may partly be how the reference text writes numbers and wording; it was not investigated.
-- **Not measured:** network time from the Frame to a server.
+- **Network time from the Frame:** measured in [M1](#m1-results-2026-10-25).
+
+## M1 results (2026-10-25)
+
+### Server
+
+`whisper-server` v1.9.5 was built with Vulkan on a Linux desktop with a high-end discrete GPU. It ran large-v3-turbo `q5_0` with the [reference options](speech-server.md#server-options) on port 8031.
+
+- **Fields:** `language`, `prompt`, `temperature` and `response_format` are honored, and `model` is ignored.
+  - The reply is `{"text":" …\n"}`, with a leading space and a trailing newline for cleanup to trim.
+  - A request without a file gets HTTP 400 with the plain text `Invalid request`, not JSON.
+- **Path fallback:** a server started with the default path answers 404 on `/v1/audio/transcriptions` and transcribes on `/inference`.
+- **Logging and storage:**
+  - Without `--print-realtime`, the server prints no transcripts; it logs each upload's file name, length and language. The keyboard therefore always sends the fixed name `phrase.wav`.
+  - Without `--convert`, uploads are decoded in memory.
+- **Silence:** half a second of silence came back as " you", Whisper's usual invention on empty audio. This confirms that silence is never sent; the Test button still passes, because any valid reply does.
+- **First request:** 5 s, while the GPU backend prepared itself. Later requests are fast, so a long-running server pays this once.
+- **systemd:** the same command ran as a transient systemd user unit, and the Frame reached it.
+
+Round trips from the Frame over Wi-Fi, 10 requests each, the server warm:
+
+| Phrase | Total time | Median |
+| --- | --- | --- |
+| 3 s (96 KB) | 0.13–0.16 s | 0.14 s |
+| 10 s (320 KB) | 0.16–0.21 s | 0.19 s |
+
+Ping was about 8 ms. The network adds 30–50 ms to recognition, mostly for the upload.
+
+### Microphone
+
+- **Source:**
+  - The default source is a loopback, `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`, in front of the ALSA microphone.
+  - `pw-record --raw --rate 16000 --channels 1 --format s16` links to its two channels and delivers raw samples, about 32 KB a second.
+  - The ALSA source itself and Steam's echo-cancel and noise-suppression sources gave no data to a second client, so the helper records the default source.
+- **Only while worn:** the Frame runs its microphone only while the headset is worn. Off the head, the microphone node stays suspended, and the loopback delivers exact zeros at the normal rate, not an error.
+- **Noise gate:** the default source has a noise gate.
+  - About 1 s after the input drops below its threshold, it outputs exact zeros.
+  - Steady background noise (a dishwasher) was below the threshold. It came through only while speech held the gate open, at a median of about −33 dBFS.
+  - The gate stayed open through pauses of about 1.5 s between words.
+  - Speech peaked at about −20 dBFS and averaged −37 to −47 dBFS over half a second.
+- **Other speakers:** the microphone picks up nearby speech. A phone playing a video across the room held the gate open and came back word for word, so dictation transcribes any voice it hears.
+
+What this means for the design:
+
+- **Phrase detection:** exact zeros mean certain silence, but the gate's hold is longer than the 0.6 s end-of-phrase pause. Detecting the end of a phrase therefore still needs the adaptive noise floor, measured while the gate is open and ignoring zero frames.
+- **Word starts:** the 0.3 s pre-roll cannot restore audio the gate muted. Whether the gate clips the start of a word is the main open microphone question; it is tested by transcribing known sentences in M3c.
+- **Headset off:** a microphone stopped by taking the headset off looks like silence, so the 60 s silence stop ends such a session. Reading the microphone node's state to report it sooner is a *proposal* for M2.
 
 ## Open questions
 
