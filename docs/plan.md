@@ -39,10 +39,6 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Broader application testing for Unicode delivery and native shortcuts across system keymaps.
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
-- Possible future integration API so other programs can show and dismiss the keyboard; not scheduled. Two candidates:
-  - A session D-Bus service with `Show`, `Hide`, `Toggle` and a `Visible` property, possibly also squeekboard's `sm.puri.OSK0` interface for existing callers. Typing goes to the focused app.
-  - Text sessions that return typed text only to the calling program instead of injecting it, for VR overlay tools.
-
-  Every hide or disconnect must release held keys.
+- Shell integration, scheduled after the first public release: alternative shells launch the keyboard in hosted mode and control it over an inherited connection. A standalone keyboard has no shell-control protocol. Presentation, placement, themes, typing contexts, settings, dictation, silent updates, pointer forwarding and a commits-only text sink are drafted in [shell integration](integration.md), with its implementation order.
 
 Swipe typing is planned in [swipe typing](swipe-typing.md) and not yet implemented. Dictation is designed in [dictation](dictation.md): recognition on a user-hosted speech server, with a limited on-device mode for English and Spanish. It is not started and not part of 0.9.0. The emoji picker is implemented; see [emoji picker](emoji.md) and its acceptance list. No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
