@@ -722,6 +722,29 @@ First part: the helper connected to the editor.
 - **Third headset try (r24, live words, Paste):** worked well in a desktop text editor (owner, 2026-10-26).
 - **Diagnostics:** the log records each session's request, each phrase's length, whether its commits were queued or why they wait, helper codes and why a session stopped, never the text.
 
+## M6 measurements (2026-10-27)
+
+Whisper small on the Frame's CPU with Whisper's normal 30 s window, greedy decoding, `nice 10`, the M0 benchmark built for `armv8.6-a+dotprod+fp16+i8mm` from whisper.cpp v1.9.5, and the 20 FLEURS clips per language from the [measurements](#measurements-2026-10-24). The f16 models came from the pinned revision with their SHA-256 checked and were quantized on the development machine; the 3 s phrases are the first 3 s of eight clips with 0.6 s of silence.
+
+| Model, threads | WER | Clip (about 10 s) | 3 s phrase | Peak memory |
+| --- | --- | --- | --- | --- |
+| small q4_0, 4 | EN 5.4%, ES 6.5% | 1.9–2.0 s | 1.8 s | 312 MiB |
+| small q5_1, 4 | EN 5.4%, ES 5.4% | 5.2–5.3 s | 5.1 s | 352 MiB |
+| small q8_0, 4 | EN 5.2%, ES 5.4% | 2.1 s | 1.9 s | 426 MiB |
+| small.en q4_0, 4 | EN 5.7% | 2.0 s | 1.9 s | 311 MiB |
+| small.en q5_1, 4 | EN 5.2% | 5.3 s | 5.1 s | 351 MiB |
+| small.en q8_0, 4 | EN 5.4% | 2.0 s | 1.9 s | 425 MiB |
+| small q4_0, 2 / 3 / 6 | EN 5.4% | 3.3 / 2.4 / 1.8 s | 3.2 / 2.3 / 1.7 s | 312 MiB |
+
+- **Quantization decides speed:** q4_0 and q8_0 use ggml's ARM int8 matrix paths (`i8mm`, `dotprod`); q5_1 has none and takes 2.5 times as long. M0 measured only q5_1, hence its 5 s per phrase.
+- **q8_0 is the best trade:** the best accuracy, 0.1–0.2 s slower than q4_0, and hosted ready-made at the pinned revision (`ggml-small-q8_0.bin`, 264 MB, SHA-256 `49c8fb02b65e6049…`), so the Frame needs no quantization step. q4_0 loses a point in Spanish and must be made from the 488 MB f16 file.
+- **small.en gains nothing** over the multilingual model, so one model serves every language.
+- **The window costs the same for any phrase:** a 3 s phrase takes almost as long as a 10 s one.
+- **Threads:** 4 is the knee; 6 saves only 0.1 s.
+- **Loading** takes about 0.3 s and the first recognition about 2 s.
+- **Not yet measured:** CPU load in detail (the old benchmark does not report it; all threads stay busy while recognizing) and the effect on a running game.
+- **Other dictation forks** (checked 2026-10-27): none quantizes or targets the Frame's CPU features; one uses f16 `small.en` on the CPU, another f16 models through Vulkan on the GPU, which faulted the GPU during VR.
+
 ## Open questions
 
 The owner settled the behavior questions and the proposals on 2026-10-25; the rules are in the sections above. Still open:
