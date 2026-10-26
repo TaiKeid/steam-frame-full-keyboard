@@ -182,7 +182,7 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - A state line: not configured, reachable or unreachable.
   - A **Test** button that checks the server.
 - **Type as I speak** checkbox, saved as `dictation_direct`, default false.
-- **API key** state, shown only when a key file exists or `dictation_url` uses HTTPS: set or missing, with **Delete key** to remove the file. The key itself is never shown.
+- **API key** state: deferred with third-party providers (owner, 2026-10-25). For now dictation is set up for a self-hosted server or, later, on-device recognition; the client's `dictation_url` and key-file support from M2 stays, configured only in `config.json`. When providers are taken up, the card shows the key's state (set or missing) with **Delete key**, never the key itself.
 
 ### Entering the server address
 
@@ -419,7 +419,8 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
 - [ ] **M4 Settings:**
   - The Dictation card with the mode dropdown.
   - Narrower cards with the cut-off fourth card.
-  - The address popup with its mini keyboard, recent servers, Test, the non-local host warning, the API key state with Delete key, and the error overlays.
+  - The address popup with its mini keyboard, recent servers, Test, the non-local host warning and the error overlays.
+  - Self-hosted servers only; the API key state waits for third-party providers (see [Further work](#further-work)).
 - [ ] **M5a Languages:** Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
 - [ ] **M6 On-device mode:**
@@ -650,6 +651,8 @@ The owner settled the behavior questions and the proposals on 2026-10-25; the ru
 - **Proposals:** the remaining items marked *proposal* above.
 
 ## Further work
+
+- **Third-party providers:** Settings support for hosted OpenAI-compatible providers, including the API key state with Delete key. Deferred by the owner on 2026-10-25; the helper and `config.json` already support `dictation_url` and the key file.
 
 - Before release: the README's privacy note says the app does not read clipboard contents; add that Send set to Paste writes the sent text to it.
 
