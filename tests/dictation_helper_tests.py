@@ -351,10 +351,79 @@ except BrokenPipeError:
 '''
 
 
+FAKE_ENGINE = r'''
+import json, os, sys
+# Stands in for framekeyboard-whisper: counts its starts, answers each request
+# with how many samples it got.
+args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+with open(os.environ["FK_ENGINE_LOG"], "a") as log:
+    log.write("start " + args["--model"] + "\n")
+if not os.path.isfile(args["--model"]):
+    print(json.dumps({"error": "model"}), flush=True)
+    sys.exit(1)
+print(json.dumps({"ready": True}), flush=True)
+while True:
+    line = sys.stdin.buffer.readline()
+    if not line:
+        break
+    header = json.loads(line)
+    sys.stdin.buffer.read(header["samples"] * 2)
+    with open(os.environ["FK_ENGINE_LOG"], "a") as log:
+        log.write("prompt " + header["prompt"] + "\n")
+    print(json.dumps({"text": " on device %d" % header["samples"]}), flush=True)
+'''
+
+
+def fake_engine(test):
+    directory = Path(tempfile.mkdtemp())
+    test.addCleanup(shutil.rmtree, directory, True)
+    (directory / "engine.py").write_text(FAKE_ENGINE)
+    wrapper = directory / "engine"
+    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} -I {directory / 'engine.py'} \"$@\"\n")
+    wrapper.chmod(0o755)
+    model = directory / "ggml-small-q8_0.bin"
+    model.write_bytes(b"model")
+    log = directory / "engine.log"
+    os.environ["FK_ENGINE_LOG"] = str(log)
+    return wrapper, model, log
+
+
+class Device(unittest.TestCase):
+    def test_engine_loads_once_and_unloads_when_idle(self):
+        engine, model, log = fake_engine(self)
+        e = d.Engine(str(engine))
+        self.addCleanup(e.close)
+        self.assertEqual(e.recognize(str(model), "en", "Before.", PCM, d.Connection()), ("text", " on device %d" % (len(PCM) // 2)))
+        self.assertEqual(e.recognize(str(model), "en", "", PCM, d.Connection())[0], "text")
+        self.assertEqual(log.read_text().count("start"), 1)
+        process = e.process
+        e.unload_if_idle(time.monotonic())
+        self.assertIs(e.process, process)
+        e.unload_if_idle(time.monotonic() + d.DEVICE_IDLE + 1)
+        self.assertIsNone(e.process)
+        self.assertIsNotNone(process.poll())
+
+    def test_missing_model_and_engine(self):
+        engine, model, _ = fake_engine(self)
+        self.assertEqual(d.Engine(str(engine)).recognize(str(model) + ".gone", "en", "", PCM, d.Connection()),
+                         ("error", "model-missing"))
+        self.assertEqual(d.Engine(None).recognize(str(model), "en", "", PCM, d.Connection()),
+                         ("error", "device-failed"))
+
+    def test_cancel_kills_the_engine(self):
+        engine, model, _ = fake_engine(self)
+        e = d.Engine(str(engine))
+        self.addCleanup(e.close)
+        e.recognize(str(model), "en", "", PCM, d.Connection())
+        connection = d.Connection()
+        connection.abort()
+        self.assertEqual(e.recognize(str(model), "en", "", PCM, connection), ("error", "cancelled"))
+
+
 class Process:
     """The real helper on a private socket, with a fake recorder streaming `audio`."""
 
-    def __init__(self, test, audio, mode="stay", key=None, ca=None):
+    def __init__(self, test, audio, mode="stay", key=None, ca=None, engine=None):
         self.directory = Path(tempfile.mkdtemp())
         test.addCleanup(shutil.rmtree, self.directory, True)
         (self.directory / "audio.raw").write_bytes(audio)
@@ -370,7 +439,8 @@ class Process:
             key_file.chmod(0o600)
         self.sock, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         args = [sys.executable, "-I", str(HELPER), "--fd", str(child.fileno()), "--key-file", str(key_file),
-                "--recorder", str(wrapper)] + (["--ca-file", ca] if ca else [])
+                "--recorder", str(wrapper)] + (["--ca-file", ca] if ca else []) + \
+               (["--engine", str(engine)] if engine else [])
         env = dict(os.environ, FK_RECORDER_PID=str(self.pid_file))
         self.process = subprocess.Popen(args, pass_fds=(child.fileno(),), stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
@@ -503,6 +573,47 @@ class Helper(unittest.TestCase):
         helper.receive("text")
         self.assertEqual(len(self.server.requests), 1)
         self.assertNotIn("partial", [m["op"] for m in helper.seen])
+
+    def test_on_device_phrases_use_the_engine_with_the_keyboards_prompt(self):
+        engine, model, log = fake_engine(self)
+        helper = Process(self, TWO_PHRASES, engine=engine)
+        helper.send(op="configure", device=str(model), language="en")
+        helper.send(op="capture", on=True)
+        self.assertEqual(helper.receive("ready")["id"], 1)
+        helper.send(op="prompt", id=1, text="Before.")
+        first = helper.receive("text")
+        self.assertTrue(first["text"].startswith("on device") and "device" not in first)
+        ready = helper.receive("ready")
+        helper.send(op="prompt", id=ready["id"], text="Before. first")
+        helper.receive("text")
+        self.assertEqual(self.server.requests, [])
+        self.assertEqual(log.read_text().count("start"), 1)
+        self.assertIn("prompt Before.\n", log.read_text())
+
+    def test_fallback_recognizes_on_device_when_the_server_cannot(self):
+        engine, model, _ = fake_engine(self)
+        helper = Process(self, speech(1.0) + zeros(1.0), engine=engine)
+        with socket.socket() as closed:
+            closed.bind(("127.0.0.1", 0))
+            port = closed.getsockname()[1]
+        helper.send(op="configure", server=f"127.0.0.1:{port}", language="en", device=str(model),
+                    fallback=True)
+        helper.send(op="capture", on=True)
+        helper.send(op="prompt", id=helper.receive("ready")["id"], text="")
+        text = helper.receive("text")
+        self.assertTrue(text["text"].startswith("on device") and text["device"] is True)
+
+    def test_without_fallback_an_unreachable_server_is_an_error(self):
+        engine, model, log = fake_engine(self)
+        helper = Process(self, speech(1.0) + zeros(1.0), engine=engine)
+        with socket.socket() as closed:
+            closed.bind(("127.0.0.1", 0))
+            port = closed.getsockname()[1]
+        helper.send(op="configure", server=f"127.0.0.1:{port}", language="en", device=str(model))
+        helper.send(op="capture", on=True)
+        helper.send(op="prompt", id=helper.receive("ready")["id"], text="")
+        self.assertEqual(helper.receive("error")["reason"], "unreachable")
+        self.assertFalse(log.exists())
 
     def test_every_pause_is_confirmed(self):
         helper = self.start(speech(1.0), mode="loop")

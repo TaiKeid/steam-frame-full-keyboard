@@ -24,6 +24,7 @@ class Dictation {
         int level{};
         bool ok{};
         std::string text;   // Recognized text; never logged.
+        bool device{};      // Text: recognized on the Frame by the fallback.
         std::string reason; // Always one of the protocol's fixed codes.
     };
     struct Target {
@@ -31,6 +32,10 @@ class Dictation {
         std::string url;    // or a full base URL from config.json
         std::string model, language;
         bool live{}; // also recognize each phrase as it grows (Type as I speak)
+        // The on-device model file: recognition on the Frame, or with a
+        // server and `fallback`, for phrases the server could not take.
+        std::string device{};
+        bool fallback{};
     };
     // `helper` and `arguments` exist for tests; empty uses the installed helper.
     explicit Dictation(std::filesystem::path key_file, std::filesystem::path helper = {},

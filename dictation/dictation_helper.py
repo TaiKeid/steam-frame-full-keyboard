@@ -62,6 +62,9 @@ MAX_QUEUED = 8
 MAX_QUEUED_FRAMES = 120 * FRAMES_PER_SECOND
 CHARS_PER_SECOND = 25
 DEFAULT_PORT = 8031
+DEVICE_IDLE = 60.0  # the on-device model is unloaded after this long unused
+DEVICE_START_TIMEOUT = 30.0
+DEVICE_THREADS = 4
 UPLOAD_NAME = "phrase.wav"
 RECORDER = ["pw-record", "--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16",
             "--media-role", "Communication", "-"]
@@ -196,7 +199,23 @@ def wav_bytes(pcm):
 class Target:
     """Where phrases go: the user's own server (host:port) or a configured URL."""
 
-    def __init__(self, server=None, url=None, model=None, language=None):
+    def __init__(self, server=None, url=None, model=None, language=None, device=None, fallback=False,
+                 engine=None):
+        # On device: `device` is the model file; with a server, `fallback`
+        # lets a phrase the server could not take be recognized there.
+        if device is not None and (not isinstance(device, str) or not os.path.isabs(device) or
+                                   len(device) > 4096):
+            raise Failure("not-configured")
+        self.device, self.engine = device, engine
+        self.fallback = bool(fallback and device)
+        self.paths = []
+        if device and not server and not url:
+            self.https, self.host, self.port = False, None, 0
+            self.model, self.language = None, language
+            if language is not None and (not isinstance(language, str) or
+                                         not re.fullmatch(r"[a-z]{2,3}", language)):
+                raise Failure("not-configured")
+            return
         if bool(server) == bool(url):
             raise Failure("not-configured")
         if server:
@@ -247,6 +266,7 @@ class Connection:
     def __init__(self):
         self.lock = threading.Lock()
         self.socket = None
+        self.process = None
         self.aborted = False
 
     def attach(self, connection):
@@ -255,12 +275,22 @@ class Connection:
                 raise Failure("cancelled")
             self.socket = connection.sock
 
+    def attach_process(self, process):
+        with self.lock:
+            if self.aborted:
+                raise Failure("cancelled")
+            self.process = process
+
     def abort(self):
         with self.lock:
             self.aborted = True
             if self.socket:
                 with contextlib.suppress(OSError):
                     self.socket.shutdown(socket.SHUT_RDWR)
+            if self.process:
+                # The engine restarts on the next phrase; loading takes about 0.3 s.
+                with contextlib.suppress(OSError):
+                    self.process.kill()
 
 
 def multipart(fields, audio):
@@ -350,8 +380,132 @@ def clean(text, language, seconds):
     return text, None
 
 
-def recognize(target, key, pcm, prompt, connection, ca_file):
-    """Runs on the worker thread. Returns ("text", text), ("dropped", reason) or ("error", code)."""
+class Engine:
+    """framekeyboard-whisper, started on the first on-device phrase and kept
+    loaded until unused for DEVICE_IDLE. Only the worker thread recognizes;
+    the main loop only unloads it, under the same lock."""
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+        self.process = None
+        self.model = None
+        self.buffer = b""
+        self.used = 0.0
+
+    def recognize(self, model, language, prompt, pcm, connection):
+        with self.lock:
+            if not os.path.isfile(model):
+                return "error", "model-missing"
+            if self.process and (self.process.poll() is not None or self.model != model):
+                self._stop()
+            if self.process is None and not self._start(model):
+                return "error", "device-failed"
+            try:
+                connection.attach_process(self.process)
+            except Failure as failure:
+                return "error", str(failure)
+            header = json.dumps({"samples": len(pcm) // 2, "language": language or "",
+                                 "prompt": prompt or ""}, ensure_ascii=False).encode() + b"\n"
+            try:
+                self.process.stdin.write(header + pcm)
+                self.process.stdin.flush()
+                line = self._line(REQUEST_TIMEOUT)
+            except OSError:
+                line = None
+            self.used = time.monotonic()
+            if line is None:
+                self._stop()
+                return "error", "cancelled" if connection.aborted else "device-failed"
+            try:
+                reply = json.loads(line)
+            except ValueError:
+                reply = None
+            if not isinstance(reply, dict) or not isinstance(reply.get("text"), str):
+                return "error", "device-failed"
+            return "text", reply["text"]
+
+    def unload_if_idle(self, now):
+        if self.lock.acquire(blocking=False):
+            try:
+                if self.process and now - self.used > DEVICE_IDLE:
+                    self._stop()
+            finally:
+                self.lock.release()
+
+    def close(self):
+        with self.lock:
+            self._stop()
+
+    def _start(self, model):
+        if not self.path or not os.path.isfile(self.path):
+            return False
+        try:
+            self.process = subprocess.Popen(
+                [self.path, "--model", model, "--threads", str(DEVICE_THREADS)], stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True)
+        except OSError:
+            return False
+        self.model, self.buffer = model, b""
+        line = self._line(DEVICE_START_TIMEOUT)
+        with contextlib.suppress(ValueError, TypeError):
+            if line and json.loads(line).get("ready") is True:
+                return True
+        self._stop()
+        return False
+
+    def _line(self, timeout):
+        """The engine's next reply line, or None when it ends or is too slow."""
+        deadline = time.monotonic() + timeout
+        out = self.process.stdout.fileno()
+        while b"\n" not in self.buffer:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([out], [], [], left)[0]:
+                return None
+            data = os.read(out, 65536)
+            if not data or len(self.buffer) > MAX_REPLY:
+                return None
+            self.buffer += data
+        line, _, self.buffer = self.buffer.partition(b"\n")
+        return line.decode("utf-8", "replace")
+
+    def _stop(self):
+        process, self.process = self.process, None
+        if process is None:
+            return
+        with contextlib.suppress(OSError):
+            process.kill()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(1)
+        for stream in (process.stdin, process.stdout):
+            with contextlib.suppress(OSError):
+                stream.close()
+
+
+def recognize(target, key, pcm, prompt, connection, ca_file, fallback=True):
+    """Runs on the worker thread. Returns ("text", text), ("device-text", text)
+    when the fallback recognized it on the Frame, ("dropped", reason) or
+    ("error", code)."""
+    if target.device and not target.paths:
+        kind, value = target.engine.recognize(target.device, target.language, prompt, pcm, connection)
+        return finish(kind, value, target, pcm)
+    result = recognize_server(target, key, pcm, prompt, connection, ca_file)
+    if (fallback and target.fallback and result[0] == "error" and result[1] in ("unreachable", "timeout")
+            and not connection.aborted):
+        kind, value = target.engine.recognize(target.device, target.language, prompt, pcm, connection)
+        kind, value = finish(kind, value, target, pcm)
+        return ("device-text", value) if kind == "text" else (kind, value)
+    return result
+
+
+def finish(kind, value, target, pcm):
+    if kind != "text":
+        return kind, value
+    text, reason = clean(value, target.language, len(pcm) / (2 * RATE))
+    return ("text", text) if text is not None else ("dropped", reason)
+
+
+def recognize_server(target, key, pcm, prompt, connection, ca_file):
     fields = [("response_format", "json"), ("temperature", "0")]
     if target.language:
         fields.append(("language", target.language))
@@ -400,8 +554,9 @@ class Phrase:
 
 
 class Helper:
-    def __init__(self, peer, recorder, key_file, ca_file):
+    def __init__(self, peer, recorder, key_file, ca_file, engine=None):
         self.peer, self.recorder_command, self.key_file, self.ca_file = peer, recorder, key_file, ca_file
+        self.engine = Engine(engine)
         self.target = None
         self.key = None
         self.capturing = False
@@ -468,7 +623,8 @@ class Helper:
     def configure(self, message):
         try:
             self.target = Target(message.get("server"), message.get("url"), message.get("model"),
-                                 message.get("language"))
+                                 message.get("language"), message.get("device"),
+                                 message.get("fallback") is True, self.engine)
         except Failure:
             self.target = None
             raise
@@ -587,7 +743,7 @@ class Helper:
         connection = Connection()
         self.inflight = ("phrase", head, connection)
         self.started = time.monotonic()
-        self.jobs.put((self.target, self.key, head.pcm, head.prompt, connection))
+        self.jobs.put((self.target, self.key, head.pcm, head.prompt, connection, True))
 
     def pump_live(self):
         """Recognizes the phrase being spoken so far, once nothing else waits."""
@@ -606,7 +762,8 @@ class Helper:
         self.inflight = ("partial", self.current, connection)
         self.started = time.monotonic()
         self.live_frames = frames
-        self.jobs.put((self.target, self.key, bytes(phrase), self.live_prompt, connection))
+        # A partial never falls back: the final request will, if it must.
+        self.jobs.put((self.target, self.key, bytes(phrase), self.live_prompt, connection, False))
 
     def start_test(self):
         if self.target is None:
@@ -618,16 +775,16 @@ class Helper:
         connection = Connection()
         self.inflight = ("test", None, connection)
         self.started = time.monotonic()
-        self.jobs.put((self.target, self.key, b"\0\0" * (RATE // 2), "", connection))
+        self.jobs.put((self.target, self.key, b"\0\0" * (RATE // 2), "", connection, False))
 
     def work(self):
         while True:
             job = self.jobs.get()
             if job is None:
                 return
-            target, key, pcm, prompt, connection = job
+            target, key, pcm, prompt, connection, fallback = job
             try:
-                result = recognize(target, key, pcm, prompt, connection, self.ca_file)
+                result = recognize(target, key, pcm, prompt, connection, self.ca_file, fallback)
             except Exception:  # never let a worker failure leave text or traces behind
                 result = ("error", "bad-reply")
             self.results.put((connection, result))
@@ -653,14 +810,19 @@ class Helper:
                 else:
                     self.send("test", ok=True)
             elif job == "partial":
-                # The words so far; one that returned nothing is simply skipped.
+                # The words so far; one that returned nothing is simply skipped,
+                # and with the fallback so is a failed one: the final request
+                # falls back instead.
                 if kind == "text":
                     self.send("partial", id=phrase, text=value)
-                elif kind == "error":
+                elif kind == "error" and not self.target.fallback:
                     self.fail(value)
             elif kind == "text":
                 self.queue.popleft()
                 self.send("text", id=phrase.id, text=value)
+            elif kind == "device-text":
+                self.queue.popleft()
+                self.send("text", id=phrase.id, text=value, device=True)
             elif kind == "dropped":
                 self.queue.popleft()
                 self.send("dropped", id=phrase.id, reason=value)
@@ -724,6 +886,8 @@ class Helper:
                     except Failure as failure:
                         self.fail(str(failure))
                 self.check_timeout()
+                if not (self.capturing or self.queue or self.inflight):
+                    self.engine.unload_if_idle(time.monotonic())
                 if (self.capturing or self.queue or self.inflight) and \
                         time.monotonic() - self.last_packet > ALIVE_TIMEOUT:
                     self.fail("keyboard-stalled")
@@ -734,6 +898,17 @@ class Helper:
         finally:
             self.drop_all()
             self.jobs.put(None)
+            self.engine.close()
+
+
+def engine_path():
+    """framekeyboard-whisper in an installed release, or in a build directory."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for candidate in (os.path.join(here, "..", "..", "..", "lib", "framekeyboard", "framekeyboard-whisper"),
+                      os.path.join(here, "..", "engines", "framekeyboard-whisper")):
+        if os.path.isfile(candidate):
+            return os.path.normpath(candidate)
+    return None
 
 
 def main():
@@ -743,6 +918,7 @@ def main():
     # Test-only seams; the keyboard never passes them.
     parser.add_argument("--recorder", default="")
     parser.add_argument("--ca-file", default=None)
+    parser.add_argument("--engine", default=None)
     args = parser.parse_args()
     harden()
     peer = socket.socket(fileno=args.fd)
@@ -754,7 +930,7 @@ def main():
     def interrupted(signum, frame):
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, interrupted)
-    Helper(peer, recorder, args.key_file, args.ca_file).run()
+    Helper(peer, recorder, args.key_file, args.ca_file, args.engine or engine_path()).run()
     return 0
 
 

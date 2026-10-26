@@ -65,3 +65,13 @@ keeps the fully-qualified emoji, their CLDR order and groups, and their
 single-tone skin variants. The source file is not vendored. `unicode/LICENSE`
 is the Unicode License v3 that covers it. Emoji images come from the system's
 color emoji font, which is not redistributed.
+
+## On-device dictation
+
+The optional `framekeyboard-whisper` engine statically links whisper.cpp and
+its ggml library at v1.9.5 (commit `d1be6fde11ac6e0407606b4e42fe72d34add8037`,
+MIT; `whisper.cpp/LICENSE`). `tools/build-whisper.sh` builds it from that pinned
+checkout for the CPU only; the source is not vendored. whisper.cpp's own
+`whisper-quantize` tool from the same checkout is installed beside it for the
+development 4-bit model. The Whisper model is not bundled: the user downloads
+it from Settings (docs/dictation.md, On-device recognition).

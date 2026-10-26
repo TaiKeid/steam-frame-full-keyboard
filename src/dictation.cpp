@@ -36,7 +36,8 @@ const std::set<std::string>& known_reasons() {
                                                "bad-reply",     "key-rejected",     "rate-limited",
                                                "backlog-full",  "keyboard-stalled", "invalid-command",
                                                "helper-exited", "silence",          "busy",
-                                               "empty",         "invalid",          "too-long"};
+                                               "empty",         "invalid",          "too-long",
+                                               "model-missing", "device-failed"};
     return reasons;
 }
 std::string reason_of(json_object* packet) {
@@ -184,6 +185,10 @@ bool Dictation::configure(const Target& target) {
             if (t.live) {
                 json_object_object_add(object, "live", json_object_new_boolean(true));
             }
+            add("device", t.device);
+            if (t.fallback) {
+                json_object_object_add(object, "fallback", json_object_new_boolean(true));
+            }
         },
         &target));
 }
@@ -302,6 +307,9 @@ void Dictation::tick(double now) {
                 } else {
                     event.kind = op == "partial" ? Event::Kind::Partial : Event::Kind::Text;
                     event.text.assign(value, length);
+                    json_object* device{};
+                    event.device = json_object_object_get_ex(message.get(), "device", &device) &&
+                                   json_object_get_boolean(device);
                 }
             }
         } else if (op == "paused") {
