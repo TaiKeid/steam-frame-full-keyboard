@@ -192,12 +192,15 @@ A new **Dictation** card is placed third: Languages and Layouts, General, Dictat
   - **On device**: every dictation language. With a language other than English or Spanish, a line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
   - **Server**: the user's own speech server.
 - **On device:**
-  - The card shows the model's state: not downloaded, downloading, ready or failed.
+  - The card shows the model's state: not downloaded, downloading with its progress, ready or failed.
+  - Applying On device without the model asks first, naming the download size; only then the download starts. Its progress also shows on the main keyboard without blocking it, and the mic key stays disabled until the model is ready.
   - **Delete model** removes the downloaded model.
+  - **Model** dropdown, development builds only, to compare formats: 8-bit (default), 5-bit and 4-bit.
 - **Server:**
   - A **Server** field, saved as `dictation_server`. It holds `host:port`, for example `speech.local:8031` or `192.168.1.20`, and port 8031 is assumed when it is left out. The default avoids 8080, which is common and which Steam on the Frame already uses for its own debugging port. This is all the keyboard asks for; everything else is configured on the server.
   - A state line: not configured, reachable or unreachable.
   - A **Test** button that checks the server.
+  - **Fall back to on device** switch, default off: a phrase the server cannot recognize is recognized on the Frame, once the model is downloaded, and a quiet mark shows that it happened.
 - **Type as I speak** switch, saved as `dictation_direct`, default false; available while dictation is on.
 - **API key** state: deferred with third-party providers (owner, 2026-10-25). For now dictation is set up for a self-hosted server or, later, on-device recognition; the client's `dictation_url` and key-file support from M2 stays, configured only in `config.json`. When providers are taken up, the card shows the key's state (set or missing) with **Delete key**, never the key itself.
 
@@ -218,26 +221,25 @@ Fallback: `dictation_server` can also be edited in `config.json`, over SSH or in
 Full Keyboard never scans the network or discovers servers. It contacts only the address the user typed: Test checks that address, and phrases go to it while capturing.
 
 Mic key visibility: the mic key appears only when dictation is usable and the active language profile has a `dictation` object, holding the Whisper language code and, for Japanese and Chinese, the script prompt.
-- **On device:** the model is ready.
+- **On device:** the model is ready and not being downloaded.
 - **Server:** a server address is set.
 
-The modes never fall back to each other automatically. Audio must not go to a server while the user chose on-device recognition, and on-device recognition cannot cover the server's languages.
+The modes never fall back on their own. Audio never goes to a server while the user chose on-device recognition. In Server mode, a **Fall back to on device** switch (default off) lets a phrase the server could not recognize, because it is unreachable or timed out, be recognized on the Frame instead, once the model is downloaded; it is shown without blocking or covering anything, so the user knows (owner, 2026-10-27).
 
 Four cards no longer fit the 1564 px settings viewport. Today three 509 px cards with 18 px gaps fill it almost exactly (1563 px), which hides that the row scrolls. Cards become slightly narrower, so three show in full and the start of the fourth is cut off at the right edge, hinting that the row scrolls horizontally. About 470 px gives three full cards and a visible 100 px of Experimental. Labels must still fit beside the controls: at 470 px the label space beside a 318 px dropdown shrinks from about 123 to 84 px, so the dropdown narrows too. The exact widths are settled with rendered settings images. The change ships with the Dictation card; with only three narrower cards the row would end in empty space instead of a cut-off card.
 
 ## On-device recognition
 
-A fallback when no server is available. It works best in English and Spanish; other languages are allowed with a warning (see [Settings](#settings)).
+Recognition on the Frame's CPU when no server is used, or as an opt-in fallback when the server fails. It works best in English and Spanish; other languages are allowed with a warning (see [Settings](#settings)). Decisions by the owner on 2026-10-27, after the [M6 measurements](#m6-measurements-2026-10-27):
 
-- **Model:** Whisper small, about 190 MB at 5-bit quantization. It is downloaded on Apply, like the earlier model-download design: pinned revision, SHA-256 built into the release, verified HTTPS, a temporary file renamed into place, and stored under `~/.local/share/framekeyboard/models/`. `uninstall.sh` removes it.
-- **Engine:** whisper.cpp at a pinned commit, built for the Frame's CPU outside Git (`armv8.6-a+dotprod+fp16+i8mm`, no GPU backend), with only its license in `third_party/`.
-- **Cost:** in the measurements, small took about 5 s per phrase with 4 threads and kept the CPU about 80% busy while transcribing. The setting therefore describes on-device recognition as slower and heavier than a server.
-- **Not measured:**
-  - 2 threads;
-  - the English-only `small.en` model;
-  - pull request #2's window settings with an output cap on the Frame.
-- **Kept from the measurements:** the Frame's GPU is never used. It made the dashboard unresponsive.
-- **Lifetime:** the model is loaded on the first phrase and unloaded about a minute after dictation mode ends.
+- **Model:** multilingual Whisper small, one model for every language. The default is 8-bit (`ggml-small-q8_0.bin`, 264 MB, about 2 s per phrase, 426 MiB loaded). Development builds offer a **Model** dropdown to compare formats: 8-bit, 5-bit (hosted, 190 MB) and 4-bit (made on the Frame from the 488 MB f16 file).
+- **Download:** only after the user confirms it in Settings, which names the size. From Hugging Face `ggerganov/whisper.cpp` at a pinned revision over verified HTTPS, with each file's SHA-256 built into the release; a temporary file is renamed into place under `~/.local/share/framekeyboard/models/`. Progress shows on the main keyboard without blocking it, and the mic key is disabled until the model is ready. **Delete model** removes it, and `uninstall.sh` too.
+- **Engine:** a small program of the keyboard's own, `framekeyboard-whisper`, built against whisper.cpp at a pinned commit for the Frame's CPU (`armv8.6-a+dotprod+fp16+i8mm`, no GPU backend). The build fetches that commit; the repository keeps only its license in `third_party/`. The dictation helper starts the engine and talks to it through pipes, so nothing listens on the network.
+- **Threads and priority:** 4 threads at `nice 10`; pinning to the mid cores or fewer threads is decided with the game measurements.
+- **Lifetime:** the model is loaded on the first phrase (about 0.3 s) and unloaded about a minute after dictation stops.
+- **Limits** (accepted): a phrase recognized within 3 s of its end; at most about 450 MiB while loaded and nothing once unloaded; no noticeable effect on a running game, checked with the frame-performance overlay while dictating. Battery and heat are the owner's to judge in testing.
+- **Features:** editor dictation and Type as I speak, without live words, which stay server-only; recognizing every second would keep four cores busy.
+- **Kept from the measurements:** the Frame's GPU is never used. It made the dashboard unresponsive, and another dictation fork reports GPU faults during VR.
 
 ## Speech server
 
@@ -442,11 +444,12 @@ Revised on 2026-10-25 after a second review of this plan. Every milestone keeps 
   - Spanish, Japanese and Chinese acceptance, script prompts, and composer commits into the editor.
 - [ ] **M5b Type as I speak:** built and host-tested 2026-10-26 (see [M5b results](#m5b-results-2026-10-26)); with live words and Paste, it worked for the owner in a desktop text editor the same day. A target change, a full queue and uncertain delivery are tested on the host only.
   - Its own acceptance for a target change mid-session, a full output queue and uncertain delivery.
-- [ ] **M6 On-device mode:**
-  - whisper.cpp build and small model download and delete.
-  - One multilingual model for all dictation languages; English and Spanish are its good ones, and the others show the low-accuracy warning in Settings (owner, 2026-10-26).
-  - Whether `small.en` is worth offering to English-only users is part of the measurements.
-  - Measure threads, the English-only model and the effect on a running game; acceptance limits for latency and CPU load agreed with the owner first.
+- [ ] **M6 On-device mode:** measured and decided 2026-10-27 (see [M6 measurements](#m6-measurements-2026-10-27) and [On-device recognition](#on-device-recognition)).
+  - The engine built from pinned whisper.cpp, run from the helper through pipes.
+  - Model download after confirmation, with progress on the keyboard and the mic disabled meanwhile; Delete model; the development Model dropdown.
+  - One multilingual model for all dictation languages; English and Spanish are its good ones, and the others show the low-accuracy warning in Settings (owner, 2026-10-26). `small.en` is not offered: it gained nothing.
+  - The opt-in fallback from the server to the device, with its indicator.
+  - The effect on a running game, measured in the headset against the accepted limits.
 
 ## Measurements (2026-10-24)
 
