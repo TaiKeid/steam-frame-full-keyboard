@@ -3538,6 +3538,12 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     if (keyboard_.pointer_pressed(pointer)) {
         return false;
     }
+    // As on the keyboard, a flick held by the other hand types first, so the
+    // reading keeps press order whichever hand lets go first.
+    if (flick_track_ && flick_track_->pointer != pointer) {
+        finish_flick();
+        follow_cursor();
+    }
     if (sending_) {
         // The editor is locked while it sends; Esc stops sending.
         if (key.action_kind != ActionKind::Key || key.action != "Escape" ||

@@ -745,6 +745,42 @@ void language_tests() {
         require(view.dictation->text == "Hello there.かあ" &&
                     view.dictation->preedit_end == view.dictation->preedit_begin,
                 "and commit into it");
+        // The other hand's press types the held flick first, whichever hand
+        // lets go first.
+        for (const bool reversed : {false, true}) {
+            const auto [kx, ky] = key_center(app, "Flick-ka");
+            const auto [sx, sy] = key_center(app, "Flick-sa");
+            require(app.down(0, kx, ky, clock) && app.down(1, sx, sy, clock + .05),
+                    "both hands' flick keys accept a press in the editor");
+            if (reversed) {
+                app.up(1, sx, sy);
+                app.up(0, kx, ky);
+            } else {
+                app.up(0, kx, ky);
+                app.up(1, sx, sy);
+            }
+            clock += .2;
+            app.tick(clock);
+        }
+        require(editor_text(app) == "Hello there.かあかさかさ",
+                "overlapping flicks keep press order in the editor");
+    }
+    write_config(directory.path, server, "ko-cheonjiin", "ko-12key");
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+        settle(app);
+        const auto [gx, gy] = key_center(app, "Flick-g");
+        const auto [ix, iy] = key_center(app, "Flick-i");
+        require(app.down(0, gx, gy, clock) && app.down(1, ix, iy, clock + .05),
+                "both hands' 천지인 keys accept a press in the editor");
+        app.up(1, ix, iy);
+        app.up(0, gx, gy);
+        press(app, "Enter");
+        require(editor_text(app) == "Hello there.기" && sink.text.empty() && sink.keys.empty(),
+                "천지인 composes into the editor in press order");
     }
     if (!CjkComposer::supported("chinese-pinyin-simplified")) {
         std::cout << "Pinyin in dictation mode skipped: engine absent.\n";

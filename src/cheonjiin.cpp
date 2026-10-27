@@ -8,8 +8,11 @@
 
 namespace framekeyboard {
 namespace {
-// The reading's bound, in units, as for the other composers.
+// The reading's bounds: 30 jamo or other units, as two-set Korean takes 30
+// keys, and 30 characters as shown, which one text commit must carry. A unit
+// can show as more than one character (ㆍㆍ, or a custom flick's text).
 constexpr std::size_t max_units = 30;
+constexpr long max_characters = 30;
 // Strokes are kept as i (ㅣ, the person), . (ㆍ, heaven) and - (ㅡ, earth).
 char stroke(const std::string& text) {
     return text == "ㅣ" ? 'i' : text == "ㆍ" ? '.' : text == "ㅡ" ? '-' : 0;
@@ -90,6 +93,34 @@ std::string CheonjiinComposer::Unit::strokes() const {
     return result;
 }
 void CheonjiinComposer::add(const std::string& text) {
+    const auto before = units_;
+    try {
+        append(text);
+        check();
+    } catch (...) {
+        units_ = before; // A refused key leaves the reading as it was.
+        throw;
+    }
+}
+void CheonjiinComposer::replace(const std::string& text) {
+    const auto before = units_;
+    try {
+        if (!units_.empty()) {
+            units_.pop_back();
+        }
+        append(text);
+        check();
+    } catch (...) {
+        units_ = before;
+        throw;
+    }
+}
+void CheonjiinComposer::check() const {
+    if (g_utf8_strlen(text().c_str(), -1) > max_characters) {
+        throw std::runtime_error("Commit this composition before typing more");
+    }
+}
+void CheonjiinComposer::append(const std::string& text) {
     if (text.empty()) {
         return;
     }
@@ -126,12 +157,6 @@ void CheonjiinComposer::add(const std::string& text) {
     }
     const bool consonant = jamo && initials.find(jamo) != std::u32string_view::npos;
     units_.push_back({consonant ? Unit::Kind::Consonant : Unit::Kind::Other, text, {}});
-}
-void CheonjiinComposer::replace(const std::string& text) {
-    if (!units_.empty()) {
-        units_.pop_back();
-    }
-    add(text);
 }
 void CheonjiinComposer::backspace() {
     if (units_.empty()) {

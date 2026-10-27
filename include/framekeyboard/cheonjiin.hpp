@@ -13,7 +13,8 @@ namespace framekeyboard {
 class CheonjiinComposer {
   public:
     // Adds what a key typed: a stroke, a vowel (a flick), a consonant, or
-    // other text such as punctuation. Throws once the reading is full.
+    // other text such as punctuation. Throws, keeping the reading, once it
+    // would exceed 30 units or 30 characters as shown.
     void add(const std::string& text);
     // Replaces the last unit, for a repeated toggle tap (ㄱ → ㅋ → ㄲ).
     void replace(const std::string& text);
@@ -37,5 +38,8 @@ class CheonjiinComposer {
         std::string strokes() const;
     };
     std::vector<Unit> units_;
+    void append(const std::string& text);
+    // Throws if the shown reading is longer than one commit may be.
+    void check() const;
 };
 } // namespace framekeyboard

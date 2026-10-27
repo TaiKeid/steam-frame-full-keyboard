@@ -3,6 +3,7 @@
 #include "framekeyboard/cjk.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <glib.h>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -139,6 +140,30 @@ void composer_rules() {
     require(full, "the reading is bounded at 30 jamo");
     c.add("ㆍ");
     require(c.text().ends_with("나"), "strokes still extend the last vowel in a full reading");
+    // The reading as shown is bounded too: ㆍㆍ is one unit but two characters,
+    // and one commit carries at most 30 characters of it.
+    c.cancel();
+    for (int i = 0; i < 10; ++i) {
+        c.add("ㆍ");
+        c.add("ㆍ");
+        c.add(".");
+    }
+    const auto shown = c.text();
+    require(g_utf8_strlen(shown.c_str(), -1) == 30, "30 characters fit");
+    auto refused = [&](auto change) {
+        try {
+            change();
+        } catch (const std::exception&) {
+            return c.text() == shown;
+        }
+        return false;
+    };
+    require(refused([&] { c.add("ㆍ"); }) && refused([&] { c.add("ㄱ"); }),
+            "a key past 30 characters is refused and the reading stays");
+    require(refused([&] { c.replace("……"); }), "a longer toggle choice is refused too");
+    c.replace(",");
+    require(c.last() == "," && g_utf8_strlen(c.text().c_str(), -1) == 30,
+            "a toggle that keeps the length still works");
 
     require(CjkComposer::supported("korean-cheonjiin"), "천지인 needs no engine module");
     CjkComposer composer("korean-cheonjiin");
@@ -338,6 +363,17 @@ void app_input() {
     require(sink.text.back() == "하," && sink.delivery.size() >= 2 &&
                 sink.delivery.front() == "commit" && sink.delivery[1] == "key" && preedit().empty(),
             "the reading commits before another key");
+
+    // A full reading still commits whole: ㆍㆍ counts as two characters.
+    for (int i = 0; i < 15; ++i) {
+        type("dot dot punct");
+    }
+    const auto full = preedit();
+    require(g_utf8_strlen(full.c_str(), -1) == 30 && full.ends_with("ㆍㆍ.") &&
+                app.view().status.find("Commit this composition") != std::string::npos,
+            "typing stops at 30 characters and says why");
+    press(app, "Enter", now += 1);
+    require(sink.text.back() == full && preedit().empty(), "Enter commits the full reading at once");
 
     type("o i dot dot");
     require(preedit() == "야", "야");
