@@ -1241,6 +1241,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 } else if (ime_local) {
                     japanese_key(*key, true, modifiers);
                     cjk_key(*key, true, modifiers);
+                    start_reading_repeat(pointer, *key, modifiers, now);
                 } else if (cancel_accent) {
                     keymap_->cancel_compose();
                     status_.clear();
@@ -1279,6 +1280,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 bool App::up(unsigned pointer, double x, double y) {
     if (address_repeat_ && address_repeat_->pointer == pointer) {
         address_repeat_.reset();
+    }
+    if (reading_repeat_ && reading_repeat_->pointer == pointer) {
+        reading_repeat_.reset();
     }
     if (!interaction_active_) {
         return false;
@@ -1368,6 +1372,9 @@ void App::cancel_pointer(unsigned pointer) {
     if (address_repeat_ && address_repeat_->pointer == pointer) {
         address_repeat_.reset();
     }
+    if (reading_repeat_ && reading_repeat_->pointer == pointer) {
+        reading_repeat_.reset();
+    }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_track_.reset();
     }
@@ -1404,6 +1411,7 @@ void App::cancel(bool discard_composition) {
     dictation_key_pointer_.reset();
     editor_repeat_.reset();
     address_repeat_.reset();
+    reading_repeat_.reset();
     editor_drag_.reset();
     pointer_positions_.clear();
     // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
@@ -1481,6 +1489,24 @@ bool App::tick(double now) {
             dirty = true;
         }
     }
+    if (reading_repeat_ && now >= reading_repeat_->next) {
+        if (!keyboard_.pointer_pressed(reading_repeat_->pointer) || !reading_open()) {
+            reading_repeat_.reset();
+        } else {
+            try {
+                japanese_key(reading_repeat_->key, true, reading_repeat_->modifiers);
+                cjk_key(reading_repeat_->key, true, reading_repeat_->modifiers);
+            } catch (const std::exception& error) {
+                status_ = error.what();
+            }
+            if (dictation_open_) {
+                editor_goal_x_.reset();
+                follow_cursor();
+            }
+            reading_repeat_->next = now + .04; // no catching up, as in the editor
+            dirty = true;
+        }
+    }
     if (address_repeat_ && now >= address_repeat_->next) {
         const auto held = pressed_controls_.find(address_repeat_->pointer);
         if (!address_ || held == pressed_controls_.end() ||
@@ -1540,7 +1566,9 @@ void App::set_dragging(bool dragging, bool resizing) {
     if (dragging_ == dragging) {
         return;
     }
-    cancel();
+    // Moving the panel leaves the target's focus alone, so an unfinished
+    // reading stays, as when the laser leaves the panel.
+    cancel(false);
     dragging_ = dragging;
     resizing_ = dragging && resizing;
     status_.clear();
@@ -2307,7 +2335,7 @@ void App::action(const ControlAction& command) {
         set_interaction_active(false);
         quit_ = true;
     } else if (kind == ControlKind::Pin) {
-        cancel();
+        cancel(false); // like a move: the reading stays
         const auto before = settings_;
         settings_.pinned = !settings_.pinned;
         status_.clear();
@@ -2349,7 +2377,7 @@ void App::action(const ControlAction& command) {
             show_settings();
         }
     } else if (kind == ControlKind::Recenter) {
-        cancel();
+        cancel(false); // like a move: the reading stays
         recenter_ = true;
     } else if (kind == ControlKind::Apply) {
         // Only a change to the settings that need the model asks: with On
@@ -3562,6 +3590,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         try {
             japanese_key(key, true, modifiers);
             cjk_key(key, true, modifiers);
+            start_reading_repeat(pointer, key, modifiers, now);
         } catch (const std::exception& error) {
             status_ = error.what();
         }
@@ -4466,6 +4495,13 @@ void App::finish_reveal() {
         reveal_.reset();
         follow_cursor();
         dirty = true;
+    }
+}
+
+void App::start_reading_repeat(unsigned pointer, const Key& key, const std::set<int>& modifiers,
+                               double now) {
+    if (key.action_kind == ActionKind::Key && key.action == "Backspace" && reading_open()) {
+        reading_repeat_ = ReadingRepeat{pointer, key, modifiers, now + .5};
     }
 }
 

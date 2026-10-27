@@ -170,6 +170,43 @@ void flick_input() {
     flick(app, "ka", 22, 60, 0);
     flick(app, "ka", 23, 0, 60);
     require(preedit() == "きくけこ", "flicks type the left, up, right and down kana");
+    // Moving, resizing, pinning or recentring the panel keeps the reading.
+    app.set_dragging(true);
+    app.set_dragging(false);
+    app.set_dragging(true, true);
+    app.set_dragging(false);
+    require(preedit() == "きくけこ", "moving or resizing the panel keeps the reading");
+    control(app, "recenter");
+    require(app.take_recenter() && preedit() == "きくけこ", "recentring keeps the reading");
+    control(app, "pin");
+    control(app, "pin");
+    require(preedit() == "きくけこ", "pinning keeps the reading");
+    {
+        // A held Backspace repeats on the reading and stops once it is empty,
+        // never reaching the target.
+        const auto sent = sink.keys.size();
+        const auto [x, y] = key_centre(app, "Backspace");
+        app.down(0, x, y, 40);
+        app.tick(40.3);
+        require(preedit() == "きくけ", "one deletion on press");
+        app.tick(40.6);
+        require(preedit() == "きく" && app.holds_repeat(0), "held Backspace repeats on the reading");
+        for (double now = 40.65; now < 41.5; now += .05) {
+            app.tick(now);
+        }
+        require(preedit().empty() && !app.holds_repeat(0) && sink.keys.size() == sent,
+                "the repeat stops at an empty reading and sends nothing");
+        app.up(0, x, y);
+    }
+    flick(app, "ka", 50, -60, 0);
+    flick(app, "ka", 51, 0, -60);
+    {
+        const auto [x, y] = key_centre(app, "Backspace");
+        app.down(0, x, y, 52);
+        app.up(0, x, y);
+        app.tick(53);
+        require(preedit() == "き", "a released Backspace does not repeat");
+    }
     clear();
     {
         const auto [x, y] = key_centre(app, "Flick-ka");

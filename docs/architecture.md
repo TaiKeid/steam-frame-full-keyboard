@@ -197,7 +197,7 @@ SteamOS's Desktop runs Plasma as one window on Gamescope's second X display: a n
 
 Measured on the Frame under full CPU load, with a disposable Brave receiver flipping *there* and *three* (`tests/text_replace_probe.cpp` drives it): whole-string commits scrambled 12 of 120 words, and the per-character path 0 of 120. Acknowledgement alone, about 5 ms apart, still let IBus reorder keys.
 
-The renderer reserves space for preedit/candidates during Japanese, Chinese and Korean composition. Kana/shift labels come from the selected language profile. Settings, profile changes, target-focus loss, hiding, dragging and recentering discard unfinished composition. Laser FocusLeave releases only the identified controller's keys and retains composition because it does not change application focus. Failed text submission keeps the preedit for recovery. The protocol reports submission availability, not application acceptance; application coverage needs separate tests.
+The renderer reserves space for preedit/candidates during Japanese, Chinese and Korean composition. Kana/shift labels come from the selected language profile. Settings, profile changes, target-focus loss and hiding discard unfinished composition. Laser FocusLeave releases only the identified controller's keys and retains composition because it does not change application focus; moving, resizing, pinning and recentering the panel release held keys and retain it for the same reason. Failed text submission keeps the preedit for recovery. The protocol reports submission availability, not application acceptance; application coverage needs separate tests.
 
 ## Swipe typing
 

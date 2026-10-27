@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Holding Backspace now repeats on an unfinished Japanese, Chinese or Korean reading, including flick input, instead of deleting one character per press. It stops once the reading is empty, so it never goes on to erase text already in the app.
+- Moving, resizing, pinning or recentering the keyboard no longer erases an unfinished Japanese, Chinese or Korean reading; it stays ready to convert or commit.
 - Holding Shift for half a second locks it, like a phone keyboard: every key gets Shift until you press Shift again, which helps when selecting text with the arrows. Shift keys show an arrow before their name, filled while locked.
 - A tap that trembles just past a key's edge no longer becomes a swipe: a swipe now starts only once the laser has clearly left the key.
 - The emoji picker waits for a larger movement before it scrolls, so a slightly unsteady hand still picks the emoji it pressed.

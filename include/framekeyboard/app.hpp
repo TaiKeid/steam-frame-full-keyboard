@@ -107,7 +107,8 @@ class App {
     // (docs/architecture.md, Input and focus).
     bool holds_repeat(unsigned pointer) const {
         return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer) ||
-               (address_repeat_ && address_repeat_->pointer == pointer);
+               (address_repeat_ && address_repeat_->pointer == pointer) ||
+               (reading_repeat_ && reading_repeat_->pointer == pointer);
     }
     void cancel(bool discard_composition = true);
     bool tick(double now);
@@ -846,6 +847,19 @@ class App {
     std::optional<double> editor_goal_x_;           // Column kept across Up and Down.
     std::optional<unsigned> dictation_key_pointer_; // Mic, Send and Undo act on release.
     std::optional<EditorRepeat> editor_repeat_;
+    // A held Backspace on a local reading (Japanese, Chinese or Korean) repeats
+    // until the reading is empty. Its press was local, so it never goes on to
+    // delete the target's text.
+    struct ReadingRepeat {
+        unsigned pointer{};
+        Key key;
+        std::set<int> modifiers;
+        double next{};
+    };
+    std::optional<ReadingRepeat> reading_repeat_;
+    bool reading_open() const { return !composition_.empty() || (cjk_ && !cjk_->empty()); }
+    void start_reading_repeat(unsigned pointer, const Key& key, const std::set<int>& modifiers,
+                              double now);
 };
 
 double monotonic_seconds();

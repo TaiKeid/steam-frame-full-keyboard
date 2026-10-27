@@ -142,9 +142,9 @@ has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
 
 Both modes keep a bounded preedit. Commit before the 30-input-character limit.
 Shortcuts and navigation that leave composition commit first; if delivery fails,
-the preedit stays visible and the forwarding action is blocked. Hiding, dragging,
-recentring, changing profiles, and closing discard unfinished preedit, as with
-Japanese. Automatic character repeat is not implemented for local composition.
+the preedit stays visible and the forwarding action is blocked. Hiding, changing
+profiles, and closing discard unfinished preedit, as with Japanese; moving,
+resizing, pinning and recentring the panel keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms, and stops once it is empty; the press stays local, so it never goes on to delete the target's text. Other composition keys do not repeat.
 
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.
 Both are loaded only when their language is selected. Missing libraries disable

@@ -50,6 +50,6 @@ Then select JIS (system IME) in Settings. Selecting JIS while still declaring a 
 
 ## Current limits and validation
 
-Reading is limited to roughly 30 Unicode characters per phrase, with at most 32 in one native commit. Candidate lists expose up to 128 alternatives per segment. Full paragraph editing, segment-boundary resizing, prediction, custom learned dictionaries, half-width kana conversion and repeat while holding composition keys are not implemented. The desktop preview composes locally and never sends OS input.
+Reading is limited to roughly 30 Unicode characters per phrase, with at most 32 in one native commit. Candidate lists expose up to 128 alternatives per segment. Full paragraph editing, segment-boundary resizing, prediction, custom learned dictionaries, half-width kana conversion and repeat while holding composition keys other than Backspace are not implemented. A held Backspace repeats on the reading, in the keyboard and in the dictation editor, and stops once the reading is empty. The desktop preview composes locally and never sends OS input.
 
 Host and ARM64 tests cover romaji, voiced/small kana, candidate selection, scripts, failed commit retention, cancellation, opt-in and modifier routing. The dedicated on-device Xwayland receiver verified 日本 via the native UTF-8 connection. That does not establish every nested desktop/browser or external system-IME combination; test a disposable field in the desired application.
