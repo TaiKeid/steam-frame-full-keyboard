@@ -586,6 +586,8 @@ class App {
     // The target refused the front phrase outright, so the queue kept no
     // retry: it waits for Enter, which is not sent, or Esc.
     bool direct_blocked_{};
+    // Type as I speak types at the Send pace; set while its text is going out.
+    bool direct_gap_{};
     // The last reason waiting phrases could not go out, logged once per change.
     std::string direct_wait_reason_;
     std::uint64_t direct_request_{}, native_request_{};

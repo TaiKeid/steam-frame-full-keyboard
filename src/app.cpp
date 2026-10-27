@@ -3928,6 +3928,11 @@ void App::flush_direct(double now) {
            output_.can_queue(1) && output_.admit(true, now)) {
         auto& front = direct_waiting_.front();
         const auto commit = text_commits(front).front();
+        if (!direct_gap_) {
+            // Typed phrases go out at the Send pace, as Send's text does.
+            output_.set_character_gap(settings_.dictation_send_gap / 1000.0);
+            direct_gap_ = true;
+        }
         if (!output_.commit_text(commit)) {
             std::cout << "Type as I speak: the target refused a phrase.\n" << std::flush;
             direct_blocked_ = true;
@@ -4059,6 +4064,12 @@ void App::tick_direct(double now) {
         if (!direct_active()) {
             direct_ = false; // the session is over once its last phrase is queued
         }
+    }
+    // Ordinary typing returns to its own pace once the session's last
+    // character is out, or dropped.
+    if (direct_gap_ && !direct_ && !output_.text_pending()) {
+        output_.set_character_gap(GamescopeText::default_character_gap);
+        direct_gap_ = false;
     }
     // Dictation's passthrough lasts until the last phrase is typed.
     if (!direct_ && !dictation_open_ && dictation_passthrough_ && !output_.text_pending()) {

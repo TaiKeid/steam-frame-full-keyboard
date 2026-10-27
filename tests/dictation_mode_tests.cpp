@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/dictation_mode.hpp"
+#include "framekeyboard/text_input.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1668,6 +1669,36 @@ void direct_to_editor_tests() {
     require(!editor_text(app).empty(), "speech after the switch goes into the editor");
 }
 
+// Type as I speak types at the Send pace, and ordinary typing gets its own
+// pace back once the phrase is out.
+void direct_pace_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                                 R"("dictation_direct":true,"dictation_send_gap_ms":40)");
+    use_fake_helper(options, directory.path, "direct");
+    Sink sink;
+    App app(options, sink);
+    press(app, "Dictation");
+    wait_until(app, [&] { return !sink.text.empty(); });
+    press(app, "Dictation");
+    settle_pause(app);
+    for (int i = 0; i < 100 && app.listening(); ++i) {
+        app.tick(clock += .01);
+    }
+    for (int i = 0; i < 50; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        app.tick(clock += .01);
+    }
+    require(!sink.gaps.empty() && sink.gaps.front() == .04, "typed phrases go out at the Send pace");
+    require(sink.gaps.back() == GamescopeText::default_character_gap,
+            "ordinary typing returns to its own pace afterwards");
+}
+
 // A helper that exits mid-download leaves nothing to report on it: the
 // download ends at once, the mic key returns and Settings can start again.
 void download_helper_exit_tests() {
@@ -2067,6 +2098,7 @@ int main() {
         send_during_reveal_tests();
         direct_esc_tests();
         direct_to_editor_tests();
+        direct_pace_tests();
         send_wait_tests();
         download_helper_exit_tests();
         std::cout << "Dictation mode tests passed\n";
