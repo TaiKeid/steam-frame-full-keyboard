@@ -138,14 +138,16 @@ Repeat with the same headset/dashboard state for a candidate build. A changed pr
 
 ## Refresh the README image
 
-Render the bundled default profile using an empty temporary config directory:
+Render the bundled default profile from a temporary config directory with Self-hosted dictation chosen, so the mic key shows; On device would hide it until the model is downloaded. The address is a placeholder and appears nowhere in the image:
 
 ```sh
 screenshot_config=$(mktemp -d)
+printf '%s' '{"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"}' \
+  > "$screenshot_config/config.json"
 mkdir -p docs/images
 ./build/host/framekeyboard --config-dir "$screenshot_config" \
   --render docs/images/keyboard-graphite.png
-rmdir "$screenshot_config"
+rm -r "$screenshot_config"
 ```
 
 Image exports omit the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.

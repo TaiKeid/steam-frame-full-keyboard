@@ -6,13 +6,14 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 ![Full Keyboard with the Graphite theme](docs/images/keyboard-graphite.png)
 
-*The default English layout and Graphite theme, captured from the app's native renderer.*
+*The default English layout and Graphite theme with dictation on, captured from the app's native renderer.*
 
 ## What it does
 
 - Full-size layout with F1–F12, navigation keys, arrow keys, numpad, Ctrl, Alt, and Shift.
 - Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
 - An emoji picker with recent emoji, categories and skin tones.
+- Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
 - Controller laser typing, press/release haptic clicks, and subtle hover feedback.
 - Experimental swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
@@ -71,6 +72,8 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
 | Copy / paste | Use the two icons on the left; select text first when copying |
+| Dictate | Press the mic key below Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
+| Type as I speak | Turn it on in the **Dictation** settings card. The mic key then listens on the normal keyboard and types each phrase into the app |
 | Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. The arrow key at the top left returns to the keyboard |
 | Move / rotate | Unpin, point at the line below the keyboard, hold the trigger, move your hand, then release |
 | Use the headset cursor | Press AUX to show the head cursor. Aim at keys with your head and click AUX; hold AUX on the movement line to move the keyboard |
@@ -112,11 +115,30 @@ Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/fra
 
 Use a new profile `id` to add a choice, or the same `id` to override a bundled one. [Configuration reference](docs/configuration.md) covers fields, favorites, validation, and saved placement.
 
+## Dictation
+
+Choose a mode in Settings → **Dictation**, then **Apply and save**:
+
+- **On device**, the default, recognizes speech on the Steam Frame with a small multilingual Whisper model, downloaded once (264 MB) after you confirm. English and Spanish are the most accurate; other languages work with lower accuracy.
+- **Self-hosted** sends speech to a Whisper server you run on a computer on your network, which is faster and more accurate in every language. [Speech server setup](docs/speech-server.md) covers Linux, macOS and Windows; only the Linux steps have been verified. **Test** checks the connection, and **Fall back to on device** uses the headset when the server cannot be reached.
+- **Off** hides the mic key.
+
+Dictation works in every bundled language except Japanese JIS. A small icon on the mic key shows where speech is recognized: a headset for on device, a computer for your server. The controller ticks when listening starts and pulses when it stops.
+
+Privacy:
+
+- On device, audio never leaves the Frame. Self-hosted, it goes only to the server you entered, and only while you dictate or press Test. A plain `host:port` address is unencrypted, so keep the server on your own network; Settings warns about addresses that are not local.
+- Audio and text stay in memory only. Nothing you say or type is logged or saved.
+- Listening stops as soon as you take the headset off or it wakes from sleep, and after 60 s of silence.
+- The microphone hears everyone nearby. While a game runs, game sound may be picked up too, and the status line says so while listening.
+
+See [dictation](docs/dictation.md) for the details.
+
 ## How it works
 
-The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser or need an internet connection.
+The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It needs no internet connection, except to download the on-device speech model once.
 
-Copy and Paste send shortcuts; the app does not read clipboard contents. It does not log typed text or save composition history; the emoji picker keeps a local list of recently used emoji, which its Clear button empties. Placement and profile preferences are stored locally.
+Copy and Paste send shortcuts; the app does not read clipboard contents. When dictation's **Send** is set to Paste, it writes the sent text to the clipboard and pastes it with Ctrl+V. It does not log typed text or save composition history; the emoji picker keeps a local list of recently used emoji, which its Clear button empties. Placement and profile preferences are stored locally.
 
 The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 
