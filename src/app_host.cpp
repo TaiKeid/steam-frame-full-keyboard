@@ -65,6 +65,12 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
         if (direct_active()) {
             stop_direct({});
         }
+        // A Send authorized for the old field never continues into the new
+        // one: what was not delivered stays in the editor for a fresh Send.
+        if (sending_) {
+            stop_send(sending_->in_flight);
+        }
+        send_wait_since_.reset();
         swipe_track_.reset();
         discard_swipe();
         swipe_space_ = false;

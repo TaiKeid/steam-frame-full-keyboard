@@ -2049,6 +2049,40 @@ void hosted_tests() {
     require(app.selection().theme == "graphite", "reset returns to it");
 }
 
+// A Send authorized for one field never continues into the next, even when
+// the context changes before the keyboard's next tick.
+void hosted_send_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.hosted_fd = 99;
+    use_fake_helper(options, directory.path, "silent");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    Sink sink;
+    ShellRouter router(sink);
+    options.shell_router = &router;
+    App app(options, router);
+    app.set_interaction_active(true);
+    app.set_sink(true, "Test Shell");
+    app.set_context(std::string("old"), {});
+    open_editor(app);
+    press(app, "KeyH");
+    press(app, "KeyI");
+    const auto [x, y] = key_center(app, "Dictation-send");
+    app.down(0, x, y, clock);
+    app.up(0, x, y);
+    app.set_context(std::string("new"), {}); // in the same frame as the Send
+    settle(app);
+    for (const auto& event : router.take_events()) {
+        require(event.text.find("hi") == std::string::npos,
+                "the old field's draft never reaches the new one");
+    }
+    require(editor_text(app) == "hi", "the draft stays in the editor for a fresh Send");
+}
+
 // A server the shell chose never receives the editor's unsent text.
 void shell_server_tests() {
     TemporaryDirectory directory;
@@ -2373,6 +2407,7 @@ int main() {
         away_tests();
         accent_tests();
         hosted_tests();
+        hosted_send_tests();
         shell_server_tests();
         test_race_tests();
         send_during_reveal_tests();
