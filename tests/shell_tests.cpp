@@ -288,6 +288,13 @@ void limits_tests() {
 // A backend that records what reaches it while the sink is off.
 struct Backend : KeySink {
     std::vector<std::string> sent;
+    bool paused{}, reset{};
+    bool pump() override { return !paused; }
+    bool take_input_reset() override { return std::exchange(reset, false); }
+    // A French AZERTY target: Ctrl+A is the physical Q key.
+    int shortcut_code(xkb_keysym_t, int fallback) override {
+        return fallback == KEY_A ? KEY_Q : fallback;
+    }
     void send(int code, int value) override {
         sent.push_back(std::to_string(code) + ":" + std::to_string(value));
     }
@@ -343,6 +350,18 @@ void sink_tests() {
     router.set_on(false);
     require(router.commit_text("back") && backend.sent.back() == "text:back",
             "off again, the backend types");
+
+    // The sink owns readiness and key IDs: the system backend's pause, reset
+    // and keymap apply only to normal output.
+    backend.paused = backend.reset = true;
+    require(!router.pump() && router.shortcut_code(XKB_KEY_a, KEY_A) == KEY_Q,
+            "off, the backend governs");
+    router.set_on(true);
+    require(router.pump() && !router.take_input_reset() &&
+                router.shortcut_code(XKB_KEY_a, KEY_A) == KEY_A,
+            "on, a paused or remapped backend does not change typing into the shell");
+    backend.paused = false;
+    router.set_on(false);
 
     // Cancelled before it was written: it never goes out.
     router.set_on(true);

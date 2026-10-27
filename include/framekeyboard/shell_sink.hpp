@@ -47,9 +47,17 @@ class ShellRouter : public KeySink {
     void send(int code, int value) override;
     Delivery deliver_key(int code, int value) override;
     void cancel_delivery() override;
-    bool pump() override { return inner_.pump(); }
-    bool take_input_reset() override { return inner_.take_input_reset(); }
-    bool can_resume() const override { return inner_.can_resume(); }
+    // On, the sink owns readiness: the system backend keeps its connection
+    // up, but its pauses and resets do not stop typing into the shell.
+    bool pump() override {
+        const bool ready = inner_.pump();
+        return on_ || ready;
+    }
+    bool take_input_reset() override {
+        const bool reset = inner_.take_input_reset();
+        return !on_ && reset;
+    }
+    bool can_resume() const override { return !on_ && inner_.can_resume(); }
     bool text_available() override { return on_ || inner_.text_available(); }
     bool commit_text(const std::string& text) override;
     bool replaces_text() override { return !on_ && inner_.replaces_text(); }
@@ -60,8 +68,10 @@ class ShellRouter : public KeySink {
     void cancel_text() override;
     std::size_t delivered_characters() const override { return on_ ? 0 : inner_.delivered_characters(); }
     bool output_blocked() const override { return !on_ && inner_.output_blocked(); }
+    // A shortcut keeps the keyboard's own key ID; the target app's
+    // physical keymap applies only to normal output.
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
-        return inner_.shortcut_code(symbol, fallback);
+        return on_ ? fallback : inner_.shortcut_code(symbol, fallback);
     }
     bool single_line_target() const override { return !on_ && inner_.single_line_target(); }
     bool steam_field_target() const override { return !on_ && inner_.steam_field_target(); }

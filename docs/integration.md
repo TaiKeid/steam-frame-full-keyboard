@@ -327,7 +327,7 @@ By default, the keyboard types into the Gamescope keyboard focus. A shell that w
 
 ### Exclusive destination
 
-While the sink is on, it is the only destination for committed output. Typed characters, named controls, Copy and Paste, emoji, dictation Send and Type as I speak all go to the sink. libei, uinput and the clipboard are not used; `dictation_send_paste` is ignored. The sink works with `--input none`.
+While the sink is on, it is the only destination for committed output. Typed characters, named controls, Copy and Paste, emoji, dictation Send and Type as I speak all go to the sink. libei, uinput and the clipboard are not used; `dictation_send_paste` is ignored. The sink works with `--input none`. The sink alone decides whether typing is possible: a paused or reconnecting system backend does not stop it, and shortcuts keep the keyboard's own key IDs, whatever keymap the focused application uses.
 
 Turning the sink on or off first cancels through the old destination: held keys are released there and queued output for it is dropped. Typing resumes only once a valid context is set for the new destination.
 
