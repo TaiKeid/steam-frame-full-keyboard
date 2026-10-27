@@ -439,6 +439,28 @@ class Downloads(unittest.TestCase):
         self.assertEqual(self.download("small-q8_0")[-1], {"state": "failed", "reason": "disk"})
         self.assertFalse((self.models_dir / "ggml-small-q8_0.bin.part").exists())
 
+    def test_cancel_stops_the_4_bit_conversion(self):
+        pid_file = self.directory / "quantizer.pid"
+        tool = self.directory / "whisper-quantize"
+        tool.write_text(f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 30\n")
+        tool.chmod(0o755)
+        events = []
+        job = d.Download("small-q4_0", str(self.models_dir), str(tool), self.ca,
+                         lambda state, **values: events.append(dict(state=state, **values)),
+                         origin=("127.0.0.1", self.port))
+        job.start()
+        deadline = time.monotonic() + 20
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        pid = int(pid_file.read_text())
+        job.cancel()
+        job.join(5)
+        self.assertFalse(job.is_alive())
+        self.assertEqual(events[-1], {"state": "failed", "reason": "cancelled"})
+        self.assertEqual(list(self.models_dir.iterdir()), [])
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)  # killed and reaped, not left running
+
     def test_cancel(self):
         self.assertEqual(self.download("small-q8_0", cancel=True)[-1], {"state": "failed", "reason": "cancelled"})
         self.assertFalse((self.models_dir / "ggml-small-q8_0.bin").exists())

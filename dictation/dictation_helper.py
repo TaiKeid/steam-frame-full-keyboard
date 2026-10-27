@@ -621,6 +621,7 @@ class Download(threading.Thread):
         self.ca_file, self.report = ca_file, report
         self.cancelled = False
         self.client = None
+        self.converter = None  # the 4-bit quantizer while it runs
 
     def cancel(self):
         self.cancelled = True
@@ -628,6 +629,10 @@ class Download(threading.Thread):
         if client and client.sock:
             with contextlib.suppress(OSError):
                 client.sock.shutdown(socket.SHUT_RDWR)
+        converter = self.converter
+        if converter:
+            with contextlib.suppress(OSError):
+                converter.kill()
 
     def run(self):
         # Every exit reports ready or failed: the keyboard waits for one, and
@@ -719,13 +724,29 @@ class Download(threading.Thread):
         try:
             if not self.quantize or not os.path.isfile(self.quantize):
                 raise Failure("quantize")
+            if self.cancelled:
+                raise Failure("cancelled")
             self.report("quantizing")
-            done = subprocess.run([self.quantize, f16, output + ".part", "q4_0"], stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=QUANTIZE_TIMEOUT)
-            if done.returncode != 0:
+            # Held, so Cancel and the helper's exit can stop it (cancel()).
+            self.converter = subprocess.Popen([self.quantize, f16, output + ".part", "q4_0"],
+                                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                              stderr=subprocess.DEVNULL)
+            if self.cancelled:  # cancelled while it was starting
+                self.converter.kill()
+            try:
+                code = self.converter.wait(timeout=QUANTIZE_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                self.converter.kill()
+                self.converter.wait()
+                raise Failure("quantize")
+            finally:
+                self.converter = None
+            if self.cancelled:
+                raise Failure("cancelled")
+            if code != 0:
                 raise Failure("quantize")
             os.replace(output + ".part", output)
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError:
             raise Failure("quantize")
         finally:
             for leftover in (f16, output + ".part"):
@@ -1293,6 +1314,11 @@ class Helper:
             self.drop_all()
             self.jobs.put(None)
             self.engine.close()
+            if self.download and self.download.is_alive():
+                # A daemon thread dies with the helper, but its quantizer
+                # would not: stop the download and wait briefly for it.
+                self.download.cancel()
+                self.download.join(2)
 
 
 def engine_path():
