@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/feedback.hpp"
 #include "framekeyboard/grip.hpp"
+#include "framekeyboard/held_keys.hpp"
 #include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/resizer.hpp"
@@ -1192,6 +1193,27 @@ void resizer_tests() {
     require(stopped[1].duration == 0 && stopped[0].frequency < press.frequency &&
                 stopped[0].amplitude < press.amplitude,
             "listening ends with one pulse softer and lower than a key press");
+
+    // Both hands hold a repeating key off the panel; each trigger releases its own.
+    struct FakeTrigger {
+        double released_at;
+        bool released(double now) const { return now >= released_at; }
+    };
+    fk::OffPanelHolds<FakeTrigger> holds;
+    holds.hold(1, {20}, 0);
+    holds.hold(2, {25}, 1);
+    const auto all = [](unsigned) { return true; };
+    require(holds.size() == 2 && holds.expired(10, all).empty(), "a second hold keeps the first");
+    require(holds.expired(20, all) == std::vector<unsigned>{1},
+            "the first trigger releases only its key");
+    require(holds.expired(22, all).empty() && holds.size() == 1, "the second key stays held");
+    require(holds.expired(25, all) == std::vector<unsigned>{2}, "then its own trigger releases it");
+    holds.hold(3, {1000}, 100);
+    require(holds.expired(129, all).empty() && holds.expired(130.5, all) == std::vector<unsigned>{3},
+            "a hold ends after 30 s even if its trigger never reports a release");
+    holds.hold(4, {1000}, 200);
+    require(holds.expired(201, [](unsigned) { return false; }).empty() && holds.size() == 0,
+            "a key released back over the panel is dropped without another release");
 
     fk::PanelMotion motion;
     motion.show(20);

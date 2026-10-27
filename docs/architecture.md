@@ -86,7 +86,9 @@ repeat was tried and dropped: holding from the press worked as well (owner,
 2026-10-26). SteamVR sends no button event away from our
 overlay, so the VR loop reads that Frame controller's trigger component, as a
 panel drag does, and releases the key when the trigger lets go, when it comes
-back over the panel and is released there, or after 30 s. A controller whose
+back over the panel and is released there, or after 30 s. Each hand's hold is
+tracked on its own (`OffPanelHolds`), so two held keys each end with their own
+trigger. A controller whose
 trigger cannot be read releases the key on leaving, as before. The passthrough
 pointer reads its triggers anyway and needs nothing extra.
 

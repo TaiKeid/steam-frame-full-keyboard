@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/grip.hpp"
+#include "framekeyboard/held_keys.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
@@ -1337,16 +1338,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::array<std::pair<double, double>, 2> scene_last{};
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
-    // A repeating key, such as Backspace, held when its laser left the panel:
-    // it stays down until the trigger's release, read from the controller,
-    // since no button event arrives off our overlay (docs/architecture.md, Input and focus).
-    struct KeyHold {
-        unsigned pointer{};
-        vr::TrackedDeviceIndex_t device{};
-        double since{};
-        TriggerWatch trigger;
-    };
-    std::optional<KeyHold> key_hold;
+    // Repeating keys held after their laser left the panel (held_keys.hpp).
+    OffPanelHolds<TriggerWatch> key_holds;
     // Whether leaving the panel keeps the device's repeating key held. The
     // passthrough pointer reads its trigger itself; a SteamVR laser needs a
     // Frame controller's trigger to watch, or the key is released as before.
@@ -1363,7 +1356,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (!trigger.watching()) {
                 return false;
             }
-            key_hold = KeyHold{pointer, device, now, trigger};
+            key_holds.hold(pointer, trigger, now);
             return true;
         }
         return false;
@@ -2031,16 +2024,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (drag.active() && drag.trigger_released(now)) {
             stop_drag(true);
         }
-        if (key_hold) {
-            const auto pointer = key_hold->pointer;
-            if (!app.holds_repeat(pointer)) {
-                key_hold.reset(); // released back over the panel, or cancelled
-            } else if (key_hold->trigger.released(now) || now - key_hold->since > 30) {
-                app.cancel_pointer(pointer);
-                feedback.cancel_pointer(pointer);
-                pointer_devices.erase(pointer);
-                key_hold.reset();
-            }
+        for (const auto pointer :
+             key_holds.expired(now, [&](unsigned held) { return app.holds_repeat(held); })) {
+            app.cancel_pointer(pointer);
+            feedback.cancel_pointer(pointer);
+            pointer_devices.erase(pointer);
         }
         if (drag.active() && drag.source() == MoveSource::Grip) {
             const bool held = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
