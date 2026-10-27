@@ -138,6 +138,15 @@ void App::set_sink(bool on, const std::string& client) {
     if (!options_.shell_router || on == sink_on()) {
         return;
     }
+    // Dictation's output was authorized for the old destination: Type as I
+    // speak ends with its late phrases, and a Send stops with its draft kept.
+    if (direct_active()) {
+        stop_direct({});
+    }
+    if (sending_) {
+        stop_send(sending_->in_flight);
+    }
+    send_wait_since_.reset();
     // Held keys are released and queued output dropped through the old
     // destination before the new one takes over.
     cancel(false);

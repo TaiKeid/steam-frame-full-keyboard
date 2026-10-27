@@ -2083,6 +2083,44 @@ void hosted_send_tests() {
     require(editor_text(app) == "hi", "the draft stays in the editor for a fresh Send");
 }
 
+// Type as I speak into the sink ends when the sink does: a phrase still
+// being recognized never falls through to the focused application.
+void hosted_sink_direct_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.hosted_fd = 99;
+    use_fake_helper(options, directory.path, "slowdirect"); // the second phrase takes 0.3 s
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+    Sink sink;
+    ShellRouter router(sink);
+    options.shell_router = &router;
+    App app(options, router);
+    app.set_interaction_active(true);
+    app.set_sink(true, "Test Shell");
+    app.set_context(std::string("c"), {});
+    press(app, "Dictation");
+    for (int i = 0; i < 40; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        app.tick(clock += .01);
+        for (const auto& event : router.take_events()) {
+            router.acknowledge(event.context, event.seq);
+        }
+    }
+    press(app, "Dictation"); // the second phrase waits for its text
+    app.set_sink(false);
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        app.tick(clock += .01);
+    }
+    require(sink.text.empty(), "the late phrase does not reach the focused application");
+    require(!app.listening(), "and Type as I speak has ended");
+}
+
 // A server the shell chose never receives the editor's unsent text.
 void shell_server_tests() {
     TemporaryDirectory directory;
@@ -2408,6 +2446,7 @@ int main() {
         accent_tests();
         hosted_tests();
         hosted_send_tests();
+        hosted_sink_direct_tests();
         shell_server_tests();
         test_race_tests();
         send_during_reveal_tests();
