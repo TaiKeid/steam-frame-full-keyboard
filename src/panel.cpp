@@ -1307,10 +1307,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (key.icon == Icon::Mic) {
             // The bars ease while a level is passing through.
             const double phase = view.dictation_capturing ? mic_phase(view, now) : 1;
-            animating_ |= phase < 1;
+            // Settings covers the mic key, so neither animation repaints under it.
+            animating_ |= !view.settings && phase < 1;
             // The recognition ring steps at 30 fps while it shows.
             const double ring = view.dictation_recognizing ? std::floor(now * 30) / 30 : 0;
-            animating_ |= view.dictation_recognizing;
+            animating_ |= !view.settings && view.dictation_recognizing;
             mic_changed =
                 !full && (previous_->view.dictation_capturing != view.dictation_capturing ||
                           previous_->view.dictation_levels != view.dictation_levels ||

@@ -860,6 +860,13 @@ void direct_tests() {
         require(app.paint(step + .001) && app.renderer.animating(), "the ring paints at a step");
         require(!app.paint(step + .017), "and skips the frame before the next step");
         require(app.paint(step + 1.0 / 30 + .001), "and paints at the next step");
+        // Settings covers the mic key: the phrase is still recognized, but its
+        // ring repaints nothing.
+        app.show_settings();
+        app.paint(step + 2.0 / 30 + .001);
+        require(app.view().dictation_recognizing && !app.renderer.animating(),
+                "under Settings the hidden ring asks for no frames");
+        app.back();
         require(!control_enabled(app, "language-cycle"), "the language waits until the phrase is in");
         press(app, "Escape");
         require(!app.view().dictation_recognizing, "Esc drops the phrase and the ring");
