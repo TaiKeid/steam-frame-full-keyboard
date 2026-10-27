@@ -661,6 +661,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
         }
+        if (auto* paste = field(document.get(), "desktop_unicode_paste", json_type_boolean, true)) {
+            settings.desktop_unicode_paste = json_object_get_boolean(paste);
+        }
         if (auto* developer = field(document.get(), "developer_options", json_type_boolean, true)) {
             settings.developer_options = json_object_get_boolean(developer);
         }
@@ -705,7 +708,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             // Like the dictation fields, a bad value fails on its own.
             if (auto* gap = field(document.get(), "dictation_send_gap_ms", json_type_int, true)) {
                 const auto value = json_object_get_int(gap);
-                if (value != 20 && value != 30 && value != 40) {
+                if (value != 10 && value != 20 && value != 30 && value != 40) {
                     throw std::runtime_error("bad value");
                 }
                 settings.dictation_send_gap = value;
@@ -731,7 +734,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             }
         } catch (const std::exception&) {
             errors.push_back(
-                "config.json: dictation_send_gap_ms must be 20, 30 or 40, and dictation_send_paste "
+                "config.json: dictation_send_gap_ms must be 10, 20, 30 or 40, and dictation_send_paste "
                 "and dictation_direct booleans; Send types at 20 ms into the editor");
             settings.dictation_send_gap = 20;
             settings.dictation_send_paste = false;
@@ -841,6 +844,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->swipe_typing));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
+        json_object_object_add(document.get(), "desktop_unicode_paste",
+                               json_object_new_boolean(settings->desktop_unicode_paste));
         json_object_object_add(document.get(), "dictation_send_gap_ms",
                                json_object_new_int(settings->dictation_send_gap));
         json_object_object_add(document.get(), "dictation_send_paste",

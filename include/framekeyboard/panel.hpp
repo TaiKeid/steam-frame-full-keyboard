@@ -43,6 +43,7 @@ enum class ControlKind {
     ReplaceNativeKeyboard,
     StartWithSteamos,
     EmojiCloseOnSelect,
+    ChooseDesktopUnicode,
     DictationDiscard,
     DictationKeep,
     ChooseSendGap,

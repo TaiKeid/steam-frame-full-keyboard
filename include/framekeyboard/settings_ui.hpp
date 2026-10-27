@@ -19,6 +19,10 @@ struct SettingField {
     ControlAction action{};
     // A smaller second line under the label, dimmed with the field.
     std::string note{};
+    // A dropdown whose choices are short, leaving its label more room.
+    bool narrow{};
+    // A Note row that describes rather than warns: the legend colour, not amber.
+    bool plain{};
 };
 struct SettingsCard {
     std::string id, title;

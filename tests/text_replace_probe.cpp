@@ -2,6 +2,8 @@
 #include "framekeyboard/clipboard.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include <chrono>
+#include <cstdio>
+#include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <sstream>
@@ -21,6 +23,9 @@ using namespace framekeyboard;
 //                       never reads the clipboard
 //   paste               press Ctrl+V, then wait up to 2 s for an application
 //                       to take the clipboard's text
+//   gap <ms>            set the pause between paced characters
+//   unicode <ms> <text> type each character as IBus Unicode entry: Ctrl+Shift+U,
+//                       its hex code, Space, with <ms> between key events
 // and prints "ok" or "fail" once Gamescope confirms or rejects it. Nothing is
 // sent without a command. "\n" in text stands for a line break.
 namespace {
@@ -63,7 +68,7 @@ int main() {
             input.get();
             std::getline(input, text);
             if (!clipboard) {
-                clipboard = make_x_clipboard();
+                clipboard = make_clipboard();
             }
             const auto number = clipboard->write(unescape(text));
             std::optional<bool> owned;
@@ -73,6 +78,55 @@ int main() {
             // Let Gamescope's own fetch of the new clipboard pass.
             std::this_thread::sleep_for(std::chrono::milliseconds(150));
             std::cout << (owned.value_or(false) ? "ok" : "fail") << std::endl;
+            continue;
+        }
+        if (command == "gap") {
+            int gap = 20;
+            input >> gap;
+            sink.set_character_gap(gap / 1000.0);
+            std::cout << "ok" << std::endl;
+            continue;
+        }
+        if (command == "unicode") {
+            int gap = 0;
+            input >> gap;
+            std::string text;
+            input.get();
+            std::getline(input, text);
+            const auto key = [&](int code, int value) {
+                sink.send(code, value);
+                sink.pump();
+                std::this_thread::sleep_for(std::chrono::milliseconds(gap));
+            };
+            const auto tap = [&](int code) {
+                key(code, 1);
+                key(code, 0);
+            };
+            const auto characters =
+                g_utf8_to_ucs4(unescape(text).c_str(), -1, nullptr, nullptr, nullptr);
+            for (auto* c = characters; c && *c; ++c) {
+                key(KEY_LEFTCTRL, 1);
+                key(KEY_LEFTSHIFT, 1);
+                tap(sink.shortcut_code(XKB_KEY_u, KEY_U));
+                key(KEY_LEFTSHIFT, 0);
+                key(KEY_LEFTCTRL, 0);
+                char hex[16];
+                std::snprintf(hex, sizeof hex, "%x", *c);
+                for (const char* h = hex; *h; ++h) {
+                    static const int digits[]{KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7,
+                                              KEY_8, KEY_9, KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F};
+                    const int value = *h <= '9' ? *h - '0' : *h - 'a' + 10;
+                    tap(sink.shortcut_code(*h <= '9' ? XKB_KEY_0 + value : XKB_KEY_a + value - 10,
+                                           digits[value]));
+                }
+                tap(KEY_SPACE);
+            }
+            g_free(characters);
+            for (int i = 0; i < 20; ++i) {
+                sink.pump();
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            std::cout << "ok" << std::endl;
             continue;
         }
         if (command == "paste") {

@@ -171,6 +171,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
     pending_dictation_direct_ = settings_.dictation_direct;
@@ -181,6 +182,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
     prepare_swipe();
     update_settings_ui();
+    route_desktop_text();
     status_ = !startup_status_.empty()   ? startup_status_
               : profiles_.errors.empty() ? ""
                                          : profiles_.errors.front();
@@ -522,7 +524,8 @@ void App::update_settings_ui() {
         ControlKind::ChooseSendGap,
         dropdown("send-gap", "Send",
                  pending_dictation_send_paste_ ? "paste" : std::to_string(pending_dictation_send_gap_),
-                 {{"20", "Type, 20 ms (default)"},
+                 {{"10", "Type, 10 ms"},
+                  {"20", "Type, 20 ms (default)"},
                   {"30", "Type, 30 ms"},
                   {"40", "Type, 40 ms"},
                   {"paste", "Paste"}}));
@@ -601,6 +604,21 @@ void App::update_settings_ui() {
                   checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
                            "Skips the editor but lower accuracy")));
     }
+    // SteamOS's Desktop cannot take emoji and other non-ASCII text from
+    // Gamescope; it is typed as Unicode entry or pasted (docs/architecture.md).
+    auto desktop_unicode = field(ControlKind::ChooseDesktopUnicode,
+                                 dropdown("desktop-unicode", "KDE Desktop Unicode",
+                                          pending_desktop_unicode_paste_ ? "paste" : "type",
+                                          {{"type", "Type"}, {"paste", "Paste"}}));
+    desktop_unicode.narrow = true;
+    SettingField desktop_unicode_note{
+        "desktop-unicode-note",
+        pending_desktop_unicode_paste_
+            ? "Emoji and other Unicode characters are pasted. Fast, but replaces what is in the "
+              "clipboard."
+            : "You will see Unicode codes typed for emoji and other Unicode characters. Slow.",
+        "", ControlStyle::Note};
+    desktop_unicode_note.plain = true;
     auto favorites = field(ControlKind::ClearFavorites, SettingField{"clear-favorites", "Favorites",
                                                                      "Clear all", ControlStyle::Button});
     favorites.note =
@@ -628,7 +646,8 @@ void App::update_settings_ui() {
                  checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_)),
            field(ControlKind::EmojiCloseOnSelect,
                  checkbox("emoji-close-on-select", "Close emoji picker after choosing",
-                          pending_emoji_close_on_select_))}},
+                          pending_emoji_close_on_select_)),
+           desktop_unicode, desktop_unicode_note}},
          {"dictation", "Dictation", dictation_fields},
          {"integration",
           "Integration",
@@ -1515,6 +1534,7 @@ void App::show_settings() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
     pending_dictation_direct_ = settings_.dictation_direct;
@@ -1713,6 +1733,7 @@ void App::reload() {
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
+        settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
         settings_.dictation_send_paste = updated_settings.dictation_send_paste;
         settings_.dictation_direct = updated_settings.dictation_direct;
@@ -1735,6 +1756,7 @@ void App::reload() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
     pending_dictation_direct_ = settings_.dictation_direct;
@@ -2148,6 +2170,7 @@ void App::apply_settings() {
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.swipe_typing = pending_swipe_typing_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
+    settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
     settings_.dictation_send_gap = pending_dictation_send_gap_;
     settings_.dictation_send_paste = pending_dictation_send_paste_;
     settings_.dictation_direct = pending_dictation_direct_;
@@ -2423,6 +2446,12 @@ void App::action(const ControlAction& command) {
         address_key(command.value);
     } else if (kind == ControlKind::AddressRecent && address_) {
         address_ = AddressEntry{command.value, command.value.size(), {}};
+    } else if (kind == ControlKind::ChooseDesktopUnicode) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_desktop_unicode_paste_ = command.value == "paste";
+        settings_ui_.close_popup();
+        update_settings_ui();
     } else if (kind == ControlKind::ChooseSendGap) {
         pressed_controls_.clear();
         hovered_.clear();
@@ -4717,12 +4746,17 @@ void App::finish_piece(double now) {
     }
 }
 
+// General → KDE Desktop Unicode: text SteamOS's Desktop cannot take from
+// Gamescope is typed as Unicode entry, or pasted through its clipboard.
+void App::route_desktop_text() {
+    output_.set_desktop_paste(settings_.desktop_unicode_paste ? clipboard() : nullptr);
+}
 Clipboard* App::clipboard() {
     if (options_.clipboard) {
         return options_.clipboard;
     }
     if (!clipboard_) {
-        clipboard_ = make_x_clipboard();
+        clipboard_ = make_clipboard();
     }
     return clipboard_.get();
 }

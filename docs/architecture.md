@@ -181,6 +181,20 @@ Gamescope types a single character on its ordinary keymap when one key level pro
 
 `GamescopeText` then sends one character per commit, each after the previous acknowledgement and at least 20 ms after the previous send. The deletions of a replacement still travel as one batch before the first character. Other text, such as CJK or characters missing from the layout, stays one commit, because splitting it would only add keymap switches. A timeout or cancellation drops the unsent characters instead of typing them late. The app reads acknowledgements once per frame, so a word takes about one frame per character, and at least 20 ms.
 
+### Nested desktops
+
+SteamOS's Desktop runs Plasma as one window on Gamescope's second X display: a nested `kwin_wayland` that reads Gamescope's key codes with its own keymap. Gamescope's temporary keymap never reaches it, so text typed through it arrives as the number-row keys it was mapped to (`あいう` → `123`). The nested compositor offers no virtual-keyboard or input-method protocol to outside clients.
+
+- **Detection:** `DesktopFocus` watches Gamescope's `GAMESCOPE_FOCUSED_WINDOW` and `GAMESCOPE_FOCUSABLE_WINDOWS` properties on its first X display. The focused window's process is a nested desktop when its program is `kwin_wayland`. Only those root properties and the process's command line are read.
+- **Unicode entry:** while a nested desktop has focus, `EiSink` sends any text with a character beyond printable ASCII as IBus Unicode entry instead of a Gamescope commit. Each character becomes Ctrl+Shift+U, its hex code and Space. Spaces and line breaks are plain Space and Enter, and deletions are Backspace taps.
+  - The keys go out over libei one event per frame, at least 5 ms apart. With no gap, the Desktop's IBus reordered them; at 5 ms, mixed kana, kanji, Hangul and emoji arrived exactly in a disposable receiver.
+  - About ten key events per character, so a character takes about ten frames.
+  - The Desktop's own IBus does the entry, so it works in applications that use IBus there (Qt and GTK). The keys are physical positions, correct on US-like layouts.
+  - Cancelling finishes the character being entered, so IBus is never left mid-sequence with a modifier held, then drops the rest. Native downs wait until the entry ends, as they do for Gamescope commits.
+  - Printable ASCII still goes through Gamescope, which types it on its ordinary keymap.
+- **Paste instead:** General → KDE Desktop Unicode set to Paste (`desktop_unicode_paste`) hands `EiSink` the clipboard writer. Such text is then written to the clipboard, and Ctrl+V follows once the clipboard holds it. The commit succeeds when an application asks for the text, and fails after 2 s; a paste counts as possibly arrived, never as delivered. Cancelling before Ctrl+V sends nothing; after it, Ctrl+V completes.
+- **Clipboard:** the Desktop keeps its own clipboard. The clipboard writer also sets it through `zwlr_data_control_v1` on any Wayland socket one directory below `XDG_RUNTIME_DIR` (SteamOS: `nested_plasma/wayland-0`), so Paste Send works there. Offers it receives back are destroyed unread.
+
 Measured on the Frame under full CPU load, with a disposable Brave receiver flipping *there* and *three* (`tests/text_replace_probe.cpp` drives it): whole-string commits scrambled 12 of 120 words, and the per-character path 0 of 120. Acknowledgement alone, about 5 ms apart, still let IBus reorder keys.
 
 The renderer reserves space for preedit/candidates during Japanese, Chinese and Korean composition. Kana/shift labels come from the selected language profile. Settings, profile changes, target-focus loss, hiding, dragging and recentering discard unfinished composition. Laser FocusLeave releases only the identified controller's keys and retains composition because it does not change application focus. Failed text submission keeps the preedit for recovery. The protocol reports submission availability, not application acceptance; application coverage needs separate tests.
@@ -212,7 +226,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Emoji table, picker layout and grid, glyph worker | `src/emoji.cpp`, `src/emoji_glyphs.cpp`; table `emoji/emoji.tsv` from `tools/emoji_table.py` |
 | Dictation editor and mode layout | `src/dictation_editor.cpp`, `src/dictation_mode.cpp`; App routing in `src/app.cpp`, drawing in `src/panel.cpp` |
 | Dictation Send | `src/dictation_send.cpp` cuts the text into deliveries; App sends them one at a time through `OutputController` |
-| Clipboard writer | `src/clipboard.cpp`: owns the X clipboard on every display for paste Send, through XCB on its own thread; never reads it |
+| Clipboard writer | `src/clipboard.cpp`: owns the X clipboard on every display and sets a nested Wayland desktop's clipboard through data-control, for paste Send, on its own thread; never reads either |
 | Dictation helper and its client | `dictation/dictation_helper.py`, `src/dictation.cpp`, `include/framekeyboard/dictation.hpp`; protocol in [dictation](dictation.md#helper-protocol) |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Instance IPC | `src/instance.cpp` |

@@ -26,6 +26,10 @@ The SDK library is supplied by the installed SteamVR runtime, not redistributed.
 
 `gamescope/gamescope-input-method.xml` comes from ValveSoftware/gamescope commit `6867f509874f9bc52e12d6f4c4596cdf0d5be6b4`, under the MIT license included in the XML. Wayland client stubs are generated at build time. Only version 1 text submission is used, feature-checked at runtime.
 
+## wlroots data-control protocol
+
+`wlr-protocols/wlr-data-control-unstable-v1.xml` comes from https://gitlab.freedesktop.org/wlroots/wlr-protocols commit `151664b67ab1eecf6f2eca055dccea66516cab54`, under the MIT-style license included in the XML (SHA-256 `5ac39552975b28d0ea42f636a79b7fc8e2d1fcfa31cbe173f549bd4b044ae2de`). Wayland client stubs are generated at build time. Version 1 is used only to set the clipboard of a nested desktop session; offers are never received.
+
 ## Swipe typing
 
 `futo-swipe/` holds the unmodified FUTO Swipe encoder weights and their FUTO

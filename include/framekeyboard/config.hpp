@@ -88,6 +88,8 @@ struct Settings {
     bool swipe_typing{};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
+    // SteamOS's Desktop: non-ASCII text is pasted instead of typed as Unicode entry.
+    bool desktop_unicode_paste{};
     // Dictation (docs/dictation.md). The Dictation card in Settings edits the
     // mode and server; the URL and model are kept as they are in the file. An
     // invalid value turns dictation off without affecting any other setting.

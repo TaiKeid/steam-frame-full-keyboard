@@ -36,6 +36,7 @@ class NativeReplacement : public KeySink {
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool steam_field_target() const override { return remote_ && state_.active; }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
+    void set_desktop_paste(Clipboard* clipboard) override { local_.set_desktop_paste(clipboard); }
     bool remote() const { return remote_; }
     void dismiss_request();
     // A prepared update hands the open request back to Steam, as Quit does,

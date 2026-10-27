@@ -10,6 +10,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 namespace framekeyboard {
+class Clipboard;
 class OutputController;
 enum class Delivery { Waiting, Success, Failure };
 int key_code(const std::string& name);
@@ -59,6 +60,9 @@ class KeySink {
     // The minimum gap between characters typed one at a time, for transports
     // that pace them (GamescopeText::set_character_gap).
     virtual void set_character_gap(double) {}
+    // Where text a nested desktop cannot take from Gamescope goes: null types
+    // it as Unicode entry, a clipboard pastes it (General, KDE Desktop Unicode).
+    virtual void set_desktop_paste(Clipboard*) {}
     // Unknown until the receiving system reports its lock state.
     virtual std::optional<bool> num_lock_state() { return {}; }
 };

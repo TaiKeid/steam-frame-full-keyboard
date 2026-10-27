@@ -1366,6 +1366,63 @@ void theme_preview() {
     require(app.view().theme->id == "midnight" && saved(app).active.theme == "midnight",
             "Apply keeps it");
 }
+// General → KDE Desktop Unicode: the sink types such text as Unicode entry
+// (no clipboard) until Paste is applied, and the choice survives restart.
+void desktop_unicode_setting() {
+    struct DesktopSink : CaptureSink {
+        std::vector<Clipboard*> routes;
+        void set_desktop_paste(Clipboard* clipboard) override { routes.push_back(clipboard); }
+    };
+    struct NoClipboard : Clipboard {
+        std::uint64_t write(const std::string&) override { return 1; }
+        std::optional<bool> result(std::uint64_t) const override { return true; }
+        std::uint64_t served() const override { return 0; }
+    } clipboard;
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    options.clipboard = &clipboard;
+    DesktopSink sink;
+    App app(options, sink);
+    require(!sink.routes.empty() && sink.routes.back() == nullptr, "Type by default");
+    app.show_settings();
+    require(control(app.view(), "desktop-unicode").label == "Type", "the row shows Type");
+    // The row sits at the foot of the General card: scroll down to it.
+    double now = 200;
+    const auto to_row = [&] {
+        app.move(1, 740, 300);
+        app.scroll(1, 0, 20);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+    };
+    const auto described = [&](const std::string& words) {
+        to_row();
+        const auto& labels = app.view().field_labels;
+        return std::any_of(labels.begin(), labels.end(), [&](const FieldLabel& label) {
+            return label.text.find(words) != std::string::npos && !label.warning;
+        });
+    };
+    require(described("You will see Unicode codes"), "Type is described in the legend colour");
+    select(app, "desktop-unicode", "paste");
+    require(described("replaces what is in the clipboard") && sink.routes.back() == nullptr,
+            "Paste is described, and pending until Apply");
+    click(app, "apply");
+    require(saved(app).desktop_unicode_paste && sink.routes.back() == &clipboard,
+            "Apply saves Paste and hands the sink the clipboard");
+    {
+        DesktopSink reopened_sink;
+        App reopened(options, reopened_sink);
+        require(reopened_sink.routes.back() == &clipboard, "Paste survives restart");
+    }
+    app.show_settings();
+    to_row();
+    select(app, "desktop-unicode", "type");
+    click(app, "apply");
+    require(!saved(app).desktop_unicode_paste && sink.routes.back() == nullptr, "back to Type");
+    require(sink.events.empty(), "the setting sends no input");
+}
 void dictation_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -1396,6 +1453,14 @@ void dictation_settings() {
         App reopened(options, sink);
         reopened.show_settings();
         require(control(reopened.view(), "send-gap").label == "Paste", "Paste survives restart");
+    }
+    {
+        std::ofstream(directory.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},)"
+            << R"("dictation_send_gap_ms":10})";
+        std::vector<std::string> errors;
+        require(load_settings(directory.path, errors).dictation_send_gap == 10 && errors.empty(),
+                "Send can type at 10 ms");
     }
     for (const auto* value : {R"("dictation_send_gap_ms":25)", R"("dictation_send_gap_ms":"30")",
                               R"("dictation_send_paste":"yes")"}) {
@@ -1700,6 +1765,7 @@ int main() {
         numpad_settings();
         app_settings();
         dictation_settings();
+        desktop_unicode_setting();
         theme_preview();
         clear_favorites();
         behavior_settings();

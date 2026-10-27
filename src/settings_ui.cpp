@@ -11,6 +11,7 @@ constexpr double card_width = 470, card_gap = 18, row_height = 76, menu_row_heig
 // Rows are space-between: labels start at the left inset, controls end at the
 // right inset, clear of the card's vertical scrollbar.
 constexpr double row_left = 30, row_right = 24, label_gap = 14, dropdown_width = 290, checkbox_size = 56;
+constexpr double narrow_width = 170;
 constexpr int visible_choices = 5;
 bool intersects(Rect a, Rect b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
@@ -48,8 +49,10 @@ Rect SettingsUi::body(std::size_t i) const {
 }
 Rect SettingsUi::field_bounds(std::size_t i, std::size_t field) const {
     const auto r = card_bounds(i);
-    const double width =
-        cards_[i].fields[field].style == ControlStyle::Checkbox ? checkbox_size : dropdown_width;
+    const auto& definition = cards_[i].fields[field];
+    const double width = definition.style == ControlStyle::Checkbox ? checkbox_size
+                         : definition.narrow                        ? narrow_width
+                                                                    : dropdown_width;
     return {r.x + r.width - row_right - width,
             r.y + 68 + static_cast<double>(field) * row_height - vertical_.at(cards_[i].id), width, 56};
 }
@@ -162,7 +165,7 @@ void SettingsUi::append(PanelView& view) const {
                 const Rect text{r.x + row_left, bounds.y, r.width - row_left - row_right, bounds.height};
                 if (intersects(text, clip)) {
                     view.field_labels.push_back(
-                        {field.label, text, clip, true, field.enabled, 16, true, true});
+                        {field.label, text, clip, true, field.enabled, 16, true, !field.plain});
                 }
                 continue;
             }

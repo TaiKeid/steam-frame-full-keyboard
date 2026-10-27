@@ -65,7 +65,7 @@ struct Options {
     // Where on-device models are kept; empty is ~/.local/share/framekeyboard/models.
     fs::path models_dir;
     std::vector<std::string> dictation_arguments;
-    // Tests replace the clipboard writer; null writes the X clipboard.
+    // Tests replace the clipboard writer; null writes the session clipboards.
     Clipboard* clipboard{};
 };
 
@@ -329,6 +329,7 @@ class App {
     void host_event(const std::string& name, JsonPtr fields, bool telemetry = false);
     // Reports what a change of settings changed, with its source.
     void host_settings_changed(const Settings& before, const char* source);
+    void route_desktop_text();
     void host_tick(double now);
     // Restores the selection a context's language hint replaced, unless the
     // user chose another meanwhile.
@@ -463,6 +464,7 @@ class App {
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
     bool pending_emoji_close_on_select_{};
+    bool pending_desktop_unicode_paste_{};
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
     bool pending_dictation_direct_{};

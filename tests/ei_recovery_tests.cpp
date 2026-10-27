@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/clipboard.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
@@ -384,6 +385,163 @@ void asynchronous_text() {
     });
     require(text.connections == connections + 1, "text reconnect restores readiness");
 }
+// Text the nested Desktop cannot take from Gamescope goes as IBus Unicode
+// entry: plain, paced key events, never Gamescope's temporary keymap.
+void desktop_entry() {
+    Server server;
+    TextServer text(server.directory / "text");
+    double now = 10;
+    auto connecting = std::async(std::launch::async, [&] {
+        return std::make_unique<EiSink>(server.socket, server.directory / "text", [&] { return now; });
+    });
+    server.until([&] {
+        text.pump();
+        return connecting.wait_for(0ms) == std::future_status::ready;
+    });
+    auto sink = connecting.get();
+    server.until([&] {
+        text.pump();
+        return sink->text_available();
+    });
+    sink->take_input_reset();
+    bool desktop = true;
+    sink->set_desktop_focus([&] { return desktop; });
+    sink->pump();
+    // Runs the entry to its end, one key event per gap.
+    const auto finish = [&] {
+        for (int i = 0; i < 200 && sink->output_blocked(); ++i) {
+            now += EiSink::entry_gap;
+            sink->pump();
+        }
+        server.until([&] {
+            text.pump();
+            return true;
+        });
+        server.pump();
+    };
+    require(!sink->commit_text("あ 😀") && sink->text_pending() && sink->output_blocked(),
+            "Desktop entry is asynchronous");
+    sink->pump();
+    sink->pump();
+    server.pump();
+    require(server.keys.size() == 1, "one key event per gap");
+    sink->send(30, 1);
+    finish();
+    require(sink->commit_text("あ 😀") && !sink->text_pending(), "the same call reports success");
+    using Keys = std::vector<std::pair<unsigned, bool>>;
+    const auto tap = [](unsigned code) { return Keys{{code, true}, {code, false}}; };
+    const auto entry = [&](std::initializer_list<unsigned> hex) {
+        Keys keys{{29, true}, {42, true}, {22, true}, {22, false}, {42, false}, {29, false}};
+        for (const auto code : hex) {
+            const auto pressed = tap(code);
+            keys.insert(keys.end(), pressed.begin(), pressed.end());
+        }
+        const auto space = tap(57);
+        keys.insert(keys.end(), space.begin(), space.end());
+        return keys;
+    };
+    Keys expected = entry({4, 11, 5, 3});                           // U+3042
+    for (const auto& keys : {tap(57), entry({2, 33, 7, 11, 11})}) { // Space, U+1F600
+        expected.insert(expected.end(), keys.begin(), keys.end());
+    }
+    require(server.keys == expected, "Ctrl+Shift+U, hex code, Space for each character");
+    require(text.commits.empty(), "nothing goes through Gamescope's temporary keymap");
+
+    // Printable ASCII still goes through Gamescope, which types it on the
+    // ordinary keymap the Desktop shares.
+    require(!sink->commit_text("o") && text.commits.empty(), "ASCII is a Gamescope commit");
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return !sink->text_pending() || sink->commit_text("o");
+    });
+    require(text.commits == std::vector<std::string>{"o"}, "ASCII typed through Gamescope");
+
+    // Cancelling finishes the character being entered, so IBus is not left
+    // mid-sequence and no modifier stays held, then drops the rest.
+    server.keys.clear();
+    require(!sink->replace_text(1, "日本"), "replacement starts");
+    for (int i = 0; i < 4; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    sink->cancel_text();
+    require(!sink->text_pending() && sink->output_blocked(), "cancel keeps the barrier");
+    finish();
+    require(!sink->output_blocked(), "and lifts it once the character is entered");
+    Keys cancelled = tap(14);
+    const auto first = entry({7, 6, 18, 6}); // U+65E5
+    cancelled.insert(cancelled.end(), first.begin(), first.end());
+    require(server.keys == cancelled, "the deletion and one whole character, nothing after");
+
+    // With Paste chosen, the clipboard takes the text and Ctrl+V follows once
+    // it holds it; the entry ends when an application asks for the text.
+    struct TestClipboard : Clipboard {
+        std::vector<std::string> written;
+        std::optional<bool> owned;
+        std::uint64_t taken{};
+        std::uint64_t write(const std::string& value) override {
+            written.push_back(value);
+            return written.size();
+        }
+        std::optional<bool> result(std::uint64_t) const override { return owned; }
+        std::uint64_t served() const override { return taken; }
+    } clipboard;
+    sink->set_desktop_paste(&clipboard);
+    server.keys.clear();
+    require(!sink->commit_text("😀") && clipboard.written == std::vector<std::string>{"😀"},
+            "Paste writes the clipboard");
+    for (int i = 0; i < 5; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    server.pump();
+    require(server.keys.empty() && sink->output_blocked(), "Ctrl+V waits for the clipboard");
+    clipboard.owned = true;
+    for (int i = 0; i < 10; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    server.until([&] { return server.keys.size() == 4; });
+    require(server.keys == Keys{{29, true}, {47, true}, {47, false}, {29, false}}, "then Ctrl+V");
+    require(sink->output_blocked() && !sink->commit_text("😀"), "waiting for an application");
+    ++clipboard.taken;
+    sink->pump();
+    require(!sink->output_blocked() && sink->commit_text("😀"), "taken: the paste succeeded");
+    require(!sink->commit_text("😀😀"), "a second paste starts");
+    for (int i = 0; i < 10; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    now += EiSink::paste_wait;
+    sink->pump();
+    require(!sink->commit_text("😀😀") && !sink->text_pending() && sink->delivered_characters() == 0,
+            "nobody took it: failed, with nothing known to have arrived");
+    server.until([&] { return server.keys.size() == 8; }); // two Ctrl+V so far
+    server.keys.clear();
+    clipboard.owned.reset();
+    require(!sink->commit_text("😀"), "a paste starts");
+    sink->cancel_text();
+    clipboard.owned = true;
+    for (int i = 0; i < 10; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    server.pump();
+    require(server.keys.empty() && !sink->output_blocked(), "cancelled before Ctrl+V: no keys");
+    sink->set_desktop_paste(nullptr);
+
+    // Outside the Desktop, CJK stays one Gamescope commit.
+    desktop = false;
+    sink->pump();
+    require(!sink->commit_text("日本") && sink->text_pending(), "Gamescope commit");
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return text.commits.size() == 2;
+    });
+    require(text.commits.back() == "日本", "outside the Desktop, the temporary keymap as before");
+}
 void app_ordering_barrier() {
     Server server;
     TextServer text(server.directory / "text");
@@ -555,6 +713,7 @@ int main() {
         reconnect();
 #ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
         asynchronous_text();
+        desktop_entry();
         app_ordering_barrier();
 #endif
         for (const auto* layout : {"us", "fr"}) {

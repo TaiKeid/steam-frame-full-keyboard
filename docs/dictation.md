@@ -133,7 +133,7 @@ Esc in dictation mode is local and never reaches the application.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the output queue. Each line break is a native key entry. Each piece goes out once the previous one is delivered, so a failure knows exactly what arrived.
   - Plain text to local applications goes one acknowledged character at a time. Whole commits are unusable there: Gamescope's temporary keymap leaks into the text, and words are lost or reordered even with the Frame idle.
-  - The **Send** setting sets the pace: 20 ms between characters (the default, about 19 s for 900 characters), or 30 or 40 ms, slower but steadier when the Frame is busy. Under heavy load, 20 ms can occasionally swap neighbouring characters. Other typing keeps 20 ms.
+  - The **Send** setting sets the pace: 20 ms between characters (the default, about 19 s for 900 characters), 10 ms, faster but more likely to swap characters, or 30 or 40 ms, slower but steadier when the Frame is busy. Each character also waits for the previous one to be acknowledged, about one frame. Under heavy load, 20 ms can occasionally swap neighbouring characters. Other typing keeps 20 ms.
   - **Paste,** the fourth choice of the **Send** setting: Send writes the text to the clipboard, line breaks included, presses Ctrl+V, and waits until the application takes the text before the final Enter.
     - The keyboard owns the clipboard on every X display, since Steam uses `:0` and the applications it starts use `:1`, and Gamescope does not copy one to the other. It answers requests for its own text and never asks for anyone else's. The text stays there until something else is copied or the keyboard exits.
     - Gamescope fetches a new clipboard at once, so Send waits 150 ms before Ctrl+V; Enter follows 100 ms after the application's request.
@@ -219,7 +219,7 @@ The **Dictation** card is third: Languages and Layouts, General, Dictation, Inte
   - A **Server** field, saved as `dictation_server`, drawn as a small recessed text field. It holds `host:port`, for example `speech.local:8031` or `192.168.1.20`; port 8031 is assumed when it is left out. The default avoids 8080, which is common and which Steam on the Frame already uses for its own debugging port.
   - **Connection** with a **Test** button, which sends half a second of silence to the pending address before Apply. The result is a word or two: Reachable, Unreachable, No answer, Server error, Bad reply, Helper stopped. One Test runs at a time, and its answer belongs to the address it checked: an address edited meanwhile stays "Not tested", and only the checked one joins the recent servers.
   - **Fall back to on device** switch, saved as `dictation_fallback`, default off.
-- **Send:** the pace (20, 30 or 40 ms) or Paste; see [Send](#send).
+- **Send:** the pace (10, 20, 30 or 40 ms) or Paste; see [Send](#send).
 - **Type as I speak** switch, saved as `dictation_direct`, default off.
 
 Hosted providers and their API keys are configured only in `config.json` and the key file; the card has no provider presets. Apply keeps `dictation_url` and `dictation_model` as they are in the file. All fields are listed in [configuration](configuration.md#dictation).

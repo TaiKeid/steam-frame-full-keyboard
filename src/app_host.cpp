@@ -302,6 +302,7 @@ JsonPtr App::host_settings() const {
     flag("auto_leveling", settings_.auto_leveling);
     flag("pinned", settings_.pinned);
     flag("emoji_close_on_select", settings_.emoji_close_on_select);
+    flag("desktop_unicode_paste", settings_.desktop_unicode_paste);
     json_object_object_add(object.get(), "dictation",
                            json_object_new_string(settings_.dictation.c_str()));
     json_object_object_add(object.get(), "dictation_server",
@@ -322,7 +323,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
                                                 "hide_numpad",           "use_drag_to_move",
                                                 "auto_leveling",         "pinned",
                                                 "emoji_close_on_select", "dictation_send_paste",
-                                                "dictation_direct",      "dictation_fallback"};
+                                                "dictation_direct",      "dictation_fallback",
+                                                "desktop_unicode_paste"};
     // Every value is checked before any is applied: one invalid value
     // rejects the whole request.
     json_object_object_foreach(values, check_key, check_value) {
@@ -347,7 +349,7 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
         } else if (key == "dictation_send_gap") {
             const int gap =
                 json_object_is_type(check_value, json_type_int) ? json_object_get_int(check_value) : 0;
-            if (gap != 20 && gap != 30 && gap != 40) {
+            if (gap != 10 && gap != 20 && gap != 30 && gap != 40) {
                 return {"invalid_setting", key};
             }
         } else {
@@ -376,6 +378,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
             settings_.pinned = on;
         } else if (key == "emoji_close_on_select") {
             settings_.emoji_close_on_select = pending_emoji_close_on_select_ = on;
+        } else if (key == "desktop_unicode_paste") {
+            settings_.desktop_unicode_paste = pending_desktop_unicode_paste_ = on;
         } else if (key == "dictation_send_paste") {
             settings_.dictation_send_paste = pending_dictation_send_paste_ = on;
         } else if (key == "dictation_direct") {
@@ -710,6 +714,7 @@ void App::activate_update() {
 }
 
 void App::host_settings_changed(const Settings& before, const char* source) {
+    route_desktop_text(); // every saved settings change passes here
     if (!hosted()) {
         return;
     }
@@ -726,6 +731,7 @@ void App::host_settings_changed(const Settings& before, const char* source) {
     compare("auto_leveling", before.auto_leveling != settings_.auto_leveling);
     compare("pinned", before.pinned != settings_.pinned);
     compare("emoji_close_on_select", before.emoji_close_on_select != settings_.emoji_close_on_select);
+    compare("desktop_unicode_paste", before.desktop_unicode_paste != settings_.desktop_unicode_paste);
     compare("dictation", before.dictation != settings_.dictation);
     compare("dictation_server", before.dictation_server != settings_.dictation_server);
     compare("dictation_send_gap", before.dictation_send_gap != settings_.dictation_send_gap);

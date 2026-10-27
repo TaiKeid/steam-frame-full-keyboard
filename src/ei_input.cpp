@@ -2,7 +2,9 @@
 #include "framekeyboard/local_socket.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <glib.h>
+#include <linux/input-event-codes.h>
 #include <poll.h>
 #include <stdexcept>
 #include <string_view>
@@ -131,12 +133,202 @@ bool EiSink::text_available() {
     return !disconnected_ && resumed_ && text_ && text_->ready();
 }
 bool EiSink::commit_text(const std::string& text) {
+    if (entry_ || needs_entry(text)) {
+        return enter(text, 0);
+    }
+    last_entry_ = false;
     return pump() && !input_reset_ && held_.empty() && text_available() &&
            text_->commit(text, 0, on_keymap(text));
 }
 bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
+    if (entry_ || needs_entry(text)) {
+        return enter(text, delete_before);
+    }
+    last_entry_ = false;
     return pump() && !input_reset_ && held_.empty() && text_available() &&
            text_->commit(text, delete_before, on_keymap(text));
+}
+std::size_t EiSink::delivered_characters() const {
+    return last_entry_ ? entry_delivered_ : text_ ? text_->acknowledged() : 0;
+}
+void EiSink::cancel_text() {
+    if (text_) {
+        text_->cancel();
+    }
+    if (!entry_) {
+        return;
+    }
+    auto& entry = *entry_;
+    if (!entering()) {
+        entry_.reset();
+        return;
+    }
+    // Stop only where IBus is not mid-sequence and no modifier is held:
+    // after a whole Backspace tap, once the current character is entered, or
+    // once a started Ctrl+V is complete. A paste not yet started never starts.
+    const auto deletion_keys = 2 * entry.deletions;
+    std::size_t stop = entry.keys.size();
+    if (entry.next <= deletion_keys) {
+        stop = entry.next + entry.next % 2;
+    } else if (!entry.write) {
+        stop = *std::find_if(entry.character_ends.begin(), entry.character_ends.end(),
+                             [&](auto end) { return end >= entry.next; });
+    }
+    entry.keys.resize(stop);
+    if (entry.write && stop <= entry.paste_at) {
+        entry.write.reset();
+    }
+    entry.cancelled = true;
+    if (!entering()) {
+        entry_.reset();
+    }
+}
+// The nested desktop reads Gamescope's keys with its own keymap, so text
+// beyond printable ASCII cannot go through Gamescope's temporary keymap there.
+bool EiSink::desktop_target() {
+    if (desktop_focused_) {
+        return desktop_focused_();
+    }
+    if (text_socket_.empty()) {
+        return false;
+    }
+    if (!desktop_) {
+        // Gamescope publishes its focus on its first X display, where Steam runs.
+        const char* display = std::getenv("DISPLAY");
+        desktop_ = std::make_unique<DesktopFocus>(display && *display ? display : ":0");
+    }
+    return desktop_->focused();
+}
+bool EiSink::needs_entry(const std::string& text) {
+    return desktop_now_ &&
+           std::any_of(text.begin(), text.end(), [](char c) { return c < 0x20 || c > 0x7e; });
+}
+bool EiSink::enter(const std::string& text, std::size_t deletions) {
+    if (entry_) {
+        // The first call starts entry; repeating it reports the result.
+        if (entering() || entry_->cancelled || text != entry_->text || deletions != entry_->deletions) {
+            return false;
+        }
+        const bool ok = !entry_->failed;
+        entry_.reset();
+        return ok;
+    }
+    if (!pump() || input_reset_ || !held_.empty() || (text_ && text_->busy()) || text.empty() ||
+        text.find('\0') != std::string::npos ||
+        !g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr) ||
+        g_utf8_strlen(text.c_str(), -1) > 32 || deletions > 64) {
+        return false;
+    }
+    // Physical keys: the desktop's own keymap reads them, so they must be
+    // where U, the hex digits and Space are on US-like layouts.
+    static constexpr int digits[]{KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7,
+                                  KEY_8, KEY_9, KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F};
+    Entry entry;
+    entry.text = text;
+    entry.deletions = deletions;
+    const auto tap = [&](int code) {
+        entry.keys.emplace_back(code, 1);
+        entry.keys.emplace_back(code, 0);
+    };
+    for (std::size_t i = 0; i < deletions; ++i) {
+        tap(KEY_BACKSPACE);
+    }
+    if (desktop_paste_) {
+        // The text may arrive any time after Ctrl+V, so none counts as delivered.
+        entry.write = desktop_paste_->write(text);
+        entry.paste_at = entry.keys.size();
+        entry.keys.insert(entry.keys.end(),
+                          {{KEY_LEFTCTRL, 1}, {KEY_V, 1}, {KEY_V, 0}, {KEY_LEFTCTRL, 0}});
+        entry.character_ends.assign(static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1)),
+                                    entry.keys.size() + 1);
+    }
+    for (const char* p = desktop_paste_ ? "" : text.c_str(); *p; p = g_utf8_next_char(p)) {
+        const auto character = g_utf8_get_char(p);
+        if (character == ' ') {
+            tap(KEY_SPACE);
+        } else if (character == '\n') {
+            tap(KEY_ENTER);
+        } else {
+            entry.keys.insert(entry.keys.end(), {{KEY_LEFTCTRL, 1}, {KEY_LEFTSHIFT, 1}});
+            tap(KEY_U);
+            entry.keys.insert(entry.keys.end(), {{KEY_LEFTSHIFT, 0}, {KEY_LEFTCTRL, 0}});
+            char hex[16];
+            std::snprintf(hex, sizeof hex, "%x", character);
+            for (const char* h = hex; *h; ++h) {
+                tap(digits[*h <= '9' ? *h - '0' : *h - 'a' + 10]);
+            }
+            tap(KEY_SPACE); // ends the entry and commits the character
+        }
+        entry.character_ends.push_back(entry.keys.size());
+    }
+    entry.next_at = clock_();
+    last_entry_ = true;
+    entry_delivered_ = 0;
+    entry_ = std::move(entry);
+    advance_entry();
+    return false;
+}
+// One key event per call, at least entry_gap apart.
+void EiSink::advance_entry() {
+    if (!entering()) {
+        return;
+    }
+    auto& entry = *entry_;
+    if (disconnected_ || !resumed_ || input_reset_ || !keyboard_) {
+        // EIS released our keys with the device. Whole characters count as delivered.
+        entry.failed = true;
+        entry_delivered_ = static_cast<std::size_t>(
+            std::count_if(entry.character_ends.begin(), entry.character_ends.end(),
+                          [&](auto end) { return end <= entry.next; }));
+        if (entry.cancelled) {
+            entry_.reset();
+        }
+        return;
+    }
+    if (entry.write && entry.next == entry.keys.size()) {
+        if (entry.cancelled) {
+            entry_.reset(); // a cancelled paste does not wait for the application
+            return;
+        }
+        // Ctrl+V is out: done once an application asks for the text.
+        entry.taken = desktop_paste_ && desktop_paste_->served() != entry.served;
+        entry.failed = !entry.taken && clock_() >= entry.deadline;
+        if (entry.cancelled && !entering()) {
+            entry_.reset();
+        }
+        return;
+    }
+    if (clock_() < entry.next_at) {
+        return;
+    }
+    if (entry.write && entry.next == entry.paste_at) {
+        const auto owned = desktop_paste_ ? desktop_paste_->result(*entry.write) : false;
+        if (!owned) {
+            return; // the clipboard is still being set
+        }
+        if (!*owned) {
+            entry.failed = true; // nothing pasted, so nothing to finish
+            if (entry.cancelled) {
+                entry_.reset();
+            }
+            return;
+        }
+        entry.served = desktop_paste_->served();
+    }
+    const auto [code, value] = entry.keys[entry.next++];
+    if (value) {
+        held_.insert(code);
+    } else {
+        held_.erase(code);
+    }
+    ei_device_keyboard_key(keyboard_, static_cast<std::uint32_t>(code), value != 0);
+    ei_device_frame(keyboard_, ei_now(context_));
+    ei_dispatch(context_);
+    entry.next_at = clock_() + entry_gap;
+    entry.deadline = clock_() + paste_wait;
+    if (entry.cancelled && !entering()) {
+        entry_.reset();
+    }
 }
 // Whether Gamescope can type every character of a multi-character text on its
 // ordinary keymap, so committing them one by one avoids its temporary keymap.
@@ -193,6 +385,7 @@ bool EiSink::on_keymap(const std::string& text) const {
 }
 bool EiSink::pump() {
     if (disconnected_) {
+        advance_entry(); // fails an entry the connection took down
         if (clock_() < retry_at_) {
             return false;
         }
@@ -264,6 +457,8 @@ bool EiSink::pump() {
     if (!disconnected_ && connect_deadline_ != 0 && clock_() >= connect_deadline_) {
         connection_lost();
     }
+    desktop_now_ = desktop_target();
+    advance_entry();
     return resumed_ && !disconnected_;
 }
 void EiSink::read_keymap() {
@@ -329,7 +524,7 @@ void EiSink::send(int code, int value) {
         return;
     }
     if (value == 1) {
-        if (text_ && text_->busy()) {
+        if ((text_ && text_->busy()) || entering()) {
             return; // A native down cannot overtake unresolved Unicode delivery.
         }
         if (!held_.insert(code).second) {

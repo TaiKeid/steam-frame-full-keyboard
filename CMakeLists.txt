@@ -32,6 +32,14 @@ add_custom_command(OUTPUT "${IME_HEADER}" "${IME_CODE}"
     COMMAND "${WAYLAND_SCANNER}" client-header "${IME_XML}" "${IME_HEADER}"
     COMMAND "${WAYLAND_SCANNER}" private-code "${IME_XML}" "${IME_CODE}"
     DEPENDS "${IME_XML}" VERBATIM)
+set(DATA_CONTROL_XML "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wlr-protocols/wlr-data-control-unstable-v1.xml")
+set(DATA_CONTROL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/wlr-data-control-client.h")
+set(DATA_CONTROL_CODE "${CMAKE_CURRENT_BINARY_DIR}/generated/wlr-data-control-protocol.c")
+add_custom_command(OUTPUT "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    COMMAND "${WAYLAND_SCANNER}" client-header "${DATA_CONTROL_XML}" "${DATA_CONTROL_HEADER}"
+    COMMAND "${WAYLAND_SCANNER}" private-code "${DATA_CONTROL_XML}" "${DATA_CONTROL_CODE}"
+    DEPENDS "${DATA_CONTROL_XML}" VERBATIM)
 pkg_check_modules(SDL REQUIRED IMPORTED_TARGET sdl2)
 pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
 
@@ -45,7 +53,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/startup.cpp src/app.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -340,6 +348,17 @@ if(BUILD_TESTING)
             endif()
             add_test(NAME ei-recovery COMMAND ei-recovery-tests)
         endif()
+        pkg_check_modules(WAYLAND_SERVER QUIET IMPORTED_TARGET wayland-server)
+        if(WAYLAND_SERVER_FOUND)
+            set(DATA_CONTROL_SERVER_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/wlr-data-control-server.h")
+            add_custom_command(OUTPUT "${DATA_CONTROL_SERVER_HEADER}"
+                COMMAND "${WAYLAND_SCANNER}" server-header "${DATA_CONTROL_XML}" "${DATA_CONTROL_SERVER_HEADER}"
+                DEPENDS "${DATA_CONTROL_XML}" VERBATIM)
+            add_executable(clipboard-tests tests/clipboard_tests.cpp "${DATA_CONTROL_SERVER_HEADER}")
+            target_include_directories(clipboard-tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+            target_link_libraries(clipboard-tests PRIVATE keyboard_core PkgConfig::WAYLAND_SERVER)
+            add_test(NAME clipboard COMMAND clipboard-tests)
+        endif()
     endif()
     # Opt-in only: maps a disposable window and verifies focus before each key.
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
@@ -381,6 +400,7 @@ install(FILES third_party/overlay_texture/LICENSE DESTINATION third_party/overla
 install(FILES third_party/libei/COPYING third_party/libei/README.md third_party/libei/provenance.json DESTINATION third_party/libei)
 
 install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
+install(FILES third_party/wlr-protocols/wlr-data-control-unstable-v1.xml DESTINATION third_party/wlr-protocols)
 install(FILES third_party/unicode/LICENSE DESTINATION third_party/unicode)
 if(FRAMEKEYBOARD_SWIPE_ENGINE)
     install(FILES third_party/futo-swipe/LICENSE.md third_party/futo-swipe/README.md

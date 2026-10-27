@@ -69,6 +69,7 @@ class OutputController : public KeySink, public TextOutput {
     bool single_line_target() const override { return target_.single_line_target(); }
     bool steam_field_target() const override { return target_.steam_field_target(); }
     void set_character_gap(double seconds) override { target_.set_character_gap(seconds); }
+    void set_desktop_paste(Clipboard* clipboard) override { target_.set_desktop_paste(clipboard); }
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {

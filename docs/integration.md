@@ -216,10 +216,10 @@ Settings written over the protocol persist, exactly like the same change in Sett
 
 | Key | Type and range |
 | --- | --- |
-| `swipe_typing`, `num_lock`, `hide_numpad`, `use_drag_to_move`, `auto_leveling`, `pinned`, `emoji_close_on_select` | boolean |
+| `swipe_typing`, `num_lock`, `hide_numpad`, `use_drag_to_move`, `auto_leveling`, `pinned`, `emoji_close_on_select`, `desktop_unicode_paste` | boolean |
 | `dictation` | `off`, `server`, `device` |
 | `dictation_server` | `host[:port]`, validated like the Dictation card; see [Dictation](#dictation) |
-| `dictation_send_gap` | 20, 30 or 40 (ms) |
+| `dictation_send_gap` | 10, 20, 30 or 40 (ms) |
 | `dictation_send_paste`, `dictation_direct`, `dictation_fallback` | boolean |
 
 Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-only, see [modes](#standalone-and-hosted-modes)), `developer_options`, `dictation_device_model`, `dictation_url`, `dictation_model`, and favorites (read-only in protocol 1). `settings.get` leaves out the standalone-only keys.

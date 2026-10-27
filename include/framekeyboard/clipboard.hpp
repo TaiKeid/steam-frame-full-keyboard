@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,8 +25,13 @@ class Clipboard {
 
 // Owns CLIPBOARD on every X display Gamescope runs, as Steam uses :0 and
 // the applications it starts use :1, and Gamescope does not copy one to the
-// other. XCB on a thread of its own: unlike Xlib it never ends the process
+// other. Also sets the clipboard of every nested Wayland desktop session
+// (a socket in a subdirectory of XDG_RUNTIME_DIR, such as SteamOS's Desktop),
+// whose compositor keeps its own and copies nothing from Gamescope. XCB and
+// Wayland on a thread of its own: unlike Xlib, XCB never ends the process
 // when a display goes away. The text stays until another application copies
-// or the keyboard exits.
-std::unique_ptr<Clipboard> make_x_clipboard();
+// or the keyboard exits. Tests pass their own directories, so they never
+// touch a real session's clipboard.
+std::unique_ptr<Clipboard> make_clipboard(std::filesystem::path x11_sockets = "/tmp/.X11-unix",
+                                          std::filesystem::path runtime = {});
 } // namespace framekeyboard
