@@ -77,15 +77,7 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
         cancel(true);
         output_.cancel();
         // The old context's hints end with it.
-        if (host_.before_language && settings_.active.language == host_.hinted_language) {
-            try {
-                activate(*host_.before_language); // the user did not pick another since
-            } catch (const std::exception& error) {
-                status_ = error.what();
-            }
-        }
-        host_.before_language.reset();
-        host_.hinted_language.clear();
+        end_language_hint();
         if (host_.num_before) {
             keyboard_.set_num(*host_.num_before);
             host_.num_before.reset();
@@ -132,6 +124,23 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
                            host_.context ? json_object_new_string(host_.context->c_str()) : nullptr);
     host_event("target", std::move(fields));
     dirty = true;
+}
+
+void App::end_language_hint() {
+    if (host_.before_language && settings_.active.language == host_.hinted_language) {
+        // The user did not pick another since: back to the layout and
+        // language before the hint, keeping any theme chosen meanwhile.
+        Selection selection = settings_.active;
+        selection.layout = host_.before_language->layout;
+        selection.language = host_.before_language->language;
+        try {
+            activate(selection);
+        } catch (const std::exception& error) {
+            status_ = error.what();
+        }
+    }
+    host_.before_language.reset();
+    host_.hinted_language.clear();
 }
 
 void App::set_sink(bool on, const std::string& client) {

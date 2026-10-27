@@ -330,6 +330,9 @@ class App {
     // Reports what a change of settings changed, with its source.
     void host_settings_changed(const Settings& before, const char* source);
     void host_tick(double now);
+    // Restores the selection a context's language hint replaced, unless the
+    // user chose another meanwhile.
+    void end_language_hint();
     // The shell's theme, kept under this ID while it is active; never saved.
     static constexpr const char* shell_theme_id = "shell";
     struct HostState {

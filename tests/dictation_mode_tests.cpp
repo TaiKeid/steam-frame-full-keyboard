@@ -1989,6 +1989,26 @@ void hosted_tests() {
     require(app.check_hints({"secret", "enter", "sentences", ""}).first == "bad_request",
             "unknown hints are refused");
 
+    // Applying unrelated settings while a field's language hint is active
+    // keeps the user's own language saved.
+    App::HostHints german_field;
+    german_field.language = "de-de";
+    app.set_context(std::string("field"), german_field);
+    app.show_settings();
+    click(app, "auto-leveling");
+    click(app, "apply");
+    app.set_context(std::nullopt);
+    app.flush_settings();
+    {
+        std::vector<std::string> load_errors;
+        require(app.selection().language == "en-us" &&
+                    load_settings(directory.path, load_errors).active.language == "en-us",
+                "a hinted language is never saved by an unrelated Apply");
+        click(app, "settings");
+        click(app, "auto-leveling");
+        click(app, "apply"); // back as it was
+    }
+
     // A view chosen while hidden is the one that shows.
     app.set_interaction_active(false);
     require(app.show_view("emoji").empty() && app.view_name() == "emoji",
