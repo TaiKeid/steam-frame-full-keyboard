@@ -1740,6 +1740,41 @@ void microphone_tests() {
     require(app.view().status.empty(), "and it goes when listening stops");
 }
 
+// Taking the headset off or a sleep closes the microphone at once: the
+// editor keeps its text and says why; Type as I speak stops.
+void away_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    const std::string reason = "Listening stopped: the headset was taken off.";
+    {
+        write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+        Sink sink;
+        App app(options, sink);
+        app.stop_listening(reason);
+        require(app.view().status.empty(), "nothing to stop while not listening");
+        press(app, "Dictation");
+        require(app.listening(), "the mic key listens");
+        app.stop_listening(reason);
+        require(!app.listening() && app.dictation_open() && app.view().dictation->notice == reason &&
+                    !app.view().dictation->notice_error,
+                "in the editor, listening stops and the notice says why");
+    }
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+    Sink sink;
+    App app(options, sink);
+    press(app, "Dictation");
+    require(app.listening() && !app.dictation_open(), "Type as I speak listens on the keyboard");
+    app.stop_listening(reason);
+    require(!app.listening() && app.view().status == reason, "Type as I speak stops and says why");
+    require(sink.text.empty() && sink.keys.empty(), "stopping types nothing");
+}
+
 void card_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -1965,6 +2000,7 @@ int main() {
         device_tests();
         fallback_tests();
         microphone_tests();
+        away_tests();
         send_during_reveal_tests();
         direct_esc_tests();
         send_wait_tests();

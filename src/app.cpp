@@ -2924,6 +2924,18 @@ void App::panel_hidden() {
     // Phrases already spoken are still recognized and inserted.
     pause_capture();
 }
+void App::stop_listening(const std::string& reason) {
+    if (!capturing_) {
+        return;
+    }
+    if (direct_active()) {
+        stop_direct(reason);
+        return;
+    }
+    std::cout << "Dictation stopped: " << reason << '\n' << std::flush; // Fixed text only.
+    pause_capture();
+    dictation_message(reason, false);
+}
 bool App::dashboard_visibility(bool visible) {
     // Listening in the editor, or Type as I speak until its phrases are typed.
     const bool keep = dictation_open_ ? capturing_ : direct_active();

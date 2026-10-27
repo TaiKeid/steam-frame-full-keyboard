@@ -8,6 +8,7 @@
 - **Type as I speak**, a switch on the Dictation card, skips the editor: the mic key listens on the normal keyboard, and each phrase is typed straight into the focused app. With a speech server, words are typed while you are still speaking, once Whisper is sure of them.
 - **Send** has a **Paste** choice besides the typing paces (40, 30 or 20 ms per character). Paste writes the text to the clipboard and pastes it with Ctrl+V; Send and Type as I speak use it for local apps, while Steam's own fields still receive the text directly. Full Keyboard writes the clipboard but never reads it.
 - With a game running, SteamOS's voice-chat noise suppression cut words out of dictation. Dictation now records the microphone directly; while a game is running it may pick up game sound, and the status line says so while listening.
+- Dictation stops listening as soon as the headset is taken off or wakes from sleep, and says why. It used to keep listening until 60 s of silence.
 - The controller gives two light ticks when dictation starts listening and one soft pulse when it stops, so you feel it even when listening ends on its own after silence.
 - Holding Backspace, an arrow or another repeating key now keeps it repeating when the laser drifts off the keyboard, until you release the trigger, so you can watch the text instead of aiming. This needs a Steam Frame controller; other controllers release the key as before.
 - The flick input's preview and the emoji skin tone menu are now raised keycaps and panels with soft shadows, instead of shapes outlined in bright white.

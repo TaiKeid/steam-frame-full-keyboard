@@ -20,9 +20,18 @@
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <time.h>
 
 namespace framekeyboard {
 namespace {
+// Seconds the system has spent suspended since boot.
+double suspended_seconds() {
+    timespec boot{}, steady{};
+    clock_gettime(CLOCK_BOOTTIME, &boot);
+    clock_gettime(CLOCK_MONOTONIC, &steady);
+    return static_cast<double>(boot.tv_sec - steady.tv_sec) +
+           static_cast<double>(boot.tv_nsec - steady.tv_nsec) / 1e9;
+}
 // Only the VR/main thread installs this binding. The overlay watchdog never
 // writes main-loop runtime state, even when its own OpenVR call blocks.
 thread_local NativeReplacement* runtime_watch = nullptr;
@@ -1298,6 +1307,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     KeyHaptics feedback;
     std::optional<vr::TrackedDeviceIndex_t> last_pressed; // Controller of the last laser press.
     bool was_listening = false;
+    double last_suspended = suspended_seconds(), next_presence_check = 0;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
@@ -2058,6 +2068,22 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (!drag.active() && lifecycle.visible()) {
                 RuntimeWait runtime_wait;
                 haptics.send(device, kind);
+            }
+        }
+        // Listening never outlives the wearer (docs/dictation.md, Dashboard,
+        // passthrough and focus). The headset enters standby seconds after it
+        // is taken off. A system sleep shows as boot time, which counts
+        // suspend, running ahead of the monotonic clock, which does not.
+        const double suspended = suspended_seconds();
+        if (app.listening() && suspended > last_suspended + 1) {
+            app.stop_listening("Listening stopped: the headset was asleep.");
+        }
+        last_suspended = suspended;
+        if (app.listening() && now >= next_presence_check) {
+            next_presence_check = now + .25;
+            if (vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) ==
+                vr::k_EDeviceActivityLevel_Standby) {
+                app.stop_listening("Listening stopped: the headset was taken off.");
             }
         }
         // Felt in the hand that last pressed, which started listening.

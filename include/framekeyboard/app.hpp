@@ -130,6 +130,9 @@ class App {
     // The panel left the view; listening pauses. A pause in interaction,
     // such as Steam handing over a new field, does not.
     void panel_hidden();
+    // Nobody is wearing the headset, or it slept: the microphone closes at
+    // once, with `reason` shown. Editor text stays; Type as I speak stops.
+    void stop_listening(const std::string& reason);
     // A prepared update discards dictation and stops its helper, which has
     // exited by the time App is destroyed and the handoff starts.
     void end_dictation_for_update();
