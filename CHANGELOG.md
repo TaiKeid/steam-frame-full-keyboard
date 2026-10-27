@@ -25,7 +25,7 @@
 - Settings has a new look that matches the keyboard: its cards are raised panels instead of outlined boxes, buttons and dropdowns look like keycaps, checkboxes are switches, and dropdown lists open as a raised menu.
 - In Settings, the cards now glide when scrolled with the thumbstick, and can also be dragged with the laser, like a touch screen. Scrollbars light up under the laser.
 - Choosing a theme in Settings shows it at once; Back returns to the saved theme.
-- Settings can clear all favorite layout and language pairs at once, after asking.
+- In Settings, **Manage** on the Favorites row opens a list of your favorite layout and language pairs over the Languages and Layouts card. A bin button removes one pair, and **Clear all** removes them all after asking. Like every Settings change, removals are saved by Apply, and Back keeps your favorites.
 - The Experimental settings card is now called **Integration**.
 - Ten new themes: Ember, Plum, Crimson, Navy and Mono in dark tones with their own accent colors; Neon, whose latched and pressed keys light up in neon tubes; Cinematic, dark blue with orange; and the light Porcelain, Blossom and Lilac.
 - 25 new typing languages on their standard national layouts, each with dictation: Arabic, Croatian, Czech, Danish, Dutch, Estonian, Finnish, French (Canada), Greek, Hebrew, Hindi, Hungarian, Indonesian, Latvian, Lithuanian, Malay, Norwegian, Polish, Romanian, Slovak, Slovenian, Swedish, Thai, Turkish and Vietnamese. Arabic and Hebrew legends read right to left, and the right Alt key shows AltGr where a language uses it.

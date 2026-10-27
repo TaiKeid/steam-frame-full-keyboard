@@ -627,11 +627,14 @@ void App::update_settings_ui() {
             : "You will see Unicode codes typed for emoji and other Unicode characters. Slow.",
         "", ControlStyle::Note};
     desktop_unicode_note.plain = true;
-    auto favorites = field(ControlKind::ClearFavorites, SettingField{"clear-favorites", "Favorites",
-                                                                     "Clear all", ControlStyle::Button});
-    favorites.note =
-        pending_favorites_.empty() ? "None saved" : std::to_string(pending_favorites_.size()) + " saved";
-    favorites.enabled = !pending_favorites_.empty();
+    // Manage opens the favorites popup over this card, which removes pairs
+    // one by one or all at once.
+    const auto pairs = favorite_pairs();
+    auto favorites = field(ControlKind::ManageFavorites, SettingField{"manage-favorites", "Favorites",
+                                                                      "Manage", ControlStyle::Button});
+    favorites.note = pairs.empty() ? "None saved" : std::to_string(pairs.size()) + " saved";
+    favorites.enabled = !pairs.empty();
+    favorites.narrow = true;
     std::vector<SettingsCard> cards{
         {{"languages",
           "Languages and Layouts",
@@ -672,6 +675,87 @@ void App::update_settings_ui() {
         cards.pop_back();
     }
     settings_ui_.set_cards(std::move(cards));
+    if (favorites_) {
+        // Removing rows shortens the list; keep its end in place.
+        const double limit = favorites_scroll_limit();
+        favorites_->scroll = std::min(favorites_->scroll, limit);
+        favorites_->target = std::min(favorites_->target, limit);
+    }
+}
+std::vector<Favorite> App::favorite_pairs() const {
+    std::vector<Favorite> result;
+    for (const auto& entry : pending_favorites_) {
+        // Legacy duplicates of a pair show once; removing it removes them all.
+        if (std::none_of(result.begin(), result.end(),
+                         [&](const Favorite& f) { return same_pair(f.selection, entry.selection); })) {
+            result.push_back(entry);
+        }
+    }
+    return result;
+}
+double App::favorites_scroll_limit() const {
+    const double rows = static_cast<double>(favorite_pairs().size()) * favorites_row_height;
+    return std::max(0.0, rows - favorites_list_bounds.height);
+}
+void App::append_favorites(PanelView& v) const {
+    if (!settings_open_ || !favorites_) {
+        return;
+    }
+    const auto pairs = favorite_pairs();
+    PanelView::FavoritesView popup;
+    popup.panel = favorites_popup_bounds;
+    popup.list = favorites_list_bounds;
+    popup.count = pairs.empty() ? "None saved" : std::to_string(pairs.size()) + " saved";
+    const auto& panel = popup.panel;
+    const auto& list = popup.list;
+    auto add = [&](ControlAction action, Control control) {
+        control.action = std::move(action);
+        v.controls.push_back(std::move(control));
+    };
+    // A back arrow at the top left, as Settings' own Back, before the title.
+    add({ControlKind::FavoritesClose},
+        {"favorites-close", "Back", {panel.x + 12, panel.y + 12, 60, 42}, false, Icon::Back});
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        const auto& selection = pairs[i].selection;
+        const Rect row{list.x,
+                       list.y + static_cast<double>(i) * favorites_row_height - favorites_->scroll,
+                       list.width, favorites_row_height};
+        if (row.y + row.height <= list.y || row.y >= list.y + list.height) {
+            continue;
+        }
+        const auto language = profiles_.languages.find(selection.language);
+        const auto layout = profiles_.layouts.find(selection.layout);
+        // A pair whose profiles were removed stays listed, so it can go too.
+        popup.rows.push_back({language != profiles_.languages.end() ? language->second.name
+                              : pairs[i].name.empty()               ? selection.language
+                                                                    : pairs[i].name,
+                              layout == profiles_.layouts.end() ? selection.layout + " (missing)"
+                              : language == profiles_.languages.end()
+                                  ? layout->second.name + " (language missing)"
+                                  : layout->second.name,
+                              row});
+        // The pair itself, not a row index: a press held over the list must
+        // not remove a different pair after the rows shift.
+        Control bin{"favorites-remove-" + std::to_string(i),
+                    "Remove",
+                    {list.x + list.width - 70, row.y + 8, 56, 56},
+                    false,
+                    Icon::Clear};
+        bin.clip = list;
+        add({ControlKind::RemoveFavorite, 0, selection.layout + '\n' + selection.language}, bin);
+    }
+    add({ControlKind::ClearFavorites},
+        {"favorites-clear",
+         "Clear all",
+         {panel.x + panel.width - 194, panel.y + panel.height - 70, 170, 52}});
+    v.controls.back().enabled = !pairs.empty();
+    if (const double limit = favorites_scroll_limit(); limit > 0) {
+        const Rect track{list.x + list.width - 8, list.y + 4, 6, list.height - 8};
+        const double length = track.height * track.height / (track.height + limit);
+        popup.thumb = Rect{track.x, track.y + favorites_->scroll / limit * (track.height - length),
+                           track.width, length};
+    }
+    v.favorites = std::move(popup);
 }
 PanelView App::geometry() const {
     PanelView v;
@@ -708,6 +792,7 @@ PanelView App::build_view(bool picker) const {
     v.controls = controls();
     if (settings_open_) {
         settings_ui_.append(v);
+        append_favorites(v);
     }
     v.status = !status_.empty()            ? status_
                : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
@@ -939,6 +1024,25 @@ bool App::scroll(unsigned pointer, double dx, double dy) {
     if (address_ || confirm_ != Confirm::None) {
         return false; // nothing under a popup scrolls
     }
+    if (settings_open_ && favorites_) {
+        // Only the popup's list scrolls, under the laser.
+        if (!interaction_active_ || dragging_ || !pointer_positions_.contains(pointer) ||
+            !std::isfinite(dy)) {
+            return false;
+        }
+        const auto [x, y] = pointer_positions_.at(pointer);
+        const double old = favorites_->target;
+        if (favorites_list_bounds.contains(x, y)) {
+            favorites_->target = std::clamp(old + dy * 52, 0.0, favorites_scroll_limit());
+        }
+        if (favorites_->target == old) {
+            return false;
+        }
+        pressed_controls_.clear();
+        hovered_.clear();
+        dirty = true;
+        return true;
+    }
     if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer) && std::isfinite(dy)) {
         const auto [x, y] = pointer_positions_.at(pointer);
@@ -1000,6 +1104,20 @@ bool App::move(unsigned pointer, double x, double y) {
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_move(x, y);
     }
+    if (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer) {
+        auto& drag = *favorites_->drag;
+        if (!drag.active && std::abs(y - drag.y) > 12) {
+            drag.active = true;
+        }
+        if (drag.active) {
+            favorites_->scroll = favorites_->target =
+                std::clamp(drag.scroll - (y - drag.y), 0.0, favorites_scroll_limit());
+            pressed_controls_.clear();
+            hovered_.clear();
+            dirty = true;
+            return false;
+        }
+    }
     if (settings_open_ && settings_ui_.move(pointer, x, y)) {
         pressed_controls_.clear();
         hovered_.clear();
@@ -1049,7 +1167,23 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
-    if (settings_open_ && !address_ && confirm_ == Confirm::None && settings_ui_.down(pointer, x, y)) {
+    if (settings_open_ && favorites_ && !address_ && confirm_ == Confirm::None) {
+        if (!favorites_popup_bounds.contains(x, y)) {
+            // Like a dropdown, a press outside closes it and does nothing else.
+            favorites_.reset();
+            pressed_controls_.clear();
+            hovered_.clear();
+            dirty = true;
+            return false;
+        }
+        if (favorites_list_bounds.contains(x, y) && !favorites_->drag) {
+            // A drag only once it passes the dead zone; until then the bin
+            // under the press keeps it.
+            favorites_->drag = FavoritesPopup::Drag{pointer, y, favorites_->scroll};
+        }
+    }
+    if (settings_open_ && !address_ && confirm_ == Confirm::None && !favorites_ &&
+        settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;
         return false;
@@ -1306,6 +1440,15 @@ bool App::up(unsigned pointer, double x, double y) {
         }
         return false;
     }
+    if (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer) {
+        const bool active = favorites_->drag->active;
+        favorites_->drag.reset();
+        if (active) {
+            pressed_controls_.erase(pointer); // a drag's release is not a click
+            dirty = true;
+            return false;
+        }
+    }
     if (settings_open_ && settings_ui_.up(pointer)) {
         pressed_controls_.erase(pointer);
         dirty = true;
@@ -1391,6 +1534,9 @@ void App::cancel_pointer(unsigned pointer) {
     swipe_space_ = false;
     swipe_detached_ = swipe_waiting_;
     settings_ui_.cancel_pointer(pointer);
+    if (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer) {
+        favorites_->drag.reset();
+    }
     emoji_.cancel_pointer(pointer);
     if (emoji_key_pointer_ == pointer) {
         emoji_key_pointer_.reset();
@@ -1409,6 +1555,9 @@ void App::cancel_pointer(unsigned pointer) {
 }
 void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
+    if (favorites_) {
+        favorites_->drag.reset();
+    }
     emoji_.cancel();
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
@@ -1528,6 +1677,19 @@ bool App::tick(double now) {
     if (settings_open_) {
         dirty |= settings_ui_.tick(now);
     }
+    if (settings_open_ && favorites_) {
+        // Stick steps glide, about 70 ms to cover most of one, as the cards do.
+        auto& popup = *favorites_;
+        const double elapsed = popup.last_tick < 0 ? 0 : std::clamp(now - popup.last_tick, 0.0, .1);
+        popup.last_tick = now;
+        if (popup.scroll != popup.target) {
+            popup.scroll =
+                std::abs(popup.target - popup.scroll) < .5
+                    ? popup.target
+                    : popup.scroll + (popup.target - popup.scroll) * (1 - std::exp(-elapsed / .07));
+            dirty = true;
+        }
+    }
     dirty |= tick_send(now);
     forget_failed_swipe();
     update_output_status();
@@ -1586,6 +1748,7 @@ void App::show_settings() {
     cancel();
     address_.reset();
     confirm_ = Confirm::None;
+    favorites_.reset();
     settings_open_ = true;
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
@@ -1610,8 +1773,13 @@ void App::show_settings() {
 }
 void App::back() {
     if (address_ || confirm_ != Confirm::None) {
+        // A question asked from the favorites popup returns to it.
         address_.reset();
         confirm_ = Confirm::None;
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (favorites_) {
+        favorites_.reset();
         pressed_controls_.clear();
         hovered_.clear();
     } else if (settings_ui_.popup_open()) {
@@ -1623,6 +1791,7 @@ void App::back() {
         settings_open_ = false;
         address_.reset();
         confirm_ = Confirm::None;
+        favorites_.reset();
     }
     dirty = true;
 }
@@ -1634,6 +1803,7 @@ void App::summon() {
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
+    favorites_.reset();
     recenter_ = true;
     status_.clear();
 }
@@ -2264,6 +2434,7 @@ void App::apply_settings() {
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
+    favorites_.reset();
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
@@ -2510,8 +2681,30 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
     } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::ClearFavorites) {
         // Pending like every Settings change: Apply saves it, Back keeps them.
+        // Nothing is left to manage, so the popup closes with the question.
         pending_favorites_.clear();
         confirm_ = Confirm::None;
+        favorites_.reset();
+        update_settings_ui();
+    } else if (kind == ControlKind::ManageFavorites) {
+        settings_ui_.close_popup();
+        settings_ui_.show_first_card();
+        favorites_ = FavoritesPopup{};
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (kind == ControlKind::FavoritesClose) {
+        favorites_.reset();
+        pressed_controls_.clear();
+        hovered_.clear();
+    } else if (kind == ControlKind::RemoveFavorite) {
+        // Pending like Clear all; legacy duplicates of the pair go with it.
+        const auto split = command.value.find('\n');
+        const Selection pair{command.value.substr(0, split),
+                             split == std::string::npos ? "" : command.value.substr(split + 1), ""};
+        std::erase_if(pending_favorites_,
+                      [&](const Favorite& f) { return same_pair(f.selection, pair); });
+        pressed_controls_.clear();
+        hovered_.clear();
         update_settings_ui();
     } else if (kind == ControlKind::ConfirmCancel) {
         confirm_ = Confirm::None;
@@ -3059,6 +3252,7 @@ void App::close_panel() {
         settings_open_ = false;
         address_.reset();
         confirm_ = Confirm::None;
+        favorites_.reset();
         dismiss_requested_ = true;
         host_.user_hide = hosted(); // the shell decides whether it shows again
     } else {
@@ -3134,6 +3328,14 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
         return {};
     }
     const auto [x, y] = position->second;
+    if (settings_open_ && favorites_) {
+        const double limit = favorites_scroll_limit();
+        if (address_ || confirm_ != Confirm::None || !favorites_list_bounds.contains(x, y) ||
+            limit == 0) {
+            return {};
+        }
+        return ScrollRoom{favorites_->target > 0, favorites_->target < limit};
+    }
     if (settings_open_) {
         // Settings rarely overflows; its ends are not worth tracking.
         return settings_ui_.scrolls_at(x, y) ? std::optional{ScrollRoom{true, true}} : std::nullopt;

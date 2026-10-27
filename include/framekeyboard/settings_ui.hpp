@@ -37,6 +37,9 @@ class SettingsUi {
     void append(PanelView& view) const;
     void reset();
     void close_popup();
+    // Scrolls the row of cards back to its start at once, under a popup
+    // that belongs over the first card.
+    void show_first_card() { horizontal_ = horizontal_target_ = 0; }
     bool popup_open() const { return !open_field_.empty(); }
     // ID of the field whose dropdown is open, or empty.
     const std::string& open_field() const { return open_field_; }

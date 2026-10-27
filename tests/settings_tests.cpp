@@ -1321,30 +1321,147 @@ void clear_favorites() {
     CaptureSink sink;
     App app(options, sink);
     app.show_settings();
-    require(!control(app.view(), "clear-favorites").enabled, "nothing to clear at first");
+    require(!control(app.view(), "manage-favorites").enabled, "nothing to manage at first");
     click(app, "favorite");
     click(app, "apply");
     require(saved(app).favorites.size() == 1, "one favorite saved");
     app.show_settings();
-    click(app, "clear-favorites");
+    click(app, "manage-favorites");
+    require(app.view().favorites.has_value(), "Manage opens the favorites popup");
+    click(app, "favorites-clear");
     require(app.view().confirm.has_value(), "Clear all asks first");
     const auto apply = control(app.view(), "apply");
     app.down(0, apply.bounds.x + 5, apply.bounds.y + 5, 1);
     app.up(0, apply.bounds.x + 5, apply.bounds.y + 5);
     require(app.view().settings && app.view().confirm.has_value(), "the question is modal");
     click(app, "confirm-cancel");
-    require(!app.view().confirm && control(app.view(), "clear-favorites").enabled,
-            "Cancel keeps the favorites");
-    click(app, "clear-favorites");
+    require(!app.view().confirm && app.view().favorites &&
+                control(app.view(), "favorites-clear").enabled,
+            "Cancel returns to the popup with the favorites");
+    click(app, "favorites-clear");
     click(app, "confirm-accept");
-    require(!control(app.view(), "clear-favorites").enabled, "Clear empties the pending list");
+    require(!app.view().favorites && !control(app.view(), "manage-favorites").enabled,
+            "Clear empties the pending list and closes the popup");
     app.back();
     require(saved(app).favorites.size() == 1, "Back keeps the saved favorites");
     app.show_settings();
-    click(app, "clear-favorites");
+    click(app, "manage-favorites");
+    click(app, "favorites-clear");
     click(app, "confirm-accept");
     click(app, "apply");
     require(saved(app).favorites.empty(), "Apply saves the cleared list");
+}
+// Manage opens a popup over the Languages card that lists the favorite
+// pairs, each removable on its own as a pending change; its list scrolls with
+// the stick and a laser drag, and a press outside closes it.
+void favorites_popup() {
+    TemporaryDirectory directory;
+    std::string favorites;
+    // Enough pairs to overflow the list, a legacy duplicate and a pair whose
+    // layout file is gone.
+    const std::vector<std::pair<std::string, std::string>> pairs{
+        {"international-full", "de-de"}, {"en-us-full", "en-us"},
+        {"removed-layout", "de-de"},     {"international-full", "es-es"},
+        {"international-full", "fr-fr"}, {"international-full", "it-it"},
+        {"international-full", "de-de"}};
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        favorites += (i ? "," : "") + std::string(R"({"id":"f)") + std::to_string(i) +
+                     R"(","name":"Pair","layout":")" + pairs[i].first + R"(","language":")" +
+                     pairs[i].second + R"("})";
+    }
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"favorites":[)" +
+               favorites + "]}";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    app.show_settings();
+    static double now = 300;
+    auto settle = [&] {
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+    };
+    require(control(app.view(), "manage-favorites").label == "Manage",
+            "the Favorites row offers Manage");
+    // The cards were scrolled sideways; the popup still sits over the first.
+    app.move(0, 800, 300);
+    app.scroll(0, 0.4, 0);
+    settle();
+    click(app, "manage-favorites");
+    settle();
+    auto view = app.view();
+    require(view.favorites && view.favorites->panel.x < 488 &&
+                view.favorites->panel.x + view.favorites->panel.width <= 488,
+            "the popup sits over the Languages card");
+    require(view.cards.front().bounds.x == SettingsUi::viewport.x, "the first card is shown under it");
+    require(view.favorites->count == "6 saved" && view.favorites->rows.front().language == "Deutsch",
+            "a legacy duplicate of a pair shows once; rows name their language");
+    require(control(view, "favorites-remove-0").icon == Icon::Clear, "each row has a bin");
+    require(!has(view, "favorites-remove-5"), "a long list starts at its top");
+    {
+        const auto under = control(view, "layout");
+        const double x = under.bounds.x + 10, y = under.bounds.y + 10;
+        app.move(0, x, y);
+        app.down(0, x, y, now);
+        app.up(0, x, y);
+        require(!app.view().popup && app.view().favorites,
+                "the Settings rows under the popup do not respond");
+    }
+    // The stick scrolls the list under the laser.
+    const auto list = view.favorites->list;
+    app.move(0, list.x + 100, list.y + 100);
+    require(app.scroll_room(0) == ScrollRoom{false, true}, "the list can scroll on");
+    require(app.scroll(0, 0, 10), "a stick step scrolls it");
+    settle();
+    require(has(app.view(), "favorites-remove-5"), "the list reaches its last row");
+    // A drag past the dead zone scrolls back without pressing a bin.
+    const auto bin = control(app.view(), "favorites-remove-5");
+    const double x = bin.bounds.x + 20, y = bin.bounds.y + 20;
+    app.move(0, x, y);
+    app.down(0, x, y, now);
+    app.move(0, x, y + 6);
+    require(app.pointer_pressed(0), "a small tremble keeps the press");
+    app.move(0, x, y + 200);
+    app.up(0, x, y + 200);
+    settle();
+    require(app.view().favorites->count == "6 saved" && has(app.view(), "favorites-remove-0"),
+            "a drag scrolls and removes nothing");
+    click(app, "favorites-remove-1"); // English, the pending pair
+    require(app.view().favorites->count == "5 saved", "a bin removes that pair");
+    require(!control(app.view(), "favorite").selected, "the Favorite switch follows the list");
+    // Back first closes the popup, then Settings, discarding the removal.
+    app.back();
+    require(app.view().settings && !app.view().favorites, "Back closes the popup first");
+    app.back();
+    require(saved(app).favorites.size() == 7, "Back keeps the saved favorites");
+    app.show_settings();
+    click(app, "manage-favorites");
+    click(app, "favorites-remove-0"); // German, with its legacy duplicate
+    click(app, "favorites-remove-1"); // the pair whose layout file is gone
+    require(app.view().favorites->count == "4 saved",
+            "a pair with a missing profile can be removed too");
+    // A press outside the popup only closes it.
+    const auto title = app.view().cards.at(1).bounds;
+    app.move(0, title.x + 100, title.y + 200);
+    app.down(0, title.x + 100, title.y + 200, now);
+    app.up(0, title.x + 100, title.y + 200);
+    require(!app.view().favorites && app.view().settings, "a press outside closes the popup");
+    click(app, "apply");
+    const auto kept = saved(app).favorites;
+    require(kept.size() == 4 && kept.front().id == "f1",
+            "Apply saves the list without the removed pairs and their duplicates");
+    app.show_settings();
+    click(app, "manage-favorites");
+    require(control(app.view(), "favorites-close").icon == Icon::Back,
+            "the popup closes with a back arrow");
+    click(app, "favorites-close");
+    require(!app.view().favorites && app.view().settings, "the arrow returns to Settings");
+    click(app, "manage-favorites");
+    app.summon();
+    require(!app.view().favorites, "summoning closes the popup");
 }
 void theme_preview() {
     TemporaryDirectory directory;
@@ -1768,6 +1885,7 @@ int main() {
         desktop_unicode_setting();
         theme_preview();
         clear_favorites();
+        favorites_popup();
         behavior_settings();
         auto_leveling_settings();
         native_replacement_settings();

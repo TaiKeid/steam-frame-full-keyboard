@@ -1388,7 +1388,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.field_labels == view.field_labels && previous_->view.popup == view.popup &&
         previous_->view.status == view.status &&
         previous_->view.hovered_controls == view.hovered_controls &&
-        previous_->view.address == view.address && previous_->view.confirm == view.confirm;
+        previous_->view.address == view.address && previous_->view.confirm == view.confirm &&
+        previous_->view.favorites == view.favorites;
     bool full = force_full || scene_changed || (view.settings && !settings_still);
     std::vector<Rect> damage;
     animating_ = false;
@@ -2047,7 +2048,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         };
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
-                !control.id.starts_with("address-") && !control.id.starts_with("confirm-")) {
+                !control.id.starts_with("address-") && !control.id.starts_with("confirm-") &&
+                !control.id.starts_with("favorites-")) {
                 draw_control(control);
             }
         }
@@ -2138,6 +2140,50 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_set_line_width(cr, 1);
             cairo_stroke(cr);
         };
+        if (view.favorites) {
+            // The favorites popup over the Languages card: a header like the
+            // card's, the list of pairs with their bins, and Clear all.
+            const auto& popup = *view.favorites;
+            modal_panel(popup.panel);
+            label(cr, "Favorites", {popup.panel.x + 88, popup.panel.y + 16, popup.panel.width - 112, 36},
+                  21, view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
+            const double line = std::round(popup.list.y - 6) + .5;
+            for (const double y : {line, std::round(popup.list.y + popup.list.height + 6) + .5}) {
+                cairo_move_to(cr, popup.panel.x + 16, y);
+                cairo_line_to(cr, popup.panel.x + popup.panel.width - 16, y);
+                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
+                cairo_set_line_width(cr, 1);
+                cairo_stroke(cr);
+            }
+            cairo_save(cr);
+            cairo_rectangle(cr, popup.list.x, popup.list.y, popup.list.width, popup.list.height);
+            cairo_clip(cr);
+            for (const auto& row : popup.rows) {
+                // The language over its layout, as Settings rows with a note.
+                const double width = row.bounds.width - 104;
+                label(cr, row.language, {row.bounds.x + 12, row.bounds.y + 10, width, 30}, 22,
+                      view.language->font, t.legend, true, PANGO_ALIGN_LEFT);
+                label(cr, row.layout, {row.bounds.x + 12, row.bounds.y + 40, width, 22}, 16,
+                      view.language->font, t.legend, true, PANGO_ALIGN_LEFT);
+            }
+            if (popup.rows.empty()) {
+                label(cr, "No favorites saved", popup.list, 19, view.language->font, disabled_legend(t));
+            }
+            cairo_restore(cr);
+            if (popup.thumb) {
+                rounded(cr, *popup.thumb, 3);
+                source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+                cairo_fill(cr);
+            }
+            label(cr, popup.count,
+                  {popup.panel.x + 24, popup.panel.y + popup.panel.height - 70, 220, 52}, 16,
+                  view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+            for (const auto& control : view.controls) {
+                if (control.id.starts_with("favorites-")) {
+                    draw_control(control);
+                }
+            }
+        }
         if (view.confirm) {
             const auto& popup = *view.confirm;
             modal_panel(popup.panel);

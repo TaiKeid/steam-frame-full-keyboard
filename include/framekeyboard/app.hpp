@@ -96,7 +96,8 @@ class App {
     bool pointer_pressed(unsigned pointer) const {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
                settings_ui_.pressed(pointer) || (swipe_track_ && swipe_track_->pointer == pointer) ||
-               emoji_.pressed(pointer);
+               emoji_.pressed(pointer) ||
+               (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer);
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
@@ -496,6 +497,24 @@ class App {
     // that need it.
     enum class Confirm { None, ClearFavorites, Download, DownloadAndApply };
     Confirm confirm_{Confirm::None};
+    // The favorites popup over the Languages card (docs/configuration.md).
+    // Its list glides to stick steps and follows a laser drag past a dead
+    // zone, as the cards do; a drag's release clicks nothing.
+    struct FavoritesPopup {
+        double scroll{}, target{};
+        struct Drag {
+            unsigned pointer{};
+            double y{}, scroll{};
+            bool active{};
+        };
+        std::optional<Drag> drag;
+        double last_tick{-1};
+    };
+    std::optional<FavoritesPopup> favorites_;
+    // Pending favorites in saved order, each pair once, as the popup lists them.
+    std::vector<Favorite> favorite_pairs() const;
+    double favorites_scroll_limit() const;
+    void append_favorites(PanelView& v) const;
     void address_key(const std::string& key);
     // The Dictation card's connection line: empty until Test runs.
     std::string dictation_test_;

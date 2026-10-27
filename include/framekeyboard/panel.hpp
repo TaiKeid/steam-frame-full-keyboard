@@ -60,7 +60,10 @@ enum class ControlKind {
     // backspace, left, right, enter or esc), a recent server, or close.
     AddressKey,
     AddressRecent,
-    ClearFavorites, // asks first
+    ClearFavorites,  // asks first
+    ManageFavorites, // opens the favorites popup
+    FavoritesClose,
+    RemoveFavorite, // value: the pair's layout and language, split by a newline
     ConfirmAccept,
     ConfirmCancel,
     ScrollMenu,
@@ -145,6 +148,11 @@ struct DictationView {
 // The server address popup over Settings, in panel coordinates.
 constexpr Rect address_popup_bounds{300, 36, 1000, 508};
 constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
+// The favorites popup sits over the Languages card, the first card, which
+// the cards scroll back to when it opens. Its list scrolls inside it.
+constexpr Rect favorites_popup_bounds{26, 86, 454, 460};
+constexpr Rect favorites_list_bounds{38, 156, 430, 300};
+constexpr double favorites_row_height = 72;
 // The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
@@ -221,8 +229,26 @@ struct PanelView {
         std::string title, body;
     };
     std::optional<ConfirmView> confirm;
-    // The prefix of the open modal's controls; nothing else responds.
-    std::string modal_prefix() const { return address ? "address-" : confirm ? "confirm-" : ""; }
+    // The favorites popup over the Languages card; its close, bin and Clear
+    // all buttons are controls whose ids start with "favorites-".
+    struct FavoritesView {
+        bool operator==(const FavoritesView&) const = default;
+        Rect panel, list;
+        std::string count; // "3 saved"
+        struct Row {
+            bool operator==(const Row&) const = default;
+            std::string language, layout;
+            Rect bounds; // the whole row, which may reach past the list
+        };
+        std::vector<Row> rows;     // only those at least partly in the list
+        std::optional<Rect> thumb; // where the list is scrolled, when it overflows
+    };
+    std::optional<FavoritesView> favorites;
+    // The prefix of the open modal's controls; nothing else responds. A
+    // question asked from the favorites popup sits over it.
+    std::string modal_prefix() const {
+        return address ? "address-" : confirm ? "confirm-" : favorites ? "favorites-" : "";
+    }
 };
 
 // Dictation editor text geometry, shared by painting and App's cursor moves.
