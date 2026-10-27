@@ -382,10 +382,11 @@ void mode_tests() {
     App app(options, sink);
     require(app.view().dictation_available, "the mic key shows once dictation is configured");
     press(app, "Dictation");
-    require(app.dictation_open() && app.view().dictation->capturing,
+    require(app.dictation_open() && app.view().dictation->capturing && app.listening(),
             "the mic key opens dictation mode and listens");
     press(app, "Dictation");
     settle_pause(app);
+    require(!app.listening(), "the mic key stops listening, so VR can pulse the hand");
     require(app.view().disabled_keys.contains("Dictation-send") &&
                 app.view().disabled_keys.contains("Dictation-undo"),
             "Send needs text; Undo needs a phrase");

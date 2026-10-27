@@ -21,7 +21,9 @@ class VrHaptics {
                  check(input->GetInputSourceHandle("/user/hand/right", &hands_[1]));
         return ready_;
     }
-    bool send(unsigned device, KeyFeedback kind) {
+    bool send(unsigned device, KeyFeedback kind) { return play(device, std::array{key_pulse(kind)}); }
+    // Pulses with no duration are skipped.
+    template <std::size_t N> bool play(unsigned device, const std::array<HapticPulse, N>& pulses) {
         if (!ready_ || !vr::VRSystem()->IsTrackedDeviceConnected(device) ||
             vr::VRSystem()->GetTrackedDeviceClass(device) != vr::TrackedDeviceClass_Controller) {
             return false;
@@ -38,9 +40,16 @@ class VrHaptics {
             return false;
         }
         const auto hand = hands_[role == vr::TrackedControllerRole_LeftHand ? 0 : 1];
-        const auto pulse = key_pulse(kind);
-        return check(vr::VRInput()->TriggerHapticVibrationAction(
-            action_, 0, pulse.duration, pulse.frequency, pulse.amplitude, hand));
+        bool sent = true;
+        for (const auto& pulse : pulses) {
+            if (pulse.duration > 0) {
+                sent =
+                    check(vr::VRInput()->TriggerHapticVibrationAction(
+                        action_, pulse.delay, pulse.duration, pulse.frequency, pulse.amplitude, hand)) &&
+                    sent;
+            }
+        }
+        return sent;
     }
 
   private:

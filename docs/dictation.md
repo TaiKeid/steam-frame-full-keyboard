@@ -37,6 +37,7 @@ The mic key is the third of the three equal side-column keys, below Copy and Pas
 - **Normal mode:** pressing the mic key enters dictation mode and starts capturing at once.
 - **Type as I speak:** pressing it starts capture without leaving the normal keyboard.
 - **While capturing:** five vertical bars replace the mic icon. They stay in place while the speech level passes through them from right to left, each bar easing to its new height; the left ones are fainter. They are flat during silence, and silence repaints nothing.
+- **Start and stop felt in the hand:** when listening starts, the controller that last pressed gives two light rising ticks; when it stops, for any reason, one soft low pulse. Silence or a full editor can end listening while the eyes are on the text.
 - **While recognizing:** while a spoken phrase waits for its text, a short bright segment circles just inside the key's border. The phrase still being spoken does not count. On device, recognition takes seconds, and this shows it is under way.
 - **Where speech is recognized:** a small icon in the key's top-right corner says where phrases go: a headset for On device, a computer for Self-hosted, a cloud for a hosted provider. It tells before anyone speaks whether audio leaves the headset. In the editor it sits left of the counter. With the fallback, it turns to the headset while phrases come from the device and back on the next server phrase.
 - **While the model downloads:** the key stays shown but disabled, with a slim progress track along its foot.

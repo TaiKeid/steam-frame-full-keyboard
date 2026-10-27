@@ -1185,6 +1185,14 @@ void resizer_tests() {
     fade.reset();
     near(fade.value(), 0, "reset hides immediately");
 
+    const auto started = fk::listening_pulses(true), stopped = fk::listening_pulses(false);
+    const auto press = fk::key_pulse(fk::KeyFeedback::Press);
+    require(started[1].delay > started[0].duration && started[1].frequency > started[0].frequency,
+            "listening starts with two separate rising ticks");
+    require(stopped[1].duration == 0 && stopped[0].frequency < press.frequency &&
+                stopped[0].amplitude < press.amplitude,
+            "listening ends with one pulse softer and lower than a key press");
+
     fk::PanelMotion motion;
     motion.show(20);
     near(motion.alpha(20), 0, "the panel enters from transparent");

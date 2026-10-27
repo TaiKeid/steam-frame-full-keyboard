@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <map>
 #include <utility>
 #include <vector>
@@ -7,6 +8,7 @@ namespace framekeyboard {
 enum class KeyFeedback { Hover, Press, Release };
 struct HapticPulse {
     float duration, frequency, amplitude;
+    float delay{}; // Seconds from now.
 };
 constexpr HapticPulse key_pulse(KeyFeedback feedback) {
     // Equal API values felt stronger on release on Frame. Keep its pulse
@@ -20,6 +22,15 @@ constexpr HapticPulse key_pulse(KeyFeedback feedback) {
         return {.008f, 150.f, .35f};
     }
     return {};
+}
+// Dictation listening starts with two light rising ticks and ends with one
+// soft, low pulse, unlike any key click. Silence or a full editor can end it
+// while the eyes are on the text, so the hand feels the change.
+constexpr std::array<HapticPulse, 2> listening_pulses(bool started) {
+    if (started) {
+        return {{{.012f, 180.f, .5f, 0}, {.012f, 230.f, .6f, .09f}}};
+    }
+    return {{{.035f, 110.f, .45f, 0}, {}}};
 }
 class KeyHaptics {
   public:

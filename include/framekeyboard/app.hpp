@@ -176,6 +176,8 @@ class App {
     // A corner resize holds the same input gate as movement.
     void set_dragging(bool dragging, bool resizing = false);
     bool dragging() const { return dragging_; }
+    // The microphone is open for dictation or Type as I speak.
+    bool listening() const { return capturing_; }
     // Hiding the VR context releases keys before closing the input gate.
     void set_interaction_active(bool active);
     void report_status(const std::string& message);

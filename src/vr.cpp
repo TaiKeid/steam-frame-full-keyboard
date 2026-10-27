@@ -1296,6 +1296,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     haptics.connect(manifest);
     KeyHaptics feedback;
+    std::optional<vr::TrackedDeviceIndex_t> last_pressed; // Controller of the last laser press.
+    bool was_listening = false;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
@@ -1696,6 +1698,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (key_pressed && controller) {
                     feedback.press(pointer, device);
                 }
+                if (controller) {
+                    last_pressed = device;
+                }
             }
         };
         // Either corner scales the keyboard about its center.
@@ -2053,6 +2058,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (!drag.active() && lifecycle.visible()) {
                 RuntimeWait runtime_wait;
                 haptics.send(device, kind);
+            }
+        }
+        // Felt in the hand that last pressed, which started listening.
+        if (const bool listening = app.listening(); listening != was_listening) {
+            was_listening = listening;
+            if (last_pressed) {
+                RuntimeWait runtime_wait;
+                haptics.play(*last_pressed, listening_pulses(listening));
             }
         }
         if (app.take_recenter()) {
