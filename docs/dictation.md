@@ -165,6 +165,7 @@ The **Type as I speak** switch on the Dictation card skips the editor. The mic k
 - **Uncertain delivery:** if a phrase fails partway, listening pauses and the status line asks for Enter. Enter retries only the characters that had not arrived, then the waiting phrases follow. A phrase the target refuses outright waits at the front, and Enter, which is then not sent, tries it again.
 - Undo last phrase is not offered, because the cursor in the target may have moved.
 - Esc while capturing, or while phrases are still to be typed, stops capture, drops what is not yet typed, and is not sent. Otherwise Esc is the normal key.
+- **Switched off mid-session:** turning Type as I speak off leaves a session still at work running until the mic key next opens the editor. Opening it ends that session and drops its phrases not yet typed, so speech in the editor always waits for Send.
 - **Mic key while capturing** stops capture. The phrase being spoken is still recognized and typed.
 - In space-separated languages, every phrase after the first in a capture session starts with a space. The prompt's context is the phrases typed in that session, at most 200 code points, kept in memory only.
 - Other keys keep typing while capturing.

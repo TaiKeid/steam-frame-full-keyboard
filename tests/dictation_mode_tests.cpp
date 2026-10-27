@@ -1630,6 +1630,44 @@ void direct_esc_tests() {
     }
 }
 
+// Type as I speak turned off while a phrase is still being recognized: the
+// editor that the mic key opens next ends that session, so neither the late
+// phrase nor speech in the editor reaches the target without Send.
+void direct_to_editor_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+    use_fake_helper(options, directory.path, "slowdirect"); // the second phrase takes 0.3 s
+    Sink sink;
+    App app(options, sink);
+    auto settle = [&](int ticks) {
+        for (int i = 0; i < ticks; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            app.tick(clock += .01);
+        }
+    };
+    press(app, "Dictation");
+    settle(40);
+    press(app, "Dictation"); // the second phrase ends and waits for its text
+    app.tick(clock += .01);
+    const auto typed = sink.text;
+    app.show_settings();
+    click(app, "dictation-direct");
+    click(app, "apply");
+    press(app, "Dictation");
+    require(app.dictation_open() && app.listening(), "the mic key now opens the editor and listens");
+    settle(200);
+    press(app, "Dictation");
+    settle(100);
+    require(sink.text == typed, "after the switch nothing reaches the target without Send");
+    require(!editor_text(app).empty(), "speech after the switch goes into the editor");
+}
+
 // A helper that exits mid-download leaves nothing to report on it: the
 // download ends at once, the mic key returns and Settings can start again.
 void download_helper_exit_tests() {
@@ -2028,6 +2066,7 @@ int main() {
         accent_tests();
         send_during_reveal_tests();
         direct_esc_tests();
+        direct_to_editor_tests();
         send_wait_tests();
         download_helper_exit_tests();
         std::cout << "Dictation mode tests passed\n";

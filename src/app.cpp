@@ -3205,6 +3205,12 @@ void App::open_dictation() {
         return;
     }
     close_emoji();
+    // A Type as I speak session still recognizing, from before the switch was
+    // turned off, ends here: speech in the editor waits for Send, so none of
+    // it may take that session's way straight into the application.
+    if (direct_) {
+        stop_direct({});
+    }
     // A swiped word still being decoded goes to the target first, as before
     // any other key; the editor starts from a keyboard with nothing held.
     finish_swipe(true);
