@@ -18,6 +18,7 @@
 - 25 new typing languages on their standard national layouts, each with dictation: Arabic, Croatian, Czech, Danish, Dutch, Estonian, Finnish, French (Canada), Greek, Hebrew, Hindi, Hungarian, Indonesian, Latvian, Lithuanian, Malay, Norwegian, Polish, Romanian, Slovak, Slovenian, Swedish, Thai, Turkish and Vietnamese. Arabic and Hebrew legends read right to left, the right Alt key shows AltGr where a language uses it, and an accent key followed by Shift now types the capital (´ then Shift+E gives É).
 - Settings can clear all favorite layout and language pairs at once, after asking.
 - The keyboard fades in while rising into place when it opens, and fades out when it closes.
+- With dictation off, the Dictation card shows only its Dictation selector; the other dictation settings appear once it is on.
 - Moving or resizing the keyboard no longer shows a release instruction in the status line.
 - Fixed a retry after a stalled app typing the start of a word twice. Plain-ASCII words go to local apps one character at a time. If the app stopped acknowledging partway through, pressing Enter to retry typed the whole word again, so *hello* could become *hehello*. The retry now types only the characters that had not been acknowledged.
 - Shift+Enter now starts a new line in Steam's friends chat and other multi-line Steam text boxes when Full Keyboard replaces Steam's keyboard; Enter still sends. It used to show "Control unavailable in Steam fields". Other shortcuts in Steam fields remain unavailable.

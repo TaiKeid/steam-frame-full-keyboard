@@ -3,6 +3,7 @@
 #include "framekeyboard/dictation_mode.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -1752,12 +1753,19 @@ void card_tests() {
     App app(options, sink);
     require(!app.view().dictation_available, "dictation starts off");
     app.show_settings();
-    require(field_label(app, "Not tested") && control_enabled(app, "dictation-test"),
-            "the card shows the server, not yet tested");
-    click(app, "dictation-test");
-    wait_until(app, [&] { return field_label(app, "Reachable"); });
+    const std::array<const char*, 6> others{"dictation-server", "dictation-test", "dictation-fallback",
+                                            "model-action",     "send-gap",       "dictation-direct"};
+    require(has_control(app, "dictation") &&
+                std::none_of(others.begin(), others.end(),
+                             [&](const char* id) { return has_control(app, id); }),
+            "with dictation off, the card shows only the mode");
     click(app, "dictation");
     click(app, "choose:dictation:server");
+    require(field_label(app, "Not tested") && control_enabled(app, "dictation-test") &&
+                has_control(app, "send-gap") && has_control(app, "dictation-direct"),
+            "Self-hosted shows the server, not yet tested, and how Send delivers");
+    click(app, "dictation-test");
+    wait_until(app, [&] { return field_label(app, "Reachable"); });
     click(app, "apply");
     require(app.view().dictation_available, "Apply turns dictation on with the saved server");
     app.flush_settings();

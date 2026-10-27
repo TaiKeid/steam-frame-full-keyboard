@@ -206,7 +206,7 @@ On a recognizer failure, capture stops, and the failed phrase and every phrase q
 The **Dictation** card is third: Languages and Layouts, General, Dictation, Integration. Cards are 470 px wide, so three show in full and the start of the fourth is cut off at the right edge, hinting that the row scrolls sideways with the stick or the horizontal scrollbar.
 
 - **Dictation** dropdown, saved as `dictation`:
-  - **Off**;
+  - **Off**: the card shows nothing else;
   - **On device**, the default. With a language other than English or Spanish, an amber line under the selector says that this language will have low accuracy on the device and that a self-hosted speech server gives better results;
   - **Self-hosted** (`server`): the user's own speech server.
 - **On device:**
@@ -219,7 +219,7 @@ The **Dictation** card is third: Languages and Layouts, General, Dictation, Inte
   - **Connection** with a **Test** button, which sends half a second of silence to the pending address before Apply. The result is a word or two: Reachable, Unreachable, No answer, Server error, Bad reply, Helper stopped.
   - **Fall back to on device** switch, saved as `dictation_fallback`, default off.
 - **Send:** the pace (20, 30 or 40 ms) or Paste; see [Send](#send).
-- **Type as I speak** switch, saved as `dictation_direct`, default off; available while dictation is on.
+- **Type as I speak** switch, saved as `dictation_direct`, default off.
 
 Hosted providers and their API keys are configured only in `config.json` and the key file; the card has no provider presets. Apply keeps `dictation_url` and `dictation_model` as they are in the file. All fields are listed in [configuration](configuration.md#dictation).
 

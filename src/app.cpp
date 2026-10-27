@@ -542,8 +542,7 @@ void App::update_settings_ui() {
                   {"40", "Type, 40 ms"},
                   {"paste", "Paste"}}));
     // Dictation (docs/dictation.md, Settings): the mode, the user's own
-    // server, a connection check and how Send delivers. Self-hosted only;
-    // on-device recognition joins the mode list in M6.
+    // server, a connection check and how Send delivers.
     auto server =
         field(ControlKind::DictationServer,
               SettingField{"dictation-server", "Server",
@@ -562,7 +561,7 @@ void App::update_settings_ui() {
               dropdown("dictation", "Dictation", pending_dictation_,
                        {{"off", "Off"}, {"device", "On device"}, {"server", "Self-hosted"}}))};
     const auto& pending_language = profiles_.languages.at(pending_.language).dictation_language;
-    const bool device = pending_dictation_ == "device";
+    const bool device = pending_dictation_ == "device", server_mode = pending_dictation_ == "server";
     if (device && !pending_language.empty() && pending_language != "en" && pending_language != "es") {
         dictation_fields.push_back(
             SettingField{"device-accuracy",
@@ -570,14 +569,13 @@ void App::update_settings_ui() {
                          "much better results.",
                          "", ControlStyle::Note});
     }
-    if (!device) {
+    if (server_mode) {
         dictation_fields.push_back(server);
         dictation_fields.push_back(test);
         dictation_fields.push_back(
             field(ControlKind::DictationFallback,
-                  checkbox("dictation-fallback", "Fall back to on device",
-                           pending_dictation_fallback_ && pending_dictation_ == "server",
-                           pending_dictation_ == "server", "When the server fails")));
+                  checkbox("dictation-fallback", "Fall back to on device", pending_dictation_fallback_,
+                           true, "When the server fails")));
     }
     if (needs_model(pending_dictation_, pending_dictation_fallback_)) {
         const auto& model = pending_dictation_device_model_;
@@ -610,12 +608,14 @@ void App::update_settings_ui() {
                                                                 {"small-q4_0", "4-bit"}})));
         }
     }
-    dictation_fields.push_back(send_gap);
-    dictation_fields.push_back(
-        field(ControlKind::DictationDirect,
-              checkbox("dictation-direct", "Type as I speak",
-                       pending_dictation_direct_ && pending_dictation_ != "off",
-                       pending_dictation_ != "off", "Skips the editor but lower accuracy")));
+    // With dictation off, the card shows only the mode.
+    if (device || server_mode) {
+        dictation_fields.push_back(send_gap);
+        dictation_fields.push_back(
+            field(ControlKind::DictationDirect,
+                  checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
+                           "Skips the editor but lower accuracy")));
+    }
     auto favorites = field(ControlKind::ClearFavorites, SettingField{"clear-favorites", "Favorites",
                                                                      "Clear all", ControlStyle::Button});
     favorites.note =
