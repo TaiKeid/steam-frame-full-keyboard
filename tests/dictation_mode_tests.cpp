@@ -2066,8 +2066,16 @@ void hosted_tests() {
                        std::string::npos;
         });
     };
-    require(saw("settings", R"("source": "shell")") && saw("saved", R"("through": 7)"),
+    require(saw("settings", R"("source": "shell")") && saw("saved", R"("requests": [ 7 ])"),
             "the change and its save are reported");
+    // Any integer id works, in any order.
+    auto again = json_ptr(json_tokener_parse(R"({"dictation_send_gap":40})"));
+    app.host_settings_set(again.get(), -2);
+    app.host_settings_set(again.get(), 3);
+    app.flush_settings();
+    app.tick(clock += .1);
+    host_events = app.take_host_events();
+    require(saw("saved", R"("requests": [ -2, 3 ])"), "a save names exactly the requests it covers");
     std::vector<std::string> errors;
     auto saved = load_settings(directory.path, errors);
     require(!saved.auto_leveling && saved.dictation_send_gap == 40 && saved.replace_native_keyboard,

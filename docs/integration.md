@@ -225,10 +225,10 @@ Settings written over the protocol persist, exactly like the same change in Sett
 Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-only, see [modes](#standalone-and-hosted-modes)), `developer_options`, `dictation_device_model`, `dictation_url`, `dictation_model`, and favorites (read-only in protocol 1). `settings.get` leaves out the standalone-only keys.
 
 - `settings.set` is all-or-nothing: one invalid value rejects the request with `invalid_setting` and the key name.
-- `ok` means validated and applied. Saving is asynchronous and the writer coalesces snapshots, so the save result comes later as a `saved` event with `through` set to the highest request `id` it covers and `ok` true or false.
+- `ok` means validated and applied. Saving is asynchronous and the writer coalesces snapshots, so the save result comes later as a `saved` event listing the `requests` (their `id`s) it covers, with `ok` true or false.
 - Writes from Settings and from the protocol apply on the VR thread in arrival order; the later one wins. If Settings has unapplied edits open, a protocol write updates only the pending values for the keys it wrote.
 
-`settings` events report the changed keys and `source` (`user`, `shell`, `reload`). A save result covers every write queued before it, since the writer reports only once nothing newer is pending; `saved` therefore names the highest request it covers.
+`settings` events report the changed keys and `source` (`user`, `shell`, `reload`). A save result covers every write queued before it, since the writer reports only once nothing newer is pending; `saved` names each of those requests, so ids need not be positive or increasing.
 
 ## Dictation
 
@@ -369,7 +369,7 @@ Later, and separate from this connection. Compositor shells can then use the sta
 | `theme` | `id`, `custom`, `source` |
 | `selection` | `layout`, `language`, `source` |
 | `settings` | `changed`, `source` |
-| `saved` | `through`, `ok` |
+| `saved` | `requests`, `ok` |
 | `dictation` | `state`, `level`, `error`, `download` |
 | `update` | `state`, `latest`, `bytes`, `error` (always sent) |
 | `target` | `owner`: `normal`, `sink`; `context` |

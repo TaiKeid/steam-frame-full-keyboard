@@ -1589,14 +1589,17 @@ void App::save() {
 }
 void App::update_save_status() {
     if (const auto result = settings_writer_.take_result()) {
-        if (!result->reconcile && host_.unsaved_request >= 0) {
+        if (!result->reconcile && !host_.unsaved_requests.empty()) {
             // Nothing newer is pending, so this covers every protocol write so far.
             auto fields = json_ptr(json_object_new_object());
-            json_object_object_add(fields.get(), "through",
-                                   json_object_new_int64(host_.unsaved_request));
+            auto* requests = json_object_new_array();
+            for (const auto request : host_.unsaved_requests) {
+                json_object_array_add(requests, json_object_new_int64(request));
+            }
+            json_object_object_add(fields.get(), "requests", requests);
             json_object_object_add(fields.get(), "ok", json_object_new_boolean(result->error.empty()));
             host_event("saved", std::move(fields));
-            host_.unsaved_request = -1;
+            host_.unsaved_requests.clear();
         }
         if (!result->startup_warning.empty()) {
             save_status_ = status_ = result->startup_warning;

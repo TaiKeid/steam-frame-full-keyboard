@@ -368,7 +368,7 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
         close_dictation();
     }
     update_settings_ui();
-    host_.unsaved_request = std::max(host_.unsaved_request, request);
+    host_.unsaved_requests.push_back(request);
     save();
     host_settings_changed(before, "shell");
     dirty = true;
@@ -415,7 +415,7 @@ std::string App::host_select(const std::string& layout, const std::string& langu
     // A hinted language gives way to an explicit choice.
     host_.before_language.reset();
     host_.hinted_language.clear();
-    host_.unsaved_request = std::max(host_.unsaved_request, request);
+    host_.unsaved_requests.push_back(request);
     host_settings_changed(before, "shell");
     return {};
 }
@@ -470,7 +470,7 @@ std::string App::host_theme_select(const std::string& id, std::int64_t request) 
     host_.theme_json.clear();
     profiles_.themes.erase(shell_theme_id);
     update_settings_ui();
-    host_.unsaved_request = std::max(host_.unsaved_request, request);
+    host_.unsaved_requests.push_back(request);
     host_settings_changed(before, "shell");
     return {};
 }

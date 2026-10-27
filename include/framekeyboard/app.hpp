@@ -354,10 +354,10 @@ class App {
         std::string test_reported;
         double level_at{};
         std::vector<HostEvent> events;
-        // The highest protocol request whose settings write is not yet
-        // reported. A save result arrives only once nothing newer is pending,
-        // so it covers every write queued before it.
-        std::int64_t unsaved_request{-1};
+        // Protocol requests whose settings writes are not yet reported. A
+        // save result arrives only once nothing newer is pending, so it
+        // covers every write queued before it, whatever their ids.
+        std::vector<std::int64_t> unsaved_requests;
         // The last reported dictation state, so only changes are sent.
         std::string dictation_state;
         int dictation_level{-1};
