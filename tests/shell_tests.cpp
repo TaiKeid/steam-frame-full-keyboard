@@ -296,6 +296,16 @@ void sink_tests() {
     require(router.commit_text("back") && backend.sent.back() == "text:back",
             "off again, the backend types");
 
+    // Cancelled before it was written: it never goes out.
+    router.set_on(true);
+    router.set_context("c-3");
+    require(!router.commit_text("gone"), "queued");
+    router.cancel_delivery();
+    require(!router.commit_text("next"), "a fresh commit after the cancel");
+    events = router.take_events();
+    require(events.size() == 1 && events[0].text == "next", "only the fresh commit is sent");
+    router.set_on(false);
+
     // Through the real output queue: a word waits for the ack, then the next.
     Backend second;
     ShellRouter routed(second);
