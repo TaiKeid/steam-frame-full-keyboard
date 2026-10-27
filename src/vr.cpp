@@ -1560,7 +1560,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // Prepare it while hidden, before the helper can advertise readiness.
         app.paint(monotonic_seconds());
         panel.submit(app.renderer, app.view());
-        std::cout << "Full Keyboard started in background.\n" << std::flush;
+        std::cout << (hosted ? "Full Keyboard started hidden; its shell decides when it shows.\n"
+                             : "Full Keyboard started in background.\n")
+                  << std::flush;
     }
     replacement.frame_completed();
     bool replacement_was_ready = false;
