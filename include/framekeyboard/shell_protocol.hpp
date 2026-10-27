@@ -92,7 +92,14 @@ class ShellConnection {
     // Handover (docs/integration.md, Handover): reading stops, and the
     // descriptor passes to the update helper with what is left unwritten.
     void stop_reading() { reading_ = false; }
-    int release();
+    void resume_reading() { reading_ = true; }
+    // Answers every ping received so far, as a completed loop iteration does.
+    void answer_pings();
+    // Writes everything queued, waiting up to `seconds` for the socket.
+    bool drain(double seconds);
+    // The descriptor, once every queued byte is written within `seconds`;
+    // -1, with the connection kept, if the shell does not read them in time.
+    int release(double seconds);
 
   private:
     void handle(ShellRequest& request, double now);

@@ -1820,16 +1820,56 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                             : router->reject(text("context"), number);
             }
         } else if (op == "quiesced") {
-            if (handover.asking() && app.update_waiting()) {
-                // Everything before this has been answered; nothing after it is read.
-                auto fields = json_ptr(json_object_new_object());
-                json_object_object_add(fields.get(), "state", json_object_new_string("restarting"));
-                shell->event("update", std::move(fields));
-                shell->stop_reading();
-                hosted_handover_fd = shell->release();
-                handover.end();
-                app.activate_update();
+            if (!handover.asking() || !app.update_waiting()) {
+                return;
             }
+            auto prepared = [&] {
+                handover.postpone(now);
+                auto fields = json_ptr(json_object_new_object());
+                json_object_object_add(fields.get(), "state", json_object_new_string("prepared"));
+                shell->event("update", std::move(fields));
+            };
+            // A `show` or new work may have arrived after the request: check again.
+            if (!UpdateHandover::ready(update_when, shell_shown, lifecycle.visible() || motion.leaving(),
+                                       app.idle_for_update())) {
+                prepared();
+                return;
+            }
+            // Everything asked before `quiesced` is answered by this process:
+            // pings now, a render or check in progress as failed.
+            shell->answer_pings();
+            if (preview_request) {
+                shell->fail(*preview_request, "failed", "The keyboard is restarting for an update.");
+                preview_request.reset();
+            }
+            if (check_request) {
+                shell->fail(*check_request, "failed", "The keyboard is restarting for an update.");
+                check_request.reset();
+            }
+            // Every reply goes out before `restarting`; a shell that does not
+            // read them in time postpones the update instead.
+            if (!shell->drain(1.0)) {
+                std::cout << "The shell did not read before the handover; the update waits.\n"
+                          << std::flush;
+                prepared();
+                return;
+            }
+            auto fields = json_ptr(json_object_new_object());
+            json_object_object_add(fields.get(), "state", json_object_new_string("restarting"));
+            shell->event("update", std::move(fields));
+            // Nothing after `quiesced` is read; the descriptor passes only
+            // once `restarting` is written in full.
+            shell->stop_reading();
+            hosted_handover_fd = shell->release(1.0);
+            if (hosted_handover_fd < 0) {
+                std::cout << "The shell did not read the handover in time; the update waits.\n"
+                          << std::flush;
+                shell->resume_reading();
+                prepared();
+                return;
+            }
+            handover.end();
+            app.activate_update();
         } else if (op == "state") {
             ok(shell_state());
         } else if (op == "show" || op == "context") {
@@ -3107,10 +3147,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 // Activation waits for idleness, checked just before it, and
                 // for the shell's last message (docs/integration.md, Handover).
-                if (handover.ask(
-                        now, app.update_waiting() &&
-                                 (update_when == "now" || (!lifecycle.visible() && !motion.leaving() &&
-                                                           app.idle_for_update())))) {
+                if (handover.ask(now, app.update_waiting() &&
+                                          UpdateHandover::ready(update_when, shell_shown,
+                                                                lifecycle.visible() || motion.leaving(),
+                                                                app.idle_for_update()))) {
                     auto fields = json_ptr(json_object_new_object());
                     json_object_object_add(fields.get(), "state", json_object_new_string("quiesce"));
                     shell->event("update", std::move(fields));

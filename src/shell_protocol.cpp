@@ -1,7 +1,9 @@
 #include "framekeyboard/shell_protocol.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -57,9 +59,33 @@ ShellConnection::~ShellConnection() {
     }
 }
 
-int ShellConnection::release() {
-    flush();
+int ShellConnection::release(double seconds) {
+    // A partly written line would corrupt the successor's first message.
+    if (!drain(seconds)) {
+        return -1;
+    }
     return std::exchange(fd_, -1);
+}
+
+bool ShellConnection::drain(double seconds) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
+    while (fd_ >= 0 && !flush()) {
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        if (remaining.count() <= 0 || closed_) {
+            return false;
+        }
+        pollfd descriptor{fd_, POLLOUT, 0};
+        ::poll(&descriptor, 1, static_cast<int>(remaining.count()));
+    }
+    return fd_ >= 0 && outbound_empty();
+}
+
+void ShellConnection::answer_pings() {
+    for (const auto id : pings_) {
+        respond(id);
+    }
+    pings_.clear();
 }
 
 void ShellConnection::ready(double now) {
@@ -307,10 +333,7 @@ void ShellConnection::telemetry(const std::string& name, JsonPtr fields) {
 
 void ShellConnection::frame_completed(double now) {
     (void)now;
-    for (const auto id : pings_) {
-        respond(id);
-    }
-    pings_.clear();
+    answer_pings();
     if (outbound_.size() - written_ < telemetry_room) {
         for (auto& [name, fields] : telemetry_) {
             event(name, std::move(fields));

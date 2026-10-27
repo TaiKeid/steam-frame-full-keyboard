@@ -57,6 +57,17 @@ class UpdateHandover {
     bool asking() const { return asking_; }
     // `quiesced` arrived, or the update was cancelled.
     void end() { asking_ = false; }
+    // Not ready after all at `quiesced`, or the session could not be drained:
+    // back to prepared, asked again later.
+    void postpone(double now) {
+        asking_ = false;
+        retry_at_ = now + retry_after;
+    }
+    // Whether a prepared update may activate: at once for `now`; for `idle`,
+    // with the panel hidden and not about to show, and nothing unfinished.
+    static bool ready(const std::string& when, bool shown, bool visible, bool idle) {
+        return when == "now" || (!shown && !visible && idle);
+    }
 
   private:
     bool asking_{};

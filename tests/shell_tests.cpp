@@ -165,6 +165,54 @@ void session_tests() {
             "past the grace the keyboard exits");
 }
 
+// The handover: pings answered on demand, and the descriptor released only
+// once every queued byte is written.
+void drain_tests() {
+    Pair pair;
+    adopt_control_descriptor(pair.keyboard);
+    ShellConnection connection(pair.keyboard, "0.11.0", 1, {});
+    connection.ready(0);
+    pair.shell.send(R"({"id":1,"op":"hello","protocol":1})");
+    pair.shell.send(R"({"id":2,"op":"ping"})");
+    connection.poll(1);
+    connection.answer_pings();
+    connection.flush();
+    require(pair.shell.saw(pair.shell.lines(), R"({"id":2,"ok":true})"),
+            "a ping before quiesced is answered");
+    // A large reply the shell is not reading yet: the socket fills.
+    auto fields = json_ptr(json_object_new_object());
+    json_object_object_add(fields.get(), "blob",
+                           json_object_new_string(std::string(600000, 'x').c_str()));
+    connection.respond(3, std::move(fields));
+    require(connection.release(.2) < 0 && connection.fd() >= 0,
+            "an undrained session is not handed over");
+    std::string received;
+    std::thread reader([&] {
+        char chunk[65536];
+        for (;;) {
+            const auto count = recv(pair.shell.fd, chunk, sizeof(chunk), 0);
+            if (count <= 0) {
+                break;
+            }
+            received.append(chunk, static_cast<std::size_t>(count));
+            if (received.ends_with("\n") && received.find(R"("restarting")") != std::string::npos) {
+                break;
+            }
+        }
+    });
+    auto restarting = json_ptr(json_object_new_object());
+    json_object_object_add(restarting.get(), "state", json_object_new_string("restarting"));
+    connection.event("update", std::move(restarting));
+    const int handed = connection.release(5);
+    reader.join();
+    require(handed >= 0 && connection.fd() < 0, "once drained, the descriptor passes");
+    require(received.ends_with(R"({"event":"update","state":"restarting"})"
+                               "\n") &&
+                received.find(R"({"id":3,"ok":true,"blob":")") != std::string::npos,
+            "every line arrives whole, in order, restarting last");
+    close(handed);
+}
+
 void limits_tests() {
     {
         Pair pair;
@@ -336,6 +384,16 @@ void handover_tests() {
     require(!handover.ask(7, true) && handover.ask(8.2, true), "and is asked again five seconds later");
     handover.end();
     require(!handover.asking() && !handover.expired(100), "quiesced ends it");
+    require(handover.ask(200, true), "asked again");
+    handover.postpone(201);
+    require(!handover.asking() && !handover.ask(203, true) && handover.ask(206.5, true),
+            "a postponed handover waits before asking again");
+    require(UpdateHandover::ready("idle", false, false, true) &&
+                !UpdateHandover::ready("idle", true, false, true) &&
+                !UpdateHandover::ready("idle", false, true, true) &&
+                !UpdateHandover::ready("idle", false, false, false) &&
+                UpdateHandover::ready("now", true, true, false),
+            "idle needs a hidden panel not about to show and nothing unfinished; now does not");
     // The idle check, matched against a keyboard's own state, belongs to the caller.
     std::vector<std::string> names;
     for (const auto state :
@@ -486,6 +544,7 @@ int main() {
         descriptor_tests();
         session_tests();
         limits_tests();
+        drain_tests();
         sink_tests();
         handover_tests();
         preview_tests();

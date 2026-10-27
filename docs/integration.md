@@ -275,8 +275,8 @@ With `when:"now"`, activation starts as soon as preparation finishes. It **may d
 The shell's connection is the hosted session across an update. The original keyboard process exits during the update, so a shell that supervises the process ID must not relaunch the keyboard while the connection is still open.
 
 1. When idle, the keyboard sends `update {"state":"quiesce"}`.
-2. The shell stops sending new requests and replies with `{"op":"quiesced"}` as its last message. The keyboard handles and answers everything received before it. If `quiesced` does not arrive within 2 seconds, activation is postponed and the update returns to `prepared`.
-3. The keyboard flushes all complete outbound messages, sends `update {"state":"restarting"}` and stops reading.
+2. The shell stops sending new requests and replies with `{"op":"quiesced"}` as its last message. The keyboard handles and answers everything received before it, pings included; a render or update check still in progress fails. If `quiesced` does not arrive within 2 seconds, activation is postponed and the update returns to `prepared`.
+3. The keyboard checks idleness again, since a `show` sent before `quiesced` may have reopened the panel; if it is no longer idle, the update returns to `prepared` and the keyboard asks again later. Otherwise it writes every reply out, sends `update {"state":"restarting"}`, stops reading, and hands over only once that is written in full. A shell that does not read within a second postpones the update the same way.
 4. It passes the control descriptor, and its instance-lock descriptor, to the update helper. The helper starts the successor with both, so no other launch can take the instance lock during the gap. The descriptor number may change; the successor gets its own number in `--hosted`.
 5. The successor stays non-interactive during the existing three-second startup probation. It sends `ready` only after the helper has committed the update, with the next `session` number.
 6. The shell sends `hello`, then its host-scoped state again: custom theme, chrome, locks, anchor and context. Settings, selection and hosted placement are kept on disk.
