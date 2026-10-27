@@ -11,6 +11,7 @@
 #include <future>
 #include <iostream>
 #include <libeis.h>
+#include <map>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/mman.h>
@@ -457,22 +458,88 @@ void desktop_entry() {
     });
     require(text.commits == std::vector<std::string>{"o"}, "ASCII typed through Gamescope");
 
-    // Cancelling finishes the character being entered, so IBus is not left
-    // mid-sequence and no modifier stays held, then drops the rest.
+    // Cancelling (hiding, a target change) sends nothing more and releases
+    // at once what the entry holds: U, then Ctrl and Shift.
+    const auto run = [&](int steps) {
+        for (int i = 0; i < steps; ++i) {
+            now += EiSink::entry_gap;
+            sink->pump();
+        }
+    };
     server.keys.clear();
     require(!sink->replace_text(1, "日本"), "replacement starts");
-    for (int i = 0; i < 4; ++i) {
-        now += EiSink::entry_gap;
+    run(4);
+    sink->cancel_text();
+    require(!sink->text_pending() && !sink->output_blocked(), "cancel ends the entry at once");
+    run(20);
+    server.until([&] { return server.keys.size() >= 8; });
+    server.pump();
+    require(server.keys == Keys{{14, true},
+                                {14, false},
+                                {29, true},
+                                {42, true},
+                                {22, true},
+                                {22, false},
+                                {29, false},
+                                {42, false}},
+            "the held keys are released and nothing new is pressed");
+
+    // The Desktop losing focus mid-entry stops it the same way, as a failure.
+    server.keys.clear();
+    require(!sink->commit_text("日"), "an entry starts");
+    run(2);
+    desktop = false;
+    run(1);
+    require(!sink->output_blocked() && !sink->commit_text("日") && !sink->text_pending() &&
+                sink->delivered_characters() == 0,
+            "focus lost: the entry fails with nothing delivered");
+    run(20);
+    server.until([&] { return server.keys.size() >= 6; });
+    server.pump();
+    require(server.keys ==
+                Keys{{29, true}, {42, true}, {22, true}, {22, false}, {29, false}, {42, false}},
+            "and its keys are released");
+    desktop = true;
+    sink->pump();
+
+    // Through the output gate and the replacement route, as the app hides and
+    // a Steam field takes over: nothing reaches the local target afterwards.
+    {
+        NativeReplacement wrapper(*sink);
+        OutputController output(wrapper);
+        output.set_enabled(true);
+        server.keys.clear();
+        require(output.admit(true, now) && output.commit_text("日本"), "queued through the gate");
+        for (int i = 0; i < 3; ++i) {
+            now += EiSink::entry_gap;
+            output.tick(now);
+            sink->pump();
+        }
+        server.until([&] { return server.keys.size() >= 3; });
+        desktop = false;
+        output.set_enabled(false);
+        wrapper.route(true);
+        server.pump();
+        const auto at_cancel = server.keys.size();
+        for (int i = 0; i < 16; ++i) {
+            now += .25; // the hidden panel's pace
+            output.tick(now);
+            sink->pump();
+            server.pump();
+        }
+        const auto downs = std::count_if(server.keys.begin() + static_cast<std::ptrdiff_t>(at_cancel),
+                                         server.keys.end(), [](const auto& key) { return key.second; });
+        std::map<unsigned, int> held;
+        for (const auto& [code, down] : server.keys) {
+            held[code] += down ? 1 : -1;
+        }
+        require(downs == 0 && std::all_of(held.begin(), held.end(),
+                                          [](const auto& key) { return key.second == 0; }),
+                "no key-down after the hide, and every entry key released");
+        require(!sink->output_blocked(), "and no barrier left behind");
+        desktop = true;
         sink->pump();
     }
-    sink->cancel_text();
-    require(!sink->text_pending() && sink->output_blocked(), "cancel keeps the barrier");
-    finish();
-    require(!sink->output_blocked(), "and lifts it once the character is entered");
-    Keys cancelled = tap(14);
-    const auto first = entry({7, 6, 18, 6}); // U+65E5
-    cancelled.insert(cancelled.end(), first.begin(), first.end());
-    require(server.keys == cancelled, "the deletion and one whole character, nothing after");
 
     // With Paste chosen, the clipboard takes the text and Ctrl+V follows once
     // it holds it; the entry ends when an application asks for the text.

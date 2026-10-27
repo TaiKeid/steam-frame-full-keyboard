@@ -155,33 +155,29 @@ void EiSink::cancel_text() {
     if (text_) {
         text_->cancel();
     }
-    if (!entry_) {
-        return;
-    }
-    auto& entry = *entry_;
-    if (!entering()) {
-        entry_.reset();
-        return;
-    }
-    // Stop only where IBus is not mid-sequence and no modifier is held:
-    // after a whole Backspace tap, once the current character is entered, or
-    // once a started Ctrl+V is complete. A paste not yet started never starts.
-    const auto deletion_keys = 2 * entry.deletions;
-    std::size_t stop = entry.keys.size();
-    if (entry.next <= deletion_keys) {
-        stop = entry.next + entry.next % 2;
-    } else if (!entry.write) {
-        stop = *std::find_if(entry.character_ends.begin(), entry.character_ends.end(),
-                             [&](auto end) { return end >= entry.next; });
-    }
-    entry.keys.resize(stop);
-    if (entry.write && stop <= entry.paste_at) {
-        entry.write.reset();
-    }
-    entry.cancelled = true;
-    if (!entering()) {
+    if (entry_) {
+        // Hiding or a target change: nothing more goes out, and what the
+        // entry holds is released now. A half-entered code may stay as IBus
+        // preedit; cleaning it up with more keys could reach another target.
+        release_entry_keys();
         entry_.reset();
     }
+}
+// Releases the keys an entry holds, the key before its modifiers. Native
+// downs wait while an entry runs, so every held key is the entry's.
+void EiSink::release_entry_keys() {
+    if (disconnected_ || !resumed_ || !keyboard_ || held_.empty()) {
+        held_.clear(); // EIS released them with the device
+        return;
+    }
+    std::vector<int> codes(held_.begin(), held_.end());
+    std::stable_partition(codes.begin(), codes.end(), [](int code) { return !is_modifier(code); });
+    for (const int code : codes) {
+        ei_device_keyboard_key(keyboard_, static_cast<std::uint32_t>(code), false);
+    }
+    ei_device_frame(keyboard_, ei_now(context_));
+    ei_dispatch(context_);
+    held_.clear();
 }
 // The nested desktop reads Gamescope's keys with its own keymap, so text
 // beyond printable ASCII cannot go through Gamescope's temporary keymap there.
@@ -206,7 +202,7 @@ bool EiSink::needs_entry(const std::string& text) {
 bool EiSink::enter(const std::string& text, std::size_t deletions) {
     if (entry_) {
         // The first call starts entry; repeating it reports the result.
-        if (entering() || entry_->cancelled || text != entry_->text || deletions != entry_->deletions) {
+        if (entering() || text != entry_->text || deletions != entry_->deletions) {
             return false;
         }
         const bool ok = !entry_->failed;
@@ -274,28 +270,21 @@ void EiSink::advance_entry() {
         return;
     }
     auto& entry = *entry_;
-    if (disconnected_ || !resumed_ || input_reset_ || !keyboard_) {
-        // EIS released our keys with the device. Whole characters count as delivered.
+    // The connection went down (EIS released our keys with it), or the
+    // Desktop lost focus, so the rest would reach another application.
+    if (disconnected_ || !resumed_ || input_reset_ || !keyboard_ || !desktop_now_) {
+        release_entry_keys();
         entry.failed = true;
+        // Whole characters count as delivered.
         entry_delivered_ = static_cast<std::size_t>(
             std::count_if(entry.character_ends.begin(), entry.character_ends.end(),
                           [&](auto end) { return end <= entry.next; }));
-        if (entry.cancelled) {
-            entry_.reset();
-        }
         return;
     }
     if (entry.write && entry.next == entry.keys.size()) {
-        if (entry.cancelled) {
-            entry_.reset(); // a cancelled paste does not wait for the application
-            return;
-        }
         // Ctrl+V is out: done once an application asks for the text.
         entry.taken = desktop_paste_ && desktop_paste_->served() != entry.served;
         entry.failed = !entry.taken && clock_() >= entry.deadline;
-        if (entry.cancelled && !entering()) {
-            entry_.reset();
-        }
         return;
     }
     if (clock_() < entry.next_at) {
@@ -308,9 +297,6 @@ void EiSink::advance_entry() {
         }
         if (!*owned) {
             entry.failed = true; // nothing pasted, so nothing to finish
-            if (entry.cancelled) {
-                entry_.reset();
-            }
             return;
         }
         entry.served = desktop_paste_->served();
@@ -326,9 +312,6 @@ void EiSink::advance_entry() {
     ei_dispatch(context_);
     entry.next_at = clock_() + entry_gap;
     entry.deadline = clock_() + paste_wait;
-    if (entry.cancelled && !entering()) {
-        entry_.reset();
-    }
 }
 // Whether Gamescope can type every character of a multi-character text on its
 // ordinary keymap, so committing them one by one avoids its temporary keymap.

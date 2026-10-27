@@ -29,9 +29,7 @@ class EiSink : public KeySink {
     // separate libei Backspace keys, which would delete the word and type nothing.
     bool replaces_text() override { return true; }
     bool replace_text(std::size_t delete_before, const std::string& text) override;
-    bool text_pending() const override {
-        return (text_ && text_->pending()) || (entry_ && !entry_->cancelled);
-    }
+    bool text_pending() const override { return (text_ && text_->pending()) || entry_; }
     std::size_t delivered_characters() const override;
     bool output_blocked() const override { return (text_ && text_->busy()) || entering(); }
     void cancel_text() override;
@@ -66,7 +64,7 @@ class EiSink : public KeySink {
         std::vector<std::size_t> character_ends; // key index after each character
         std::size_t next{};
         double next_at{};
-        bool failed{}, cancelled{};
+        bool failed{};
         std::optional<std::uint64_t> write; // the clipboard write a paste waits for
         std::size_t paste_at{};             // key index of Ctrl+V's first event
         std::uint64_t served{};
@@ -77,6 +75,7 @@ class EiSink : public KeySink {
     bool needs_entry(const std::string& text);
     bool enter(const std::string& text, std::size_t deletions);
     void advance_entry();
+    void release_entry_keys();
     bool entering() const {
         return entry_ && !entry_->failed &&
                (entry_->next < entry_->keys.size() || (entry_->write && !entry_->taken));
