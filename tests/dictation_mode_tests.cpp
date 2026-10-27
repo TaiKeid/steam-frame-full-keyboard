@@ -1740,6 +1740,30 @@ void microphone_tests() {
     require(app.view().status.empty(), "and it goes when listening stops");
 }
 
+// Correcting dictated text uses the layout's dead accents, as the keyboard does.
+void accent_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")", "es-es",
+                 "international-full");
+    Sink sink;
+    App app(options, sink);
+    open_editor(app);
+    press(app, "Quote"); // dead acute
+    require(editor_text(app).empty(), "a dead accent waits for its letter");
+    press(app, "KeyE");
+    press(app, "Quote");
+    press(app, "ShiftLeft");
+    press(app, "KeyE");
+    require(editor_text(app) == "éÉ", "a dead accent composes with the next letter, Shift included");
+    require(sink.text.empty() && sink.keys.empty(), "the editor sends nothing to the target");
+}
+
 // Taking the headset off or a sleep closes the microphone at once: the
 // editor keeps its text and says why; Type as I speak stops.
 void away_tests() {
@@ -2001,6 +2025,7 @@ int main() {
         fallback_tests();
         microphone_tests();
         away_tests();
+        accent_tests();
         send_during_reveal_tests();
         direct_esc_tests();
         send_wait_tests();

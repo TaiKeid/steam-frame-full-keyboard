@@ -3472,11 +3472,19 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         }
         return true;
     }
+    // Dead accents have no character of their own, but go on to composition
+    // like any letter, as on the keyboard.
     const auto codepoint = xkb_keysym_to_utf32(symbol);
-    if (codepoint == 0 || g_unichar_iscntrl(codepoint)) {
+    if (!LanguageMap::printable(symbol) || (codepoint != 0 && g_unichar_iscntrl(codepoint))) {
         return true; // nothing an editor can hold, such as a dead numpad key
     }
-    const auto text = keymap_->compose(symbol);
+    std::string text;
+    try {
+        text = keymap_->compose(symbol);
+    } catch (const std::exception& error) {
+        dictation_message(error.what(), true);
+        return true;
+    }
     if (!text.empty() && text_output_->text_press(pointer, text, now)) {
         editor_goal_x_.reset();
         follow_cursor();
