@@ -513,6 +513,10 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     if (is_modifier(code)) {
         press.modifier = code;
         press.used = !key.sticky || references_.contains(code);
+        press.at = now;
+        press.unlocks = locked_.contains(code);
+        press.lockable =
+            key.sticky && !press.unlocks && (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT);
         if (!key.sticky) {
             // A momentary Super key must reach the OS even without a chord.
             // Keep its own reference so overlapping hands share one down/up.
@@ -605,7 +609,9 @@ bool KeyboardState::up(unsigned pointer) {
             }
         }
     }
-    if (press.modifier && !press.used) {
+    if (press.unlocks) {
+        locked_.erase(press.modifier);
+    } else if (press.modifier && !press.used && !press.locks) {
         if (!latched_.erase(press.modifier)) {
             latched_.insert(press.modifier);
         }
@@ -652,13 +658,25 @@ void KeyboardState::cancel_all() {
     references_.clear();
     presses_.clear();
     latched_.clear();
+    locked_.clear();
     if (failure) {
         std::rethrow_exception(failure);
     }
 }
 bool KeyboardState::tick(double now) {
+    bool changed = false;
+    for (auto& [pointer, press] : presses_) {
+        (void)pointer;
+        if (press.lockable && !press.used && !press.locks && now - press.at >= shift_lock_seconds) {
+            // Locks while still held, so the key shows it before release.
+            press.locks = true;
+            latched_.erase(press.modifier);
+            locked_.insert(press.modifier);
+            changed = true;
+        }
+    }
     if (output_) {
-        return false;
+        return changed;
     }
     std::set<int> repeated;
     for (auto& [pointer, press] : presses_) {
@@ -671,7 +689,7 @@ bool KeyboardState::tick(double now) {
             press.repeat_at = now + .04;
         }
     }
-    return false;
+    return changed;
 }
 bool KeyboardState::pressed(const std::string& id) const {
     return std::any_of(presses_.begin(), presses_.end(),
@@ -679,6 +697,7 @@ bool KeyboardState::pressed(const std::string& id) const {
 }
 std::set<int> KeyboardState::modifiers() const {
     auto result = latched_;
+    result.insert(locked_.begin(), locked_.end());
     for (const auto& [pointer, press] : presses_) {
         (void)pointer;
         if (press.modifier) {

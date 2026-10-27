@@ -205,6 +205,48 @@ void state_tests(const fk::Layout& layout) {
     state.down(0, key(layout, "ControlLeft"), 82);
     state.cancel_pointer(0);
     require(state.modifiers().empty(), "canceled modifier tap must not latch");
+    // Holding Shift locks it, like a phone keyboard's caps lock: it applies to
+    // every key until the next Shift press, for selecting text with arrows.
+    using Events = std::vector<std::pair<int, int>>;
+    const auto shift = key(layout, "ShiftLeft");
+    state.down(0, shift, 90);
+    state.tick(90.4);
+    require(!state.locked(KEY_LEFTSHIFT), "a short hold does not lock");
+    state.tick(90.5);
+    require(state.locked(KEY_LEFTSHIFT), "a half-second hold locks while still held");
+    state.up(0);
+    require(state.locked(KEY_LEFTSHIFT) && state.modifiers().contains(KEY_LEFTSHIFT),
+            "the release keeps it locked");
+    for (const auto* arrow : {"ArrowLeft", "ArrowLeft"}) {
+        sink.events.clear();
+        state.down(0, key(layout, arrow), 91);
+        state.up(0);
+        require(sink.events ==
+                    Events{{KEY_LEFTSHIFT, 1}, {KEY_LEFT, 1}, {KEY_LEFT, 0}, {KEY_LEFTSHIFT, 0}},
+                "every key gets Shift, released after it");
+    }
+    state.down(0, shift, 92);
+    state.tick(93); // a long press unlocks as well
+    state.up(0);
+    require(!state.locked(KEY_LEFTSHIFT) && state.modifiers().empty(),
+            "the next Shift press unlocks, without latching");
+    state.down(0, shift, 94);
+    state.down(1, key(layout, "ArrowLeft"), 94.1);
+    state.tick(95);
+    state.up(1);
+    state.up(0);
+    require(!state.locked(KEY_LEFTSHIFT), "Shift held for a chord does not lock");
+    state.down(0, shift, 96);
+    state.tick(97);
+    state.up(0);
+    state.cancel_all();
+    require(!state.locked(KEY_LEFTSHIFT), "hiding the keyboard ends the lock");
+    state.down(0, key(layout, "ControlLeft"), 98);
+    state.tick(99);
+    state.up(0);
+    require(!state.locked(KEY_LEFTCTRL) && state.modifiers().contains(KEY_LEFTCTRL),
+            "only Shift locks; other modifiers still latch");
+    state.cancel_all();
     sink.events.clear();
     state.down(0, key(layout, "Enter"), 41);
     state.cancel_all();

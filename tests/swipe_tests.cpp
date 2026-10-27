@@ -413,6 +413,18 @@ void app_flow(bool ordered_replace) {
                 "overlapping presses from two hands type in press order");
         sink.text = {"a"};
     }
+    {
+        // A trembling tap that drifts just past its key into the next one
+        // still types its letter; it is not decoded as a swipe.
+        const auto [sx, sy] = key_point(app, "KeyS");
+        const double drift = ax + (sx - ax) * .6;
+        app.down(0, ax, ay, 1.6);
+        app.move(0, drift, ay);
+        app.up(0, drift, ay);
+        require(sink.text == std::vector<std::string>{"a", "a"} && *calls == 0,
+                "a tap that drifts over the key edge still types");
+        sink.text = {"a"};
+    }
 
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
     require(sink.text.size() == 1, "a swipe sends nothing before its result");
@@ -458,6 +470,14 @@ void app_flow(bool ordered_replace) {
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 6.6);
     settle(app, [&] { return sink.text.back() == " Hello"; });
     require(sink.text.back() == " Hello", "a Shift tap between swiped words keeps the space");
+    app.down(0, shx, shy, 6.7);
+    app.tick(7.3); // held: Shift locks
+    app.up(0, shx, shy);
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7.4);
+    settle(app, [&] { return sink.text.back() == " HELLO"; });
+    require(sink.text.back() == " HELLO", "a locked Shift types the swiped word in capitals");
+    app.down(0, shx, shy, 7.5);
+    app.up(0, shx, shy);
     const auto count = sink.text.size();
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7);
     app.cancel();

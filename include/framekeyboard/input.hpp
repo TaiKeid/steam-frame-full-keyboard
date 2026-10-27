@@ -132,6 +132,10 @@ class KeyboardState {
     std::set<int> modifiers() const;
     bool caps() const { return caps_; }
     bool num() const { return num_; }
+    // A Shift held this long without another key locks: it applies to every
+    // key, as a held Shift would, until the next Shift press unlocks it.
+    static constexpr double shift_lock_seconds = .5;
+    bool locked(int code) const { return locked_.contains(code); }
     // Restore the local lock state without sending a lock key to the target.
     void set_num(bool enabled) { num_ = enabled; }
     bool active() const { return !presses_.empty(); }
@@ -141,6 +145,9 @@ class KeyboardState {
         std::string id;
         int modifier{}, local_lock{};
         bool used{};
+        double at{};
+        // A Shift tap may lock if held; one pressed while locked unlocks on release.
+        bool lockable{}, locks{}, unlocks{};
         std::vector<int> codes;
         int repeat_code{};
         double repeat_at{};
@@ -151,7 +158,7 @@ class KeyboardState {
     OutputController* output_{};
     std::map<unsigned, Press> presses_;
     std::map<int, unsigned> references_;
-    std::set<int> latched_;
+    std::set<int> latched_, locked_;
     bool caps_{false}, num_{false};
 };
 } // namespace framekeyboard

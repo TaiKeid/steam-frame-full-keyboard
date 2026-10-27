@@ -13,10 +13,12 @@
 namespace framekeyboard {
 namespace {
 // A press that moves this far, in panel pixels, scrolls instead of typing.
-constexpr double drag_distance = 10;
+// A laser at arm's length wanders several pixels while the trigger is
+// pulled, so this leaves room for an unsteady hand.
+constexpr double drag_distance = 24;
 // A held emoji with skin tones allows a little more, since the hand has to
 // stay put for the whole hold.
-constexpr double hold_drag_distance = 16;
+constexpr double hold_drag_distance = 32;
 // Holding a toned emoji this long opens its skin tones.
 constexpr double hold_seconds = .5;
 constexpr double tab_spacing = 6;

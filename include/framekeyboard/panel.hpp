@@ -290,11 +290,15 @@ class PanelRenderer {
         PanelView view;
         std::set<int> modifiers;
         bool caps{}, num{};
+        bool shift_locked{}; // a locked Shift fills its arrow, with the same modifiers
     };
     std::optional<Snapshot> previous_;
     std::map<std::string, Rect> key_bounds_;
     std::map<std::string, Animation> animations_;
     Animation move_handle_;
+    // The hovered dropdown choice and since when, for scrolling a long name.
+    std::string marquee_;
+    double marquee_since_{};
     cairo_surface_t* surface_{};
     // The swipe trail as an opaque layer, composited at 60% by every pass.
     // Cairo strokes slightly differently under a clip, and re-stroking a

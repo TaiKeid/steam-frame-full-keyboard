@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <linux/input-event-codes.h>
 #include <pango/pangocairo.h>
 #include <stdexcept>
 
@@ -562,6 +563,35 @@ double mic_phase(const PanelView& view, double now) {
     const double sampled = std::floor(now / frame) * frame;
     return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
 }
+// How far a hovered name too long for its row has scrolled, `overflow`
+// pixels in all: it waits, scrolls to its end, rests there, then starts over.
+double marquee_offset(double overflow, double elapsed) {
+    constexpr double wait = .8, speed = 45, rest = 1.2;
+    const double t = std::fmod(elapsed, wait + overflow / speed + rest);
+    return std::clamp((t - wait) * speed, 0.0, overflow);
+}
+// A label's text without ellipsis, moved left by `offset` inside its box.
+void scrolled_label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
+                    Color color, double offset) {
+    auto* layout = pango_cairo_create_layout(cr);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, family.c_str());
+    pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+    pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+    pango_layout_set_font_description(layout, font);
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    cairo_save(cr);
+    cairo_rectangle(cr, r.x + 4, r.y, r.width - 8, r.height);
+    cairo_clip(cr);
+    source(cr, color);
+    cairo_move_to(cr, std::round(r.x + 4 - offset), r.y + (r.height - height) / 2);
+    pango_cairo_show_layout(cr, layout);
+    cairo_restore(cr);
+    pango_font_description_free(font);
+    g_object_unref(layout);
+}
 // The width of a label's text, measured as label() draws it.
 double text_width(cairo_t* cr, const std::string& text, double size, const std::string& family) {
     auto* layout = pango_cairo_create_layout(cr);
@@ -600,6 +630,29 @@ void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
     cairo_set_line_width(cr, 2.5);
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .85);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+// The arrow before a Shift key's legend, `width` wide with its foot at
+// `bottom`: an outline, filled while Shift is locked.
+void shift_arrow(cairo_t* cr, double x, double bottom, double width, Color color, bool filled) {
+    const double height = width * 1.15, shoulder = bottom - height * .5, stem = width * .26;
+    cairo_save(cr);
+    cairo_new_path(cr);
+    cairo_move_to(cr, x + width / 2, bottom - height);
+    cairo_line_to(cr, x + width, shoulder);
+    cairo_line_to(cr, x + width / 2 + stem, shoulder);
+    cairo_line_to(cr, x + width / 2 + stem, bottom);
+    cairo_line_to(cr, x + width / 2 - stem, bottom);
+    cairo_line_to(cr, x + width / 2 - stem, shoulder);
+    cairo_line_to(cr, x, shoulder);
+    cairo_close_path(cr);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_set_line_width(cr, 1.8);
+    source(cr, color);
+    if (filled) {
+        cairo_fill_preserve(cr);
+    }
     cairo_stroke(cr);
     cairo_restore(cr);
 }
@@ -783,6 +836,21 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     auto right_to_left = [&](const std::string& value) {
         return view.keymap->right_to_left() && g_utf8_strlen(value.c_str(), -1) <= 2;
     };
+    const int shift = key.action_kind == ActionKind::Key && !view.key_labels.contains(key.id)
+                          ? key_code(key.action)
+                          : 0;
+    if (secondary.empty() && (shift == KEY_LEFTSHIFT || shift == KEY_RIGHTSHIFT)) {
+        // The arrow and the legend, centred together on the face.
+        const double size = utility ? t.small_font_size : t.font_size;
+        const double arrow = std::round(size * .75), gap = std::round(size * .35);
+        const double width = text_width(cr, text, size, view.language->font);
+        const double x = std::round(face.x + (face.width - arrow - gap - width) / 2);
+        shift_arrow(cr, x, std::round(face.y + face.height / 2 + arrow * .55), arrow, legend,
+                    view.keyboard->locked(shift));
+        label(cr, text, {x + arrow + gap - 4, face.y, width + 8, face.height}, size, view.language->font,
+              legend, true, PANGO_ALIGN_CENTER, false, right_to_left(text));
+        return;
+    }
     if (!secondary.empty()) {
         label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40}, t.small_font_size,
               view.language->font, legend, true, PANGO_ALIGN_CENTER, false, right_to_left(secondary));
@@ -1236,6 +1304,8 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
 bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto& t = *view.theme;
     const auto modifiers = view.keyboard->modifiers();
+    const bool shift_locked =
+        view.keyboard->locked(KEY_LEFTSHIFT) || view.keyboard->locked(KEY_RIGHTSHIFT);
     // Swipe alternatives come and go with every swiped word; they sit in the
     // toolbar, so they repaint their own area instead of the whole scene.
     auto without_candidates = [](const std::vector<Control>& controls) {
@@ -1250,9 +1320,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
         previous_->language != *view.language || previous_->modifiers != modifiers ||
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
-        controls_changed || previous_->view.status != view.status ||
-        previous_->view.settings != view.settings || previous_->view.composing != view.composing ||
-        previous_->view.hide_numpad != view.hide_numpad ||
+        previous_->shift_locked != shift_locked || controls_changed ||
+        previous_->view.status != view.status || previous_->view.settings != view.settings ||
+        previous_->view.composing != view.composing || previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.key_labels != view.key_labels ||
         previous_->view.disabled_keys != view.disabled_keys ||
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
@@ -1491,9 +1561,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_surface_destroy(recording);
             }
         }
-        previous_ =
-            Snapshot{*view.layout,        t, *view.language, view, modifiers, view.keyboard->caps(),
-                     view.keyboard->num()};
+        previous_ = Snapshot{
+            *view.layout,         t,           *view.language, view, modifiers, view.keyboard->caps(),
+            view.keyboard->num(), shift_locked};
         // No animation state from a removed key should survive a profile reload.
         std::erase_if(animations_, [&](const auto& item) {
             return std::none_of(view.layout->keys.begin(), view.layout->keys.end(), [&](const Key& key) {
@@ -1760,6 +1830,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_restore(cr);
             }
         }
+        // The hovered dropdown choice; a new one starts its scroll from the beginning.
+        std::string hovered_choice;
+        for (const auto& control : view.controls) {
+            if (control.style == ControlStyle::MenuItem && view.hovered_controls.contains(control.id)) {
+                hovered_choice = control.id;
+            }
+        }
+        if (hovered_choice != marquee_) {
+            marquee_ = hovered_choice;
+            marquee_since_ = now;
+        }
         auto draw_control = [&](const Control& control) {
             cairo_save(cr);
             if (control.style == ControlStyle::MoveHandle) {
@@ -1812,8 +1893,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         source(cr, t.hover);
                         cairo_fill(cr);
                     }
-                    label(cr, control.label, {r.x + 20, r.y, r.width - 40, r.height}, 21,
-                          view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                    if (const Rect text{r.x + 20, r.y, r.width - 40, r.height};
+                        hovered && control.id == marquee_ &&
+                        text_width(cr, control.label, 21, view.language->font) > text.width - 8) {
+                        // A name too long for its row scrolls while the laser is on it.
+                        const double overflow =
+                            text_width(cr, control.label, 21, view.language->font) - (text.width - 8);
+                        scrolled_label(cr, control.label, text, 21, view.language->font, legend,
+                                       marquee_offset(overflow, now - marquee_since_));
+                        animating_ = continuous = true;
+                    } else {
+                        label(cr, control.label, text, 21, view.language->font, legend, false,
+                              PANGO_ALIGN_LEFT);
+                    }
                     break;
                 case ControlStyle::TextField: {
                     // A small well, as the dictation editor is, since it holds

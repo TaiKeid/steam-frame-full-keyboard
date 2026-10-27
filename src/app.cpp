@@ -1463,6 +1463,7 @@ bool App::tick(double now) {
         }
     }
     finish_swipe(false);
+    dirty |= keyboard_.tick(now); // a held Shift locks
     dirty |= output_.tick(now);
     dirty |= tick_dictation(now);
     if (settings_open_) {
@@ -2673,6 +2674,7 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
     SwipeTrack track;
     track.pointer = pointer;
     track.key = key.id;
+    track.bounds = key.bounds;
     track.modifiers = mods;
     // Capture the tap's character before down() consumes a latched Shift.
     track.symbol = keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num());
@@ -2713,7 +2715,14 @@ void App::swipe_move(double x, double y) {
     track.points.push_back({lx, ly, now});
     track.trail.emplace_back(x, y);
     const auto& start = track.points.front();
-    if (!track.swiping && std::hypot(lx - start.x, ly - start.y) > swipe_keyboard_->key_width / 2) {
+    // A laser trembles, so a tap near a key's edge must not become a swipe:
+    // the press has to leave its key by a third of a key, and travel half a key.
+    const double margin = swipe_keyboard_->key_width / 3;
+    const auto& key = track.bounds;
+    const bool left_key = lx < key.x - margin || lx > key.x + key.width + margin ||
+                          ly < key.y - margin || ly > key.y + key.height + margin;
+    if (!track.swiping && left_key &&
+        std::hypot(lx - start.x, ly - start.y) > swipe_keyboard_->key_width / 2) {
         // Leaving the start key turns the press into a swipe. Release only the
         // local visual press; it never sent anything.
         track.swiping = true;
@@ -2737,7 +2746,9 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
         const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
         track.points.push_back({lx, ly, monotonic_seconds()});
         swipe_shifted_ = track.shifted;
-        swipe_caps_ = keyboard_.caps();
+        // A locked Shift holds for every letter, so the word is all capitals, as with Caps Lock.
+        swipe_caps_ =
+            keyboard_.caps() || keyboard_.locked(KEY_LEFTSHIFT) || keyboard_.locked(KEY_RIGHTSHIFT);
         swipe_->decode(++swipe_request_, std::move(track.points));
         swipe_waiting_ = true;
         swipe_detached_ = false;

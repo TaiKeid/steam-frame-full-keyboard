@@ -161,6 +161,45 @@ void handle_states() {
     compare.frame(view, "pin during movement animation");
     require(width(row()) == 0 && !compare.incremental.animating(),
             "pin removes the complete line and stops its animation");
+
+    // A dropdown choice too long for its row scrolls while hovered.
+    view.popup = Rect{400, 200, 290, 56};
+    view.controls = {{"choose:layout:long",
+                      "A layout whose name is much too long for its row in the list",
+                      {400, 200, 290, 56},
+                      false,
+                      Icon::None,
+                      ControlStyle::MenuItem}};
+    auto item = [&] {
+        const auto pixels = compare.incremental.rgba();
+        std::vector<unsigned char> result;
+        for (int y = 200; y < 256; ++y) {
+            const auto start = static_cast<std::size_t>((y + popup_margin) * panel_width + 400) * 4;
+            result.insert(result.end(), pixels.begin() + static_cast<std::ptrdiff_t>(start),
+                          pixels.begin() + static_cast<std::ptrdiff_t>(start + 290 * 4));
+        }
+        return result;
+    };
+    compare.frame(view, "long choice");
+    require(!compare.incremental.animating(), "an unhovered long choice stays still");
+    const auto still = item();
+    view.hovered_controls = {"choose:layout:long"};
+    compare.frame(view, "hovered long choice");
+    require(compare.incremental.animating(), "a hovered long choice keeps repainting");
+    for (int i = 0; i < 90; ++i) {
+        compare.frame(view, "scrolling long choice");
+    }
+    require(item() != still, "and its name moves");
+    view.hovered_controls.clear();
+    compare.frame(view, "long choice left");
+    require(!compare.incremental.animating(), "leaving it stops the scroll");
+    view.controls.front().label = "Short";
+    view.hovered_controls = {"choose:layout:long"};
+    compare.frame(view, "hovered short choice");
+    require(!compare.incremental.animating(), "a name that fits never scrolls");
+    view.popup.reset();
+    view.controls.clear();
+    view.hovered_controls.clear();
 }
 void exercise(Layout layout, Theme theme, Language language) {
     NullSink sink;

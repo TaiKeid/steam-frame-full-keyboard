@@ -15,11 +15,11 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 
 ## Interaction model
 
-1. **Tap or swipe.** With swipe disabled, keys keep sending on press, exactly as today. For now, with swipe enabled and a swipe-capable language active, a letter key's text is sent on release instead of on press. A press becomes a swipe once the pointer leaves the start key by more than half a key width. Non-letter keys, modifiers, shortcuts and Settings are unchanged. Key repeat only starts if the pointer stays on the start key for 500 ms. The owner considers send-on-release unsuitable for normal typing, so this is temporary; see the open issue below.
+1. **Tap or swipe.** With swipe disabled, keys keep sending on press, exactly as today. For now, with swipe enabled and a swipe-capable language active, a letter key's text is sent on release instead of on press. A press becomes a swipe once the pointer is more than a third of a key width outside the start key and at least half a key width from where it pressed, so a trembling laser near a key's edge still taps. Non-letter keys, modifiers, shortcuts and Settings are unchanged. Key repeat only starts if the pointer stays on the start key for 500 ms. The owner considers send-on-release unsuitable for normal typing, so this is temporary; see the open issue below.
 2. **Capture.** `App::move` already receives OpenVR `MouseMove` events while the trigger is held. A `SwipeTracker` stores time-stamped case coordinates for the owning pointer. One swipe is active at a time; a second controller's press cancels nothing and is ignored for swiping.
 3. **Decode.** On release, decoding runs on a worker thread, never on the VR loop: resample to 60 Hz and then 64 points, normalise to the letter block, encoder, beam search, rescoring.
 4. **Commit.** Open decision, below.
-5. **Shift and Caps.** A latched Shift capitalises the first letter; Caps Lock uppercases the word. Otherwise the word list's own capitalisation is used, so German nouns stay capitalised.
+5. **Shift and Caps.** A latched Shift capitalises the first letter; Caps Lock or a locked Shift uppercases the word. Otherwise the word list's own capitalisation is used, so German nouns stay capitalised.
 6. **Auto-space.** A space goes before a swiped word when the previous action was a swiped word. Punctuation keys follow normal rules.
 7. **Cancellation.** Hide, drag, recentre, target change, profile change, FocusLeave of the owning controller and shutdown discard an unfinished swipe and any pending alternatives; a word still decoding when its laser leaves is discarded rather than typed at a cursor that may have moved. Lost tracking cancels a swipe like a held key. They release nothing extra, because a swipe holds no backend key.
 

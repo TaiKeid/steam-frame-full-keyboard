@@ -235,6 +235,8 @@ void picker_tests() {
     picker.down(1, x, y, 0);
     picker.move(1, x - 5, y, 0);
     require(picker.scroll_offset() == 0, "a few pixels still count as a tap");
+    picker.move(1, x - 20, y, 0);
+    require(picker.scroll_offset() == 0, "so does an unsteady hand's 20 px");
     picker.move(1, x - 120, y, 0);
     require(picker.scroll_offset() == 120, "dragging scrolls the grid");
     require(picker.up(1, x - 120, y, 0).type.empty(), "a drag types nothing");
@@ -245,12 +247,12 @@ void picker_tests() {
 
     // An emoji without tones starts scrolling sooner than one being held for its tones.
     picker.down(1, x, y, 0.5);
-    picker.move(1, x - 14, y, 0.6);
-    picker.up(1, x - 14, y, 0.7);
-    require(picker.scroll_offset() == 14, "a small move on a plain emoji scrolls");
-    picker.down(1, x + 14, y, 0.8);
-    picker.move(1, x + 28, y, 0.9);
-    picker.up(1, x + 28, y, 1.0);
+    picker.move(1, x - 28, y, 0.6);
+    picker.up(1, x - 28, y, 0.7);
+    require(picker.scroll_offset() == 28, "a small move on a plain emoji scrolls");
+    picker.down(1, x + 28, y, 0.8);
+    picker.move(1, x + 56, y, 0.9);
+    picker.up(1, x + 56, y, 1.0);
     require(picker.scroll_offset() == 0, "and back");
 
     // A quick drag glides on after release, slowing until it stops; a press catches it.
@@ -278,11 +280,11 @@ void picker_tests() {
         // Near its end the glide moves less than a pixel a frame; the view shows whole pixels.
         picker.reset();
         picker.down(1, x, y, 80);
-        picker.move(1, x - 20, y, 80.05);
-        picker.up(1, x - 20, y, 80.06);
+        picker.move(1, x - 30, y, 80.075);
+        picker.up(1, x - 30, y, 80.08);
         int unchanged = 0, frames = 0;
         auto last = picker.view();
-        for (double now = 80.06 + 1.0 / 60; picker.gliding() && frames < 600;
+        for (double now = 80.08 + 1.0 / 60; picker.gliding() && frames < 600;
              now += 1.0 / 60, ++frames) {
             picker.tick(now);
             const auto next = picker.view();

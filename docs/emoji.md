@@ -33,7 +33,7 @@ The view's geometry is generated from the active layout's case size, key unit an
 
 ## Interaction
 
-- **Typing:** an emoji is typed when the trigger is released over the same cell. If the laser moves more than a few millimeters during the press, it becomes a scroll and nothing is typed. The picker stays open, unless the close-on-select setting is on.
+- **Typing:** an emoji is typed when the trigger is released over the same cell. If the laser moves more than 24 px (about 1.5 cm) during the press, it becomes a scroll and nothing is typed; the grid then catches up, so the pressed spot stays under the laser. The picker stays open, unless the close-on-select setting is on.
 - **No repeat:** holding an emoji never repeats it. A hold opens the skin-tone popup instead (below).
 - **Scrolling:** two ways to scroll, both moving the grid horizontally:
   - Dragging with the trigger held. A quick drag keeps the grid gliding after release and slowing down, like a phone list: the speed over the last 0.1 s before release (at least 300 px/s) decays with a 0.35 s time constant, so the glide covers about a third of a second of that speed. A pause before releasing leaves nothing to glide. A glide that runs past an end overshoots on a critically damped spring and settles back on the end, like iOS lists; it overshoots at most about 65 px. A press on the gliding grid stops it (back on the end, if past one) and types nothing; the stick also stops it. A drag can start anywhere in the grid, including the empty space between categories.
@@ -44,7 +44,7 @@ The view's geometry is generated from the active layout's case size, key unit an
 
 ### Skin tones
 
-Holding an emoji that supports skin tones for 500 ms (*proposal*) opens a popup above it with six variants. While held, the laser may wander 16 px (about 1 cm) before the press becomes a scroll, instead of the usual 10 px:
+Holding an emoji that supports skin tones for 500 ms (*proposal*) opens a popup above it with six variants. While held, the laser may wander 32 px (about 2 cm) before the press becomes a scroll, instead of the usual 24 px:
 
 - the default yellow first;
 - then the five tones from light to dark.

@@ -538,6 +538,7 @@ class App {
     struct SwipeTrack {
         unsigned pointer{};
         std::string key; // The tapped key, for Pinyin composition.
+        Rect bounds;     // Its layout bounds: the press is a swipe once it leaves them.
         std::set<int> modifiers;
         xkb_keysym_t symbol{}; // The tapped character if the press never becomes a swipe.
         bool shifted{}, swiping{};
