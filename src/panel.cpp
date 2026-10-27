@@ -563,12 +563,25 @@ double mic_phase(const PanelView& view, double now) {
     const double sampled = std::floor(now / frame) * frame;
     return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
 }
-// How far a hovered name too long for its row has scrolled, `overflow`
-// pixels in all: it waits, scrolls to its end, rests there, then starts over.
-double marquee_offset(double overflow, double elapsed) {
+// A hovered name too long for its row, `overflow` pixels in all, waits,
+// scrolls to its end, rests there, then starts over. Its offset in whole
+// pixels, and how long until that changes: never more often than 30 times a
+// second, and not at all while it waits or rests.
+struct MarqueeStep {
+    double offset{}, wait{};
+};
+MarqueeStep marquee_step(double overflow, double elapsed) {
     constexpr double wait = .8, speed = 45, rest = 1.2;
-    const double t = std::fmod(elapsed, wait + overflow / speed + rest);
-    return std::clamp((t - wait) * speed, 0.0, overflow);
+    const double travel = overflow / speed, cycle = wait + travel + rest;
+    const double t = std::fmod(elapsed, cycle);
+    if (t < wait) {
+        return {0, wait - t};
+    }
+    if (t >= wait + travel) {
+        return {std::floor(overflow), cycle - t};
+    }
+    const double raw = (t - wait) * speed, shown = std::floor(raw);
+    return {shown, std::max((shown + 1 - raw) / speed, 1.0 / 30)};
 }
 // A label's text without ellipsis, moved left by `offset` inside its box.
 void scrolled_label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
@@ -1306,6 +1319,39 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto modifiers = view.keyboard->modifiers();
     const bool shift_locked =
         view.keyboard->locked(KEY_LEFTSHIFT) || view.keyboard->locked(KEY_RIGHTSHIFT);
+    // A hovered dropdown choice whose name does not fit scrolls. A new one
+    // starts from the beginning.
+    std::optional<Rect> marquee_text;
+    double marquee_shift = 0;
+    std::optional<double> marquee_due;
+    {
+        const Control* choice = nullptr;
+        for (const auto& control : view.controls) {
+            if (control.style == ControlStyle::MenuItem && view.hovered_controls.contains(control.id)) {
+                choice = &control;
+            }
+        }
+        const std::string hovered = choice ? choice->id : "";
+        if (hovered != marquee_) {
+            marquee_ = hovered;
+            marquee_since_ = now;
+            marquee_shown_ = -1;
+        }
+        if (choice && view.settings) {
+            const auto& r = choice->bounds;
+            const Rect text{r.x + 20, r.y, r.width - 40, r.height};
+            auto* measure = cairo_create(surface_);
+            const double overflow =
+                text_width(measure, choice->label, 21, view.language->font) - (text.width - 8);
+            cairo_destroy(measure);
+            if (overflow > 0) {
+                const auto step = marquee_step(overflow, now - marquee_since_);
+                marquee_text = text;
+                marquee_shift = step.offset;
+                marquee_due = now + step.wait;
+            }
+        }
+    }
     // Swipe alternatives come and go with every swiped word; they sit in the
     // toolbar, so they repaint their own area instead of the whole scene.
     auto without_candidates = [](const std::vector<Control>& controls) {
@@ -1328,7 +1374,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
         previous_->view.dictation.has_value() != view.dictation.has_value() ||
         previous_->view.dictation_available != view.dictation_available;
-    bool full = force_full || scene_changed || view.settings;
+    // Settings repaints whole, except when nothing in it changed but a
+    // scrolling choice name: then only that name's box, once it moved a pixel.
+    const bool settings_still =
+        previous_ && view.settings && previous_->view.settings &&
+        previous_->view.controls == view.controls && previous_->view.cards == view.cards &&
+        previous_->view.field_labels == view.field_labels && previous_->view.popup == view.popup &&
+        previous_->view.status == view.status &&
+        previous_->view.hovered_controls == view.hovered_controls &&
+        previous_->view.address == view.address && previous_->view.confirm == view.confirm;
+    bool full = force_full || scene_changed || (view.settings && !settings_still);
     std::vector<Rect> damage;
     animating_ = false;
     next_change_ = now;
@@ -1401,6 +1456,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // The mic key's bars and ring step at 30 fps; between steps a 60 Hz
     // frame would rebuild and compare the whole view for no new pixel.
     next_change_ = continuous ? now : (std::floor(now * 30) + 1) / 30;
+    if (marquee_due) {
+        next_change_ = animating_ ? std::min(next_change_, *marquee_due) : *marquee_due;
+        animating_ = true;
+        if (!full && marquee_shift != marquee_shown_) {
+            damage.push_back(pixel_bounds(*marquee_text));
+        }
+    }
     // A clip edge through a key can drop parts of its legend glyphs. Damage
     // a changed area together with every key it touches, each whole, as
     // separate pixel-aligned rectangles: the clip's edges then run only
@@ -1576,6 +1638,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     if (!full && damage.empty() && areas.empty()) {
         return false;
     }
+    marquee_shown_ = marquee_text ? marquee_shift : -1;
     auto* cr = cairo_create(surface_);
     cairo_translate(cr, 0, popup_margin);
     // Cairo composites antialiased strokes and glyphs slightly differently
@@ -1830,17 +1893,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_restore(cr);
             }
         }
-        // The hovered dropdown choice; a new one starts its scroll from the beginning.
-        std::string hovered_choice;
-        for (const auto& control : view.controls) {
-            if (control.style == ControlStyle::MenuItem && view.hovered_controls.contains(control.id)) {
-                hovered_choice = control.id;
-            }
-        }
-        if (hovered_choice != marquee_) {
-            marquee_ = hovered_choice;
-            marquee_since_ = now;
-        }
         auto draw_control = [&](const Control& control) {
             cairo_save(cr);
             if (control.style == ControlStyle::MoveHandle) {
@@ -1894,14 +1946,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         cairo_fill(cr);
                     }
                     if (const Rect text{r.x + 20, r.y, r.width - 40, r.height};
-                        hovered && control.id == marquee_ &&
-                        text_width(cr, control.label, 21, view.language->font) > text.width - 8) {
+                        marquee_text && control.id == marquee_) {
                         // A name too long for its row scrolls while the laser is on it.
-                        const double overflow =
-                            text_width(cr, control.label, 21, view.language->font) - (text.width - 8);
                         scrolled_label(cr, control.label, text, 21, view.language->font, legend,
-                                       marquee_offset(overflow, now - marquee_since_));
-                        animating_ = continuous = true;
+                                       marquee_shift);
                     } else {
                         label(cr, control.label, text, 21, view.language->font, legend, false,
                               PANGO_ALIGN_LEFT);

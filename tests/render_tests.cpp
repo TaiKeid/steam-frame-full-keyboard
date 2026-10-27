@@ -27,7 +27,7 @@ class Comparison {
     double now = 100;
     unsigned frames{};
     std::vector<unsigned char> before;
-    void frame(const PanelView& view, const char* phase) {
+    bool frame(const PanelView& view, const char* phase) {
         now += 1.0 / 60;
         auto* a = incremental.surface();
         const auto size = static_cast<std::size_t>(cairo_image_surface_get_stride(a)) * texture_height;
@@ -51,6 +51,7 @@ class Comparison {
             throw std::runtime_error("animation scheduling differs");
         }
         ++frames;
+        return painted;
     }
     // A partial upload copies only the reported damage: every pixel that
     // changed must lie inside it, and nothing may change without a paint.
@@ -185,11 +186,36 @@ void handle_states() {
     const auto still = item();
     view.hovered_controls = {"choose:layout:long"};
     compare.frame(view, "hovered long choice");
-    require(compare.incremental.animating(), "a hovered long choice keeps repainting");
-    for (int i = 0; i < 90; ++i) {
-        compare.frame(view, "scrolling long choice");
+    const double hovered_at = compare.now;
+    const auto waiting = item();
+    require(compare.incremental.animating() &&
+                std::abs(compare.incremental.next_change() - (hovered_at + .8)) < 1e-6,
+            "a hovered long choice schedules its first move after its wait");
+    bool painted_while_waiting = false;
+    while (compare.now + 1.0 / 60 < hovered_at + .8) {
+        painted_while_waiting |= compare.frame(view, "long choice waits");
     }
-    require(item() != still, "and its name moves");
+    require(!painted_while_waiting && item() == waiting, "nothing repaints while it waits");
+    int paints = 0, frames = 0;
+    for (; frames < 60; ++frames) {
+        // As App::paint: a frame before the next change is skipped.
+        if (compare.now + 1.0 / 60 < compare.incremental.next_change()) {
+            compare.now += 1.0 / 60;
+            continue;
+        }
+        if (compare.frame(view, "scrolling long choice")) {
+            ++paints;
+            const auto& damage = compare.incremental.damage();
+            // Damage is in texture rows, below the popup margin.
+            require(damage.size() == 1 && damage.front().x >= 400 &&
+                        damage.front().y >= 200 + popup_margin &&
+                        damage.front().x + damage.front().width <= 690 &&
+                        damage.front().y + damage.front().height <= 256 + popup_margin,
+                    "a moving name repaints only its own box");
+        }
+    }
+    require(item() != waiting && paints > 20 && paints <= 31,
+            "and its name moves, at most 30 repaints a second");
     view.hovered_controls.clear();
     compare.frame(view, "long choice left");
     require(!compare.incremental.animating(), "leaving it stops the scroll");

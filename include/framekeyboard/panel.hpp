@@ -106,10 +106,12 @@ struct Control {
     }
 };
 struct CardView {
+    bool operator==(const CardView&) const = default;
     std::string title;
     Rect bounds;
 };
 struct FieldLabel {
+    bool operator==(const FieldLabel&) const = default;
     std::string text;
     Rect bounds, clip;
     bool left{};
@@ -296,9 +298,10 @@ class PanelRenderer {
     std::map<std::string, Rect> key_bounds_;
     std::map<std::string, Animation> animations_;
     Animation move_handle_;
-    // The hovered dropdown choice and since when, for scrolling a long name.
+    // The hovered dropdown choice, since when, and the whole-pixel offset its
+    // name was last painted at, for scrolling a long name.
     std::string marquee_;
-    double marquee_since_{};
+    double marquee_since_{}, marquee_shown_{-1};
     cairo_surface_t* surface_{};
     // The swipe trail as an opaque layer, composited at 60% by every pass.
     // Cairo strokes slightly differently under a clip, and re-stroking a
