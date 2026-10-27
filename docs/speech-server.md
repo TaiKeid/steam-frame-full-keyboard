@@ -6,7 +6,7 @@ Dictation is designed but not released yet; this guide is part of its first mile
 
 ## What you need
 
-- A computer on the same network as the Frame, ideally with a GPU. On a GPU, a phrase comes back in well under half a second; CPU-only servers take seconds and vary widely (see the [measurements](dictation.md#measurements-2026-10-24)).
+- A computer on the same network as the Frame, ideally with a GPU. On a GPU, a phrase comes back in well under half a second; CPU-only servers take seconds and vary widely (see [why large-v3-turbo on a GPU](dictation.md#why-large-v3-turbo-on-a-gpu)).
 - About 600 MB of disk for the model, and about 1 GB of GPU memory while the server runs.
 - whisper.cpp **v1.9.5**, the version these instructions were tested with.
 - The **large-v3-turbo** model, quantized `q5_0`:

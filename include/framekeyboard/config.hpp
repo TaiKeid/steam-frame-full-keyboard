@@ -98,7 +98,7 @@ struct Settings {
     std::string dictation_url;    // or a full base URL
     std::string dictation_model;
     // Milliseconds between characters while Send types: 20, 30 or 40. Slower
-    // keeps their order under heavy load (docs/dictation.md, M3b results).
+    // keeps their order under heavy load (docs/dictation.md, Send).
     int dictation_send_gap{20};
     // Send pastes through the clipboard instead of typing; Steam's own fields
     // keep their direct path.

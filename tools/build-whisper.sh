@@ -27,7 +27,8 @@ frame-arm64)
     # Every Frame has the same SoC. Without an explicit target ggml uses
     # baseline ARMv8 and skips the dot-product, FP16 and int8 matrix
     # instructions that make 4- and 8-bit models fast; SVE is left out
-    # because NEON was faster on the Frame (docs/dictation.md, M6).
+    # because NEON was faster on the Frame (docs/dictation.md, Why these
+    # model choices).
     target_args+=(-DCMAKE_TOOLCHAIN_FILE="$project_dir/cmake/steam-frame-aarch64.cmake"
         -DGGML_CPU_ARM_ARCH=armv8.6-a+dotprod+fp16+i8mm)
     ;;

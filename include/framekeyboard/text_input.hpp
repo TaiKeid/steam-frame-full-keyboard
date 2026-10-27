@@ -21,7 +21,7 @@ class GamescopeText {
     bool commit(const std::string& text, std::size_t delete_before = 0, bool per_character = false);
     // The minimum gap between per-character commits. Dictation's Send sets a
     // longer one while it types: under heavy load, 20 ms still let IBus swap
-    // neighbouring characters now and then (docs/dictation.md, M3b results).
+    // neighbouring characters now and then (docs/dictation.md, Send).
     static constexpr double default_character_gap = .02;
     void set_character_gap(double seconds);
     bool pending() const;

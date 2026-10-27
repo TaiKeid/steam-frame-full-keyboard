@@ -85,7 +85,9 @@ int main(int argc, char** argv) {
     }
     whisper_log_set([](ggml_log_level, const char*, void*) {}, nullptr);
     auto params = whisper_context_default_params();
-    params.use_gpu = false; // the Frame's GPU made VR unresponsive (docs/dictation.md, M0)
+    // The Frame's GPU made VR unresponsive (docs/dictation.md, Why on device
+    // uses the CPU).
+    params.use_gpu = false;
     std::unique_ptr<whisper_context, decltype(&whisper_free)> context(
         model.empty() ? nullptr : whisper_init_from_file_with_params(model.c_str(), params),
         whisper_free);

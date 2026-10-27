@@ -93,7 +93,7 @@ AUDIO_FORMAT = ["--raw", "--rate", str(RATE), "--channels", "1", "--format", "s1
 RECORDER = ["pw-record", *AUDIO_FORMAT, "--media-role", "Communication", "-"]
 # While a game runs, SteamOS puts WirePlumber "smart" filters (echo
 # cancellation, noise suppression) between the microphone and every recording,
-# and they cut words (docs/dictation.md, Game test). The recorder then links
+# and they cut words (docs/dictation.md, Microphone). The recorder then links
 # itself to the microphone instead. The default socket may not create links,
 # so it uses the session manager's socket; without one, it records the default
 # source as before.

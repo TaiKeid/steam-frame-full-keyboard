@@ -25,7 +25,7 @@ It reads each pin from the file that owns it and compares it with the upstream's
 
 | Component | Pin lives in | Used for | After updating, run |
 | --- | --- | --- | --- |
-| whisper.cpp (and ggml) | `tools/build-whisper.sh` (`pinned=`), `third_party/whisper.cpp/LICENSE` | On-device dictation engine, `whisper-quantize` | Rebuild with `tools/build-whisper.sh` for host and frame-arm64; `dictation-helper`; the M6 benchmark on the Frame against the [limits](dictation.md#on-device-recognition) (time per phrase, memory, word errors); a headset try of each model format |
+| whisper.cpp (and ggml) | `tools/build-whisper.sh` (`pinned=`), `third_party/whisper.cpp/LICENSE` | On-device dictation engine, `whisper-quantize` | Rebuild with `tools/build-whisper.sh` for host and frame-arm64; `dictation-helper`; the on-device benchmark on the Frame against the [limits](dictation.md#on-device-recognition) (time per phrase, memory, word errors); a headset try of each model format |
 | Whisper models | `dictation/dictation_helper.py`: `MODEL_REVISION`, `MODELS` (sizes, SHA-256) | Downloads in Settings | `dictation-helper` (Downloads); a real download of each format on the Frame |
 | ExecuTorch with XNNPACK | `tools/build-executorch.sh` (`pinned=`), `third_party/executorch/` | Swipe model runtime | Rebuild with `tools/build-executorch.sh`; `swipe-model`; swipe in the headset |
 | FUTO Swipe encoder | `third_party/futo-swipe/README.md` (revision, SHA-256), `model_fp32.pte` | Swipe typing | `swipe-model`; the license notice beside the setting is still accurate |
@@ -62,8 +62,8 @@ Nothing pins these. Each one is feature-checked at runtime and fails safe, but a
 | Steam's local UI debugger on `127.0.0.1:8080` and its keyboard interfaces | [Native keyboard replacement](native-replacement.md) | The [validation list](native-replacement.md#validation). Settings names the reason when it is unavailable |
 | Steam dashboard overlay keys, such as `valve.steam.gamepadui.main` | Placement next to the dashboard | Summon from the dashboard; placement and auto leveling |
 | Frame controller render models (`frame_controller_left` and `_right`, the `trigger` and `tip` components) | Passthrough pointer, panel drag and resize, keys held off the panel | Passthrough typing, a laser drag and resize, and a repeating key held past the panel's edge |
-| SteamOS microphone filters (WirePlumber smart filters in `/etc/pipewire/pipewire.conf.d/`) and the `pipewire-0-manager` socket | Dictation records the raw microphone | Dictate with and without a game; the log shows "recording the microphone without the game's voice filters" only with a game. See the [game test](dictation.md#game-test-2026-10-26) |
-| Gamescope's text and keymap behavior | Typing and Send's pace | The [M3b delivery test](dictation.md#m3b-results-2026-10-25) if text arrives scrambled |
+| SteamOS microphone filters (WirePlumber smart filters in `/etc/pipewire/pipewire.conf.d/`) and the `pipewire-0-manager` socket | Dictation records the raw microphone | Dictate with and without a game; the log shows "recording the microphone without the game's voice filters" only with a game. See [microphone](dictation.md#microphone) |
+| Gamescope's text and keymap behavior | Typing and Send's pace | If text arrives scrambled: send a 900-character text to a disposable receiver with `text-replace-probe`'s `whole` and `paced` commands, idle and under load, and count wrong characters (see [Send](dictation.md#send)) |
 | Steam app IDs as window names for local games | Native replacement over local games | A local game's keyboard button with replacement on |
 
 ## Integration tests

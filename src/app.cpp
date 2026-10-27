@@ -3615,7 +3615,7 @@ void App::end_dictation_for_update() {
     // An update restarts the keyboard, which loses the editor anyway: discard
     // everything, and let the helper and its recorder start exiting now. The
     // handoff runs only after App is gone, and ~Dictation waits for the
-    // helper (docs/dictation.md, M2 lifetime).
+    // helper (docs/dictation.md, Architecture).
     if (dictation_open_) {
         discard_dictation();
     }
@@ -3849,7 +3849,7 @@ void App::live_partial(std::uint64_t id, const std::string& text) {
     // Words all three guesses agree on exactly, but never the newest guess's
     // last word, which may be cut off mid-word. Measured on test speech,
     // fewer guesses or a looser match locked in early mistakes
-    // (docs/dictation.md, M5b results).
+    // (docs/dictation.md, Type as I speak).
     const auto& newest = live.guesses.back();
     std::size_t agreed = 0;
     while (agreed + 1 < newest.size() &&
@@ -4251,9 +4251,10 @@ void App::dictation_event(const Dictation::Event& event, double now) {
 }
 
 double App::recognition_limit() const {
-    // The helper's own limits for one phrase (docs/dictation.md, M6): 30 s
-    // on the device, 10 s for a server and, with the fallback, the device's
-    // after it; and a margin. The helper reports a phrase that runs over.
+    // The helper's own limits for one phrase (docs/dictation.md, On-device
+    // recognition): 30 s on the device, 10 s for a server and, with the
+    // fallback, the device's after it; and a margin. The helper reports a
+    // phrase that runs over.
     const double device = 30, server = 10, margin = 5;
     if (settings_.dictation == "device") {
         return device + margin;
