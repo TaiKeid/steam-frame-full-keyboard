@@ -107,11 +107,17 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
             try {
                 const auto before = settings_.active;
                 activate(selection); // temporary: never saved, restored when the context ends
-                host_.before_language = before;
+                // A later hint for the same context keeps the selection
+                // from before the first one.
+                if (!host_.before_language) {
+                    host_.before_language = before;
+                }
                 host_.hinted_language = host_.hints.language;
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
+        } else if (host_.hints.language.empty() && host_.before_language) {
+            end_language_hint(); // the same context, now without a language
         }
     }
     if (dictation_open_) {

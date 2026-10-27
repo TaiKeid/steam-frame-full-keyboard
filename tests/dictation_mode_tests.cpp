@@ -2009,6 +2009,21 @@ void hosted_tests() {
         click(app, "apply"); // back as it was
     }
 
+    // Changing a context's language hint twice still returns to the first selection.
+    App::HostHints french_field;
+    french_field.language = "fr-fr";
+    app.set_context(std::string("same"), german_field);
+    app.set_context(std::string("same"), french_field);
+    require(app.selection().language == "fr-fr", "the newer hint applies");
+    app.set_context(std::string("same"), {});
+    require(app.selection().language == "en-us",
+            "dropping the language hint in the same context restores it");
+    app.set_context(std::string("same"), german_field);
+    app.set_context(std::string("same"), french_field);
+    app.set_context(std::nullopt);
+    require(app.selection().language == "en-us",
+            "ending the context returns to the language before the first hint");
+
     // A view chosen while hidden is the one that shows.
     app.set_interaction_active(false);
     require(app.show_view("emoji").empty() && app.view_name() == "emoji",
