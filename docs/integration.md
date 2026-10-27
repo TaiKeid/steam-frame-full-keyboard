@@ -1,6 +1,6 @@
 # Shell integration protocol
 
-**Status: draft, scheduled after the first public release. Not implemented.** Nothing in this document is available yet. Operation names, fields, limits and exit codes may change until protocol 1 ships. An independent design review on 2026-10-26 found the architecture sound; its findings are folded into this draft.
+**Status: protocol 1 implemented, not released, not yet validated in the headset.** Everything below is implemented except `theme.derive` and the Wayland input method bridge, which come later. Host tests cover the connection, the sink, running instances, the update handover and App's side; pointer forwarding, the sink and anchors still need headset validation against the test shell (`tools/shell-test.py`) before a real application. Operation names, fields, limits and exit codes may change until protocol 1 ships. An independent design review on 2026-10-26 found the architecture sound; its findings are folded in.
 
 Alternative Steam Frame shells can use Full Keyboard as their keyboard. A shell launches the keyboard, controls its visibility and placement, matches it to its own look, sets typing settings, controls dictation, and keeps the keyboard updated together with itself. The keyboard keeps its own rendering, key state, composition and input delivery. The shell only sees what the user has committed.
 
@@ -111,7 +111,7 @@ A plain launch while a hosted keyboard is running, for example from the dashboar
 
 ### `state` and `subscribe`
 
-`state` returns a snapshot of everything that events report: visibility and its reason, view, current context, geometry, regions, selection, settings, swipe availability, dictation state and update state. It never includes text.
+`state` returns a snapshot of everything that events report: visibility and its reason, view, current context, geometry, selection, theme, settings, swipe availability, dictation state, whether the sink is on, the pointer mode and update state, plus `last_update` after a rollback. It never includes text. Regions come only as `regions` events.
 
 `{"op":"subscribe","events":["visibility","geometry",...]}` replaces the subscription set. See [Events](#events).
 
@@ -143,7 +143,7 @@ Only the shell shows the panel, and the SteamOS dashboard gate does not apply. I
 
 Protocol view changes never commit unfinished input. Today, opening emoji or dictation from the panel commits an open composition. A `show` that would do so keeps the composition pending where the view can keep it. Otherwise it fails with `composing` and changes nothing. Hiding keeps an open composition pending for the same context, as today.
 
-X in the panel hides it and sends `visibility` with `reason:"user"`. The shell decides whether to show it again. Settings → Quit exits the keyboard, and the shell sees its connection close.
+X in the panel hides it and sends `visibility` with `reason:"user"`. The shell decides whether to show it again. Settings → Quit exits the keyboard, and the shell sees its connection close. If the stall watchdog hides the panel, `visibility` reports `reason:"stalled"`, and the shell shows it again when it wants.
 
 ## Typing context
 
@@ -166,7 +166,7 @@ A shell can have several text fields. Without a way to tell them apart, switchin
 | --- | --- | --- |
 | `purpose` | `text`, `password`, `pin`, `number`, `email`, `url`, `search`, `terminal` | `password`/`pin`: no swipe, suggestions, dictation or emoji. `number`/`pin`: opens with the numpad shown and Num Lock on. `email`/`url`: no swipe autospace. `terminal`: no autospace or suggestions. |
 | `enter` | `enter`, `go`, `search`, `send`, `next`, `done` | Legend on Enter; the key still sends Enter |
-| `autocapitalize` | `none`, `sentences`, `words` | Affects swipe and dictation capitalization only |
+| `autocapitalize` | `none`, `sentences`, `words` | Swipe and dictation only: `none` lowercases the first letter of each dictated phrase and swiped word, `words` capitalizes every word, `sentences` keeps the usual casing |
 | `language` | language ID | Temporary selection for this context |
 
 Hints belong to their context and are never saved. Saving settings for another reason never writes a hinted value. When the context ends, a temporary language is restored only if the user has not picked another language in the meantime. The user can still change language and settings in the panel.
@@ -228,7 +228,7 @@ Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-onl
 - `ok` means validated and applied. Saving is asynchronous and the writer coalesces snapshots, so the save result comes later as a `saved` event with `through` set to the highest request `id` it covers and `ok` true or false.
 - Writes from Settings and from the protocol apply on the VR thread in arrival order; the later one wins. If Settings has unapplied edits open, a protocol write updates only the pending values for the keys it wrote.
 
-`settings` events report the changed keys and `source` (`user`, `shell`, `reload`).
+`settings` events report the changed keys and `source` (`user`, `shell`, `reload`). A save result covers every write queued before it, since the writer reports only once nothing newer is pending; `saved` therefore names the highest request it covers.
 
 ## Dictation
 
@@ -241,10 +241,10 @@ Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-onl
 
 - The dictation editor stays inside the keyboard. Its text reaches the target only through the user's Send, or per phrase with Type as I speak, and so through the normal output path or the sink.
 - Words that Type as I speak has already typed are commits. Its partial hypotheses are never sent.
-- `dictation` events report only `state` (`off`, `idle`, `listening`, `recognizing`, `paused`, `error`), the microphone level (0–100, at most 10 per second), error codes and download progress in bytes. They never contain partial, phrase or editor text.
+- `dictation` events report only `state` (`off`, `idle`, `listening`, `recognizing`, `paused`, `error`), the microphone level (0–100, at most 10 per second), error codes, download progress in bytes, `model_ready` when a download ends, and `test` with a Test's result (`reachable`, `unreachable`, `no_answer`, `server_error`, `bad_reply`, `helper_stopped`). They never contain partial, phrase or editor text.
 - A model download is several hundred megabytes and must stay a user decision. `download` shows the keyboard's existing download confirmation in the panel, and the user confirms it there. The shell is told through `dictation` events.
 
-**Servers chosen by the shell (recommended; owner to confirm).** A speech server receives the user's speech, and today the recognition prompt also carries the editor text before the cursor. That text is unsent and must not leave the keyboard by the shell's choice. The keyboard records who chose the current `dictation_server`. For a server the shell set, the prompt carries only the language profile's prompt, without editor context. A server the user chose or tested in the Dictation card gets the full context, as today.
+**Servers chosen by the shell (owner, 2026-10-26).** A speech server receives the user's speech, and the recognition prompt also carries the editor text before the cursor. That text is unsent and must not leave the keyboard by the shell's choice. The keyboard records who chose the current `dictation_server` (`dictation_server_source` in `config.json`). For a server the shell set, the prompt carries only the language profile's prompt, without editor context. A server the user chose or tested in the Dictation card gets the full context, as today.
 
 ## Updates
 
@@ -257,7 +257,7 @@ Shells update the keyboard together with themselves, without showing anything to
 | `update.cancel` | Cancels a pending install before activation |
 | `quiesced` | The shell's last message before a restart (see below) |
 
-- `update.check` returns `{"latest":"0.10.1","available":true}`. It uses the same fixed-repository check as Settings, and never downloads.
+- `update.check` answers once the check is done: `{"latest":"0.10.1","available":true}`, or a failure reason. Up to date, `latest` is the running version. It uses the same fixed-repository check as Settings, and never downloads.
 - `update.install` installs the newest stable release, or the exact stable `version` given. Pinning lets a shell ship with a keyboard version it has tested. The helper already fetches exact tags. Drafts and prereleases are still rejected. Before activation, the helper checks that the package supports the protocol version in use, or fails with `incompatible`.
 - Verification, staging, startup confirmation and rollback are the same as [updates from Settings](updates.md). The keyboard shows no update UI for shell-requested updates, and the Settings button shows only status.
 - `update` events report `checking`, `available`, `downloading` (bytes), `prepared`, `quiesce` and `restarting`. Failures report the same short reason codes as Settings (`network`, `rate_limit`, `checksum`, `locked`, `disk`, `invalid_package`), plus `incompatible`.
@@ -336,11 +336,12 @@ Turning the sink on or off first cancels through the old destination: held keys 
 - Key names are the logical key IDs from the layout (`Enter`, `Backspace`, `ArrowLeft`, `KeyA`, ...), never evdev or Steam codes. Copy and Paste arrive as `KeyC` and `KeyV` with `Ctrl`.
 - Events are ordered and numbered by `seq`. A swipe correction arrives as `Backspace` keys followed by the new commit, in order, in the same context.
 - A socket write does not mean a field accepted the text. The shell acknowledges with `ack` (`context`, highest accepted `seq`), or rejects one event with `{"op":"reject","context":...,"seq":N}`. A rejected commit is kept for explicit retry, as failed commits are in native replacement. Dictation Send clears the editor only after its commit is acknowledged.
+- One event is in flight at a time (owner, 2026-10-26): the next is sent only after the shell answers the last, exactly as the output queue waits for an asynchronous transport. Each is one local round trip.
 
 ### Privacy
 
 - Only committed text is sent. Composition, preedit, candidates, swipe suggestions, dictation partials and the dictation editor buffer stay inside the keyboard. A Japanese, Chinese or Korean composition reaches the sink only when it is committed. A swipe word reaches it only once accepted.
-- While the sink is on, the panel shows a "Typing into <client>" line in the case, using the `client` from `hello`. The user can turn it off there. The shell is then told, and output returns to the normal destination after the cancellation above.
+- While the sink is on, the panel shows a "Typing into <client>" line in the case, using the `client` from `hello`, and a **Stop shell typing** button. The user can turn it off there. The shell is then told with a `target` event, and output returns to the normal destination after the cancellation above.
 - Nothing from the sink is logged by the keyboard. The shell must treat it as typed input.
 
 ## Wayland input method bridge
@@ -353,16 +354,17 @@ Later, and separate from this connection. Compositor shells can then use the sta
 
 - It renders isolated sample state, never the live editor, composition, candidates, recent emoji or settings values that identify the user.
 - It uses the existing desktop renderer in a worker, one request at a time, up to 2048 px wide.
-- It returns `{"path":".../preview-N.png"}` in the keyboard's private runtime directory and does not send image data over the connection. At most 4 previews are kept; older ones are removed, and all are removed when the keyboard exits.
+- `{"op":"render","view":"keyboard","layout":...,"language":...,"theme":...}`; omitted fields take the current selection. The shell's own theme cannot be rendered, since the renderer starts from installed profiles.
+- It returns `{"path":".../preview-N.png"}` in the keyboard's private runtime directory and does not send image data over the connection. At most 4 previews are kept; older ones are overwritten, and all are removed when the keyboard exits.
 
 ## Events
 
 | Event | Fields |
 | --- | --- |
 | `ready` | `protocol`, `version`, `session` (always sent) |
-| `visibility` | `visible`, `view`, `reason`: `shell`, `user`, `anchor_lost`, `tracking`, `lease` |
+| `visibility` | `visible`, `view`, `reason`: `shell`, `user`, `anchor_lost`, `tracking`, `lease`, `stalled` |
 | `geometry` | `width`, `height`, `matrix`, `keys_uv`, `source`: `user`, `shell`, `recenter` |
-| `regions` | Accepted pointer rectangles in texture coordinates (always sent in forwarded mode) |
+| `regions` | `rects`: accepted pointer rectangles, each `u`, `v`, `width`, `height` in texture coordinates (always sent in forwarded mode) |
 | `theme` | `id`, `custom`, `source` |
 | `selection` | `layout`, `language`, `source` |
 | `settings` | `changed`, `source` |
@@ -383,7 +385,7 @@ Later, and separate from this connection. Compositor shells can then use the sta
 
 ## Implementation order
 
-Scheduled after the first public release.
+Steps 1–7 and the preview render are implemented (2026-10-27); `theme.derive` and the Wayland bridge remain.
 
 1. Launch-mode policy: hosted flag, skipped boot-unit callbacks, X and Quit behavior, hosted watchdog.
 2. Hosted launch: `--hosted FD`, descriptor checks, exit statuses, `ready`/`hello`/`state`/`subscribe`, lease and grace, exit on close, `quit-v1` with single eviction, a development test shell under `tools/` that launches the keyboard.
@@ -396,8 +398,10 @@ Scheduled after the first public release.
 
 Each step needs host tests with a fake shell: lease expiry and grace, connection close, context changes with queued output, held-key release on every exit path, a standalone keyboard that has no shell-control protocol, an older keyboard that rejects `quit-v1`, and malformed or oversize input. The update step needs offline tests for quiesce timeout, probation failure and rollback on the same descriptor. The pointer and sink steps then need headset validation against the test shell before validation with a real application.
 
-## Open questions
+## Decisions
 
-- Confirm the rule for [servers chosen by the shell](#dictation): editor context withheld, or the server stays a user-only setting.
-- Is discarding an unsent dictation draft acceptable for `update.install` with `when:"now"`, or should `now` wait for the draft too?
-- Are 30 seconds of lease grace and a 10-second `hello` deadline right for shells that restart their own UI?
+The draft's open questions were settled by the owner on 2026-10-26: a server the shell chose gets no editor context; `when:"now"` discards an unsent dictation draft; the `hello` deadline is 10 seconds and the lease grace 30 seconds.
+
+## Trying it
+
+`tools/shell-test.py` launches the installed keyboard in hosted mode, greets it, keeps the lease alive, acknowledges sink events and prints events. Type requests as JSON or as shortcuts such as `show`, `hide`, `sink on`, `context c1 text` or `pointer forwarded`. It never prints committed text unless asked to with `--print-text`.

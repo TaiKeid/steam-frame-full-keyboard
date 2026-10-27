@@ -27,6 +27,7 @@ REPOSITORY = "TaiKeid/steam-frame-full-keyboard"
 API = f"https://api.github.com/repos/{REPOSITORY}/releases"
 MAX_ARCHIVE = 64 * 1024 * 1024
 MAX_UNPACKED = 256 * 1024 * 1024
+array_int_size = 4  # SCM_RIGHTS carries C ints
 
 
 class UpdateError(Exception):
@@ -46,7 +47,7 @@ def failure_reason(error):
         code = str(error)
         if code in {"not-installed-release", "installation-changed", "wrong-platform",
                     "version-mismatch", "startup-failed", "service-handoff-failed",
-                    "install-busy", "download-timeout"}:
+                    "install-busy", "download-timeout", "incompatible"}:
             return code
         if code in {"checksum-mismatch", "inconsistent-checksum", "missing-or-duplicate-checksum"}:
             return "checksum-failed"
@@ -207,7 +208,15 @@ def extract(archive, destination, number):
     return destination / prefix
 
 
-def validate(package, number):
+def check_protocol(binary, protocol):
+    """A shell's keyboard must keep speaking the shell's protocol. Releases
+    before protocol 1 do not know the option at all."""
+    listed = subprocess.run([str(binary), "--protocols"], capture_output=True, timeout=20)
+    if listed.returncode != 0 or str(protocol) not in listed.stdout.decode(errors="ignore").split():
+        raise UpdateError("incompatible")
+
+
+def validate(package, number, protocol=None):
     for filename in ("bin/framekeyboard", "bin/framekeyboard-native-guard"):
         path = package / filename
         if not path.is_file() or not os.access(path, os.X_OK):
@@ -224,6 +233,8 @@ def validate(package, number):
     result = subprocess.run([binary, "--version"], capture_output=True, timeout=20, check=True)
     if result.stdout.strip() != f"framekeyboard {number}".encode():
         raise UpdateError("version-mismatch")
+    if protocol is not None:
+        check_protocol(binary, protocol)
     with tempfile.TemporaryDirectory(prefix=".validation-", dir=package.parent) as config:
         subprocess.run([binary, "--check", "--data-dir", str(package / "share/framekeyboard"),
                         "--config-dir", config], stdout=subprocess.DEVNULL,
@@ -302,18 +313,78 @@ def restart_arguments(arguments, package):
     return ["--data-dir", str(package / "share/framekeyboard"), *result]
 
 
-def launch(package, arguments, timeout=45):
+def hosted_arguments(arguments, control):
+    """The successor's --hosted names the descriptor it inherits."""
+    result = []
+    skip = False
+    for arg in arguments:
+        if skip:
+            skip = False
+        elif arg == "--hosted":
+            skip = True
+        else:
+            result.append(arg)
+    return [*result, "--hosted", str(control)]
+
+
+class Hosted:
+    """A shell's connection and the instance lock, carried across an update
+    (docs/integration.md, Handover). The successor reports `ready` to the
+    shell only after `commit()`."""
+
+    def __init__(self, control, lock, session):
+        self.control, self.lock, self.session = control, lock, session
+        self.ready = None
+
+    def environment(self, failure=None):
+        env = {"FRAMEKEYBOARD_INSTANCE_LOCK_FD": str(self.lock),
+               "FRAMEKEYBOARD_HOSTED_SESSION": str(self.session + 1)}
+        if failure:
+            env["FRAMEKEYBOARD_LAST_UPDATE"] = failure
+        return env
+
+    def commit(self):
+        ready, self.ready = self.ready, None
+        if ready:
+            with contextlib.suppress(OSError):
+                ready.send(b"c")
+            ready.close()
+
+    def discard(self):
+        """The successor that waited for a commit is gone; it never gets one."""
+        ready, self.ready = self.ready, None
+        if ready:
+            ready.close()
+
+    def close(self):
+        self.discard()
+        for fd in (self.control, self.lock):
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+
+def launch(package, arguments, timeout=45, hosted=None, failure=None):
     parent, child = socket.socketpair()
     process = None
+    keep = False
     try:
         env = dict(os.environ, FRAMEKEYBOARD_UPDATE_READY_FD=str(child.fileno()))
+        fds = (child.fileno(),)
+        if hosted:
+            env.update(hosted.environment(failure))
+            arguments = hosted_arguments(arguments, hosted.control)
+            fds = (child.fileno(), hosted.control, hosted.lock)
         process = subprocess.Popen([str(package / "bin/framekeyboard"),
                                     *restart_arguments(arguments, package)], env=env,
-                                   stdin=subprocess.DEVNULL, pass_fds=(child.fileno(),),
+                                   stdin=subprocess.DEVNULL, pass_fds=fds,
                                    start_new_session=True)
         child.close()
         readable, _, _ = select.select([parent], [], [], timeout)
         if readable and parent.recv(1) == b"1" and process.poll() is None:
+            if hosted:
+                # Kept open: the successor waits for the commit before `ready`.
+                hosted.ready = parent
+                keep = True
             return process
         if process.poll() is None:
             process.terminate()
@@ -329,7 +400,8 @@ def launch(package, arguments, timeout=45):
             process.wait(timeout=3)
         raise
     finally:
-        parent.close()
+        if not keep:
+            parent.close()
         child.close()
 
 
@@ -406,7 +478,7 @@ class SettingsSnapshot:
         self.backup = backup_root / name
         self.backup.mkdir(mode=0o700)
         self.saved = {}
-        for filename in ("config.json", "placement.json"):
+        for filename in ("config.json", "placement.json", "placement-hosted.json"):
             path = self.config / filename
             self.saved[filename] = path.exists()
             if self.saved[filename]:
@@ -458,7 +530,7 @@ class Installation:
             if lock:
                 lock.close()
 
-    def prepare(self, selected, progress):
+    def prepare(self, selected, progress, protocol=None):
         if platform.machine() != "aarch64":
             raise UpdateError("wrong-platform")
         self.lock = (self.root / "install.lock").open("a")
@@ -486,22 +558,24 @@ class Installation:
             raise UpdateError("checksum-mismatch")
         self.package = extract(archive, work, selected["number"])
         progress("prepare")
-        validate(self.package, selected["number"])
+        validate(self.package, selected["number"], protocol)
         # Fresh directories also permit reinstalling a version without editing a live release.
         self.target = self.root / "releases" / (selected["number"] + "-update-" + work.name[8:])
         if self.target.exists():
             raise UpdateError("release-exists")
         mark_production_release(self.root, self.package, self.target.name)
 
-    def activate(self, arguments, adopt=None):
+    def activate(self, arguments, adopt=None, hosted=None):
         with activation_signals():
             try:
-                return self.activate_transaction(arguments, adopt)
+                return self.activate_transaction(arguments, adopt, hosted)
             finally:
                 # Cleanup and unlock before replaying a default-action signal too.
                 self.close()
+                if hosted:
+                    hosted.close()
 
-    def activate_transaction(self, arguments, adopt=None):
+    def activate_transaction(self, arguments, adopt=None, hosted=None):
         switched = False
         promoted = False
         snapshot = None
@@ -513,15 +587,17 @@ class Installation:
             promoted = True
             switched = True
             replace_link(self.root, "current", str(self.target.relative_to(self.root)))
-            process = launch(self.target, arguments)
+            # A standalone update keeps launch()'s original call.
+            process = launch(self.target, arguments, **({"hosted": hosted} if hosted else {}))
             if adopt:
                 try:
                     adopt(process)
                 except BaseException:
                     stop_child(process)
                     raise
-        except BaseException:
-            self.rollback(arguments, snapshot, promoted, switched, adopt)
+        except BaseException as error:
+            self.rollback(arguments, snapshot, promoted, switched, adopt, hosted,
+                          failure_reason(error) if isinstance(error, Exception) else "startup-failed")
             raise
         # Acknowledged startup commits the new release. Optional bookkeeping can
         # no longer enter rollback or remove resources from this live process.
@@ -534,13 +610,15 @@ class Installation:
                 cleanup_errors.append(True)
         self.write_status("Update installed and startup acknowledged." +
                           (" Old update files could not all be removed.\n" if cleanup_errors else "\n"))
+        if hosted:
+            hosted.commit()
         return process
 
     def write_status(self, text):
         with contextlib.suppress(OSError):
             (self.root / "update-status.log").write_text(text)
 
-    def rollback(self, arguments, snapshot, promoted, switched, adopt=None):
+    def rollback(self, arguments, snapshot, promoted, switched, adopt=None, hosted=None, failure=None):
         errors = []
 
         def attempt(operation):
@@ -571,7 +649,12 @@ class Installation:
             # Repair failures are independent. Always attempt the known old binary
             # directly, even when current or a saved preference cannot be restored.
             try:
-                process = launch(self.old, arguments)
+                if hosted:
+                    hosted.discard()  # a successor that got this far is gone
+                process = launch(self.old, arguments,
+                                 **({"hosted": hosted, "failure": failure} if hosted else {}))
+                if hosted:
+                    hosted.commit()
                 if adopt:
                     try:
                         adopt(process)
@@ -598,16 +681,29 @@ def serve(peer, executable, current, arguments):
         peer.settimeout(1)
         while True:
             try:
-                packet, _, flags, _ = peer.recvmsg(2048)
+                packet, ancillary, flags, _ = peer.recvmsg(2048, socket.CMSG_SPACE(2 * array_int_size))
             except socket.timeout:
                 if prepared_at and time.monotonic() - prepared_at > 120:
                     return
                 continue
+            fds = []
+            for level, kind, data in ancillary:
+                if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                    fds.extend(int.from_bytes(data[i:i + array_int_size], sys.byteorder)
+                               for i in range(0, len(data) - len(data) % array_int_size, array_int_size))
             if not packet:
                 return
-            if flags & socket.MSG_TRUNC:
+            if flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC):
+                for fd in fds:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
                 raise UpdateError("oversized-command")
             command = json.loads(packet)
+            if command.get("op") != "activate-hosted":
+                for fd in fds:  # only the handover carries descriptors
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                fds = []
             operation = "check" if command.get("op") == "check" else "install"
             try:
                 if command["op"] == "check":
@@ -617,13 +713,26 @@ def serve(peer, executable, current, arguments):
                     else:
                         send("latest")
                 elif command["op"] == "install" and installation is None:
-                    tag = command["version"]
-                    version(tag)
-                    selected = release(tag)
-                    if selected["tag"] != tag or selected["parts"] <= version(current):
-                        raise UpdateError("not-newer-release")
+                    tag = command.get("version")
+                    exact = command.get("exact") is True
+                    if tag is None:
+                        selected = release()  # the newest stable release
+                        if selected["parts"] <= version(current):
+                            raise UpdateError("not-newer-release")
+                    else:
+                        version(tag)
+                        selected = release(tag)
+                        # A shell may pin any stable release but this one; the
+                        # Settings button only ever offers a newer one.
+                        if selected["tag"] != tag or (selected["parts"] == version(current) if exact
+                                                      else selected["parts"] <= version(current)):
+                            raise UpdateError("not-newer-release")
+                    protocol = command.get("protocol")
+                    if protocol is not None and type(protocol) is not int:
+                        raise UpdateError("invalid-command")
                     installation = Installation(executable)
-                    installation.prepare(selected, lambda phase: send("progress", phase=phase))
+                    installation.prepare(selected, lambda phase: send("progress", phase=phase),
+                                         **({"protocol": protocol} if protocol is not None else {}))
                     prepared_at = time.monotonic()
                     send("prepared")
                 elif command["op"] == "activate-supervised" and installation and prepared_at:
@@ -650,6 +759,22 @@ def serve(peer, executable, current, arguments):
                             send("activated")
                         else:
                             send("error", reason="service-handoff-failed")
+                    return
+                elif command["op"] == "activate-hosted" and installation and prepared_at:
+                    # The shell's connection and the instance lock arrived with
+                    # the packet; the successor starts on both.
+                    if len(fds) != 2 or type(command.get("session")) is not int:
+                        raise UpdateError("invalid-command")
+                    hosted = Hosted(fds[0], fds[1], command["session"])
+                    fds = []
+                    deadline = time.monotonic() + 15
+                    while parent_identity(parent) == identity and time.monotonic() < deadline:
+                        time.sleep(.05)
+                    if parent_identity(parent) == identity:
+                        hosted.close()
+                        return
+                    peer.close()
+                    installation.activate(arguments, hosted=hosted)
                     return
                 elif command["op"] == "activate" and installation and prepared_at:
                     # Explicit handoff is sent only after VR/input/settings cleanup. Parent

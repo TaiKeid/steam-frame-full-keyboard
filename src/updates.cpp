@@ -7,6 +7,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <iostream>
 #include <json-c/json.h>
@@ -24,6 +25,9 @@ namespace framekeyboard {
 namespace {
 int startup_fd = -1;
 double startup_started = -1, startup_last = -1;
+// Started by the helper for a hosted shell: the acknowledgement socket stays
+// open after probation until the helper's commit arrives.
+bool startup_hosted = false, startup_awaiting_commit = false;
 using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
 std::string field(json_object* object, const char* key) {
     json_object* value{};
@@ -74,7 +78,7 @@ std::vector<std::string> update_restart_arguments(const std::vector<std::string>
             value = argument == "--config-dir" || argument == "--data-dir" ||
                     argument == "--ei-socket" || argument == "--text-socket" || argument == "--input" ||
                     argument == "--target-language" || argument == "--duration" ||
-                    argument == "--render" || argument == "--render-settings";
+                    argument == "--hosted" || argument == "--render" || argument == "--render-settings";
         }
     }
     return result;
@@ -201,6 +205,7 @@ std::string Updates::failure_reason() const {
 }
 void Updates::fail(double now, const std::string& reason) {
     state_ = State::Error;
+    reason_ = reason.empty() ? "failed" : reason;
     failure_ = failure_message(reason);
     std::cerr << failure_ << '\n';
     reset_at_ = now + 5;
@@ -215,6 +220,51 @@ void Updates::click(double now) {
     }
     state_ = offer_.empty() ? State::Checking : State::Installing;
     progress_.clear();
+}
+bool Updates::check(double now) {
+    if (busy()) {
+        return false;
+    }
+    offer_.clear();
+    if (!start() || !send("check")) {
+        fail(now, "helper-unavailable");
+        return false;
+    }
+    state_ = State::Checking;
+    return true;
+}
+bool Updates::install(double now, const std::string& version, int protocol) {
+    if (busy()) {
+        return false;
+    }
+    Json packet(json_object_new_object(), json_object_put);
+    json_object_object_add(packet.get(), "op", json_object_new_string("install"));
+    if (!version.empty()) {
+        // An exact pin may name any stable release but the running one.
+        json_object_object_add(packet.get(), "version", json_object_new_string(version.c_str()));
+        json_object_object_add(packet.get(), "exact", json_object_new_boolean(true));
+    }
+    json_object_object_add(packet.get(), "protocol", json_object_new_int(protocol));
+    const std::string data = json_object_to_json_string_ext(packet.get(), JSON_C_TO_STRING_PLAIN);
+    if (!start() || ::send(fd_, data.data(), data.size(), MSG_DONTWAIT | MSG_NOSIGNAL) !=
+                        static_cast<ssize_t>(data.size())) {
+        fail(now, "helper-unavailable");
+        return false;
+    }
+    state_ = State::Installing;
+    progress_.clear();
+    reason_.clear();
+    return true;
+}
+bool Updates::cancel(double now) {
+    (void)now;
+    if (state_ != State::Installing && state_ != State::Prepared) {
+        return false;
+    }
+    stop();
+    state_ = offer_.empty() ? State::Idle : State::Available;
+    progress_.clear();
+    return true;
 }
 bool Updates::tick(double now) {
     const auto before = label();
@@ -266,6 +316,33 @@ bool Updates::tick(double now) {
     }
     return before != label() || before_reason != failure_reason();
 }
+bool Updates::handoff(int control, int lock, std::uint64_t session) {
+    if (!prepared() || fd_ < 0) {
+        return false;
+    }
+    Json packet(json_object_new_object(), json_object_put);
+    json_object_object_add(packet.get(), "op", json_object_new_string("activate-hosted"));
+    json_object_object_add(packet.get(), "session",
+                           json_object_new_int64(static_cast<int64_t>(session)));
+    const std::string data = json_object_to_json_string_ext(packet.get(), JSON_C_TO_STRING_PLAIN);
+    // Both descriptors travel with the packet, so the helper holds them
+    // before this process exits and nothing can take the lock in the gap.
+    int descriptors[2]{control, lock};
+    alignas(cmsghdr) char control_buffer[CMSG_SPACE(sizeof(descriptors))]{};
+    iovec vector{const_cast<char*>(data.data()), data.size()};
+    msghdr message{};
+    message.msg_iov = &vector;
+    message.msg_iovlen = 1;
+    message.msg_control = control_buffer;
+    message.msg_controllen = sizeof(control_buffer);
+    auto* header = CMSG_FIRSTHDR(&message);
+    header->cmsg_level = SOL_SOCKET;
+    header->cmsg_type = SCM_RIGHTS;
+    header->cmsg_len = CMSG_LEN(sizeof(descriptors));
+    std::memcpy(CMSG_DATA(header), descriptors, sizeof(descriptors));
+    handed_off_ = sendmsg(fd_, &message, MSG_NOSIGNAL) == static_cast<ssize_t>(data.size());
+    return handed_off_;
+}
 bool Updates::handoff() {
     const bool supervised = std::getenv("FRAMEKEYBOARD_SERVICE") && std::getenv("NOTIFY_SOCKET");
     handed_off_ = prepared() && send(supervised ? "activate-supervised" : "activate");
@@ -297,6 +374,7 @@ bool Updates::handoff() {
 }
 UpdateStartup::UpdateStartup() {
     if (const char* value = std::getenv("FRAMEKEYBOARD_UPDATE_READY_FD")) {
+        // Read before main() consumes the hosted handover variables.
         const std::string text(value);
         unsetenv("FRAMEKEYBOARD_UPDATE_READY_FD");
         int fd{};
@@ -310,6 +388,7 @@ UpdateStartup::UpdateStartup() {
             fcntl(fd, F_SETFD, FD_CLOEXEC);
             const auto service = std::getenv("FRAMEKEYBOARD_SERVICE");
             background_ = service && *service;
+            startup_hosted = std::getenv("FRAMEKEYBOARD_HOSTED_SESSION") != nullptr;
         }
     }
 }
@@ -320,7 +399,7 @@ UpdateStartup::~UpdateStartup() {
     }
 }
 void update_startup_ready(double now) {
-    if (startup_fd >= 0) {
+    if (startup_fd >= 0 && !startup_awaiting_commit) {
         // Hidden residents complete a loop every 250 ms. A long stall restarts
         // probation; elapsed time alone must not acknowledge a blocked main loop.
         if (!std::isfinite(now)) {
@@ -336,8 +415,30 @@ void update_startup_ready(double now) {
         }
         const auto ignored = ::send(startup_fd, "1", 1, MSG_NOSIGNAL);
         (void)ignored;
+        if (startup_hosted) {
+            startup_awaiting_commit = true;
+            return;
+        }
         close(startup_fd);
         startup_fd = -1;
     }
+}
+bool update_committed() {
+    if (!startup_hosted) {
+        return true;
+    }
+    if (!startup_awaiting_commit) {
+        return startup_fd < 0;
+    }
+    char answer = 0;
+    const auto count = recv(startup_fd, &answer, 1, MSG_DONTWAIT);
+    if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+        return false;
+    }
+    // A commit, or a helper that is gone without one: nothing more will come.
+    close(startup_fd);
+    startup_fd = -1;
+    startup_awaiting_commit = startup_hosted = false;
+    return true;
 }
 } // namespace framekeyboard

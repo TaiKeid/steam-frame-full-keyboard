@@ -5,6 +5,8 @@
 namespace framekeyboard {
 // Row-major rigid transform. Its columns are right, up, toward viewer, position.
 using Transform = std::array<std::array<double, 4>, 3>;
+// `a` then `b`: a pose `b` given relative to the pose `a`.
+Transform compose(const Transform& a, const Transform& b);
 // Normalize Steam's scaled overlay pose into a rigid anchor, retaining its full rotation.
 std::optional<Transform> dashboard_anchor(const Transform& scaled_bottom);
 Transform move_with_dashboard(const Transform& panel, const Transform& previous,

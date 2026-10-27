@@ -68,7 +68,16 @@ class VrLifecycle {
     bool should_sample_tracking(bool dashboard_visible, double now) const;
     void tracking_sampled(bool valid, double now);
     bool waiting_for_tracking() const { return tracking_.waiting(); }
-    bool panel_requested() const { return presentation_.show(); }
+    bool panel_requested() const { return requested(); }
+    // Hosted mode (docs/integration.md, Presentation): only the shell shows
+    // the panel, and replacement never runs.
+    void set_hosted(bool hosted) { hosted_ = hosted; }
+    void set_shell_visible(bool visible) {
+        if (visible && !shell_visible_) {
+            show_pending_ = true;
+        }
+        shell_visible_ = visible;
+    }
     bool held_without_field() const { return presentation_.held_without_field(); }
     bool visible() const { return visible_; }
     // Call after placement work; only successful runtime presentation consumes a pending show.
@@ -85,7 +94,10 @@ class VrLifecycle {
     ReplacementPresentation presentation_;
     TrackingReadiness tracking_;
     NativeReplacement::State native_;
+    bool requested() const { return hosted_ ? shell_visible_ : presentation_.show(); }
+    bool interactive() const { return hosted_ ? shell_visible_ : presentation_.interactive(); }
     std::uint64_t last_request_{};
     bool visible_{}, show_pending_{};
+    bool hosted_{}, shell_visible_{};
 };
 } // namespace framekeyboard

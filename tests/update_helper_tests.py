@@ -25,6 +25,11 @@ u = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(u)
 
 
+def stat_is_socket(mode):
+    import stat
+    return stat.S_ISSOCK(mode)
+
+
 def metadata(tag="9.0.0"):
     name = f"framekeyboard-{tag}-aarch64.tar.gz"
     return dict(tag_name=tag, draft=False, prerelease=False, assets=[
@@ -459,6 +464,100 @@ class Transaction(unittest.TestCase):
         self.assertEqual(os.readlink(self.root / "previous"), "releases/older")
 
 
+class HostedTransaction(Transaction):
+    """A shell's keyboard (docs/integration.md, Handover): the successor and
+    any rollback start on the same control descriptor and instance lock."""
+
+    def test_successor_and_rollback_share_the_descriptors(self):
+        self.prepare()
+        control, shell = socket.socketpair()
+        lock = os.open(self.root / "lock", os.O_CREAT | os.O_RDWR)
+        hosted = u.Hosted(os.dup(control.fileno()), lock, 4)
+        control.close()
+        with patch.object(u, "launch", side_effect=[u.UpdateError("startup-failed"), None]) as launch:
+            with self.assertRaises(u.UpdateError):
+                self.installation.activate(["--vr", "--hosted", "9"], hosted=hosted)
+        first, second = launch.call_args_list
+        self.assertEqual(first.args[0], self.installation.target)
+        self.assertIs(first.kwargs["hosted"], hosted)
+        self.assertEqual(second.args[0], self.old)
+        self.assertIs(second.kwargs["hosted"], hosted, "the rollback starts on the same descriptors")
+        self.assertEqual(second.kwargs["failure"], "startup-failed", "and is told why")
+        with self.assertRaises(OSError):
+            os.fstat(hosted.control)  # the helper's copies are closed afterwards
+        shell.close()
+
+    def test_snapshot_covers_hosted_placement(self):
+        prefs = Path(self.directory.name) / "prefs"
+        prefs.mkdir()
+        for name in ("config.json", "placement.json", "placement-hosted.json"):
+            (prefs / name).write_text(name)
+        snapshot = u.SettingsSnapshot(self.root, "snap", ["--config-dir", str(prefs)])
+        (prefs / "placement-hosted.json").write_text("moved by the new release")
+        snapshot.restore()
+        self.assertEqual((prefs / "placement-hosted.json").read_text(), "placement-hosted.json")
+
+
+class HostedLaunch(unittest.TestCase):
+    def test_successor_inherits_descriptors_and_waits_for_the_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "bin").mkdir()
+            report = package / "report.json"
+            binary = package / "bin/framekeyboard"
+            binary.write_text(f"""#!/usr/bin/env python3
+import json, os, socket, sys
+ready = socket.socket(fileno=int(os.environ.pop("FRAMEKEYBOARD_UPDATE_READY_FD")))
+control = int(sys.argv[sys.argv.index("--hosted") + 1])
+info = dict(argv=sys.argv[1:], lock=os.environ.get("FRAMEKEYBOARD_INSTANCE_LOCK_FD"),
+            session=os.environ.get("FRAMEKEYBOARD_HOSTED_SESSION"),
+            failure=os.environ.get("FRAMEKEYBOARD_LAST_UPDATE"))
+ready.send(b"1")
+info["commit"] = ready.recv(1).decode()
+os.write(control, b"ready\\n")
+open({str(report)!r}, "w").write(json.dumps(info))
+""")
+            binary.chmod(0o755)
+            control, shell = socket.socketpair()
+            lock = os.open(package / "lock", os.O_CREAT | os.O_RDWR)
+            hosted = u.Hosted(control.fileno(), lock, 4)
+            process = u.launch(package, ["--vr", "--hosted", "9", "--input", "ei"], timeout=5, hosted=hosted)
+            self.assertIsNotNone(hosted.ready, "the successor waits for the helper's commit")
+            hosted.commit()
+            self.assertEqual(process.wait(timeout=5), 0)
+            info = json.loads(report.read_text())
+            self.assertEqual(info["commit"], "c")
+            self.assertEqual(info["argv"][-2:], ["--hosted", str(control.fileno())])
+            self.assertEqual(info["lock"], str(lock))
+            self.assertEqual(info["session"], "5", "the successor is the next session")
+            self.assertIsNone(info["failure"])
+            shell.settimeout(2)
+            self.assertEqual(shell.recv(16), b"ready\n", "it speaks on the shell's own connection")
+            os.close(lock)
+            control.close()
+            shell.close()
+
+    def test_rollback_reports_the_failure(self):
+        hosted = u.Hosted(5, 6, 2)
+        env = hosted.environment("startup-failed")
+        self.assertEqual(env["FRAMEKEYBOARD_LAST_UPDATE"], "startup-failed")
+        self.assertEqual(env["FRAMEKEYBOARD_HOSTED_SESSION"], "3")
+        self.assertEqual(u.hosted_arguments(["--vr", "--hosted", "3", "--input", "none"], 7),
+                         ["--vr", "--input", "none", "--hosted", "7"])
+
+    def test_packages_without_the_protocol_are_incompatible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "framekeyboard"
+            for listed, compatible in (("echo 1", True), ("echo 2", False), ("exit 2", False)):
+                binary.write_text(f"#!/bin/sh\n[ \"$1\" = --protocols ] && {listed}\n")
+                binary.chmod(0o755)
+                if compatible:
+                    u.check_protocol(binary, 1)
+                else:
+                    with self.assertRaisesRegex(u.UpdateError, "incompatible"):
+                        u.check_protocol(binary, 1)
+
+
 class Startup(unittest.TestCase):
     def test_restarted_app_inherits_both_log_destinations(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -547,6 +646,48 @@ class Protocol(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
         self.assertEqual(calls, ["activate"])
+
+    def test_hosted_pin_and_handover_receive_the_descriptors(self):
+        client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        # A shell may pin an older stable release; the protocol travels along.
+        selected = {"tag": "0.5.0", "parts": (0, 5, 0)}
+        received, errors = [], []
+        class FakeInstallation:
+            def __init__(self, executable): pass
+            def prepare(self, release, progress, protocol=None):
+                received.append(("protocol", protocol))
+            def close(self): pass
+            def activate(self, arguments, adopt=None, hosted=None):
+                received.append(("hosted", hosted.session, os.fstat(hosted.control).st_mode, hosted.lock))
+                hosted.close()
+        def run():
+            try:
+                u.serve(server, "/unused", "0.6.0", ["--vr", "--hosted", "3"])
+            except BaseException as error:
+                errors.append(error)
+        identities = iter(["old", "gone", "gone", "gone"])
+        control, shell = socket.socketpair()
+        lock = os.open(os.devnull, os.O_RDONLY)
+        with patch.object(u, "release", return_value=selected), patch.object(u, "Installation", FakeInstallation), \
+             patch.object(u, "parent_identity", side_effect=lambda pid: next(identities, "gone")):
+            thread = threading.Thread(target=run)
+            thread.start()
+            client.settimeout(2)
+            try:
+                client.send(b'{"op":"install","version":"0.5.0","exact":true,"protocol":1}')
+                self.assertEqual(json.loads(client.recv(2048))["state"], "prepared")
+                socket.send_fds(client, [b'{"op":"activate-hosted","session":4}'], [control.fileno(), lock])
+            finally:
+                thread.join(timeout=5)
+                client.close()
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(received[0], ("protocol", 1))
+        self.assertEqual(received[1][0:2], ("hosted", 4))
+        self.assertTrue(stat_is_socket(received[1][2]), "the control socket arrived as a descriptor")
+        os.close(lock)
+        control.close()
+        shell.close()
 
     def test_failure_reasons_are_fixed_and_logged_before_restart(self):
         private = "https://private.example/secret"

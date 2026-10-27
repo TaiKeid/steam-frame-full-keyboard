@@ -683,6 +683,8 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             if (auto* fallback = field(document.get(), "dictation_fallback", json_type_boolean, true)) {
                 settings.dictation_fallback = json_object_get_boolean(fallback);
             }
+            settings.dictation_server_by_shell =
+                text(document.get(), "dictation_server_source", "user", true) == "shell";
             if (!settings.dictation_server.empty() &&
                 !valid_dictation_server(settings.dictation_server)) {
                 throw std::runtime_error("dictation_server must be host or host:port");
@@ -854,6 +856,12 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_string(settings->dictation.c_str()));
         json_object_object_add(document.get(), "dictation_server",
                                json_object_new_string(settings->dictation_server.c_str()));
+        if (settings->dictation_server_by_shell) {
+            json_object_object_add(document.get(), "dictation_server_source",
+                                   json_object_new_string("shell"));
+        } else {
+            json_object_object_del(document.get(), "dictation_server_source");
+        }
         auto* recent = json_object_new_array();
         for (const auto& server : settings->dictation_recent_servers) {
             json_object_array_add(recent, json_object_new_string(server.c_str()));
@@ -891,6 +899,36 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
     }
 }
 } // namespace
+std::string compatible_layout(const Profiles& profiles, const Selection& selection) {
+    try {
+        validate_selection(profiles, selection);
+        return selection.layout;
+    } catch (const std::exception&) {
+        // Prefer the smallest complete geometry, not alphabetical catalog order.
+        const Layout* best = nullptr;
+        for (const auto& [id, layout] : profiles.layouts) {
+            try {
+                validate_selection(profiles, {id, selection.language, selection.theme});
+                if (!best || layout.keys.size() < best->keys.size()) {
+                    best = &layout;
+                }
+            } catch (const std::exception&) {
+            }
+        }
+        if (best) {
+            return best->id;
+        }
+    }
+    return selection.layout; // Apply reports the validation error if none fit.
+}
+bool fits(const Profiles& profiles, const Selection& selection) {
+    try {
+        validate_selection_profiles(profiles, selection);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
 void save_selection(const fs::path& user_dir, const Selection& selection) {
     write_settings(user_dir, selection, nullptr);
 }

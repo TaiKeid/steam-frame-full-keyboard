@@ -18,6 +18,7 @@ bool App::updating() const {
     return updates_ && updates_->prepared();
 }
 volatile std::sig_atomic_t interrupted = 0;
+int hosted_handover_fd = -1;
 double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
@@ -31,36 +32,6 @@ std::unique_ptr<CjkComposer> prepare_cjk(const Language& language) {
         return std::make_unique<CjkComposer>(language.input_method);
     }
     return {};
-}
-std::string compatible_layout(const Profiles& profiles, const Selection& selection) {
-    try {
-        validate_selection(profiles, selection);
-        return selection.layout;
-    } catch (const std::exception&) {
-        // Prefer the smallest complete geometry, not alphabetical catalog order.
-        const Layout* best = nullptr;
-        for (const auto& [id, layout] : profiles.layouts) {
-            try {
-                validate_selection(profiles, {id, selection.language, selection.theme});
-                if (!best || layout.keys.size() < best->keys.size()) {
-                    best = &layout;
-                }
-            } catch (const std::exception&) {
-            }
-        }
-        if (best) {
-            return best->id;
-        }
-    }
-    return selection.layout; // Apply reports the validation error if none fit.
-}
-bool fits(const Profiles& profiles, const Selection& selection) {
-    try {
-        validate_selection_profiles(profiles, selection);
-        return true;
-    } catch (const std::exception&) {
-        return false;
-    }
 }
 // The language a newly chosen layout most likely serves: the current one if it
 // fits, then a favorite pair, a variant of the same language (ja-flick ->
@@ -238,11 +209,11 @@ std::vector<Control> App::controls() const {
     geometry.layout = &profiles_.layouts.at(settings_.active.layout);
     geometry.theme = &shown_theme();
     geometry.language = &profiles_.languages.at(settings_.active.language);
-    geometry.hide_numpad = settings_.hide_numpad;
+    geometry.hide_numpad = numpad_hidden();
     geometry.settings = settings_open_;
     const auto body = panel_case_bounds(geometry);
     auto append_move_handle = [&] {
-        if (!settings_.pinned && !settings_.use_drag_to_move) {
+        if (!settings_.pinned && !settings_.use_drag_to_move && !locked_move() && !forwarded()) {
             add({ControlKind::MoveHandle}, {"move-handle",
                                             "Move keyboard",
                                             {body.x + body.width / 2 - 220, panel_height + 12, 440, 60},
@@ -337,20 +308,27 @@ std::vector<Control> App::controls() const {
         const auto [left, top] = slot(row_one, compact_column, compact_row);
         return Rect{left, top, width, 42};
     };
-    add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
-    // Opening Settings pauses dictation; it waits only while Send runs. The
-    // language button waits while dictation listens and until every phrase
+    // A shell may hide chrome; the Settings view stays reachable through it.
+    if (host_.chrome.settings) {
+        add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
+        // Opening Settings pauses dictation; it waits only while Send runs.
+        result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
+    }
+    // The language button waits while dictation listens and until every phrase
     // is recognized and typed: their joining and context follow the language.
     const bool listening = capturing_ || send_wait_since_ || phrases_pending() ||
                            !direct_waiting_.empty() || direct_paste_.has_value();
-    result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
     add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
     add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
                              button(2, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
-    add({ControlKind::Passthrough},
-        {"passthrough", passthrough() ? "Close with the dashboard" : "Stay open over apps",
-         button(3, 0, 1), passthrough(), passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
-    if (!settings_.favorites.empty()) {
+    // Under a shell the shell decides when the panel shows.
+    if (!hosted()) {
+        add({ControlKind::Passthrough},
+            {"passthrough", passthrough() ? "Close with the dashboard" : "Stay open over apps",
+             button(3, 0, 1), passthrough(),
+             passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
+    }
+    if (!settings_.favorites.empty() && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
              button(4, 3, 0, 100)});
@@ -364,11 +342,18 @@ std::vector<Control> App::controls() const {
             toolbar_end = std::max(toolbar_end, control.bounds.x + control.bounds.width);
         }
     }
-    add({ControlKind::Close}, {"close",
-                               resident_replacement() ? "Hide keyboard" : "Close",
-                               {body.x + body.width - 78, 12, 60, 42},
-                               false,
-                               Icon::Close});
+    if (host_.chrome.close) {
+        add({ControlKind::Close}, {"close",
+                                   resident_replacement() ? "Hide keyboard" : "Close",
+                                   {body.x + body.width - 78, 12, 60, 42},
+                                   false,
+                                   Icon::Close});
+    }
+    if (sink_on()) {
+        // While a shell receives the typing, the user can take it back here.
+        add({ControlKind::SinkOff},
+            {"sink-off", "Stop shell typing", {body.x + body.width - 288, 12, 200, 42}});
+    }
     if (dictation_open_ && confirm_discard_ && !settings_open_) {
         // The answers sit at the right of the band the question shows in.
         const auto editor = panel_rect(geometry, dictation_layout_.editor);
@@ -621,7 +606,7 @@ void App::update_settings_ui() {
     favorites.note =
         pending_favorites_.empty() ? "None saved" : std::to_string(pending_favorites_.size()) + " saved";
     favorites.enabled = !pending_favorites_.empty();
-    settings_ui_.set_cards(
+    std::vector<SettingsCard> cards{
         {{"languages",
           "Languages and Layouts",
           {field(ControlKind::ChooseLayout,
@@ -653,14 +638,20 @@ void App::update_settings_ui() {
            field(ControlKind::StartWithSteamos,
                  checkbox("start-with-steamos", "Start with SteamOS",
                           pending_start_with_steamos_ && pending_replace_native_keyboard_,
-                          pending_replace_native_keyboard_))}}});
+                          pending_replace_native_keyboard_))}}}};
+    if (hosted()) {
+        // Replacement and boot start belong to the SteamOS dashboard; under a
+        // shell they are unavailable, and their saved values stay as they are.
+        cards.pop_back();
+    }
+    settings_ui_.set_cards(std::move(cards));
 }
 PanelView App::geometry() const {
     PanelView v;
     v.layout = &profiles_.layouts.at(settings_.active.layout);
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
-    v.hide_numpad = settings_.hide_numpad;
+    v.hide_numpad = numpad_hidden();
     v.settings = settings_open_;
     v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
     if (emoji_open_) {
@@ -686,14 +677,27 @@ PanelView App::build_view(bool picker) const {
     v.language = &profiles_.languages.at(settings_.active.language);
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
-    v.hide_numpad = settings_.hide_numpad;
+    v.hide_numpad = numpad_hidden();
     v.controls = controls();
     if (settings_open_) {
         settings_ui_.append(v);
     }
     v.status = !status_.empty()            ? status_
                : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
-                                           : startup_status_;
+               : sink_on() ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
+                                                                         : host_.sink_client)
+                           : startup_status_;
+    // The context's Enter hint is a legend only; the key still sends Enter.
+    if (host_.context && host_.hints.enter != "enter") {
+        static const std::map<std::string, std::string> legends{
+            {"go", "Go"}, {"search", "Search"}, {"send", "Send"}, {"next", "Next"}, {"done", "Done"}};
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::Key &&
+                (key.action == "Enter" || key.action == "NumpadEnter")) {
+                v.key_labels[key.id] = legends.at(host_.hints.enter);
+            }
+        }
+    }
     if (settings_open_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
@@ -710,7 +714,7 @@ PanelView App::build_view(bool picker) const {
     if (v.status.empty() && !typing_ready_ && !image_export) {
         // External JIS sends physical keys to a system IME, which a replaced
         // Steam keyboard request cannot receive.
-        v.status = options_.input == InputBackend::None ? "Preview only: this launch cannot type."
+        v.status = preview_input() ? "Preview only: this launch cannot type."
                    : native_session_ && external_jis()
                        ? "External JIS cannot type into this request. Choose another language."
                        : "Typing disabled: choose a profile matching the target keymap used at launch.";
@@ -781,8 +785,7 @@ PanelView App::build_view(bool picker) const {
                    : resident_replacement()
                        ? "Keyboard connection lost. Use Settings > Quit Full Keyboard, then relaunch."
                        : "Keyboard connection lost. Reopen the app to reconnect.";
-    } else if ((unicode_mode() || japanese() || cjk_) && options_.input != InputBackend::None &&
-               !text_ready_) {
+    } else if ((unicode_mode() || japanese() || cjk_) && !preview_input() && !text_ready_) {
         v.status = "Text delivery unavailable. Waiting for the compositor connection to recover.";
     }
     if (swipe_track_ && swipe_track_->swiping) {
@@ -1057,6 +1060,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (dictation_open_) {
             return dictation_down(pointer, *key, x, y, now);
         }
+        if (sink_on() && !host_.context) {
+            return false; // the sink types only into a field the shell named
+        }
         if (direct_active() && key->action_kind == ActionKind::Key && key->action == "Escape") {
             // Esc stops Type as I speak, dropping what is not yet typed, and
             // is not sent.
@@ -1209,7 +1215,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                     status_.clear();
                 } else if (sends_text) {
                     const auto text = keymap_->compose(symbol);
-                    if (options_.input == InputBackend::None) {
+                    if (preview_input()) {
                         status_.clear();
                     } else {
                         text_output_->text_press(pointer, text, now);
@@ -1393,7 +1399,9 @@ bool App::tick(double now) {
             });
             dirty = true;
         }
-        if (updates_->prepared()) {
+        // A hosted update waits for idleness and the shell's handover
+        // (docs/integration.md, Idle); the VR loop activates it.
+        if (updates_->prepared() && !hosted()) {
             end_dictation_for_update();
             set_interaction_active(false);
             quit_ = true;
@@ -1444,6 +1452,7 @@ bool App::tick(double now) {
     dirty |= tick_send(now);
     forget_failed_swipe();
     update_output_status();
+    host_tick(now);
     return dirty || renderer.animating();
 }
 bool App::paint(double now) {
@@ -1564,6 +1573,10 @@ void App::save() {
     try {
         auto saved = settings_;
         saved.active = persisted_active_;
+        if (saved.active.theme == shell_theme_id) {
+            saved.active.theme =
+                profiles_.themes.contains(host_.theme_before) ? host_.theme_before : "graphite";
+        }
         settings_writer_.enqueue(std::move(saved));
     } catch (const std::exception& error) {
         status_ = "Applied, but not saved: " + std::string(error.what());
@@ -1571,6 +1584,15 @@ void App::save() {
 }
 void App::update_save_status() {
     if (const auto result = settings_writer_.take_result()) {
+        if (!result->reconcile && host_.unsaved_request >= 0) {
+            // Nothing newer is pending, so this covers every protocol write so far.
+            auto fields = json_ptr(json_object_new_object());
+            json_object_object_add(fields.get(), "through",
+                                   json_object_new_int64(host_.unsaved_request));
+            json_object_object_add(fields.get(), "ok", json_object_new_boolean(result->error.empty()));
+            host_event("saved", std::move(fields));
+            host_.unsaved_request = -1;
+        }
         if (!result->startup_warning.empty()) {
             save_status_ = status_ = result->startup_warning;
             save_status_is_startup_ = true;
@@ -1658,6 +1680,10 @@ void App::reload() {
     update_save_status();
     allow_slow_work();
     auto candidate = load_profiles(options_.data_dir, options_.config_dir, &profiles_);
+    if (host_.theme) {
+        candidate.themes[shell_theme_id] = *host_.theme; // the shell's theme outlives Reload
+    }
+    const auto before = settings_;
     validate_selection_profiles(candidate, settings_.active);
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
@@ -1685,6 +1711,7 @@ void App::reload() {
         settings_.dictation_direct = updated_settings.dictation_direct;
         settings_.dictation = updated_settings.dictation;
         settings_.dictation_server = updated_settings.dictation_server;
+        settings_.dictation_server_by_shell = updated_settings.dictation_server_by_shell;
         settings_.dictation_fallback = updated_settings.dictation_fallback;
         settings_.dictation_device_model = updated_settings.dictation_device_model;
         settings_.developer_options = updated_settings.developer_options;
@@ -1714,6 +1741,7 @@ void App::reload() {
     update_settings_ui();
     settings_ui_.reset();
     refresh_typing();
+    host_settings_changed(before, "reload");
     status_ = profiles_.errors.empty() ? save_status_ : profiles_.errors.front();
 }
 bool App::japanese() const {
@@ -1741,11 +1769,15 @@ void App::refresh_typing() {
                           (japanese() || cjk_ || options_.target_language == settings_.active.language);
     // Hidden panels and native handoffs deliberately pause interaction. That is
     // separate from an unavailable typing backend and must not show a warning.
+    // With the shell's sink on, typing goes to the sink alone and needs a
+    // context to address (docs/integration.md, Typing context).
     const bool typing_ready =
-        options_.start_enabled && options_.mode == Mode::Vr &&
-        (options_.input == InputBackend::Ei || options_.input == InputBackend::Uinput) &&
-        (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
-        backend_ready_ && !(native_session_ && external_jis());
+        sink_on()
+            ? options_.mode == Mode::Vr && host_.context.has_value() && text_ready_ && backend_ready_
+            : options_.start_enabled && options_.mode == Mode::Vr &&
+                  (options_.input == InputBackend::Ei || options_.input == InputBackend::Uinput) &&
+                  (unicode_mode() ? text_ready_ : matching && (!(japanese() || cjk_) || text_ready_)) &&
+                  backend_ready_ && !(native_session_ && external_jis());
     dirty |= typing_ready_ != typing_ready;
     typing_ready_ = typing_ready;
     if (output_.enabled() && !(interaction_active_ && typing_ready_ && !field_needed_)) {
@@ -1768,7 +1800,7 @@ void App::commit_japanese() {
     if (text.empty()) {
         return;
     }
-    if (options_.input == InputBackend::None && !dictation_open_) {
+    if (preview_input() && !dictation_open_) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
     } else if (text_output_->commit_text(text)) {
@@ -2005,8 +2037,7 @@ void App::commit_cjk() {
     }
     const auto text = cjk_->text();
     // In dictation mode the editor takes the text, even in a preview.
-    if (!text.empty() && ((options_.input == InputBackend::None && !dictation_open_) ||
-                          text_output_->commit_text(text))) {
+    if (!text.empty() && ((preview_input() && !dictation_open_) || text_output_->commit_text(text))) {
         cjk_->cancel();
         status_.clear();
     } else {
@@ -2099,6 +2130,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     return false;
 }
 void App::apply_settings() {
+    const auto before = settings_;
     // Prepare/activate first. A failed candidate must leave all saved state intact.
     activate(pending_);
     settings_.favorites = pending_favorites_;
@@ -2113,6 +2145,9 @@ void App::apply_settings() {
     settings_.dictation_send_paste = pending_dictation_send_paste_;
     settings_.dictation_direct = pending_dictation_direct_;
     settings_.dictation = pending_dictation_;
+    if (settings_.dictation_server != pending_dictation_server_) {
+        settings_.dictation_server_by_shell = false; // the user chose it in the card
+    }
     settings_.dictation_server = pending_dictation_server_;
     settings_.dictation_fallback = pending_dictation_fallback_;
     settings_.dictation_device_model = pending_dictation_device_model_;
@@ -2125,6 +2160,7 @@ void App::apply_settings() {
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
+    host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
     const auto kind = command.kind;
@@ -2189,7 +2225,9 @@ void App::action(const ControlAction& command) {
         return;
     }
     if (kind == ControlKind::Updates && settings_open_) {
-        if (updates_) {
+        if (hosted()) {
+            // The shell updates the keyboard with itself; the button shows status.
+        } else if (updates_) {
             updates_->click(monotonic_seconds());
         } else {
             report_status("Updates are available from the installed keyboard.");
@@ -2208,9 +2246,13 @@ void App::action(const ControlAction& command) {
         quit_ = true;
     } else if (kind == ControlKind::Pin) {
         cancel();
+        const auto before = settings_;
         settings_.pinned = !settings_.pinned;
         status_.clear();
         save();
+        host_settings_changed(before, "user");
+    } else if (kind == ControlKind::SinkOff) {
+        set_sink(false); // the user takes typing back from the shell
     } else if (kind == ControlKind::Passthrough) {
         set_passthrough(!passthrough());
     } else if (kind == ControlKind::LanguageCycle) {
@@ -2683,7 +2725,7 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         }
     } else {
         const auto text = keymap_->compose(track.symbol);
-        if (!text.empty() && options_.input != InputBackend::None && !text_output_->commit_text(text)) {
+        if (!text.empty() && !preview_input() && !text_output_->commit_text(text)) {
             status_ = "Text was not sent. Release other keys and check the target/input connection.";
         }
         swipe_space_ = false;
@@ -2757,6 +2799,8 @@ void App::apply_swipe(const SwipeService::Result& result) {
             char first[8]{};
             g_unichar_to_utf8(g_unichar_toupper(g_utf8_get_char(word.c_str())), first);
             cased = first + std::string(g_utf8_next_char(word.c_str()));
+        } else {
+            cased = hint_case(cased);
         }
         // Case variants of one word (help/Help) are a single choice; keep the better one.
         auto* folded = g_utf8_casefold(cased.c_str(), -1);
@@ -2773,9 +2817,8 @@ void App::apply_swipe(const SwipeService::Result& result) {
         }
     }
     swipe_selected_ = 0;
-    const auto text = (swipe_space_ ? " " : "") + swipe_candidates_.front();
-    if (options_.input != InputBackend::None &&
-        !(output_.admit(true) && text_output_->commit_text(text))) {
+    const auto text = (swipe_space_ && !hint_no_autospace() ? " " : "") + swipe_candidates_.front();
+    if (!preview_input() && !(output_.admit(true) && text_output_->commit_text(text))) {
         status_ = "Text was not sent. Release other keys and check the target/input connection.";
         swipe_candidates_.clear();
         return;
@@ -2784,6 +2827,9 @@ void App::apply_swipe(const SwipeService::Result& result) {
     swipe_committed_ = swipe_candidates_.front();
     swipe_failures_ = output_.failures();
     swipe_space_ = true;
+    if (hint_no_suggestions()) {
+        swipe_candidates_.clear(); // a terminal or password field gets no alternatives
+    }
 }
 void App::forget_failed_swipe() {
     // The alternatives replace the word this keyboard believes it typed. Once
@@ -2799,14 +2845,14 @@ void App::forget_failed_swipe() {
 void App::choose_swipe(int index) {
     // Settle earlier deliveries before trusting the typed word: admission can
     // discover that one failed, and it then clears the failure for new input.
-    const bool admitted = options_.input == InputBackend::None || output_.admit(true);
+    const bool admitted = preview_input() || output_.admit(true);
     forget_failed_swipe();
     if (index < 0 || index >= static_cast<int>(swipe_candidates_.size()) || index == swipe_selected_) {
         return;
     }
     // A copy: refusing below clears the alternatives.
     const std::string word = swipe_candidates_[static_cast<std::size_t>(index)];
-    if (options_.input != InputBackend::None) {
+    if (!preview_input()) {
         if (!admitted) {
             update_output_status(); // Busy or full; the alternatives stay valid.
             return;
@@ -2888,6 +2934,7 @@ void App::close_panel() {
         address_.reset();
         confirm_ = Confirm::None;
         dismiss_requested_ = true;
+        host_.user_hide = hosted(); // the shell decides whether it shows again
     } else {
         quit_ = true;
     }
@@ -2986,12 +3033,12 @@ double App::editor_line_height() const {
     return v.dictation ? editor_caret(v, 0).height : 25;
 }
 bool App::emoji_available() const {
-    if (!emoji_font_) {
-        return false; // No color emoji font: nothing would draw.
+    if (!emoji_font_ || hint_private()) {
+        return false; // No color emoji font: nothing would draw; or a password.
     }
     // Previews show the picker without typing; the uinput backend and
     // external JIS send only physical keys, which cannot carry an emoji.
-    return options_.input == InputBackend::None || (unicode_mode() && text_ready_ && backend_ready_);
+    return preview_input() || (unicode_mode() && text_ready_ && backend_ready_);
 }
 bool App::emoji_key(const std::string& id) const {
     const auto& keys =
@@ -3156,7 +3203,7 @@ void App::apply_emoji_event(const EmojiPicker::Event& event) {
     }
 }
 bool App::type_emoji(const std::string& text) {
-    if (options_.input == InputBackend::None) {
+    if (preview_input()) {
         return true; // The preview cannot type; it still remembers the emoji.
     }
     // One commit for the whole sequence, so a family or flag arrives whole.
@@ -3185,8 +3232,8 @@ bool App::dictation_available() const {
         return true; // image exports show the mode whatever the settings
     }
     const auto& language = profiles_.languages.at(settings_.active.language);
-    if (language.dictation_language.empty()) {
-        return false;
+    if (language.dictation_language.empty() || hint_private()) {
+        return false; // no dictation into a password or PIN
     }
     if (settings_.dictation == "device") {
         return !download_ && model_ready(settings_.dictation_device_model);
@@ -3284,7 +3331,7 @@ void App::show_dictation() {
 }
 
 void App::refresh_dictation_layout() {
-    const auto key = settings_.active.layout + (settings_.hide_numpad ? "/numpad-hidden" : "");
+    const auto key = settings_.active.layout + (numpad_hidden() ? "/numpad-hidden" : "");
     if (key == dictation_layout_key_) {
         return;
     }
@@ -3292,7 +3339,7 @@ void App::refresh_dictation_layout() {
     main.layout = &profiles_.layouts.at(settings_.active.layout);
     main.theme = &profiles_.themes.at(settings_.active.theme);
     main.language = &profiles_.languages.at(settings_.active.language);
-    main.hide_numpad = settings_.hide_numpad;
+    main.hide_numpad = numpad_hidden();
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main));
     dictation_layout_key_ = key;
     dirty = true;
@@ -3736,6 +3783,13 @@ void App::stop_direct(std::string status) {
 }
 
 void App::direct_phrase(const std::string& phrase) {
+    if (host_.context && host_.hints.autocapitalize != "sentences") {
+        const auto cased = hint_case(phrase);
+        if (cased != phrase) {
+            direct_phrase(cased);
+            return;
+        }
+    }
     if (!g_utf8_validate(phrase.c_str(), static_cast<gssize>(phrase.size()), nullptr)) {
         return;
     }
@@ -3909,8 +3963,8 @@ std::string App::live_rest(std::uint64_t id, const std::string& text) {
 void App::flush_direct(double now) {
     // A composer's reading goes first, as before any key; phrases wait for
     // its commit. They follow keys already queued.
-    const bool paste =
-        settings_.dictation_send_paste && !direct_type_only_ && !output_.steam_field_target();
+    const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
+                       !output_.steam_field_target() && !sink_on();
     if (direct_paste_) {
         tick_direct_paste(now);
     } else if (paste && !direct_waiting_.empty() && !direct_blocked_ && !composing_text() &&
@@ -4128,8 +4182,14 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         // Type as I speak uses the phrases of its session instead.
         const auto& prompt = profiles_.languages.at(settings_.active.language).dictation_prompt;
         const auto room = 200 - static_cast<std::size_t>(g_utf8_strlen(prompt.c_str(), -1));
-        dictation_->prompt(event.id,
-                           prompt + (direct_ ? tail(direct_context_, room) : editor_.context(room)));
+        // A server a shell chose gets only the profile's prompt: the text
+        // before the cursor is unsent, and leaves the keyboard only by the
+        // user's choice (docs/integration.md, Dictation).
+        const bool withheld = settings_.dictation_server_by_shell && settings_.dictation == "server" &&
+                              settings_.dictation_url.empty();
+        dictation_->prompt(event.id, prompt + (withheld  ? std::string{}
+                                               : direct_ ? tail(direct_context_, room)
+                                                         : editor_.context(room)));
         pending_phrases_[event.id] = now;
         break;
     }
@@ -4167,7 +4227,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         // so joining and Undo work as usual; the view reveals it word by word.
         const auto start = editor_.cursor();
         const auto size = editor_.text().size();
-        if (editor_.insert_phrase(event.text, spaced)) {
+        if (editor_.insert_phrase(hint_case(event.text), spaced)) {
             reveal_ = Reveal{start, start + editor_.text().size() - size, start, now, spaced};
             editor_goal_x_.reset();
             dirty = true;
@@ -4272,6 +4332,10 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         {
             const auto tested = testing_server_.value_or(pending_dictation_server_);
             testing_server_.reset();
+            if (event.ok && !host_.test_by_shell && tested == settings_.dictation_server &&
+                settings_.dictation_server_by_shell) {
+                settings_.dictation_server_by_shell = false; // tested in the card: the user's now
+            }
             if (event.ok && valid_dictation_server(tested)) {
                 // A server that answered becomes the first of the recent ones.
                 auto& recent = settings_.dictation_recent_servers;
@@ -4541,7 +4605,7 @@ void App::start_send() {
     if (editor_.text().find_first_not_of(" \n") == std::string::npos) {
         // Only the final Enter is left; the editor holds nothing to send.
         send.pieces = {{SendPiece::Kind::Enter, {}, 0, editor_.text().size()}};
-    } else if (settings_.dictation_send_paste && !output_.steam_field_target()) {
+    } else if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on()) {
         // Steam's own fields take text directly; the clipboard cannot reach them.
         send.pieces = paste_pieces(editor_.text());
     } else {

@@ -1,10 +1,14 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/shell_protocol.hpp"
 #include "framekeyboard/startup.hpp"
 #include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_runtime.hpp"
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <fcntl.h>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -31,7 +35,9 @@ void help() {
               << "  --target-language ID      Physical uinput/external-JIS target keymap\n"
               << "  --config-dir PATH         User profiles/settings directory\n"
               << "  --data-dir PATH           Extra bundled profile directory\n"
-              << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n\n"
+              << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n"
+              << "  --hosted FD               Run under a shell over an inherited connection\n"
+              << "  --protocols               List the shell protocol versions supported\n\n"
               << "Typing stays disabled unless --start-enabled is supplied.\n"
               << "Native replacement and SteamOS startup are optional in Settings.\n";
 }
@@ -68,6 +74,23 @@ int main(int argc, char** argv) {
             } else if (argument == "--version") {
                 std::cout << "framekeyboard " << FRAMEKEYBOARD_VERSION << '\n';
                 return 0;
+            } else if (argument == "--protocols") {
+                // The update helper checks a package against the protocol in use.
+                std::cout << fk::shell_protocol_version << '\n';
+                return 0;
+            } else if (argument == "--hosted") {
+                const auto text = value();
+                std::size_t end = 0;
+                int fd = -1;
+                try {
+                    fd = std::stoi(text, &end);
+                } catch (const std::exception&) {
+                }
+                if (end != text.size() || fd < 3) {
+                    std::cerr << "Full Keyboard: --hosted needs a descriptor number of 3 or more.\n";
+                    return fk::hosted_exit::invalid_descriptor;
+                }
+                options.hosted_fd = fd;
             } else if (argument == "--preview") {
                 mode(fk::Mode::Preview);
             } else if (argument == "--vr") {
@@ -142,6 +165,24 @@ int main(int argc, char** argv) {
         if (options.start_enabled && options.input == fk::InputBackend::None) {
             throw std::runtime_error("--start-enabled requires an input backend");
         }
+        const bool hosted = options.hosted_fd >= 0;
+        if (hosted) {
+            // Before VR, input or any helper: a bad descriptor ends the launch.
+            if (options.mode != fk::Mode::Vr || options.autostart ||
+                !fk::adopt_control_descriptor(options.hosted_fd)) {
+                std::cerr << "Full Keyboard: the hosted control descriptor is not a connected "
+                             "stream socket of this user.\n";
+                return fk::hosted_exit::invalid_descriptor;
+            }
+            if (const char* session = std::getenv("FRAMEKEYBOARD_HOSTED_SESSION")) {
+                options.hosted_session = std::max<std::uint64_t>(1, std::strtoull(session, nullptr, 10));
+                unsetenv("FRAMEKEYBOARD_HOSTED_SESSION");
+            }
+            if (const char* failure = std::getenv("FRAMEKEYBOARD_LAST_UPDATE")) {
+                options.last_update = std::string(failure).substr(0, 40);
+                unsetenv("FRAMEKEYBOARD_LAST_UPDATE");
+            }
+        }
         options.background_update = options.mode == fk::Mode::Vr && startup.background_start();
         const bool start_hidden = options.autostart || options.background_update;
         const int deliberate_exit = fk::deliberate_exit_status(options.autostart);
@@ -159,12 +200,40 @@ int main(int argc, char** argv) {
             }
         }
         int result{};
+        int hosted_lock = -1;
         {
             std::unique_ptr<fk::VrInstance> instance;
             if (options.mode == fk::Mode::Vr) {
-                instance =
-                    std::make_unique<fk::VrInstance>(fk::VrInstance::runtime_directory(), !start_hidden);
-                if (!instance->is_owner()) {
+                const auto directory = fk::VrInstance::runtime_directory();
+                // An update successor keeps the lock its predecessor held.
+                const char* inherited = hosted ? std::getenv("FRAMEKEYBOARD_INSTANCE_LOCK_FD") : nullptr;
+                if (inherited) {
+                    const int lock = std::atoi(inherited);
+                    unsetenv("FRAMEKEYBOARD_INSTANCE_LOCK_FD");
+                    instance = std::make_unique<fk::VrInstance>(directory, lock);
+                } else {
+                    instance =
+                        std::make_unique<fk::VrInstance>(directory,
+                                                         hosted         ? fk::VrInstance::Launch::Hosted
+                                                         : start_hidden ? fk::VrInstance::Launch::Silent
+                                                                        : fk::VrInstance::Launch::Notify,
+                                                         hosted);
+                }
+                switch (instance->outcome()) {
+                case fk::VrInstance::Outcome::Owner:
+                    break;
+                case fk::VrInstance::Outcome::QuitRefused:
+                    std::cerr
+                        << "Full Keyboard: the running keyboard did not accept the quit request.\n";
+                    return fk::hosted_exit::quit_refused;
+                case fk::VrInstance::Outcome::LockTaken:
+                    std::cerr << "Full Keyboard: another launch started the keyboard first.\n";
+                    return fk::hosted_exit::lock_taken;
+                case fk::VrInstance::Outcome::ShellManaged:
+                    std::cout
+                        << "A shell is managing Full Keyboard; it decides where the keyboard shows.\n";
+                    return deliberate_exit;
+                default:
                     std::cout << (start_hidden ? "Full Keyboard is already running.\n"
                                                : "Recenter requested from the running keyboard.\n");
                     return deliberate_exit;
@@ -220,7 +289,9 @@ int main(int argc, char** argv) {
             }
             fk::SettingsWriter::Write preferences;
             fk::SettingsWriter::Write reconcile_preferences;
-            if (options.mode == fk::Mode::Vr) {
+            // A hosted keyboard never touches the SteamOS boot unit; the saved
+            // standalone flags stay as they are for the next standalone launch.
+            if (options.mode == fk::Mode::Vr && !hosted) {
                 preferences = [config = options.config_dir,
                                executable =
                                    fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
@@ -232,8 +303,14 @@ int main(int argc, char** argv) {
                         fk::configure_startup(settings, executable, config);
                     };
             }
-            fk::App app(options, replacement, std::move(preferences),
-                        options.mode == fk::Mode::Vr ? &updates : nullptr,
+            // Under a shell the text sink sits between the output queue and
+            // the input backend; off, it passes everything through.
+            fk::ShellRouter router(replacement);
+            if (hosted) {
+                options.shell_router = &router;
+            }
+            fk::App app(options, hosted ? static_cast<fk::KeySink&>(router) : replacement,
+                        std::move(preferences), options.mode == fk::Mode::Vr ? &updates : nullptr,
                         std::move(reconcile_preferences));
             if (options.mode == fk::Mode::Render || options.mode == fk::Mode::RenderSettings ||
                 options.mode == fk::Mode::RenderEmoji || options.mode == fk::Mode::RenderDictation) {
@@ -262,17 +339,37 @@ int main(int argc, char** argv) {
                          : fk::run_preview(app, options.duration);
             // A watchdog's SIGTERM must still permit service recovery. systemctl
             // stop already suppresses restart independently of our exit status.
-            if (options.mode == fk::Mode::Vr && (app.quitting() || options.duration > 0)) {
+            if (options.mode == fk::Mode::Vr && result == 0 &&
+                (app.quitting() || options.duration > 0)) {
                 result = deliberate_exit;
             }
             app.flush_settings();
+            // A hosted update keeps the instance lock across the gap: the
+            // update helper hands it to the successor with the connection.
+            if (hosted && updates.prepared() && fk::hosted_handover_fd >= 0 && !fk::interrupted) {
+                hosted_lock = instance->release_lock();
+            }
         } // Destroy VR, replacement helpers, input and the instance lock before handoff.
         if (updates.prepared() && !fk::interrupted) {
-            if (updates.handoff()) {
+            if (hosted && (fk::hosted_handover_fd < 0 || hosted_lock < 0)) {
+                return result; // the shell's connection ended before the handover
+            }
+            if (hosted ? updates.handoff(fk::hosted_handover_fd, hosted_lock, options.hosted_session)
+                       : updates.handoff()) {
                 return deliberate_exit;
             }
             if (fk::interrupted) {
                 return deliberate_exit;
+            }
+            if (hosted) {
+                // The helper is gone: restart this build on the same descriptors.
+                for (const int fd : {fk::hosted_handover_fd, hosted_lock}) {
+                    fcntl(fd, F_SETFD, 0);
+                }
+                setenv("FRAMEKEYBOARD_INSTANCE_LOCK_FD", std::to_string(hosted_lock).c_str(), 1);
+                setenv("FRAMEKEYBOARD_HOSTED_SESSION",
+                       std::to_string(options.hosted_session + 1).c_str(), 1);
+                setenv("FRAMEKEYBOARD_LAST_UPDATE", "helper-unavailable", 1);
             }
             // If the prepared helper disappeared, restart the still-current build.
             auto arguments =

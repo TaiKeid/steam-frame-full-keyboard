@@ -95,7 +95,10 @@ struct Settings {
     // model downloaded first (owner, 2026-10-27).
     std::string dictation{"device"};
     std::string dictation_server; // host[:port]
-    std::string dictation_url;    // or a full base URL
+    // A shell set dictation_server over the protocol (docs/integration.md,
+    // Dictation): its phrases go without the editor's text as context.
+    bool dictation_server_by_shell{};
+    std::string dictation_url; // or a full base URL
     std::string dictation_model;
     // Milliseconds between characters while Send types: 20, 30 or 40. Slower
     // keeps their order under heavy load (docs/dictation.md, Send).
@@ -143,6 +146,11 @@ void save_settings(const fs::path& user_dir, const Settings& settings);
 void validate_selection(const Profiles& profiles, const Selection& selection);
 // Geometry/profile checks for callers that prepare the XKB map themselves.
 void validate_selection_profiles(const Profiles& profiles, const Selection& selection);
+// The selection's layout if it can type the language, else the smallest
+// layout that can.
+std::string compatible_layout(const Profiles& profiles, const Selection& selection);
+// Whether the profiles of a selection fit together.
+bool fits(const Profiles& profiles, const Selection& selection);
 Layout parse_layout(const std::string& json);
 Theme parse_theme(const std::string& json);
 Language parse_language(const std::string& json);

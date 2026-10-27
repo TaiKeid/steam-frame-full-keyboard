@@ -29,10 +29,10 @@ void VrLifecycle::begin_frame(const Frame& frame) {
         effects_.route_input(remote);
         last_request_ = native.request;
     }
-    if (!presentation_.show()) {
+    if (!requested()) {
         hide();
     } else if (visible_) {
-        effects_.set_interaction(presentation_.interactive());
+        effects_.set_interaction(interactive());
     }
 }
 void VrLifecycle::hide() {
@@ -81,7 +81,7 @@ void VrLifecycle::request_recenter() {
     tracking_.request_sample();
 }
 bool VrLifecycle::should_sample_tracking(bool dashboard_visible, double now) const {
-    return tracking_.should_sample(dashboard_visible, presentation_.show(), visible_, now);
+    return tracking_.should_sample(dashboard_visible, requested(), visible_, now);
 }
 void VrLifecycle::tracking_sampled(bool valid, double now) {
     tracking_.sampled(valid, now);
@@ -91,11 +91,11 @@ void VrLifecycle::tracking_sampled(bool valid, double now) {
 }
 void VrLifecycle::present(bool placement_ready, bool dashboard_visible, bool compositor_visible,
                           double now) {
-    if (presentation_.show() && !tracking_.waiting() && placement_ready && dashboard_visible &&
+    if (requested() && !tracking_.waiting() && placement_ready && dashboard_visible &&
         (show_pending_ || !visible_ || !compositor_visible)) {
         effects_.show_overlay(now);
         visible_ = true;
-        effects_.set_interaction(presentation_.interactive());
+        effects_.set_interaction(interactive());
         show_pending_ = false;
     }
 }
@@ -106,7 +106,7 @@ VrLifecycle::FrameReport VrLifecycle::frame_report(bool backend_ready, bool dash
                                                    bool compositor_visible) const {
     const bool available = ready(backend_ready, dashboard_visible);
     const bool presented = available && dashboard_visible && visible_ && compositor_visible;
-    return {available, presentation_.fallback_requested(),
-            presented && presentation_.show() ? native_.request : 0};
+    return {available, !hosted_ && presentation_.fallback_requested(),
+            presented && requested() && !hosted_ ? native_.request : 0};
 }
 } // namespace framekeyboard

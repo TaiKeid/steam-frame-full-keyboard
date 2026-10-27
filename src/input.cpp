@@ -152,6 +152,18 @@ int key_code(const std::string& name) {
     const auto found = key_codes.find(name);
     return found == key_codes.end() ? 0 : found->second;
 }
+const std::string& key_name(int code) {
+    static const auto names = [] {
+        std::map<int, std::string> result;
+        for (const auto& [name, value] : key_codes) {
+            result.emplace(value, name);
+        }
+        return result;
+    }();
+    static const std::string none;
+    const auto found = names.find(code);
+    return found == names.end() ? none : found->second;
+}
 bool is_modifier(int code) {
     return code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL || code == KEY_LEFTSHIFT ||
            code == KEY_RIGHTSHIFT || code == KEY_LEFTALT || code == KEY_RIGHTALT ||

@@ -19,6 +19,7 @@ constexpr int texture_height = panel_height + 2 * popup_margin;
 enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField, Note };
 enum class ControlKind {
     None,
+    SinkOff, // ends the shell's text sink (docs/integration.md, Privacy)
     Settings,
     Apply,
     Reload,

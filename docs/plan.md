@@ -49,6 +49,6 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Broader application testing for Unicode delivery and native shortcuts across system keymaps.
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
-- Shell integration, scheduled after the first public release: alternative shells launch the keyboard in hosted mode and control it over an inherited connection. A standalone keyboard has no shell-control protocol. Presentation, placement, themes, typing contexts, settings, dictation, silent updates, pointer forwarding and a commits-only text sink are drafted in [shell integration](integration.md), with its implementation order.
+- Shell integration, scheduled after the first public release: alternative shells launch the keyboard in hosted mode and control it over an inherited connection. A standalone keyboard has no shell-control protocol. Presentation, placement, themes, typing contexts, settings, dictation, silent updates, pointer forwarding and a commits-only text sink are specified in [shell integration](integration.md). Protocol 1 is implemented and host-tested; headset validation with the test shell is next, then `theme.derive` and the Wayland bridge.
 
 Swipe typing for Japanese and Korean is planned in [swipe typing](swipe-typing.md). No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

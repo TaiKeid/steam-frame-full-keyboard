@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/dictation_mode.hpp"
+#include "framekeyboard/shell_sink.hpp"
 #include "framekeyboard/text_input.hpp"
 
 #include <algorithm>
@@ -1892,6 +1893,185 @@ void test_race_tests() {
     require(field_label(lost, "Testing…"), "and starts a new helper");
 }
 
+// A shell's keyboard (docs/integration.md): standalone-only settings are
+// gone, X hides, and the text sink, contexts, hints, settings and themes
+// work through App alone. The router stands between App and the Sink.
+void hosted_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.hosted_fd = 99; // App only needs to know it is hosted
+    use_fake_helper(options, directory.path, "silent");
+    write_config(directory.path,
+                 R"(,"replace_native_keyboard":true,"start_with_steamos":true,"hide_numpad":true)");
+    Sink sink;
+    ShellRouter router(sink);
+    options.shell_router = &router;
+    App app(options, router);
+    require(app.hosted() && !app.replace_native_keyboard() && !app.start_with_steamos() &&
+                app.background_start(),
+            "hosted, replacement and boot start are inactive and the panel starts hidden");
+    app.show_settings();
+    const auto cards = app.view().cards;
+    require(std::none_of(cards.begin(), cards.end(),
+                         [](const auto& card) { return card.title == "Integration"; }) &&
+                has_control(app, "quit"),
+            "the Integration card is gone and Settings keeps Quit");
+    app.back();
+    require(!has_control(app, "passthrough"), "the shell, not a toggle, decides when the panel shows");
+    click(app, "close");
+    require(app.take_dismissal() && app.take_user_hide() && !app.quitting(),
+            "X hides; the shell is told");
+    app.set_interaction_active(true);
+
+    // The sink: committed text and named keys go to the shell, one at a time.
+    app.set_sink(true, "Test Shell");
+    press(app, "KeyA");
+    require(router.take_events().empty(), "without a context nothing is typed");
+    app.set_context(std::string("c-1"), {});
+    require(app.view().status == "Typing into Test Shell", "the case names who receives the typing");
+    press(app, "KeyA");
+    auto events = router.take_events();
+    require(events.size() == 1 && events[0].text == "a" && events[0].context == "c-1",
+            "a letter is a commit");
+    press(app, "KeyB");
+    require(router.take_events().empty(), "the next waits for the ack");
+    router.acknowledge("c-1", events[0].seq);
+    app.tick(clock += .1);
+    events = router.take_events();
+    require(events.size() == 1 && events[0].text == "b", "and follows it");
+    // A new field drops everything addressed to the old one.
+    press(app, "KeyC");
+    app.set_context(std::string("c-2"), {});
+    router.acknowledge("c-1", events[0].seq);
+    app.tick(clock += .1);
+    require(router.take_events().empty(), "queued text for the old context never arrives");
+    press(app, "KeyD");
+    events = router.take_events();
+    require(events.size() == 1 && events[0].text == "d" && events[0].context == "c-2",
+            "the new context types");
+    router.acknowledge("c-2", events[0].seq);
+    app.tick(clock += .1);
+    require(sink.text.empty() && sink.keys.empty(),
+            "nothing reaches the input backend while the sink is on");
+    require(app.idle_for_update(), "settled output leaves the keyboard idle for an update");
+    click(app, "sink-off");
+    require(!app.sink_on(), "the user can take typing back");
+    press(app, "KeyE");
+    require(!sink.text.empty() && sink.text.back() == "e", "typing returns to the normal destination");
+
+    // Hints belong to their context.
+    App::HostHints password;
+    password.purpose = "password";
+    app.set_context(std::string("pw"), password);
+    require(app.show_view("emoji") == "unavailable" &&
+                app.host_dictation_request("dictation.start", nullptr).first == "unavailable",
+            "a password field gets no emoji or dictation");
+    App::HostHints number;
+    number.purpose = "number";
+    number.enter = "go";
+    app.set_context(std::string("n"), number);
+    require(!app.view().hide_numpad &&
+                json_object_get_boolean(json_object_object_get(app.host_settings().get(), "num_lock")),
+            "a number field shows the numpad with Num Lock on");
+    require(app.view().key_labels.at("Enter") == "Go", "Enter's legend follows the hint");
+    App::HostHints german;
+    german.language = "de-de";
+    app.set_context(std::string("de"), german);
+    require(app.view().hide_numpad && app.selection().language == "de-de",
+            "the language hint applies, temporarily");
+    app.set_context(std::nullopt);
+    require(app.selection().language == "en-us" && !app.view().key_labels.contains("Enter"),
+            "the context's end restores the language and the legend");
+    require(app.check_hints({"secret", "enter", "sentences", ""}).first == "bad_request",
+            "unknown hints are refused");
+
+    // Settings: all or nothing, persisted, reported with the request they cover.
+    app.take_host_events();
+    auto bad = json_ptr(json_tokener_parse(R"({"auto_leveling":false,"replace_native_keyboard":true})"));
+    require(app.host_settings_set(bad.get(), 6) ==
+                std::pair<std::string, std::string>{"invalid_setting", "replace_native_keyboard"},
+            "a standalone-only key is refused");
+    require(json_object_get_boolean(json_object_object_get(app.host_settings().get(), "auto_leveling")),
+            "and nothing else in the request applies");
+    auto good = json_ptr(json_tokener_parse(R"({"auto_leveling":false,"dictation_send_gap":40})"));
+    require(app.host_settings_set(good.get(), 7).first.empty(), "valid settings apply");
+    app.flush_settings();
+    app.tick(clock += .1);
+    auto host_events = app.take_host_events();
+    auto saw = [&](const char* name, const char* part) {
+        return std::any_of(host_events.begin(), host_events.end(), [&](const App::HostEvent& event) {
+            return event.name == name &&
+                   std::string(json_object_to_json_string(event.fields.get())).find(part) !=
+                       std::string::npos;
+        });
+    };
+    require(saw("settings", R"("source": "shell")") && saw("saved", R"("through": 7)"),
+            "the change and its save are reported");
+    std::vector<std::string> errors;
+    auto saved = load_settings(directory.path, errors);
+    require(!saved.auto_leveling && saved.dictation_send_gap == 40 && saved.replace_native_keyboard,
+            "the change persists; the standalone flags stay as they were");
+
+    // The shell's theme lasts for the process and is never saved.
+    require(app.host_theme_set(R"({"schema_version":1,"name":"x"})").first == "invalid_theme",
+            "an incomplete theme is refused with the validator's message");
+    const std::string theme = R"({"schema_version":1,"id":"x","name":"Shell","surface":"#101010",
+        "surface_radius":20,"key_top":"#303030","key_middle":"#282828","key_bottom":"#202020",
+        "key_side_top":"#181818","key_side_bottom":"#101010","legend":"#ffffff","key_radius":8,
+        "key_depth":3.5,"key_press_travel":3,"press_duration_ms":80,"font_size":20,"small_font_size":13,
+        "padding":20,"hover":"#404040","latched":"#335577","disabled":"#151515"})";
+    require(app.host_theme_set(theme).first.empty() && app.selection().theme == "shell",
+            "a custom theme applies");
+    auto apply = json_ptr(json_tokener_parse(R"({"pinned":true})"));
+    app.host_settings_set(apply.get(), 8);
+    app.flush_settings();
+    require(load_settings(directory.path, errors).active.theme == "graphite",
+            "the saved theme stays an installed one");
+    app.host_theme_reset();
+    require(app.selection().theme == "graphite", "reset returns to it");
+}
+
+// A server the shell chose never receives the editor's unsent text.
+void shell_server_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.hosted_fd = 99;
+    use_fake_helper(options, directory.path, "default");
+    write_config(directory.path, R"(,"dictation":"off")");
+    Sink sink;
+    ShellRouter router(sink);
+    options.shell_router = &router;
+    App app(options, router);
+    app.set_interaction_active(true);
+    auto values =
+        json_ptr(json_tokener_parse(R"({"dictation":"server","dictation_server":"127.0.0.1"})"));
+    require(app.host_settings_set(values.get(), 1).first.empty(), "the shell sets the server");
+    open_editor(app);
+    for (const auto* key : {"KeyS", "KeyE", "KeyC", "KeyR", "KeyE", "KeyT"}) {
+        press(app, key);
+    }
+    const auto asked = prompts_sent(directory.path).size();
+    press(app, "Dictation");
+    press(app, "Dictation");
+    wait_until(app, [&] { return prompts_sent(directory.path).size() > asked; });
+    const auto prompts = prompts_sent(directory.path);
+    require(prompts.back().find("ecret") == std::string::npos, "its prompt carries no editor text");
+    app.flush_settings();
+    std::ifstream config(directory.path / "config.json");
+    const std::string text((std::istreambuf_iterator<char>(config)), std::istreambuf_iterator<char>());
+    require(text.find(R"("dictation_server_source":"shell")") != std::string::npos ||
+                text.find(R"("dictation_server_source": "shell")") != std::string::npos,
+            "who chose the server is remembered");
+}
+
 // Correcting dictated text uses the layout's dead accents, as the keyboard does.
 void accent_tests() {
     TemporaryDirectory directory;
@@ -2178,6 +2358,8 @@ int main() {
         microphone_tests();
         away_tests();
         accent_tests();
+        hosted_tests();
+        shell_server_tests();
         test_race_tests();
         send_during_reveal_tests();
         direct_esc_tests();

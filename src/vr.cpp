@@ -5,6 +5,7 @@
 #include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/resizer.hpp"
+#include "framekeyboard/shell_host.hpp"
 #include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_haptics.hpp"
 #include "framekeyboard/vr_lifecycle.hpp"
@@ -19,6 +20,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <poll.h>
 #include <stdexcept>
 #include <thread>
 #include <time.h>
@@ -1383,7 +1385,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     } release{app};
     const double start = monotonic_seconds();
     bool done = false;
-    const auto placement_path = app.config_dir() / "placement.json";
+    // Under a shell the placement is its own, so neither mode moves the other's keyboard.
+    const bool hosted = app.hosted();
+    const auto placement_path = app.config_dir() / (hosted ? "placement-hosted.json" : "placement.json");
+    // A shell's own placement: a pose it set may be left unleveled, and an
+    // anchor holds the panel relative to another overlay.
+    bool shell_level = true;
+    std::optional<std::pair<std::string, Transform>> anchor; // overlay key, pose relative to it
     std::optional<SavedPlacement> saved;
     try {
         saved = load_placement(placement_path);
@@ -1508,8 +1516,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             .cancel_device = [&](std::uint32_t device) { cancel_device(device); },
         });
     auto hide_panel = [&] { lifecycle.hide(); };
-    // Passthrough keeps the panel open while the dashboard is closed.
-    auto presentable = [&] { return app.passthrough() || vr_overlay()->IsDashboardVisible(); };
+    // Passthrough keeps the panel open while the dashboard is closed. Under a
+    // shell the dashboard gate does not apply: the shell decides.
+    auto presentable = [&] { return hosted || app.passthrough() || vr_overlay()->IsDashboardVisible(); };
+    lifecycle.set_hosted(hosted);
     // Near the visible dashboard the panel lines up with the dashboard itself,
     // which is often slightly rolled; elsewhere, with the dashboard closed, and
     // after being shown without it, it lines up with the room facing the viewer.
@@ -1537,7 +1547,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         const auto aligned = horizon.update(placement.transform(), now,
                                             drag.active() && drag.source() != MoveSource::Resize,
-                                            auto_leveling, reference);
+                                            auto_leveling && shell_level && !anchor, reference);
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());
@@ -1552,19 +1562,597 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         panel.submit(app.renderer, app.view());
         std::cout << "Full Keyboard started in background.\n" << std::flush;
     }
+    replacement.frame_completed();
+    bool replacement_was_ready = false;
+    // The shell's session (docs/integration.md). Requests are handled at the
+    // start of a frame; events, telemetry and pings go out at its end.
+    std::unique_ptr<ShellConnection> shell;
+    int exit_status = 0;
+    bool shell_shown = false, ready_sent = false, was_visible = false, shell_haptics = false;
+    std::string hide_reason = "shell", geometry_source = "user";
+    std::optional<std::tuple<Transform, double>> reported_geometry;
+    double geometry_at = -1;
+    std::string reported_regions;
+    std::string update_when = "idle";
+    UpdateHandover handover;
+    Updates::State reported_update = Updates::State::Idle;
+    std::string reported_update_error;
+    std::array<bool, 2> forwarded_inside{};
+    std::array<int, 2> forwarded_moves{};
+    std::optional<PreviewRenderer> previews;
+    std::optional<std::int64_t> preview_request, check_request;
+    if (hosted) {
+        const bool installed = [] {
+            std::error_code error;
+            const auto executable = fs::canonical("/proc/self/exe", error);
+            return !error &&
+                   executable.parent_path().parent_path().parent_path().filename() == "releases";
+        }();
+        shell = std::make_unique<ShellConnection>(
+            app.options().hosted_fd, FRAMEKEYBOARD_VERSION, app.options().hosted_session,
+            [&app, installed] {
+                std::vector<std::string> features{"pointer", "sink", "render"};
+                const auto state = app.host_state();
+                if (json_object_get_boolean(json_object_object_get(state.get(), "swipe"))) {
+                    features.emplace_back("swipe");
+                }
+                features.emplace_back("dictation.server");
+                if (app.dictation_model_ready()) {
+                    features.emplace_back("dictation.device");
+                }
+                if (installed && app.updates()) {
+                    features.emplace_back("update");
+                }
+                return features;
+            });
+        try {
+            previews.emplace(VrInstance::runtime_directory());
+        } catch (const std::exception& error) {
+            std::cerr << "Preview renders unavailable: " << error.what() << '\n';
+        }
+        std::cout << "Full Keyboard is hosted by a shell; session " << app.options().hosted_session
+                  << ".\n"
+                  << std::flush;
+    }
+    auto shell_hide = [&](const char* reason) {
+        hide_reason = reason;
+        shell_shown = false;
+        lifecycle.set_shell_visible(false);
+        hide_panel();
+    };
+    // Pulses the controller in `hand`, or tells a shell that plays its own.
+    auto forwarded_haptic = [&](std::size_t hand, unsigned pointer, KeyFeedback kind) {
+        if (shell_haptics) {
+            auto fields = json_ptr(json_object_new_object());
+            json_object_object_add(fields.get(), "hand",
+                                   json_object_new_string(hand == 0 ? "left" : "right"));
+            json_object_object_add(fields.get(), "kind",
+                                   json_object_new_string(kind == KeyFeedback::Press     ? "press"
+                                                          : kind == KeyFeedback::Release ? "release"
+                                                                                         : "hover"));
+            shell->event("haptic", std::move(fields));
+            return;
+        }
+        const auto device = vr_system()->GetTrackedDeviceIndexForControllerRole(
+            hand == 0 ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
+        if (device == vr::k_unTrackedDeviceIndexInvalid) {
+            return;
+        }
+        if (kind == KeyFeedback::Press) {
+            feedback.press(pointer, device);
+        } else if (kind == KeyFeedback::Release) {
+            feedback.release(pointer);
+        } else {
+            feedback.hover(device);
+        }
+    };
+    // Forwarded pointers use their own IDs, apart from SteamVR's cursors.
+    auto forwarded_pointer = [](std::size_t hand) { return 200u + static_cast<unsigned>(hand); };
+    auto end_forwarded = [&] {
+        for (std::size_t hand = 0; hand < 2; ++hand) {
+            app.cancel_pointer(forwarded_pointer(hand)); // a cancel never releases into a press
+            feedback.cancel_pointer(forwarded_pointer(hand));
+            forwarded_inside[hand] = false;
+        }
+    };
+    // The texture areas that take a pointer: the case, an open menu and the
+    // flick preview, which can reach past the case.
+    auto pointer_areas = [&](const PanelView& view) {
+        std::vector<Rect> areas{panel_case_bounds(view)};
+        if (view.popup) {
+            areas.push_back(*view.popup);
+        }
+        if (const auto preview = flick_preview_bounds(view)) {
+            areas.push_back(*preview);
+        }
+        return areas;
+    };
+    auto forward = [&](json_object* body, double now) {
+        json_object* value = nullptr;
+        const std::string hand_name = json_object_object_get_ex(body, "hand", &value) &&
+                                              json_object_is_type(value, json_type_string)
+                                          ? json_object_get_string(value)
+                                          : "";
+        const std::string phase = json_object_object_get_ex(body, "phase", &value) &&
+                                          json_object_is_type(value, json_type_string)
+                                      ? json_object_get_string(value)
+                                      : "";
+        if ((hand_name != "left" && hand_name != "right") || !app.forwarded() || !lifecycle.visible()) {
+            return;
+        }
+        const std::size_t hand = hand_name == "left" ? 0 : 1;
+        const auto pointer = forwarded_pointer(hand);
+        auto number = [&](const char* key) {
+            json_object* field = nullptr;
+            return json_object_object_get_ex(body, key, &field) ? json_object_get_double(field) : 0.0;
+        };
+        if (phase == "cancel") {
+            app.cancel_pointer(pointer);
+            feedback.cancel_pointer(pointer);
+            forwarded_inside[hand] = false;
+            return;
+        }
+        if (phase == "scroll") {
+            if (forwarded_inside[hand]) {
+                app.scroll(pointer, number("dx"), number("dy"));
+            }
+            return;
+        }
+        const auto [x, y] = uv_to_panel(number("u"), number("v"));
+        const auto areas = pointer_areas(app.input_view());
+        const bool inside =
+            std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
+        if (!inside) {
+            if (std::exchange(forwarded_inside[hand], false)) {
+                // Leaving the accepted areas cancels the press, as focus leave does.
+                app.cancel_pointer(pointer);
+                feedback.cancel_pointer(pointer);
+            }
+            return;
+        }
+        forwarded_inside[hand] = true;
+        if (phase == "move") {
+            // Moves during a press are kept for swipe, up to 8 per hand a frame.
+            if (app.pointer_pressed(pointer) && ++forwarded_moves[hand] > 8) {
+                return;
+            }
+            if (app.move(pointer, x, y)) {
+                forwarded_haptic(hand, pointer, KeyFeedback::Hover);
+            }
+        } else if (phase == "down") {
+            app.move(pointer, x, y);
+            if (app.down(pointer, x, y, now)) {
+                forwarded_haptic(hand, pointer, KeyFeedback::Press);
+            }
+        } else if (phase == "up") {
+            if (app.up(pointer, x, y)) {
+                forwarded_haptic(hand, pointer, KeyFeedback::Release);
+            }
+        }
+    };
+    auto read_hints = [](json_object* body, App::HostHints& hints) {
+        json_object* object = nullptr;
+        if (!json_object_object_get_ex(body, "hints", &object) || !object) {
+            return true;
+        }
+        if (!json_object_is_type(object, json_type_object)) {
+            return false;
+        }
+        for (const auto& [key, field] : {std::pair{"purpose", &hints.purpose},
+                                         {"enter", &hints.enter},
+                                         {"autocapitalize", &hints.autocapitalize},
+                                         {"language", &hints.language}}) {
+            json_object* value = nullptr;
+            if (json_object_object_get_ex(object, key, &value)) {
+                if (!json_object_is_type(value, json_type_string)) {
+                    return false;
+                }
+                *field = json_object_get_string(value);
+            }
+        }
+        return true;
+    };
+    // `context` in a request: absent, null or a string of at most 64 bytes.
+    auto read_context = [](json_object* body, std::optional<std::optional<std::string>>& context) {
+        json_object* value = nullptr;
+        if (!json_object_object_get_ex(body, "context", &value)) {
+            return true;
+        }
+        if (!value) {
+            context = std::optional<std::string>{};
+            return true;
+        }
+        if (!json_object_is_type(value, json_type_string) || json_object_get_string_len(value) > 64) {
+            return false;
+        }
+        context = std::optional<std::string>{json_object_get_string(value)};
+        return true;
+    };
+    auto shell_state = [&] {
+        auto state = app.host_state();
+        json_object_object_add(state.get(), "visible", json_object_new_boolean(lifecycle.visible()));
+        json_object_object_add(state.get(), "reason", json_object_new_string(hide_reason.c_str()));
+        json_object_object_add(state.get(), "pointer_mode",
+                               json_object_new_string(app.forwarded() ? "forwarded" : "native"));
+        if (displayed.ready()) {
+            auto* geometry = json_object_new_object();
+            json_object_object_add(geometry, "width", json_object_new_double(displayed.width()));
+            json_object_object_add(geometry, "matrix", matrix_json(displayed.transform()));
+            json_object_object_add(state.get(), "geometry", geometry);
+        }
+        if (auto* updates = app.updates()) {
+            auto* update = json_object_new_object();
+            json_object_object_add(update, "state",
+                                   json_object_new_string(update_state_name(updates->state())));
+            json_object_object_add(state.get(), "update", update);
+        }
+        return state;
+    };
+    auto handle_request = [&](ShellRequest& request, double now) {
+        json_object* body = request.body.get();
+        const auto id = request.id.value_or(-1);
+        auto get = [&](const char* key) -> json_object* {
+            json_object* value = nullptr;
+            return json_object_object_get_ex(body, key, &value) ? value : nullptr;
+        };
+        auto text = [&](const char* key) {
+            auto* value = get(key);
+            return value && json_object_is_type(value, json_type_string)
+                       ? std::string(json_object_get_string(value))
+                       : std::string{};
+        };
+        auto ok = [&](JsonPtr fields = json_ptr(nullptr)) { shell->respond(id, std::move(fields)); };
+        auto fail = [&](const std::string& code, const std::string& message) {
+            shell->fail(id, code, message);
+        };
+        const auto& op = request.op;
+        auto* router = app.options().shell_router;
+        if (op == "pointer") {
+            forward(body, now);
+        } else if (op == "ack" || op == "reject") {
+            auto* seq = get("seq");
+            if (router && seq && json_object_is_type(seq, json_type_int)) {
+                const auto number = static_cast<std::uint64_t>(json_object_get_int64(seq));
+                op == "ack" ? router->acknowledge(text("context"), number)
+                            : router->reject(text("context"), number);
+            }
+        } else if (op == "quiesced") {
+            if (handover.asking() && app.update_waiting()) {
+                // Everything before this has been answered; nothing after it is read.
+                auto fields = json_ptr(json_object_new_object());
+                json_object_object_add(fields.get(), "state", json_object_new_string("restarting"));
+                shell->event("update", std::move(fields));
+                shell->stop_reading();
+                hosted_handover_fd = shell->release();
+                handover.end();
+                app.activate_update();
+            }
+        } else if (op == "state") {
+            ok(shell_state());
+        } else if (op == "show" || op == "context") {
+            std::optional<std::optional<std::string>> context;
+            App::HostHints hints;
+            if (!read_context(body, context) || !read_hints(body, hints)) {
+                fail("bad_request", "Invalid context or hints.");
+                return;
+            }
+            if (const auto [code, field] = app.check_hints(hints); !code.empty()) {
+                fail(code, field);
+                return;
+            }
+            if (op == "context" && !context) {
+                fail("bad_request", "context is required.");
+                return;
+            }
+            if (context) {
+                app.set_context(*context, hints);
+            }
+            if (op == "show") {
+                const auto view = text("view");
+                if (const auto error = app.show_view(view.empty() ? "keyboard" : view); !error.empty()) {
+                    fail(error, error == "composing" ? "The view would commit unfinished input."
+                                                     : "That view is not available now.");
+                    return;
+                }
+                hide_reason = "shell";
+                shell_shown = true;
+                lifecycle.set_shell_visible(true);
+            }
+            ok();
+        } else if (op == "hide") {
+            shell_hide("shell");
+            if (auto* end = get("end_context"); end && json_object_get_boolean(end)) {
+                app.set_context(std::nullopt);
+            }
+            ok();
+        } else if (op == "recenter") {
+            anchor.reset();
+            stop_drag();
+            saved.reset();
+            recenter_pending = true;
+            geometry_source = "recenter";
+            lifecycle.request_recenter();
+            ok();
+        } else if (op == "set_width") {
+            auto* meters = get("meters");
+            const double width = meters ? json_object_get_double(meters) : 0;
+            if (!meters ||
+                !(width >= PanelPlacement::minimum_width && width <= PanelPlacement::maximum_width)) {
+                fail("bad_request", "meters must be 0.45 to 2.0.");
+                return;
+            }
+            stop_drag();
+            placement.set_width(width);
+            geometry_source = "shell";
+            transform_dirty = true;
+            ok();
+        } else if (op == "set_pose") {
+            const auto matrix = json_matrix(get("matrix"));
+            if (!matrix) {
+                fail("bad_request", "matrix must be 3x4, row-major.");
+                return;
+            }
+            stop_drag();
+            anchor.reset();
+            auto* level = get("level");
+            shell_level = !level || json_object_get_boolean(level);
+            placement.set_transform(*matrix);
+            horizon.reset();
+            room_facing.reset();
+            recenter_pending = false;
+            saved.reset();
+            geometry_source = "shell";
+            transform_dirty = true;
+            ok();
+        } else if (op == "anchor") {
+            auto* overlay = get("overlay");
+            if (!overlay) {
+                anchor.reset();
+                ok();
+                return;
+            }
+            const auto matrix = json_matrix(get("matrix"));
+            if (!json_object_is_type(overlay, json_type_string) || !matrix) {
+                fail("bad_request", "anchor needs an overlay key and a 3x4 matrix.");
+                return;
+            }
+            stop_drag();
+            anchor = std::pair{std::string(json_object_get_string(overlay)), *matrix};
+            recenter_pending = false;
+            saved.reset();
+            geometry_source = "shell";
+            ok();
+        } else if (op == "lock") {
+            auto flag = [&](const char* key, bool current) {
+                auto* value = get(key);
+                return value ? static_cast<bool>(json_object_get_boolean(value)) : current;
+            };
+            app.set_locks(flag("move", app.locked_move()), flag("resize", app.locked_resize()));
+            if (drag.active() && !app.allows_movement(*drag.source())) {
+                stop_drag();
+            }
+            ok();
+        } else if (op == "chrome") {
+            App::HostChrome chrome;
+            for (const auto& [key, field] : {std::pair{"close", &chrome.close},
+                                             {"settings", &chrome.settings},
+                                             {"move", &chrome.move},
+                                             {"resize", &chrome.resize},
+                                             {"favorites", &chrome.favorites}}) {
+                if (auto* value = get(key)) {
+                    *field = json_object_get_boolean(value);
+                }
+            }
+            app.set_chrome(chrome);
+            ok();
+        } else if (op == "pointer_mode") {
+            const auto mode = text("mode");
+            if (mode != "forwarded" && mode != "native") {
+                fail("bad_request", "mode must be forwarded or native.");
+                return;
+            }
+            const auto haptics_owner = text("haptics");
+            shell_haptics = haptics_owner == "shell";
+            // Every switch releases keys and clears pointers.
+            stop_drag();
+            end_forwarded();
+            hovered_devices.fill(false);
+            pointer_devices.clear();
+            scene_pointer.reset();
+            scene_inside.fill(false);
+            cursors.hide();
+            resizers.hide();
+            app.set_forwarded(mode == "forwarded");
+            reported_regions.clear();
+            ok();
+        } else if (op == "sink") {
+            auto* on = get("on");
+            if (!on || !json_object_is_type(on, json_type_boolean)) {
+                fail("bad_request", "on must be a boolean.");
+                return;
+            }
+            app.set_sink(json_object_get_boolean(on), shell->client());
+            ok();
+        } else if (op == "theme.select") {
+            if (const auto error = app.host_theme_select(text("id"), id); !error.empty()) {
+                fail(error, "Unknown theme.");
+                return;
+            }
+            ok();
+        } else if (op == "theme.set") {
+            auto* theme = get("theme");
+            if (!theme || !json_object_is_type(theme, json_type_object)) {
+                fail("invalid_theme", "theme must be an object.");
+                return;
+            }
+            const auto [code, message] =
+                app.host_theme_set(json_object_to_json_string_ext(theme, JSON_C_TO_STRING_PLAIN));
+            if (!code.empty()) {
+                fail(code, message);
+                return;
+            }
+            ok();
+        } else if (op == "theme.reset") {
+            app.host_theme_reset();
+            ok();
+        } else if (op == "settings.get") {
+            auto fields = json_ptr(json_object_new_object());
+            json_object_object_add(fields.get(), "values", json_object_get(app.host_settings().get()));
+            ok(std::move(fields));
+        } else if (op == "settings.set") {
+            const auto [code, key] = app.host_settings_set(get("values"), id);
+            if (!code.empty()) {
+                fail(code, key);
+                return;
+            }
+            ok();
+        } else if (op == "select") {
+            if (const auto error =
+                    app.host_select(text("layout"), text("language"), text("favorite"), id);
+                !error.empty()) {
+                fail(error, "That layout and language cannot be selected together.");
+                return;
+            }
+            ok();
+        } else if (op == "reload") {
+            try {
+                app.reload();
+                ok();
+            } catch (const std::exception& error) {
+                fail("failed", error.what());
+            }
+        } else if (op == "profiles.list") {
+            ok(app.host_profiles());
+        } else if (op.starts_with("dictation.")) {
+            auto [code, fields] = app.host_dictation_request(op, body);
+            if (!code.empty()) {
+                fail(code, code == "composing" ? "Dictation would commit unfinished input."
+                                               : "Dictation cannot do that now.");
+                return;
+            }
+            ok(std::move(fields));
+        } else if (op == "update.check" || op == "update.install" || op == "update.cancel") {
+            auto* updates = app.updates();
+            if (!updates) {
+                fail("unavailable", "Updates need an installed release.");
+                return;
+            }
+            if (op == "update.check") {
+                if (check_request || !updates->check(now)) {
+                    fail("busy", "An update is already in progress.");
+                    return;
+                }
+                check_request = id; // answered with the result
+                return;
+            } else if (op == "update.install") {
+                const auto when = text("when");
+                if (!when.empty() && when != "idle" && when != "now") {
+                    fail("bad_request", "when must be idle or now.");
+                    return;
+                }
+                update_when = when.empty() ? "idle" : when;
+                if (!updates->install(now, text("version"), shell_protocol_version)) {
+                    fail("busy", "An update is already in progress.");
+                    return;
+                }
+            } else {
+                handover.end();
+                if (!updates->cancel(now)) {
+                    fail("unavailable", "No update is waiting to be activated.");
+                    return;
+                }
+            }
+            ok();
+        } else if (op == "render") {
+            if (!previews) {
+                fail("unavailable", "Preview renders are unavailable.");
+                return;
+            }
+            PreviewRenderer::Request render;
+            render.id = id;
+            render.view = text("view").empty() ? "keyboard" : text("view");
+            const auto& selection = app.selection();
+            render.layout = text("layout").empty() ? selection.layout : text("layout");
+            render.language = text("language").empty() ? selection.language : text("language");
+            render.theme = text("theme").empty() ? selection.theme : text("theme");
+            render.data_dir = app.options().data_dir;
+            if (render.theme == "shell" || (render.view != "keyboard" && render.view != "settings" &&
+                                            render.view != "emoji" && render.view != "dictation")) {
+                fail("bad_request", "Render an installed theme and a known view.");
+                return;
+            }
+            if (preview_request || !previews->start(render)) {
+                fail("busy", "Another preview is being rendered.");
+                return;
+            }
+            preview_request = id; // answered when the worker finishes
+        } else {
+            fail("unknown_op", "Unknown operation.");
+        }
+    };
     auto dismiss_panel = [&] {
         if (app.take_dismissal()) {
+            if (hosted) {
+                // X hides; the shell decides whether to show the panel again.
+                app.take_user_hide();
+                hide_reason = "user";
+                shell_shown = false;
+                lifecycle.set_shell_visible(false);
+                hide_panel();
+                return;
+            }
             lifecycle.dismiss();
         }
     };
-    replacement.frame_completed();
-    bool replacement_was_ready = false;
     while (!done && !app.quitting() && !interrupted) {
         const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
         laser_rays.begin_frame(now);
         if (duration > 0 && now - start >= duration) {
             break;
+        }
+        forwarded_moves.fill(0);
+        if (shell) {
+            // An update successor reports `ready` only once the update is committed.
+            if (!ready_sent && update_committed()) {
+                shell->ready(now);
+                ready_sent = true;
+            }
+            for (auto& request : shell->poll(now)) {
+                handle_request(request, now);
+                if (shell->fd() < 0 || hosted_handover_fd >= 0) {
+                    break; // handed over: nothing after `quiesced` is read
+                }
+            }
+            if (hosted_handover_fd < 0) {
+                switch (shell->status(now)) {
+                case ShellConnection::Status::Open:
+                    break;
+                case ShellConnection::Status::Closed:
+                case ShellConnection::Status::Violated:
+                    // The shell's connection is the session: it ends the keyboard.
+                    std::cout << "The shell closed its connection.\n" << std::flush;
+                    app.request_quit();
+                    break;
+                case ShellConnection::Status::NoHello:
+                case ShellConnection::Status::LeaseGone:
+                    std::cout << "The shell stopped answering; exiting.\n" << std::flush;
+                    exit_status = hosted_exit::shell_gone;
+                    app.request_quit();
+                    break;
+                }
+                if (shell->take_lease_lapsed(now)) {
+                    // Hung, perhaps only stalled: input stops, host state stays.
+                    std::cout << "The shell's lease expired.\n" << std::flush;
+                    shell_hide("lease");
+                    end_forwarded();
+                    app.set_context(std::nullopt);
+                    app.cancel();
+                }
+            }
+            if (app.quitting()) {
+                break;
+            }
         }
         replacement.poll(now);
         if (replacement.take_unsupported_control()) {
@@ -1576,27 +2164,39 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // Before the lifecycle routes input to a new request's owner.
         app.set_native_request(native.open ? native.request : 0);
         const bool replace = app.replace_native_keyboard();
-        // Wake the watchdog before this frame can start the helper that reads its health.
-        watchdog_schedule.set_enabled(replace);
+        // Wake the watchdog before this frame can start the helper that reads
+        // its health. A hosted panel is watched too.
+        watchdog_schedule.set_enabled(replace || hosted);
+        const auto instance_request = instance.poll();
+        if (instance_request == VrInstance::Request::Quit) {
+            // Another launch takes over, as Settings → Quit would end this one.
+            std::cout << "Quit requested by another launch.\n" << std::flush;
+            app.request_quit();
+            break;
+        }
         lifecycle.begin_frame({.replacement_enabled = replace,
                                .native = native,
                                .routed_remote = replacement.remote(),
                                .watchdog_stalled = replacement_stalled.exchange(false),
-                               .relaunch = instance.poll_recenter(),
+                               .relaunch = instance_request == VrInstance::Request::Recenter,
                                .dictation_hold = app.dictation_holds_panel(),
                                .now = now});
         app.set_field_needed(lifecycle.held_without_field());
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
-        if (passthrough_requests.take(replace, native, dashboard_visible)) {
+        if (!hosted && passthrough_requests.take(replace, native, dashboard_visible)) {
             std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;
             app.set_passthrough(true);
         }
-        if (app.dashboard_visibility(dashboard_visible)) {
+        if (!hosted && app.dashboard_visibility(dashboard_visible)) {
             std::cout << "Passthrough turned on to keep dictation listening.\n" << std::flush;
         }
-        const bool panel_presentable = dashboard_visible || app.passthrough();
+        // Under a shell the panel shows where the shell decides, dashboard or
+        // not; outside the dashboard the keyboard reads the controllers itself,
+        // unless the shell forwards its own pointer.
+        const bool panel_presentable = hosted || dashboard_visible || app.passthrough();
         lifecycle.dashboard_visibility(panel_presentable);
-        const bool scene = app.passthrough() && !dashboard_visible;
+        const bool scene =
+            hosted ? !dashboard_visible && !app.forwarded() : app.passthrough() && !dashboard_visible;
         if (scene != scene_input) {
             // SteamVR's laser and the passthrough pointer never share a press:
             // release everything held, keeping unfinished composition.
@@ -1737,7 +2337,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         for (std::size_t side = 0; side < 2; ++side) {
             while (resizers.poll(side, event)) {
                 if (!lifecycle.visible() || scene_input || !dashboard_visible || done ||
-                    app.quitting()) {
+                    app.quitting() || app.forwarded()) {
                     continue;
                 }
                 const auto device = event.trackedDeviceIndex;
@@ -1783,7 +2383,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             // Laser events queued before the dashboard closed belong to the
             // old pointer; the passthrough pointer owns input until it reopens.
-            if (!lifecycle.visible() || scene_input || !vr_overlay()->IsDashboardVisible()) {
+            // A forwarding shell owns every pointer; SteamVR's laser is off.
+            if (!lifecycle.visible() || scene_input || !vr_overlay()->IsDashboardVisible() ||
+                app.forwarded()) {
                 continue;
             }
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
@@ -2140,9 +2742,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (recenter_pending) {
                     dashboard_anchor = {}; // Recalibrate the mount only on an explicit reset.
                 }
+                // Hosted mode never follows the SteamOS dashboard; a recenter
+                // uses the headset fallback.
                 const auto dashboard =
-                    dashboard_anchor.update(panel.read_dashboard("valve.steam.gamepadui.main", true),
-                                            panel.read_dashboard("valve.steam.gamepadui.bar", false));
+                    hosted ? std::optional<Transform>{}
+                           : dashboard_anchor.update(
+                                 panel.read_dashboard("valve.steam.gamepadui.main", true),
+                                 panel.read_dashboard("valve.steam.gamepadui.bar", false));
                 level_dashboard = dashboard;
                 if (saved) {
                     const auto universe = panel.universe();
@@ -2197,6 +2803,35 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
                 lifecycle.present(placement.ready(), presentable(), compositor_visible, now);
+            }
+        }
+        if (anchor && shell_shown) {
+            // An anchored panel follows its overlay each frame, without repainting.
+            vr::VROverlayHandle_t handle{};
+            vr::HmdVector2_t scale{};
+            vr::HmdMatrix34_t world{};
+            const bool found =
+                vr_overlay()->FindOverlay(anchor->first.c_str(), &handle) == vr::VROverlayError_None &&
+                vr_overlay()->IsOverlayVisible(handle) &&
+                vr_overlay()->GetOverlayMouseScale(handle, &scale) == vr::VROverlayError_None &&
+                vr_overlay()->GetTransformForOverlayCoordinates(handle, vr::TrackingUniverseStanding,
+                                                                {{scale.v[0] / 2, scale.v[1] / 2}},
+                                                                &world) == vr::VROverlayError_None;
+            if (!found) {
+                std::cout << "The anchor overlay is gone; hiding the keyboard.\n" << std::flush;
+                shell_hide("anchor_lost");
+            } else {
+                Transform parent{};
+                for (std::size_t row = 0; row < 3; ++row) {
+                    for (std::size_t col = 0; col < 4; ++col) {
+                        parent[row][col] = world.m[row][col];
+                    }
+                }
+                const auto pose = compose(parent, anchor->second);
+                if (!placement.ready() || pose != placement.transform()) {
+                    placement.set_transform(pose);
+                    transform_dirty = true;
+                }
             }
         }
         if (lifecycle.visible() && placement.ready() && (transform_dirty || horizon.animating())) {
@@ -2301,6 +2936,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (motion.leaving()) {
                 end_exit();
             }
+            if (hosted) {
+                // The stall watchdog hid the panel; the shell shows it again.
+                hide_reason = "stalled";
+                shell_shown = false;
+                lifecycle.set_shell_visible(false);
+            }
         }
         if (motion.gone(now)) {
             end_exit();
@@ -2308,6 +2949,161 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             vr_overlay()->SetOverlayAlpha(panel.handle(), static_cast<float>(motion.alpha(now)));
             if (displayed.ready()) {
                 panel.place(displayed, motion.offset(now));
+            }
+        }
+        if (shell && hosted_handover_fd < 0) {
+            if (lifecycle.visible() != was_visible) {
+                was_visible = lifecycle.visible();
+                auto fields = json_ptr(json_object_new_object());
+                json_object_object_add(fields.get(), "visible", json_object_new_boolean(was_visible));
+                json_object_object_add(fields.get(), "view",
+                                       json_object_new_string(app.view_name().c_str()));
+                // Hidden while the shell still wants it shown: tracking was lost.
+                const char* reason = was_visible   ? "shell"
+                                     : shell_shown ? "tracking"
+                                                   : hide_reason.c_str();
+                json_object_object_add(fields.get(), "reason", json_object_new_string(reason));
+                shell->event("visibility", std::move(fields));
+            }
+            // Committed output for the sink, in order; never dropped.
+            if (auto* router = app.options().shell_router) {
+                for (const auto& sunk : router->take_events()) {
+                    auto fields = json_ptr(json_object_new_object());
+                    json_object_object_add(fields.get(), "seq",
+                                           json_object_new_int64(static_cast<int64_t>(sunk.seq)));
+                    json_object_object_add(fields.get(), "context",
+                                           json_object_new_string(sunk.context.c_str()));
+                    if (sunk.kind == ShellRouter::Event::Kind::Commit) {
+                        json_object_object_add(fields.get(), "text",
+                                               json_object_new_string(sunk.text.c_str()));
+                        shell->event("commit", std::move(fields));
+                    } else {
+                        json_object_object_add(fields.get(), "key",
+                                               json_object_new_string(sunk.key.c_str()));
+                        auto* modifiers = json_object_new_array();
+                        for (const auto& modifier : sunk.modifiers) {
+                            json_object_array_add(modifiers, json_object_new_string(modifier.c_str()));
+                        }
+                        json_object_object_add(fields.get(), "modifiers", modifiers);
+                        if (sunk.repeat) {
+                            json_object_object_add(fields.get(), "repeat",
+                                                   json_object_new_boolean(true));
+                        }
+                        shell->event("key", std::move(fields));
+                    }
+                }
+            }
+            for (auto& event : app.take_host_events()) {
+                if (event.telemetry) {
+                    shell->telemetry(event.name, std::move(event.fields));
+                } else {
+                    shell->event(event.name, std::move(event.fields));
+                }
+            }
+            // Movement and size, at most ten times a second.
+            if (displayed.ready() && now - geometry_at >= .1 &&
+                (!reported_geometry ||
+                 *reported_geometry != std::tuple{displayed.transform(), displayed.width()})) {
+                reported_geometry = std::tuple{displayed.transform(), displayed.width()};
+                geometry_at = now;
+                const auto view = app.geometry();
+                auto fields = json_ptr(json_object_new_object());
+                json_object_object_add(fields.get(), "width", json_object_new_double(displayed.width()));
+                json_object_object_add(
+                    fields.get(), "height",
+                    json_object_new_double(displayed.width() * texture_height / panel_width));
+                json_object_object_add(fields.get(), "matrix", matrix_json(displayed.transform()));
+                json_object_object_add(fields.get(), "keys_uv", rect_uv(panel_case_bounds(view)));
+                json_object_object_add(
+                    fields.get(), "source",
+                    json_object_new_string(drag.active() ? "user" : geometry_source.c_str()));
+                shell->telemetry("geometry", std::move(fields));
+                geometry_source = "user";
+            }
+            // The areas a forwarded pointer may use, whenever they change.
+            if (app.forwarded() && lifecycle.visible()) {
+                auto* rects = json_object_new_array();
+                for (const auto& area : pointer_areas(app.input_view())) {
+                    json_object_array_add(rects, rect_uv(area));
+                }
+                const std::string text = json_object_to_json_string_ext(rects, JSON_C_TO_STRING_PLAIN);
+                if (text != reported_regions) {
+                    reported_regions = text;
+                    auto fields = json_ptr(json_object_new_object());
+                    json_object_object_add(fields.get(), "rects", rects);
+                    shell->event("regions", std::move(fields));
+                } else {
+                    json_object_put(rects);
+                }
+            }
+            if (auto* updates = app.updates()) {
+                const auto state = updates->state();
+                if (state != reported_update || (state == Updates::State::Error &&
+                                                 updates->failure_code() != reported_update_error)) {
+                    reported_update = state;
+                    reported_update_error = updates->failure_code();
+                    auto fields = json_ptr(json_object_new_object());
+                    json_object_object_add(fields.get(), "state",
+                                           json_object_new_string(update_state_name(state)));
+                    if (!updates->latest().empty()) {
+                        json_object_object_add(fields.get(), "latest",
+                                               json_object_new_string(updates->latest().c_str()));
+                    }
+                    if (state == Updates::State::Error) {
+                        json_object_object_add(
+                            fields.get(), "error",
+                            json_object_new_string(update_error_code(updates->failure_code()).c_str()));
+                    }
+                    shell->event("update", std::move(fields));
+                    if (check_request && state != Updates::State::Checking) {
+                        if (state == Updates::State::Error) {
+                            shell->fail(*check_request, update_error_code(updates->failure_code()),
+                                        "The update check failed.");
+                        } else {
+                            auto result = json_ptr(json_object_new_object());
+                            // Up to date: the newest stable release is this one.
+                            json_object_object_add(
+                                result.get(), "latest",
+                                json_object_new_string(updates->latest().empty()
+                                                           ? FRAMEKEYBOARD_VERSION
+                                                           : updates->latest().c_str()));
+                            json_object_object_add(
+                                result.get(), "available",
+                                json_object_new_boolean(state == Updates::State::Available));
+                            shell->respond(*check_request, std::move(result));
+                        }
+                        check_request.reset();
+                    }
+                }
+                // Activation waits for idleness, checked just before it, and
+                // for the shell's last message (docs/integration.md, Handover).
+                if (handover.ask(
+                        now, app.update_waiting() &&
+                                 (update_when == "now" || (!lifecycle.visible() && !motion.leaving() &&
+                                                           app.idle_for_update())))) {
+                    auto fields = json_ptr(json_object_new_object());
+                    json_object_object_add(fields.get(), "state", json_object_new_string("quiesce"));
+                    shell->event("update", std::move(fields));
+                }
+                if (handover.expired(now)) {
+                    // No `quiesced` in time: postponed, back to prepared.
+                    auto fields = json_ptr(json_object_new_object());
+                    json_object_object_add(fields.get(), "state", json_object_new_string("prepared"));
+                    shell->event("update", std::move(fields));
+                }
+            }
+            if (previews && preview_request) {
+                if (auto rendered = previews->take()) {
+                    if (rendered->error.empty()) {
+                        auto fields = json_ptr(json_object_new_object());
+                        json_object_object_add(fields.get(), "path",
+                                               json_object_new_string(rendered->path.c_str()));
+                        shell->respond(*preview_request, std::move(fields));
+                    } else {
+                        shell->fail(*preview_request, "failed", "The preview could not be rendered.");
+                    }
+                    preview_request.reset();
+                }
             }
         }
         // A hidden resident must remain ready for the next summon, including one that
@@ -2336,7 +3132,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             update_startup_ready(completed);
         }
         replacement.frame_completed();
-        replacement_watched.store(replace && lifecycle.visible());
+        replacement_watched.store((replace || hosted) && lifecycle.visible());
+        if (shell) {
+            shell->frame_completed(completed); // pings are answered only here
+        }
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
@@ -2344,6 +3143,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const auto period = std::chrono::microseconds(smooth ? 16667 : 250000);
         if (smooth) {
             std::this_thread::sleep_until(frame_started + period);
+        } else if (shell && shell->fd() >= 0) {
+            // Hidden under a shell: a request wakes the loop at once.
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                frame_started + period - std::chrono::steady_clock::now());
+            pollfd descriptor{shell->fd(), POLLIN, 0};
+            ::poll(&descriptor, 1, static_cast<int>(std::max<std::int64_t>(0, remaining.count())));
         } else {
             replacement.wait_until(frame_started + period);
         }
@@ -2371,6 +3176,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     if (!placement.ready()) {
         std::cout << "No valid headset pose; panel was not shown.\n";
     }
-    return 0;
+    return exit_status;
 }
 } // namespace framekeyboard

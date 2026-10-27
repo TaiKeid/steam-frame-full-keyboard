@@ -14,6 +14,8 @@
 #include "placement.hpp"
 #include "settings_ui.hpp"
 #include "settings_writer.hpp"
+#include "shell_protocol.hpp"
+#include "shell_sink.hpp"
 #include "swipe.hpp"
 #include <atomic>
 #include <csignal>
@@ -45,6 +47,15 @@ struct Options {
     bool start_enabled{false};
     bool autostart{};
     bool background_update{};
+    // Launched by a shell with `--hosted FD` (docs/integration.md): the
+    // inherited control connection, the process's number on it, and the
+    // failure code of an update that rolled back to this process.
+    int hosted_fd{-1};
+    std::uint64_t hosted_session{1};
+    std::string last_update;
+    // The text sink between the output queue and the input backend; set
+    // only for a hosted launch.
+    ShellRouter* shell_router{};
     // Tests replace the optional swipe engine module; empty uses the installed one.
     SwipeEncoderFactory swipe_encoder;
     // Tests capture typed text here instead of the output queue; null uses the queue.
@@ -139,19 +150,21 @@ class App {
     bool dictation_helper_running() const { return dictation_ && dictation_->running(); }
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
     bool auto_leveling() const { return settings_.auto_leveling; }
-    bool replace_native_keyboard() const { return settings_.replace_native_keyboard; }
-    bool start_with_steamos() const {
-        return settings_.replace_native_keyboard && settings_.start_with_steamos;
-    }
+    // Standalone-only: a hosted keyboard never replaces Steam's or starts at boot.
+    bool replace_native_keyboard() const { return settings_.replace_native_keyboard && !hosted(); }
+    bool start_with_steamos() const { return replace_native_keyboard() && settings_.start_with_steamos; }
+    // A hosted keyboard starts hidden too: only its shell shows it.
     bool background_start() const {
-        return options_.autostart || (options_.background_update && settings_.replace_native_keyboard);
+        return hosted() || options_.autostart ||
+               (options_.background_update && settings_.replace_native_keyboard);
     }
     bool replacement_ready() const;
     // Fixed diagnostic text for why replacement_ready() is false.
     const char* replacement_block() const;
     bool take_native_fallback();
+    // X hides instead of exiting: with replacement, or under a shell.
     bool resident_replacement() const {
-        return options_.mode == Mode::Vr && settings_.replace_native_keyboard;
+        return options_.mode == Mode::Vr && (settings_.replace_native_keyboard || hosted());
     }
     void close_panel();
     bool take_dismissal();
@@ -171,8 +184,12 @@ class App {
     // speak stops when it changes: its phrases belong to the old field.
     void set_native_request(std::uint64_t request);
     bool allows_movement(MoveSource source) const {
-        // Corner resizers work in either movement mode; only the pin locks them.
-        return !pinned() &&
+        // Corner resizers work in either movement mode; only the pin locks
+        // them, or a shell's lock or forwarded pointer.
+        if (source == MoveSource::Resize ? locked_resize() : locked_move()) {
+            return false;
+        }
+        return !pinned() && !forwarded() &&
                (source == MoveSource::Resize || use_drag_to_move() == (source == MoveSource::Grip));
     }
     void summon();
@@ -216,9 +233,132 @@ class App {
     PanelRenderer renderer;
     const Selection& selection() const { return settings_.active; }
 
+    // Shell integration (docs/integration.md), in app_host.cpp. A hosted
+    // keyboard takes these from its shell; a standalone one never does.
+    bool hosted() const { return options_.mode == Mode::Vr && options_.hosted_fd >= 0; }
+    const Options& options() const { return options_; }
+    bool dictation_model_ready() const { return model_ready(settings_.dictation_device_model); }
+    Updates* updates() const { return updates_; }
+    struct HostHints {
+        std::string purpose{"text"}, enter{"enter"}, autocapitalize{"sentences"}, language;
+    };
+    struct HostChrome {
+        bool close{true}, settings{true}, move{true}, resize{true}, favorites{true};
+    };
+    struct HostEvent {
+        std::string name;
+        JsonPtr fields{nullptr, json_object_put};
+        bool telemetry{}; // the latest value replaces an unsent one
+    };
+    // Checks hints without applying them: an error code and the field.
+    std::pair<std::string, std::string> check_hints(const HostHints& hints) const;
+    // Ends everything addressed to the old context (held keys, queued and
+    // retried output, composition, swipe results, Type as I speak phrases),
+    // then the new context and its hints take effect together.
+    void set_context(std::optional<std::string> context, const HostHints& hints);
+    void set_context(std::optional<std::string> context) {
+        set_context(std::move(context), HostHints{});
+    }
+    const std::optional<std::string>& context() const { return host_.context; }
+    bool sink_on() const { return options_.shell_router && options_.shell_router->on(); }
+    // Cancels through the old destination first. `client` is shown in the
+    // case while the sink is on.
+    void set_sink(bool on, const std::string& client = {});
+    // The shown view: keyboard, emoji, dictation or settings.
+    std::string view_name() const;
+    // Empty on success, else an error code: `composing` when the change
+    // would commit unfinished input, `unavailable` when the view cannot open.
+    std::string show_view(const std::string& view);
+    void set_chrome(const HostChrome& chrome);
+    void set_locks(bool move, bool resize);
+    bool locked_move() const { return host_.lock_move || !host_.chrome.move; }
+    bool locked_resize() const { return host_.lock_resize || !host_.chrome.resize; }
+    // A shell forwards its own pointer; native sources and the move line are off.
+    void set_forwarded(bool on);
+    bool forwarded() const { return host_.forwarded; }
+    JsonPtr host_settings() const;
+    // All or nothing: an error code and the key, or empty on success.
+    std::pair<std::string, std::string> host_settings_set(json_object* values, std::int64_t request);
+    std::string host_select(const std::string& layout, const std::string& language,
+                            const std::string& favorite, std::int64_t request);
+    JsonPtr host_profiles() const;
+    std::string host_theme_select(const std::string& id, std::int64_t request);
+    // An error code and the field, or empty on success.
+    std::pair<std::string, std::string> host_theme_set(const std::string& json);
+    void host_theme_reset();
+    JsonPtr host_theme() const;
+    JsonPtr host_dictation() const;
+    // dictation.start, dictation.stop, dictation.test_server, dictation.model.
+    std::pair<std::string, JsonPtr> host_dictation_request(const std::string& op, json_object* body);
+    JsonPtr host_state() const;
+    // Nothing unfinished that an update could lose (docs/integration.md, Idle).
+    bool idle_for_update() const;
+    // A hosted update is prepared and waits for the shell's handover.
+    bool update_waiting() const { return hosted() && updating() && !quit_; }
+    // Activation: unsent dictation is dropped, never committed, then the loop ends.
+    void activate_update();
+    // Settings → Quit, `quit-v1` and the shell's connection closing.
+    void request_quit() { quit_ = true; }
+    std::vector<HostEvent> take_host_events() { return std::exchange(host_.events, {}); }
+    // X in hosted mode: the shell decides whether to show the panel again.
+    bool take_user_hide() { return std::exchange(host_.user_hide, false); }
+
   private:
     std::vector<Control> controls() const;
     PanelView build_view(bool picker) const;
+    // Hidden by the setting, unless a number hint shows it for the context.
+    bool numpad_hidden() const { return settings_.hide_numpad && !host_.numpad_shown; }
+    // A launch that cannot type: the desktop preview, or `--input none`
+    // without the shell's text sink.
+    bool preview_input() const { return options_.input == InputBackend::None && !sink_on(); }
+    // What the context's purpose rules out (docs/integration.md, Hints).
+    bool hint_private() const {
+        return host_.context && (host_.hints.purpose == "password" || host_.hints.purpose == "pin");
+    }
+    bool hint_no_autospace() const {
+        return host_.context && (host_.hints.purpose == "email" || host_.hints.purpose == "url" ||
+                                 host_.hints.purpose == "terminal");
+    }
+    bool hint_no_suggestions() const {
+        return hint_private() || (host_.context && host_.hints.purpose == "terminal");
+    }
+    // Applies the context's autocapitalize hint to dictated or swiped text.
+    std::string hint_case(std::string text) const;
+    void host_event(const std::string& name, JsonPtr fields, bool telemetry = false);
+    // Reports what a change of settings changed, with its source.
+    void host_settings_changed(const Settings& before, const char* source);
+    void host_tick(double now);
+    // The shell's theme, kept under this ID while it is active; never saved.
+    static constexpr const char* shell_theme_id = "shell";
+    struct HostState {
+        std::optional<std::string> context;
+        HostHints hints;
+        // A hinted language replaced this selection until the context ends.
+        std::optional<Selection> before_language;
+        std::string hinted_language;
+        std::optional<bool> num_before; // Num Lock before a number hint
+        bool numpad_shown{};
+        HostChrome chrome;
+        bool lock_move{}, lock_resize{}, forwarded{};
+        bool user_hide{};
+        std::optional<Theme> theme; // the shell's own theme, never saved
+        std::string theme_before;   // the installed theme it replaced
+        std::string sink_client;    // shown while the sink is on
+        bool test_by_shell{};       // the Test in flight was the shell's
+        std::string test_reported;
+        double level_at{};
+        std::vector<HostEvent> events;
+        // The highest protocol request whose settings write is not yet
+        // reported. A save result arrives only once nothing newer is pending,
+        // so it covers every write queued before it.
+        std::int64_t unsaved_request{-1};
+        // The last reported dictation state, so only changes are sent.
+        std::string dictation_state;
+        int dictation_level{-1};
+        std::string dictation_error;
+        std::uint64_t download_bytes{};
+        bool download_reported{};
+    } host_;
     void update_settings_ui();
     void activate(Selection selection);
     void save();
@@ -247,7 +387,7 @@ class App {
     bool text_key(const Key& key, const std::set<int>& mods) const;
     // Swipe typing. Decoding runs on SwipeService's worker; App alone sends text.
     bool swipe_supported(const std::string& language) const;
-    bool swipe_enabled() const { return swipe_ && swipe_keyboard_; }
+    bool swipe_enabled() const { return swipe_ && swipe_keyboard_ && !hint_private(); }
     void prepare_swipe();
     bool swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
                     const std::set<int>& mods);
@@ -685,6 +825,9 @@ class App {
 
 double monotonic_seconds();
 extern volatile std::sig_atomic_t interrupted;
+// The shell's control descriptor, kept open past the VR loop for a hosted
+// update's handover; -1 otherwise.
+extern int hosted_handover_fd;
 int run_preview(App& app, double duration);
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration);
 } // namespace framekeyboard
