@@ -138,14 +138,21 @@ bool PreviewRenderer::start(Request request) {
     if (worker_.joinable()) {
         worker_.join();
     }
+    {
+        // The previous worker has ended, so its result is final.
+        std::lock_guard lock(mutex_);
+        result_.reset();
+    }
     worker_ = std::thread([this, request = std::move(request)] { run(request); });
     return true;
 }
 
-std::optional<PreviewRenderer::Result> PreviewRenderer::take() {
+std::optional<PreviewRenderer::Result> PreviewRenderer::take(std::int64_t id) {
     std::lock_guard lock(mutex_);
-    auto result = std::move(result_);
-    result_.reset();
+    auto result = std::exchange(result_, std::nullopt);
+    if (result && result->id != id) {
+        return std::nullopt;
+    }
     return result;
 }
 

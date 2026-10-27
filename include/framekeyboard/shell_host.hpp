@@ -92,13 +92,15 @@ class PreviewRenderer {
         // Pixels wide, 64 to 2048; zero keeps the panel's own width.
         int width{};
     };
-    // False while another render runs.
+    // False while another render runs. A finished render nobody took, such
+    // as one failed during an update handover, is dropped.
     bool start(Request request);
     struct Result {
         std::int64_t id{};
         std::string path, error;
     };
-    std::optional<Result> take();
+    // The result for request `id` once it is ready; any other is dropped.
+    std::optional<Result> take(std::int64_t id);
 
   private:
     void run(Request request);

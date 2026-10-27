@@ -445,7 +445,7 @@ void preview_tests() {
         require(previews.start(request), "a render starts");
         require(!previews.start(request), "one render at a time");
         for (int i = 0; i < 600; ++i) {
-            if (auto result = previews.take()) {
+            if (auto result = previews.take(request.id)) {
                 return *result;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -478,6 +478,26 @@ void preview_tests() {
         request.theme = "missing";
         request.theme_json.clear();
         require(!render(previews, request).error.empty(), "an unknown theme is an error");
+
+        // A render failed during an update handover finishes untaken; the
+        // next request gets its own preview, never that one.
+        request.theme = "graphite";
+        request.id = 10;
+        request.width = 400;
+        require(previews.start(request), "the first render starts");
+        request.id = 11;
+        request.width = 800;
+        for (int i = 0; i < 600 && !previews.start(request); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        std::optional<PreviewRenderer::Result> handed;
+        for (int i = 0; i < 600 && !(handed = previews.take(11)); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        require(handed && handed->id == 11 && handed->error.empty(), "the second request gets a result");
+        cairo_surface_t* second = cairo_image_surface_create_from_png(handed->path.c_str());
+        require(cairo_image_surface_get_width(second) == 800, "its own, at its own width");
+        cairo_surface_destroy(second);
     }
     require(!std::filesystem::exists(directory / "preview-0.png"),
             "previews go when the keyboard exits");

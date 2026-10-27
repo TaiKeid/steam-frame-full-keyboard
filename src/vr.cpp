@@ -3163,7 +3163,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
             if (previews && preview_request) {
-                if (auto rendered = previews->take()) {
+                if (auto rendered = previews->take(*preview_request)) {
                     if (rendered->error.empty()) {
                         auto fields = json_ptr(json_object_new_object());
                         json_object_object_add(fields.get(), "path",
