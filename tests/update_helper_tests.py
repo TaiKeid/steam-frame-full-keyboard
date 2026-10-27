@@ -701,6 +701,29 @@ class Protocol(unittest.TestCase):
         control.close()
         shell.close()
 
+    def test_a_hosted_prepared_install_outlives_the_two_minute_limit(self):
+        client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        selected = {"tag": "9.0.0", "parts": (9, 0, 0)}
+        offset = [0.0]
+        real = time.monotonic
+        class FakeInstallation:
+            def __init__(self, executable): pass
+            def prepare(self, release, progress, protocol=None): pass
+            def close(self): pass
+        thread = threading.Thread(target=lambda: u.serve(server, "/unused", "0.6.0", []))
+        with patch.object(u, "release", return_value=selected), patch.object(u, "Installation", FakeInstallation), \
+             patch.object(u.time, "monotonic", side_effect=lambda: real() + offset[0]):
+            thread.start()
+            client.settimeout(2)
+            client.send(b'{"op":"install","protocol":1}')
+            self.assertEqual(json.loads(client.recv(2048))["state"], "prepared")
+            offset[0] = 500  # far past the standalone limit
+            time.sleep(2.5)
+            self.assertTrue(thread.is_alive(), "the staged package waits for the shell's handover")
+            client.close()
+            thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+
     def test_failure_reasons_are_fixed_and_logged_before_restart(self):
         private = "https://private.example/secret"
         failures = [

@@ -50,6 +50,9 @@ class Updates {
     void fail(double now, const std::string& reason = {});
     std::string version_, offer_, progress_, failure_, reason_;
     std::uint64_t done_{}, total_{};
+    // Installed for a shell, whose keyboard waits for idleness while
+    // Prepared: losing the helper then must not leave Prepared behind.
+    bool hosted_install_{};
     std::vector<std::string> arguments_;
     std::filesystem::path helper_;
     State state_{State::Idle};

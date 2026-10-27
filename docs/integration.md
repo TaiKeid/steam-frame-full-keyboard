@@ -260,7 +260,8 @@ Shells update the keyboard together with themselves, without showing anything to
 - `update.check` answers once the check is done: `{"latest":"0.10.1","available":true}`, or a failure reason. Up to date, `latest` is the running version. It uses the same fixed-repository check as Settings, and never downloads.
 - `update.install` installs the newest stable release, or the exact stable `version` given. Pinning lets a shell ship with a keyboard version it has tested. The helper already fetches exact tags. Drafts and prereleases are still rejected. Before activation, the helper checks that the package supports the protocol version in use, or fails with `incompatible`.
 - Verification, staging, startup confirmation and rollback are the same as [updates from Settings](updates.md). The keyboard shows no update UI for shell-requested updates, and the Settings button shows only status.
-- `update` events report `checking`, `available`, `downloading` (with `bytes` and `total` of the archive, coalesced, reported every 256 KiB), `prepared`, `quiesce` and `restarting`. Failures report the same short reason codes as Settings (`network`, `rate_limit`, `checksum`, `locked`, `disk`, `invalid_package`), plus `incompatible`.
+- `update` events report `checking`, `available`, `downloading` (with `bytes` and `total` of the archive, coalesced, reported every 256 KiB), `prepared`, `quiesce` and `restarting`. Failures report the same short reason codes as Settings (`network`, `rate_limit`, `checksum`, `locked`, `disk`, `invalid_package`), plus `incompatible`, and `expired` when the prepared package was lost; the shell may install again.
+- A prepared update for a shell waits for idleness as long as it takes; its staged package is kept until the handover or `update.cancel`.
 
 ### Idle
 

@@ -691,6 +691,7 @@ def serve(peer, executable, current, arguments):
     identity = parent_identity(parent)
     installation = None
     prepared_at = None
+    hosted_install = False
 
     def send(state, **values):
         peer.sendall(json.dumps(dict(state=state, **values)).encode())
@@ -701,7 +702,9 @@ def serve(peer, executable, current, arguments):
             try:
                 packet, ancillary, flags, _ = peer.recvmsg(2048, socket.CMSG_SPACE(2 * array_int_size))
             except socket.timeout:
-                if prepared_at and time.monotonic() - prepared_at > 120:
+                # A shell's keyboard may wait for idleness indefinitely before
+                # its handover; the package stays until it is used or cancelled.
+                if prepared_at and not hosted_install and time.monotonic() - prepared_at > 120:
                     return
                 continue
             fds = []
@@ -748,6 +751,7 @@ def serve(peer, executable, current, arguments):
                     protocol = command.get("protocol")
                     if protocol is not None and type(protocol) is not int:
                         raise UpdateError("invalid-command")
+                    hosted_install = protocol is not None
                     installation = Installation(executable)
                     installation.downloaded = lambda done, total: send("progress", phase="download",
                                                                        done=done, total=total)

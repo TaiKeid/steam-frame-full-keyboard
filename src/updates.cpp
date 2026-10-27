@@ -57,6 +57,7 @@ std::string failure_message(const std::string& code) {
         {"permission-denied", "The installation is not writable."},
         {"files-unavailable", "Update files could not be read or written."},
         {"helper-unavailable", "The update helper could not start."},
+        {"prepared-expired", "The prepared update is no longer available. Try again."},
         {"connection-lost", "The update helper connection was lost."}};
     for (const auto& [reason, message] : reasons) {
         if (code == reason) {
@@ -255,6 +256,7 @@ bool Updates::install(double now, const std::string& version, int protocol) {
     progress_.clear();
     reason_.clear();
     done_ = total_ = 0;
+    hosted_install_ = true;
     return true;
 }
 bool Updates::cancel(double now) {
@@ -284,6 +286,11 @@ bool Updates::tick(double now) {
             fd_ = -1;
             if (!prepared()) {
                 fail(now, "connection-lost");
+            } else if (hosted_install_) {
+                // The helper owned the staged package; without it there is
+                // nothing to activate. The shell may install again.
+                stop();
+                fail(now, "prepared-expired");
             }
             break;
         }

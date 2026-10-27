@@ -226,7 +226,11 @@ while True:
         value={'state':'latest'} if mode=='latest' else {'state':'available','version':'9.0.0'}
         peer.send(json.dumps(value).encode())
     elif command['op']=='install':
-        assert command['version']=='9.0.0'
+        assert command.get('version','9.0.0')=='9.0.0'
+        if mode=='hosted-expire':
+            assert command['protocol']==1 and 'version' not in command
+            peer.send(b'{"state":"prepared"}')
+            break
         if mode in ('failure','unknown-failure'):
             peer.send(json.dumps({'state':'error','reason':'checksum-failed' if mode=='failure' else 'untrusted exception text'}).encode())
         else:
@@ -237,6 +241,23 @@ while True:
         peer.send(json.dumps({'state':'activated' if mode=='supervised' else 'error'}).encode())
         break
 )PY";
+        {
+            // A shell's install: losing the helper while Prepared is a failure
+            // the shell can retry, never a Prepared that cannot activate.
+            Updates updates("0.6.0", {"hosted-expire"}, helper);
+            require(updates.install(10, "", 1), "a shell can install the newest release");
+            for (int i = 0; i < 400 && !updates.prepared(); ++i) {
+                updates.tick(10);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            for (int i = 0; i < 400 && updates.prepared(); ++i) {
+                updates.tick(11);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            require(updates.state() == Updates::State::Error &&
+                        updates.failure_code() == "prepared-expired" && !updates.busy(),
+                    "the lost package is reported and a new install may start");
+        }
         for (const auto mode : {"supervised", "supervised-error"}) {
             Updates updates("0.6.0", {mode}, helper);
             updates.click(10);

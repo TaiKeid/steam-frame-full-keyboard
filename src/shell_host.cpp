@@ -109,6 +109,9 @@ std::string update_error_code(const std::string& reason) {
     if (reason == "incompatible") {
         return "incompatible";
     }
+    if (reason == "prepared-expired" || reason == "connection-lost" || reason == "helper-unavailable") {
+        return "expired";
+    }
     if (reason == "invalid-release" || reason == "download-failed" || reason == "version-mismatch" ||
         reason == "validation-failed" || reason == "wrong-platform" ||
         reason == "not-installed-release") {
