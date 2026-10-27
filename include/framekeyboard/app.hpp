@@ -333,6 +333,9 @@ class App {
     void address_key(const std::string& key);
     // The Dictation card's connection line: empty until Test runs.
     std::string dictation_test_;
+    // The address the Test in flight checks: one at a time, and its answer
+    // labels and remembers only that address.
+    std::optional<std::string> testing_server_;
     void test_dictation_server();
     bool native_fallback_{};
     bool replacement_available_{};

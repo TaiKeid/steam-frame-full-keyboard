@@ -553,7 +553,7 @@ void App::update_settings_ui() {
     test.note = dictation_test_.empty()
                     ? (pending_dictation_server_.empty() ? "No server set" : "Not tested")
                     : dictation_test_;
-    test.enabled = !pending_dictation_server_.empty();
+    test.enabled = !pending_dictation_server_.empty() && !testing_server_;
     // On device (docs/dictation.md, On-device recognition): the model's row,
     // its development format and the warning for weaker languages.
     std::vector<SettingField> dictation_fields{
@@ -4263,24 +4263,34 @@ void App::dictation_event(const Dictation::Event& event, double now) {
     case Kind::Test:
         // Only the Dictation card's Test asks. The line under the row label is
         // narrow, so the answer is a word or two.
-        if (event.ok && valid_dictation_server(pending_dictation_server_)) {
-            // A server that answered becomes the first of the recent ones.
-            auto& recent = settings_.dictation_recent_servers;
-            std::erase(recent, pending_dictation_server_);
-            recent.insert(recent.begin(), pending_dictation_server_);
-            recent.resize(std::min<std::size_t>(recent.size(), 5));
-            save();
+        {
+            const auto tested = testing_server_.value_or(pending_dictation_server_);
+            testing_server_.reset();
+            if (event.ok && valid_dictation_server(tested)) {
+                // A server that answered becomes the first of the recent ones.
+                auto& recent = settings_.dictation_recent_servers;
+                std::erase(recent, tested);
+                recent.insert(recent.begin(), tested);
+                recent.resize(std::min<std::size_t>(recent.size(), 5));
+                save();
+            }
+            if (tested != pending_dictation_server_) {
+                // The address changed while it ran: the new one is still untested.
+                update_settings_ui();
+                dirty = true;
+                break;
+            }
+            dictation_test_ = event.ok                           ? "Reachable"
+                              : event.reason == "timeout"        ? "No answer"
+                              : event.reason == "server-error"   ? "Server error"
+                              : event.reason == "bad-reply"      ? "Bad reply"
+                              : event.reason == "helper-exited"  ? "Helper stopped"
+                              : event.reason == "not-configured" ? "No server set"
+                                                                 : "Unreachable";
+            update_settings_ui();
+            dirty = true;
+            break;
         }
-        dictation_test_ = event.ok                           ? "Reachable"
-                          : event.reason == "timeout"        ? "No answer"
-                          : event.reason == "server-error"   ? "Server error"
-                          : event.reason == "bad-reply"      ? "Bad reply"
-                          : event.reason == "helper-exited"  ? "Helper stopped"
-                          : event.reason == "not-configured" ? "No server set"
-                                                             : "Unreachable";
-        update_settings_ui();
-        dirty = true;
-        break;
     }
 }
 
@@ -4397,7 +4407,7 @@ void App::delete_model(const std::string& model) {
 }
 
 void App::test_dictation_server() {
-    if (pending_dictation_server_.empty()) {
+    if (pending_dictation_server_.empty() || testing_server_) {
         return;
     }
     dictation();
@@ -4407,7 +4417,12 @@ void App::test_dictation_server() {
     target.server = pending_dictation_server_;
     target.model = settings_.dictation_model;
     target.language = profiles_.languages.at(settings_.active.language).dictation_language;
-    dictation_test_ = dictation_->test(target) ? "Testing…" : "Helper stopped";
+    if (dictation_->test(target)) {
+        testing_server_ = pending_dictation_server_;
+        dictation_test_ = "Testing…";
+    } else {
+        dictation_test_ = "Helper stopped";
+    }
     update_settings_ui();
     dirty = true;
 }
@@ -4420,8 +4435,7 @@ bool App::tick_dictation(double now) {
     // The helper watches for the keep-alive only while it captures or has
     // phrases or a test in hand; otherwise neither process needs to wake. It
     // goes on a few seconds longer, so no transition can miss it.
-    if (capturing_ || phrases_pending() || awaiting_pause_ || send_wait_since_ ||
-        dictation_test_ == "Testing…") {
+    if (capturing_ || phrases_pending() || awaiting_pause_ || send_wait_since_ || testing_server_) {
         alive_until_ = now + 5;
     }
     dictation_->tick(now, now < alive_until_);

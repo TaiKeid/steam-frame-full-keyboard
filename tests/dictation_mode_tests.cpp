@@ -284,6 +284,9 @@ while True:
         send(op="paused")
         continue
     if op == "test":
+        if scenario == "slowtest":
+            import time
+            time.sleep(0.5)  # the address is edited before the answer comes
         send(op="test", ok=scenario != "fail", **({} if scenario != "fail" else {"reason": "unreachable"}))
         continue
     if op == "configure":
@@ -1809,6 +1812,41 @@ void microphone_tests() {
     require(app.view().status.empty(), "and it goes when listening stops");
 }
 
+// A Test answers for the address it checked: editing the field meanwhile
+// leaves the new address untested, and only the tested one is remembered.
+void test_race_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "slowtest");
+    Sink sink;
+    App app(options, sink);
+    app.show_settings();
+    click(app, "dictation-test");
+    require(field_label(app, "Testing…") && !control_enabled(app, "dictation-test"),
+            "one Test runs at a time");
+    click(app, "dictation-server");
+    for (int i = 0; i < 9; ++i) {
+        click(app, "address-key-backspace");
+    }
+    for (char c : std::string("10.0.0.2")) {
+        click(app, std::string("address-key-") + c);
+    }
+    click(app, "address-key-enter");
+    require(!app.view().address && field_label(app, "Not tested"), "a new address is untested");
+    wait_until(app, [&] { return control_enabled(app, "dictation-test"); });
+    require(field_label(app, "Not tested"), "the old address's answer does not label the new one");
+    app.flush_settings();
+    std::vector<std::string> errors;
+    require(load_settings(directory.path, errors).dictation_recent_servers ==
+                std::vector<std::string>{"127.0.0.1"},
+            "only the address that answered is remembered");
+}
+
 // Correcting dictated text uses the layout's dead accents, as the keyboard does.
 void accent_tests() {
     TemporaryDirectory directory;
@@ -2095,6 +2133,7 @@ int main() {
         microphone_tests();
         away_tests();
         accent_tests();
+        test_race_tests();
         send_during_reveal_tests();
         direct_esc_tests();
         direct_to_editor_tests();
