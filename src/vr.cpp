@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/resizer.hpp"
 #include "framekeyboard/updates.hpp"
@@ -1156,12 +1157,14 @@ class VrPanel {
         }
         return dashboard_anchor(from_vr(world));
     }
-    void place(const PanelPlacement& placement) {
+    // `rise` moves the panel along its own up axis, for its entrance and exit.
+    void place(const PanelPlacement& placement, double rise = 0) {
         const auto world = placement.transform();
         vr::HmdMatrix34_t transform{};
         for (std::size_t row = 0; row < 3; ++row) {
             for (std::size_t col = 0; col < 4; ++col) {
-                transform.m[row][col] = static_cast<float>(world[row][col]);
+                transform.m[row][col] =
+                    static_cast<float>(world[row][col] + (col == 3 ? rise * world[row][1] : 0));
             }
         }
         check(
@@ -1385,6 +1388,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool recenter_pending = !saved, transform_dirty = false;
     std::uint64_t placement_universe = 0;
     PanelPlacement placement, displayed;
+    // The panel's fade in and out (panel_motion.hpp). An exit keeps the overlay
+    // shown, without input, until it has faded; fallback and shutdown cut it.
+    PanelMotion motion;
+    bool cut_exit = false;
+    auto end_exit = [&] {
+        motion.cut();
+        check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard");
+    };
     if (saved) {
         // Size survives tracking-space changes, including a reset event before
         // the first valid head pose. Restore the world pose only after checking its universe.
@@ -1462,7 +1473,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 [&] {
                     app.panel_hidden();
                     resizers.hide();
-                    check(vr_overlay()->HideOverlay(panel.handle()), "Hide keyboard");
+                    if (cut_exit) {
+                        end_exit();
+                    } else {
+                        motion.hide(monotonic_seconds());
+                    }
                 },
             .route_input = [&](bool remote) { replacement.route(remote); },
             .set_interaction = [&](bool active) { app.set_interaction_active(active); },
@@ -1470,6 +1485,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 [&](double now) {
                     app.paint(now);
                     panel.submit(app.renderer, app.view());
+                    motion.show(now);
+                    vr_overlay()->SetOverlayAlpha(panel.handle(), static_cast<float>(motion.alpha(now)));
+                    if (displayed.ready()) {
+                        panel.place(displayed, motion.offset(now));
+                    }
                     check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     std::cout << "Full Keyboard overlay visible.\n" << std::flush;
                 },
@@ -1516,7 +1536,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!displayed.ready() || aligned != displayed.transform() ||
             placement.width() != displayed.width() || transform_dirty) {
             displayed.restore(aligned, placement.width());
-            panel.place(displayed);
+            panel.place(displayed, motion.offset(now));
             transform_dirty = false;
         }
     };
@@ -2247,7 +2267,21 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             fallback = true;
         }
         if (fallback) {
+            // Steam's own keyboard takes over at once; ours must not linger over it.
+            cut_exit = true;
             lifecycle.fallback();
+            cut_exit = false;
+            if (motion.leaving()) {
+                end_exit();
+            }
+        }
+        if (motion.gone(now)) {
+            end_exit();
+        } else if (motion.animating(now)) {
+            vr_overlay()->SetOverlayAlpha(panel.handle(), static_cast<float>(motion.alpha(now)));
+            if (displayed.ready()) {
+                panel.place(displayed, motion.offset(now));
+            }
         }
         // A hidden resident must remain ready for the next summon, including one that
         // opens the dashboard. Presentation is acknowledged separately for each request.
@@ -2279,14 +2313,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
-        const auto period = std::chrono::microseconds(lifecycle.visible() ? 16667 : 250000);
-        if (lifecycle.visible()) {
+        const bool smooth = lifecycle.visible() || motion.leaving();
+        const auto period = std::chrono::microseconds(smooth ? 16667 : 250000);
+        if (smooth) {
             std::this_thread::sleep_until(frame_started + period);
         } else {
             replacement.wait_until(frame_started + period);
         }
     }
+    cut_exit = true;
     hide_panel();
+    if (motion.leaving()) {
+        end_exit();
+    }
     replacement_watched.store(false);
     if (app.updating() && !interrupted) {
         replacement.shutdown_for_update();

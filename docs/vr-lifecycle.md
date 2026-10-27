@@ -25,7 +25,12 @@ or callbacks.
 5. Recenter/show requests survive temporarily closed dashboards and missing
    tracking. Tracking recovery restores readiness without reviving a dismissed
    or expired request. Background startup stays hidden until requested.
-6. Focus or tracking-space loss cancels input and movement. Losing one pointer
+6. The panel fades in over 0.18 s while rising 2 cm into place, and fades out
+   over 0.12 s while settling 1 cm. Only the overlay's opacity and position
+   change, so no frame is repainted. Hiding ends input at once; the fading panel
+   takes none. Native fallback, the stall watchdog and shutdown hide it at once,
+   so it never lingers over Steam's own keyboard.
+7. Focus or tracking-space loss cancels input and movement. Losing one pointer
    device releases that device's keys without releasing the other hand. A lost
    movement owner ends movement; an unrelated device loss or laser leave does
    not end a valid movement capture.

@@ -1,6 +1,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/feedback.hpp"
 #include "framekeyboard/grip.hpp"
+#include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/resizer.hpp"
 #include <fstream>
@@ -1183,6 +1184,32 @@ void resizer_tests() {
     near(fade.update(1, 11.2), 1, "releasing near the laser keeps it opaque");
     fade.reset();
     near(fade.value(), 0, "reset hides immediately");
+
+    fk::PanelMotion motion;
+    motion.show(20);
+    near(motion.alpha(20), 0, "the panel enters from transparent");
+    near(motion.offset(20), -fk::PanelMotion::enter_rise, "and from below its place");
+    require(motion.animating(20.09) && motion.alpha(20.09) > .8, "the entrance eases out");
+    near(motion.alpha(20.18), 1, "the entrance takes 0.18 s");
+    near(motion.offset(20.18), 0, "and ends in place");
+    require(!motion.animating(20.2) && !motion.leaving(), "a shown panel is still");
+    motion.show(21);
+    near(motion.alpha(21), 1, "showing a shown panel changes nothing");
+    motion.hide(22);
+    require(motion.leaving() && !motion.gone(22.06), "the exit keeps the overlay shown");
+    require(motion.alpha(22.06) > .8, "the exit eases in");
+    require(motion.gone(22.12) && motion.alpha(22.12) < 1e-9, "the exit takes 0.12 s");
+    near(motion.offset(22.12), -fk::PanelMotion::exit_sink, "and settles slightly");
+    motion.cut();
+    motion.hide(23);
+    motion.show(23.06);
+    const double turned = motion.alpha(23.06);
+    motion.hide(24);
+    motion.show(24.06);
+    near(motion.alpha(24.06), turned, "a show during an exit starts from the opacity shown");
+    require(motion.alpha(24.1) > turned && !motion.leaving(), "and fades back in");
+    motion.cut();
+    require(!motion.leaving() && !motion.gone(30), "cut ends the exit at once");
 
     // Grab the bottom-right corner; the center stays put.
     fk::PanelResize resize;
