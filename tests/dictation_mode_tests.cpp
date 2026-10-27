@@ -2349,9 +2349,33 @@ void card_tests() {
     click(app, "dictation-server");
     require(app.view().address && app.view().address->text == "127.0.0.1",
             "the popup opens on the address");
-    for (int i = 0; i < 9; ++i) {
-        click(app, "address-key-backspace");
+    // A held Backspace repeats after half a second, without catching up.
+    {
+        const auto view = app.view();
+        const auto key = std::find_if(view.controls.begin(), view.controls.end(),
+                                      [](const Control& c) { return c.id == "address-key-backspace"; });
+        require(key != view.controls.end(), "the popup has Backspace");
+        const double x = key->bounds.x + key->bounds.width / 2,
+                     y = key->bounds.y + key->bounds.height / 2;
+        app.down(0, x, y, clock);
+        app.tick(clock + .3);
+        require(app.view().address->text == "127.0.0.", "one deletion on press");
+        app.tick(clock + .6);
+        app.tick(clock + .65);
+        require(app.view().address->text == "127.0.", "held Backspace repeats");
+        require(app.holds_repeat(0) && !app.holds_repeat(1),
+                "it counts as repeating, off the panel too");
+        app.up(0, x, y);
+        require(!app.holds_repeat(0), "and no longer once released");
+        clock += 1;
+        app.tick(clock);
+        require(app.view().address->text == "127.0.", "release stops the repeat");
     }
+    require(control_enabled(app, "address-clear"), "Clear is offered while the field has text");
+    click(app, "address-clear");
+    require(app.view().address->text.empty() && app.view().address->cursor == 0 &&
+                !control_enabled(app, "address-clear"),
+            "Clear empties the field");
     type("speech.example.com");
     require(app.view().address->tone == PanelView::AddressView::Tone::Warning,
             "a public address shows the warning");

@@ -51,6 +51,8 @@ enum class Icon {
     Symbols,
     Flags,
     Clear,
+    // Empties a text field: a circled cross.
+    ClearText,
     // Dictation; where speech is recognized: the headset, the user's own
     // computer, or a hosted provider.
     Mic,

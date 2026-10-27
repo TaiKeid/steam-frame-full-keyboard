@@ -371,6 +371,12 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-7, -7, 7, 7);
         line(7, -7, -7, 7);
         break;
+    case Icon::ClearText:
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 0, 0, 10, 0, 2 * pi);
+        line(-4, -4, 4, 4);
+        line(4, -4, -4, 4);
+        break;
     case Icon::Copy:
         rounded(cr, {-3, -3, 13, 14}, 2);
         cairo_move_to(cr, 4, -6);

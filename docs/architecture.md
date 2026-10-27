@@ -79,8 +79,8 @@ Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.
 
-A held repeating key, such as Backspace or an arrow, or the dictation editor's
-held Backspace, stays down when its laser drifts off the panel, from the press
+A held repeating key, such as Backspace or an arrow, or a held Backspace or
+arrow in the dictation editor or the server address popup, stays down when its laser drifts off the panel, from the press
 on, so the user can hold it while watching the text. Waiting for the first
 repeat was tried and dropped: holding from the press worked as well (owner,
 2026-10-26). SteamVR sends no button event away from our

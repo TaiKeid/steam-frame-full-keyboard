@@ -229,7 +229,7 @@ Hosted providers and their API keys are configured only in `config.json` and the
 Settings has no text fields of its own, and its cards cover the keys. Selecting the Server field opens an **address popup** over a dimmed Settings, with its own one-line field and a small hardcoded keyboard. The address is set rarely, so this stays deliberately simple.
 
 - **Keys:** lowercase letters, digits, and `.` `-` `:` `[` `]`, the characters a `host:port` address can hold, in a 12-column grid: `Esc 1–0 ⌫`, `q–p - .`, `a–l : [ ]`, `z–m ← → Enter`. There is no Space, Shift, Ctrl, Alt, Super, numpad, swipe or Paste; host names ignore case. Every key acts on press.
-- **Editing keys:** Backspace and the arrows. Enter accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels. While the popup is open, nothing under it responds; it closes with Settings.
+- **Editing keys:** Backspace and the arrows, which repeat while held, like the editor's: after half a second, every 40 ms, and on past the panel's edge until the trigger lets go. A clear key beside the field, a circled cross, empties it; it is greyed out while the field is empty. Enter accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels. While the popup is open, nothing under it responds; it closes with Settings.
 - **No Paste:** Full Keyboard never reads the clipboard, here or anywhere else.
 - **Local only:** the popup types only into its field, never into Steam or the focused application, even with Replace native keyboard on.
 - **Size:** smaller than the main keyboard, so it fits inside the panel. The layout is hardcoded and does not follow the active layout or language.

@@ -101,11 +101,13 @@ class App {
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
     void cancel_pointer(unsigned pointer);
-    // The pointer holds a repeating key, such as Backspace, in the keyboard
-    // or the dictation editor. It stays held after the laser leaves the
-    // panel, until the trigger's release (docs/architecture.md, Input and focus).
+    // The pointer holds a repeating key, such as Backspace, in the keyboard,
+    // the dictation editor or the address popup. It stays held after the
+    // laser leaves the panel, until the trigger's release
+    // (docs/architecture.md, Input and focus).
     bool holds_repeat(unsigned pointer) const {
-        return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer);
+        return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer) ||
+               (address_repeat_ && address_repeat_->pointer == pointer);
     }
     void cancel(bool discard_composition = true);
     bool tick(double now);
@@ -479,6 +481,14 @@ class App {
         std::string error;
     };
     std::optional<AddressEntry> address_;
+    // A held Backspace or arrow in the popup repeats like the editor's; it
+    // lasts only while its pointer still holds that key's press.
+    struct AddressRepeat {
+        unsigned pointer{};
+        std::string key;
+        double next{};
+    };
+    std::optional<AddressRepeat> address_repeat_;
     // A question over Settings: clearing favorites, or downloading the
     // on-device model, either on its own or before applying the settings
     // that need it.

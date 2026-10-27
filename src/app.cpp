@@ -269,6 +269,13 @@ std::vector<Control> App::controls() const {
                     {"address-recent-" + std::to_string(i), recent[i], {x, panel.y + 172, width, 40}});
                 x += width + 10;
             }
+            add({ControlKind::AddressKey, 0, "clear"},
+                {"address-clear",
+                 "Clear",
+                 {panel.x + panel.width - 92, panel.y + 74, 56, 52},
+                 false,
+                 Icon::ClearText});
+            result.back().enabled = !address_->text.empty();
             static const std::vector<std::vector<std::string>> rows{
                 {"esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "backspace"},
                 {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "-", "."},
@@ -899,7 +906,8 @@ PanelView App::build_view(bool picker) const {
     if (settings_open_ && address_) {
         PanelView::AddressView popup;
         popup.panel = address_popup_bounds;
-        popup.field = {popup.panel.x + 30, popup.panel.y + 70, popup.panel.width - 60, 60};
+        // The field leaves room for Clear at its right.
+        popup.field = {popup.panel.x + 30, popup.panel.y + 70, popup.panel.width - 132, 60};
         popup.hint = {popup.panel.x + 30, popup.panel.y + 136, popup.panel.width - 60, 28};
         popup.text = address_->text;
         popup.cursor = address_->cursor;
@@ -910,7 +918,7 @@ PanelView App::build_view(bool picker) const {
             popup.message = "Outside your local network: speech would cross the internet unencrypted.";
             popup.tone = PanelView::AddressView::Tone::Warning;
         } else {
-            popup.message = "Host name or IP address, with :port if not 8031";
+            popup.message = "Host name or IP address";
         }
         v.address = std::move(popup);
     }
@@ -1060,7 +1068,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 // The popup's keys act on press, Enter included; the release
                 // only ends the press.
                 pressed_controls_[pointer].action = {};
+                const auto key = control->action.value;
                 action(control->action);
+                if (address_ && (key == "backspace" || key == "left" || key == "right")) {
+                    address_repeat_ = AddressRepeat{pointer, key, now + .5};
+                }
             }
         }
         return false;
@@ -1265,6 +1277,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 }
 
 bool App::up(unsigned pointer, double x, double y) {
+    if (address_repeat_ && address_repeat_->pointer == pointer) {
+        address_repeat_.reset();
+    }
     if (!interaction_active_) {
         return false;
     }
@@ -1350,6 +1365,9 @@ void App::cancel_pointer(unsigned pointer) {
     if (editor_drag_ && editor_drag_->pointer == pointer) {
         editor_drag_.reset();
     }
+    if (address_repeat_ && address_repeat_->pointer == pointer) {
+        address_repeat_.reset();
+    }
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_track_.reset();
     }
@@ -1385,6 +1403,7 @@ void App::cancel(bool discard_composition) {
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
     editor_repeat_.reset();
+    address_repeat_.reset();
     editor_drag_.reset();
     pointer_positions_.clear();
     // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
@@ -1459,6 +1478,17 @@ bool App::tick(double now) {
             }
             // Repeats never catch up after a stall, like the output queue's.
             editor_repeat_->next = now + .04;
+            dirty = true;
+        }
+    }
+    if (address_repeat_ && now >= address_repeat_->next) {
+        const auto held = pressed_controls_.find(address_repeat_->pointer);
+        if (!address_ || held == pressed_controls_.end() ||
+            held->second.id != "address-key-" + address_repeat_->key) {
+            address_repeat_.reset();
+        } else {
+            address_key(address_repeat_->key);
+            address_repeat_->next = now + .04; // no catching up, as in the editor
             dirty = true;
         }
     }
@@ -4462,6 +4492,8 @@ void App::address_key(const std::string& key) {
             entry.text.erase(--entry.cursor, 1);
         }
         entry.error.clear();
+    } else if (key == "clear") {
+        entry = AddressEntry{};
     } else if (key == "left") {
         entry.cursor = entry.cursor > 0 ? entry.cursor - 1 : 0;
     } else if (key == "right") {
