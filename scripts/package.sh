@@ -27,6 +27,15 @@ if [[ -f $swipe_engine ]]; then
 else
     echo 'Packaging without the swipe engine: swipe typing will stay disabled.' >&2
 fi
+# On-device dictation is the default, so a release must carry its engine.
+for engine in framekeyboard-whisper whisper-quantize; do
+    if [[ ! -f $package_dir/lib/framekeyboard/$engine ]]; then
+        echo "Missing $engine: set FRAMEKEYBOARD_WHISPER_FRAME (docs/building.md)." >&2
+        exit 1
+    fi
+    python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/$engine" \
+        "$project_dir" "$FRAMEKEYBOARD_SYSROOT" "$FRAMEKEYBOARD_WHISPER_FRAME"
+done
 if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*(libpyzy|libhangul)'; then
     echo 'Optional language libraries must not be startup dependencies.' >&2
     exit 1

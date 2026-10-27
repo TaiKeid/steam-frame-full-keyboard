@@ -135,6 +135,12 @@ if(FRAMEKEYBOARD_WHISPER_DIR)
     file(COPY "${FRAMEKEYBOARD_WHISPER_DIR}/bin/whisper-quantize" DESTINATION engines)
     install(TARGETS whisper_engine RUNTIME DESTINATION lib/framekeyboard)
     install(PROGRAMS "${FRAMEKEYBOARD_WHISPER_DIR}/bin/whisper-quantize" DESTINATION lib/framekeyboard)
+    # A prebuilt program is copied as is: strip it as --strip does built targets.
+    install(CODE "if(CMAKE_INSTALL_DO_STRIP)
+        execute_process(COMMAND \"${CMAKE_STRIP}\"
+            \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/lib/framekeyboard/whisper-quantize\"
+            COMMAND_ERROR_IS_FATAL ANY)
+    endif()")
 elseif(CMAKE_CROSSCOMPILING)
     message(WARNING "FRAMEKEYBOARD_WHISPER_DIR is unset: this release cannot offer on-device dictation")
 else()
