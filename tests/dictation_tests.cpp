@@ -53,6 +53,16 @@ sys.excepthook = lambda *e: log.write("".join(traceback.format_exception(*e)))
 scenario = args[args.index("--scenario") + 1]
 if scenario == "exit":
     sys.exit(0)
+if scenario in ("orphan", "stuck"):
+    # Starts a child, like the recorder or a model conversion, and records
+    # its PID; "stuck" also ignores SIGTERM, as a cleanup that hangs would.
+    import signal, subprocess
+    if scenario == "stuck":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    child = subprocess.Popen(["sleep", "60"])
+    open(args[args.index("--pid") + 1], "w").write(str(child.pid))
+    while True:
+        time.sleep(1)
 def send(**m):
     peer.send(json.dumps(m).encode())
 while True:
@@ -168,6 +178,48 @@ void deliberate_stop_is_quiet(const fs::path& directory) {
     }
 }
 
+// Whether a process is gone: exited and reaped, or only a zombie.
+bool gone(pid_t pid) {
+    for (int i = 0; i < 200; ++i) {
+        std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+        std::string line;
+        if (!std::getline(stat, line)) {
+            return true;
+        }
+        const auto state = line.substr(line.rfind(')') + 2, 1);
+        if (state == "Z" || state == "X") {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+}
+
+// Stopping the helper stops what it started, whether it exits at once or
+// has to be killed after the shutdown limit.
+void children_stop_with_the_helper(const fs::path& directory) {
+    const auto script = directory / "fake_helper.py";
+    for (const std::string scenario : {"orphan", "stuck"}) {
+        const auto pid_file = directory / (scenario + ".pid");
+        Dictation dictation(directory / "dictation-key", script,
+                            {"--scenario", scenario, "--log", (directory / (scenario + ".log")).string(),
+                             "--pid", pid_file.string()});
+        require(dictation.configure({"host", "", "", ""}), "configure starts the helper");
+        pid_t child = 0;
+        for (int i = 0; i < 500 && !child; ++i) {
+            std::ifstream input(pid_file);
+            input >> child;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        require(child > 0, "the helper started its child");
+        dictation.stop();
+        const bool graceful = dictation.wait_stopped(1);
+        require(graceful == (scenario == "orphan"), "a stuck helper is killed at the shutdown limit");
+        require(gone(child), scenario == "orphan" ? "the child stops with an exiting helper"
+                                                  : "the child stops with a killed helper");
+    }
+}
+
 void real_helper(const fs::path& directory, const fs::path& helper) {
     // A closed local port: the real helper must report it as unreachable.
     const int probe = socket(AF_INET, SOCK_STREAM, 0);
@@ -200,6 +252,7 @@ int main(int argc, char** argv) {
         scripted_protocol(directory);
         exit_is_reported(directory);
         deliberate_stop_is_quiet(directory);
+        children_stop_with_the_helper(directory);
         real_helper(directory, argv[1]);
         if (!std::getenv("FK_KEEP")) {
             fs::remove_all(directory);

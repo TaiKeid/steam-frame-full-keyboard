@@ -138,9 +138,17 @@ bool Dictation::start() {
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    // Its own process group, so stopping the helper also stops what it
+    // started: the recorder, the engine and a model conversion.
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+    posix_spawnattr_setpgroup(&attributes, 0);
     pid_t child{};
     const int result =
-        source < 0 ? errno : posix_spawnp(&child, "python3", &actions, nullptr, argv.data(), environ);
+        source < 0 ? errno
+                   : posix_spawnp(&child, "python3", &actions, &attributes, argv.data(), environ);
+    posix_spawnattr_destroy(&attributes);
     posix_spawn_file_actions_destroy(&actions);
     if (source >= 0) {
         close(source);
@@ -434,7 +442,9 @@ void Dictation::stop() {
         fd_ = -1;
     }
     if (child_ > 0) {
-        kill(child_, SIGTERM);
+        // The whole group: a child must not outlive the helper's cleanup,
+        // which a second signal or the kill below can cut short.
+        kill(-child_, SIGTERM);
     }
 }
 
@@ -453,8 +463,8 @@ bool Dictation::wait_stopped(double seconds) {
         }
     }
     if (child_ > 0) {
-        // The recorder dies on its next write once the helper's pipe closes.
-        kill(child_, SIGKILL);
+        // Its group goes with it, so no child it started is left running.
+        kill(-child_, SIGKILL);
         waitpid(child_, nullptr, 0);
         child_ = -1;
         return false;

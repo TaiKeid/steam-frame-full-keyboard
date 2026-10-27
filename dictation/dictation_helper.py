@@ -1311,14 +1311,19 @@ class Helper:
         except (BrokenPipeError, ConnectionResetError):
             return
         finally:
+            # A SIGTERM arriving now must not cut cleanup short.
+            with contextlib.suppress(ValueError):  # not the main thread in tests
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            # A daemon thread dies with the helper, but its quantizer would
+            # not: stop it before anything that can wait, such as the engine.
+            download = self.download
+            if download and download.is_alive():
+                download.cancel()
             self.drop_all()
             self.jobs.put(None)
             self.engine.close()
-            if self.download and self.download.is_alive():
-                # A daemon thread dies with the helper, but its quantizer
-                # would not: stop the download and wait briefly for it.
-                self.download.cancel()
-                self.download.join(2)
+            if download and download.is_alive():
+                download.join(2)
 
 
 def engine_path():
