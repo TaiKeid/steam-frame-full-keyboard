@@ -304,7 +304,8 @@ Language parse_language(const std::string& json) {
     l.input_method = text(o, "input_method", "xkb", true);
     if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&
         l.input_method != "japanese-kana" && l.input_method != "japanese-flick" &&
-        l.input_method != "korean-2set" && l.input_method != "chinese-pinyin-simplified" &&
+        l.input_method != "korean-2set" && l.input_method != "korean-cheonjiin" &&
+        l.input_method != "chinese-pinyin-simplified" &&
         l.input_method != "chinese-pinyin-traditional") {
         throw std::runtime_error("unsupported input method");
     }
@@ -360,7 +361,8 @@ Language parse_language(const std::string& json) {
             l.flick.emplace(slot, std::move(key));
         }
     }
-    if ((l.input_method == "japanese-flick") != !l.flick.empty()) {
+    if ((l.input_method == "japanese-flick" || l.input_method == "korean-cheonjiin") !=
+        !l.flick.empty()) {
         throw std::runtime_error("flick input needs a flick mapping, and only it uses one");
     }
     auto* map = field(o, "keymap", json_type_object);
@@ -769,10 +771,12 @@ void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
             return key.action_kind == ActionKind::Flick && key.action == slot;
         });
     };
-    if (language.flick.empty() &&
-        std::any_of(layout.keys.begin(), layout.keys.end(),
-                    [](const Key& key) { return key.action_kind == ActionKind::Flick; })) {
-        throw std::runtime_error("This layout types flick kana only. Choose a flick language.");
+    // Each 12-key layout serves only the language whose slots it shows, so
+    // Japanese flick and Korean 천지인 never pair with each other's layout.
+    if (std::any_of(layout.keys.begin(), layout.keys.end(), [&](const Key& key) {
+            return key.action_kind == ActionKind::Flick && !language.flick.contains(key.action);
+        })) {
+        throw std::runtime_error("This 12-key layout types only its own language. Choose it.");
     }
     for (const auto& [slot, key] : language.flick) {
         (void)key;

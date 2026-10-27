@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a Korean 12-key **천지인** keyboard, as on Korean phones. Choose the **Korean 12-key (천지인)** layout in Settings. Vowels are built from the strokes ㅣ ㆍ ㅡ (ㅣㆍ for ㅏ, ㆍㅡ for ㅗ, ㅏㅣ for ㅐ), and tapping a consonant key again changes ㄱ to ㅋ and ㄲ; → ends the change so the same consonant can be typed twice. Flicks are shortcuts: right on a consonant key for its second consonant, up for its double, and ㅣ and ㅡ flick to ㅏ ㅓ ㅗ ㅜ. Syllables and final consonants form as in two-set Korean, Backspace removes one stroke at a time, and it works without libhangul.
 - Swipe typing knows everyday chat words: its word lists, built from news text, are now blended with how often words are spoken in film subtitles, so words such as "okay", "thanks", "dziękuję" or "спасибо" are recognized and ranked as in conversation. The swipe word lists are now licensed CC BY-SA 4.0.
 - Swipe typing now works in Polish, Dutch and Swedish. Accented letters are swiped through their plain letter, as on phones: Polish ą through A and ź through Z, Dutch ë through E. Polish ł is swiped on L.
 - Holding Backspace now repeats on an unfinished Japanese, Chinese or Korean reading, including flick input, instead of deleting one character per press. It stops once the reading is empty, so it never goes on to erase text already in the app.

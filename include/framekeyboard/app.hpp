@@ -415,8 +415,9 @@ class App {
     void choose_swipe(int index);
     void forget_failed_swipe();
     void discard_swipe();
-    // 12-key flick input. A press only shows the key; release types the kana
-    // for the flick direction, or the next toggle kana for a repeated tap.
+    // 12-key flick input (Japanese kana, Korean 천지인). A press only shows the
+    // key; release types the kana or jamo for the flick direction, or the next
+    // toggle choice for a repeated tap.
     enum class FlickDirection { Tap, Left, Up, Right, Down };
     struct FlickTrack {
         unsigned pointer{};

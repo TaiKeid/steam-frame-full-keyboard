@@ -1,5 +1,6 @@
 #include "framekeyboard/cjk.hpp"
 #include "cjk_engine.hpp"
+#include "framekeyboard/cheonjiin.hpp"
 
 #include <dlfcn.h>
 #include <filesystem>
@@ -54,14 +55,24 @@ std::shared_ptr<Module> load(const std::string& method) {
 struct CjkComposer::State {
     std::shared_ptr<Module> module;
     std::unique_ptr<CjkEngine> engine; // Reverse destruction keeps module code alive.
-    explicit State(const std::string& method)
-        : module(load(method)), engine(module->create(method.c_str())) {
+    // Set instead of module and engine for 천지인.
+    std::unique_ptr<CheonjiinComposer> cheonjiin;
+    explicit State(const std::string& method) {
+        if (method == "korean-cheonjiin") {
+            cheonjiin = std::make_unique<CheonjiinComposer>();
+            return;
+        }
+        module = load(method);
+        engine.reset(module->create(method.c_str()));
         if (!engine) {
             throw std::runtime_error("Could not create composition engine");
         }
     }
 };
 bool CjkComposer::supported(const std::string& method) {
+    if (method == "korean-cheonjiin") {
+        return true;
+    }
     try {
         return static_cast<bool>(load(method));
     } catch (const std::exception&) {
@@ -72,39 +83,57 @@ CjkComposer::CjkComposer(const std::string& method) : state_(std::make_unique<St
 }
 CjkComposer::~CjkComposer() = default;
 void CjkComposer::type(char key) {
-    state_->engine->type(key);
+    if (state_->engine) {
+        state_->engine->type(key);
+    }
 }
 void CjkComposer::backspace() {
-    state_->engine->backspace();
+    state_->cheonjiin ? state_->cheonjiin->backspace() : state_->engine->backspace();
 }
 void CjkComposer::cancel() {
-    state_->engine->cancel();
+    state_->cheonjiin ? state_->cheonjiin->cancel() : state_->engine->cancel();
 }
 void CjkComposer::cycle(int direction) {
-    state_->engine->cycle(direction);
+    if (state_->engine) {
+        state_->engine->cycle(direction);
+    }
 }
 void CjkComposer::choose(int index) {
-    state_->engine->choose(index);
+    if (state_->engine) {
+        state_->engine->choose(index);
+    }
 }
 std::string CjkComposer::preedit() const {
-    return state_->engine->preedit();
+    return state_->cheonjiin ? state_->cheonjiin->text() : state_->engine->preedit();
 }
 std::string CjkComposer::text() const {
-    return state_->engine->text();
+    return state_->cheonjiin ? state_->cheonjiin->text() : state_->engine->text();
 }
 std::vector<std::string> CjkComposer::candidates() const {
-    return state_->engine->candidates();
+    return state_->engine ? state_->engine->candidates() : std::vector<std::string>{};
 }
 int CjkComposer::selected() const {
-    return state_->engine->selected();
+    return state_->engine ? state_->engine->selected() : 0;
 }
 bool CjkComposer::empty() const {
-    return state_->engine->empty();
+    return state_->cheonjiin ? state_->cheonjiin->empty() : state_->engine->empty();
 }
 bool CjkComposer::has_reading() const {
-    return state_->engine->has_reading();
+    return state_->cheonjiin ? !state_->cheonjiin->empty() : state_->engine->has_reading();
 }
 bool CjkComposer::chinese() const {
-    return state_->engine->chinese();
+    return state_->engine && state_->engine->chinese();
+}
+bool CjkComposer::flick_input() const {
+    return static_cast<bool>(state_->cheonjiin);
+}
+void CjkComposer::flick(const std::string& text, bool replace) {
+    if (!state_->cheonjiin || text.empty()) {
+        return; // Empty: a direction this key does not use.
+    }
+    replace ? state_->cheonjiin->replace(text) : state_->cheonjiin->add(text);
+}
+std::string CjkComposer::last_flick() const {
+    return state_->cheonjiin ? state_->cheonjiin->last() : std::string{};
 }
 } // namespace framekeyboard

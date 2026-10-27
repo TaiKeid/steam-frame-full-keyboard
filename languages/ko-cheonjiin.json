@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "id": "ko-cheonjiin",
+  "name": "한국어 — 천지인",
+  "locale": "ko-KR",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans CJK KR",
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "input_method": "korean-cheonjiin",
+  "flick": {
+    "i": {
+      "tap": [
+        "ㅣ"
+      ],
+      "left": "ㅓ",
+      "right": "ㅏ"
+    },
+    "dot": {
+      "tap": [
+        "ㆍ"
+      ]
+    },
+    "eu": {
+      "tap": [
+        "ㅡ"
+      ],
+      "up": "ㅗ",
+      "down": "ㅜ"
+    },
+    "g": {
+      "tap": [
+        "ㄱ",
+        "ㅋ",
+        "ㄲ"
+      ],
+      "up": "ㄲ",
+      "right": "ㅋ"
+    },
+    "n": {
+      "tap": [
+        "ㄴ",
+        "ㄹ"
+      ],
+      "right": "ㄹ"
+    },
+    "d": {
+      "tap": [
+        "ㄷ",
+        "ㅌ",
+        "ㄸ"
+      ],
+      "up": "ㄸ",
+      "right": "ㅌ"
+    },
+    "b": {
+      "tap": [
+        "ㅂ",
+        "ㅍ",
+        "ㅃ"
+      ],
+      "up": "ㅃ",
+      "right": "ㅍ"
+    },
+    "s": {
+      "tap": [
+        "ㅅ",
+        "ㅎ",
+        "ㅆ"
+      ],
+      "up": "ㅆ",
+      "right": "ㅎ"
+    },
+    "j": {
+      "tap": [
+        "ㅈ",
+        "ㅊ",
+        "ㅉ"
+      ],
+      "up": "ㅉ",
+      "right": "ㅊ"
+    },
+    "punct": {
+      "tap": [
+        ".",
+        ",",
+        "?",
+        "!"
+      ],
+      "left": ",",
+      "up": "?",
+      "right": "!",
+      "down": "…"
+    },
+    "o": {
+      "tap": [
+        "ㅇ",
+        "ㅁ"
+      ],
+      "right": "ㅁ"
+    },
+    "sym": {
+      "tap": [
+        "~",
+        "^",
+        "-"
+      ],
+      "left": "(",
+      "up": "\"",
+      "right": ")",
+      "down": "'"
+    }
+  },
+  "dictation": {
+    "language": "ko"
+  }
+}

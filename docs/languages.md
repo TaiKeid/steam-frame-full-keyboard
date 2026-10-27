@@ -44,7 +44,7 @@ does not automatically select Russian. Updating the app preserves your selection
 | Vietnamese | `vi-vn` | US full-size | Vietnamese XKB, tone keys on the number row |
 | Simplified Chinese | `zh-cn-pinyin` | US full-size | Local Pinyin with candidates |
 | Traditional Chinese | `zh-tw-pinyin` | US full-size | Local Pinyin with Traditional output |
-| Korean | `ko-kr` | US full-size | Local two-set Hangul |
+| Korean | `ko-kr`, `ko-cheonjiin` | US full-size, or 12-key 천지인 (`ko-cheonjiin` only) | Local two-set Hangul, or 천지인 strokes |
 | Japanese | `ja-romaji`, `ja-kana`, `ja-jis`, `ja-flick` | US, Japanese JIS, or flick 12-key (`ja-flick` only) | See [Japanese input](japanese.md) |
 
 Open Settings, select Layout, then Language, then Apply and save. Languages
@@ -140,6 +140,32 @@ composition. Space and other ordinary keys commit the word before sending the
 key. Use the `한 / A` control to switch between Hangul and Latin typing. Chinese
 has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
 
+For 12-key Korean, choose the **Korean 12-key (천지인)** layout; it selects
+한국어 — 천지인. As with Japanese flick, it keeps Esc, the F keys and the number
+row, with Tab, ←, ↑/↓ and Shift on the left and Space, → and a two-row Enter on
+the right. Its 3×4 grid is ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-.
+
+- Vowels are built from the strokes ㅣ, ㆍ and ㅡ: ㅣㆍ ㅏ, ㆍㅣ ㅓ, ㆍㅡ ㅗ,
+  ㅡㆍ ㅜ, ㅣㆍㆍ ㅑ, ㆍㆍㅣ ㅕ, ㆍㆍㅡ ㅛ, ㅡㆍㆍ ㅠ. Another ㅣ adds to the vowel
+  before it: ㅐ ㅔ ㅒ ㅖ ㅢ ㅚ ㅟ, ㅝ after ㅠ, then ㅙ ㅞ; ㆍ after ㅚ gives ㅘ.
+  A lone ㆍ or ㆍㆍ shows in the reading until a stroke finishes it, and is
+  typed as it shows if committed.
+- Tapping a consonant key again within one second changes the consonant:
+  ㄱ ㅋ ㄲ, ㄴ ㄹ, ㄷ ㅌ ㄸ, ㅂ ㅍ ㅃ, ㅅ ㅎ ㅆ, ㅈ ㅊ ㅉ, ㅇ ㅁ. To type the same
+  consonant twice, as in 각기, wait a second or press → in between.
+- Flicks are shortcuts: a consonant key flicks right for its second consonant
+  and up for its double one, ㅣ flicks right for ㅏ and left for ㅓ, and ㅡ up for
+  ㅗ and down for ㅜ, the side the dot goes on. .,?! cycles . , ? ! and flicks to
+  , ? ! …; ~^- cycles ~ ^ - and flicks to ( " ) '.
+- Syllables, final consonants and clusters such as ㄺ form as in two-set
+  typing, and a final moves to the next syllable when a vowel follows.
+  Backspace removes the last stroke or consonant. Space, Enter, Commit, Esc,
+  Cancel and other keys behave as for two-set Korean, and held Backspace
+  repeats on the reading the same way.
+
+천지인 composes inside Full Keyboard and needs no libhangul. Leaving the
+12-key layout switches to two-set Korean, which does.
+
 Both modes keep a bounded preedit. Commit before the 30-input-character limit.
 Shortcuts and navigation that leave composition commit first; if delivery fails,
 the preedit stays visible and the forwarding action is blocked. Hiding, changing
@@ -158,7 +184,8 @@ at launch with an error message.
 
 Automated tests cover profile legends, sample letters, AltGr levels and dead
 keys of every national keymap, Chinese script conversion/candidates,
-Korean syllables/editing, and commit ordering. A dedicated receiver checks Unicode
+Korean syllables/editing including 천지인 strokes, toggles and flicks, and
+commit ordering. A dedicated receiver checks Unicode
 transport separately from composition. Fluent-speaker review and per-application
 acceptance are still needed; passing a local conversion test does not establish
 that every browser or desktop session accepts it.

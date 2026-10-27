@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <vector>
 
@@ -272,7 +273,12 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "hide movement line on pin or grab mode");
     view.hovered_keys.clear();
     view.hovered_controls.clear();
-    const auto a = find_key(layout, flick ? "a" : "KeyA"), b = find_key(layout, flick ? "ka" : "KeyB");
+    // The first two 12-key keys stand in for A and B on a flick layout.
+    std::vector<Key> flick_keys;
+    std::copy_if(layout.keys.begin(), layout.keys.end(), std::back_inserter(flick_keys),
+                 [](const Key& key) { return key.action_kind == ActionKind::Flick; });
+    const auto a = flick ? flick_keys.at(0) : find_key(layout, "KeyA");
+    const auto b = flick ? flick_keys.at(1) : find_key(layout, "KeyB");
     view.hovered_keys = {a.id};
     compare.frame(view, "hover");
     keyboard.down(0, a, compare.now);
@@ -289,7 +295,7 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.settle(view, "cancel");
     if (flick) {
         // A flick relabels only the pressed key and hides its hints.
-        const auto& slot = language.flick.at("a");
+        const auto& slot = language.flick.at(a.action);
         view.flick_preview =
             PanelView::FlickPreview{a.id, {slot.tap.front(), slot.left, slot.up, slot.right, slot.down}};
         keyboard.down(0, a, compare.now);
@@ -305,7 +311,7 @@ void exercise(Layout layout, Theme theme, Language language) {
         keyboard.up(0);
         view.flick_preview.reset();
         view.hovered_keys.clear();
-        view.key_labels[a.id] = language.flick.at("a").tap.front();
+        view.key_labels[a.id] = slot.tap.front();
         compare.settle(view, "flick release");
     }
     for (const auto* action :
@@ -423,7 +429,8 @@ int main() {
         handle_states();
         const auto profiles = load_profiles({}, {});
         for (const auto& [id, language] : profiles.languages) {
-            const auto layout = !language.flick.empty()                        ? "ja-flick-12"
+            const auto layout = id == "ko-cheonjiin"                           ? "ko-12key"
+                                : !language.flick.empty()                      ? "ja-flick-12"
                                 : (language.keymap == "jp" || id == "ja-kana") ? "ja-jis-full"
                                 : language.keymap == "br"                      ? "br-abnt2-full"
                                 : !language.required_keys.empty()              ? "international-full"

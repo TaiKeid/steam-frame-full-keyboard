@@ -20,7 +20,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Move with the laser handle below the keyboard, or enable grab movement in Settings. Resize from either bottom corner in both modes.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Editable layouts, languages, and themes, with a settings menu inside VR.
-- English, Spanish, Simplified and Traditional Chinese, Japanese, German, French (France and Canada), Brazilian Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian and Lithuanian, each on its standard national layout. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul.
+- English, Spanish, Simplified and Traditional Chinese, Japanese, German, French (France and Canada), Brazilian Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian and Lithuanian, each on its standard national layout. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
 
 ## Where it works
 

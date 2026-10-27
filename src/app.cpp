@@ -28,7 +28,8 @@ bool same_keymap(const Language& a, const Language& b) {
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
 }
 std::unique_ptr<CjkComposer> prepare_cjk(const Language& language) {
-    if (language.input_method == "korean-2set" || language.input_method.starts_with("chinese-")) {
+    if (language.input_method == "korean-2set" || language.input_method == "korean-cheonjiin" ||
+        language.input_method.starts_with("chinese-")) {
         return std::make_unique<CjkComposer>(language.input_method);
     }
     return {};
@@ -769,15 +770,17 @@ PanelView App::build_view(bool picker) const {
             }
         }
     }
-    if (v.language->input_method == "japanese-flick") {
-        // Flick keys show their tap kana even in Latin mode, where a press returns to kana.
+    if (!v.language->flick.empty()) {
+        // Flick keys show their tap kana or jamo even in Latin mode, where a
+        // press returns to composition.
+        const bool japanese_flick = v.language->input_method == "japanese-flick";
         for (const auto& key : v.layout->keys) {
             if (const auto it = v.language->flick.find(key.action);
                 key.action_kind == ActionKind::Flick && it != v.language->flick.end()) {
                 v.key_labels[key.id] = it->second.tap.front();
-            } else if (v.composing && !composition_.empty() && key.action == "Space") {
+            } else if (japanese_flick && v.composing && !composition_.empty() && key.action == "Space") {
                 v.key_labels[key.id] = composition_.converting() ? "次候補" : "変換";
-            } else if (v.composing && !composition_.empty() && key.action == "Enter") {
+            } else if (japanese_flick && v.composing && !composition_.empty() && key.action == "Enter") {
                 v.key_labels[key.id] = "確定";
             }
         }
@@ -2120,6 +2123,7 @@ void App::choose_cjk(int index) {
     }
 }
 void App::commit_cjk() {
+    flick_toggle_.reset();
     if (!cjk_ || cjk_->empty()) {
         return;
     }
@@ -2168,6 +2172,16 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     }
     const auto& code = key.action;
     const bool composing = !cjk_->empty();
+    // → ends a 천지인 toggle, so the same consonant key can type its first jamo again.
+    if (code == "ArrowRight" && flick_toggle_ && composing) {
+        if (execute) {
+            flick_toggle_.reset();
+        }
+        return true;
+    }
+    if (execute) {
+        flick_toggle_.reset();
+    }
     if (cjk_->chinese() && composing && code.size() == 6 && code.starts_with("Digit") &&
         code.back() >= '1' && code.back() <= '5' && !mods.contains(key_code("ShiftLeft")) &&
         !mods.contains(key_code("ShiftRight")) && !cjk_->candidates().empty()) {
@@ -2557,8 +2571,9 @@ bool App::flick_down(unsigned pointer, const Key& key, double x, double y, doubl
         !language.flick.contains(key.action)) {
         return false;
     }
-    // Kana keys always compose; Latin mode only changes what the number row types.
+    // 12-key keys always compose; Latin mode only changes what the number row types.
     japanese_latin_ = false;
+    cjk_latin_ = false;
     // A local press shows the key and owns the pointer; nothing is sent.
     if (!keyboard_.down(pointer, key, now, true, 0)) {
         return false;
@@ -2599,11 +2614,11 @@ std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
     case FlickDirection::Tap:
         break;
     }
-    // A quick repeated tap replaces the kana the previous tap typed, if it is
-    // still the last one in the reading.
+    // A quick repeated tap replaces the kana or jamo the previous tap typed,
+    // if it is still the last one in the reading.
     if (flick_toggle_ && flick_toggle_->slot == track.slot && key.tap.size() > 1 &&
         track.pressed - flick_toggle_->at <= flick_toggle_seconds &&
-        composition_.last_kana() == key.tap[flick_toggle_->index]) {
+        (cjk_ ? cjk_->last_flick() : composition_.last_kana()) == key.tap[flick_toggle_->index]) {
         if (cycles) {
             *cycles = true;
         }
@@ -2626,10 +2641,15 @@ void App::finish_flick() {
     bool cycles = false;
     const auto text = flick_text(track, &cycles);
     try {
-        if (cycles) {
-            composition_.backspace();
+        if (cjk_) {
+            cjk_->flick(text, cycles); // 천지인 strokes, jamo and punctuation
+            status_.clear();
+        } else {
+            if (cycles) {
+                composition_.backspace();
+            }
+            flick_type(text);
         }
-        flick_type(text);
         if (track.direction == FlickDirection::Tap && key.tap.size() > 1 && !composition_.converting()) {
             const auto index = cycles ? (flick_toggle_->index + 1) % key.tap.size() : 0;
             flick_toggle_ = FlickToggle{track.slot, index, track.pressed};

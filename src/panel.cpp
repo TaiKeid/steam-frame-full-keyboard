@@ -1852,6 +1852,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (view.composing && !view.settings) {
             const auto& method = view.language->input_method;
             const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
+                               : method == "korean-cheonjiin"
+                                   ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
                                : method.starts_with("chinese-")
                                    ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
                                : method == "japanese-kana"
