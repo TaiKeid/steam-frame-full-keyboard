@@ -144,7 +144,7 @@ void settings_tests() {
     for (const auto* server : {"", "host:", "host:99999", "a b", "[fd00::1", "http://host"}) {
         require(!valid_dictation_server(server), "invalid server addresses fail");
     }
-    for (const auto* local : {"192.168.0.14:8031", "10.1.2.3", "172.20.0.1", "127.0.0.1", "100.84.61.34",
+    for (const auto* local : {"192.168.1.20:8031", "10.1.2.3", "172.20.0.1", "127.0.0.1", "100.100.1.2",
                               "169.254.1.1", "[fd00::1]:9000", "[::1]", "speech", "speech.local",
                               "box.lan", "pc.tail1234.ts.net", "nas.home.arpa"}) {
         require(local_dictation_server(local), "private, Tailscale and local names count as local");
