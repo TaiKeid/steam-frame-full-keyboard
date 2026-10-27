@@ -75,7 +75,17 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     std::uint32_t pid = 0;
     bool nested = false, stale = true;
     while (!state.stop && !xcb_connection_has_error(connection)) {
+        // XCB reads events that arrive while it waits for a reply into its own
+        // queue, not the socket: take them before sleeping on the socket.
+        while (auto* event = xcb_poll_for_event(connection)) {
+            if ((event->response_type & 0x7f) == XCB_PROPERTY_NOTIFY) {
+                const auto atom = reinterpret_cast<xcb_property_notify_event_t*>(event)->atom;
+                stale |= atom == focused_window || atom == focusable_windows;
+            }
+            std::free(event);
+        }
         if (stale) {
+            // Read again at once; the reads may queue further events, taken above.
             stale = false;
             const auto window = cardinals(connection, root, focused_window);
             const auto list = cardinals(connection, root, focusable_windows);
@@ -92,16 +102,10 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                 }
             }
             state.focused = focused;
+            continue;
         }
         if (!wait(state, xcb_get_file_descriptor(connection), -1)) {
             return;
-        }
-        while (auto* event = xcb_poll_for_event(connection)) {
-            if ((event->response_type & 0x7f) == XCB_PROPERTY_NOTIFY) {
-                const auto atom = reinterpret_cast<xcb_property_notify_event_t*>(event)->atom;
-                stale |= atom == focused_window || atom == focusable_windows;
-            }
-            std::free(event);
         }
     }
 }
