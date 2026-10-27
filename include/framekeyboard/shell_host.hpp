@@ -35,10 +35,12 @@ std::string update_error_code(const std::string& reason);
 // seconds the update returns to prepared, and the next request waits five.
 class UpdateHandover {
   public:
-    static constexpr double timeout = 2, retry_after = 5;
+    // `drain_time` bounds each wait for the shell to read: first the replies
+    // before `restarting`, then `restarting` itself.
+    static constexpr double timeout = 2, retry_after = 5, drain_time = 1;
     // Whether to ask now: `ready` is a prepared update the keyboard may activate.
     bool ask(double now, bool ready) {
-        if (!ready || asking_ || now < retry_at_) {
+        if (!ready || asking_ || draining_ || now < retry_at_) {
             return false;
         }
         asking_ = true;
@@ -55,12 +57,27 @@ class UpdateHandover {
         return true;
     }
     bool asking() const { return asking_; }
-    // `quiesced` arrived, or the update was cancelled.
-    void end() { asking_ = false; }
-    // Not ready after all at `quiesced`, or the session could not be drained:
-    // back to prepared, asked again later.
+    // `quiesced` arrived: the replies before it drain over the next frames.
+    void quiesced(double now) {
+        asking_ = restarting_ = false;
+        draining_ = true;
+        deadline_ = now + drain_time;
+    }
+    bool draining() const { return draining_; }
+    // The replies are read and `restarting` is written; it drains next.
+    void restart(double now) {
+        restarting_ = true;
+        deadline_ = now + drain_time;
+    }
+    bool restarting() const { return restarting_; }
+    // The shell has not read what is waiting in time.
+    bool drain_expired(double now) const { return draining_ && now > deadline_; }
+    // Handed over, or the update was cancelled.
+    void end() { asking_ = draining_ = restarting_ = false; }
+    // Not ready after all at `quiesced` or while draining, or the session
+    // could not be drained: back to prepared, asked again later.
     void postpone(double now) {
-        asking_ = false;
+        end();
         retry_at_ = now + retry_after;
     }
     // Whether a prepared update may activate: at once for `now`; for `idle`,
@@ -70,7 +87,7 @@ class UpdateHandover {
     }
 
   private:
-    bool asking_{};
+    bool asking_{}, draining_{}, restarting_{};
     double deadline_{}, retry_at_{};
 };
 

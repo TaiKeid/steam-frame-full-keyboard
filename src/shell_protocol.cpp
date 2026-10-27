@@ -1,9 +1,7 @@
 #include "framekeyboard/shell_protocol.hpp"
 
 #include <cerrno>
-#include <chrono>
 #include <fcntl.h>
-#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -59,26 +57,19 @@ ShellConnection::~ShellConnection() {
     }
 }
 
-int ShellConnection::release(double seconds) {
+int ShellConnection::release() {
     // A partly written line would corrupt the successor's first message.
-    if (!drain(seconds)) {
+    if (fd_ < 0 || closed_ || !flush()) {
         return -1;
     }
+    held_.clear();
+    holding_ = false;
     return std::exchange(fd_, -1);
 }
 
-bool ShellConnection::drain(double seconds) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
-    while (fd_ >= 0 && !flush()) {
-        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - std::chrono::steady_clock::now());
-        if (remaining.count() <= 0 || closed_) {
-            return false;
-        }
-        pollfd descriptor{fd_, POLLOUT, 0};
-        ::poll(&descriptor, 1, static_cast<int>(remaining.count()));
-    }
-    return fd_ >= 0 && outbound_empty();
+void ShellConnection::unhold() {
+    holding_ = false;
+    outbound_ += std::exchange(held_, {});
 }
 
 void ShellConnection::answer_pings() {
@@ -280,9 +271,13 @@ void ShellConnection::write_line(json_object* object) {
     if (fd_ < 0 || violated_ || closed_) {
         return;
     }
-    outbound_ +=
+    auto& queue = holding_ ? held_ : outbound_;
+    queue +=
         json_object_to_json_string_ext(object, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
-    outbound_ += '\n';
+    queue += '\n';
+    if (held_.size() > max_outbound) {
+        closed_ = true;
+    }
     if (outbound_.size() - written_ > max_outbound) {
         // The shell stopped reading. Its responses cannot be kept forever.
         closed_ = true;
@@ -369,7 +364,7 @@ bool ShellConnection::flush() {
 }
 
 bool ShellConnection::take_lease_lapsed(double now) {
-    if (!hello_ || lapsed_ || now - last_message_ <= lease_ms_ / 1000.0) {
+    if (!hello_ || lapsed_ || !reading_ || now - last_message_ <= lease_ms_ / 1000.0) {
         return false;
     }
     lapsed_ = true;

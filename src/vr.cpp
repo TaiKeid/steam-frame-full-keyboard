@@ -1791,6 +1791,66 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         return state;
     };
+    // Back to prepared: the connection stays with this process, which reads
+    // again, and the shell is asked again later.
+    auto postpone_handover = [&](double now, const char* why) {
+        if (why) {
+            std::cout << why << '\n' << std::flush;
+        }
+        if (handover.draining()) {
+            shell->unhold();
+            shell->resume_reading(now);
+        }
+        handover.postpone(now);
+        auto fields = json_ptr(json_object_new_object());
+        json_object_object_add(fields.get(), "state", json_object_new_string("prepared"));
+        shell->event("update", std::move(fields));
+    };
+    // After `quiesced`, once a frame: the replies drain, then `restarting`,
+    // then the descriptor passes. The loop keeps running meanwhile, so input,
+    // releases and the watchdog are never held up by a shell slow to read.
+    auto continue_handover = [&](double now) {
+        if (!handover.draining()) {
+            return;
+        }
+        if (!app.update_waiting()) {
+            // The update ended meanwhile; its own state event says how.
+            shell->unhold();
+            shell->resume_reading(now);
+            handover.end();
+            return;
+        }
+        // A summon or new work since `quiesced` postpones an idle update.
+        if (!UpdateHandover::ready(update_when, shell_shown, lifecycle.visible() || motion.leaving(),
+                                   app.idle_for_update())) {
+            postpone_handover(now, nullptr);
+            return;
+        }
+        if (!shell->flush()) {
+            if (handover.drain_expired(now)) {
+                postpone_handover(now,
+                                  handover.restarting()
+                                      ? "The shell did not read the handover in time; the update waits."
+                                      : "The shell did not read before the handover; the update waits.");
+            }
+            return;
+        }
+        if (!handover.restarting()) {
+            // Every reply is read: `restarting` is the last line this
+            // process sends.
+            auto fields = json_ptr(json_object_new_object());
+            json_object_object_add(fields.get(), "state", json_object_new_string("restarting"));
+            shell->event("update", std::move(fields));
+            shell->hold();
+            handover.restart(now);
+        }
+        hosted_handover_fd = shell->release();
+        if (hosted_handover_fd < 0) {
+            return; // `restarting` drains over the next frames
+        }
+        handover.end();
+        app.activate_update();
+    };
     auto handle_request = [&](ShellRequest& request, double now) {
         json_object* body = request.body.get();
         const auto id = request.id.value_or(-1);
@@ -1823,16 +1883,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (!handover.asking() || !app.update_waiting()) {
                 return;
             }
-            auto prepared = [&] {
-                handover.postpone(now);
-                auto fields = json_ptr(json_object_new_object());
-                json_object_object_add(fields.get(), "state", json_object_new_string("prepared"));
-                shell->event("update", std::move(fields));
-            };
             // A `show` or new work may have arrived after the request: check again.
             if (!UpdateHandover::ready(update_when, shell_shown, lifecycle.visible() || motion.leaving(),
                                        app.idle_for_update())) {
-                prepared();
+                postpone_handover(now, nullptr);
                 return;
             }
             // Everything asked before `quiesced` is answered by this process:
@@ -1846,30 +1900,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 shell->fail(*check_request, "failed", "The keyboard is restarting for an update.");
                 check_request.reset();
             }
-            // Every reply goes out before `restarting`; a shell that does not
-            // read them in time postpones the update instead.
-            if (!shell->drain(1.0)) {
-                std::cout << "The shell did not read before the handover; the update waits.\n"
-                          << std::flush;
-                prepared();
-                return;
-            }
-            auto fields = json_ptr(json_object_new_object());
-            json_object_object_add(fields.get(), "state", json_object_new_string("restarting"));
-            shell->event("update", std::move(fields));
-            // Nothing after `quiesced` is read; the descriptor passes only
-            // once `restarting` is written in full.
+            // Nothing after `quiesced` is read. Every reply goes out before
+            // `restarting`; a shell that does not read them in time postpones
+            // the update instead. Usually all of it completes here.
             shell->stop_reading();
-            hosted_handover_fd = shell->release(1.0);
-            if (hosted_handover_fd < 0) {
-                std::cout << "The shell did not read the handover in time; the update waits.\n"
-                          << std::flush;
-                shell->resume_reading();
-                prepared();
-                return;
-            }
-            handover.end();
-            app.activate_update();
+            handover.quiesced(now);
+            continue_handover(now);
         } else if (op == "state") {
             ok(shell_state());
         } else if (op == "show" || op == "context") {
@@ -2172,8 +2208,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             for (auto& request : shell->poll(now)) {
                 handle_request(request, now);
-                if (shell->fd() < 0 || hosted_handover_fd >= 0) {
-                    break; // handed over: nothing after `quiesced` is read
+                if (shell->fd() < 0 || hosted_handover_fd >= 0 || handover.draining()) {
+                    break; // handing over: nothing after `quiesced` is read
                 }
             }
             if (hosted_handover_fd < 0) {
@@ -3161,6 +3197,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     json_object_object_add(fields.get(), "state", json_object_new_string("prepared"));
                     shell->event("update", std::move(fields));
                 }
+                continue_handover(now);
             }
             if (previews && preview_request) {
                 if (auto rendered = previews->take(*preview_request)) {

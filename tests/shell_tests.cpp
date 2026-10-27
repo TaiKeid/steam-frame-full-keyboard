@@ -184,8 +184,16 @@ void drain_tests() {
     json_object_object_add(fields.get(), "blob",
                            json_object_new_string(std::string(600000, 'x').c_str()));
     connection.respond(3, std::move(fields));
-    require(connection.release(.2) < 0 && connection.fd() >= 0,
-            "an undrained session is not handed over");
+    const auto started = std::chrono::steady_clock::now();
+    require(connection.release() < 0 && connection.fd() >= 0, "an undrained session is not handed over");
+    require(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(100),
+            "and asking never waits for the shell");
+    // Reading stops for the handover: the lease waits, and restarts after.
+    connection.stop_reading();
+    require(!connection.take_lease_lapsed(9), "a stopped reader lets no lease lapse");
+    connection.resume_reading(9);
+    require(!connection.take_lease_lapsed(10) && connection.take_lease_lapsed(11.5),
+            "the lease restarts when reading does");
     std::string received;
     std::thread reader([&] {
         char chunk[65536];
@@ -203,7 +211,15 @@ void drain_tests() {
     auto restarting = json_ptr(json_object_new_object());
     json_object_object_add(restarting.get(), "state", json_object_new_string("restarting"));
     connection.event("update", std::move(restarting));
-    const int handed = connection.release(5);
+    // Lines after `restarting` wait, and leave with this process.
+    connection.hold();
+    auto late = json_ptr(json_object_new_object());
+    json_object_object_add(late.get(), "rects", json_object_new_array());
+    connection.event("regions", std::move(late));
+    int handed = -1;
+    for (int i = 0; i < 500 && (handed = connection.release()) < 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     reader.join();
     require(handed >= 0 && connection.fd() < 0, "once drained, the descriptor passes");
     require(received.ends_with(R"({"event":"update","state":"restarting"})"
@@ -211,6 +227,24 @@ void drain_tests() {
                 received.find(R"({"id":3,"ok":true,"blob":")") != std::string::npos,
             "every line arrives whole, in order, restarting last");
     close(handed);
+
+    // A postponed handover: what waited follows, in order.
+    Pair postponed;
+    adopt_control_descriptor(postponed.keyboard);
+    ShellConnection kept(postponed.keyboard, "0.11.0", 1, {});
+    kept.ready(0);
+    postponed.shell.send(R"({"id":1,"op":"hello","protocol":1})");
+    kept.poll(1);
+    kept.hold();
+    kept.respond(2);
+    require(kept.flush() && !postponed.shell.saw(postponed.shell.lines(), R"({"id":2,"ok":true})"),
+            "held lines are not written");
+    kept.unhold();
+    kept.respond(3);
+    kept.flush();
+    const auto lines = postponed.shell.lines();
+    require(lines == std::vector<std::string>{R"({"id":2,"ok":true})", R"({"id":3,"ok":true})"},
+            "called off, they follow the queue in order");
 }
 
 void limits_tests() {
@@ -407,6 +441,22 @@ void handover_tests() {
     handover.postpone(201);
     require(!handover.asking() && !handover.ask(203, true) && handover.ask(206.5, true),
             "a postponed handover waits before asking again");
+    // `quiesced`: the replies, then `restarting`, each get a second to drain.
+    handover.quiesced(207);
+    require(handover.draining() && !handover.asking() && !handover.restarting() &&
+                !handover.expired(300) && !handover.ask(300, true),
+            "draining is neither asking nor asked again");
+    require(!handover.drain_expired(207.9) && handover.drain_expired(208.1), "the replies get a second");
+    handover.restart(208);
+    require(handover.restarting() && !handover.drain_expired(208.9) && handover.drain_expired(209.1),
+            "and restarting another");
+    handover.postpone(209.1);
+    require(!handover.draining() && !handover.restarting() && !handover.ask(210, true) &&
+                handover.ask(214.2, true),
+            "a drain the shell did not read is postponed like any other");
+    handover.quiesced(215);
+    handover.end();
+    require(!handover.draining() && !handover.drain_expired(400), "a handover ends the drain");
     require(UpdateHandover::ready("idle", false, false, true) &&
                 !UpdateHandover::ready("idle", true, false, true) &&
                 !UpdateHandover::ready("idle", false, true, true) &&

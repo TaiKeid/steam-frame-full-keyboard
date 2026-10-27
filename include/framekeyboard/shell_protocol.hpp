@@ -83,23 +83,32 @@ class ShellConnection {
     bool hello_done() const { return hello_; }
     const std::string& client() const { return client_; }
     // The lease ran out with the connection still open: the shell may only
-    // have stalled. Edge-triggered, once per lapse.
+    // have stalled. Edge-triggered, once per lapse. It does not run while
+    // reading is stopped.
     bool take_lease_lapsed(double now);
     // A message arrived after a lapse.
     bool take_lease_renewed() { return std::exchange(renewed_, false); }
     bool lease_lapsed() const { return lapsed_; }
     bool subscribed(const std::string& event) const { return subscriptions_.contains(event); }
     // Handover (docs/integration.md, Handover): reading stops, and the
-    // descriptor passes to the update helper with what is left unwritten.
+    // descriptor passes to the update helper with what is left unread. None
+    // of it blocks: the VR loop keeps running while the shell reads.
     void stop_reading() { reading_ = false; }
-    void resume_reading() { reading_ = true; }
+    // The lease restarts: the shell was not heard while reading stopped.
+    void resume_reading(double now) {
+        reading_ = true;
+        last_message_ = now;
+    }
     // Answers every ping received so far, as a completed loop iteration does.
     void answer_pings();
-    // Writes everything queued, waiting up to `seconds` for the socket.
-    bool drain(double seconds);
-    // The descriptor, once every queued byte is written within `seconds`;
-    // -1, with the connection kept, if the shell does not read them in time.
-    int release(double seconds);
+    // After `restarting`, lines wait here instead: the successor reports its
+    // own state. They follow the queue if the handover is called off, and go
+    // with this process otherwise.
+    void hold() { holding_ = true; }
+    void unhold();
+    // The descriptor once every queued byte is written, as far as the
+    // socket takes them now; -1, with the connection kept, until then.
+    int release();
 
   private:
     void handle(ShellRequest& request, double now);
@@ -109,9 +118,9 @@ class ShellConnection {
     std::string version_;
     std::uint64_t session_;
     std::function<std::vector<std::string>()> features_;
-    std::string inbound_, outbound_;
+    std::string inbound_, outbound_, held_;
     std::size_t written_{};
-    bool hello_{}, closed_{}, violated_{}, reading_{true};
+    bool hello_{}, closed_{}, violated_{}, reading_{true}, holding_{};
     double ready_at_{-1}, last_message_{};
     int lease_ms_{2000};
     bool lapsed_{}, renewed_{};
