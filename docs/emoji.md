@@ -108,16 +108,16 @@ Whether an X11 or Wayland application joins a ZWJ sequence or keeps a variation 
 
 ## Milestones
 
-- [ ] Side column: emoji key, three equal keys, reserved dictation slot, in every layout file.
-- [ ] Emoji data table, font coverage check, and Unicode attribution.
-- [ ] Picker view with tabs, grid, frozen Recent tab and the compact width.
-- [ ] Release-to-type, drag and thumbstick scrolling, no repeat.
-- [ ] Async glyph cache with memory cap.
-- [ ] Skin-tone popup and global tone.
-- [ ] Recent emoji storage and clearing.
-- [ ] Close-on-select setting.
-- [ ] Disabled states: Unicode transport, language key, missing font.
-- [ ] Docs: configuration, acceptance, architecture, changelog.
+- [x] Side column: emoji key, three equal keys, reserved dictation slot, in every layout file.
+- [x] Emoji data table, font coverage check, and Unicode attribution.
+- [x] Picker view with tabs, grid, frozen Recent tab and the compact width.
+- [x] Release-to-type, drag and thumbstick scrolling, no repeat.
+- [x] Async glyph cache with memory cap.
+- [x] Skin-tone popup and global tone.
+- [x] Recent emoji storage and clearing.
+- [x] Close-on-select setting.
+- [x] Disabled states: Unicode transport, language key, missing font.
+- [x] Docs: configuration, acceptance, architecture, changelog.
 
 ## Acceptance
 
