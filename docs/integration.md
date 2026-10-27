@@ -191,7 +191,7 @@ Movement and resizes by the user are reported, so the shell can follow them. Loc
 
 | Op | Fields |
 | --- | --- |
-| `theme.select` | `id` of an installed theme; persists like Settings |
+| `theme.select` | `theme`: the ID of an installed theme; persists like Settings |
 | `theme.set` | `theme`: a full theme object with the [theme schema](configuration.md#layouts-and-styles) |
 | `theme.reset` | Drops the custom theme |
 | `chrome` | `close`, `settings`, `move`, `resize`, `favorites`: booleans (shown) |

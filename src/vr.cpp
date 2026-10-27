@@ -1977,7 +1977,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             app.set_sink(json_object_get_boolean(on), shell->client());
             ok();
         } else if (op == "theme.select") {
-            if (const auto error = app.host_theme_select(text("id"), id); !error.empty()) {
+            if (const auto error = app.host_theme_select(text("theme"), id); !error.empty()) {
                 fail(error, "Unknown theme.");
                 return;
             }
