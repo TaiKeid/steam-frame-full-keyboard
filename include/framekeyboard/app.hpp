@@ -333,6 +333,12 @@ class App {
     // Restores the selection a context's language hint replaced, unless the
     // user chose another meanwhile.
     void end_language_hint();
+    // The hinted layout and language are still the active ones.
+    bool language_hint_in_place() const;
+    // What a save writes: a hint still in place is the field's, not the
+    // user's, so the selection before it is saved instead. A selection the
+    // user chose over the hint ends the hint.
+    Selection persisted_selection();
     // The shell's theme, kept under this ID while it is active; never saved.
     static constexpr const char* shell_theme_id = "shell";
     struct HostState {
@@ -340,7 +346,7 @@ class App {
         HostHints hints;
         // A hinted language replaced this selection until the context ends.
         std::optional<Selection> before_language;
-        std::string hinted_language;
+        Selection hinted;               // the layout and language the hint chose
         std::optional<bool> num_before; // Num Lock before a number hint
         bool numpad_shown{};
         HostChrome chrome;

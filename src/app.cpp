@@ -1635,8 +1635,7 @@ void App::allow_slow_work() {
 }
 void App::apply(Selection selection) {
     activate(std::move(selection));
-    default_ = settings_.active;
-    persisted_active_ = settings_.active;
+    default_ = persisted_active_ = persisted_selection();
     startup_status_.clear();
     rebuild_cycle_entries();
     save();
@@ -2161,19 +2160,8 @@ void App::apply_settings() {
     settings_.dictation_device_model = pending_dictation_device_model_;
     prepare_swipe();
     // A field's language hint is not the user's choice: unless they picked a
-    // language here, the saved one stays the one before the hint.
-    Selection persisted = settings_.active;
-    if (host_.before_language) {
-        if (settings_.active.language == host_.hinted_language) {
-            persisted.layout = host_.before_language->layout;
-            persisted.language = host_.before_language->language;
-        } else {
-            host_.before_language.reset();
-            host_.hinted_language.clear();
-        }
-    }
-    default_ = persisted;
-    persisted_active_ = persisted;
+    // layout or language here, the saved ones stay those before the hint.
+    default_ = persisted_active_ = persisted_selection();
     startup_status_.clear();
     rebuild_cycle_entries();
     save();

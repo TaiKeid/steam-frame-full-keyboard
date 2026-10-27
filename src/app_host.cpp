@@ -112,7 +112,7 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
                 if (!host_.before_language) {
                     host_.before_language = before;
                 }
-                host_.hinted_language = host_.hints.language;
+                host_.hinted = settings_.active;
             } catch (const std::exception& error) {
                 status_ = error.what();
             }
@@ -132,8 +132,39 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
     dirty = true;
 }
 
+bool App::language_hint_in_place() const {
+    return host_.before_language && settings_.active.layout == host_.hinted.layout &&
+           settings_.active.language == host_.hinted.language;
+}
+
+Selection App::persisted_selection() {
+    Selection persisted = settings_.active;
+    if (!host_.before_language) {
+        return persisted;
+    }
+    if (settings_.active.language == host_.hinted.language) {
+        // The language is still the field's. A layout the user chose over
+        // the hint is theirs: it is saved with their own language and stays
+        // when the hint ends, if the two fit together.
+        persisted.language = host_.before_language->language;
+        if (settings_.active.layout == host_.hinted.layout) {
+            persisted.layout = host_.before_language->layout;
+            return persisted;
+        }
+        if (fits(profiles_, persisted)) {
+            host_.before_language->layout = host_.hinted.layout = persisted.layout;
+            return persisted;
+        }
+    }
+    // The user chose a language, or a layout only the hinted language fits:
+    // the hint gives way to that choice.
+    host_.before_language.reset();
+    host_.hinted = {};
+    return settings_.active;
+}
+
 void App::end_language_hint() {
-    if (host_.before_language && settings_.active.language == host_.hinted_language) {
+    if (language_hint_in_place()) {
         // The user did not pick another since: back to the layout and
         // language before the hint, keeping any theme chosen meanwhile.
         Selection selection = settings_.active;
@@ -146,7 +177,7 @@ void App::end_language_hint() {
         }
     }
     host_.before_language.reset();
-    host_.hinted_language.clear();
+    host_.hinted = {};
 }
 
 void App::set_sink(bool on, const std::string& client) {
@@ -402,6 +433,10 @@ std::string App::host_select(const std::string& layout, const std::string& langu
     }
     const auto before = settings_;
     const bool custom = settings_.active.theme == shell_theme_id;
+    // An explicit choice: a hinted language gives way to it, even when the
+    // two are the same.
+    host_.before_language.reset();
+    host_.hinted = {};
     try {
         apply(selection); // persists, as Settings → Apply does
     } catch (const std::exception& error) {
@@ -412,9 +447,6 @@ std::string App::host_select(const std::string& layout, const std::string& langu
         settings_.active.theme = shell_theme_id; // the shell's theme stays on screen
         pending_.theme = shell_theme_id;
     }
-    // A hinted language gives way to an explicit choice.
-    host_.before_language.reset();
-    host_.hinted_language.clear();
     host_.unsaved_requests.push_back(request);
     host_settings_changed(before, "shell");
     return {};

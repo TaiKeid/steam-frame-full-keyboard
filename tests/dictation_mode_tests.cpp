@@ -2024,6 +2024,42 @@ void hosted_tests() {
     require(app.selection().language == "en-us",
             "ending the context returns to the language before the first hint");
 
+    // A shell's theme choice during a hint saves the user's own language.
+    {
+        const auto theme = app.selection().theme;
+        app.set_context(std::string("field"), german_field);
+        require(app.host_theme_select("midnight", 1).empty(), "theme.select applies during a hint");
+        app.flush_settings();
+        std::vector<std::string> load_errors;
+        const auto saved = load_settings(directory.path, load_errors).active;
+        require(saved.language == "en-us" && saved.layout == "en-us-full" && saved.theme == "midnight",
+                "a theme choice never saves a hinted language");
+        app.set_context(std::nullopt);
+        require(app.selection().language == "en-us", "the hint still ends as before");
+        require(app.host_theme_select(theme, 2).empty(), "the theme goes back");
+    }
+
+    // A layout chosen in Settings during a hint is the user's: it is saved
+    // with their own language and outlives the hint.
+    {
+        app.set_context(std::string("field"), german_field);
+        app.show_settings();
+        click(app, "layout");
+        click(app, "choose:layout:international-full");
+        click(app, "apply");
+        require(app.selection().layout == "international-full" && app.selection().language == "de-de",
+                "the chosen layout applies with the hinted language");
+        app.flush_settings();
+        std::vector<std::string> load_errors;
+        const auto saved = load_settings(directory.path, load_errors).active;
+        require(saved.layout == "international-full" && saved.language == "en-us",
+                "the chosen layout is saved with the user's own language");
+        app.set_context(std::nullopt);
+        require(app.selection().layout == "international-full" && app.selection().language == "en-us",
+                "ending the context keeps the chosen layout");
+        app.apply({"en-us-full", "en-us", app.selection().theme}); // back as it was
+    }
+
     // A view chosen while hidden is the one that shows.
     app.set_interaction_active(false);
     require(app.show_view("emoji").empty() && app.view_name() == "emoji",
