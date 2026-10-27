@@ -83,7 +83,7 @@ One keyboard owns VR per login session. A hosted launch that finds another keybo
 
 The next standalone launch, or the next login with Start with SteamOS, returns to standalone mode.
 
-A plain launch while a hosted keyboard is running, for example from the dashboard launcher, does not recenter or take over. It exits with a message that a shell is managing the keyboard. Silent takeover would start respawn fights with the shell. An explicit standalone takeover can be added later.
+A plain launch while a hosted keyboard is running, for example from the dashboard launcher, does not recenter or take over. It exits with a message that a shell is managing the keyboard, and the running keyboard sends its shell a `launch` event (`source:"launcher"`) so the shell can show the panel. Silent takeover would start respawn fights with the shell. An explicit standalone takeover can be added later.
 
 ## Transport
 
@@ -141,7 +141,7 @@ Protocol 1 has one controller: the launching shell. A later version may accept m
 
 Only the shell shows the panel, and the SteamOS dashboard gate does not apply. Input is gated on shell visibility instead. This uses the same presentable path as passthrough, so hiding still releases held keys, cancels grabs and drains pointer events first.
 
-Protocol view changes never commit unfinished input. Today, opening emoji or dictation from the panel commits an open composition. A `show` that would do so keeps the composition pending where the view can keep it. Otherwise it fails with `composing` and changes nothing. Hiding keeps an open composition pending for the same context, as today.
+Protocol view changes never commit unfinished input. Today, opening emoji or dictation from the panel commits an open composition. A `show` that would do so keeps the composition pending where the view can keep it. Otherwise it fails with `composing` and changes nothing. Hiding keeps an open composition pending for the same context; a context change or the lease running out discards it. (A standalone keyboard still discards it on hide.)
 
 X in the panel hides it and sends `visibility` with `reason:"user"`. The shell decides whether to show it again. Settings → Quit exits the keyboard, and the shell sees its connection close. If the stall watchdog hides the panel, `visibility` reports `reason:"stalled"`, and the shell shows it again when it wants.
 
@@ -260,7 +260,7 @@ Shells update the keyboard together with themselves, without showing anything to
 - `update.check` answers once the check is done: `{"latest":"0.10.1","available":true}`, or a failure reason. Up to date, `latest` is the running version. It uses the same fixed-repository check as Settings, and never downloads.
 - `update.install` installs the newest stable release, or the exact stable `version` given. Pinning lets a shell ship with a keyboard version it has tested. The helper already fetches exact tags. Drafts and prereleases are still rejected. Before activation, the helper checks that the package supports the protocol version in use, or fails with `incompatible`.
 - Verification, staging, startup confirmation and rollback are the same as [updates from Settings](updates.md). The keyboard shows no update UI for shell-requested updates, and the Settings button shows only status.
-- `update` events report `checking`, `available`, `downloading` (bytes), `prepared`, `quiesce` and `restarting`. Failures report the same short reason codes as Settings (`network`, `rate_limit`, `checksum`, `locked`, `disk`, `invalid_package`), plus `incompatible`.
+- `update` events report `checking`, `available`, `downloading` (with `bytes` and `total` of the archive, coalesced, reported every 256 KiB), `prepared`, `quiesce` and `restarting`. Failures report the same short reason codes as Settings (`network`, `rate_limit`, `checksum`, `locked`, `disk`, `invalid_package`), plus `incompatible`.
 
 ### Idle
 
@@ -353,8 +353,8 @@ Later, and separate from this connection. Compositor shells can then use the sta
 `render` returns a PNG of the keyboard, settings, emoji or dictation view with a given theme, layout and language, for a shell's own pickers.
 
 - It renders isolated sample state, never the live editor, composition, candidates, recent emoji or settings values that identify the user.
-- It uses the existing desktop renderer in a worker, one request at a time, up to 2048 px wide.
-- `{"op":"render","view":"keyboard","layout":...,"language":...,"theme":...}`; omitted fields take the current selection. The shell's own theme cannot be rendered, since the renderer starts from installed profiles.
+- It uses the existing desktop renderer in a worker, one request at a time.
+- `{"op":"render","view":"keyboard","layout":...,"language":...,"theme":...,"width":800}`; omitted fields take the current selection. `width` is 64 to 2048 pixels and keeps the texture's proportions; without it the image is the panel's own 1600 pixels. `theme:"shell"` renders the shell's current custom theme.
 - It returns `{"path":".../preview-N.png"}` in the keyboard's private runtime directory and does not send image data over the connection. At most 4 previews are kept; older ones are overwritten, and all are removed when the keyboard exits.
 
 ## Events
@@ -373,6 +373,7 @@ Later, and separate from this connection. Compositor shells can then use the sta
 | `update` | `state`, `latest`, `bytes`, `error` (always sent) |
 | `target` | `owner`: `normal`, `sink`; `context` |
 | `haptic` | `hand`, `kind` (with shell haptics) |
+| `launch` | `source`: `launcher`, when the user launched the keyboard while the shell runs it |
 | `commit`, `key` | Sink only; `seq`, `context` |
 
 ## Errors

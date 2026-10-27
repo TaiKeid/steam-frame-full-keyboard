@@ -247,8 +247,12 @@ VrInstance::Request VrInstance::poll() {
                 send(client, accepted, sizeof(accepted), MSG_NOSIGNAL);
             } else if (is(recenter_request)) {
                 if (hosted_owner_) {
-                    // A shell decides where and whether this keyboard shows.
+                    // A shell decides where and whether this keyboard shows;
+                    // it hears that the user launched the keyboard.
                     send(client, hosted, sizeof(hosted), MSG_NOSIGNAL);
+                    if (requested == Request::None) {
+                        requested = Request::Launched;
+                    }
                 } else {
                     // Acknowledge only requests actually consumed by the render loop.
                     if (requested == Request::None) {

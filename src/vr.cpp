@@ -1576,6 +1576,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::string update_when = "idle";
     UpdateHandover handover;
     Updates::State reported_update = Updates::State::Idle;
+    std::uint64_t reported_bytes = 0;
     std::string reported_update_error;
     std::array<bool, 2> forwarded_inside{};
     std::array<int, 2> forwarded_moves{};
@@ -2076,9 +2077,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             render.language = text("language").empty() ? selection.language : text("language");
             render.theme = text("theme").empty() ? selection.theme : text("theme");
             render.data_dir = app.options().data_dir;
-            if (render.theme == "shell" || (render.view != "keyboard" && render.view != "settings" &&
-                                            render.view != "emoji" && render.view != "dictation")) {
-                fail("bad_request", "Render an installed theme and a known view.");
+            if (render.theme == "shell") {
+                render.theme_json = app.host_theme_json();
+            }
+            if (auto* width = get("width")) {
+                render.width =
+                    json_object_is_type(width, json_type_int) ? json_object_get_int(width) : -1;
+            }
+            if ((render.theme == "shell" && render.theme_json.empty()) || render.width < 0 ||
+                (render.width > 0 && (render.width < 64 || render.width > 2048)) ||
+                (render.view != "keyboard" && render.view != "settings" && render.view != "emoji" &&
+                 render.view != "dictation")) {
+                fail("bad_request", "Render a known view and theme, 64 to 2048 pixels wide.");
                 return;
             }
             if (preview_request || !previews->start(render)) {
@@ -2173,6 +2183,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::cout << "Quit requested by another launch.\n" << std::flush;
             app.request_quit();
             break;
+        }
+        if (instance_request == VrInstance::Request::Launched && shell) {
+            // The user tapped the launcher; the shell decides whether to show.
+            auto fields = json_ptr(json_object_new_object());
+            json_object_object_add(fields.get(), "source", json_object_new_string("launcher"));
+            shell->event("launch", std::move(fields));
         }
         lifecycle.begin_frame({.replacement_enabled = replace,
                                .native = native,
@@ -3074,6 +3090,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         }
                         check_request.reset();
                     }
+                }
+                // Download progress, coalesced to the latest bytes.
+                if (const auto [done, total] = updates->downloaded();
+                    state == Updates::State::Installing && done != reported_bytes) {
+                    reported_bytes = done;
+                    auto fields = json_ptr(json_object_new_object());
+                    json_object_object_add(fields.get(), "state", json_object_new_string("downloading"));
+                    json_object_object_add(fields.get(), "bytes",
+                                           json_object_new_int64(static_cast<int64_t>(done)));
+                    json_object_object_add(fields.get(), "total",
+                                           json_object_new_int64(static_cast<int64_t>(total)));
+                    shell->telemetry("update", std::move(fields));
                 }
                 // Activation waits for idleness, checked just before it, and
                 // for the shell's last message (docs/integration.md, Handover).

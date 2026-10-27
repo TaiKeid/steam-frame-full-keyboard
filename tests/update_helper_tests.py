@@ -498,6 +498,18 @@ class HostedTransaction(Transaction):
         self.assertEqual((prefs / "placement-hosted.json").read_text(), "placement-hosted.json")
 
 
+class DownloadProgress(unittest.TestCase):
+    def test_bytes_are_counted_and_reported_in_steps(self):
+        import io
+        reports = []
+        output = io.BytesIO()
+        counting = u.CountingOutput(output, 600 * 1024, lambda done, total: reports.append((done, total)))
+        for _ in range(6):
+            counting.write(b"x" * 100 * 1024)
+        self.assertEqual(output.getvalue(), b"x" * 600 * 1024)
+        self.assertEqual(reports, [(300 * 1024, 600 * 1024), (600 * 1024, 600 * 1024)])
+
+
 class HostedLaunch(unittest.TestCase):
     def test_successor_inherits_descriptors_and_waits_for_the_commit(self):
         with tempfile.TemporaryDirectory() as directory:

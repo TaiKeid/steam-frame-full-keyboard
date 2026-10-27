@@ -1989,6 +1989,20 @@ void hosted_tests() {
     require(app.check_hints({"secret", "enter", "sentences", ""}).first == "bad_request",
             "unknown hints are refused");
 
+    // Hiding keeps an open reading for the same context; a new context drops it.
+    App::HostHints romaji;
+    romaji.language = "ja-romaji";
+    app.set_context(std::string("jp"), romaji);
+    press(app, "KeyK");
+    press(app, "KeyA");
+    require(app.view().preedit == "か", "a reading is open");
+    app.set_interaction_active(false);
+    app.set_interaction_active(true);
+    require(app.view().preedit == "か", "hiding the panel keeps it pending");
+    app.set_context(std::string("other"), {});
+    require(app.view().preedit.empty(), "a context change discards it, never commits it");
+    app.set_context(std::nullopt);
+
     // Settings: all or nothing, persisted, reported with the request they cover.
     app.take_host_events();
     auto bad = json_ptr(json_tokener_parse(R"({"auto_leveling":false,"replace_native_keyboard":true})"));

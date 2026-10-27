@@ -13,7 +13,8 @@ class VrInstance {
   public:
     enum class Launch { Notify, Silent, Hosted };
     enum class Outcome { Owner, Notified, Running, ShellManaged, QuitRefused, LockTaken };
-    enum class Request { None, Recenter, Quit };
+    // Launched: a plain launch reached a hosted owner, which tells its shell.
+    enum class Request { None, Recenter, Quit, Launched };
     explicit VrInstance(const std::filesystem::path& directory = runtime_directory(),
                         Launch launch = Launch::Notify, bool hosted_owner = false);
     // An update successor in hosted mode: the lock is already held by the

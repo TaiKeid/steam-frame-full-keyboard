@@ -287,6 +287,8 @@ class App {
     std::pair<std::string, std::string> host_theme_set(const std::string& json);
     void host_theme_reset();
     JsonPtr host_theme() const;
+    // The shell's theme as it sent it, for previews; empty without one.
+    const std::string& host_theme_json() const { return host_.theme_json; }
     JsonPtr host_dictation() const;
     // dictation.start, dictation.stop, dictation.test_server, dictation.model.
     std::pair<std::string, JsonPtr> host_dictation_request(const std::string& op, json_object* body);
@@ -342,6 +344,7 @@ class App {
         bool lock_move{}, lock_resize{}, forwarded{};
         bool user_hide{};
         std::optional<Theme> theme; // the shell's own theme, never saved
+        std::string theme_json;     // as the shell sent it
         std::string theme_before;   // the installed theme it replaced
         std::string sink_client;    // shown while the sink is on
         bool test_by_shell{};       // the Test in flight was the shell's

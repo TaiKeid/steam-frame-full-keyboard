@@ -254,6 +254,7 @@ bool Updates::install(double now, const std::string& version, int protocol) {
     state_ = State::Installing;
     progress_.clear();
     reason_.clear();
+    done_ = total_ = 0;
     return true;
 }
 bool Updates::cancel(double now) {
@@ -296,8 +297,21 @@ bool Updates::tick(double now) {
             state_ = offer_.empty() ? State::Error : State::Available;
             reset_at_ = now + 5;
         } else if (state == "progress" && state_ == State::Installing) {
-            progress_ =
-                field(packet.get(), "phase") == "verify" ? "Verifying update..." : "Preparing update...";
+            const auto phase = field(packet.get(), "phase");
+            if (phase == "download") {
+                json_object* value = nullptr;
+                done_ = json_object_object_get_ex(packet.get(), "done", &value)
+                            ? static_cast<std::uint64_t>(json_object_get_int64(value))
+                            : 0;
+                total_ = json_object_object_get_ex(packet.get(), "total", &value)
+                             ? static_cast<std::uint64_t>(json_object_get_int64(value))
+                             : 0;
+                progress_ = total_
+                                ? "Downloading update... " + std::to_string(done_ * 100 / total_) + "%"
+                                : "Downloading update...";
+            } else {
+                progress_ = phase == "verify" ? "Verifying update..." : "Preparing update...";
+            }
         } else if (state == "prepared" && state_ == State::Installing) {
             state_ = State::Prepared;
         } else if (state == "error") {

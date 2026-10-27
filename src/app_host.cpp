@@ -437,6 +437,7 @@ std::string App::host_theme_select(const std::string& id, std::int64_t request) 
         return "failed";
     }
     host_.theme.reset();
+    host_.theme_json.clear();
     profiles_.themes.erase(shell_theme_id);
     update_settings_ui();
     host_.unsaved_request = std::max(host_.unsaved_request, request);
@@ -459,6 +460,7 @@ std::pair<std::string, std::string> App::host_theme_set(const std::string& json)
         host_.theme_before = settings_.active.theme;
     }
     host_.theme = theme;
+    host_.theme_json = json;
     profiles_.themes[shell_theme_id] = std::move(theme);
     // Shown at once and for this process only; save() writes the theme it replaced.
     settings_.active.theme = shell_theme_id;
@@ -477,6 +479,7 @@ void App::host_theme_reset() {
     }
     const auto before = settings_;
     host_.theme.reset();
+    host_.theme_json.clear();
     if (settings_.active.theme == shell_theme_id) {
         settings_.active.theme =
             profiles_.themes.contains(host_.theme_before) ? host_.theme_before : "graphite";

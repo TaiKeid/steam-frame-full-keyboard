@@ -505,6 +505,21 @@ class SettingsSnapshot:
             raise errors[0]
 
 
+class CountingOutput:
+    """Reports bytes written, at most every 256 KiB, for a shell's progress."""
+
+    def __init__(self, output, total, report):
+        self.output, self.total, self.report = output, total, report
+        self.done = self.reported = 0
+
+    def write(self, data):
+        self.output.write(data)
+        self.done += len(data)
+        if self.done - self.reported >= 256 * 1024 or self.done == self.total:
+            self.reported = self.done
+            self.report(self.done, self.total)
+
+
 class Installation:
     def __init__(self, executable):
         self.executable = Path(executable).resolve(strict=True)
@@ -519,6 +534,7 @@ class Installation:
         self.temporary = None
         self.package = None
         self.target = None
+        self.downloaded = None  # optional report(done, total) while the archive downloads
 
     def close(self):
         temporary, self.temporary = self.temporary, None
@@ -551,6 +567,8 @@ class Installation:
             raise UpdateError("inconsistent-checksum")
         archive = work / "update.tar.gz"
         with archive.open("wb") as output:
+            if self.downloaded:
+                output = CountingOutput(output, archive_asset["size"], self.downloaded)
             actual = download(archive_asset["browser_download_url"], output, MAX_ARCHIVE,
                               archive_asset["size"])
         progress("verify")
@@ -731,6 +749,8 @@ def serve(peer, executable, current, arguments):
                     if protocol is not None and type(protocol) is not int:
                         raise UpdateError("invalid-command")
                     installation = Installation(executable)
+                    installation.downloaded = lambda done, total: send("progress", phase="download",
+                                                                       done=done, total=total)
                     installation.prepare(selected, lambda phase: send("progress", phase=phase),
                                          **({"protocol": protocol} if protocol is not None else {}))
                     prepared_at = time.monotonic()

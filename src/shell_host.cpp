@@ -159,6 +159,18 @@ void PreviewRenderer::run(Request request) {
         std::ofstream(config / "config.json")
             << R"({"schema_version":1,"active":{"layout":")" << request.layout << R"(","language":")"
             << request.language << R"(","theme":")" << request.theme << R"("},"dictation":"off"})";
+        if (!request.theme_json.empty()) {
+            // The shell's theme as a user theme of this throwaway configuration.
+            auto theme = json_ptr(json_tokener_parse(request.theme_json.c_str()));
+            if (!theme || !json_object_is_type(theme.get(), json_type_object)) {
+                throw std::runtime_error("invalid shell theme");
+            }
+            json_object_object_add(theme.get(), "id", json_object_new_string(request.theme.c_str()));
+            json_object_object_add(theme.get(), "name", json_object_new_string("Shell theme"));
+            std::filesystem::create_directories(config / "themes");
+            std::ofstream(config / "themes" / (request.theme + ".json"))
+                << json_object_to_json_string_ext(theme.get(), JSON_C_TO_STRING_PLAIN);
+        }
         Options options;
         options.config_dir = config;
         options.data_dir = request.data_dir;
@@ -189,7 +201,26 @@ void PreviewRenderer::run(Request request) {
         // At most four previews are kept; the oldest is overwritten.
         const auto path = directory_ / ("preview-" + std::to_string(next_ % 4) + ".png");
         ++next_;
-        app.renderer.write_png(path.string());
+        if (request.width > 0 && request.width != panel_width) {
+            // Scaled to the width asked for, keeping the texture's proportions.
+            const double scale = static_cast<double>(request.width) / panel_width;
+            const int height = std::max(1, static_cast<int>(std::lround(texture_height * scale)));
+            cairo_surface_t* scaled =
+                cairo_image_surface_create(CAIRO_FORMAT_ARGB32, request.width, height);
+            cairo_t* cr = cairo_create(scaled);
+            cairo_scale(cr, scale, scale);
+            cairo_set_source_surface(cr, app.renderer.surface(), 0, 0);
+            cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+            cairo_paint(cr);
+            cairo_destroy(cr);
+            const auto status = cairo_surface_write_to_png(scaled, path.c_str());
+            cairo_surface_destroy(scaled);
+            if (status != CAIRO_STATUS_SUCCESS) {
+                throw std::runtime_error("could not write the preview");
+            }
+        } else {
+            app.renderer.write_png(path.string());
+        }
         result.path = path.string();
     } catch (const std::exception& error) {
         result.error = error.what();

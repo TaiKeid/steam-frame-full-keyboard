@@ -40,6 +40,8 @@ class Updates {
     const std::string& latest() const { return offer_; }
     // The helper's last failure code, such as "network-unavailable".
     const std::string& failure_code() const { return reason_; }
+    // Bytes of the release archive downloaded so far, and its size.
+    std::pair<std::uint64_t, std::uint64_t> downloaded() const { return {done_, total_}; }
 
   private:
     bool start();
@@ -47,6 +49,7 @@ class Updates {
     void stop();
     void fail(double now, const std::string& reason = {});
     std::string version_, offer_, progress_, failure_, reason_;
+    std::uint64_t done_{}, total_{};
     std::vector<std::string> arguments_;
     std::filesystem::path helper_;
     State state_{State::Idle};

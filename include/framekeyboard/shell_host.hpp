@@ -76,6 +76,10 @@ class PreviewRenderer {
         std::int64_t id{};
         std::string view{"keyboard"}, layout, language, theme;
         std::filesystem::path data_dir;
+        // The shell's own theme as it sent it, when `theme` is "shell".
+        std::string theme_json;
+        // Pixels wide, 64 to 2048; zero keeps the panel's own width.
+        int width{};
     };
     // False while another render runs.
     bool start(Request request);

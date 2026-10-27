@@ -348,6 +348,55 @@ void handover_tests() {
     require(!json_matrix(short_matrix.get()), "a short matrix is refused");
 }
 
+// Preview renders: sample state at the width asked for, with an installed
+// theme or the shell's own.
+void preview_tests() {
+    char pattern[] = "/tmp/framekeyboard-preview-XXXXXX";
+    require(mkdtemp(pattern), "temporary directory");
+    const std::filesystem::path directory(pattern);
+    auto render = [&](PreviewRenderer& previews, PreviewRenderer::Request request) {
+        require(previews.start(request), "a render starts");
+        require(!previews.start(request), "one render at a time");
+        for (int i = 0; i < 600; ++i) {
+            if (auto result = previews.take()) {
+                return *result;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        throw std::runtime_error("the preview did not finish");
+    };
+    {
+        PreviewRenderer previews(directory);
+        PreviewRenderer::Request request;
+        request.id = 7;
+        request.layout = "en-us-full";
+        request.language = "en-us";
+        request.theme = "graphite";
+        request.width = 400;
+        const auto result = render(previews, request);
+        require(result.id == 7 && result.error.empty() && std::filesystem::exists(result.path),
+                "a preview is written in the private directory");
+        cairo_surface_t* image = cairo_image_surface_create_from_png(result.path.c_str());
+        const int width = cairo_image_surface_get_width(image);
+        cairo_surface_destroy(image);
+        require(width == 400, "at the width asked for");
+        request.theme = "shell";
+        request.width = 0;
+        request.theme_json = R"({"schema_version":1,"id":"x","name":"x","surface":"#101010",
+            "surface_radius":20,"key_top":"#303030","key_middle":"#282828","key_bottom":"#202020",
+            "key_side_top":"#181818","key_side_bottom":"#101010","legend":"#ffffff","key_radius":8,
+            "key_depth":3.5,"key_press_travel":3,"press_duration_ms":80,"font_size":20,"small_font_size":13,
+            "padding":20,"hover":"#404040","latched":"#335577","disabled":"#151515"})";
+        require(render(previews, request).error.empty(), "the shell's own theme renders too");
+        request.theme = "missing";
+        request.theme_json.clear();
+        require(!render(previews, request).error.empty(), "an unknown theme is an error");
+    }
+    require(!std::filesystem::exists(directory / "preview-0.png"),
+            "previews go when the keyboard exits");
+    std::filesystem::remove_all(directory);
+}
+
 // Running instances (docs/integration.md): one eviction, then the lock.
 void instance_tests() {
     char pattern[] = "/tmp/framekeyboard-shell-XXXXXX";
@@ -362,11 +411,15 @@ void instance_tests() {
         auto plain = std::async(std::launch::async, [&] {
             return VrInstance(runtime, VrInstance::Launch::Notify).outcome();
         });
+        int launched = 0;
         while (plain.wait_for(std::chrono::milliseconds(10)) != std::future_status::ready) {
-            require(owner.poll() == VrInstance::Request::None, "a hosted owner never takes a recenter");
+            const auto request = owner.poll();
+            require(request != VrInstance::Request::Recenter, "a hosted owner never takes a recenter");
+            launched += request == VrInstance::Request::Launched;
         }
         require(plain.get() == VrInstance::Outcome::ShellManaged,
                 "the plain launch learns a shell manages it");
+        require(launched == 1, "and the owner can tell its shell the user launched it");
     }
     {
         // A standalone owner quits for a hosted launch, which then takes the lock.
@@ -425,6 +478,7 @@ int main() {
         limits_tests();
         sink_tests();
         handover_tests();
+        preview_tests();
         instance_tests();
         std::cout << "Shell tests passed\n";
         return 0;

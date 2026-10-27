@@ -1468,9 +1468,11 @@ void App::set_interaction_active(bool active) {
     }
     // Release through the still-open gate; disabling first would strand held
     // modifiers in the compositor. Also discard preedit and queued UI clicks.
-    // The keyboard always reopens on its main layout.
+    // The keyboard always reopens on its main layout. Under a shell an open
+    // composition stays pending for the same context; a context change or
+    // the lease running out discards it (docs/integration.md, Presentation).
     close_emoji();
-    cancel();
+    cancel(!hosted());
     interaction_active_ = active;
     if (active) {
         refresh_typing();
