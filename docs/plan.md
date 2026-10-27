@@ -13,14 +13,24 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Dashboard position/rotation following and dashboard-only visibility/input.
 - Saved placement, single-instance launches, and relaunch-to-recenter.
 - Per-controller haptics, cancellation paths, host tests, and ARM64 release packaging.
+- Experimental swipe typing for nine languages, powered by FUTO Swipe (0.9.0). See [swipe typing](swipe-typing.md).
+- Japanese 12-key flick input and typing over pinned windows in passthrough (0.9.0).
+- Emoji picker with recent emoji, categories and skin tones, and resizing from the corners (0.10.0). See [emoji picker](emoji.md).
 
-## Before the first public release
+## In progress, not yet released
+
+- **Dictation:** on device or with a self-hosted Whisper server, in an editor or typed straight into the focused app. Implemented and tested in the headset; see [dictation](dictation.md). Left before release: an update and sleep while dictating, tested in the headset; the on-device thread count, measured with a game running; independent review and a release build.
+- 25 more national layouts, each with dictation, for 37 languages in all.
+- Ten more themes, a raised Settings design, and Settings cards that glide and drag.
+- The keyboard fades in and out as it opens and closes; the hand feels dictation start and stop.
+
+## Before each release
 
 - Independent code review and resolution of actionable findings.
+- The [upkeep checklist](upkeep.md) for third-party code and SteamOS dependencies.
 - Review the [release checklist](releasing.md) and [manual acceptance matrix](acceptance.md).
 - Confirm install/update/uninstall instructions from a fresh release archive.
 - Review the public repository and package for private files and complete third-party notices.
-- Publish a release with the ARM64 archive and checksums once review is complete.
 
 ## Experimental native replacement
 
@@ -41,4 +51,4 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Measured battery, memory, and latency results.
 - Shell integration, scheduled after the first public release: alternative shells launch the keyboard in hosted mode and control it over an inherited connection. A standalone keyboard has no shell-control protocol. Presentation, placement, themes, typing contexts, settings, dictation, silent updates, pointer forwarding and a commits-only text sink are drafted in [shell integration](integration.md), with its implementation order.
 
-Swipe typing is planned in [swipe typing](swipe-typing.md) and not yet implemented. Dictation is designed in [dictation](dictation.md): recognition on a user-hosted speech server, with a limited on-device mode for English and Spanish. It is not started and not part of 0.9.0. The emoji picker is implemented; see [emoji picker](emoji.md) and its acceptance list. No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+Swipe typing for Japanese and Korean is planned in [swipe typing](swipe-typing.md). No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
