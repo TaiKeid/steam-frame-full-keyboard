@@ -433,6 +433,12 @@ class Downloads(unittest.TestCase):
         self.assertEqual(self.download("small-q4_0", str(tool))[-1], {"state": "failed", "reason": "quantize"})
         self.assertEqual(list(self.models_dir.iterdir()), [])
 
+    def test_a_failed_rename_still_ends_the_download(self):
+        # Something in the model's place: the verified file cannot go there.
+        (self.models_dir / "ggml-small-q8_0.bin").mkdir(parents=True)
+        self.assertEqual(self.download("small-q8_0")[-1], {"state": "failed", "reason": "disk"})
+        self.assertFalse((self.models_dir / "ggml-small-q8_0.bin.part").exists())
+
     def test_cancel(self):
         self.assertEqual(self.download("small-q8_0", cancel=True)[-1], {"state": "failed", "reason": "cancelled"})
         self.assertFalse((self.models_dir / "ggml-small-q8_0.bin").exists())

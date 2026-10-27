@@ -630,11 +630,17 @@ class Download(threading.Thread):
                 client.sock.shutdown(socket.SHUT_RDWR)
 
     def run(self):
+        # Every exit reports ready or failed: the keyboard waits for one, and
+        # keeps the on-device mic unavailable until it comes.
         try:
             self.fetch()
             self.report("ready")
         except Failure as failure:
             self.report("failed", reason="cancelled" if self.cancelled else str(failure))
+        except OSError:
+            self.report("failed", reason="cancelled" if self.cancelled else "disk")
+        except Exception:
+            self.report("failed", reason="cancelled" if self.cancelled else "unreachable")
         finally:
             with contextlib.suppress(OSError):
                 os.unlink(os.path.join(self.directory, MODELS[self.name][0] + ".part"))
@@ -673,7 +679,10 @@ class Download(threading.Thread):
                 self.client.close()
         else:
             raise Failure("unreachable")
-        os.replace(part, final)
+        try:
+            os.replace(part, final)
+        except OSError:
+            raise Failure("disk")
         if self.name == "small-q4_0":
             self.make_q4(final)
 
