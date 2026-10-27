@@ -284,6 +284,8 @@ while True:
         send(op="paused")
         continue
     if op == "test":
+        if scenario == "testexit":
+            sys.exit(0)  # gone before answering
         if scenario == "slowtest":
             import time
             time.sleep(0.5)  # the address is edited before the answer comes
@@ -1878,6 +1880,16 @@ void test_race_tests() {
     require(load_settings(directory.path, errors).dictation_recent_servers ==
                 std::vector<std::string>{"127.0.0.1"},
             "only the address that answered is remembered");
+
+    // The helper exits before it answers: Test reports it and works again.
+    use_fake_helper(options, directory.path, "testexit");
+    App lost(options, sink);
+    lost.show_settings();
+    click(lost, "dictation-test");
+    wait_until(lost, [&] { return field_label(lost, "Helper stopped"); });
+    require(control_enabled(lost, "dictation-test"), "Test can run again after the helper exits");
+    click(lost, "dictation-test");
+    require(field_label(lost, "Testing…"), "and starts a new helper");
 }
 
 // Correcting dictated text uses the layout's dead accents, as the keyboard does.

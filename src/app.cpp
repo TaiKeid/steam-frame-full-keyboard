@@ -4209,6 +4209,12 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         pending_phrases_.clear();
         awaiting_pause_ = false;
         send_wait_since_.reset();
+        if (event.reason == "helper-exited" && testing_server_) {
+            // No answer will come; Test can start a new helper.
+            testing_server_.reset();
+            dictation_test_ = "Helper stopped";
+            update_settings_ui();
+        }
         if (event.reason == "helper-exited" && download_) {
             // Nothing will report on the download; the mic key and Settings
             // would wait for it until the keyboard restarts.
