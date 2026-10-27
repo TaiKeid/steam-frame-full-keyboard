@@ -1989,6 +1989,14 @@ void hosted_tests() {
     require(app.check_hints({"secret", "enter", "sentences", ""}).first == "bad_request",
             "unknown hints are refused");
 
+    // A view chosen while hidden is the one that shows.
+    app.set_interaction_active(false);
+    require(app.show_view("emoji").empty() && app.view_name() == "emoji",
+            "the shell opens the picker while hidden");
+    app.set_interaction_active(true);
+    require(app.view_name() == "emoji", "and it is still open once the panel shows");
+    require(app.show_view("keyboard").empty(), "back to the keys");
+
     // Hiding keeps an open reading for the same context; a new context drops it.
     App::HostHints romaji;
     romaji.language = "ja-romaji";
