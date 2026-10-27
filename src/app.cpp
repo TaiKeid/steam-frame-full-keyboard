@@ -691,13 +691,10 @@ PanelView App::build_view(bool picker) const {
     if (settings_open_) {
         settings_ui_.append(v);
     }
-    v.status = resizing_          ? "Release trigger to keep this size"
-               : dragging_        ? (settings_.use_drag_to_move ? "Release grab to place keyboard"
-                                                                : "Release trigger to place keyboard")
-               : !status_.empty() ? status_
+    v.status = !status_.empty()            ? status_
                : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
                                            : startup_status_;
-    if (settings_open_ && !dragging_ && updates_ && !updates_->failure_reason().empty()) {
+    if (settings_open_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
     }
     if (settings_open_ && v.status.empty() && settings_ui_.open_field() == "language" &&

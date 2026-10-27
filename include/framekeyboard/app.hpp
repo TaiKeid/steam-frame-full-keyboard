@@ -175,6 +175,7 @@ class App {
     void summon();
     // A corner resize holds the same input gate as movement.
     void set_dragging(bool dragging, bool resizing = false);
+    bool dragging() const { return dragging_; }
     // Hiding the VR context releases keys before closing the input gate.
     void set_interaction_active(bool active);
     void report_status(const std::string& message);

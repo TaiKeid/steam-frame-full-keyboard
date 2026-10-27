@@ -959,7 +959,7 @@ void app_settings() {
     require(!control(app.view(), "pin").selected, "pin active state changes icon without background");
     require(control(app.view(), "pin").icon != unpinned_icon, "pin has distinct on/off icons");
     app.set_dragging(true);
-    require(app.view().status.empty(), "pin refuses drag capture");
+    require(!app.dragging(), "pin refuses drag capture");
     {
         App reopened(options, sink);
         require(reopened.pinned(), "pin survives restart");
@@ -1164,10 +1164,10 @@ void behavior_settings() {
     require(handle_alpha() > 0 && !app.renderer.hit_key(app.view(), x, y),
             "movement line paints below the case and cannot type a key");
     app.renderer.write_png("/tmp/framekeyboard-behavior-laser.png");
+    const auto resting_status = app.view().status;
     click(app, "move-handle");
     app.set_dragging(true);
-    require(app.view().status == "Release trigger to place keyboard",
-            "laser movement has the correct release instruction");
+    require(app.view().status == resting_status, "moving shows no instruction of its own");
     app.set_dragging(false);
     app.show_settings();
     const auto settings_view = app.view();
