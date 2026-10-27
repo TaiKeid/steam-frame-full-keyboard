@@ -45,9 +45,10 @@ not vendored. `executorch/` holds the licenses of ExecuTorch, XNNPACK, cpuinfo,
 pthreadpool, FP16, FXdiv (BSD/MIT), flatbuffers and KleidiAI (Apache-2.0).
 
 Word lists in `../swipe/lexicons/` are derived from CC BY lists (Leipzig Corpora
-Collection, partly via HeliBoard) and, for Chinese Pinyin, from jieba and
-pypinyin under MIT; see their README and licence files for sources, hashes and
-changes.
+Collection, partly via HeliBoard) blended with CC BY-SA 4.0 subtitle frequencies
+(FrequencyWords, from OpenSubtitles 2018), so those lists are CC BY-SA 4.0; the
+Chinese Pinyin list comes from jieba and pypinyin under MIT. See their README
+and licence files for sources, hashes and changes.
 
 Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary.
 

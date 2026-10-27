@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Swipe typing knows everyday chat words: its word lists, built from news text, are now blended with how often words are spoken in film subtitles, so words such as "okay", "thanks", "dziękuję" or "спасибо" are recognized and ranked as in conversation. The swipe word lists are now licensed CC BY-SA 4.0.
+- Swipe typing now works in Polish, Dutch and Swedish. Accented letters are swiped through their plain letter, as on phones: Polish ą through A and ź through Z, Dutch ë through E. Polish ł is swiped on L.
 - Holding Backspace now repeats on an unfinished Japanese, Chinese or Korean reading, including flick input, instead of deleting one character per press. It stops once the reading is empty, so it never goes on to erase text already in the app.
 - Moving, resizing, pinning or recentering the keyboard no longer erases an unfinished Japanese, Chinese or Korean reading; it stays ready to convert or commit.
 - Holding Shift for half a second locks it, like a phone keyboard: every key gets Shift until you press Shift again, which helps when selecting text with the arrows. Shift keys show an arrow before their name, filled while locked.

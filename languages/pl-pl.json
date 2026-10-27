@@ -18,6 +18,9 @@
     "Noto Sans",
     "sans-serif"
   ],
+  "swipe": {
+    "lexicon": "pl-pl"
+  },
   "dictation": {
     "language": "pl"
   }

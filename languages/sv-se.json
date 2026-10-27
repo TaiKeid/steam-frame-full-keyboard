@@ -21,6 +21,9 @@
   "required_keys": [
     "IntlBackslash"
   ],
+  "swipe": {
+    "lexicon": "sv-se"
+  },
   "dictation": {
     "language": "sv"
   }

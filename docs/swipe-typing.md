@@ -83,6 +83,15 @@ Status (2026-10-26): M0, M1 and M6 are done and shipped in 0.9.0, with host and 
 - Chinese: a swipe decodes toneless Pinyin and types it into the existing composer, which offers characters. Its accuracy is not measured beyond fixed checks; it needs fluent review.
 - Not measured on real swipes: English UK, Italian, Brazilian Portuguese, Ukrainian, Russian (FUTO reports 83–86% for Russian on its own setup).
 
+## Added languages (2026-10-27)
+
+- Polish, Dutch and Swedish, from HeliBoard/Leipzig CC BY lists like the others. Sentence-initial capitals are folded into their lowercase words where both exist (Polish "Po" 199 outranked "po" 183, so a swipe mid-sentence typed "Po"); names stay capitalised.
+- An AltGr letter whose plain letter has its own key now folds to that key, as dead-key accents do: Dutch ë is AltGr+R on US international but is swiped through E, and Polish ź through Z instead of AltGr+X. AltGr letters without a plain-letter key (Polish ł) stay on the key that types them.
+- Synthetic swipes on the real encoder (minimum-jerk motion, 0.25 key-pitch landing error, 60 ms corner rounding, 300 words from ranks 100–10,000): Polish 95.7% top-1 / 99.7% top-3, Dutch 94.7% / 99.0%, Swedish 94.0% / 99.3%. The same method gives English 95.3%, German 93.0%, Spanish 94.7% and French 94.0%, against 90.3%, 84.5% and 92.5% on real swipes for the first three, so these are comparable with each other, not with real accuracy.
+- News-based lists ranked everyday chat words low or missed them: Polish "dziękuję", Dutch "hoi" and "doei", Swedish "godnatt", English "lol". Every list except Chinese is now blended with FrequencyWords subtitle frequencies (OpenSubtitles 2018, CC BY-SA 4.0), which makes those lists CC BY-SA 4.0; sources and method are in `swipe/lexicons/README.md`. "dziękuję" now ranks 245, "спасибо" 99 (was 47,002), German "hallo" 427 (was 71,057).
+- Same synthetic method on fixed word sets, old and new list: chat words (subtitle ranks 50–3,000) top-1 rose from 93.0% to 95.7% in English, 83.3% to 90.3% German, 84.3% to 90.3% Spanish, 83.7% to 88.7% French, 85.7% to 94.7% Russian and 78.0% to 88.3% Italian; news words (old list ranks 100–10,000) moved by −1.3 to +0.3 points.
+- Swear words rise with the blend (English "fuck" from rank 15,000 to 428), so a misread swipe can produce one more easily. There is no offensive-word filter.
+
 ## Feasibility results
 
 All results were measured on 2026-10-23. Unless noted, they come from host x86_64 runs using ExecuTorch's Python runtime and a simplified Python beam search (width 64, frequency and length terms tuned on English dev swipes). Production numbers will differ.

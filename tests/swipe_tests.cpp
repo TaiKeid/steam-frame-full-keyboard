@@ -132,6 +132,14 @@ void keyboard_geometry() {
     const auto uk = keyboard_for("en-us-full", "uk-ua");
     require(letter(uk, U'ґ') != letter(uk, U'г'), "Ukrainian ґ has its own key");
     require(letter(uk, U'ё') == letter(uk, U'е'), "an AltGr letter is swiped on the key that types it");
+    const auto pl = keyboard_for("en-us-full", "pl-pl");
+    require(letter(pl, U'ł') == letter(pl, U'l'),
+            "Polish ł, with no plain-letter key, stays on AltGr+L");
+    require(letter(pl, U'ź') == letter(pl, U'z') && letter(pl, U'ą') == letter(pl, U'a'),
+            "Polish accented letters fold to their plain letter, ź to Z rather than AltGr+X");
+    const auto nl = keyboard_for("en-us-full", "nl-nl");
+    require(letter(nl, U'ë') == letter(nl, U'e') && letter(nl, U'ö') == letter(nl, U'o'),
+            "Dutch ë folds to E, not AltGr+R on US international");
     const auto ru = keyboard_for("en-us-full", "ru-ru");
     require(ru.alternate[static_cast<std::size_t>(letter(ru, U'ё'))] == letter(ru, U'е'),
             "Russian ё on the number row also accepts е");
@@ -1061,6 +1069,12 @@ int model() {
                                   {"br-abnt2-full", "pt-br", U"nao", "não"},
                                   {"en-us-full", "uk-ua", U"привіт", "привіт"},
                                   {"en-us-full", "ru-ru", U"привет", "привет"},
+                                  {"en-us-full", "pl-pl", U"jestem", "jestem"},
+                                  {"en-us-full", "pl-pl", U"łódź", "łódź"},
+                                  {"en-us-full", "nl-nl", U"bedankt", "bedankt"},
+                                  {"en-us-full", "nl-nl", U"ideeën", "ideeën"},
+                                  {"international-full", "sv-se", U"också", "också"},
+                                  {"international-full", "sv-se", U"tack", "tack"},
                                   {"en-us-full", "zh-cn-pinyin", U"zhongguo", "zhongguo"},
                                   {"en-us-full", "zh-cn-pinyin", U"nihao", "nihao"}};
     auto encoder = load_swipe_encoder(swipe_model_path({}));

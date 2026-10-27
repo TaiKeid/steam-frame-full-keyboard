@@ -140,9 +140,16 @@ std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const La
                                       [&](const Key& k) { return k.id == id; });
         const auto character = xkb_keysym_to_utf32(keymap.symbol(*key, altgr, false, false));
         const auto letter = static_cast<char32_t>(g_unichar_tolower(character));
-        if (character && g_unichar_isalpha(character) &&
-            std::find(keyboard.letters.begin(), keyboard.letters.end(), letter) ==
-                keyboard.letters.end()) {
+        auto has = [&](char32_t c) {
+            return std::find(keyboard.letters.begin(), keyboard.letters.end(), c) !=
+                   keyboard.letters.end();
+        };
+        // An accented letter whose plain letter has a key folds to it instead,
+        // as dead-key accents do and phone long-press accents train: Dutch ë
+        // is AltGr+R on US international, but people swipe it through E.
+        const auto base = base_letter(letter);
+        if (character && g_unichar_isalpha(character) && !has(letter) &&
+            !(base != letter && has(base))) {
             keyboard.shifted_letters.try_emplace(letter, index);
         }
     }
