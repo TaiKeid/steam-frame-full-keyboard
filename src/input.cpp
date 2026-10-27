@@ -589,7 +589,9 @@ bool KeyboardState::up(unsigned pointer) {
         return false;
     }
     auto& press = found->second;
-    if (press.modifier && press.used) {
+    // A locked Shift outlives the press that locked it: keys held now keep it.
+    const bool stays_locked = press.modifier && locked_.contains(press.modifier) && !press.unlocks;
+    if (press.modifier && press.used && !stays_locked) {
         const bool another_hold = std::any_of(presses_.begin(), presses_.end(), [&](const auto& item) {
             return item.first != pointer && item.second.modifier == press.modifier;
         });

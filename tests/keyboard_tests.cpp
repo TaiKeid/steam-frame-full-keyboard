@@ -247,6 +247,49 @@ void state_tests(const fk::Layout& layout) {
     require(!state.locked(KEY_LEFTCTRL) && state.modifiers().contains(KEY_LEFTCTRL),
             "only Shift locks; other modifiers still latch");
     state.cancel_all();
+    // Releasing the Shift that just locked keeps Shift on a key the other
+    // hand holds, through the output queue as the app uses it.
+    for (const auto* name : {"ShiftLeft", "ShiftRight"}) {
+        const int code = fk::key_code(name);
+        Capture target;
+        fk::OutputController output(target);
+        output.set_enabled(true);
+        fk::KeyboardState hands(output);
+        const auto held = [&](int key) {
+            int count = 0;
+            for (const auto& [event, value] : target.events) {
+                count += event != key ? 0 : value == 1 ? 1 : value == 0 ? -1 : 0; // 2 repeats
+            }
+            return count;
+        };
+        // Shift first: it locks, the arrow takes it, then Shift's hand lets go.
+        hands.down(0, key(layout, name), 100);
+        hands.tick(100.6);
+        hands.down(1, key(layout, "ArrowLeft"), 100.7);
+        output.tick(100.7);
+        hands.up(0);
+        output.tick(100.8);
+        require(hands.locked(code) && held(KEY_LEFT) == 1 && held(code) == 1,
+                "the held arrow keeps the locked Shift");
+        hands.up(1);
+        output.tick(100.9);
+        require(held(KEY_LEFT) == 0 && held(code) == 0 && target.events.back() == std::pair{code, 0},
+                "and releases it after itself");
+        // Arrow first: it was pressed without Shift and stays that way.
+        hands.cancel_all();
+        target.events.clear();
+        hands.down(1, key(layout, "ArrowLeft"), 101);
+        hands.down(0, key(layout, name), 101.1);
+        hands.tick(101.7);
+        output.tick(101.7);
+        hands.up(0);
+        output.tick(101.8);
+        require(hands.locked(code) && held(KEY_LEFT) == 1 && held(code) == 0,
+                "an arrow already held is not changed by the lock");
+        hands.up(1);
+        output.tick(101.9);
+        require(held(KEY_LEFT) == 0 && held(code) == 0, "and nothing is left held");
+    }
     sink.events.clear();
     state.down(0, key(layout, "Enter"), 41);
     state.cancel_all();
