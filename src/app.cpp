@@ -3722,8 +3722,8 @@ void App::stop_direct(std::string status) {
     std::cout << "Type as I speak stopped: " << (status.empty() ? "panel hidden" : status) << '\n'
               << std::flush;
     cancel_capture();
-    if (output_.text_pending()) {
-        output_.cancel(); // the session's queued text, not yet typed
+    if (output_.text_pending() || output_.retry_available()) {
+        output_.cancel(); // the session's queued or failed text, not yet typed
     }
     direct_waiting_.clear();
     direct_paste_.reset();

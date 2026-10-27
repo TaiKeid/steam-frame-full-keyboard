@@ -536,9 +536,12 @@ class App {
     // Capturing, or phrases not yet typed.
     // A session lasts until its last phrase is out of the output queue too,
     // so Esc and a field change can still drop it.
+    // A failed phrase waiting for Enter's retry still belongs to the session,
+    // so Esc can drop it.
     bool direct_active() const {
-        return direct_ && (capturing_ || phrases_pending() || !direct_waiting_.empty() ||
-                           direct_paste_.has_value() || output_.text_pending());
+        return direct_ &&
+               (capturing_ || phrases_pending() || !direct_waiting_.empty() ||
+                direct_paste_.has_value() || output_.text_pending() || output_.retry_available());
     }
     // Characters waiting before listening pauses.
     static constexpr long max_direct_waiting = 1000;

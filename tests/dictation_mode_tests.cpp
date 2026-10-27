@@ -1092,6 +1092,32 @@ void direct_tests() {
         require(sink.text == std::vector<std::string>{"there.", " Again."} && sink.keys.empty(),
                 "Enter types only what had not arrived, then the next phrase");
     }
+    {
+        // Esc drops the failed rest instead: a later Enter is only Enter.
+        Sink sink;
+        App app(options, sink);
+        sink.busy = true;
+        press(app, "Dictation");
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(clock += .01);
+        }
+        sink.busy = false;
+        sink.commits_before_failure = 0;
+        sink.acknowledged = 6;
+        wait_until(app, [&] { return !app.view().dictation_capturing; });
+        sink.commits_before_failure = -1;
+        press(app, "Escape");
+        press(app, "Enter");
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(clock += .01);
+        }
+        require(sink.text.empty(), "Esc drops the failed phrase and the ones waiting");
+        require(std::count(sink.keys.begin(), sink.keys.end(), std::pair{KEY_ENTER, 1}) == 1 &&
+                    std::count(sink.keys.begin(), sink.keys.end(), std::pair{KEY_ESC, 1}) == 0,
+                "Esc is not sent, and the Enter after it is an ordinary key");
+    }
 }
 
 void scroll_tests() {
