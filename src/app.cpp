@@ -622,12 +622,15 @@ void App::update_settings_ui() {
                   checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
                            "Skips the editor but lower accuracy")));
     }
-    // Invisible keeps the case's laser area; Disabled lets the laser through
-    // its clear gaps (docs/configuration.md, Background).
+    // Semi-transparent and Invisible keep the case's laser area; Disabled lets
+    // the laser through its clear gaps (docs/configuration.md, Background).
     auto background_surface =
         field(ControlKind::ChooseBackgroundSurface,
               dropdown("background-surface", "Background", pending_background_surface_,
-                       {{"visible", "Visible"}, {"invisible", "Invisible"}, {"disabled", "Disabled"}}));
+                       {{"visible", "Visible"},
+                        {"semi-transparent", "Semi-transparent"},
+                        {"invisible", "Invisible"},
+                        {"disabled", "Disabled"}}));
     background_surface.narrow = true;
     // SteamOS's Desktop cannot take emoji and other non-ASCII text from
     // Gamescope; it is typed as Unicode entry or pasted (docs/architecture.md).
@@ -781,7 +784,7 @@ PanelView App::geometry() const {
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
     v.hide_numpad = numpad_hidden();
-    v.transparent_background = settings_.background_surface != "visible";
+    v.case_opacity = case_opacity();
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
     v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
@@ -809,7 +812,7 @@ PanelView App::build_view(bool picker) const {
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
     v.hide_numpad = numpad_hidden();
-    v.transparent_background = settings_.background_surface != "visible";
+    v.case_opacity = case_opacity();
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.controls = controls();
     if (settings_open_) {

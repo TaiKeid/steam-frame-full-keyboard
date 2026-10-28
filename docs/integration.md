@@ -217,7 +217,7 @@ Settings written over the protocol persist, exactly like the same change in Sett
 | Key | Type and range |
 | --- | --- |
 | `swipe_typing`, `num_lock`, `hide_numpad`, `use_drag_to_move`, `auto_leveling`, `pinned`, `emoji_close_on_select`, `desktop_unicode_paste` | boolean |
-| `background_surface` | `visible`, `invisible`, `disabled` |
+| `background_surface` | `visible`, `semi-transparent`, `invisible`, `disabled` |
 | `dictation` | `off`, `server`, `device` |
 | `dictation_server` | `host[:port]`, validated like the Dictation card; see [Dictation](#dictation) |
 | `dictation_send_gap` | 10, 20, 30 or 40 (ms) |

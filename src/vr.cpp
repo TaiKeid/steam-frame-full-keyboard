@@ -1315,7 +1315,7 @@ class VrPanel {
         mask_held_ = held;
         mask_areas_.clear();
         mask_gapped_case_.reset();
-        if (view.transparent_background && view.laser_through_gaps && !view.settings) {
+        if (view.case_opacity <= 0 && view.laser_through_gaps && !view.settings) {
             mask_gapped_case_ = panel_case_bounds(view);
         }
         // The enlarged texture has transparent popup margins. Restrict laser

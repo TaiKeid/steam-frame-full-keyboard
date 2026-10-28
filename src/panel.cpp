@@ -1181,9 +1181,9 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_stroke(cr);
     return well;
 }
-// A transparent case is left unfilled behind the keyboard; Settings keeps it.
+// A see-through case (Background other than Visible); Settings keeps it opaque.
 bool clear_case(const PanelView& view) {
-    return view.transparent_background && !view.settings;
+    return view.case_opacity < 1 && !view.settings;
 }
 // Over a clear case, text drawn on the case itself gets a piece of it back:
 // a plate in the case colour, fitted to the text and kept inside `area`, so
@@ -1525,7 +1525,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.composing != view.composing || previous_->view.hide_numpad != view.hide_numpad ||
-        previous_->view.transparent_background != view.transparent_background ||
+        previous_->view.case_opacity != view.case_opacity ||
         // No pixel changes, but the VR loop sets the laser mask with each paint.
         previous_->view.laser_through_gaps != view.laser_through_gaps ||
         previous_->view.key_labels != view.key_labels ||
@@ -1884,10 +1884,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
         const auto body = panel_case_bounds(view);
         // Settings keeps the case so its cards stay legible; the keyboard's
-        // transparent background shows the dashboard or app behind the keys.
-        if (!clear_case(view)) {
+        // see-through background shows the dashboard or app behind the keys.
+        if (const double opacity = clear_case(view) ? view.case_opacity : 1; opacity > 0) {
             rounded(cr, body, t.surface_radius);
-            source(cr, t.surface);
+            cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, opacity);
             cairo_fill(cr);
         }
         if (!view.settings) {

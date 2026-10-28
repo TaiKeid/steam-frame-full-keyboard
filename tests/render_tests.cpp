@@ -38,7 +38,7 @@ class Comparison {
         full.paint(view, now, true);
         require_damage(painted, phase);
         auto* b = full.surface();
-        if (view.transparent_background) {
+        if (view.case_opacity < 1) {
             require_premultiplied(phase);
         }
         for (int y = 0; y < texture_height; ++y) {
@@ -264,7 +264,7 @@ void straight_alpha() {
     view.language = &profiles.languages.at("en-us");
     view.keyboard = &keyboard;
     view.keymap = &keymap;
-    view.transparent_background = true;
+    view.case_opacity = 0;
     PanelRenderer renderer;
     renderer.paint(view, 1, true);
     // Invisible and Disabled draw the same pixels, but a switch between them,
@@ -319,7 +319,8 @@ void emoji_tone_hits() {
     view.theme = &profiles.themes.at("graphite");
     view.language = &profiles.languages.at("en-us");
     view.keyboard = &keyboard;
-    view.transparent_background = view.laser_through_gaps = true;
+    view.case_opacity = 0;
+    view.laser_through_gaps = true;
     EmojiPickerView picker;
     picker.width = layout.width;
     picker.tabs = {200, 70, 900, 40};
@@ -348,7 +349,8 @@ int alpha_at(const PanelRenderer& renderer, int x, int y) {
 // With a transparent background every repaint must clear its damage to
 // nothing before drawing, or the case's old pixels or a plate's previous
 // alpha would build up where only the dashboard should show.
-void exercise(Layout layout, Theme theme, Language language, bool transparent = false) {
+void exercise(Layout layout, Theme theme, Language language, double opacity = 1) {
+    const bool transparent = opacity < 1;
     NullSink sink;
     KeyboardState keyboard(sink);
     LanguageMap keymap(language);
@@ -358,13 +360,16 @@ void exercise(Layout layout, Theme theme, Language language, bool transparent = 
     view.language = &language;
     view.keymap = &keymap;
     view.keyboard = &keyboard;
-    view.transparent_background = transparent;
+    view.case_opacity = opacity;
     view.controls = {{"settings", "Settings", {18, 12, 60, 42}, false, Icon::Settings}};
-    // A clear point in the case's padding, left of every key.
+    // A point in the case's padding, left of every key: clear, or exactly
+    // the case's opacity, however many partial repaints covered it.
     auto require_clear = [&](const Comparison& compare, const char* phase) {
-        if (transparent &&
-            alpha_at(compare.incremental, static_cast<int>(panel_case_bounds(view).x) + 3, 300) != 0) {
-            throw std::runtime_error(std::string(phase) + ": the clear case kept pixels");
+        const int expected = static_cast<int>(std::round(opacity * 255));
+        const int alpha =
+            alpha_at(compare.incremental, static_cast<int>(panel_case_bounds(view).x) + 3, 300);
+        if (transparent && std::abs(alpha - expected) > 1) {
+            throw std::runtime_error(std::string(phase) + ": the see-through case's alpha drifted");
         }
     };
     if (!language.composition_keys.empty()) {
@@ -580,7 +585,7 @@ void exercise(Layout layout, Theme theme, Language language, bool transparent = 
         compare.frame(view, "paused");
     }
     require_clear(compare, "at the end");
-    std::cout << language.id << (transparent ? " (transparent)" : "") << ": " << compare.frames
+    std::cout << language.id << (transparent ? " (see-through)" : "") << ": " << compare.frames
               << " frames pixel-identical\n";
 }
 } // namespace
@@ -606,13 +611,16 @@ int main() {
         // Transparent background: the same frames over a clear case, for the
         // plain, composing and flick layouts and a light theme.
         exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("graphite"),
-                 profiles.languages.at("en-us"), true);
+                 profiles.languages.at("en-us"), 0);
         exercise(profiles.layouts.at("ja-jis-full"), profiles.themes.at("graphite"),
-                 profiles.languages.at("ja-romaji"), true);
+                 profiles.languages.at("ja-romaji"), 0);
         exercise(profiles.layouts.at("ja-flick-12"), profiles.themes.at("porcelain"),
-                 profiles.languages.at("ja-flick"), true);
+                 profiles.languages.at("ja-flick"), 0);
         exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("porcelain"),
-                 profiles.languages.at("en-us"), true);
+                 profiles.languages.at("en-us"), 0);
+        // Semi-transparent: a half-opaque case under the same partial repaints.
+        exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("graphite"),
+                 profiles.languages.at("en-us"), semi_transparent_case_opacity);
         straight_alpha();
         emoji_tone_hits();
         // Notice colours default by the legend's lightness; a theme may set its own.

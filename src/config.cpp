@@ -545,7 +545,8 @@ int device_model_kept_megabytes(const std::string& model) {
     return entry ? entry->kept_megabytes : 0;
 }
 bool valid_background_surface(const std::string& surface) {
-    return surface == "visible" || surface == "invisible" || surface == "disabled";
+    return surface == "visible" || surface == "semi-transparent" || surface == "invisible" ||
+           surface == "disabled";
 }
 bool valid_dictation_server(const std::string& server) {
     // The helper's own check (dictation_helper.py, Target) is the authority;
@@ -723,8 +724,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 throw std::runtime_error("bad value");
             }
         } catch (const std::exception&) {
-            errors.push_back("config.json: background_surface must be \"visible\", \"invisible\" or "
-                             "\"disabled\"; the background is visible");
+            errors.push_back("config.json: background_surface must be \"visible\", "
+                             "\"semi-transparent\", \"invisible\" or \"disabled\"; the background "
+                             "is visible");
             settings.background_surface = "visible";
         }
         try {

@@ -17,6 +17,8 @@ constexpr int texture_height = panel_height + 2 * popup_margin;
 // With a transparent background, text drawn on the case (status line, reading
 // line, dictation counter) sits on a plate of the case colour this opaque.
 constexpr double case_plate_alpha = .88;
+// Background Semi-transparent: the case's opacity.
+constexpr double semi_transparent_case_opacity = .5;
 // TextField shows a value that opens its own editor, such as a server address.
 // Note: a Settings row without a control, its text across the card.
 enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField, Note };
@@ -177,9 +179,10 @@ struct PanelView {
     bool settings{};
     bool composing{};
     bool hide_numpad{};
-    // Background (Settings): the case is left clear behind the keys,
-    // and with `laser_through_gaps` its clear gaps pass the laser (panel_hit_areas).
-    bool transparent_background{};
+    // Background (Settings): how opaque the case is behind the keys, 1 when
+    // filled; below 1 it is drawn see-through, and with `laser_through_gaps`
+    // (0 only) its clear gaps pass the laser (panel_hit_areas).
+    double case_opacity{1};
     bool laser_through_gaps{};
     std::string preedit;
     std::map<std::string, std::string> key_labels;

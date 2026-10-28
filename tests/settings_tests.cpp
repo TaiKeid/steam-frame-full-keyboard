@@ -955,7 +955,7 @@ void background_surface_setting() {
     options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
-    require(saved(app).background_surface == "visible" && !app.view().transparent_background,
+    require(saved(app).background_surface == "visible" && app.view().case_opacity == 1,
             "the case is visible by default");
     app.show_settings();
     const auto theme = control(app.view(), "theme");
@@ -966,16 +966,32 @@ void background_surface_setting() {
     require(surface.label == "Visible", "the dropdown shows the saved choice");
     select(app, "background-surface", "invisible");
     require(control(app.view(), "background-surface").label == "Invisible" &&
-                saved(app).background_surface == "visible" && !app.view().transparent_background,
+                saved(app).background_surface == "visible" && app.view().case_opacity == 1,
             "the choice stays pending until Apply");
     app.back();
     app.show_settings();
     require(control(app.view(), "background-surface").label == "Visible",
             "Back discards the background surface edit");
+    // Semi-transparent: a half-opaque case that takes the laser everywhere.
+    select(app, "background-surface", "semi-transparent");
+    click(app, "apply");
+    require(saved(app).background_surface == "semi-transparent" &&
+                app.view().case_opacity == semi_transparent_case_opacity &&
+                !app.view().laser_through_gaps,
+            "Apply saves Semi-transparent");
+    app.paint(1.2);
+    require(
+        std::abs(app.renderer
+                     .rgba()[static_cast<std::size_t>((300 + popup_margin) * panel_width + 10) * 4 + 3] -
+                 128) <= 1,
+        "a semi-transparent case is drawn at half opacity");
+    require(panel_hit_areas(app.view(), false, 29) == std::vector<Rect>{panel_case_bounds(app.view())},
+            "and the whole case takes the laser");
+    app.show_settings();
     // Invisible: a clear case that still takes the laser everywhere.
     select(app, "background-surface", "invisible");
     click(app, "apply");
-    require(saved(app).background_surface == "invisible" && app.view().transparent_background &&
+    require(saved(app).background_surface == "invisible" && app.view().case_opacity == 0 &&
                 !app.view().laser_through_gaps,
             "Apply saves Invisible");
     app.paint(1.5);
@@ -989,7 +1005,7 @@ void background_surface_setting() {
     app.show_settings();
     select(app, "background-surface", "disabled");
     click(app, "apply");
-    require(saved(app).background_surface == "disabled" && app.view().transparent_background &&
+    require(saved(app).background_surface == "disabled" && app.view().case_opacity == 0 &&
                 app.view().laser_through_gaps,
             "Apply saves Disabled");
     app.paint(2);
@@ -1085,7 +1101,7 @@ void background_surface_setting() {
     app.show_settings();
     select(app, "background-surface", "visible");
     click(app, "apply");
-    require(saved(app).background_surface == "visible" && !app.view().transparent_background,
+    require(saved(app).background_surface == "visible" && app.view().case_opacity == 1,
             "Apply restores the visible case");
     app.paint(5);
     {

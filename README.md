@@ -93,7 +93,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
-| See behind the keyboard | In Settings, set General → Background to Invisible (or Disabled, which also lets the laser through the gaps) and Apply and save |
+| See behind the keyboard | In Settings, set General → Background to Semi-transparent or Invisible (or Disabled, which also lets the laser through the gaps) and Apply and save |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
 | Close | Use × to hide the panel in replacement mode; otherwise it exits the app |

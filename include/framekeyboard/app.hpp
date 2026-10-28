@@ -325,6 +325,12 @@ class App {
     PanelView build_view(bool picker) const;
     // Hidden by the setting, unless a number hint shows it for the context.
     bool numpad_hidden() const { return settings_.hide_numpad && !host_.numpad_shown; }
+    // The case's opacity for the saved Background (PanelView::case_opacity).
+    double case_opacity() const {
+        return settings_.background_surface == "visible"            ? 1
+               : settings_.background_surface == "semi-transparent" ? semi_transparent_case_opacity
+                                                                    : 0;
+    }
     // A launch that cannot type: the desktop preview, or `--input none`
     // without the shell's text sink.
     bool preview_input() const { return options_.input == InputBackend::None && !sink_on(); }
