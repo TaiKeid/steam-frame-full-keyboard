@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1: Speech model download no longer closes the keyboard
+
+- Fixed Full Keyboard closing as soon as the on-device speech model started downloading from Settings → Dictation. The download itself was fine; the keyboard crashed while drawing the mic key's progress under Settings. It now finishes with Settings open and the mic key shows the right state when Settings closes.
+
 ## 0.11.0: Dictation, 25 more languages and ten themes
 
 - Added **dictation**: speak instead of typing. The new mic key, below Copy and Paste, opens dictation mode and starts listening. An editor replaces the function-key row; each phrase appears in it word by word as soon as it is recognized, and you can correct it with the keys before sending. **Send** types the text into the focused app and presses Enter; line breaks between paragraphs go out as Shift+Enter, so chats don't send early. **Undo last phrase** removes the last phrase. Esc stops listening, then asks before discarding the text. While listening, the mic key shows the speech level, and a segment circles its border while phrases are being recognized. A small icon in its corner shows where speech is recognized: on the headset or on your computer. The controller gives two light ticks when listening starts and one soft pulse when it stops. Phrases use the text before the cursor as context, which improves punctuation, casing and names. Listening stops after 60 s of silence, at 900 characters, and as soon as the headset is taken off or wakes from sleep, saying why.
