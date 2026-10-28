@@ -373,6 +373,9 @@ void mode_tests() {
     TemporaryDirectory directory;
     Options options;
     options.config_dir = directory.path;
+    // On device is the default; a model already downloaded on this machine
+    // must not make the mic key appear.
+    options.models_dir = directory.path / "models";
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
     options.start_enabled = true;
