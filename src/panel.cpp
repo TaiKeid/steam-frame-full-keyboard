@@ -1188,12 +1188,15 @@ bool clear_case(const PanelView& view) {
 // Over a clear case, text drawn on the case itself gets a piece of it back:
 // a plate in the case colour, fitted to the text and kept inside `area`, so
 // partial repaints of that area cover it. Text wider than the area (wrapped
-// or ellipsized) takes the whole area. Nothing over an opaque case.
-void case_plate(cairo_t* cr, const PanelView& view, const Rect& area, double ink, double size,
-                PangoAlignment alignment) {
-    if (!clear_case(view) || ink <= 0) {
+// or ellipsized) takes the whole area. Nothing over an opaque case, where the
+// text is not even measured: this runs in every repaint pass. `extra` widens
+// the plate for an icon beside the text.
+void case_plate(cairo_t* cr, const PanelView& view, const Rect& area, const std::string& text,
+                double size, PangoAlignment alignment, double extra = 0) {
+    if (!clear_case(view) || text.empty()) {
         return;
     }
+    const double ink = text_width(cr, text, size, view.language->font) + extra;
     const auto& t = *view.theme;
     constexpr double pad = 14;
     const bool fills = ink + 8 > area.width;
@@ -1332,9 +1335,8 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         const double size = t.small_font_size * 1.3;
         if (clear_case(view)) {
             counter.width -= 10;
-            const double ink = text_width(cr, editor.counter, size, view.language->font) +
-                               (editor.where == Icon::None ? 0 : 32);
-            case_plate(cr, view, *bounds, ink, size, PANGO_ALIGN_RIGHT);
+            case_plate(cr, view, *bounds, editor.counter, size, PANGO_ALIGN_RIGHT,
+                       editor.where == Icon::None ? 0 : 32);
         }
         // Quiet while there is room; amber once dictation has reached its limit.
         label(cr, editor.counter, counter, size, view.language->font,
@@ -2063,8 +2065,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                    : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
             const std::string reading = view.preedit.empty() ? hint : view.preedit;
             const Rect line{body.x + 20, 94, body.width - 40, 40};
-            case_plate(cr, view, line, text_width(cr, reading, 27, view.language->font), 27,
-                       PANGO_ALIGN_CENTER);
+            case_plate(cr, view, line, reading, 27, PANGO_ALIGN_CENTER);
             label(cr, reading, line, 27, view.language->font, t.legend);
         }
         if (view.settings) {
@@ -2274,8 +2275,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 right = std::min(right, counter->x);
             }
             const Rect line{left + 12, 12, right - left - 24, 42};
-            case_plate(cr, view, line, text_width(cr, view.status, 15, view.language->font), 15,
-                       PANGO_ALIGN_LEFT);
+            case_plate(cr, view, line, view.status, 15, PANGO_ALIGN_LEFT);
             label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
                   true);
         } else if (!view.status.empty()) {
@@ -2283,8 +2283,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             const double inset = compact_toolbar(view) ? 88 : 18;
             const Rect line = view.settings ? Rect{30, 574, 1540, 24}
                                             : Rect{body.x + inset, 60, body.width - inset - 18, 28};
-            case_plate(cr, view, line, text_width(cr, view.status, 17, view.language->font), 17,
-                       PANGO_ALIGN_CENTER);
+            case_plate(cr, view, line, view.status, 17, PANGO_ALIGN_CENTER);
             label(cr, view.status, line, 17, view.language->font, t.legend);
         }
         // The skin tones of a held emoji, above everything in the picker.
