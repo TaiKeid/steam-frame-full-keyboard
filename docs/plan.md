@@ -1,6 +1,6 @@
 # Roadmap
 
-Full Keyboard for Steam Frame is a manually launched alternative keyboard for local dashboard apps. Default behavior leaves the system keyboard untouched. An experimental, default-off replacement bridge handles supported native requests while the app runs. Streamed VR-app input is outside the project scope.
+Full Keyboard for Steam Frame is a manually launched alternative keyboard for local dashboard apps. Default behavior leaves the system keyboard untouched. A default-off replacement bridge handles supported native requests while the app runs. Streamed VR-app input is outside the project scope.
 
 ## Implemented
 
@@ -32,7 +32,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Confirm install/update/uninstall instructions from a fresh release archive.
 - Review the public repository and package for private files and complete third-party notices.
 
-## Experimental native replacement
+## Native replacement
 
 - [x] Default-off setting, temporary bridge, request readiness and independent native fallback.
 - [x] Resident panel dismissal with × and a separate Settings Quit shown only in replacement mode.

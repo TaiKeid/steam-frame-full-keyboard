@@ -6,20 +6,16 @@ The emoji picker is a second view of the keyboard. An emoji key in the side colu
 
 ## Side column
 
-![Side column with the emoji key (owner mockup; the red frame marks the three equal keys)](images/emoji-side-column.png)
-
 The left side column changes in every layout, whether or not the picker is available:
 
-1. A small **emoji key** at the top, where the mockup's `:)` placeholder is. It shows a smiley line icon in the toolbar's icon style.
+1. A small **emoji key** at the top. It shows a smiley line icon in the toolbar's icon style.
 2. Three tall keys of equal size below it: **Copy**, **Paste**, and **Dictation**.
 
-Dictation is not implemented, so its slot is left empty: no key, no placeholder drawing. [Dictation](dictation.md) fills the slot later.
+The Dictation slot holds the mic key when dictation is usable for the active language; otherwise it stays empty, with no placeholder drawing. See [dictation](dictation.md#mic-key).
 
 The emoji key is disabled (drawn with the theme's disabled color, not clickable) when the active input mode can't type Unicode text: the uinput backend, external JIS, or a Unicode transport that isn't ready. If that happens while the picker is open, the keyboard returns to the main layout. The desktop preview, which never types, still opens the picker.
 
 ## Picker view
-
-![Picker layout (owner mockup)](images/emoji-picker.png)
 
 - **Side column:** the same, except that the emoji key becomes a Back key that returns to the main layout.
 - **Category row:** across the top of the main area. Recent comes first, with a clock icon, then Favorites with a star, followed by the Unicode groups: Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places, Activities, Objects, Symbols, Flags. Each tab has its own line icon. If the tabs don't fit, they scroll horizontally, and Recent stays fixed at the left like a frozen table column.

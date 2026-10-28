@@ -2,11 +2,11 @@
 
 A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons for browsing, signing in, editing text, and using local apps.
 
-**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. An experimental **Replace native keyboard** option in Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
+**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
-![Full Keyboard with the Graphite theme](docs/images/keyboard-graphite.png)
+![Full Keyboard swipe typing, Japanese input, dictation, emoji and Settings on Steam Frame](docs/images/full-keyboard-demo.webp)
 
-*The default English layout and Graphite theme with dictation on, captured from the app's native renderer.*
+*Swipe typing, Japanese input, dictation, the emoji picker and Settings, recorded on Steam Frame.*
 
 ## What it does
 

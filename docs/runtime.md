@@ -8,7 +8,7 @@ The installed **Full Keyboard** launcher uses:
 framekeyboard --vr --input ei --start-enabled
 ```
 
-It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an experimental option, disabled by default. It is visible and accepts input only while the dashboard is open. Hiding cancels keys, unfinished composition, and grabs.
+It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an optional setting, disabled by default. It is visible and accepts input only while the dashboard is open. Hiding cancels keys, unfinished composition, and grabs.
 
 First launch starts at 95 cm wide, tilted back 50° from upright, just beneath the dashboard. If the dashboard anchor is unavailable, it falls back to 65 cm below eye level and 85 cm forward. Placement follows dashboard position and full rotation, including when a local app tab is selected.
 

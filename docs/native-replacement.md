@@ -1,4 +1,4 @@
-# Experimental native keyboard replacement
+# Native keyboard replacement
 
 In Settings → Integration, enable **Replace native keyboard**, then Apply and save. It is off by default. Full Keyboard must already be running with typing enabled. With replacement enabled, X hides the panel and leaves Full Keyboard resident for the next native request. Replacement alone changes no startup settings or Steam files. The separate **Start with SteamOS** checkbox is off by default and can only be edited while replacement is checked.
 

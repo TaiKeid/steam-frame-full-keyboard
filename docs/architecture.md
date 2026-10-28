@@ -44,7 +44,7 @@ Global pin, Num Lock and numpad visibility preferences live beside the active se
 
 The language model validates required physical keys. The normal Frame path composes characters locally and sends Unicode. Only physical uinput and external JIS use an explicit `--target-language` declaration. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
 
-Settings geometry and scrolling live in `SettingsUi`. App supplies three data-defined cards for languages/layouts, general preferences and experimental native replacement; the same model accepts extra cards and fields in tests. Card and field clips are shared with control hit testing. An open dropdown owns clicks and scroll input; outside dismissal consumes its click. Scroll changes invalidate pressed controls, and cancellation clears scrollbar ownership and menus.
+Settings geometry and scrolling live in `SettingsUi`. App supplies three data-defined cards for languages/layouts, general preferences and native replacement; the same model accepts extra cards and fields in tests. Card and field clips are shared with control hit testing. An open dropdown owns clicks and scroll input; outside dismissal consumes its click. Scroll changes invalidate pressed controls, and cancellation clears scrollbar ownership and menus.
 
 Pointer targets distinguish keyboard keys from UI controls. Their hover sets are also separate in the renderer, so a custom key ID can match a control ID without activating or highlighting that control. A control press activates only when released over the same control target.
 
