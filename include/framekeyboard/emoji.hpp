@@ -11,10 +11,11 @@
 #include <vector>
 
 namespace framekeyboard {
-// Picker categories in tab order: Recent, then Unicode's emoji groups
-// without Component.
+// Picker categories in tab order: Recent, Favorites, then Unicode's emoji
+// groups without Component.
 enum class EmojiGroup {
     Recent,
+    Favorites,
     Smileys,
     People,
     Animals,
@@ -25,7 +26,7 @@ enum class EmojiGroup {
     Symbols,
     Flags
 };
-constexpr std::size_t emoji_group_count = 10;
+constexpr std::size_t emoji_group_count = 11;
 Icon emoji_group_icon(EmojiGroup group);
 
 struct EmojiEntry {
@@ -45,12 +46,13 @@ struct EmojiCatalog {
 EmojiCatalog parse_emoji_table(std::string_view table);
 const EmojiCatalog& bundled_emoji();
 
-// Recent emoji and the chosen skin tone, kept beside the saved placement
-// rather than in the settings. Recent emoji record what was typed, so they
-// are never logged.
+// Recent and favorite emoji and the chosen skin tone, kept beside the saved
+// placement rather than in the settings. Recent emoji record what was typed,
+// so they are never logged; nor are favorites.
 struct EmojiPreferences {
-    static constexpr std::size_t max_recent = 64;
-    std::vector<std::string> recent; // Untoned, most recent first.
+    static constexpr std::size_t max_recent = 64, max_favorites = 40;
+    std::vector<std::string> recent;    // Untoned, most recent first.
+    std::vector<std::string> favorites; // Untoned, in the user's order.
     int tone{};
     bool operator==(const EmojiPreferences&) const = default;
 };
@@ -74,7 +76,9 @@ struct EmojiPickerView {
     struct Cell {
         Rect bounds;
         std::string text;
-        bool clear{}, hovered{}, pressed{};
+        // Clear is Recent's button; a slot is the empty place in Favorites
+        // where a lifted emoji would land.
+        bool clear{}, slot{}, hovered{}, pressed{};
         // Its image is drawn; set by App, which owns the images. A cell repaints
         // when its own image arrives, and an image off-screen repaints nothing.
         bool ready{};
@@ -91,20 +95,37 @@ struct EmojiPickerView {
         std::vector<Cell> choices;
         bool operator==(const Popup&) const = default;
     };
+    // An emoji lifted from Recent or Favorites, following the laser above
+    // everything. Dropped there, a favorite would be removed.
+    struct Lifted {
+        Rect bounds;
+        std::string text;
+        bool removing{}, ready{};
+        bool operator==(const Lifted&) const = default;
+    };
     double width{}; // Visible layout width, which sets the case.
     Rect grid, tabs, scrolling_tabs;
     std::vector<Tab> tab_list;
     std::vector<Cell> cells; // Only those in view.
     std::string hint;
     Rect hint_bounds;
+    std::string favorites_hint; // In an empty Favorites.
+    Rect favorites_hint_bounds;
+    // Panel x of the soft lines in the gaps after Recent and after
+    // Favorites, those within the grid.
+    std::vector<double> dividers;
     std::optional<Popup> popup;
+    std::optional<Lifted> lifted;
     bool operator==(const EmojiPickerView&) const = default;
 };
 
 // The picker's grid and tabs: one strip of every category, filled down each
 // column and then across, scrolled sideways by dragging or with the stick.
 // An emoji types when released over the cell it was pressed on; holding a
-// toned one opens its skin tones instead. A quick laser drag on the grid
+// toned one opens its skin tones instead, which stay open after the release
+// until a tone or anything else is clicked. Holding one in Recent or
+// Favorites lifts it to be dropped into Favorites, or out of them, once the
+// held laser moves (docs/emoji.md, Favorites). A quick laser drag on the grid
 // keeps it gliding after release, slowing down like a phone list, and
 // bouncing back from an end it runs past; the stick and the tab row scroll
 // without it. Panel coordinates throughout.
@@ -116,10 +137,13 @@ class EmojiPicker {
         const EmojiEntry* typed{}; // Its entry, for the recent list.
         bool recent{};             // Chosen in Recent, which then keeps its order.
         std::optional<int> tone;   // A newly chosen skin tone.
+        // Favorites after a drop, in order; untoned.
+        std::optional<std::vector<std::string>> favorites;
     };
     void set_geometry(Rect tabs, Rect grid);
     // Sections in tab order; Recent first, which always takes six columns and
-    // shows Clear in its bottom-right cell when not empty.
+    // shows Clear in its bottom-right cell when not empty, then Favorites,
+    // which always shows and has room for one more.
     // Loading shows only a hint until the emoji font has been checked.
     void set_content(std::array<std::vector<const EmojiEntry*>, emoji_group_count> sections, int tone,
                      bool loading);
@@ -144,7 +168,9 @@ class EmojiPicker {
     std::optional<unsigned> press_pointer() const {
         return press_ ? std::optional<unsigned>(press_->pointer) : std::nullopt;
     }
-    bool popup_open() const { return press_ && press_->popup; }
+    // The skin tones are open, held or left open after the release.
+    bool popup_open() const { return tones_.has_value(); }
+    bool lifted() const { return press_ && press_->lifted; }
     EmojiPickerView view() const;
     // Display texts for the glyph cache: those in view first, then outward.
     std::vector<std::string> glyph_order(std::size_t limit) const;
@@ -159,7 +185,7 @@ class EmojiPicker {
 
   private:
     struct Item {
-        const EmojiEntry* entry{}; // None for Clear.
+        const EmojiEntry* entry{}; // None for Clear, or for a slot in Favorites.
         std::size_t group{};
         int column{}, row{}; // Column within the whole strip.
     };
@@ -184,8 +210,16 @@ class EmojiPicker {
         bool dragging{}, popup{};
         // Caught a gliding grid: it stops there, and the release types nothing.
         bool caught{};
-        std::optional<std::size_t> choice;
+        // Where the laser was when the hold opened the tones.
+        double ox{}, oy{};
         std::vector<std::pair<double, double>> samples; // Recent (time, scroll) while dragging.
+        // Lifted from Recent or Favorites: the emoji, its section, where in
+        // Favorites it would land, the laser, and the last edge-scroll time.
+        bool lifted{};
+        const EmojiEntry* entry{};
+        std::size_t from{};
+        std::optional<std::size_t> slot;
+        double lx{}, ly{}, edge_at{};
     };
     struct Glide {
         double velocity{}, at{}; // Scroll pixels per second, and when last moved.
@@ -196,6 +230,15 @@ class EmojiPicker {
     void scrolled(); // After the grid scrolls under the laser.
     void rehover();
     void layout_items();
+    // Favorites as shown: a lifted emoji leaves its place, and a slot marks
+    // where it would land.
+    std::vector<const EmojiEntry*> shown_favorites() const;
+    bool liftable(const Hit& hit) const;
+    void lift(double x, double y);
+    // Where in Favorites a lifted emoji would land at this point, if anywhere.
+    std::optional<std::size_t> favorite_slot(double x, double y) const;
+    // Follows the laser while lifted; true when the slot changed.
+    bool follow_lift(double x, double y);
     Hit hit(double x, double y) const;
     Rect cell_bounds(const Item& item) const;
     double shown_scroll() const;
@@ -221,6 +264,10 @@ class EmojiPicker {
     double scroll_{}, tab_scroll_{}, width_{};
     std::optional<std::size_t> chosen_group_; // A tapped tab, until the next manual scroll.
     std::optional<Press> press_;
+    // The item whose skin tones are open. The hold that opened them is
+    // press_ with popup set; after its release they stay, and a click on a
+    // tone (press_ on a Choice) types it while a click elsewhere closes them.
+    std::optional<std::size_t> tones_;
     std::optional<Glide> glide_;
     std::map<unsigned, Hit> hovered_;
     std::map<unsigned, std::pair<double, double>> positions_; // Last laser position, for rehover().

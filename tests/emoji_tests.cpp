@@ -77,6 +77,18 @@ void preference_tests() {
     preferences.tone = 4;
     save_emoji_preferences(path, preferences);
     require(load_emoji_preferences(path) == preferences, "preferences round trip");
+    preferences.favorites = {"👍", "❤️"};
+    save_emoji_preferences(path, preferences);
+    require(load_emoji_preferences(path) == preferences, "favorites round trip in order");
+    std::ofstream(path) << R"({"schema_version":1,"tone":2,"recent":["😀"]})";
+    require(load_emoji_preferences(path).recent.size() == 1 &&
+                load_emoji_preferences(path).favorites.empty(),
+            "a file from before favorites keeps its recent emoji");
+    std::ofstream(path) << R"({"schema_version":1,"tone":2,"recent":[],"favorites":["😀","😀",7]})";
+    require(load_emoji_preferences(path) == EmojiPreferences{}, "invalid favorites give defaults");
+    std::ofstream(path) << R"({"schema_version":1,"tone":2,"recent":[],"favorites":["😀","😀"]})";
+    require(load_emoji_preferences(path).favorites == std::vector<std::string>{"😀"},
+            "a favorite listed twice loads once");
     std::ofstream(path) << R"({"schema_version":1,"tone":9,"recent":[]})";
     require(load_emoji_preferences(path) == EmojiPreferences{}, "an invalid tone gives defaults");
     std::ofstream(path) << "not json";
@@ -203,7 +215,13 @@ void picker_tests() {
     picker.set_content(sections(catalog), 0, false);
     view = picker.view();
     require(view.hint.find("Recently used") == 0, "an empty Recent explains itself");
-    require(view.tab_list.size() == 4, "empty categories have no tab");
+    require(view.tab_list.size() == 5, "empty categories have no tab; Favorites always has one");
+    require(view.tab_list[1].icon == Icon::Favorites, "Favorites comes after Recent");
+    require(view.favorites_hint.find("Drag and drop from Recent") == 0,
+            "an empty Favorites explains itself");
+    require(view.dividers.size() == 2 && view.dividers[0] > grid.x + 6 * 58 &&
+                view.dividers[0] < grid.x + 6 * 58 + 29 && view.dividers[1] > view.dividers[0] + 3 * 58,
+            "lines sit in the gaps after Recent and after Favorites");
     require(view.tab_list.front().icon == Icon::Recent && view.tab_list.front().active,
             "Recent comes first");
     require((picker.scroll_room(grid.x + 5, grid.y + 5) == ScrollRoom{false, true}),
@@ -445,37 +463,55 @@ void picker_tests() {
     require(view.popup && view.popup->choices.size() == 6 && view.popup->choices[0].text == "wave" &&
                 view.popup->choices[5].text == "wave5",
             "default first, then light to dark");
+    // Releasing the hold, even on a tone, leaves the tones open; a click on one types it.
     const auto choice = center(view.popup->choices[3].bounds);
-    require(picker.move(1, choice.first, choice.second, 0).redraw, "moving onto a tone highlights it");
-    event = picker.up(1, choice.first, choice.second, 0);
-    require(event.type == "wave3" && event.tone == 3, "releasing on a tone types it and keeps it");
+    require(picker.move(1, choice.first, choice.second, 10.7).redraw,
+            "moving onto a tone highlights it");
+    event = picker.up(1, choice.first, choice.second, 10.8);
+    require(event.type.empty() && !event.tone && picker.popup_open(),
+            "releasing the hold keeps the tones open");
+    require(picker.view().popup->choices[3].hovered, "the tone under the laser stays highlighted");
+    require(!picker.scroll(x, y, 1), "the grid stays put under open tones");
+    picker.down(1, choice.first, choice.second, 11);
+    event = picker.up(1, choice.first, choice.second, 11.1);
+    require(event.type == "wave3" && event.tone == 3 && !picker.popup_open(),
+            "a click on a tone types it, keeps it and closes the tones");
     require(cell(picker.view(), "wave3"), "the grid shows the new tone");
-    picker.down(1, x, y, 20);
-    picker.tick(20.6);
-    event = picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 0);
-    require(event.type.empty() && !event.tone, "releasing off the tones types nothing");
-    // The release position picks the tone, whatever was hovered before it.
     auto tone_at = [&](std::size_t choice) {
         return center(picker.view().popup->choices[choice].bounds);
     };
-    picker.down(1, x, y, 21);
-    picker.tick(21.6);
-    const auto [direct_x, direct_y] = tone_at(3);
-    event = picker.up(1, direct_x, direct_y, 21.7);
-    require(event.type == "wave3", "a release straight onto a tone, with no move first, types it");
-    picker.down(1, x, y, 22);
-    picker.tick(22.6);
-    const auto [hover_x, hover_y] = tone_at(3);
-    picker.move(1, hover_x, hover_y, 22.6);
-    event = picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 22.7);
-    require(event.type.empty() && !event.tone, "a hovered tone, released away from, types nothing");
-    picker.down(1, x, y, 23);
-    picker.tick(23.6);
+    auto open_tones = [&](double at) {
+        picker.down(1, x, y, at);
+        picker.tick(at + .6);
+        picker.up(1, x, y, at + .7);
+        require(picker.popup_open(), "a hold opens the tones");
+    };
+    // A click anywhere else only closes them.
+    open_tones(20);
+    picker.down(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 21);
+    require(!picker.popup_open() && !picker.pressed(1), "a click outside the tones closes them");
+    require(picker.up(1, grid.x + grid.width - 1, grid.y + grid.height - 1, 21.1).type.empty() &&
+                picker.scroll_offset() > 0,
+            "and does nothing else");
+    // A click starts and ends on the same tone.
+    open_tones(22);
     const auto [three_x, three_y] = tone_at(3);
     const auto [five_x, five_y] = tone_at(5);
-    picker.move(1, three_x, three_y, 23.6);
-    event = picker.up(1, five_x, five_y, 23.7);
-    require(event.type == "wave5" && event.tone == 5, "a release on another tone types that one");
+    picker.down(1, three_x, three_y, 23);
+    picker.move(1, five_x, five_y, 23.05);
+    event = picker.up(1, five_x, five_y, 23.1);
+    require(event.type.empty() && picker.popup_open(), "a press slid to another tone types nothing");
+    picker.down(1, five_x, five_y, 24);
+    event = picker.up(1, five_x, five_y, 24.1);
+    require(event.type == "wave5" && event.tone == 5, "a click on another tone types that one");
+    // Outside Recent and Favorites, moving the held laser does not lift.
+    picker.down(1, x, y, 25);
+    picker.tick(25.6);
+    picker.move(1, x + 100, y + 40, 25.7);
+    require(picker.popup_open() && !picker.lifted(), "a held move keeps the tones of a category emoji");
+    picker.up(1, x + 100, y + 40, 25.8);
+    picker.cancel();
+    require(!picker.popup_open(), "cancelling closes the tones");
     view = picker.view();
     const auto* plain = cell(view, "s39");
     if (plain) {
@@ -551,6 +587,215 @@ void picker_tests() {
     require(picker.recent_capacity() == 29, "Recent holds six columns less Clear");
 }
 
+// Favorites: hold an emoji in Recent to lift it, drop it into Favorites to
+// add it, drag a favorite within them to reorder or out of them to remove it.
+void favorites_tests() {
+    const auto catalog = sample_catalog();
+    const Rect tabs{100, 100, 900, 50}, grid{100, 170, 700, 290};
+    const double size = 58; // 290 / 5 rows
+    auto content = [&](std::vector<std::string> favorites, bool toned_recent = false) {
+        auto result = sections(catalog, 3); // s0, s1, s2 in Recent
+        if (toned_recent) {
+            result[0].insert(result[0].begin(), catalog.find("wave"));
+        }
+        for (const auto& base : favorites) {
+            result[1].push_back(catalog.find(base));
+        }
+        return result;
+    };
+    EmojiPicker picker;
+    picker.set_geometry(tabs, grid);
+    picker.set_content(content({}), 0, false);
+    // Favorites start after Recent's six columns and a half-cell gap.
+    const double favorites_x = grid.x + 6 * size + size / 2;
+    auto slot_center = [&](int index) {
+        return std::pair{favorites_x + (index / 5) * size + size / 2,
+                         grid.y + (index % 5) * size + size / 2};
+    };
+    auto recent = [&](const std::string& text) { return center(cell(picker.view(), text)->bounds); };
+    auto lift = [&](std::pair<double, double> at, double now) {
+        picker.down(1, at.first, at.second, now);
+        picker.move(1, at.first + 10, at.second + 10, now + .1); // An unsteady hand.
+        picker.tick(now + .6);
+    };
+    double now = 100;
+
+    // A short press types as before; a hold lifts it.
+    auto [x, y] = recent("s0");
+    picker.down(1, x, y, now);
+    require(picker.up(1, x, y, now + .2).type == "s0", "a tap in Recent types");
+    lift({x, y}, now += 1);
+    require(picker.lifted(), "a hold in Recent lifts the emoji");
+    auto view = picker.view();
+    require(view.lifted && view.lifted->text == "s0" && !view.lifted->removing, "it follows the laser");
+    require(cell(view, "s0")->pressed, "its place in Recent stays lit");
+    require(!view.favorites_hint.empty(), "the hint stays until it would land");
+    auto [fx, fy] = slot_center(0);
+    picker.move(1, fx, fy, now + .7);
+    view = picker.view();
+    require(std::count_if(view.cells.begin(), view.cells.end(), [](const auto& c) { return c.slot; }) ==
+                    1 &&
+                view.favorites_hint.empty(),
+            "over Favorites a slot shows where it lands");
+    auto event = picker.up(1, fx, fy, now + .8);
+    require(event.type.empty() && event.favorites == std::vector<std::string>{"s0"},
+            "dropping it there adds it and types nothing");
+    require(!picker.lifted() && !picker.view().lifted, "the drop ends the lift");
+
+    // A drop before the first favorite inserts it there.
+    picker.set_content(content({"s0"}), 0, false);
+    lift(recent("s1"), now += 1);
+    std::tie(fx, fy) = slot_center(0);
+    picker.move(1, fx, fy, now + .7);
+    event = picker.up(1, fx, fy, now + .8);
+    require((event.favorites == std::vector<std::string>{"s1", "s0"}),
+            "a drop on a favorite goes before it");
+    // A drop past the end lands at the end.
+    picker.set_content(content({"s1", "s0"}), 0, false);
+    lift(recent("s2"), now += 1);
+    std::tie(fx, fy) = slot_center(14);
+    picker.move(1, fx, fy, now + .7);
+    event = picker.up(1, fx, fy, now + .8);
+    require((event.favorites == std::vector<std::string>{"s1", "s0", "s2"}),
+            "a drop past the end appends");
+    // Released anywhere else, an emoji from Recent changes nothing.
+    picker.set_content(content({"s1", "s0", "s2"}), 0, false);
+    lift(recent("s0"), now += 1);
+    picker.move(1, grid.x + grid.width - 10, grid.y + 10, now + .7);
+    require(!picker.view().lifted->removing, "an emoji from Recent is never removed");
+    event = picker.up(1, grid.x + grid.width - 10, grid.y + 10, now + .8);
+    require(!event.favorites && event.type.empty(), "dropping it outside Favorites does nothing");
+    // From Recent onto its own favorite elsewhere, it moves rather than doubles.
+    lift(recent("s2"), now += 1);
+    std::tie(fx, fy) = slot_center(0);
+    picker.move(1, fx, fy, now + .7);
+    event = picker.up(1, fx, fy, now + .8);
+    require((event.favorites == std::vector<std::string>{"s2", "s1", "s0"}), "a favorite appears once");
+
+    // Reorder within Favorites.
+    picker.set_content(content({"s2", "s1", "s0"}), 0, false);
+    lift(slot_center(0), now += 1);
+    view = picker.view();
+    require(view.lifted && view.lifted->text == "s2", "a held favorite lifts");
+    require(!cell(view, "s2")->pressed, "and lights nothing in Recent");
+    require(std::none_of(view.cells.begin(), view.cells.end(),
+                         [&](const auto& c) { return c.text == "s2" && c.bounds.x == favorites_x; }) &&
+                std::any_of(view.cells.begin(), view.cells.end(),
+                            [&](const auto& c) { return c.slot && c.bounds.x == favorites_x; }),
+            "and leaves its place to a slot under the laser");
+    std::tie(fx, fy) = slot_center(2);
+    picker.move(1, fx, fy, now + .7);
+    event = picker.up(1, fx, fy, now + .8);
+    require((event.favorites == std::vector<std::string>{"s1", "s0", "s2"}), "dropping it reorders");
+    // Remove by dropping outside Favorites.
+    picker.set_content(content({"s1", "s0", "s2"}), 0, false);
+    lift(slot_center(1), now += 1);
+    picker.move(1, grid.x + grid.width - 10, grid.y + 10, now + .7);
+    require(picker.view().lifted->removing, "outside Favorites it shows it would go");
+    event = picker.up(1, grid.x + grid.width - 10, grid.y + 10, now + .8);
+    require((event.favorites == std::vector<std::string>{"s1", "s2"}),
+            "and dropping it there removes it");
+    // A tap on a favorite types it.
+    picker.set_content(content({"s1", "s2"}), 0, false);
+    std::tie(fx, fy) = slot_center(0);
+    picker.down(1, fx, fy, now += 1);
+    event = picker.up(1, fx, fy, now + .1);
+    require(event.type == "s1" && !event.recent && !event.favorites, "a tap on a favorite types it");
+
+    // Cancelling a lift, as hiding or losing the laser does, changes nothing.
+    lift(slot_center(0), now += 1);
+    picker.cancel_pointer(1);
+    view = picker.view();
+    require(!picker.lifted() && !view.lifted && cell(view, "s1") &&
+                std::none_of(view.cells.begin(), view.cells.end(), [](const auto& c) { return c.slot; }),
+            "a cancelled lift puts the favorite back");
+    require(!picker.up(1, fx, fy, now + 1).favorites, "and its release does nothing");
+    lift(recent("s0"), now += 1);
+    picker.cancel();
+    require(!picker.lifted(), "cancelling everything ends a lift");
+
+    // The dead zones: a move past 32 px before the hold scrolls instead.
+    picker.set_content(content({}), 0, false);
+    std::tie(x, y) = recent("s0");
+    picker.down(1, x, y, now += 1);
+    picker.move(1, x - 28, y, now + .1);
+    picker.tick(now + .6);
+    require(picker.lifted(), "28 px still holds an emoji in Recent");
+    picker.cancel_pointer(1);
+    picker.down(1, x, y, now += 1);
+    picker.move(1, x - 40, y, now + .1);
+    picker.tick(now + .6);
+    require(!picker.lifted() && picker.scroll_offset() == 40, "40 px scrolls the grid");
+    picker.up(1, x - 40, y, now + .7);
+    picker.reset();
+    // Other categories only type and show tones.
+    {
+        const auto at = center(cell(picker.view(), "s5")->bounds);
+        picker.down(1, at.first, at.second, now += 1);
+        picker.tick(now + .6);
+        require(!picker.lifted(), "an emoji outside Recent and Favorites does not lift");
+        picker.cancel();
+    }
+
+    // A toned emoji in Recent: its hold opens the tones; still holding, a move
+    // closes them and lifts it, while a release leaves them open for a click.
+    picker.set_content(content({}, true), 0, false);
+    std::tie(x, y) = recent("wave");
+    picker.down(1, x, y, now += 1);
+    picker.tick(now + .6);
+    require(picker.popup_open() && !picker.lifted(), "holding a toned emoji in Recent opens its tones");
+    const auto choice = center(picker.view().popup->choices[4].bounds);
+    picker.move(1, x + 20, y - 20, now + .7);
+    require(picker.popup_open() && !picker.lifted(), "a held hand may wobble");
+    picker.move(1, choice.first, choice.second, now + .8);
+    require(!picker.popup_open() && picker.lifted(),
+            "moving on while held lifts it, even toward the tones");
+    picker.move(1, slot_center(0).first, slot_center(0).second, now + .9);
+    event = picker.up(1, slot_center(0).first, slot_center(0).second, now + 1);
+    require(event.favorites == std::vector<std::string>{"wave"} && event.type.empty(),
+            "a toned emoji is kept without its tone");
+    picker.down(1, x, y, now += 2);
+    picker.tick(now + .6);
+    event = picker.up(1, x, y, now + .7);
+    require(picker.popup_open() && !event.favorites && event.type.empty(),
+            "released, the tones stay open");
+    const auto tone = center(picker.view().popup->choices[4].bounds);
+    picker.down(1, tone.first, tone.second, now + 1);
+    event = picker.up(1, tone.first, tone.second, now + 1.1);
+    require(event.type == "wave4" && event.recent && !event.favorites, "and a click on one types it");
+
+    // A full Favorites takes no new emoji, but still reorders.
+    {
+        std::vector<std::string> full;
+        for (std::size_t i = 0; i < EmojiPreferences::max_favorites; ++i) {
+            full.push_back("s" + std::to_string(3 + i % 37));
+        }
+        full.resize(37); // the sample has 37 smileys besides Recent's three
+        for (std::size_t i = 0; full.size() < EmojiPreferences::max_favorites; ++i) {
+            full.push_back("f" + std::to_string(i));
+        }
+        picker.set_content(content(full), 0, false);
+        picker.reset();
+        lift(recent("s0"), now += 1);
+        std::tie(fx, fy) = slot_center(0);
+        picker.move(1, fx, fy, now + .7);
+        require(!picker.up(1, fx, fy, now + .8).favorites, "a full Favorites takes nothing new");
+    }
+
+    // Near the grid's edge a lifted emoji scrolls the grid, and the stick moves it too.
+    picker.set_content(content({}), 0, false);
+    picker.reset();
+    lift(recent("s0"), now += 1);
+    picker.move(1, grid.x + grid.width - 2, grid.y + 100, now + .7);
+    for (int i = 0; i < 10; ++i) {
+        picker.tick(now + .7 + i * .05);
+    }
+    require(picker.scroll_offset() > 100, "the right edge scrolls the grid toward it");
+    const double edge = picker.scroll_offset();
+    require(picker.scroll(grid.x + 100, grid.y + 100, -1) && picker.scroll_offset() < edge,
+            "the stick still scrolls under a lifted emoji");
+    picker.cancel();
+}
 struct TextSink : KeySink {
     std::vector<std::pair<int, int>> events;
     std::vector<std::string> text;
@@ -626,6 +871,73 @@ void text_output_tests() {
     require(recorded.commits == std::vector<std::string>{"😀"} && sink.text.empty(),
             "an emoji types through the text output and nothing reaches the target past it");
 }
+
+// Through App: a lifted Recent emoji dropped into Favorites is saved in
+// emoji.json when the picker closes and shows again after a restart; a lift
+// cut short by closing changes nothing.
+void app_favorites_tests() {
+    TemporaryDirectory directory;
+    std::ofstream(directory.path / "emoji.json")
+        << R"({"schema_version":1,"tone":0,"recent":["😀","❤️"]})";
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    auto open = [&](App& app) {
+        const auto [x, y] = key_center(app, "picker");
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        wait_for_emoji(app);
+        return app.emoji_open();
+    };
+    {
+        App app(options, sink);
+        if (!open(app)) {
+            std::cout << "No color emoji font here; skipping the favorites round trip.\n";
+            return;
+        }
+        auto view = app.view();
+        const auto heart = center(cell(*view.emoji, "❤️")->bounds);
+        const double size = view.emoji->cells.front().bounds.width;
+        const auto& grid = view.emoji->grid;
+        const double fx = grid.x + 6.5 * size + size / 2, fy = grid.y + size / 2;
+        double now = monotonic_seconds();
+        app.down(0, heart.first, heart.second, now);
+        app.tick(now + .6);
+        require(app.view().emoji->lifted.has_value(), "holding a recent emoji lifts it");
+        app.move(0, fx, fy);
+        app.up(0, fx, fy);
+        require(sink.text.empty(), "dropping it types nothing");
+        view = app.view();
+        require(std::any_of(view.emoji->cells.begin(), view.emoji->cells.end(),
+                            [&](const auto& c) {
+                                return c.text == "❤️" && std::abs(c.bounds.x - fx + size / 2) < 1;
+                            }),
+                "it shows in Favorites at once");
+        // Summoning mid-lift closes the picker, as hiding does, and puts the emoji back.
+        const auto grin = center(cell(*view.emoji, "😀")->bounds);
+        now = monotonic_seconds();
+        app.down(0, grin.first, grin.second, now);
+        app.tick(now + .6);
+        require(app.view().emoji->lifted.has_value(), "a second lift");
+        app.summon();
+        require(!app.emoji_open() && !app.pointer_pressed(0), "closing ends the press");
+    }
+    const auto saved = load_emoji_preferences(directory.path / "emoji.json");
+    require(saved.favorites == std::vector<std::string>{"❤️"}, "favorites are saved beside recent emoji");
+    App app(options, sink);
+    require(open(app), "the picker opens again");
+    const auto view = app.view();
+    const double size = view.emoji->cells.front().bounds.width;
+    require(std::any_of(view.emoji->cells.begin(), view.emoji->cells.end(),
+                        [&](const auto& c) {
+                            return c.text == "❤️" &&
+                                   std::abs(c.bounds.x - (view.emoji->grid.x + 6.5 * size)) < 1;
+                        }),
+            "and Favorites shows it after a restart");
+}
 // With FRAMEKEYBOARD_TEST_RENDER_DIR, an image of a held emoji's skin tones.
 void tone_render() {
     const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR");
@@ -647,7 +959,8 @@ void tone_render() {
     if (!app.emoji_open()) {
         return;
     }
-    const auto [tx, ty] = center(app.view().emoji->tab_list[2].bounds); // after recent and smileys
+    const auto [tx, ty] =
+        center(app.view().emoji->tab_list[3].bounds); // after Recent, Favorites, Smileys
     app.down(0, tx, ty, monotonic_seconds());
     app.up(0, tx, ty);
     // The grid glides to the tab; a press during the glide only stops it.
@@ -806,8 +1119,11 @@ void app_tests() {
         // A tone whose emoji the target refuses does not stick.
         const auto [choice_x, choice_y] = center(after.emoji->popup->choices[3].bounds);
         app.move(0, choice_x, choice_y);
+        app.up(0, choice_x, choice_y);
+        require(app.view().emoji->popup.has_value(), "releasing the hold keeps the tones open");
         sink.reject = true;
         const auto typed = sink.text.size();
+        app.down(0, choice_x, choice_y, 7.5);
         app.up(0, choice_x, choice_y);
         sink.reject = false;
         const auto rejected = app.view();
@@ -816,7 +1132,8 @@ void app_tests() {
                 "a refused emoji leaves the tone as it was");
         app.down(0, wave_x, wave_y, 8);
         app.tick(8.6);
-        app.move(0, choice_x, choice_y);
+        app.up(0, wave_x, wave_y);
+        app.down(0, choice_x, choice_y, 9);
         app.up(0, choice_x, choice_y);
         const auto toned = app.view();
         require(sink.text.back() == "👋🏽" && cell(*toned.emoji, "👋🏽"), "a sent one changes it");
@@ -955,7 +1272,9 @@ int main() {
         layout_tests();
         stick_tests();
         picker_tests();
+        favorites_tests();
         app_tests();
+        app_favorites_tests();
         tone_render();
         text_output_tests();
         paint_tests();

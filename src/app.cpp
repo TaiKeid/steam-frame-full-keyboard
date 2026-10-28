@@ -925,6 +925,9 @@ PanelView App::build_view(bool picker) const {
                 if (v.emoji->popup) {
                     mark(v.emoji->popup->choices);
                 }
+                if (v.emoji->lifted) {
+                    v.emoji->lifted->ready = emoji_glyphs_->image(v.emoji->lifted->text) != nullptr;
+                }
             }
         } else {
             v.emoji.emplace(); // Only its width, which sets the case.
@@ -1214,7 +1217,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         }
         return false;
     }
-    if (emoji_open_ && emoji_.contains(x, y)) {
+    // Open skin tones take the click anywhere in the picker, keys included:
+    // one on a tone types it, any other only closes them.
+    if (emoji_open_ && (emoji_.contains(x, y) || emoji_.popup_open())) {
         dirty |= emoji_.down(pointer, x, y, now).redraw;
         return false;
     }
@@ -3448,6 +3453,11 @@ void App::update_emoji_content() {
                 sections[0].push_back(entry);
             }
         }
+        for (const auto& base : emoji_preferences_.favorites) {
+            if (const auto* entry = emoji_catalog_.find(base)) {
+                sections[1].push_back(entry);
+            }
+        }
     }
     emoji_.set_content(std::move(sections), emoji_preferences_.tone, !emoji_checked_);
     ++emoji_content_;
@@ -3508,6 +3518,22 @@ void App::apply_emoji_event(const EmojiPicker::Event& event) {
         emoji_preferences_.recent.clear();
         update_emoji_content();
         save_emoji();
+    }
+    if (event.favorites) {
+        // The picker knows only the emoji this font draws; keep the others,
+        // after it, for a font that may draw them again.
+        auto favorites = *event.favorites;
+        for (const auto& base : emoji_preferences_.favorites) {
+            if (!emoji_catalog_.find(base) &&
+                std::find(favorites.begin(), favorites.end(), base) == favorites.end()) {
+                favorites.push_back(base);
+            }
+        }
+        favorites.resize(std::min(favorites.size(), EmojiPreferences::max_favorites));
+        if (favorites != emoji_preferences_.favorites) {
+            emoji_preferences_.favorites = std::move(favorites);
+            update_emoji_content(); // Saved with Recent when the picker closes.
+        }
     }
     const bool typed = !event.type.empty() && type_emoji(event.type);
     if (event.tone) {

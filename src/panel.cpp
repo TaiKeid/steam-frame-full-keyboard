@@ -464,6 +464,15 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             cairo_arc(cr, 0, 2, 5.5, 0, pi);
         }
         break;
+    case Icon::Favorites:
+        // A five-pointed star, its points rounded by the round join.
+        for (int i = 0; i < 10; ++i) {
+            const double angle = -pi / 2 + i * pi / 5, radius = i % 2 ? 4.4 : 10.5;
+            const double x = radius * std::cos(angle), y = radius * std::sin(angle) + .8;
+            i ? cairo_line_to(cr, x, y) : cairo_move_to(cr, x, y);
+        }
+        cairo_close_path(cr);
+        break;
     case Icon::Recent:
         cairo_arc(cr, 0, 0, 10, 0, 2 * pi);
         line(0, 0, 0, -6);
@@ -1555,7 +1564,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                               [](const auto& x, const auto& y) { return x.bounds == y.bounds; });
         };
         const bool grid_still = old.grid == now.grid && old.hint == now.hint &&
-                                old.hint_bounds == now.hint_bounds && same_place(old.cells, now.cells);
+                                old.hint_bounds == now.hint_bounds &&
+                                old.favorites_hint == now.favorites_hint &&
+                                old.favorites_hint_bounds == now.favorites_hint_bounds &&
+                                old.dividers == now.dividers && same_place(old.cells, now.cells);
         if (grid_still) {
             for (std::size_t i = 0; i < now.cells.size(); ++i) {
                 if (old.cells[i] != now.cells[i]) {
@@ -1581,6 +1593,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             for (const auto* popup : {&old.popup, &now.popup}) {
                 if (*popup) {
                     damage_area(pixel_bounds((*popup)->bounds, tone_shadow + 1));
+                }
+            }
+        }
+        // A lifted emoji follows the laser anywhere over the panel.
+        if (old.lifted != now.lifted) {
+            for (const auto* lifted : {&old.lifted, &now.lifted}) {
+                if (*lifted) {
+                    damage_area(pixel_bounds((*lifted)->bounds, tone_shadow + 1));
                 }
             }
         }
@@ -1785,6 +1805,23 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_save(cr);
             cairo_rectangle(cr, picker.grid.x, picker.grid.y, picker.grid.width, picker.grid.height);
             cairo_clip(cr);
+            for (const double x : picker.dividers) {
+                // A hairline in the legend colour, fading out toward the
+                // grid's top and bottom, like the line under a Settings title.
+                const auto& g = picker.grid;
+                const double top = g.y + 10, bottom = g.y + g.height - 10, line = std::round(x);
+                auto* fade = cairo_pattern_create_linear(0, top, 0, bottom);
+                const auto& c = t.legend;
+                cairo_pattern_add_color_stop_rgba(fade, 0, c.r, c.g, c.b, 0);
+                cairo_pattern_add_color_stop_rgba(fade, .5, c.r, c.g, c.b, light_theme(t) ? .26 : .2);
+                cairo_pattern_add_color_stop_rgba(fade, 1, c.r, c.g, c.b, 0);
+                cairo_set_source(cr, fade);
+                cairo_move_to(cr, line, top);
+                cairo_line_to(cr, line, bottom);
+                cairo_set_line_width(cr, 1.5);
+                cairo_stroke(cr);
+                cairo_pattern_destroy(fade);
+            }
             for (const auto& cell : picker.cells) {
                 const Rect face{cell.bounds.x + 3, cell.bounds.y + 3, cell.bounds.width - 6,
                                 cell.bounds.height - 6};
@@ -1799,6 +1836,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     draw_icon(cr, Icon::Clear, face, cell.pressed ? t.latched_legend : t.legend, 24);
                     continue;
                 }
+                if (cell.slot) {
+                    // Where a lifted emoji would land: an empty key's face.
+                    rounded(cr, face, t.radius);
+                    source(cr, t.hover);
+                    cairo_fill(cr);
+                    continue;
+                }
                 if (cell.pressed) {
                     fill_latched(cr, t, face, t.radius); // Like the tabs.
                 } else if (cell.hovered) {
@@ -1811,6 +1855,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             if (!picker.hint.empty()) {
                 label(cr, picker.hint, picker.hint_bounds, t.small_font_size * 1.3, view.language->font,
                       disabled_legend(t), false, PANGO_ALIGN_CENTER, true);
+            }
+            if (!picker.favorites_hint.empty()) {
+                const auto& r = picker.favorites_hint_bounds;
+                label(cr, picker.favorites_hint, {r.x + 8, r.y, r.width - 16, r.height},
+                      t.small_font_size * 1.1, view.language->font, disabled_legend(t), false,
+                      PANGO_ALIGN_CENTER, true);
             }
             cairo_restore(cr);
         }
@@ -2103,6 +2153,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 emoji_image(choice.text, choice.bounds);
             }
+        }
+        // A lifted emoji on a raised keycap, above the grid and its tones;
+        // over a place where dropping it would remove it, it fades.
+        if (view.emoji && view.emoji->lifted && !view.settings) {
+            const auto& lifted = *view.emoji->lifted;
+            const auto r = lifted.bounds;
+            soft_shadow(cr, r, t.radius + 2, tone_shadow);
+            rounded(cr, r, t.radius + 2);
+            source(cr, mix(t.bottom, t.surface, .25));
+            cairo_fill(cr);
+            cairo_push_group(cr);
+            emoji_image(lifted.text, r);
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, lifted.removing ? .4 : 1);
         }
         // Popup is the last layer and deliberately bypasses both card and case clips.
         if (view.popup) {

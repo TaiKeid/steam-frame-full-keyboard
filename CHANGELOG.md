@@ -25,6 +25,8 @@
 - Settings has a new look that matches the keyboard: its cards are raised panels instead of outlined boxes, buttons and dropdowns look like keycaps, checkboxes are switches, and dropdown lists open as a raised menu.
 - In Settings, the cards now glide when scrolled with the thumbstick, and can also be dragged with the laser, like a touch screen. Scrollbars light up under the laser.
 - Choosing a theme in Settings shows it at once; Back returns to the saved theme.
+- Skin tones stay open after you release the hold: click a tone to type it, or click anywhere else to close them.
+- The emoji picker has **Favorites**, after Recent. Hold an emoji in Recent, then drag it into Favorites to keep it there. Drag a favorite to move it, or drop it outside Favorites to remove it. A toned emoji's hold still opens its skin tones; keep holding and move to drag it instead.
 - In Settings, **Manage** on the Favorites row opens a list of your favorite layout and language pairs over the Languages and Layouts card. A bin button removes one pair, and **Clear all** removes them all after asking. Like every Settings change, removals are saved by Apply, and Back keeps your favorites.
 - The Experimental settings card is now called **Integration**.
 - Ten new themes: Ember, Plum, Crimson, Navy and Mono in dark tones with their own accent colors; Neon, whose latched and pressed keys light up in neon tubes; Cinematic, dark blue with orange; and the light Porcelain, Blossom and Lilac.

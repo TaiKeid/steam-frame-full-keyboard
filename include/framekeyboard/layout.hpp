@@ -41,6 +41,7 @@ enum class Icon {
     Emoji,
     // Emoji picker categories.
     Recent,
+    Favorites, // a star
     Smileys,
     People,
     Animals,

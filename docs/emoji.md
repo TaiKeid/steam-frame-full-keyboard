@@ -22,7 +22,7 @@ The emoji key is disabled (drawn with the theme's disabled color, not clickable)
 ![Picker layout (owner mockup)](images/emoji-picker.png)
 
 - **Side column:** the same, except that the emoji key becomes a Back key that returns to the main layout.
-- **Category row:** across the top of the main area. Recent comes first, with a clock icon, followed by the Unicode groups: Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places, Activities, Objects, Symbols, Flags. Each tab has its own line icon. If the tabs don't fit, they scroll horizontally, and Recent stays fixed at the left like a frozen table column.
+- **Category row:** across the top of the main area. Recent comes first, with a clock icon, then Favorites with a star, followed by the Unicode groups: Smileys & Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places, Activities, Objects, Symbols, Flags. Each tab has its own line icon. If the tabs don't fit, they scroll horizontally, and Recent stays fixed at the left like a frozen table column.
 - **Grid:** one horizontal strip covering every category in tab order, filled column by column. It sits in a well recessed into the case, drawn like the dictation editor's. Tapping a tab scrolls the grid to that category. The highlighted tab follows the scroll position.
 - **Bottom:** a space bar under the grid.
 - **Right side:** Backspace and Enter, with the arrow keys below them.
@@ -49,7 +49,9 @@ Holding an emoji that supports skin tones for 500 ms (*proposal*) opens a popup 
 - the default yellow first;
 - then the five tones from light to dark.
 
-Releasing over a variant types it and makes that tone the keyboard-wide choice. From then on, every toned emoji in the grid and in Recent is drawn and typed with that tone. Emoji with more than one person use the same tone for each of them. The choice is saved with the recent emoji.
+Releasing the hold leaves the popup open, wherever the laser is (changed 2026-10-27 at the owner's request; a release over a variant used to type it). A click on a variant, pressed and released on the same one, types it and makes that tone the keyboard-wide choice; a click anywhere else in the picker, its keys included, only closes the popup. Nothing scrolls while it is open.
+
+Clicking a variant types it and makes that tone the keyboard-wide choice. From then on, every toned emoji in the grid and in Recent is drawn and typed with that tone. Emoji with more than one person use the same tone for each of them. The choice is saved with the recent emoji.
 
 ### Recent
 
@@ -66,7 +68,20 @@ Releasing over a variant types it and makes that tone the keyboard-wide choice. 
 
 - **Clear:** a clear icon button in the bottom-right cell of Recent's six columns, inside the scrolling grid. It is not shown at all while Recent is empty. Pressing it empties Recent at once, with no confirmation (*proposal*). An empty Recent shows "Recently used emoji / appear here" in its place.
 - **Order:** an emoji chosen from another category appears at the front of Recent at once. One chosen from Recent itself keeps its place, so Recent never shifts under the laser while you use it.
-- **Storage:** `emoji.json` beside `placement.json`, not in `config.json`, holding the recent emoji and the skin tone. It is written when the picker closes or Recent is cleared. It is a record of typed content, so it is never logged.
+- **Storage:** `emoji.json` beside `placement.json`, not in `config.json`, holding the recent emoji, the favorites and the skin tone. It is written when the picker closes or Recent is cleared. It is a record of typed content, so it is never logged.
+
+### Favorites
+
+Added 2026-10-27 at the owner's request: a Favorites section after Recent and before the categories, filled by drag and drop.
+
+- **Space:** always shown, with its star tab among the scrolling tabs. It takes at least three columns, and always has room for one more emoji than it holds, which is where a drop at its end lands. An empty Favorites shows "Drag and drop from Recent to add a favorite, drop outside to remove." in its place. It holds up to 40 emoji, stored without a tone so the global tone applies. A soft vertical line in the gap after Recent and after Favorites, fading toward the grid's top and bottom, sets the two apart from each other and from the categories.
+- **Lifting:** only a hold starts drag and drop; a tap still types and a drag before the hold still scrolls. Holding an emoji in Recent or Favorites for 500 ms lifts it: a slightly larger raised keycap with the emoji follows the laser above everything, and its Recent cell stays lit. Like a tone hold, the laser may wander 32 px before the press becomes a scroll instead. Emoji in the other categories do not lift.
+- **Skin tones:** a toned emoji's hold opens its tones, as everywhere. Still holding, a move of more than 32 px from where the tones opened closes them and lifts the emoji, in any direction. Released instead, the tones stay open for a click, so choosing a tone and dragging never compete.
+- **Adding:** over Favorites, the favorites close up around an empty slot where the drop lands, before the favorite under the laser or at the end. Dropping there adds it. An emoji from Recent that is already a favorite moves to the slot instead of appearing twice. Dropping it anywhere else changes nothing. A full Favorites shows no slot and takes no new emoji.
+- **Reordering and removing:** a lifted favorite leaves its place at once. Dropping it in Favorites puts it at the slot; dropping it anywhere outside Favorites removes it, and the lifted emoji fades while that would happen.
+- **Reaching Favorites:** a lifted emoji within a cell of the grid's left or right edge scrolls the grid toward it, up to 600 px/s at the edge, and the stick still scrolls the grid. A tap on a favorite types it and moves it to the front of Recent.
+- **Cancellation:** hiding the keyboard, closing the picker, Settings, a target change or losing the laser cancels the lift through the picker's usual cancel paths; the favorite stays where it was and nothing is typed.
+- **Storage:** the optional `favorites` array in `emoji.json`, saved with Recent when the picker closes. Files from before favorites load with none. Favorites the emoji font cannot draw are kept but not shown.
 
 ### Entering and leaving
 
@@ -118,6 +133,7 @@ Whether an X11 or Wayland application joins a ZWJ sequence or keeps a variation 
 - [x] Close-on-select setting.
 - [x] Disabled states: Unicode transport, language key, missing font.
 - [x] Docs: configuration, acceptance, architecture, changelog.
+- [x] Favorites: drag from Recent, reorder, remove, storage, dividers; tone popup stays open for a click.
 
 ## Acceptance
 
