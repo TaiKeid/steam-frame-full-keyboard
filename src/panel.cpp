@@ -908,6 +908,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     }
 }
 } // namespace
+double semi_transparent_case_opacity(const Theme& theme) {
+    return light_theme(theme) ? .15 : .5;
+}
 std::optional<Rect> flick_preview_bounds(const PanelView& view) {
     const auto cells = flick_cells(view);
     if (!cells) {

@@ -975,8 +975,7 @@ void background_surface_setting() {
     // Semi-transparent: a half-opaque case that takes the laser everywhere.
     select(app, "background-surface", "semi-transparent");
     click(app, "apply");
-    require(saved(app).background_surface == "semi-transparent" &&
-                app.view().case_opacity == semi_transparent_case_opacity &&
+    require(saved(app).background_surface == "semi-transparent" && app.view().case_opacity == .5 &&
                 !app.view().laser_through_gaps,
             "Apply saves Semi-transparent");
     app.paint(1.2);

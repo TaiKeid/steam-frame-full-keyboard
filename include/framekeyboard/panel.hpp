@@ -17,8 +17,7 @@ constexpr int texture_height = panel_height + 2 * popup_margin;
 // With a transparent background, text drawn on the case (status line, reading
 // line, dictation counter) sits on a plate of the case colour this opaque.
 constexpr double case_plate_alpha = .88;
-// Background Semi-transparent: the case's opacity.
-constexpr double semi_transparent_case_opacity = .5;
+
 // TextField shows a value that opens its own editor, such as a server address.
 // Note: a Settings row without a control, its text across the card.
 enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField, Note };
@@ -295,6 +294,9 @@ bool compact_toolbar(const PanelView& view);
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 // Panel area of the flick preview, which may extend past the case.
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
+// Background Semi-transparent: the case's opacity, half on a dark theme;
+// a light theme's pale case reads far brighter, so it keeps only 15%.
+double semi_transparent_case_opacity(const Theme& theme);
 // The case's part of the VR laser mask, in at most `limit` rectangles. Over a
 // transparent case with `laser_through_gaps` it is only what takes a press
 // (keys, controls, the emoji picker and its tones, the dictation editor), so a press in a

@@ -620,7 +620,19 @@ int main() {
                  profiles.languages.at("en-us"), 0);
         // Semi-transparent: a half-opaque case under the same partial repaints.
         exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("graphite"),
-                 profiles.languages.at("en-us"), semi_transparent_case_opacity);
+                 profiles.languages.at("en-us"),
+                 semi_transparent_case_opacity(profiles.themes.at("graphite")));
+        exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("porcelain"),
+                 profiles.languages.at("en-us"),
+                 semi_transparent_case_opacity(profiles.themes.at("porcelain")));
+        // A light theme's pale case reads far brighter, so it keeps less of itself.
+        for (const auto& [id, theme] : profiles.themes) {
+            const bool light =
+                .2126 * theme.legend.r + .7152 * theme.legend.g + .0722 * theme.legend.b <= .5;
+            if (semi_transparent_case_opacity(theme) != (light ? .15 : .5)) {
+                throw std::runtime_error("semi-transparent opacity does not follow theme " + id);
+            }
+        }
         straight_alpha();
         emoji_tone_hits();
         // Notice colours default by the legend's lightness; a theme may set its own.
