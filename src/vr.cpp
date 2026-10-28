@@ -563,15 +563,36 @@ class LaserDrag {
 // only to overlays that claim scene input, which takes input from the focused
 // app. Instead read each Frame controller's pose and trigger component: neither
 // read takes anything away, so the app receives the trigger too.
+// A trigger while its laser rests in a clear gap (Background Disabled). It
+// enters at rest, or still springing back from a release just before, and
+// stays at rest until it rises 1° (TriggerReleaseGuard's "held") above the
+// lowest angle seen there: the window behind may take that as a click.
+struct GapTrigger {
+    static constexpr double rise_degrees = 1, release_grace = .25;
+    double lowest{};
+    static std::optional<GapTrigger> enter(std::optional<double> angle, bool just_released) {
+        if (!angle || (*angle >= rise_degrees && !just_released)) {
+            return {};
+        }
+        return GapTrigger{*angle};
+    }
+    bool rests(std::optional<double> angle) {
+        if (!angle) {
+            return false;
+        }
+        lowest = std::min(lowest, *angle);
+        return *angle < lowest + rise_degrees;
+    }
+};
 struct SceneSample {
     vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
     std::optional<PanelHit> hit;
     std::optional<Ray> ray;
     // lost: the hand or its trigger stopped reporting while held; cancel, don't release.
     bool pressed{}, released{}, lost{};
-    // The trigger has moved from rest, well short of `pressed`: the app
-    // behind reads the raw trigger and may already take it as a click.
-    bool pulled{};
+    // The trigger's angle from rest, for GapTrigger: the app behind reads the
+    // raw trigger and may take a pull well short of `pressed` as a click.
+    std::optional<double> trigger;
 };
 class ScenePointer {
   public:
@@ -630,7 +651,7 @@ class ScenePointer {
                 hand.armed = hand.held = false;
                 continue;
             }
-            sample.pulled = *angle >= 1; // TriggerReleaseGuard's "held"
+            sample.trigger = angle;
             // Require a released trigger after startup, a new controller or a gap,
             // so a pull already in progress never clicks the key it lands on.
             if (!hand.armed) {
@@ -1466,6 +1487,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     PassthroughRequests passthrough_requests;
     HiddenFocusCue hidden_focus;
     std::array<bool, 2> scene_inside{};
+    // Each hand's trigger while its ray rests in a clear gap, and when it last
+    // released a press (GapTrigger).
+    std::array<std::optional<GapTrigger>, 2> scene_gap{};
+    std::array<double, 2> scene_released{-1, -1};
     std::array<std::pair<double, double>, 2> scene_last{};
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
@@ -1497,8 +1522,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // suggestions and the next word's space stay (App::cancel_pointer) until
     // the ray leaves the case or the trigger moves: a pull in the gap may
     // click the window behind. Back on a key, SteamVR's events take over.
-    std::map<vr::TrackedDeviceIndex_t, TriggerWatch> gap_watches;
-    constexpr double gap_trigger_degrees = 1; // TriggerReleaseGuard's "held"
+    struct GapWatch {
+        TriggerWatch watch;
+        GapTrigger trigger;
+    };
+    std::map<vr::TrackedDeviceIndex_t, GapWatch> gap_watches;
+    // When each device last released a press over the panel (GapTrigger).
+    std::map<vr::TrackedDeviceIndex_t, double> released_at;
     // The other hand's trigger takes SteamVR's laser, and its pull may click
     // the window behind; the watched hand then no longer points. Checked at
     // 4 Hz, like the resizers' dashboard pointer: no tap follows that fast.
@@ -2680,6 +2710,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             case vr::VREvent_MouseButtonUp:
                 if (event.data.mouse.button == vr::VRMouseButton_Left) {
                     pointer_up(pointer, device, x, y);
+                    released_at[device] = now;
                 }
                 break;
             case vr::VREvent_ScrollDiscrete:
@@ -2713,15 +2744,20 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     })) {
                     if (const auto at = gap_point(device)) {
                         // A pointer without a readable trigger leaves as before.
-                        TriggerWatch trigger;
-                        trigger.begin(device, now);
-                        if (const auto angle = trigger.angle(); angle && *angle < gap_trigger_degrees) {
+                        // A swipe released just before still has its trigger
+                        // springing back (GapTrigger).
+                        TriggerWatch watch;
+                        watch.begin(device, now);
+                        const auto released = released_at.find(device);
+                        if (const auto trigger = GapTrigger::enter(
+                                watch.angle(), released != released_at.end() &&
+                                                   now - released->second < GapTrigger::release_grace)) {
                             for (const auto& [pointer, owner] : pointer_devices) {
                                 if (owner == device) {
                                     app.move(pointer, at->first, at->second);
                                 }
                             }
-                            gap_watches.insert_or_assign(device, trigger);
+                            gap_watches.insert_or_assign(device, GapWatch{watch, *trigger});
                             break;
                         }
                     }
@@ -2750,9 +2786,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 gap_pointer_checked = now;
             }
             for (auto it = gap_watches.begin(); it != gap_watches.end();) {
-                const auto angle = it->second.angle();
-                if (away || (pointing && *pointing != it->first) || !gap_point(it->first) || !angle ||
-                    *angle >= gap_trigger_degrees) {
+                auto& [watch, trigger] = it->second;
+                if (away || (pointing && *pointing != it->first) || !gap_point(it->first) ||
+                    !trigger.rests(watch.angle())) {
                     if (!away) {
                         lifecycle.pointer_left(it->first, false);
                     }
@@ -2828,6 +2864,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     // No release was seen: cancel rather than type.
                     cursors.hide(hand);
                     scene_inside[hand] = false;
+                    scene_gap[hand].reset();
                     if (drag.owns_pointer(sample.device, pointer)) {
                         stop_drag();
                     }
@@ -2846,6 +2883,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (at) {
                     cursors.show(hand, displayed.transform(), *sample.hit);
                     scene_inside[hand] = true;
+                    scene_gap[hand].reset();
                     pointer_move(pointer, sample.device, at->first, at->second, true);
                     if (sample.pressed) {
                         pointer_down(pointer, sample.device, at->first, at->second, true, true);
@@ -2862,9 +2900,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     } else {
                         cursors.hide(hand);
                     }
-                    if (gap[hand] && !sample.pulled && scene_inside[hand]) {
-                        // Only the hover ends; any pull here is leaving, since
-                        // the app behind may click well before `pressed`.
+                    // In a gap only the hover ends, while the trigger rests: the
+                    // app behind may click well before `pressed`.
+                    if (gap[hand] && scene_inside[hand] && !scene_gap[hand]) {
+                        scene_gap[hand] = GapTrigger::enter(
+                            sample.trigger, now - scene_released[hand] < GapTrigger::release_grace);
+                    }
+                    const bool rests =
+                        gap[hand] && scene_gap[hand] && scene_gap[hand]->rests(sample.trigger);
+                    if (!rests) {
+                        scene_gap[hand].reset();
+                    }
+                    if (rests) {
                         app.move(pointer, gap[hand]->first, gap[hand]->second);
                     } else if (std::exchange(scene_inside[hand], false)) {
                         // Leaving the panel ends this hand's presses, as SteamVR's FocusLeave does.
@@ -2877,6 +2924,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 if (sample.released) {
                     pointer_up(pointer, sample.device, scene_last[hand].first, scene_last[hand].second);
+                    scene_released[hand] = now;
                 }
                 if (!app.passthrough()) {
                     // Turned off by this hand: the panel closes below, and the
