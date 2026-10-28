@@ -51,6 +51,7 @@ Rect SettingsUi::field_bounds(std::size_t i, std::size_t field) const {
     const auto r = card_bounds(i);
     const auto& definition = cards_[i].fields[field];
     const double width = definition.style == ControlStyle::Checkbox ? checkbox_size
+                         : definition.width > 0                     ? definition.width
                          : definition.narrow                        ? narrow_width
                                                                     : dropdown_width;
     return {r.x + r.width - row_right - width,

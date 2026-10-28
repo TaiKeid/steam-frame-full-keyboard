@@ -631,7 +631,7 @@ void App::update_settings_ui() {
                         {"semi-transparent", "Semi-transparent"},
                         {"invisible", "Invisible"},
                         {"disabled", "Disabled"}}));
-    background_surface.narrow = true;
+    background_surface.width = 250; // "Semi-transparent" and the label, both whole
     // SteamOS's Desktop cannot take emoji and other non-ASCII text from
     // Gamescope; it is typed as Unicode entry or pasted (docs/architecture.md).
     auto desktop_unicode = field(ControlKind::ChooseDesktopUnicode,

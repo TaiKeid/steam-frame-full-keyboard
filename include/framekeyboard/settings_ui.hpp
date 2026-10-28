@@ -21,6 +21,8 @@ struct SettingField {
     std::string note{};
     // A dropdown whose choices are short, leaving its label more room.
     bool narrow{};
+    // Or its own width, between narrow and full, when neither fits both.
+    double width{};
     // A Note row that describes rather than warns: the legend colour, not amber.
     bool plain{};
 };
