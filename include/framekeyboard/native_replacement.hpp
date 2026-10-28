@@ -49,11 +49,12 @@ class NativeReplacement : public KeySink {
     void retry_now(double now);
     bool take_unsupported_control();
     // The native keyboard button pressed since the last call: it closed our
-    // open request (toggle), or opened a new request without a field (summon,
-    // its request number). Keep open closes its held panel on either.
+    // open request (toggle), or opened a new request without a field (summon).
+    // Each is the request number the bridge reported with it, 0 for none, so
+    // a press superseded by a newer request in the same reply can be told
+    // apart. Keep open closes its held panel on either.
     struct ButtonPress {
-        bool toggle{};
-        std::uint64_t summon{};
+        std::uint64_t toggle{}, summon{};
     };
     ButtonPress take_button_press();
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.

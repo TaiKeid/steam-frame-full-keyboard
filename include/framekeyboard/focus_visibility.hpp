@@ -21,8 +21,10 @@ class FocusVisibility {
     };
     void update(const Sample& sample) {
         if (sample.window != focused_) {
-            // The first sample is not a focus change: the user may be elsewhere.
-            if (started_ && sample.visible.size() == 1) {
+            // Only a move between two known windows is a click. Focus first
+            // read, or read again after a reconnect or a hidden spell, is a
+            // baseline: the user may be looking elsewhere.
+            if (focused_ && sample.window && sample.visible.size() == 1) {
                 learned_[sample.window] = sample.visible.front();
                 if (learned_.size() > 16) {
                     learned_.erase(learned_.begin());
@@ -30,7 +32,6 @@ class FocusVisibility {
             }
             focused_ = sample.window;
         }
-        started_ = true;
         if (!sample.window) {
             hidden_ = false;
         } else if (sample.app_visible) {
@@ -45,11 +46,17 @@ class FocusVisibility {
         }
     }
     void reset() { *this = {}; }
+    // Not sampled while the panel is hidden: the next sample is a baseline,
+    // and learned links stay.
+    void pause() {
+        focused_ = 0;
+        hidden_ = false;
+    }
     bool hidden() const { return hidden_; }
 
   private:
     std::map<std::uint32_t, std::uint32_t> learned_;
     std::uint32_t focused_{};
-    bool started_{}, hidden_{};
+    bool hidden_{};
 };
 } // namespace framekeyboard

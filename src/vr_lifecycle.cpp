@@ -10,16 +10,23 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     const auto& native = frame.native;
     native_ = native;
     // The native keyboard button closes a panel Keep open holds, as X does:
-    // whether it ended our request or opened a new one without a field.
+    // whether it ended our request or opened a new one without a field. The
+    // shell closes it through X's own path (take_button_close), which also
+    // ends a dictation editor that would otherwise keep holding the panel.
     const bool summoned = native.open && frame.button.summon && frame.button.summon == native.request;
-    const bool button_closes = keep_armed_ && visible_ && (frame.button.toggle || summoned);
+    // A toggle counts only while its closed request is still the latest: a
+    // field focused before this poll has opened a newer one, which takes over.
+    const bool toggled = !native.open && frame.button.toggle && frame.button.toggle == native.request;
+    const bool button_closes = keep_armed_ && visible_ && (toggled || summoned);
     if (button_closes && summoned) {
         // Steam counts the new request as open, and the bridge ends only a
         // request our panel acknowledged; a refused dismissal would reopen
         // Steam's keyboard. Keep holding the panel until then.
         close_when_acknowledged_ = native.request;
+    } else if (button_closes) {
+        button_close_ = true; // The press already ended our request.
     }
-    if (!frame.keep_open || frame.watchdog_stalled || (button_closes && !summoned)) {
+    if (!frame.keep_open || frame.watchdog_stalled) {
         keep_armed_ = false;
     } else if (visible_) {
         keep_armed_ = true;
@@ -39,8 +46,9 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     if (close_when_acknowledged_ && (!native.open || native.request != close_when_acknowledged_)) {
         close_when_acknowledged_ = 0; // Ended or replaced before acknowledgement.
     } else if (close_when_acknowledged_ && native.active) {
-        // The next press then opens ours again.
-        dismiss();
+        // Ending it now lets the next press open ours again.
+        close_when_acknowledged_ = 0;
+        button_close_ = true;
     }
     const bool remote = presentation_.remote();
     if (last_request_ != native.request || remote != frame.routed_remote) {
@@ -74,6 +82,7 @@ void VrLifecycle::dismiss() {
     presentation_.hold(false); // X discarded dictation; never reshown this frame.
     keep_armed_ = false;
     close_when_acknowledged_ = 0;
+    button_close_ = false;
     hide();
     presentation_.dismiss();
     effects_.dismiss_request();
@@ -83,6 +92,7 @@ void VrLifecycle::fallback() {
     presentation_.hold(false);
     keep_armed_ = false;
     close_when_acknowledged_ = 0;
+    button_close_ = false;
     presentation_.fallback();
     hide();
 }

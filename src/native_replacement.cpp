@@ -417,7 +417,7 @@ void NativeReplacement::poll(double now) {
                     event_sequence_ = json_object_get_uint64(id);
                     diagnostic(code, now, json_object_get_uint64(request));
                     if (std::string_view(code) == "button-toggle") {
-                        button_.toggle = true;
+                        button_.toggle = json_object_get_uint64(request);
                     } else if (std::string_view(code) == "button-summon") {
                         button_.summon = json_object_get_uint64(request);
                     }

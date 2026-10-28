@@ -158,10 +158,16 @@ struct HiddenFocusCue {
     std::unique_ptr<DesktopFocus> focus;
     WindowOverlays overlays;
     FocusVisibility visibility;
-    bool update(bool active, bool typing_to_focus, double now) {
-        if (!active) {
+    // Sampled only while the panel shows; hidden, it costs nothing and keeps
+    // what it found and learned.
+    bool update(bool enabled, bool shown, bool typing_to_focus, double now) {
+        if (!enabled) {
             overlays.reset();
             visibility.reset();
+            return false;
+        }
+        if (!shown) {
+            visibility.pause();
             return false;
         }
         if (!focus) {
@@ -2369,11 +2375,16 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                .keep_open = app.keep_open(),
                                .button = replacement.take_button_press(),
                                .now = now});
+        if (lifecycle.take_button_close()) {
+            // The keyboard button closes a Keep open panel as X does.
+            app.close_with_x();
+            dismiss_panel();
+        }
         app.set_field_needed(lifecycle.field_needed());
         // Only a Keep open panel without a request types into the focused window.
-        app.set_hidden_focus(hidden_focus.update(
-            !hosted && app.keep_open(),
-            lifecycle.visible() && lifecycle.held_without_field() && !lifecycle.field_needed(), now));
+        app.set_hidden_focus(
+            hidden_focus.update(!hosted && app.keep_open(), lifecycle.visible(),
+                                lifecycle.held_without_field() && !lifecycle.field_needed(), now));
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
         if (!hosted && passthrough_requests.take(replace, native, dashboard_visible)) {
             std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;

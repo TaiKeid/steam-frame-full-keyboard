@@ -2523,10 +2523,7 @@ void App::action(const ControlAction& command) {
             report_status("Updates are available from the installed keyboard.");
         }
     } else if (kind == ControlKind::Close) {
-        if (dictation_open_) {
-            discard_dictation(); // X discards everything, without asking.
-        }
-        close_panel();
+        close_with_x();
     } else if (kind == ControlKind::DictationDiscard && confirm_discard_) {
         discard_dictation();
     } else if (kind == ControlKind::DictationKeep) {
@@ -3277,6 +3274,12 @@ void App::close_panel() {
     } else {
         quit_ = true;
     }
+}
+void App::close_with_x() {
+    if (dictation_open_) {
+        discard_dictation(); // X discards everything, without asking.
+    }
+    close_panel();
 }
 void App::set_passthrough(bool on) {
     const bool was = passthrough();

@@ -180,6 +180,8 @@ class App {
         return options_.mode == Mode::Vr && (settings_.replace_native_keyboard || hosted());
     }
     void close_panel();
+    // X: discards dictation without asking, then closes the panel.
+    void close_with_x();
     bool take_dismissal();
     void set_replacement_available(bool available, std::string reason = {}) {
         if (available) {

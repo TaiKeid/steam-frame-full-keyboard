@@ -76,6 +76,7 @@ struct Headset {
     std::map<unsigned, std::uint32_t> pointers;
     int next_target{}, presentations{}, dismissals{}, retries{};
     NativeReplacement::ButtonPress button; // reported with the next status
+    bool dictation_hold{};                 // a dictation editor with text, which X discards
     double now{1};
 
     explicit Headset(bool background = true, bool replacement = true) {
@@ -160,9 +161,17 @@ struct Headset {
                                 .routed_remote = remote,
                                 .watchdog_stalled = stalled,
                                 .relaunch = relaunch,
+                                .dictation_hold = dictation_hold,
                                 .keep_open = app->keep_open(),
                                 .button = std::exchange(button, {}),
                                 .now = now});
+        if (lifecycle->take_button_close()) {
+            // As the VR loop does: X's own path, which discards dictation.
+            app->close_with_x();
+            dictation_hold = false;
+            require(app->take_dismissal(), "the button closes a resident panel as X does");
+            lifecycle->dismiss();
+        }
         app->set_field_needed(lifecycle->field_needed());
         if (passthrough_requests.take(app->replace_native_keyboard(), native, dashboard)) {
             app->set_passthrough(true);
@@ -310,7 +319,7 @@ void keep_open_holds_the_panel_after_its_request() {
     require(h.compositor, "reopening the dashboard brings the kept panel back");
 
     // The native keyboard button closes the kept panel like X.
-    h.button.toggle = true;
+    h.button.toggle = 43;
     h.status({43, false, false, false, true, false});
     h.display();
     require(!h.compositor, "the button closes a kept panel without a field");
@@ -318,7 +327,7 @@ void keep_open_holds_the_panel_after_its_request() {
     h.display();
     h.request(44, false);
     h.display();
-    h.button.toggle = true;
+    h.button.toggle = 44;
     h.status({44, false, false, false, true, false});
     h.display();
     require(!h.compositor, "the button that ends the open request closes the kept panel");
@@ -362,8 +371,73 @@ void keep_open_holds_the_panel_after_its_request() {
     require(h.compositor && h.report().acknowledgement == 48,
             "a Steam field focused over the kept panel takes it over");
 
-    h.toolbar("keep-open");
+    // While a new request is not ours yet, nothing goes to the focused window.
     h.status({48, false, false, false, true, false});
+    h.display();
+    h.receiver.text.clear();
+    h.status({49, true, false, false, true, false});
+    h.display();
+    require(h.compositor && h.lifecycle->field_needed(), "the kept panel waits for the new request");
+    h.press(1, "KeyA");
+    h.app->up(1, h.point("KeyA").first, h.point("KeyA").second);
+    require(h.receiver.text.empty() && h.receiver.downs.empty(),
+            "a request still being taken over receives nothing through the local backend");
+    h.request(49, false);
+    h.display();
+    h.request(49, false);
+    h.display();
+    h.status({49, false, false, false, true, false});
+    h.display();
+    require(h.compositor && !h.lifecycle->field_needed(), "once it ends, the kept panel types again");
+
+    // Dictation's own hold cannot keep the panel up past the button.
+    h.dictation_hold = true;
+    h.button.toggle = 49;
+    h.status({49, false, false, false, true, false});
+    h.display();
+    h.status({49, false, false, false, true, false});
+    h.display();
+    require(!h.compositor && !h.dictation_hold, "the button discards a dictation hold as X does");
+    h.request(50, false);
+    h.display();
+    h.request(50, false);
+    h.display();
+    h.status({50, false, false, false, true, false});
+    h.display();
+    h.dictation_hold = true;
+    h.button.summon = 51;
+    h.status({51, true, false, false, true, false});
+    h.display();
+    h.request(51, false, false);
+    h.display();
+    h.request(51, false);
+    h.display();
+    h.status({51, true, true, true, true, false});
+    h.display();
+    require(!h.compositor && !h.dictation_hold, "a button summon over a dictation hold closes it too");
+
+    h.request(52, false);
+    h.display();
+    h.request(52, false);
+    h.display();
+    // A toggle superseded in the same reply by a newer field request is
+    // stale: the field takes the kept panel over, as without the toggle.
+    const int before_stale = h.dismissals;
+    h.button.toggle = 52;
+    h.status({53, true, false, false, true, false});
+    h.display();
+    h.request(53, false, false);
+    h.display();
+    require(h.compositor && h.dismissals == before_stale && h.report().acknowledgement == 53,
+            "a stale button toggle cannot close a newer field request");
+    h.request(53, false);
+    h.display();
+    h.status({53, false, false, false, true, false});
+    h.display();
+    require(h.compositor, "the kept panel stays after that field closes");
+
+    h.toolbar("keep-open");
+    h.status({53, false, false, false, true, false});
     h.display();
     require(!h.app->keep_open() && !h.compositor, "turning Keep open off closes a panel with no field");
     require(h.receiver.released(), "no key stays held");
@@ -392,6 +466,28 @@ void a_hidden_focused_window_is_flagged() {
     require(!v.hidden(), "a visible game is in sight");
     v.update({0, {}, {}});
     require(!v.hidden(), "unknown focus is never flagged");
+
+    // Focus read for the first time, or again after a reconnect or a hidden
+    // spell, is not a click: it teaches nothing and keeps what was learned.
+    constexpr std::uint32_t editor = 100;
+    FocusVisibility u;
+    u.update({0, {}, {263}});
+    u.update({editor, {}, {263}});
+    u.update({editor, {}, {265}});
+    require(!u.hidden(), "a first known focus learns nothing from an unrelated window");
+    u.update({editor, {}, {263}});
+    require(!u.hidden(), "nor warns when that unrelated window is shown");
+    u.update({desktop, {}, {263}});
+    u.update({editor, {}, {265}});
+    u.update({0, {}, {265}});
+    u.update({editor, {}, {263}});
+    require(u.hidden(), "a reconnect keeps the learned window");
+    u.pause();
+    u.update({desktop, {}, {265}});
+    u.update({desktop, {}, {263}});
+    require(!u.hidden(), "focus first seen after a hidden spell learns nothing");
+    u.update({editor, {}, {265}});
+    require(!u.hidden(), "the learned window in sight");
 
     Headset h(false);
     h.request(70, false);

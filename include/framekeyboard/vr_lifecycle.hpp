@@ -3,6 +3,7 @@
 #include "vr_runtime.hpp"
 #include <functional>
 #include <optional>
+#include <utility>
 
 namespace framekeyboard {
 // Runtime effects stay in the OpenVR shell. The coordinator owns their ordering;
@@ -86,7 +87,13 @@ class VrLifecycle {
     // Dictation's hold sends nothing without a field. Keep open's sends to the
     // app with compositor keyboard focus, as without replacement: the user
     // chose to keep typing there (docs/configuration.md).
-    bool field_needed() const { return held_without_field() && !keep_armed_; }
+    // An open request that is not ours yet (Steam's keyboard still closing,
+    // or awaiting acknowledgement) is no reason to type into the focused
+    // window: its target is being prepared.
+    bool field_needed() const { return held_without_field() && (!keep_armed_ || native_.open); }
+    // The native keyboard button asked to close a panel Keep open holds;
+    // the shell closes it as X does, then calls dismiss().
+    bool take_button_close() { return std::exchange(button_close_, false); }
     bool visible() const { return visible_; }
     // Call after placement work; only successful runtime presentation consumes a pending show.
     void present(bool placement_ready, bool dashboard_visible, bool compositor_visible, double now);
@@ -111,6 +118,7 @@ class VrLifecycle {
     bool keep_armed_{};
     // A button summon over the held panel, dismissed once acknowledged.
     std::uint64_t close_when_acknowledged_{};
+    bool button_close_{};
     bool hosted_{}, shell_visible_{};
 };
 } // namespace framekeyboard

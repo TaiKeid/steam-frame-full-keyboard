@@ -603,6 +603,13 @@ void live_tests() {
         app.set_interaction_active(true);
         press(app, "Dictation");
         require(editor_text(app).empty(), "and discards its text without asking");
+        press(app, "Dictation"); // the pause sends the phrase to the fake helper
+        wait_until(app, [&] { return !editor_text(app).empty() && !app.view().dictation->revealing; });
+        require(app.dictation_holds_panel(), "text in the editor holds the panel");
+        // The native keyboard button closes a Keep open panel through X's path.
+        app.close_with_x();
+        require(!app.dictation_open() && !app.dictation_holds_panel(),
+                "closing as X does releases dictation's hold");
         require(sink.text.empty() && sink.keys.empty(), "nothing reached the target");
     }
     {
