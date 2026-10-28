@@ -1463,7 +1463,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             mic_phase_ = phase;
             ring_time_ = ring;
         }
-        if (!full &&
+        // Settings covers the keys, and key_bounds_ is empty while it shows.
+        if (!view.settings && !full &&
             (changed_target || animation.amount != old_amount || mic_changed ||
              previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id))) {
             damage.push_back(key_bounds_.at(key.id));

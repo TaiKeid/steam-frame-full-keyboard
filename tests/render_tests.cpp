@@ -363,6 +363,12 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "status");
     view.settings = true;
     compare.frame(view, "settings");
+    // Settings hides the keys and key_bounds_ is empty: a speech model
+    // download starting under it must not ask for the mic key's bounds.
+    view.dictation_download = .5;
+    compare.frame(view, "settings with speech model download");
+    view.dictation_download.reset();
+    compare.frame(view, "settings after speech model download");
     view.settings = false;
     view.status.clear();
     compare.frame(view, "return to keys");
