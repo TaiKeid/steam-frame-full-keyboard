@@ -1295,8 +1295,8 @@ void passthrough_tests() {
     app.down(0, x, y, 1);
     app.up(0, x, y);
     button = find(app, "passthrough");
-    require(app.passthrough() && button->icon == fk::Icon::PassthroughOn && button->selected,
-            "clicking turns passthrough on");
+    require(app.passthrough() && button->icon == fk::Icon::PassthroughOn && !button->selected,
+            "clicking turns passthrough on; like Pin, only the icon changes");
     require(!app.pinned(), "passthrough leaves pin unchanged");
     app.flush_settings();
     fk::App restarted(options, sink);

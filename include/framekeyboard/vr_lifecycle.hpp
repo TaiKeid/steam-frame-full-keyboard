@@ -28,11 +28,13 @@ class PassthroughRequests {
             handled_ = 0;
         }
         if (!replacement_enabled || !native.available || !native.open || !native.local ||
-            dashboard_visible || native.request == handled_) {
+            native.request == handled_) {
             return false;
         }
+        // A request seen in the dashboard is the dashboard's: closing the
+        // dashboard while it is still open must not turn passthrough on.
         handled_ = native.request;
-        return true;
+        return !dashboard_visible;
     }
 
     // Turning passthrough off with the dashboard closed hides our panel. Steam

@@ -335,8 +335,8 @@ std::vector<Control> App::controls() const {
     if (!hosted()) {
         add({ControlKind::Passthrough},
             {"passthrough", passthrough() ? "Close with the dashboard" : "Stay open over apps",
-             button(3, 0, 1), passthrough(),
-             passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
+             // Like Pin, only its icon shows the state.
+             button(3, 0, 1), false, passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
     }
     if (!settings_.favorites.empty() && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},

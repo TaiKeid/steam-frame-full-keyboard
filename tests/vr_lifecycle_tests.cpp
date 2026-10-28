@@ -318,6 +318,14 @@ void a_pinned_window_request_opens_passthrough() {
             "with no open request there is nothing to end");
     h.request(31, false);
     require(!h.app->passthrough(), "a Steam request never turns passthrough on");
+    // A request opened in the dashboard stays the dashboard's when it closes.
+    h.dashboard = true;
+    h.request(35);
+    h.display();
+    h.dashboard = false;
+    h.request(35);
+    h.display();
+    require(!h.app->passthrough(), "closing the dashboard over its own request keeps passthrough off");
     h.dashboard = true;
     h.request(32);
     require(!h.app->passthrough(), "a request with the dashboard open never turns passthrough on");
