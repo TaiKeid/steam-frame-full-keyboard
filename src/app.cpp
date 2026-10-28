@@ -3532,7 +3532,10 @@ void App::apply_emoji_event(const EmojiPicker::Event& event) {
         favorites.resize(std::min(favorites.size(), EmojiPreferences::max_favorites));
         if (favorites != emoji_preferences_.favorites) {
             emoji_preferences_.favorites = std::move(favorites);
-            update_emoji_content(); // Saved with Recent when the picker closes.
+            update_emoji_content();
+            // Drops are rare and deliberate: save at once, with Recent, so
+            // a headset that powers off with the picker open keeps them.
+            save_emoji();
         }
     }
     const bool typed = !event.type.empty() && type_emoji(event.type);

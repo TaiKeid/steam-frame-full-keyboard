@@ -910,6 +910,9 @@ void app_favorites_tests() {
         app.move(0, fx, fy);
         app.up(0, fx, fy);
         require(sink.text.empty(), "dropping it types nothing");
+        require(load_emoji_preferences(directory.path / "emoji.json").favorites ==
+                    std::vector<std::string>{"❤️"},
+                "a drop is saved at once, before the picker closes");
         view = app.view();
         require(std::any_of(view.emoji->cells.begin(), view.emoji->cells.end(),
                             [&](const auto& c) {

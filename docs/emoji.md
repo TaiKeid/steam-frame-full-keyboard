@@ -51,7 +51,7 @@ Holding an emoji that supports skin tones for 500 ms (*proposal*) opens a popup 
 
 Releasing the hold leaves the popup open, wherever the laser is (changed 2026-10-27 at the owner's request; a release over a variant used to type it). A click on a variant, pressed and released on the same one, types it and makes that tone the keyboard-wide choice; a click anywhere else in the picker, its keys included, only closes the popup. Nothing scrolls while it is open.
 
-Clicking a variant types it and makes that tone the keyboard-wide choice. From then on, every toned emoji in the grid and in Recent is drawn and typed with that tone. Emoji with more than one person use the same tone for each of them. The choice is saved with the recent emoji.
+Once a tone is chosen, every toned emoji in the grid and in Recent is drawn and typed with that tone. Emoji with more than one person use the same tone for each of them. The choice is saved with the recent emoji.
 
 ### Recent
 
@@ -68,7 +68,7 @@ Clicking a variant types it and makes that tone the keyboard-wide choice. From t
 
 - **Clear:** a clear icon button in the bottom-right cell of Recent's six columns, inside the scrolling grid. It is not shown at all while Recent is empty. Pressing it empties Recent at once, with no confirmation (*proposal*). An empty Recent shows "Recently used emoji / appear here" in its place.
 - **Order:** an emoji chosen from another category appears at the front of Recent at once. One chosen from Recent itself keeps its place, so Recent never shifts under the laser while you use it.
-- **Storage:** `emoji.json` beside `placement.json`, not in `config.json`, holding the recent emoji, the favorites and the skin tone. It is written when the picker closes or Recent is cleared. It is a record of typed content, so it is never logged.
+- **Storage:** `emoji.json` beside `placement.json`, not in `config.json`, holding the recent emoji, the favorites and the skin tone. It is written when the picker closes, Recent is cleared or Favorites change. It is a record of typed content, so it is never logged.
 
 ### Favorites
 
@@ -81,7 +81,7 @@ Added 2026-10-27 at the owner's request: a Favorites section after Recent and be
 - **Reordering and removing:** a lifted favorite leaves its place at once. Dropping it in Favorites puts it at the slot; dropping it anywhere outside Favorites removes it, and the lifted emoji fades while that would happen.
 - **Reaching Favorites:** a lifted emoji within a cell of the grid's left or right edge scrolls the grid toward it, up to 600 px/s at the edge, and the stick still scrolls the grid. A tap on a favorite types it and moves it to the front of Recent.
 - **Cancellation:** hiding the keyboard, closing the picker, Settings, a target change or losing the laser cancels the lift through the picker's usual cancel paths; the favorite stays where it was and nothing is typed.
-- **Storage:** the optional `favorites` array in `emoji.json`, saved with Recent when the picker closes. Files from before favorites load with none. Favorites the emoji font cannot draw are kept but not shown.
+- **Storage:** the optional `favorites` array in `emoji.json`, saved at once after each drop that changes them. Files from before favorites load with none. Favorites the emoji font cannot draw are kept but not shown.
 
 ### Entering and leaving
 
