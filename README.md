@@ -1,8 +1,8 @@
 # Full Keyboard for Steam Frame
 
-A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons for browsing, signing in, editing text, and using local apps.
+A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons, plus swipe typing, dictation and emoji, in 37 languages.
 
-**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
+**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
 ![Full Keyboard swipe typing, Japanese input, dictation, emoji and Settings on Steam Frame](docs/images/full-keyboard-demo.webp)
 
@@ -10,25 +10,30 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 ## What it does
 
-- Full-size layout with F1–F12, navigation keys, arrow keys, numpad, Ctrl, Alt, and Shift.
-- Dedicated Copy and Paste icons that send Ctrl+C and Ctrl+V.
-- An emoji picker with recent emoji, categories and skin tones.
+- Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
+- Dedicated Copy and Paste keys that send Ctrl+C and Ctrl+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
-- Native Enter and numpad Enter keys. The focused app decides whether Enter submits or inserts a newline.
-- Controller laser typing, press/release haptic clicks, and subtle hover feedback.
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
-- Move with the laser handle below the keyboard, or enable grab movement in Settings. Resize from either bottom corner in both modes.
+- Phone-style flick keyboards: Japanese 12-key kana and Korean 12-key 천지인.
+- An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
+- **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world.
+- Controller laser typing with haptic clicks and hover feedback.
+- Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
-- Editable layouts, languages, and themes, with a settings menu inside VR.
+- Twelve themes, light and dark. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
+- Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
+- An experimental integration protocol that lets alternative Steam Frame shells host the keyboard: launching, placing, styling and updating it. See [shell integration](docs/integration.md).
 - English, Spanish, Simplified and Traditional Chinese, Japanese, German, French (France and Canada), Brazilian Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian and Lithuanian, each on its standard national layout. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
 
 ## Where it works
 
-Full Keyboard is a quality-of-life tool for the **on-device experience**. It is designed for the Frame dashboard and local apps, including desktop and floating app windows. Focus a text field in the app, then type using the controller laser.
+Full Keyboard is made for the **on-device experience**: the Frame dashboard, Steam's own text fields, and apps running on the Frame, including desktop apps and windows floating in the world. Focus a text field, then type with the controller laser.
 
-It is **not a keyboard for streamed VR applications such as VRChat**. Closing the dashboard hides the keyboard and releases its input. It does not capture controls or send keys to a streamed VR app. Reopening the dashboard brings it back.
+Normally the keyboard lives in the dashboard: closing the dashboard hides it and releases its input, and reopening brings it back. Turn on **Stay open over apps**, beside the pin, to keep it in the world after the dashboard closes. Point either controller at a key and pull the trigger; a dot shows where each one aims. With Replace native keyboard on, a keyboard request from a window pinned in the world opens Full Keyboard there by itself.
 
-This is an early release. App focus, non-US keymaps, and Japanese input can behave differently across applications; see [known limitations and troubleshooting](docs/runtime.md). Japanese composition has automated and dedicated-receiver coverage, but still needs feedback from fluent Japanese users.
+It types only into apps running on the Frame. It is **not a keyboard for VR apps streamed from a PC, such as VRChat**.
+
+Every release passes automated test suites on the development computer and on the Frame, and its features are checked in the headset across the dashboard, Steam's text fields, desktop apps and floating windows. Apps can still differ in how they take focus, non-US keymaps and input methods; see [known limitations and troubleshooting](docs/runtime.md). Feedback from fluent Japanese, Chinese and Korean users is especially welcome.
 
 ## Install manually
 
@@ -71,14 +76,17 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Super shortcuts | Tap the left Frame icon, then a key, or hold it with the other controller |
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
+| Lock Shift | Hold Shift for half a second; press it again to unlock |
+| Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Copy / paste | Use the two icons on the left; select text first when copying |
 | Dictate | Press the mic key below Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
 | Type as I speak | Turn it on in the **Dictation** settings card. The mic key then listens on the normal keyboard and types each phrase into the app |
-| Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. The arrow key at the top left returns to the keyboard |
+| Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. Hold an emoji in Recent and drag it into Favorites to keep it. The arrow key at the top left returns to the keyboard |
 | Move / rotate | Unpin, point at the line below the keyboard, hold the trigger, move your hand, then release |
 | Use the headset cursor | Press AUX to show the head cursor. Aim at keys with your head and click AUX; hold AUX on the movement line to move the keyboard |
 | Use grab movement | Enable **Use Drag to Move** in the **General** settings card and apply. Point anywhere on the keyboard and hold grab/grip; the same hand's thumbstick adjusts depth |
 | Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
+| Keep it open without the dashboard | Toggle **Stay open over apps** beside the pin icon |
 | Cycle favorite layouts and languages | Press the language abbreviation beside the pin icon |
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
@@ -90,20 +98,15 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
-Closing and reopening normally restores the last position, rotation, size and Num Lock state. Numpad visibility is saved globally across all layouts. Moving or tilting the dashboard carries the keyboard with it, preserving your chosen offset. With General → Auto leveling enabled, a small lean or turn within 5° eases out over 500 ms after releasing movement, keeping your desk tilt: the keyboard lines up with the dashboard when it sits near it, otherwise it ends level and facing you. Auto leveling is on by default; disable it to keep the angle you set. This preserves the desk-like forward tilt and never fights your hand during a grab.
+Closing and reopening restores the last position, rotation, size and Num Lock state. Moving or tilting the dashboard carries the keyboard with it. **Auto leveling**, on by default in General, straightens a slightly crooked keyboard after you move it.
 
 ## Languages and customization
 
-Select a language in Settings and **Apply and save**. The normal Frame launcher
-sends characters from that layout independently of the system keyboard layout,
-including Shift, Caps Lock, AltGr and dead-key accents. No matching SteamOS layout
-or relaunch is needed. A fresh install defaults to English; later launches use
-your saved selection. System locale and system layout switching do not change it.
-See [language setup and switching](docs/languages.md).
+Select a language in Settings and **Apply and save**. The keyboard sends characters from that layout independently of the system keyboard layout, including Shift, Caps Lock, AltGr and dead-key accents. No matching SteamOS layout or relaunch is needed. A fresh install defaults to English; later launches use your saved selection. Save layout and language pairs as favorites to switch between them from the toolbar. See [language setup and switching](docs/languages.md).
 
 For Japanese, pick **Romaji**, **Kana**, or **JIS** from the Language dropdown in Settings, or the **Japanese flick 12-key** layout for phone-style flick input. Romaji, Kana and Flick compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
 
-Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
+Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean offers two-set Hangul or the **Korean 12-key (천지인)** layout, with flick shortcuts. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
 
 Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then use the **Reload config** icon in Settings:
 
@@ -136,9 +139,9 @@ See [dictation](docs/dictation.md) for the details.
 
 ## How it works
 
-The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It needs no internet connection, except to download the on-device speech model once.
+The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It goes online only to check for and install updates when you ask, to download the on-device speech model once, and to reach a speech server you set up.
 
-Copy and Paste send shortcuts; the app does not read clipboard contents. When dictation's **Send** is set to Paste, it writes the sent text to the clipboard and pastes it with Ctrl+V. It does not log typed text or save composition history; the emoji picker keeps a local list of recently used emoji, which its Clear button empties. Placement and profile preferences are stored locally.
+Copy and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or General → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V. It does not log typed text or save composition history; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
 
 The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 
