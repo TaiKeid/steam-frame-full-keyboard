@@ -52,7 +52,8 @@ const char* session_code(const char* code) {
         for (const auto* allowed :
              {"begin", "acknowledged", "release-dismissed", "release-fallback", "competing-owner",
               "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
-              "restore-complete", "restore-failed", "owner-changed", "owner-hidden"}) {
+              "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
+              "button-summon"}) {
             if (std::string_view(code) == allowed) {
                 return allowed;
             }
@@ -415,6 +416,11 @@ void NativeReplacement::poll(double now) {
                     }
                     event_sequence_ = json_object_get_uint64(id);
                     diagnostic(code, now, json_object_get_uint64(request));
+                    if (std::string_view(code) == "button-toggle") {
+                        button_.toggle = true;
+                    } else if (std::string_view(code) == "button-summon") {
+                        button_.summon = json_object_get_uint64(request);
+                    }
                 }
             }
         } else if (op == "unavailable") {
@@ -529,6 +535,9 @@ void NativeReplacement::dismiss_request() {
 }
 bool NativeReplacement::take_unsupported_control() {
     return std::exchange(unsupported_control_, false);
+}
+NativeReplacement::ButtonPress NativeReplacement::take_button_press() {
+    return std::exchange(button_, {});
 }
 bool NativeReplacement::paragraph_shift(int code) const {
     return remote_ && state_.active && state_.multiline &&

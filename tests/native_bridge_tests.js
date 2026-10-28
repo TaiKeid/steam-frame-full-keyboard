@@ -6,7 +6,8 @@ const factory = vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"));
 const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
-    "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden"]);
+    "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
+    "button-summon"]);
 const nativeSource = fs.readFileSync(require("node:path").join(__dirname, "../src/native_replacement.cpp"), "utf8");
 const sessionCodes = nativeSource.match(/const char\* session_code\([\s\S]*?\n\}/)?.[0];
 assert(sessionCodes, "native session-code parser anchor must match the production function");
@@ -549,12 +550,16 @@ for (const production of [false, true]) {
 for (const production of [false, true]) {
     const f = fixture(false, production, false, false, true);
     let generation = domOwned(f, false);
+    assert(f.step(generation).events.some(e => e.code === "button-summon" && e.request === generation),
+        "a dashboard button request is reported as a button summon");
     assert(f.bridge.send(generation, "no recipient") && !f.dom.events.includes("input"),
         "dashboard button opens ours without a field and cannot send text to any app");
     assert(f.bridge.send(generation, "ArrowDown", true));
     const e = f.dom.field(); f.manager.SetVirtualKeyboardShownInternal(true);
     const next = f.step(generation);
     assert(next.request !== generation && next.eligible && !next.active);
+    assert(!next.events.some(e => e.code === "button-summon" && e.request === next.request),
+        "field focus is not a button summon");
     generation = next.request;
     assert(f.step(generation).active && f.bridge.send(generation, "field"));
     assert.equal(f.dom.text(e), "field", "search focus transfers the bare dashboard session to its own field");
@@ -726,7 +731,8 @@ for (const deferred of [false, true]) {
     assert(!f.nativeOpen() && !f.calls.includes("native-show"));
     assert(!f.bridge.diagnostics().expectedClose, "the close marker cannot outlive its request");
     assert.deepEqual(Array.from(f.bridge.diagnostics().events, e => e.code),
-        ["begin", "acknowledged", "steam-closed"], "events retain transitions that happen between polls");
+        ["begin", "button-summon", "acknowledged", "steam-closed"],
+        "events retain transitions that happen between polls");
     f.bridge.dispose();
 }
 {
@@ -789,6 +795,7 @@ for (const staleField of [false, true]) {
     const s = f.step(generation);
     assert(!s.open && !s.eligible && !f.nativeOpen(),
         "dashboard button after closing an app must dismiss both presentations");
+    assert.equal(s.events.at(-1).code, "button-toggle");
     assert(!s.external && !s.externalRestore, "cancel the former app guard rather than restore native");
     assert(!f.calls.includes("native-show"));
     f.status({bIsOpen: true, sOverlayKey: MAIN});
@@ -996,7 +1003,9 @@ for (const production of [false, true]) {
 {
     const f = fixture(); const generation = owned(f);
     f.status({bIsOpen: true}); // Same-target native keyboard button toggles ours off.
-    assert(!f.step(generation).open && !f.nativeOpen());
+    const toggled = f.step(generation);
+    assert(!toggled.open && !f.nativeOpen());
+    assert.equal(toggled.events.at(-1).code, "button-toggle", "Keep open sees the button press");
     f.status({bIsOpen: true}); const s = f.step();
     assert(s.request !== generation && !f.step(s.request).active && f.nativeOpen(),
         "a button press without a new field callback leaves the keyboard native");

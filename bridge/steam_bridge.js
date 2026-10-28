@@ -392,7 +392,8 @@
                 } else if (newOpen && !closingNative && acknowledged === request && buttonRequest(native)) {
                     // The resident panel is already open, even if its previous app
                     // was closed. Consume this button toggle across supported owners.
-                    releaseLogical(false);
+                    // Its own code lets a panel held by Keep open close too.
+                    releaseLogical(false, true, "button-toggle");
                 } else if (newOpen && !closingNative && fieldRequest(native)) {
                     const owner = fieldRequest(native), previous = logical.owner;
                     logical = null;
@@ -433,7 +434,7 @@
                     } else {
                         // Native presentation is closed, so the next same-target
                         // native button Show toggles our resident panel off.
-                        releaseLogical(false);
+                        releaseLogical(false, true, "button-toggle");
                     }
                 } else if (logical.owner.external) {
                     // Gamescope input stays on the existing local libei/Unicode backend.
@@ -464,7 +465,13 @@
                 }
             } else if (native.open && !ignoreOpen && !restoringUntil) {
                 const owner = candidate(native);
-                if (fresh() && owner && time < rawDeadline) begin(owner);
+                if (fresh() && owner && time < rawDeadline) {
+                    // begin() clears the field intent that tells the two apart.
+                    const button = buttonRequest(native);
+                    begin(owner);
+                    // A panel held open by Keep open treats this press as closing it.
+                    if (button) record("button-summon");
+                }
                 // The incoming app renews the lease only after its first frame.
                 else if (!fresh() && time < adoptUntil) { /* Keep the handoff session adoptable. */ }
                 else if (!fresh() || !potential(native) || time >= rawDeadline) ignoreOpen = true;

@@ -55,7 +55,9 @@ class VrLifecycle {
         bool replacement_enabled{};
         NativeReplacement::State native;
         bool routed_remote{}, watchdog_stalled{}, relaunch{};
-        bool dictation_hold{}; // App::dictation_holds_panel()
+        bool dictation_hold{};                 // App::dictation_holds_panel()
+        bool keep_open{};                      // App::keep_open()
+        NativeReplacement::ButtonPress button; // NativeReplacement::take_button_press()
         double now{};
     };
     void begin_frame(const Frame& frame);
@@ -81,6 +83,10 @@ class VrLifecycle {
         shell_visible_ = visible;
     }
     bool held_without_field() const { return presentation_.held_without_field(); }
+    // Dictation's hold sends nothing without a field. Keep open's sends to the
+    // app with compositor keyboard focus, as without replacement: the user
+    // chose to keep typing there (docs/configuration.md).
+    bool field_needed() const { return held_without_field() && !keep_armed_; }
     bool visible() const { return visible_; }
     // Call after placement work; only successful runtime presentation consumes a pending show.
     void present(bool placement_ready, bool dashboard_visible, bool compositor_visible, double now);
@@ -100,6 +106,11 @@ class VrLifecycle {
     bool interactive() const { return hosted_ ? shell_visible_ : presentation_.interactive(); }
     std::uint64_t last_request_{};
     bool visible_{}, show_pending_{};
+    // Keep open holds the panel only once it has been shown, and X or a
+    // native fallback lets go until a request or summon shows it again.
+    bool keep_armed_{};
+    // A button summon over the held panel, dismissed once acknowledged.
+    std::uint64_t close_when_acknowledged_{};
     bool hosted_{}, shell_visible_{};
 };
 } // namespace framekeyboard

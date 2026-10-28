@@ -306,8 +306,9 @@ std::vector<Control> App::controls() const {
         }
         return result;
     }
-    // One row: Settings, Recenter, Pin, passthrough, language. Compact:
-    // Settings, Recenter, Pin, language, with passthrough below Settings.
+    // One row: Settings, Recenter, Pin, passthrough, Keep open, language.
+    // Compact: Settings, Recenter, Pin, language, with passthrough and Keep
+    // open below Settings and Recenter.
     const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
     auto slot = [&](int row_one, int compact_column, int compact_row) {
@@ -338,10 +339,18 @@ std::vector<Control> App::controls() const {
              // Like Pin, only its icon shows the state.
              button(3, 0, 1), false, passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
     }
+    // Without replacement no request closes the panel, so the button would do nothing.
+    const bool keep_button = resident_replacement() && !hosted();
+    if (keep_button) {
+        add({ControlKind::KeepOpen},
+            {"keep-open", settings_.keep_open ? "Close when typing ends" : "Keep open", button(4, 1, 1),
+             false, settings_.keep_open ? Icon::KeepOpenOn : Icon::KeepOpenOff});
+        result.back().warning = settings_.keep_open && hidden_focus_;
+    }
     if (!settings_.favorites.empty() && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
-             button(4, 3, 0, 100)});
+             button(keep_button ? 5 : 4, 3, 0, 100)});
         // The picker belongs to the language it was opened from.
         result.back().enabled = !emoji_open_ && !listening;
     }
@@ -1962,6 +1971,7 @@ void App::reload() {
     if (config_errors.empty()) {
         settings_.favorites = updated_settings.favorites;
         settings_.pinned = updated_settings.pinned;
+        settings_.keep_open = updated_settings.keep_open;
         settings_.num_lock = updated_settings.num_lock;
         settings_.hide_numpad = updated_settings.hide_numpad;
         settings_.use_drag_to_move = updated_settings.use_drag_to_move;
@@ -2535,6 +2545,10 @@ void App::action(const ControlAction& command) {
         set_sink(false); // the user takes typing back from the shell
     } else if (kind == ControlKind::Passthrough) {
         set_passthrough(!passthrough());
+    } else if (kind == ControlKind::KeepOpen && resident_replacement() && !hosted()) {
+        settings_.keep_open = !settings_.keep_open;
+        status_.clear();
+        save();
     } else if (kind == ControlKind::LanguageCycle) {
         const auto& entries = cycle_entries_;
         if (entries.size() > 1) {
@@ -3285,6 +3299,8 @@ void App::set_field_needed(bool needed) {
     if (needed != field_needed_) {
         field_needed_ = needed;
         dirty = true;
+        // Gate output now, before this frame's pointer events, not at the next tick.
+        refresh_typing();
     }
 }
 void App::panel_hidden() {

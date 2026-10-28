@@ -24,6 +24,12 @@ class DesktopFocus {
     DesktopFocus& operator=(const DesktopFocus&) = delete;
     // Never blocks: the focus Gamescope last reported, false until known.
     bool focused() const;
+    // Never blocks: Gamescope's focused X window and its Steam app ID (0 for
+    // other apps), both 0 until known. Used for Keep open's hidden-window cue.
+    struct Window {
+        std::uint32_t id{}, app{};
+    };
+    Window window() const;
     // Whether this process is a nested desktop compositor (exposed for tests).
     static bool nested_compositor(std::uint32_t pid);
     // Shared with the watcher thread; defined in desktop_focus.cpp.

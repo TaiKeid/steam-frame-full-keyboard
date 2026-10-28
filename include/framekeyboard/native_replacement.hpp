@@ -48,6 +48,14 @@ class NativeReplacement : public KeySink {
     void adopt_update_handoff(double until) { adopt_until_ = until; }
     void retry_now(double now);
     bool take_unsupported_control();
+    // The native keyboard button pressed since the last call: it closed our
+    // open request (toggle), or opened a new request without a field (summon,
+    // its request number). Keep open closes its held panel on either.
+    struct ButtonPress {
+        bool toggle{};
+        std::uint64_t summon{};
+    };
+    ButtonPress take_button_press();
     // Prepare before the VR watchdog starts; descriptors remain stable until shutdown.
     bool prepare_watchdog();
     void watchdog_tick(double now, double slow_work_deadline = 0) const;
@@ -111,6 +119,7 @@ class NativeReplacement : public KeySink {
     State state_;
     Failure failure_{Failure::None};
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
+    ButtonPress button_;
     double last_reply_{}, install_until_{}, next_start_{}, now_{}, pending_since_{}, adopt_until_{};
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
@@ -172,10 +181,12 @@ class ReplacementPresentation {
         managed_ = true;
     }
     // Dictation keeps the panel open after Steam's field closes, so its text
-    // can be sent to another field (docs/dictation.md, typing target lost).
+    // can be sent to another field (docs/dictation.md, typing target lost);
+    // so does Keep open (docs/configuration.md).
     void hold(bool on) { held_ = on; }
-    // Shown only because dictation holds it: there is no Steam field, and
-    // the focused application must not receive its text.
+    // Shown only because dictation or Keep open holds it: there is no Steam
+    // field. Dictation's text must not reach the focused application; Keep
+    // open types there (VrLifecycle::field_needed).
     bool held_without_field() const { return holding() && enabled_ && managed_ && !requested(); }
     bool show() const {
         return !startup_hidden_ && (!enabled_ || (!managed_ && !dismissed_) || requested() || holding());

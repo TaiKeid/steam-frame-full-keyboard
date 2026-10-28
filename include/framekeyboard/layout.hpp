@@ -38,6 +38,8 @@ enum class Icon {
     Backspace,
     PassthroughOn,
     PassthroughOff,
+    KeepOpenOn,
+    KeepOpenOff,
     Emoji,
     // Emoji picker categories.
     Recent,

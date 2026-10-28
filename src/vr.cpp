@@ -1,4 +1,6 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/desktop_focus.hpp"
+#include "framekeyboard/focus_visibility.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/held_keys.hpp"
 #include "framekeyboard/native_replacement.hpp"
@@ -17,8 +19,11 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <optional>
 #include <poll.h>
 #include <stdexcept>
@@ -93,6 +98,92 @@ auto vr_models() {
 auto vr_compositor() {
     return RuntimeInterface<vr::IVRCompositor>(vr::VRCompositor);
 }
+// Gamescope's per-window SteamVR overlays, gamescope.gamescope-0.window.<N>.
+// OpenVR cannot list overlays and Gamescope numbers windows in creation order,
+// so known ones are rechecked, the range above the highest is probed each
+// second, and a slow sweep finds older ones. A lookup costs about a
+// microsecond; this stays near 2 ms a second. Only Keep open uses it.
+class WindowOverlays {
+  public:
+    std::vector<std::uint32_t> visible(double now) {
+        if (now >= next_scan_) {
+            scan();
+            next_scan_ = now + 1;
+        }
+        std::vector<std::uint32_t> result;
+        for (const auto& [number, handle] : known_) {
+            if (vr_overlay()->IsOverlayVisible(handle)) {
+                result.push_back(number);
+            }
+        }
+        return result;
+    }
+    void reset() { *this = {}; }
+
+  private:
+    static constexpr std::uint32_t step = 1024, sweep_end = 65536;
+    void probe(std::uint32_t from, std::uint32_t to) {
+        for (auto number = from; number < to; ++number) {
+            const auto key = "gamescope.gamescope-0.window." + std::to_string(number);
+            vr::VROverlayHandle_t handle{};
+            if (vr_overlay()->FindOverlay(key.c_str(), &handle) == vr::VROverlayError_None && handle) {
+                known_[number] = handle;
+            }
+        }
+    }
+    void scan() {
+        for (auto it = known_.begin(); it != known_.end();) {
+            const auto key = "gamescope.gamescope-0.window." + std::to_string(it->first);
+            vr::VROverlayHandle_t handle{};
+            const bool kept =
+                vr_overlay()->FindOverlay(key.c_str(), &handle) == vr::VROverlayError_None && handle;
+            it = kept ? std::next(it) : known_.erase(it);
+        }
+        if (!started_) {
+            probe(0, 8 * step); // Most sessions number their windows below this.
+            started_ = true;
+        }
+        const auto top = known_.empty() ? 0 : known_.rbegin()->first + 1;
+        probe(top, top + step);
+        probe(sweep_, sweep_ + step);
+        sweep_ = sweep_ + step >= sweep_end ? 0 : sweep_ + step;
+    }
+    std::map<std::uint32_t, vr::VROverlayHandle_t> known_;
+    std::uint32_t sweep_{};
+    double next_scan_{};
+    bool started_{};
+};
+// The Keep open icon turns amber while its panel types into a window out of sight.
+struct HiddenFocusCue {
+    std::unique_ptr<DesktopFocus> focus;
+    WindowOverlays overlays;
+    FocusVisibility visibility;
+    bool update(bool active, bool typing_to_focus, double now) {
+        if (!active) {
+            overlays.reset();
+            visibility.reset();
+            return false;
+        }
+        if (!focus) {
+            // Gamescope publishes its focus on its first X display, where Steam runs.
+            const char* display = std::getenv("DISPLAY");
+            focus = std::make_unique<DesktopFocus>(display && *display ? display : ":0");
+        }
+        const auto window = focus->window();
+        FocusVisibility::Sample sample{window.id, {}, overlays.visible(now)};
+        if (window.app) {
+            // A Steam game shows through its own overlay.
+            const auto key = "valve.steam.desktopgame." + std::to_string(window.app);
+            vr::VROverlayHandle_t handle{};
+            if (vr_overlay()->FindOverlay(key.c_str(), &handle) == vr::VROverlayError_None && handle) {
+                sample.app_visible = vr_overlay()->IsOverlayVisible(handle);
+            }
+        }
+        // Learning continues while typing goes elsewhere, so a later switch is known.
+        visibility.update(sample);
+        return typing_to_focus && visibility.hidden();
+    }
+};
 void check(vr::EVROverlayError error, const char* operation) {
     if (error != vr::VROverlayError_None) {
         throw std::runtime_error(std::string(operation) + ": " +
@@ -1336,6 +1427,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // events and the passthrough pointer drives it.
     bool scene_input = false;
     PassthroughRequests passthrough_requests;
+    HiddenFocusCue hidden_focus;
     std::array<bool, 2> scene_inside{};
     std::array<std::pair<double, double>, 2> scene_last{};
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
@@ -2274,8 +2366,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                .watchdog_stalled = replacement_stalled.exchange(false),
                                .relaunch = instance_request == VrInstance::Request::Recenter,
                                .dictation_hold = app.dictation_holds_panel(),
+                               .keep_open = app.keep_open(),
+                               .button = replacement.take_button_press(),
                                .now = now});
-        app.set_field_needed(lifecycle.held_without_field());
+        app.set_field_needed(lifecycle.field_needed());
+        // Only a Keep open panel without a request types into the focused window.
+        app.set_hidden_focus(hidden_focus.update(
+            !hosted && app.keep_open(),
+            lifecycle.visible() && lifecycle.held_without_field() && !lifecycle.field_needed(), now));
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
         if (!hosted && passthrough_requests.take(replace, native, dashboard_visible)) {
             std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;

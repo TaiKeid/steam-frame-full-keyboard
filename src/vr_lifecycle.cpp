@@ -9,7 +9,22 @@ VrLifecycle::VrLifecycle(bool background_start, VrLifecycleEffects effects)
 void VrLifecycle::begin_frame(const Frame& frame) {
     const auto& native = frame.native;
     native_ = native;
-    presentation_.hold(frame.dictation_hold);
+    // The native keyboard button closes a panel Keep open holds, as X does:
+    // whether it ended our request or opened a new one without a field.
+    const bool summoned = native.open && frame.button.summon && frame.button.summon == native.request;
+    const bool button_closes = keep_armed_ && visible_ && (frame.button.toggle || summoned);
+    if (button_closes && summoned) {
+        // Steam counts the new request as open, and the bridge ends only a
+        // request our panel acknowledged; a refused dismissal would reopen
+        // Steam's keyboard. Keep holding the panel until then.
+        close_when_acknowledged_ = native.request;
+    }
+    if (!frame.keep_open || frame.watchdog_stalled || (button_closes && !summoned)) {
+        keep_armed_ = false;
+    } else if (visible_) {
+        keep_armed_ = true;
+    }
+    presentation_.hold(frame.dictation_hold || keep_armed_);
     presentation_.update(frame.replacement_enabled, native);
     if (frame.watchdog_stalled) {
         presentation_.fallback();
@@ -20,6 +35,12 @@ void VrLifecycle::begin_frame(const Frame& frame) {
         effects_.summon();
         show_pending_ = true;
         presentation_.summon();
+    }
+    if (close_when_acknowledged_ && (!native.open || native.request != close_when_acknowledged_)) {
+        close_when_acknowledged_ = 0; // Ended or replaced before acknowledgement.
+    } else if (close_when_acknowledged_ && native.active) {
+        // The next press then opens ours again.
+        dismiss();
     }
     const bool remote = presentation_.remote();
     if (last_request_ != native.request || remote != frame.routed_remote) {
@@ -51,6 +72,8 @@ void VrLifecycle::dashboard_visibility(bool visible) {
 }
 void VrLifecycle::dismiss() {
     presentation_.hold(false); // X discarded dictation; never reshown this frame.
+    keep_armed_ = false;
+    close_when_acknowledged_ = 0;
     hide();
     presentation_.dismiss();
     effects_.dismiss_request();
@@ -58,6 +81,8 @@ void VrLifecycle::dismiss() {
 }
 void VrLifecycle::fallback() {
     presentation_.hold(false);
+    keep_armed_ = false;
+    close_when_acknowledged_ = 0;
     presentation_.fallback();
     hide();
 }

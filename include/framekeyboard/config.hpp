@@ -78,6 +78,8 @@ struct Settings {
     Selection active;
     std::vector<Favorite> favorites;
     bool pinned{};
+    // Replacement mode: the panel stays open after its request ends (docs/configuration.md).
+    bool keep_open{};
     bool num_lock{};
     bool hide_numpad{};
     bool use_drag_to_move{};

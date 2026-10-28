@@ -330,6 +330,22 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             line(-4, 0, -8, 4);
         }
         break;
+    case Icon::KeepOpenOn:
+    case Icon::KeepOpenOff:
+        // An infinity loop: the panel stays. Off, slashed like Pin.
+        for (int i = 0; i <= 48; ++i) {
+            const double t = i * pi / 24, d = 1 + std::sin(t) * std::sin(t);
+            const double x = 10.5 * std::cos(t) / d, y = 10.5 * std::sin(t) * std::cos(t) / d;
+            if (i == 0) {
+                cairo_move_to(cr, x, y);
+            } else {
+                cairo_line_to(cr, x, y);
+            }
+        }
+        if (icon == Icon::KeepOpenOff) {
+            line(-10, -10, 10, 10);
+        }
+        break;
     case Icon::Settings:
         // Each tooth has a flat tip and a recessed gap.
         for (int i = 0; i < 32; ++i) {
@@ -2091,7 +2107,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     draw_icon(cr, Icon::Apply, r, legend, 28);
                 }
             } else if (control.icon != Icon::None) {
-                draw_icon(cr, control.icon, r, legend);
+                draw_icon(cr, control.icon, r, control.warning ? t.warning : legend);
             } else {
                 label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
             }

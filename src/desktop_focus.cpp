@@ -16,6 +16,7 @@ namespace framekeyboard {
 struct DesktopFocus::State {
     std::string display;
     std::atomic<bool> focused{}, stop{};
+    std::atomic<std::uint64_t> window{}; // X window << 32 | Steam app ID
     int wake{eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
     ~State() {
         if (wake >= 0) {
@@ -90,8 +91,10 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             const auto window = cardinals(connection, root, focused_window);
             const auto list = cardinals(connection, root, focusable_windows);
             bool focused = false;
+            std::uint64_t packed = 0;
             for (std::size_t i = 0; !window.empty() && i + 2 < list.size(); i += 3) {
                 if (list[i] == window[0]) {
+                    packed = std::uint64_t{list[i]} << 32 | list[i + 1];
                     // The command line is read once per newly focused process.
                     if (list[i + 2] != pid) {
                         pid = list[i + 2];
@@ -102,6 +105,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                 }
             }
             state.focused = focused;
+            state.window = packed;
             continue;
         }
         if (!wait(state, xcb_get_file_descriptor(connection), -1)) {
@@ -118,6 +122,7 @@ void watch(const std::shared_ptr<DesktopFocus::State>& state) {
         }
         xcb_disconnect(connection);
         state->focused = false;
+        state->window = 0;
         wait(*state, -1, retry_milliseconds);
     }
 }
@@ -137,6 +142,10 @@ DesktopFocus::~DesktopFocus() {
 }
 bool DesktopFocus::focused() const {
     return state_->focused.load();
+}
+DesktopFocus::Window DesktopFocus::window() const {
+    const auto packed = state_->window.load();
+    return {static_cast<std::uint32_t>(packed >> 32), static_cast<std::uint32_t>(packed)};
 }
 bool DesktopFocus::nested_compositor(std::uint32_t pid) {
     std::ifstream file("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);

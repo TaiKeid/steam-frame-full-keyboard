@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/focus_visibility.hpp"
 #include "framekeyboard/vr_lifecycle.hpp"
 #include <algorithm>
 #include <iostream>
@@ -74,6 +75,7 @@ struct Headset {
     std::optional<std::uint32_t> drag_owner;
     std::map<unsigned, std::uint32_t> pointers;
     int next_target{}, presentations{}, dismissals{}, retries{};
+    NativeReplacement::ButtonPress button; // reported with the next status
     double now{1};
 
     explicit Headset(bool background = true, bool replacement = true) {
@@ -158,7 +160,10 @@ struct Headset {
                                 .routed_remote = remote,
                                 .watchdog_stalled = stalled,
                                 .relaunch = relaunch,
+                                .keep_open = app->keep_open(),
+                                .button = std::exchange(button, {}),
                                 .now = now});
+        app->set_field_needed(lifecycle->field_needed());
         if (passthrough_requests.take(app->replace_native_keyboard(), native, dashboard)) {
             app->set_passthrough(true);
         }
@@ -205,6 +210,16 @@ struct Headset {
         drag_owner = device;
         app->set_dragging(true);
     }
+    void toolbar(const std::string& id) {
+        const auto view = app->view();
+        const auto control = std::find_if(view.controls.begin(), view.controls.end(),
+                                          [&](const Control& c) { return c.id == id; });
+        require(control != view.controls.end(), "toolbar control is shown");
+        const double x = control->bounds.x + control->bounds.width / 2;
+        const double y = control->bounds.y + control->bounds.height / 2;
+        app->down(9, x, y, now);
+        app->up(9, x, y);
+    }
 };
 
 void targets_keep_their_own_keys() {
@@ -230,6 +245,168 @@ void targets_keep_their_own_keys() {
         h.request(11, !new_local);
         require(h.receiver.released(), "changing transport must also release the previous route");
     }
+}
+
+void keep_open_holds_the_panel_after_its_request() {
+    Headset h(false);
+    const NativeReplacement::State closed{40, false, false, false, true, false};
+    h.request(40, false);
+    h.display();
+    h.toolbar("keep-open");
+    require(h.app->keep_open(), "the toolbar turns Keep open on");
+    h.request(40, false);
+    h.display();
+    h.status(closed);
+    h.display();
+    require(h.compositor && h.lifecycle->held_without_field() && !h.lifecycle->field_needed(),
+            "a closed Steam field leaves the kept panel open");
+    require(!h.remote, "with no request the kept panel types locally");
+    h.click(1, "KeyA");
+    require(h.receiver.text == std::vector<std::pair<int, std::string>>{{40, "a"}} &&
+                h.receiver.released(),
+            "without a request the kept panel types into the app with keyboard focus");
+    h.receiver.text.clear();
+    h.request(41);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 41 && !h.lifecycle->held_without_field(),
+            "a new request from another app takes over the kept panel");
+    h.click(2, "KeyA");
+    require(h.receiver.text == std::vector<std::pair<int, std::string>>{{41, "a"}},
+            "typing reaches the new request");
+    h.status({41, false, false, false, true, true});
+    h.display();
+    require(h.compositor, "a local request ending keeps the panel too");
+
+    h.app->close_panel();
+    require(h.app->take_dismissal(), "X dismisses the kept panel");
+    h.lifecycle->dismiss();
+    h.status({41, false, false, false, true, true});
+    h.display();
+    require(!h.compositor && h.app->keep_open(), "X hides the kept panel and leaves Keep open on");
+    h.request(42, false);
+    h.display();
+    h.request(42, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 42, "the next request shows it again");
+
+    h.lifecycle->fallback();
+    h.request(42, false);
+    h.display();
+    h.status({42, false, false, false, true, false});
+    h.display();
+    require(!h.compositor, "Use Steam keyboard lets go of the hold");
+
+    h.request(43, false);
+    h.display();
+    h.request(43, false);
+    h.display();
+    h.dashboard = false;
+    h.status({43, false, false, false, true, false});
+    h.display();
+    require(!h.compositor, "closing the dashboard still hides the kept panel");
+    h.dashboard = true;
+    h.status({43, false, false, false, true, false});
+    h.display();
+    require(h.compositor, "reopening the dashboard brings the kept panel back");
+
+    // The native keyboard button closes the kept panel like X.
+    h.button.toggle = true;
+    h.status({43, false, false, false, true, false});
+    h.display();
+    require(!h.compositor, "the button closes a kept panel without a field");
+    h.request(44, false);
+    h.display();
+    h.request(44, false);
+    h.display();
+    h.button.toggle = true;
+    h.status({44, false, false, false, true, false});
+    h.display();
+    require(!h.compositor, "the button that ends the open request closes the kept panel");
+    const int dismissed = h.dismissals;
+    h.request(45, false);
+    h.display();
+    h.request(45, false);
+    h.display();
+    h.status({45, false, false, false, true, false});
+    h.display();
+    require(h.compositor, "a closed field still leaves the kept panel open");
+    // As the bridge reports it: not eligible while Steam's keyboard closes,
+    // then eligible, then active once our panel acknowledged it.
+    h.button.summon = 46;
+    h.status({46, true, false, false, true, false});
+    h.display();
+    require(h.compositor && h.dismissals == dismissed,
+            "the kept panel waits while Steam's keyboard closes; a refused dismissal would reopen it");
+    h.request(46, false, false);
+    h.display();
+    require(h.compositor && h.dismissals == dismissed && h.report().acknowledgement == 46,
+            "the panel acknowledges the button request so the bridge accepts its dismissal");
+    h.request(46, false);
+    h.display();
+    require(!h.compositor && h.dismissals == dismissed + 1,
+            "a button summon over the kept panel closes it and ends the new request");
+    h.request(46, false);
+    h.display();
+    require(!h.compositor, "the dismissed request stays closed");
+    h.button.summon = 47;
+    h.request(47, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 47,
+            "the next button press opens the keyboard again");
+    h.request(47, false);
+    h.display();
+    h.status({47, false, false, false, true, false});
+    h.display();
+    h.request(48, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 48,
+            "a Steam field focused over the kept panel takes it over");
+
+    h.toolbar("keep-open");
+    h.status({48, false, false, false, true, false});
+    h.display();
+    require(!h.app->keep_open() && !h.compositor, "turning Keep open off closes a panel with no field");
+    require(h.receiver.released(), "no key stays held");
+}
+
+void a_hidden_focused_window_is_flagged() {
+    constexpr std::uint32_t kate = 0x4200007, desktop = 0x4000000, game = 0x4400001, browser = 0x4600001;
+    FocusVisibility v;
+    v.update({kate, {}, {263}});
+    require(!v.hidden(), "the first sample learns nothing: the user may be looking elsewhere");
+    v.update({desktop, {}, {263}});
+    v.update({kate, {}, {265}});
+    require(!v.hidden(), "a window that takes focus is the one in sight");
+    v.update({kate, {}, {263}});
+    require(v.hidden(), "another window shown while focus stays: typing goes out of sight");
+    v.update({kate, {}, {}});
+    require(v.hidden(), "no app window in sight at all");
+    v.update({kate, {}, {263, 265}});
+    require(!v.hidden(), "the learned window in sight again, among others");
+    v.update({browser, {}, {263, 265}});
+    v.update({browser, {}, {265}});
+    require(!v.hidden(), "focus taken with several windows in sight stays unknown, so no warning");
+    v.update({game, false, {265}});
+    require(v.hidden(), "a Steam game's own overlay decides for it");
+    v.update({game, true, {}});
+    require(!v.hidden(), "a visible game is in sight");
+    v.update({0, {}, {}});
+    require(!v.hidden(), "unknown focus is never flagged");
+
+    Headset h(false);
+    h.request(70, false);
+    h.display();
+    h.app->set_hidden_focus(true);
+    const auto keep = [&] {
+        const auto view = h.app->view();
+        return *std::find_if(view.controls.begin(), view.controls.end(),
+                             [](const Control& c) { return c.id == "keep-open"; });
+    };
+    require(!keep().warning, "with Keep open off the icon stays normal");
+    h.toolbar("keep-open");
+    require(keep().warning, "Keep open's icon turns amber while typing goes to a hidden window");
+    h.app->set_hidden_focus(false);
+    require(!keep().warning, "and normal again once it is in sight");
 }
 
 void late_work_cannot_cross_targets() {
@@ -538,6 +715,8 @@ int main() {
         late_work_cannot_cross_targets();
         a_closed_dashboard_delivers_nothing();
         a_pinned_window_request_opens_passthrough();
+        keep_open_holds_the_panel_after_its_request();
+        a_hidden_focused_window_is_flagged();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

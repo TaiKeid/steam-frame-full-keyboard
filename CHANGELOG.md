@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added **Keep open** to the toolbar, beside Stay open over apps, while Replace native keyboard is on. The keyboard then stays where it is when a text field closes or loses focus, instead of closing, and types into the next field you select. With no field selected, it types into the app that has keyboard focus, as with replacement off. × or the keyboard button still hides it. The infinity sign turns amber when that app's window is out of sight. The setting is saved.
+
 ## 0.11.1: Speech model download no longer closes the keyboard
 
 - Fixed Full Keyboard closing as soon as the on-device speech model started downloading from Settings → Dictation. The download itself was fine; the keyboard crashed while drawing the mic key's progress under Settings. It now finishes with Settings open and the mic key shows the right state when Settings closes.

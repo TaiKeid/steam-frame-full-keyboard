@@ -119,6 +119,15 @@ class App {
     void back();
     bool scroll(unsigned pointer, double dx, double dy);
     bool pinned() const { return settings_.pinned; }
+    // Keep open holds the panel after its replacement request ends; only a
+    // resident replacement has requests that close it.
+    bool keep_open() const { return settings_.keep_open && resident_replacement() && !hosted(); }
+    // A Keep open panel without a request types into the focused window, and
+    // that window is out of sight: the Keep open icon turns amber.
+    void set_hidden_focus(bool hidden) {
+        dirty |= hidden != hidden_focus_;
+        hidden_focus_ = hidden;
+    }
     // Experimental, not saved: the panel stays open while the dashboard is
     // closed, and VR reads the controllers itself so the focused app keeps its input.
     // Either the user's toggle or dictation's own, which keeps the panel open
@@ -560,6 +569,7 @@ class App {
     bool passthrough_{};
     bool dictation_passthrough_{}; // Tracked apart from the user's toggle.
     bool field_needed_{};
+    bool hidden_focus_{};
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;

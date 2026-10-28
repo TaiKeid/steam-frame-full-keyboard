@@ -189,11 +189,14 @@ void compact_toolbar() {
         settings.hide_numpad = true;
         if (favorites) {
             settings.favorites = {{"en", "English", {}}};
+            // Replacement adds Keep open to the second row.
+            settings.replace_native_keyboard = true;
         }
         save_settings(directory.path, settings);
         Options options;
         options.config_dir = directory.path;
-        options.mode = Mode::Render;
+        options.mode = favorites ? Mode::Vr : Mode::Render;
+        options.input = InputBackend::Ei;
         CaptureSink sink;
         App app(options, sink);
         const auto view = app.view();
@@ -212,6 +215,9 @@ void compact_toolbar() {
                         "compact toolbar controls cannot overlap");
             }
         }
+        require(!favorites ||
+                    control(view, "keep-open").bounds.y == control(view, "passthrough").bounds.y,
+                "compact Keep open shares the second row with Stay open over apps");
         click(app, favorites ? "language-cycle" : "settings");
         require(!app.quitting(), "compact Settings and language cycle cannot hit Close");
         require(favorites ? app.selection().layout == "en-us-full" : app.view().settings,
@@ -1593,6 +1599,46 @@ void dictation_settings() {
     require(sink.events.empty(), "dictation settings send no desktop input");
 }
 
+void keep_open_setting() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.favorites = {{"en", "English", {}}};
+    save_settings(directory.path, settings);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    CaptureSink sink;
+    {
+        App app(options, sink);
+        require(!has(app.view(), "keep-open"), "Keep open is absent without replacement");
+    }
+    settings.replace_native_keyboard = true;
+    save_settings(directory.path, settings);
+    App app(options, sink);
+    const auto view = app.view();
+    require(control(view, "passthrough").bounds.x < control(view, "keep-open").bounds.x &&
+                control(view, "keep-open").bounds.x < control(view, "language-cycle").bounds.x,
+            "Keep open sits between Stay open over apps and the language");
+    const auto off = control(view, "keep-open").icon;
+    require(!app.keep_open(), "Keep open defaults off");
+    click(app, "keep-open");
+    require(app.keep_open() && saved(app).keep_open, "Keep open is saved at once");
+    require(!control(app.view(), "keep-open").selected && control(app.view(), "keep-open").icon != off,
+            "Keep open shows its state with the icon only");
+    {
+        App reopened(options, sink);
+        require(reopened.keep_open(), "Keep open survives restart");
+    }
+    settings.keep_open = true;
+    settings.replace_native_keyboard = false;
+    save_settings(directory.path, settings);
+    click(app, "settings");
+    click(app, "reload");
+    require(!app.keep_open() && !has(app.view(), "keep-open"),
+            "without replacement Keep open has no effect");
+    require(sink.events.empty(), "Keep open sends no input");
+}
 void native_replacement_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -1889,6 +1935,7 @@ int main() {
         behavior_settings();
         auto_leveling_settings();
         native_replacement_settings();
+        keep_open_setting();
         favorite_schema();
         fractional_dropdown_scroll();
         scroll_cards();
