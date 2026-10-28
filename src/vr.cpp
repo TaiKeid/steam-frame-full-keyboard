@@ -1306,8 +1306,11 @@ class VrPanel {
     }
     // A press or its release can change the mask without a repaint.
     bool mask_held() const { return mask_held_; }
+    // The panel areas of the last mask, for the passthrough pointer.
+    const std::vector<Rect>& mask_areas() const { return mask_areas_; }
     void mask(const PanelView& view, bool held) {
         mask_held_ = held;
+        mask_areas_.clear();
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
         // steal focus from the dashboard. Over a transparent case, its clear
@@ -1321,6 +1324,7 @@ class VrPanel {
             primitives[count].m_Primitive.m_Rectangle = {
                 static_cast<float>(bounds.x), static_cast<float>(bounds.y + popup_margin),
                 static_cast<float>(bounds.width), static_cast<float>(bounds.height)};
+            mask_areas_.push_back(bounds);
             ++count;
         };
         if (view.popup) {
@@ -1381,6 +1385,7 @@ class VrPanel {
     std::optional<bool> reported_native_;
     std::optional<bool> scroll_;
     bool mask_held_{};
+    std::vector<Rect> mask_areas_;
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
@@ -2739,19 +2744,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
             const auto view = app.input_view();
-            // The same areas as the intersection mask: transparent margins never
-            // take the ray, nor a transparent case's gaps unless a pointer is held.
-            const bool held = drag.active() || app.pointer_pressed(ScenePointer::pointer(0)) ||
-                              app.pointer_pressed(ScenePointer::pointer(1));
-            const auto preview = flick_preview_bounds(view);
-            const auto handle = panel_move_handle_bounds(view);
-            const auto areas =
-                panel_hit_areas(view, held, vr::k_unMaxOverlayIntersectionMaskPrimitivesCount - 3);
+            // The same areas as the intersection mask, built from the full view
+            // (the input view has no emoji grid): transparent margins never take
+            // the ray, nor a Disabled background's gaps unless a pointer is held.
             auto accepts = [&](double x, double y) {
+                const auto& areas = panel.mask_areas();
                 return std::any_of(areas.begin(), areas.end(),
-                                   [&](const Rect& r) { return r.contains(x, y); }) ||
-                       (view.popup && view.popup->contains(x, y)) ||
-                       (preview && preview->contains(x, y)) || (handle && handle->contains(x, y));
+                                   [&](const Rect& r) { return r.contains(x, y); });
             };
             const auto samples =
                 scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
