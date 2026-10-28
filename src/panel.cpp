@@ -1379,6 +1379,10 @@ std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t 
     if (view.emoji) {
         add(emoji_well(view.emoji->grid));
         add(view.emoji->tabs);
+        // A top-row emoji's tones rise above the grid, over the gap below the tabs.
+        if (view.emoji->popup) {
+            add(view.emoji->popup->bounds);
+        }
     }
     if (view.dictation) {
         add(view.dictation->bounds);

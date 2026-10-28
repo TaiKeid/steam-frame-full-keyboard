@@ -294,7 +294,7 @@ std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
 // The case's part of the VR laser mask, in at most `limit` rectangles. Over a
 // transparent case with `laser_through_gaps` it is only what takes a press
-// (keys, controls, the emoji picker, the dictation editor), so a press in a
+// (keys, controls, the emoji picker and its tones, the dictation editor), so a press in a
 // clear gap reaches the overlay behind; neighbouring rows merge to fit the limit. While a pointer
 // is held it is the whole case, so a swipe or drag crossing a gap keeps it.
 std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t limit);
