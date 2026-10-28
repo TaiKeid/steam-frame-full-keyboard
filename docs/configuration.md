@@ -100,7 +100,7 @@ The small emoji key at the top of the left column opens the emoji picker in plac
 
 ## Dictation
 
-Dictation is being built and is not released yet; the design is in [dictation](dictation.md). Until its Settings card exists, it is configured in `config.json`:
+Dictation was released in 0.11.0; the design is in [dictation](dictation.md). The Settings → Dictation card covers the common choices; all of it is stored in `config.json`:
 
 - `dictation`: `"device"` (the default), recognition on the Frame once its model is downloaded; `"server"`; or `"off"`.
 - `dictation_device_model`: the on-device model, `"small-q8_0"` (the default); `"small-q5_1"` and `"small-q4_0"` exist for comparison.
@@ -123,9 +123,7 @@ A language profile offers dictation with a `dictation` object holding its Whispe
 
 In dictation mode the keyboard edits a local editor and sends nothing to the target. The function keys, Tab, Insert, Ctrl, Super, Alt, Steam, Menu, Copy, Paste and the emoji key give way to the editor, a Send key (in Tab's place on the flick layout) and an Undo key. Esc stops listening, leaves an empty editor, or asks before discarding text. Swipe typing is off in it.
 
-## Implementation order
-
-Profile parsing, catalog discovery, native rendering and VR selector code are implemented. Next verify controller interaction and real language output in both target sessions. See the plan and acceptance checks for the remaining integration work.
+## Moving the keyboard
 
 The General card has **Use Drag to Move**, saved as the optional boolean `use_drag_to_move`. It defaults to false, including for older configurations. When off, hold the trigger on the white line below the keyboard to move it. When on, point at the keyboard and hold grab/grip to move it. The line is hidden in grab mode. Pinning disables both movement methods and hides the line. Apply and save activates this preference; Back discards pending changes.
 

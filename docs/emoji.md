@@ -1,6 +1,6 @@
 # Emoji picker plan
 
-Status: implemented (2026-10-25), with host tests, and used in the headset through its test builds: typing, scrolling, gliding, skin tones, Recent and the stick behavior in the dashboard and in passthrough. The acceptance list below is not fully checked yet, notably delivery of ZWJ sequences and flags to X11 and Wayland apps. Mark milestone checkboxes only after their acceptance conditions pass. Items marked *proposal* are not yet confirmed by the owner. User-facing behavior is described in [configuration](configuration.md#emoji-picker).
+Status: released in 0.10.0, with Favorites added in 0.11.0. Host tests cover it, and it was used in the headset: typing, scrolling, gliding, skin tones, Recent, Favorites and the stick behavior in the dashboard and in passthrough. The acceptance list below is not fully checked yet, notably delivery of ZWJ sequences and flags to X11 and Wayland apps. Mark milestone checkboxes only after their acceptance conditions pass. Items marked *proposal* are not yet confirmed by the owner. User-facing behavior is described in [configuration](configuration.md#emoji-picker).
 
 The emoji picker is a second view of the keyboard. An emoji key in the side column switches to it. The view shows a scrollable grid of emoji with category tabs, a space bar, and Backspace, Enter and arrow keys, so a user can type a short message without switching back.
 

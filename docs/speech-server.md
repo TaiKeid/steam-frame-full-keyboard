@@ -2,7 +2,7 @@
 
 Dictation in **Server** mode sends each spoken phrase to a speech server you run on your own computer with a capable GPU. Full Keyboard ships no server; this guide sets up whisper.cpp's `whisper-server`, which answers the OpenAI-style requests described in [dictation](dictation.md#protocol). The keyboard needs only the server's address, for example `192.168.1.20:8031`.
 
-Dictation is designed but not released yet; this guide is part of its first milestone.
+Dictation was released in 0.11.0. Of the setups below, only Linux with Vulkan has been verified; see [status of these instructions](#status-of-these-instructions).
 
 ## What you need
 

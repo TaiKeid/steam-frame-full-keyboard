@@ -148,4 +148,4 @@ Before relying on replacement, test in the headset with harmless text:
 - Request changes while readiness or text is pending; Steam restart/update; app removal followed by native summons.
 - With replacement enabled, headset sleep/wake and a SteamVR restart. Within the bounded recovery period, a responding runtime must not be mistaken for a permanent app hang. Verify native fallback and then a fresh Full Keyboard summon; runtime restart may still require manually relaunching the app if OpenVR disconnects.
 
-This document defines prototype behavior and checks. It does not claim those physical acceptance checks have passed.
+This document defines the replacement's behavior and checks. It does not claim that every physical acceptance check above has passed; [the plan](plan.md) tracks the open ones.

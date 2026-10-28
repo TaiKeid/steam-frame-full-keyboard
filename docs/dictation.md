@@ -1,6 +1,6 @@
 # Dictation
 
-Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go; or, with **Type as I speak**, each phrase is typed into the application as soon as it is recognized. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server the user hosts elsewhere on the network, or by a small model on the Frame. Dictation is not part of the 0.9.0 release.
+Dictation turns speech into text. The user speaks into a local editor on the keyboard, corrects the text there, and sends it to the focused application in one go; or, with **Type as I speak**, each phrase is typed into the application as soon as it is recognized. The Frame records audio, splits it into phrases, edits text and types it. Each phrase is turned into text either by a speech server the user hosts elsewhere on the network, or by a small model on the Frame. Dictation was released in 0.11.0.
 
 ## Recognition modes
 

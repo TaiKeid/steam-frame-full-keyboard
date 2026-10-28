@@ -1,6 +1,6 @@
 # Swipe typing plan
 
-Status: released in 0.9.0 for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin. Japanese and Korean are not started. Feasibility was checked the same day; see [results](#feasibility-results). Mark milestone checkboxes only after their acceptance conditions pass. User-facing behavior is described in [configuration](configuration.md#swipe-typing).
+Status: released in 0.9.0 for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin; Polish, Dutch and Swedish followed in 0.11.0. Japanese and Korean are not started. Feasibility was checked the same day; see [results](#feasibility-results). Mark milestone checkboxes only after their acceptance conditions pass. User-facing behavior is described in [configuration](configuration.md#swipe-typing).
 
 Swipe typing lets a user hold the trigger, trace a word across the letter keys and release. The keyboard decodes the path into a word and alternatives. Tapping keeps working exactly as before.
 
