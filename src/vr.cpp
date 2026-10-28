@@ -2779,7 +2779,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // A laser resting in a gap: leaving the case or pulling the trigger
         // there is leaving the keyboard, as SteamVR's FocusLeave was.
         if (!gap_watches.empty()) {
-            const bool away = !lifecycle.visible() || scene_input || !dashboard_visible;
+            const bool away =
+                !lifecycle.visible() || scene_input || !dashboard_visible || app.forwarded();
             std::optional<vr::TrackedDeviceIndex_t> pointing;
             if (!away && now - gap_pointer_checked >= .25) {
                 pointing = vr_overlay()->GetPrimaryDashboardDevice();
