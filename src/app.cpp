@@ -3459,6 +3459,9 @@ void App::update_emoji_content() {
             }
         }
     }
+    const std::size_t hidden = emoji_preferences_.favorites.size() - sections[1].size();
+    emoji_.set_favorite_capacity(EmojiPreferences::max_favorites -
+                                 std::min(hidden, EmojiPreferences::max_favorites));
     emoji_.set_content(std::move(sections), emoji_preferences_.tone, !emoji_checked_);
     ++emoji_content_;
     dirty = true;
@@ -3502,8 +3505,8 @@ void App::update_emoji(double now) {
     dirty |= emoji_.tick(now).redraw;
     // Ask for images when what they show changed, or once the view has moved
     // eight columns: each request draws about three screens around the view.
-    const auto wanted =
-        std::tuple{emoji_.glyph_size(), emoji_content_, emoji_preferences_.tone, emoji_.popup_open()};
+    const auto wanted = std::tuple{emoji_.glyph_size(), emoji_content_, emoji_preferences_.tone,
+                                   emoji_.popup_open(), emoji_.lifted()};
     if (emoji_checked_ &&
         (wanted != emoji_requested_ || std::abs(emoji_.first_column() - emoji_requested_column_) >= 8)) {
         emoji_requested_ = wanted;

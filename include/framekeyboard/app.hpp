@@ -612,7 +612,9 @@ class App {
     bool emoji_checked_{}, emoji_font_{true};
     EmojiPreferences emoji_preferences_, emoji_saved_;
     std::uint64_t emoji_content_{};
-    std::tuple<int, std::uint64_t, int, bool> emoji_requested_{}; // Size, content, tone, popup.
+    // Size, content, tone, popup, lifted: lifting or putting down an emoji
+    // asks again, so neither the carried one nor its restored cell goes blank.
+    std::tuple<int, std::uint64_t, int, bool, bool> emoji_requested_{};
     int emoji_requested_column_{};
     // Dictation mode (docs/dictation.md). Its keys edit the editor locally;
     // none of them reaches the output queue or the target.

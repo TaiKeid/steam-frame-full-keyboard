@@ -443,7 +443,7 @@ std::optional<std::size_t> EmojiPicker::favorite_slot(double x, double y) const 
     auto others = sections_[1];
     std::erase(others, press_->entry);
     if (press_->from == 0 && others.size() == sections_[1].size() &&
-        others.size() >= EmojiPreferences::max_favorites) {
+        others.size() >= favorite_capacity_) {
         return {}; // Full: a new favorite has nowhere to go.
     }
     const int column =
@@ -1058,6 +1058,10 @@ std::vector<std::string> EmojiPicker::glyph_order(std::size_t limit) const {
         for (int tone = 0; tone < tone_choices; ++tone) {
             order.push_back(entry->text(tone));
         }
+    }
+    if (press_ && press_->lifted) {
+        // The carried emoji may have left every cell in view.
+        order.push_back(press_->entry->text(tone_));
     }
     // Items run in strip order, left to right, so those in view are one run:
     // take it, then alternate outward from both of its ends. No sorting, and

@@ -179,6 +179,9 @@ class EmojiPicker {
     // Recent holds six columns, less the cell for Clear.
     static constexpr int recent_columns = 6;
     std::size_t recent_capacity() const { return static_cast<std::size_t>(recent_columns * rows_ - 1); }
+    // How many favorites it may show: the saved limit less those kept but
+    // not drawn by this font, so a new favorite never displaces one of them.
+    void set_favorite_capacity(std::size_t capacity) { favorite_capacity_ = capacity; }
     int glyph_size() const;
     double scroll_offset() const { return scroll_; }
     double scroll_limit() const;
@@ -268,6 +271,7 @@ class EmojiPicker {
     // press_ with popup set; after its release they stay, and a click on a
     // tone (press_ on a Choice) types it while a click elsewhere closes them.
     std::optional<std::size_t> tones_;
+    std::size_t favorite_capacity_{EmojiPreferences::max_favorites};
     std::optional<Glide> glide_;
     std::map<unsigned, Hit> hovered_;
     std::map<unsigned, std::pair<double, double>> positions_; // Last laser position, for rehover().

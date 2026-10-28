@@ -780,7 +780,32 @@ void favorites_tests() {
         std::tie(fx, fy) = slot_center(0);
         picker.move(1, fx, fy, now + .7);
         require(!picker.up(1, fx, fy, now + .8).favorites, "a full Favorites takes nothing new");
+        // Favorites kept but not drawn by this font count too: with one of
+        // them, 39 shown is full, so no new emoji displaces it.
+        full.pop_back();
+        picker.set_content(content(full), 0, false);
+        picker.set_favorite_capacity(EmojiPreferences::max_favorites - 1);
+        lift(recent("s0"), now += 1);
+        picker.move(1, fx, fy, now + .7);
+        require(!picker.up(1, fx, fy, now + .8).favorites, "a hidden favorite counts toward the limit");
+        picker.set_favorite_capacity(EmojiPreferences::max_favorites);
+        lift(recent("s0"), now += 1);
+        picker.move(1, fx, fy, now + .7);
+        require(picker.up(1, fx, fy, now + .8).favorites.has_value(), "with room, it is added");
     }
+
+    // The carried emoji is drawn first, wherever the grid scrolls.
+    picker.set_content(content({"f29"}), 0, false);
+    picker.reset();
+    lift(slot_center(0), now += 1);
+    require(picker.lifted() && picker.glyph_order(1) == std::vector<std::string>{"f29"},
+            "a lifted favorite's glyph comes first");
+    for (int i = 0; i < 10; ++i) {
+        picker.scroll(grid.x + 100, grid.y + 100, 1);
+    }
+    require(picker.glyph_order(1) == std::vector<std::string>{"f29"},
+            "and stays first after the grid scrolls away from it");
+    picker.cancel();
 
     // Near the grid's edge a lifted emoji scrolls the grid, and the stick moves it too.
     picker.set_content(content({}), 0, false);
