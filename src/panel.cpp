@@ -1524,6 +1524,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.composing != view.composing || previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.transparent_background != view.transparent_background ||
+        // No pixel changes, but the VR loop sets the laser mask with each paint.
+        previous_->view.laser_through_gaps != view.laser_through_gaps ||
         previous_->view.key_labels != view.key_labels ||
         previous_->view.disabled_keys != view.disabled_keys ||
         previous_->view.emoji.has_value() != view.emoji.has_value() ||

@@ -267,6 +267,12 @@ void straight_alpha() {
     view.transparent_background = true;
     PanelRenderer renderer;
     renderer.paint(view, 1, true);
+    // Invisible and Disabled draw the same pixels, but a switch between them,
+    // from the shell or a reload, must still reach the laser mask.
+    view.laser_through_gaps = true;
+    if (!renderer.paint(view, 1.5)) {
+        throw std::runtime_error("a change of laser_through_gaps repaints, so the mask follows");
+    }
     auto* surface = renderer.surface();
     const auto rgba = renderer.rgba();
     int partial = 0;
