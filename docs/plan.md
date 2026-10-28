@@ -13,16 +13,13 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Dashboard position/rotation following and dashboard-only visibility/input.
 - Saved placement, single-instance launches, and relaunch-to-recenter.
 - Per-controller haptics, cancellation paths, host tests, and ARM64 release packaging.
-- Experimental swipe typing for nine languages, powered by FUTO Swipe (0.9.0). See [swipe typing](swipe-typing.md).
+- Experimental swipe typing, powered by FUTO Swipe (0.9.0), with Polish, Dutch and Swedish added in 0.11.0. See [swipe typing](swipe-typing.md).
 - Japanese 12-key flick input and typing over pinned windows in passthrough (0.9.0).
 - Emoji picker with recent emoji, categories and skin tones, and resizing from the corners (0.10.0). See [emoji picker](emoji.md).
-
-## In progress, not yet released
-
-- **Dictation:** on device or with a self-hosted Whisper server, in an editor or typed straight into the focused app. Implemented and tested in the headset; see [dictation](dictation.md). Left before release: an update and sleep while dictating, tested in the headset; the on-device thread count, measured with a game running; independent review and a release build.
-- 25 more national layouts, each with dictation, for 37 languages in all.
-- Ten more themes, a raised Settings design, and Settings cards that glide and drag.
-- The keyboard fades in and out as it opens and closes; the hand feels dictation start and stop.
+- Dictation on device or with a self-hosted Whisper server, in an editor or typed straight into the focused app (0.11.0). See [dictation](dictation.md).
+- 25 more national layouts, each with dictation, for 37 languages in all; Korean 12-key input; emoji favorites (0.11.0).
+- Ten more themes, a raised Settings design, and Settings cards that glide and drag (0.11.0).
+- Shell integration protocol 1: alternative shells launch the keyboard in hosted mode and control it over an inherited connection (0.11.0). See [shell integration](integration.md).
 
 ## Before each release
 
@@ -49,6 +46,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Broader application testing for Unicode delivery and native shortcuts across system keymaps.
 - Sleep/wake, runtime-update, and longer-session testing.
 - Measured battery, memory, and latency results.
-- Shell integration, scheduled after the first public release: alternative shells launch the keyboard in hosted mode and control it over an inherited connection. A standalone keyboard has no shell-control protocol. Presentation, placement, themes, typing contexts, settings, dictation, silent updates, pointer forwarding and a commits-only text sink are specified in [shell integration](integration.md). Protocol 1 is implemented and host-tested; headset validation with the test shell is next, then `theme.derive` and the Wayland bridge.
+- Shell integration: `theme.derive`, the Wayland input method bridge, and headset checks of anchors, two-hand forwarding and the update handover.
+- An in-app update while dictating, tested in the headset.
 
 Swipe typing for Japanese and Korean is planned in [swipe typing](swipe-typing.md). No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

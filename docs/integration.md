@@ -1,6 +1,6 @@
 # Shell integration protocol
 
-**Status: protocol 1 implemented, not released.** Everything below is implemented except `theme.derive` and the Wayland input method bridge, which come later. Host tests cover the connection, the sink, running instances, the update handover and App's side. On the Frame, a scripted shell passed launch, presentation, placement, settings, themes, a forwarded press into the sink, previews, the update check, a launcher tap, the lease and a clean exit (2026-10-27). Still open: a visual check, anchors to another overlay, two-hand forwarding and swipe through it, and the update handover end to end, which needs a newer release. Operation names, fields, limits and exit codes may change until protocol 1 ships. An independent design review on 2026-10-26 found the architecture sound; its findings are folded in.
+**Status: protocol 1, new in 0.11.0.** Everything below is implemented except `theme.derive` and the Wayland input method bridge, which come later. Host tests cover the connection, the sink, running instances, the update handover and App's side. On the Frame, a scripted shell passed launch, presentation, placement, settings, themes, a forwarded press into the sink, previews, the update check, a launcher tap, the lease and a clean exit (2026-10-27). Still open: a visual check, anchors to another overlay, two-hand forwarding and swipe through it, and the update handover end to end, which needs a newer release. Operation names, fields, limits and exit codes may still change in a later 0.x release. An independent design review on 2026-10-26 found the architecture sound; its findings are folded in.
 
 Alternative Steam Frame shells can use Full Keyboard as their keyboard. A shell launches the keyboard, controls its visibility and placement, matches it to its own look, sets typing settings, controls dictation, and keeps the keyboard updated together with itself. The keyboard keeps its own rendering, key state, composition and input delivery. The shell only sees what the user has committed.
 
@@ -101,9 +101,9 @@ A plain launch while a hosted keyboard is running, for example from the dashboar
 ### `ready` and `hello`
 
 ```json
-← {"event":"ready","protocol":[1],"version":"0.10.0","session":1}
+← {"event":"ready","protocol":[1],"version":"0.11.0","session":1}
 → {"id":1,"op":"hello","protocol":1,"client":"Example Shell","client_version":"1.4.0","lease_ms":2000}
-← {"id":1,"ok":true,"protocol":1,"version":"0.10.0",
+← {"id":1,"ok":true,"protocol":1,"version":"0.11.0",
    "features":["pointer","sink","dictation.server","dictation.device","swipe","update"]}
 ```
 
