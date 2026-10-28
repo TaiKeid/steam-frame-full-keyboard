@@ -569,6 +569,9 @@ struct SceneSample {
     std::optional<Ray> ray;
     // lost: the hand or its trigger stopped reporting while held; cancel, don't release.
     bool pressed{}, released{}, lost{};
+    // The trigger has moved from rest, well short of `pressed`: the app
+    // behind reads the raw trigger and may already take it as a click.
+    bool pulled{};
 };
 class ScenePointer {
   public:
@@ -627,6 +630,7 @@ class ScenePointer {
                 hand.armed = hand.held = false;
                 continue;
             }
+            sample.pulled = *angle >= 1; // TriggerReleaseGuard's "held"
             // Require a released trigger after startup, a new controller or a gap,
             // so a pull already in progress never clicks the key it lands on.
             if (!hand.armed) {
@@ -2858,8 +2862,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     } else {
                         cursors.hide(hand);
                     }
-                    if (gap[hand] && !sample.pressed && scene_inside[hand]) {
-                        // Only the hover ends; a pull here is leaving (above).
+                    if (gap[hand] && !sample.pulled && scene_inside[hand]) {
+                        // Only the hover ends; any pull here is leaving, since
+                        // the app behind may click well before `pressed`.
                         app.move(pointer, gap[hand]->first, gap[hand]->second);
                     } else if (std::exchange(scene_inside[hand], false)) {
                         // Leaving the panel ends this hand's presses, as SteamVR's FocusLeave does.
