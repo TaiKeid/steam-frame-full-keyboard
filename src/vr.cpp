@@ -2912,6 +2912,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         scene_gap[hand].reset();
                     }
                     if (rests) {
+                        // Not over the keyboard for the grip, as after FocusLeave.
+                        if (sample.device < hovered_devices.size()) {
+                            hovered_devices[sample.device] = false;
+                        }
                         app.move(pointer, gap[hand]->first, gap[hand]->second);
                     } else if (std::exchange(scene_inside[hand], false)) {
                         // Leaving the panel ends this hand's presses, as SteamVR's FocusLeave does.
