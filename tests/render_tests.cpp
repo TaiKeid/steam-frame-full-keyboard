@@ -462,6 +462,29 @@ int main() {
               custom.warning == Color{1, 0, 0})) {
             throw std::runtime_error("notice colours follow the legend unless the theme sets them");
         }
+        // An alert icon stands apart from the legend and reads on the keycap in
+        // every bundled theme: orange, not the legend's grey, at 3:1 or more.
+        const auto luminance = [](Color c) {
+            const auto channel = [](double v) {
+                return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4);
+            };
+            return .2126 * channel(c.r) + .7152 * channel(c.g) + .0722 * channel(c.b);
+        };
+        const auto contrast = [&](Color a, Color b) {
+            const double x = luminance(a) + .05, y = luminance(b) + .05;
+            return std::max(x, y) / std::min(x, y);
+        };
+        for (const auto& [id, theme] : profiles.themes) {
+            if (theme.alert.r - theme.alert.b < .5 || contrast(theme.alert, theme.top) < 3 ||
+                contrast(theme.alert, theme.legend) < 1.5) {
+                throw std::runtime_error("alert icon colour is not distinct in theme " + id);
+            }
+        }
+        const auto alerted = parse_theme(base + R"("legend":"#202020","alert":"#00ff00"})");
+        if (!(dark.alert == dark.warning && light.alert != light.warning &&
+              alerted.alert == Color{0, 1, 0})) {
+            throw std::runtime_error("the alert colour follows the legend unless the theme sets it");
+        }
         // The latched fill is flat with the legend on it unless the theme says otherwise.
         const auto lit = parse_theme(
             base + R"("legend":"#ffffff","latched":"#d4a52e","latched_top":"#f6e3a1",)"

@@ -2107,7 +2107,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     draw_icon(cr, Icon::Apply, r, legend, 28);
                 }
             } else if (control.icon != Icon::None) {
-                draw_icon(cr, control.icon, r, control.warning ? t.warning : legend);
+                draw_icon(cr, control.icon, r, control.warning ? t.alert : legend);
             } else {
                 label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
             }

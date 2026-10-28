@@ -105,7 +105,7 @@ struct Control {
     std::optional<Rect> clip{};
     bool enabled{true};
     ControlAction action{};
-    bool warning{}; // a toolbar icon drawn in the theme's warning colour
+    bool warning{}; // a toolbar icon drawn in the theme's alert colour
     bool hit(double x, double y) const {
         return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }

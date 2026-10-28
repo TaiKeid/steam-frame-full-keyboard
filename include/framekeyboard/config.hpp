@@ -23,6 +23,9 @@ struct Theme {
     // Notice colours for text on the case and cards; their defaults depend on
     // whether the legend is light (dark theme) or dark (light theme).
     Color warning, error;
+    // A status icon that needs attention, such as Keep open typing out of
+    // sight: a vivid orange that stands apart from the legend on the keycap.
+    Color alert;
     // The latched fill runs from latched_top through latched to latched_bottom
     // (flat by default); latched_legend is the text on it (the legend by
     // default). The finish is "flat" or "neon" (a dark face inside a glowing

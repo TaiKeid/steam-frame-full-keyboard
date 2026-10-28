@@ -276,6 +276,10 @@ Theme parse_theme(const std::string& json) {
     const bool light_legend = .2126 * t.legend.r + .7152 * t.legend.g + .0722 * t.legend.b > .5;
     t.warning = optional_color("warning", light_legend ? Color{.96, .72, .35} : Color{.5, .3, 0});
     t.error = optional_color("error", light_legend ? Color{.95, .48, .42} : Color{.66, .21, .16});
+    // The deep amber that keeps notice text readable on a light theme is as
+    // dark as its legend, so a thin icon stroke would not stand out. A light
+    // theme's icons take a saturated orange instead, still 3:1 on its keycaps.
+    t.alert = optional_color("alert", light_legend ? t.warning : Color{.85, .42, .02});
     t.latched_top = optional_color("latched_top", t.latched);
     t.latched_bottom = optional_color("latched_bottom", t.latched);
     t.latched_legend = optional_color("latched_legend", t.legend);
