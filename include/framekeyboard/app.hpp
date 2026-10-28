@@ -474,6 +474,7 @@ class App {
     std::vector<Selection> cycle_entries_;
     std::vector<Favorite> pending_favorites_;
     bool pending_hide_numpad_{};
+    std::string pending_background_surface_{"visible"};
     bool pending_use_drag_to_move_{};
     bool pending_auto_leveling_{true};
     bool pending_replace_native_keyboard_{};

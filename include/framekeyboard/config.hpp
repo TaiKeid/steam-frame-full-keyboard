@@ -85,6 +85,10 @@ struct Settings {
     bool keep_open{};
     bool num_lock{};
     bool hide_numpad{};
+    // The case behind the keys (docs/configuration.md, Background):
+    // "visible", "invisible" (clear, still taking the laser) or "disabled"
+    // (clear, the laser passes through its gaps). Keys keep their theme.
+    std::string background_surface{"visible"};
     bool use_drag_to_move{};
     bool auto_leveling{true};
     bool replace_native_keyboard{};
@@ -129,6 +133,7 @@ struct Settings {
 };
 // Whether a server address or URL is one the dictation helper accepts.
 bool valid_dictation_server(const std::string& server);
+bool valid_background_surface(const std::string& surface);
 // The on-device models (docs/dictation.md, On-device recognition): whether a
 // name is one, the file it is used from, and its download size in MB.
 bool valid_device_model(const std::string& model);

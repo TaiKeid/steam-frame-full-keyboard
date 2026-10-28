@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <iterator>
@@ -37,6 +38,9 @@ class Comparison {
         full.paint(view, now, true);
         require_damage(painted, phase);
         auto* b = full.surface();
+        if (view.transparent_background) {
+            require_premultiplied(phase);
+        }
         for (int y = 0; y < texture_height; ++y) {
             const auto* actual = cairo_image_surface_get_data(a) + y * cairo_image_surface_get_stride(a);
             const auto* expected =
@@ -53,6 +57,25 @@ class Comparison {
         }
         ++frames;
         return painted;
+    }
+    // The native texture path uploads Cairo's premultiplied pixels as they
+    // are, so over a clear case no colour channel may exceed its alpha.
+    void require_premultiplied(const char* phase) {
+        auto* a = incremental.surface();
+        const int stride = cairo_image_surface_get_stride(a);
+        for (int y = 0; y < texture_height; ++y) {
+            const auto* row =
+                reinterpret_cast<const std::uint32_t*>(cairo_image_surface_get_data(a) + y * stride);
+            for (int x = 0; x < panel_width; ++x) {
+                const auto pixel = row[x];
+                const auto alpha = pixel >> 24;
+                if (((pixel >> 16) & 255u) > alpha || ((pixel >> 8) & 255u) > alpha ||
+                    (pixel & 255u) > alpha) {
+                    throw std::runtime_error(std::string(phase) + ": pixel " + std::to_string(x) + "," +
+                                             std::to_string(y) + " is not premultiplied");
+                }
+            }
+        }
     }
     // A partial upload copies only the reported damage: every pixel that
     // changed must lie inside it, and nothing may change without a paint.
@@ -228,7 +251,67 @@ void handle_states() {
     view.controls.clear();
     view.hovered_controls.clear();
 }
-void exercise(Layout layout, Theme theme, Language language) {
+// The compatibility texture path uploads straight RGBA: rgba() must undo the
+// premultiplication of a clear case's partly transparent edges and shadows.
+void straight_alpha() {
+    const auto profiles = load_profiles({}, {});
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(profiles.languages.at("en-us"));
+    PanelView view;
+    view.layout = &profiles.layouts.at("en-us-full");
+    view.theme = &profiles.themes.at("graphite");
+    view.language = &profiles.languages.at("en-us");
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    view.transparent_background = true;
+    PanelRenderer renderer;
+    renderer.paint(view, 1, true);
+    auto* surface = renderer.surface();
+    const auto rgba = renderer.rgba();
+    int partial = 0;
+    for (int y = 0; y < texture_height; ++y) {
+        const auto* row = reinterpret_cast<const std::uint32_t*>(
+            cairo_image_surface_get_data(surface) + y * cairo_image_surface_get_stride(surface));
+        for (int x = 0; x < panel_width; ++x) {
+            const unsigned alpha = row[x] >> 24;
+            const auto* out = &rgba[static_cast<std::size_t>(y * panel_width + x) * 4];
+            if (out[3] != alpha) {
+                throw std::runtime_error("straight RGBA keeps each pixel's alpha");
+            }
+            if (alpha == 0 || alpha == 255) {
+                if (alpha == 0 && (out[0] | out[1] | out[2]) != 0) {
+                    throw std::runtime_error("a clear pixel has no colour");
+                }
+                continue;
+            }
+            ++partial;
+            for (int channel = 0; channel < 3; ++channel) {
+                const unsigned premultiplied = (row[x] >> (16 - 8 * channel)) & 255u;
+                // Back to straight colour, within the rounding of 8-bit premultiplication.
+                if (std::abs(out[channel] * static_cast<double>(alpha) / 255 -
+                             static_cast<double>(premultiplied)) > 1) {
+                    throw std::runtime_error("straight RGBA does not undo premultiplied alpha");
+                }
+            }
+        }
+    }
+    if (partial < 1000) {
+        throw std::runtime_error("a clear case should leave partly transparent edges to check");
+    }
+}
+// Alpha of a panel pixel, in case coordinates.
+int alpha_at(const PanelRenderer& renderer, int x, int y) {
+    auto* surface = renderer.surface();
+    const auto* row = reinterpret_cast<const std::uint32_t*>(
+        cairo_image_surface_get_data(surface) +
+        (y + popup_margin) * cairo_image_surface_get_stride(surface));
+    return static_cast<int>(row[x] >> 24);
+}
+// With a transparent background every repaint must clear its damage to
+// nothing before drawing, or the case's old pixels or a plate's previous
+// alpha would build up where only the dashboard should show.
+void exercise(Layout layout, Theme theme, Language language, bool transparent = false) {
     NullSink sink;
     KeyboardState keyboard(sink);
     LanguageMap keymap(language);
@@ -238,7 +321,15 @@ void exercise(Layout layout, Theme theme, Language language) {
     view.language = &language;
     view.keymap = &keymap;
     view.keyboard = &keyboard;
+    view.transparent_background = transparent;
     view.controls = {{"settings", "Settings", {18, 12, 60, 42}, false, Icon::Settings}};
+    // A clear point in the case's padding, left of every key.
+    auto require_clear = [&](const Comparison& compare, const char* phase) {
+        if (transparent &&
+            alpha_at(compare.incremental, static_cast<int>(panel_case_bounds(view).x) + 3, 300) != 0) {
+            throw std::runtime_error(std::string(phase) + ": the clear case kept pixels");
+        }
+    };
     if (!language.composition_keys.empty()) {
         view.composing = true;
         for (const auto& key : layout.keys) {
@@ -293,6 +384,7 @@ void exercise(Layout layout, Theme theme, Language language) {
     view.hovered_keys.clear();
     view.hovered_controls.clear();
     compare.settle(view, "cancel");
+    require_clear(compare, "after presses");
     if (flick) {
         // A flick relabels only the pressed key and hides its hints.
         const auto& slot = language.flick.at(a.action);
@@ -304,6 +396,28 @@ void exercise(Layout layout, Theme theme, Language language) {
         compare.frame(view, "hover beneath the flick preview");
         view.flick_preview->selected = 2;
         compare.settle(view, "flick direction");
+        if (transparent && !slot.left.empty()) {
+            // The case-coloured gutters stay between the preview's caps, so
+            // they stand apart from the keys beneath on a clear case too.
+            // Between the tap cap and the left one (flick_cells: cells a
+            // key's height × 1.15 square, 4 px apart), this pixel column lies
+            // wholly inside the left cap's 2 px gutter.
+            const auto key = panel_rect(view, a.bounds);
+            const double tap_left = key.x + key.width / 2 - key.height * 1.15 / 2;
+            const int x = static_cast<int>(std::floor(tap_left - 3));
+            const int y = static_cast<int>(std::round(key.y + key.height / 2));
+            auto* surface = compare.incremental.surface();
+            const auto pixel = reinterpret_cast<const std::uint32_t*>(
+                cairo_image_surface_get_data(surface) +
+                (y + popup_margin) * cairo_image_surface_get_stride(surface))[x];
+            auto near = [](unsigned byte, double channel) {
+                return std::abs(static_cast<double>(byte) - channel * 255) <= 1;
+            };
+            if ((pixel >> 24) != 255 || !near((pixel >> 16) & 255u, theme.surface.r) ||
+                !near((pixel >> 8) & 255u, theme.surface.g) || !near(pixel & 255u, theme.surface.b)) {
+                throw std::runtime_error("the flick preview lost its gutters on a clear case");
+            }
+        }
         view.preedit = "う";
         compare.frame(view, "reading line repaints alone");
         view.preedit = "うか";
@@ -361,6 +475,7 @@ void exercise(Layout layout, Theme theme, Language language) {
     compare.frame(view, "toolbar hover");
     view.status = "Connection status changed";
     compare.frame(view, "status");
+    require_clear(compare, "beside the status plate");
     view.settings = true;
     compare.frame(view, "settings");
     // Settings hides the keys and key_bounds_ is empty: a speech model
@@ -427,7 +542,9 @@ void exercise(Layout layout, Theme theme, Language language) {
         view.dictation_capturing = false;
         compare.frame(view, "paused");
     }
-    std::cout << language.id << ": " << compare.frames << " frames pixel-identical\n";
+    require_clear(compare, "at the end");
+    std::cout << language.id << (transparent ? " (transparent)" : "") << ": " << compare.frames
+              << " frames pixel-identical\n";
 }
 } // namespace
 int main() {
@@ -449,6 +566,17 @@ int main() {
             validate_selection(profiles, {"en-us-full", "en-us", id});
             exercise(profiles.layouts.at("en-us-full"), theme, profiles.languages.at("en-us"));
         }
+        // Transparent background: the same frames over a clear case, for the
+        // plain, composing and flick layouts and a light theme.
+        exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("graphite"),
+                 profiles.languages.at("en-us"), true);
+        exercise(profiles.layouts.at("ja-jis-full"), profiles.themes.at("graphite"),
+                 profiles.languages.at("ja-romaji"), true);
+        exercise(profiles.layouts.at("ja-flick-12"), profiles.themes.at("porcelain"),
+                 profiles.languages.at("ja-flick"), true);
+        exercise(profiles.layouts.at("en-us-full"), profiles.themes.at("porcelain"),
+                 profiles.languages.at("en-us"), true);
+        straight_alpha();
         // Notice colours default by the legend's lightness; a theme may set its own.
         const std::string base =
             R"({"schema_version":1,"id":"t","name":"T","surface":"#101010","surface_radius":20,)"
@@ -474,6 +602,20 @@ int main() {
             const double x = luminance(a) + .05, y = luminance(b) + .05;
             return std::max(x, y) / std::min(x, y);
         };
+        // A case plate keeps the legend readable over the brightest and the
+        // darkest background behind a transparent case, in every theme.
+        for (const auto& [id, theme] : profiles.themes) {
+            for (const double behind : {0.0, 1.0}) {
+                const auto blend = [&](double c) {
+                    return c * case_plate_alpha + behind * (1 - case_plate_alpha);
+                };
+                const Color plate{blend(theme.surface.r), blend(theme.surface.g),
+                                  blend(theme.surface.b)};
+                if (contrast(theme.legend, plate) < 4.5) {
+                    throw std::runtime_error("case plate text is hard to read in theme " + id);
+                }
+            }
+        }
         for (const auto& [id, theme] : profiles.themes) {
             if (theme.alert.r - theme.alert.b < .5 || contrast(theme.alert, theme.top) < 3 ||
                 contrast(theme.alert, theme.legend) < 1.5) {

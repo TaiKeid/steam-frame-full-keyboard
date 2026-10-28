@@ -166,6 +166,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     rebuild_cycle_entries();
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    pending_background_surface_ = settings_.background_surface;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
@@ -621,6 +622,13 @@ void App::update_settings_ui() {
                   checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
                            "Skips the editor but lower accuracy")));
     }
+    // Invisible keeps the case's laser area; Disabled lets the laser through
+    // its clear gaps (docs/configuration.md, Background).
+    auto background_surface =
+        field(ControlKind::ChooseBackgroundSurface,
+              dropdown("background-surface", "Background", pending_background_surface_,
+                       {{"visible", "Visible"}, {"invisible", "Invisible"}, {"disabled", "Disabled"}}));
+    background_surface.narrow = true;
     // SteamOS's Desktop cannot take emoji and other non-ASCII text from
     // Gamescope; it is typed as Unicode entry or pasted (docs/architecture.md).
     auto desktop_unicode = field(ControlKind::ChooseDesktopUnicode,
@@ -659,6 +667,7 @@ void App::update_settings_ui() {
           "General",
           {field(ControlKind::ChooseTheme,
                  dropdown("theme", "Theme", pending_.theme, choices(profiles_.themes))),
+           background_surface,
            field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
            field(ControlKind::UseDragToMove,
                  checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
@@ -772,6 +781,8 @@ PanelView App::geometry() const {
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
     v.hide_numpad = numpad_hidden();
+    v.transparent_background = settings_.background_surface != "visible";
+    v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
     v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
     if (emoji_open_) {
@@ -798,6 +809,8 @@ PanelView App::build_view(bool picker) const {
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
     v.hide_numpad = numpad_hidden();
+    v.transparent_background = settings_.background_surface != "visible";
+    v.laser_through_gaps = settings_.background_surface == "disabled";
     v.controls = controls();
     if (settings_open_) {
         settings_ui_.append(v);
@@ -1767,6 +1780,7 @@ void App::show_settings() {
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    pending_background_surface_ = settings_.background_surface;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
@@ -1974,6 +1988,7 @@ void App::reload() {
         settings_.keep_open = updated_settings.keep_open;
         settings_.num_lock = updated_settings.num_lock;
         settings_.hide_numpad = updated_settings.hide_numpad;
+        settings_.background_surface = updated_settings.background_surface;
         settings_.use_drag_to_move = updated_settings.use_drag_to_move;
         settings_.auto_leveling = updated_settings.auto_leveling;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
@@ -1997,6 +2012,7 @@ void App::reload() {
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
     pending_hide_numpad_ = settings_.hide_numpad;
+    pending_background_surface_ = settings_.background_surface;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
@@ -2422,6 +2438,7 @@ void App::apply_settings() {
     activate(pending_);
     settings_.favorites = pending_favorites_;
     settings_.hide_numpad = pending_hide_numpad_;
+    settings_.background_surface = pending_background_surface_;
     settings_.use_drag_to_move = pending_use_drag_to_move_;
     settings_.auto_leveling = pending_auto_leveling_;
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
@@ -2653,6 +2670,12 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::HideNumpad) {
         pending_hide_numpad_ = !pending_hide_numpad_;
+        update_settings_ui();
+    } else if (kind == ControlKind::ChooseBackgroundSurface) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_background_surface_ = command.value;
+        settings_ui_.close_popup();
         update_settings_ui();
     } else if (kind == ControlKind::UseDragToMove) {
         pending_use_drag_to_move_ = !pending_use_drag_to_move_;

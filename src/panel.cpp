@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <linux/input-event-codes.h>
 #include <pango/pangocairo.h>
 #include <stdexcept>
@@ -1180,6 +1181,33 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_stroke(cr);
     return well;
 }
+// A transparent case is left unfilled behind the keyboard; Settings keeps it.
+bool clear_case(const PanelView& view) {
+    return view.transparent_background && !view.settings;
+}
+// Over a clear case, text drawn on the case itself gets a piece of it back:
+// a plate in the case colour, fitted to the text and kept inside `area`, so
+// partial repaints of that area cover it. Text wider than the area (wrapped
+// or ellipsized) takes the whole area. Nothing over an opaque case.
+void case_plate(cairo_t* cr, const PanelView& view, const Rect& area, double ink, double size,
+                PangoAlignment alignment) {
+    if (!clear_case(view) || ink <= 0) {
+        return;
+    }
+    const auto& t = *view.theme;
+    constexpr double pad = 14;
+    const bool fills = ink + 8 > area.width;
+    const double width = std::min(area.width, ink + 2 * pad);
+    const double height = fills ? area.height : std::min(area.height, size + 16);
+    // label() sets text 4 px inside the area's left or right edge.
+    const double x = alignment == PANGO_ALIGN_CENTER ? area.x + (area.width - width) / 2
+                     : alignment == PANGO_ALIGN_LEFT ? area.x + 4 - pad
+                                                     : area.x + area.width - 4 + pad - width;
+    const double left = std::clamp(x, area.x, area.x + area.width - width);
+    rounded(cr, {left, area.y + (area.height - height) / 2, width, height}, t.radius + 2);
+    cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, case_plate_alpha);
+    cairo_fill(cr);
+}
 // The emoji grid's well reaches a little past the cells, like the editor's.
 Rect emoji_well(const Rect& grid) {
     return {grid.x - 6, grid.y - 6, grid.width + 12, grid.height + 12};
@@ -1297,22 +1325,113 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
               editor.notice_error ? amber : Color{t.legend.r, t.legend.g, t.legend.b}, false,
               PANGO_ALIGN_LEFT);
     }
-    if (const auto counter = dictation_counter_bounds(view)) {
+    if (const auto bounds = dictation_counter_bounds(view)) {
+        // On a clear case the count and its icon share one plate; the count
+        // moves in from the plate's right edge as it sits in from the left.
+        auto counter = *bounds;
+        const double size = t.small_font_size * 1.3;
+        if (clear_case(view)) {
+            counter.width -= 10;
+            const double ink = text_width(cr, editor.counter, size, view.language->font) +
+                               (editor.where == Icon::None ? 0 : 32);
+            case_plate(cr, view, *bounds, ink, size, PANGO_ALIGN_RIGHT);
+        }
         // Quiet while there is room; amber once dictation has reached its limit.
-        label(cr, editor.counter, *counter, t.small_font_size * 1.3, view.language->font,
+        label(cr, editor.counter, counter, size, view.language->font,
               editor.at_limit ? amber : disabled_legend(t), false, PANGO_ALIGN_RIGHT);
         if (editor.where != Icon::None) {
             // Where speech is recognized, just left of the count.
-            const double width =
-                text_width(cr, editor.counter, t.small_font_size * 1.3, view.language->font);
+            const double width = text_width(cr, editor.counter, size, view.language->font);
             draw_icon(cr, editor.where,
-                      {counter->x + counter->width - 4 - width - 32,
-                       counter->y + (counter->height - 26) / 2, 26, 26},
+                      {counter.x + counter.width - 4 - width - 32, counter.y + (counter.height - 26) / 2,
+                       26, 26},
                       disabled_legend(t), 16);
         }
     }
 }
 } // namespace
+std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t limit) {
+    const auto body = panel_case_bounds(view);
+    if (!clear_case(view) || !view.laser_through_gaps || held || limit < 2) {
+        return {body};
+    }
+    // Everything drawn on the case that takes a press, with a little slack
+    // for a laser wobbling at an edge. Keys in a row overlap through it.
+    std::vector<Rect> areas;
+    auto add = [&](const Rect& r) {
+        const double left = std::max(body.x, r.x - 4), top = std::max(body.y, r.y - 4);
+        const double right = std::min(body.x + body.width, r.x + r.width + 4);
+        const double bottom = std::min(body.y + body.height, r.y + r.height + 4);
+        if (right > left && bottom > top) {
+            areas.push_back({left, top, right - left, bottom - top});
+        }
+    };
+    for (const auto& key : view.layout->keys) {
+        if (!hidden_key(view, key)) {
+            add(panel_rect(view, key.bounds));
+        }
+    }
+    for (const auto& control : view.controls) {
+        if (control.style != ControlStyle::MoveHandle) {
+            add(control.bounds);
+        }
+    }
+    if (view.emoji) {
+        add(emoji_well(view.emoji->grid));
+        add(view.emoji->tabs);
+    }
+    if (view.dictation) {
+        add(view.dictation->bounds);
+    }
+    auto unite = [](const Rect& a, const Rect& b) {
+        const double left = std::min(a.x, b.x), top = std::min(a.y, b.y);
+        return Rect{left, top, std::max(a.x + a.width, b.x + b.width) - left,
+                    std::max(a.y + a.height, b.y + b.height) - top};
+    };
+    // First the cheap pass: neighbours in one row that touch become one strip,
+    // leaving a few dozen strips rather than a hundred keys.
+    std::sort(areas.begin(), areas.end(),
+              [](const Rect& a, const Rect& b) { return a.y != b.y ? a.y < b.y : a.x < b.x; });
+    std::vector<Rect> strips;
+    for (const auto& r : areas) {
+        if (!strips.empty()) {
+            auto& last = strips.back();
+            if (std::abs(last.y - r.y) < .5 && std::abs(last.height - r.height) < .5 &&
+                r.x <= last.x + last.width) {
+                last = unite(last, r);
+                continue;
+            }
+        }
+        strips.push_back(r);
+    }
+    // Then, while OpenVR's primitive limit is exceeded, merge the two strips
+    // whose bounding rectangle adds the least uncovered space: a row's gap
+    // to the next row, not a gap the size of a key cluster.
+    auto overlap = [](const Rect& a, const Rect& b) {
+        const double width = std::min(a.x + a.width, b.x + b.width) - std::max(a.x, b.x);
+        const double height = std::min(a.y + a.height, b.y + b.height) - std::max(a.y, b.y);
+        return width > 0 && height > 0 ? width * height : 0;
+    };
+    while (strips.size() > limit) {
+        std::size_t best_i = 0, best_j = 1;
+        double best = std::numeric_limits<double>::max();
+        for (std::size_t i = 0; i < strips.size(); ++i) {
+            for (std::size_t j = i + 1; j < strips.size(); ++j) {
+                const auto u = unite(strips[i], strips[j]);
+                const double waste = u.width * u.height - strips[i].width * strips[i].height -
+                                     strips[j].width * strips[j].height + overlap(strips[i], strips[j]);
+                if (waste < best) {
+                    best = waste;
+                    best_i = i;
+                    best_j = j;
+                }
+            }
+        }
+        strips[best_i] = unite(strips[best_i], strips[best_j]);
+        strips.erase(strips.begin() + static_cast<std::ptrdiff_t>(best_j));
+    }
+    return strips.empty() ? std::vector<Rect>{body} : strips;
+}
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -1400,6 +1519,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.composing != view.composing || previous_->view.hide_numpad != view.hide_numpad ||
+        previous_->view.transparent_background != view.transparent_background ||
         previous_->view.key_labels != view.key_labels ||
         previous_->view.disabled_keys != view.disabled_keys ||
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
@@ -1755,9 +1875,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_paint(cr);
         cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
         const auto body = panel_case_bounds(view);
-        rounded(cr, body, t.surface_radius);
-        source(cr, t.surface);
-        cairo_fill(cr);
+        // Settings keeps the case so its cards stay legible; the keyboard's
+        // transparent background shows the dashboard or app behind the keys.
+        if (!clear_case(view)) {
+            rounded(cr, body, t.surface_radius);
+            source(cr, t.surface);
+            cairo_fill(cr);
+        }
         if (!view.settings) {
             const auto p = placement(view);
             cairo_save(cr);
@@ -1903,7 +2027,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 const auto& r = (*cells)[i];
                 // A gutter in the case's colour sets each cap off from the
-                // keys beneath, as the gaps between keys do.
+                // keys beneath, as the gaps between keys do. It stays over a
+                // transparent case too: without it, caps over keys of the
+                // same colour run together.
                 rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
                 source(cr, t.surface);
                 cairo_fill(cr);
@@ -1929,8 +2055,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                : method == "japanese-flick"
                                    ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
                                    : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
-            label(cr, view.preedit.empty() ? hint : view.preedit, {body.x + 20, 94, body.width - 40, 40},
-                  27, view.language->font, t.legend);
+            const std::string reading = view.preedit.empty() ? hint : view.preedit;
+            const Rect line{body.x + 20, 94, body.width - 40, 40};
+            case_plate(cr, view, line, text_width(cr, reading, 27, view.language->font), 27,
+                       PANGO_ALIGN_CENTER);
+            label(cr, reading, line, 27, view.language->font, t.legend);
         }
         if (view.settings) {
             cairo_save(cr);
@@ -2138,15 +2267,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             if (const auto counter = dictation_counter_bounds(view)) {
                 right = std::min(right, counter->x);
             }
-            label(cr, view.status, {left + 12, 12, right - left - 24, 42}, 15, view.language->font,
-                  t.legend, false, PANGO_ALIGN_LEFT, true);
+            const Rect line{left + 12, 12, right - left - 24, 42};
+            case_plate(cr, view, line, text_width(cr, view.status, 15, view.language->font), 15,
+                       PANGO_ALIGN_LEFT);
+            label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
+                  true);
         } else if (!view.status.empty()) {
             // A compact toolbar's second row takes the left of the status line.
             const double inset = compact_toolbar(view) ? 88 : 18;
-            label(cr, view.status,
-                  view.settings ? Rect{30, 574, 1540, 24}
-                                : Rect{body.x + inset, 60, body.width - inset - 18, 28},
-                  17, view.language->font, t.legend);
+            const Rect line = view.settings ? Rect{30, 574, 1540, 24}
+                                            : Rect{body.x + inset, 60, body.width - inset - 18, 28};
+            case_plate(cr, view, line, text_width(cr, view.status, 17, view.language->font), 17,
+                       PANGO_ALIGN_CENTER);
+            label(cr, view.status, line, 17, view.language->font, t.legend);
         }
         // The skin tones of a held emoji, above everything in the picker.
         if (view.emoji && view.emoji->popup && !view.settings) {

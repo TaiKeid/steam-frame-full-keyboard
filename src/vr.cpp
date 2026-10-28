@@ -1288,33 +1288,10 @@ class VrPanel {
             vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_CurrentUniverseId_Uint64, &error);
         return error == vr::TrackedProp_Success ? id : 0;
     }
-    void submit(PanelRenderer& renderer, const PanelView& view) {
+    // `held`: a pointer is pressed on the panel or drags it (panel_hit_areas).
+    void submit(PanelRenderer& renderer, const PanelView& view, bool held = false) {
         RuntimeWait runtime_wait;
-        // The enlarged texture has transparent popup margins. Restrict laser
-        // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
-        // steal focus from the dashboard.
-        std::array<vr::VROverlayIntersectionMaskPrimitive_t, 4> mask{};
-        auto rectangle = [&](std::size_t index, Rect bounds) {
-            mask[index].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
-            mask[index].m_Primitive.m_Rectangle = {
-                static_cast<float>(bounds.x), static_cast<float>(bounds.y + popup_margin),
-                static_cast<float>(bounds.width), static_cast<float>(bounds.height)};
-        };
-        rectangle(0, panel_case_bounds(view));
-        std::size_t count = 1;
-        if (view.popup) {
-            rectangle(count++, *view.popup);
-        }
-        // A flick may leave the case over its preview; keep tracking the laser there.
-        if (const auto preview = flick_preview_bounds(view)) {
-            rectangle(count++, *preview);
-        }
-        if (const auto handle = panel_move_handle_bounds(view)) {
-            rectangle(count++, *handle);
-        }
-        check(vr_overlay()->SetOverlayIntersectionMask(handle_, mask.data(),
-                                                       static_cast<std::uint32_t>(count)),
-              "Set keyboard intersection mask");
+        mask(view, held);
         std::string error;
         if (!texture_.update(renderer, error)) {
             throw std::runtime_error(error);
@@ -1326,6 +1303,42 @@ class VrPanel {
                       << std::flush;
             reported_native_ = native;
         }
+    }
+    // A press or its release can change the mask without a repaint.
+    bool mask_held() const { return mask_held_; }
+    void mask(const PanelView& view, bool held) {
+        mask_held_ = held;
+        // The enlarged texture has transparent popup margins. Restrict laser
+        // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
+        // steal focus from the dashboard. Over a transparent case, its clear
+        // gaps are left out too.
+        std::array<vr::VROverlayIntersectionMaskPrimitive_t,
+                   vr::k_unMaxOverlayIntersectionMaskPrimitivesCount>
+            primitives{};
+        std::size_t count = 0;
+        auto rectangle = [&](Rect bounds) {
+            primitives[count].m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
+            primitives[count].m_Primitive.m_Rectangle = {
+                static_cast<float>(bounds.x), static_cast<float>(bounds.y + popup_margin),
+                static_cast<float>(bounds.width), static_cast<float>(bounds.height)};
+            ++count;
+        };
+        if (view.popup) {
+            rectangle(*view.popup);
+        }
+        // A flick may leave the case over its preview; keep tracking the laser there.
+        if (const auto preview = flick_preview_bounds(view)) {
+            rectangle(*preview);
+        }
+        if (const auto handle = panel_move_handle_bounds(view)) {
+            rectangle(*handle);
+        }
+        for (const auto& area : panel_hit_areas(view, held, primitives.size() - count)) {
+            rectangle(area);
+        }
+        check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
+                                                       static_cast<std::uint32_t>(count)),
+              "Set keyboard intersection mask");
     }
     vr::VROverlayHandle_t handle() const { return handle_; }
     // The Frame controller's dashboard binding turns the stick into discrete
@@ -1367,6 +1380,7 @@ class VrPanel {
     PanelTexture texture_;
     std::optional<bool> reported_native_;
     std::optional<bool> scroll_;
+    bool mask_held_{};
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
@@ -2658,11 +2672,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
             const auto view = app.input_view();
-            // The same areas as the intersection mask: transparent margins never take the ray.
+            // The same areas as the intersection mask: transparent margins never
+            // take the ray, nor a transparent case's gaps unless a pointer is held.
+            const bool held = drag.active() || app.pointer_pressed(ScenePointer::pointer(0)) ||
+                              app.pointer_pressed(ScenePointer::pointer(1));
+            const auto preview = flick_preview_bounds(view);
+            const auto handle = panel_move_handle_bounds(view);
+            const auto areas =
+                panel_hit_areas(view, held, vr::k_unMaxOverlayIntersectionMaskPrimitivesCount - 3);
             auto accepts = [&](double x, double y) {
-                const auto preview = flick_preview_bounds(view);
-                const auto handle = panel_move_handle_bounds(view);
-                return panel_case_bounds(view).contains(x, y) ||
+                return std::any_of(areas.begin(), areas.end(),
+                                   [&](const Rect& r) { return r.contains(x, y); }) ||
                        (view.popup && view.popup->contains(x, y)) ||
                        (preview && preview->contains(x, y)) || (handle && handle->contains(x, y));
             };
@@ -3121,11 +3141,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         std::erase_if(stick_leaning,
                       [&](const auto& item) { return !pointer_devices.contains(item.first); });
         panel.accept_scroll(scroll_steps);
+        // Over a transparent case the laser mask widens to the whole case
+        // while a pointer is held (panel_hit_areas).
+        const bool held = drag.active() ||
+                          std::any_of(pointer_devices.begin(), pointer_devices.end(),
+                                      [&](const auto& item) { return app.pointer_pressed(item.first); });
         // A state change that redraws no pixel, like a sub-pixel glide step or
         // an image drawn off-screen, uploads nothing: each upload of the whole
         // texture costs milliseconds.
         if (lifecycle.visible() && repaint && app.paint(now)) {
-            panel.submit(app.renderer, app.view());
+            panel.submit(app.renderer, app.view(), held);
+        } else if (lifecycle.visible() && held != panel.mask_held()) {
+            panel.mask(app.view(), held);
         }
         bool fallback = app.take_native_fallback();
         if (replacement_stalled.exchange(false)) {

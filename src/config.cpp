@@ -544,6 +544,9 @@ int device_model_kept_megabytes(const std::string& model) {
     const auto* entry = device_model(model);
     return entry ? entry->kept_megabytes : 0;
 }
+bool valid_background_surface(const std::string& surface) {
+    return surface == "visible" || surface == "invisible" || surface == "disabled";
+}
 bool valid_dictation_server(const std::string& server) {
     // The helper's own check (dictation_helper.py, Target) is the authority;
     // this one only keeps a typo from reaching it.
@@ -714,6 +717,17 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             settings.dictation_fallback = false;
         }
         try {
+            // A bad value fails on its own, leaving the case visible.
+            settings.background_surface = text(document.get(), "background_surface", "visible", true);
+            if (!valid_background_surface(settings.background_surface)) {
+                throw std::runtime_error("bad value");
+            }
+        } catch (const std::exception&) {
+            errors.push_back("config.json: background_surface must be \"visible\", \"invisible\" or "
+                             "\"disabled\"; the background is visible");
+            settings.background_surface = "visible";
+        }
+        try {
             // Like the dictation fields, a bad value fails on its own.
             if (auto* gap = field(document.get(), "dictation_send_gap_ms", json_type_int, true)) {
                 const auto value = json_object_get_int(gap);
@@ -845,6 +859,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
         json_object_object_add(document.get(), "num_lock", json_object_new_boolean(settings->num_lock));
         json_object_object_add(document.get(), "hide_numpad",
                                json_object_new_boolean(settings->hide_numpad));
+        json_object_object_add(document.get(), "background_surface",
+                               json_object_new_string(settings->background_surface.c_str()));
         json_object_object_add(document.get(), "use_drag_to_move",
                                json_object_new_boolean(settings->use_drag_to_move));
         json_object_object_add(document.get(), "auto_leveling",

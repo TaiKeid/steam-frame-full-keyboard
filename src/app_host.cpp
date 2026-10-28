@@ -303,6 +303,8 @@ JsonPtr App::host_settings() const {
     flag("pinned", settings_.pinned);
     flag("emoji_close_on_select", settings_.emoji_close_on_select);
     flag("desktop_unicode_paste", settings_.desktop_unicode_paste);
+    json_object_object_add(object.get(), "background_surface",
+                           json_object_new_string(settings_.background_surface.c_str()));
     json_object_object_add(object.get(), "dictation",
                            json_object_new_string(settings_.dictation.c_str()));
     json_object_object_add(object.get(), "dictation_server",
@@ -331,6 +333,11 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
         const std::string key = check_key;
         if (booleans.contains(key)) {
             if (!json_object_is_type(check_value, json_type_boolean)) {
+                return {"invalid_setting", key};
+            }
+        } else if (key == "background_surface") {
+            if (!json_object_is_type(check_value, json_type_string) ||
+                !valid_background_surface(json_object_get_string(check_value))) {
                 return {"invalid_setting", key};
             }
         } else if (key == "dictation") {
@@ -386,6 +393,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
             settings_.dictation_direct = pending_dictation_direct_ = on;
         } else if (key == "dictation_fallback") {
             settings_.dictation_fallback = pending_dictation_fallback_ = on;
+        } else if (key == "background_surface") {
+            settings_.background_surface = pending_background_surface_ = json_object_get_string(value);
         } else if (key == "dictation") {
             settings_.dictation = pending_dictation_ = json_object_get_string(value);
         } else if (key == "dictation_server") {
@@ -727,6 +736,7 @@ void App::host_settings_changed(const Settings& before, const char* source) {
     compare("swipe_typing", before.swipe_typing != settings_.swipe_typing);
     compare("num_lock", before.num_lock != settings_.num_lock);
     compare("hide_numpad", before.hide_numpad != settings_.hide_numpad);
+    compare("background_surface", before.background_surface != settings_.background_surface);
     compare("use_drag_to_move", before.use_drag_to_move != settings_.use_drag_to_move);
     compare("auto_leveling", before.auto_leveling != settings_.auto_leveling);
     compare("pinned", before.pinned != settings_.pinned);

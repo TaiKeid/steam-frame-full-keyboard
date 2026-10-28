@@ -2136,7 +2136,12 @@ void hosted_tests() {
             "a standalone-only key is refused");
     require(json_object_get_boolean(json_object_object_get(app.host_settings().get(), "auto_leveling")),
             "and nothing else in the request applies");
-    auto good = json_ptr(json_tokener_parse(R"({"auto_leveling":false,"dictation_send_gap":40})"));
+    auto surface = json_ptr(json_tokener_parse(R"({"background_surface":"clear"})"));
+    require(app.host_settings_set(surface.get(), 6) ==
+                std::pair<std::string, std::string>{"invalid_setting", "background_surface"},
+            "a background surface outside visible, invisible and disabled is refused");
+    auto good = json_ptr(json_tokener_parse(
+        R"({"auto_leveling":false,"dictation_send_gap":40,"background_surface":"disabled"})"));
     require(app.host_settings_set(good.get(), 7).first.empty(), "valid settings apply");
     app.flush_settings();
     app.tick(clock += .1);
@@ -2160,7 +2165,8 @@ void hosted_tests() {
     require(saw("saved", R"("requests": [ -2, 3 ])"), "a save names exactly the requests it covers");
     std::vector<std::string> errors;
     auto saved = load_settings(directory.path, errors);
-    require(!saved.auto_leveling && saved.dictation_send_gap == 40 && saved.replace_native_keyboard,
+    require(!saved.auto_leveling && saved.dictation_send_gap == 40 &&
+                saved.background_surface == "disabled" && saved.replace_native_keyboard,
             "the change persists; the standalone flags stay as they were");
 
     // The shell's theme lasts for the process and is never saved.
