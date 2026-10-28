@@ -1308,9 +1308,16 @@ class VrPanel {
     bool mask_held() const { return mask_held_; }
     // The panel areas of the last mask, for the passthrough pointer.
     const std::vector<Rect>& mask_areas() const { return mask_areas_; }
+    // The case, while the last mask leaves its clear gaps out (Background
+    // Disabled); only then does a held pointer change the mask.
+    const std::optional<Rect>& mask_gapped_case() const { return mask_gapped_case_; }
     void mask(const PanelView& view, bool held) {
         mask_held_ = held;
         mask_areas_.clear();
+        mask_gapped_case_.reset();
+        if (view.transparent_background && view.laser_through_gaps && !view.settings) {
+            mask_gapped_case_ = panel_case_bounds(view);
+        }
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
         // steal focus from the dashboard. Over a transparent case, its clear
@@ -1386,6 +1393,7 @@ class VrPanel {
     std::optional<bool> scroll_;
     bool mask_held_{};
     std::vector<Rect> mask_areas_;
+    std::optional<Rect> mask_gapped_case_;
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
@@ -1526,11 +1534,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::uint64_t placement_universe = 0;
     PanelPlacement placement, displayed;
     // Where a device's laser meets a Disabled background's clear case, if it
-    // does (gap_watches).
-    auto gap_point = [&](vr::TrackedDeviceIndex_t device,
-                         const PanelView& view) -> std::optional<std::pair<double, double>> {
-        if (!view.transparent_background || !view.laser_through_gaps || view.settings ||
-            !displayed.ready()) {
+    // does (gap_watches). The case is the last mask's, so no view is built.
+    auto gap_point = [&](vr::TrackedDeviceIndex_t device) -> std::optional<std::pair<double, double>> {
+        const auto& body = panel.mask_gapped_case();
+        if (!body || !displayed.ready()) {
             return {};
         }
         const auto ray = laser_rays.read(device);
@@ -1542,7 +1549,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             return {};
         }
         const double x = hit->u * panel_width, y = hit->v * texture_height - popup_margin;
-        if (!panel_case_bounds(view).contains(x, y)) {
+        if (!body->contains(x, y)) {
             return {};
         }
         return std::pair{x, y};
@@ -2696,7 +2703,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     !std::any_of(pointer_devices.begin(), pointer_devices.end(), [&](const auto& item) {
                         return item.second == device && app.pointer_pressed(item.first);
                     })) {
-                    if (const auto at = gap_point(device, app.view())) {
+                    if (const auto at = gap_point(device)) {
                         // A pointer without a readable trigger leaves as before.
                         TriggerWatch trigger;
                         trigger.begin(device, now);
@@ -2729,10 +2736,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // there is leaving the keyboard, as SteamVR's FocusLeave was.
         if (!gap_watches.empty()) {
             const bool away = !lifecycle.visible() || scene_input || !dashboard_visible;
-            const auto view = away ? PanelView{} : app.view();
             for (auto it = gap_watches.begin(); it != gap_watches.end();) {
                 const auto angle = it->second.angle();
-                if (away || !gap_point(it->first, view) || !angle || *angle >= gap_trigger_degrees) {
+                if (away || !gap_point(it->first) || !angle || *angle >= gap_trigger_degrees) {
                     if (!away) {
                         lifecycle.pointer_left(it->first, false);
                     }
@@ -3225,7 +3231,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // texture costs milliseconds.
         if (lifecycle.visible() && repaint && app.paint(now)) {
             panel.submit(app.renderer, app.view(), held);
-        } else if (lifecycle.visible() && held != panel.mask_held()) {
+        } else if (lifecycle.visible() && panel.mask_gapped_case() && held != panel.mask_held()) {
             panel.mask(app.view(), held);
         }
         bool fallback = app.take_native_fallback();
