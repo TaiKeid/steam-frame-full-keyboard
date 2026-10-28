@@ -1495,6 +1495,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // click the window behind. Back on a key, SteamVR's events take over.
     std::map<vr::TrackedDeviceIndex_t, TriggerWatch> gap_watches;
     constexpr double gap_trigger_degrees = 1; // TriggerReleaseGuard's "held"
+    // The other hand's trigger takes SteamVR's laser, and its pull may click
+    // the window behind; the watched hand then no longer points. Checked at
+    // 4 Hz, like the resizers' dashboard pointer: no tap follows that fast.
+    double gap_pointer_checked = -1;
     auto cancel_device = [&](vr::TrackedDeviceIndex_t device) {
         for (auto it = pointer_devices.begin(); it != pointer_devices.end();) {
             if (it->second == device) {
@@ -2736,9 +2740,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // there is leaving the keyboard, as SteamVR's FocusLeave was.
         if (!gap_watches.empty()) {
             const bool away = !lifecycle.visible() || scene_input || !dashboard_visible;
+            std::optional<vr::TrackedDeviceIndex_t> pointing;
+            if (!away && now - gap_pointer_checked >= .25) {
+                pointing = vr_overlay()->GetPrimaryDashboardDevice();
+                gap_pointer_checked = now;
+            }
             for (auto it = gap_watches.begin(); it != gap_watches.end();) {
                 const auto angle = it->second.angle();
-                if (away || !gap_point(it->first) || !angle || *angle >= gap_trigger_degrees) {
+                if (away || (pointing && *pointing != it->first) || !gap_point(it->first) || !angle ||
+                    *angle >= gap_trigger_degrees) {
                     if (!away) {
                         lifecycle.pointer_left(it->first, false);
                     }
