@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -35,16 +36,13 @@ class FocusVisibility {
                 sample.pointed && std::find(sample.visible.begin(), sample.visible.end(),
                                             *sample.pointed) != sample.visible.end();
             if (focused_ && sample.window && (sample.visible.size() == 1 || pointed)) {
-                learned_[sample.window] =
-                    sample.visible.size() == 1 ? sample.visible.front() : *sample.pointed;
-                if (learned_.size() > 16) {
-                    learned_.erase(learned_.begin());
-                }
+                learn(sample.window,
+                      sample.visible.size() == 1 ? sample.visible.front() : *sample.pointed);
             }
             focused_ = sample.window;
         }
         if (sample.window && sample.named) {
-            learned_[sample.window] = *sample.named;
+            learn(sample.window, *sample.named);
         }
         if (!sample.window) {
             hidden_ = false;
@@ -67,8 +65,18 @@ class FocusVisibility {
         hidden_ = false;
     }
     bool hidden() const { return hidden_; }
+    std::size_t links() const { return learned_.size(); } // for tests
 
   private:
+    // At most 16 links, as windows come and go: the lowest X window id goes,
+    // an older window, but never the one just learned.
+    void learn(std::uint32_t window, std::uint32_t overlay) {
+        learned_[window] = overlay;
+        if (learned_.size() > 16) {
+            const auto oldest = learned_.begin();
+            learned_.erase(oldest->first != window ? oldest : std::next(oldest));
+        }
+    }
     std::map<std::uint32_t, std::uint32_t> learned_;
     std::uint32_t focused_{};
     bool hidden_{};

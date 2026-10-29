@@ -502,6 +502,16 @@ void a_hidden_focused_window_is_flagged() {
     require(n.hidden(),
             "the dashboard closed: the Desktop is out of sight, the pinned window is not it");
 
+    // Windows come and go: links stay bounded on either path, and the
+    // focused window keeps its own even with the lowest X window id.
+    FocusVisibility many;
+    for (std::uint32_t i = 0; i < 100; ++i) {
+        many.update({0x5000000 - i, {}, {263, 300 + i}, {}, 300 + i});
+    }
+    require(many.links() == 16, "named links are bounded like learned ones");
+    many.update({0x5000000 - 99, {}, {263}});
+    require(many.hidden(), "the focused window kept its link");
+
     // Focus read for the first time, or again after a reconnect or a hidden
     // spell, is not a click: it teaches nothing and keeps what was learned.
     constexpr std::uint32_t editor = 100;
