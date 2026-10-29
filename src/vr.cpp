@@ -2699,11 +2699,16 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::any_of(hovered_devices.begin(), hovered_devices.end(), [](bool on) { return on; });
         const bool in_dashboard = !hosted && lifecycle.visible() && dashboard_visible && !scene_input;
         if (!in_dashboard) {
-            focus_probe.reset();
-        } else if (!focus_probe) {
-            // Gamescope's first X display, where Steam runs, as for HiddenFocusCue.
-            const char* display = std::getenv("DISPLAY");
-            focus_probe = std::make_unique<KeyboardFocusProbe>(display && *display ? display : ":0");
+            if (focus_probe) {
+                focus_probe->set_active(false);
+            }
+        } else {
+            if (!focus_probe) {
+                // Gamescope's first X display, where Steam runs, as for HiddenFocusCue.
+                const char* display = std::getenv("DISPLAY");
+                focus_probe = std::make_unique<KeyboardFocusProbe>(display && *display ? display : ":0");
+            }
+            focus_probe->set_active(true);
         }
         if (in_dashboard) {
             watch_clicks(on_panel, now);
@@ -2733,7 +2738,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.set_hidden_focus(hidden_window_shown);
         app.set_hidden_window(hidden_window_shown ? hidden_focus.title() : std::string());
         if constexpr (show_input_target) {
-            if (focus_probe) {
+            if (focus_probe && in_dashboard) {
                 const auto keys = target_name(focus_probe->window());
                 if (on_panel && !laser_on_panel) {
                     entry_target = keys; // Before SteamVR moves input focus to our overlay.

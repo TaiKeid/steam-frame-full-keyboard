@@ -205,7 +205,7 @@ DesktopFocus::Window DesktopFocus::window() const {
 }
 struct KeyboardFocusProbe::State {
     std::string display;
-    std::atomic<bool> stop{};
+    std::atomic<bool> stop{}, active{true};
     mutable std::mutex mutex;
     KeyboardFocusProbe::Window window, app;
 };
@@ -239,8 +239,19 @@ KeyboardFocusProbe::Window describe(xcb_connection_t* connection, xcb_window_t f
     }
     return result;
 }
+// Idle while paused: no X traffic, and nothing to read until active again.
+bool paused(KeyboardFocusProbe::State& state) {
+    if (state.active) {
+        return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(poll_milliseconds));
+    return true;
+}
 void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
     while (!state->stop) {
+        if (paused(*state)) {
+            continue; // Connects only once first needed.
+        }
         auto* connection = xcb_connect(state->display.c_str(), nullptr);
         const auto name = xcb_connection_has_error(connection) ? xcb_atom_t{XCB_ATOM_NONE}
                                                                : intern(connection, "_NET_WM_NAME");
@@ -256,6 +267,10 @@ void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
         // Two round trips a poll; a window is described again only when it changes.
         KeyboardFocusProbe::Window window, app;
         while (!state->stop && !xcb_connection_has_error(connection)) {
+            if (paused(*state)) {
+                window = app = {}; // Described again once active.
+                continue;
+            }
             auto* focus =
                 xcb_get_input_focus_reply(connection, xcb_get_input_focus(connection), nullptr);
             const auto app_window = cardinals(connection, root, focused_app);
@@ -291,6 +306,13 @@ KeyboardFocusProbe::KeyboardFocusProbe(std::string display) : state_(std::make_s
 }
 KeyboardFocusProbe::~KeyboardFocusProbe() {
     state_->stop = true;
+}
+void KeyboardFocusProbe::set_active(bool active) {
+    state_->active = active;
+    if (!active) {
+        std::lock_guard lock(state_->mutex);
+        state_->window = state_->app = {};
+    }
 }
 KeyboardFocusProbe::Window KeyboardFocusProbe::window() const {
     std::lock_guard lock(state_->mutex);
