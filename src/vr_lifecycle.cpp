@@ -16,7 +16,9 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     const bool summoned = native.open && frame.button.summon && frame.button.summon == native.request;
     // A toggle counts only while its closed request is still the latest: a
     // field focused before this poll has opened a newer one, which takes over.
-    const bool toggled = !native.open && frame.button.toggle && frame.button.toggle == native.request;
+    // The reply can still report open, without a newer request: Steam's own
+    // keyboard, which the press showed, is still closing.
+    const bool toggled = frame.button.toggle && frame.button.toggle == native.request;
     const bool button_closes = keep_armed_ && visible_ && (toggled || summoned);
     if (button_closes && summoned) {
         // Steam counts the new request as open, and the bridge ends only a

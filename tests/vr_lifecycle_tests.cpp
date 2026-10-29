@@ -331,6 +331,18 @@ void keep_open_holds_the_panel_after_its_request() {
     h.status({44, false, false, false, true, false});
     h.display();
     require(!h.compositor, "the button that ends the open request closes the kept panel");
+    // As the bridge reports it: Steam's keyboard, shown by the press, is
+    // still closing when the toggle arrives.
+    h.request(60, false);
+    h.display();
+    h.request(60, false);
+    h.display();
+    h.button.toggle = 60;
+    h.status({60, true, false, false, true, false});
+    h.display();
+    h.status({60, false, false, false, true, false});
+    h.display();
+    require(!h.compositor, "a toggle while Steam's keyboard still closes closes the kept panel");
     const int dismissed = h.dismissals;
     h.request(45, false);
     h.display();
