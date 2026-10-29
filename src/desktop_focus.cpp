@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -214,6 +215,8 @@ struct KeyboardFocusProbe::State {
     std::string display;
     std::atomic<bool> stop{}, active{true};
     mutable std::mutex mutex;
+    // Signalled on resume and shutdown, so a paused worker sleeps without a timer.
+    std::condition_variable wake;
     KeyboardFocusProbe::Window window, app;
 };
 namespace {
@@ -251,7 +254,8 @@ bool paused(KeyboardFocusProbe::State& state) {
     if (state.active) {
         return false;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(poll_milliseconds));
+    std::unique_lock lock(state.mutex);
+    state.wake.wait(lock, [&] { return state.active || state.stop; });
     return true;
 }
 void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
@@ -301,9 +305,9 @@ void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
             std::lock_guard lock(state->mutex);
             state->window = state->app = {};
         }
-        for (int i = 0; i < retry_milliseconds / poll_milliseconds && !state->stop; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(poll_milliseconds));
-        }
+        std::unique_lock lock(state->mutex);
+        state->wake.wait_for(lock, std::chrono::milliseconds(retry_milliseconds),
+                             [&] { return state->stop.load(); });
     }
 }
 } // namespace
@@ -312,14 +316,21 @@ KeyboardFocusProbe::KeyboardFocusProbe(std::string display) : state_(std::make_s
     std::thread([state = state_] { probe(state); }).detach();
 }
 KeyboardFocusProbe::~KeyboardFocusProbe() {
+    // Under the lock, so a worker about to wait cannot miss the signal.
+    std::lock_guard lock(state_->mutex);
     state_->stop = true;
+    state_->wake.notify_all();
 }
 void KeyboardFocusProbe::set_active(bool active) {
+    if (state_->active == active) {
+        return; // The VR loop calls this every frame.
+    }
+    std::lock_guard lock(state_->mutex);
     state_->active = active;
     if (!active) {
-        std::lock_guard lock(state_->mutex);
         state_->window = state_->app = {};
     }
+    state_->wake.notify_all();
 }
 KeyboardFocusProbe::Window KeyboardFocusProbe::window() const {
     std::lock_guard lock(state_->mutex);
