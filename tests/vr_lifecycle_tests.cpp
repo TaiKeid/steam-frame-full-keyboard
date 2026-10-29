@@ -541,6 +541,9 @@ void a_hidden_focused_window_is_flagged() {
             "a tooltip above it names the hidden window");
     h.app->set_hidden_window("");
     require(h.app->view().focus_tooltip == "A window out of sight", "even when its title is unknown");
+    h.app->set_hidden_window("i");
+    h.app->paint(h.now); // A one-letter title still fits the card's corners and pointer.
+    require(h.app->view().focus_tooltip == "i", "a title of one narrow letter is shown");
     h.app->set_hidden_focus(false);
     require(!keep().warning, "and normal again once it is in sight");
     require(h.app->view().focus_tooltip.empty(), "the tooltip goes with the cue");

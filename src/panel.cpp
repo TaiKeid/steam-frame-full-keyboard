@@ -1114,9 +1114,13 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
                                        [](const Control& c) { return c.id == "keep-open"; });
     constexpr double size = 21, pad = 18;
     const double ink = text_width(cr, view.focus_tooltip, size, view.language->font);
-    const double width = std::min(area->width, ink + 2 * pad);
+    // A theme's radius may be large: the corners fit the card's height, and
+    // the card is wide enough for both corners and the pointer between them,
+    // however short the title.
+    const double radius = std::min(t.radius + 4, focus_tooltip_height / 2);
+    const double least = std::min(area->width, 2 * (radius + focus_tooltip_pointer) + 8);
+    const double width = std::clamp(ink + 2 * pad, least, area->width);
     const double centre = button.bounds.x + button.bounds.width / 2;
-    const double radius = t.radius + 4;
     const Rect card{std::clamp(centre - width / 2, area->x, area->x + area->width - width), area->y,
                     width, focus_tooltip_height};
     // The pointer stays clear of the card's rounded corners.
