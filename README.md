@@ -16,12 +16,12 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
 - Phone-style flick keyboards: Japanese 12-key kana and Korean 12-key 천지인.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
-- **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world.
-- **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app.
+- **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
+- **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
 - Controller laser typing with haptic clicks and hover feedback.
 - Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
-- Twelve themes, light and dark. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
+- Twelve themes, light and dark, with a see-through Background option. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
 - Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
 - An experimental integration protocol that lets alternative Steam Frame shells host the keyboard: launching, placing, styling and updating it. See [shell integration](docs/integration.md).
 - English, Spanish, Simplified and Traditional Chinese, Japanese, German, French (France and Canada), Brazilian Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian and Lithuanian, each on its standard national layout. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
@@ -40,14 +40,14 @@ Every release passes automated test suites on the development computer and on th
 
 No AI tools, compilation, `sudo`, or SteamOS write access are needed for the release package.
 
-1. On the **Steam Frame**, open the [GitHub Releases page](https://github.com/TaiKeid/steam-frame-full-keyboard/releases) in a browser. Download `framekeyboard-0.11.1-aarch64.tar.gz` and `SHA256SUMS` from the release assets into **Downloads**. Do not download GitHub's automatic source-code archive for this installation.
+1. On the **Steam Frame**, open the [GitHub Releases page](https://github.com/TaiKeid/steam-frame-full-keyboard/releases) in a browser. Download `framekeyboard-0.12.0-aarch64.tar.gz` and `SHA256SUMS` from the release assets into **Downloads**. Do not download GitHub's automatic source-code archive for this installation.
 2. Open a terminal in the Frame's desktop environment and run:
 
    ```sh
    cd ~/Downloads
    sha256sum -c SHA256SUMS
-   tar -xzf framekeyboard-0.11.1-aarch64.tar.gz
-   cd framekeyboard-0.11.1-aarch64
+   tar -xzf framekeyboard-0.12.0-aarch64.tar.gz
+   cd framekeyboard-0.12.0-aarch64
    bash install.sh
    ```
 
