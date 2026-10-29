@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added **Keep open** to the toolbar, beside Stay open over apps, while Replace native keyboard is on. The keyboard then stays where it is when a text field closes or loses focus, instead of closing, and types into the next field you select. With no field selected, it types into the app that has keyboard focus, as with replacement off. × or the keyboard button still hides it. The infinity sign turns amber when that app's window is out of sight. The setting is saved.
+- Added **Background** to Settings → General, to see through the keyboard's case. **Visible** keeps it as before. **Semi-transparent** dims what is behind it, and **Invisible** leaves it clear; with both, the whole case still takes the laser. **Disabled** leaves it clear and lets the laser pass through the gaps between keys to the window behind, while a swipe that crosses a gap still continues. Keys, the toolbar, the emoji picker, the dictation editor and Settings keep their own look, and the status line and hints sit on a small plate so they stay readable over any background.
 
 ## 0.11.1: Speech model download no longer closes the keyboard
 
