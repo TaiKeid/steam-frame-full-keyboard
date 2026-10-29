@@ -162,6 +162,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         startup_status_ = "Saved selection has no compatible layout. Using English defaults.";
     }
     keyboard_.set_num(settings_.num_lock);
+    // Under a shell the shell decides when the panel shows.
+    passthrough_ = settings_.passthrough && !hosted();
     pending_ = default_ = settings_.active;
     rebuild_cycle_entries();
     pending_favorites_ = settings_.favorites;
@@ -2017,6 +2019,10 @@ void App::reload() {
     if (config_errors.empty()) {
         settings_.favorites = updated_settings.favorites;
         settings_.pinned = updated_settings.pinned;
+        settings_.passthrough = updated_settings.passthrough;
+        if (!hosted() && passthrough_ != settings_.passthrough) {
+            set_passthrough(settings_.passthrough); // already saved, so nothing is written
+        }
         settings_.keep_open = updated_settings.keep_open;
         settings_.num_lock = updated_settings.num_lock;
         settings_.hide_numpad = updated_settings.hide_numpad;
@@ -3353,6 +3359,11 @@ void App::close_with_x() {
 void App::set_passthrough(bool on) {
     const bool was = passthrough();
     passthrough_ = on;
+    // The toolbar's state survives a restart, however it was turned on.
+    if (settings_.passthrough != on && !hosted()) {
+        settings_.passthrough = on;
+        save();
+    }
     if (!on) {
         dictation_passthrough_ = false;
     }

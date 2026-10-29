@@ -1167,6 +1167,14 @@ void app_settings() {
     }
     click(app, "pin");
     require(!app.pinned(), "pin can be disabled");
+    click(app, "passthrough");
+    require(app.passthrough() && saved(app).passthrough, "Stay open over apps is saved at once");
+    {
+        App reopened(options, sink);
+        require(reopened.passthrough(), "Stay open over apps survives restart");
+    }
+    click(app, "passthrough");
+    require(!app.passthrough() && !saved(app).passthrough, "and turning it off is saved too");
 
     app.show_settings();
     const auto cards = app.view().cards;

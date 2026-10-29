@@ -81,6 +81,8 @@ struct Settings {
     Selection active;
     std::vector<Favorite> favorites;
     bool pinned{};
+    // Stay open over apps, as last left; never applied under a shell.
+    bool passthrough{};
     // Replacement mode: the panel stays open after its request ends (docs/configuration.md).
     bool keep_open{};
     bool num_lock{};

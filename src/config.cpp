@@ -647,6 +647,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* pinned = field(document.get(), "pinned", json_type_boolean, true)) {
             settings.pinned = json_object_get_boolean(pinned);
         }
+        if (auto* passthrough = field(document.get(), "passthrough", json_type_boolean, true)) {
+            settings.passthrough = json_object_get_boolean(passthrough);
+        }
         if (auto* keep = field(document.get(), "keep_open", json_type_boolean, true)) {
             settings.keep_open = json_object_get_boolean(keep);
         }
@@ -859,6 +862,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
         }
         json_object_object_add(document.get(), "favorites", favorites);
         json_object_object_add(document.get(), "pinned", json_object_new_boolean(settings->pinned));
+        json_object_object_add(document.get(), "passthrough",
+                               json_object_new_boolean(settings->passthrough));
         json_object_object_add(document.get(), "keep_open",
                                json_object_new_boolean(settings->keep_open));
         json_object_object_add(document.get(), "num_lock", json_object_new_boolean(settings->num_lock));

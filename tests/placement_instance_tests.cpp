@@ -1299,11 +1299,16 @@ void passthrough_tests() {
             "clicking turns passthrough on; like Pin, only the icon changes");
     require(!app.pinned(), "passthrough leaves pin unchanged");
     app.flush_settings();
-    fk::App restarted(options, sink);
-    require(!restarted.passthrough(), "passthrough is not saved");
+    {
+        fk::App restarted(options, sink);
+        require(restarted.passthrough(), "passthrough is saved and survives a restart");
+    }
     app.down(0, x, y, 2);
     app.up(0, x, y);
     require(!app.passthrough(), "clicking again turns passthrough off");
+    app.flush_settings();
+    fk::App restarted(options, sink);
+    require(!restarted.passthrough(), "turning it off is saved too");
 }
 void ui_tests() {
     TemporaryDirectory temp;

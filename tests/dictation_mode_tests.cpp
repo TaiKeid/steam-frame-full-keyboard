@@ -1413,6 +1413,7 @@ void passthrough_tests() {
         press(app, "Escape");
         press(app, "Escape");
         require(!app.dictation_open() && app.passthrough(), "and stays on after the mode");
+        app.set_passthrough(false); // It is saved; the next launch must start without it.
     }
     {
         Sink sink;
