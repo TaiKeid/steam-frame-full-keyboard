@@ -968,6 +968,70 @@ class SceneCursors {
     }
     std::array<Dot, 2> dots_{};
 };
+// SteamVR's own laser outside the dashboard, only while a passthrough ray
+// points at a floating window, so a trigger pull there is a real click on
+// Gamescope's overlay and focuses that window. Our own ray cannot click
+// another app's overlay. SteamVR turns its system-wide laser mode on while any visible
+// overlay with mouse input has MakeOverlaysInteractiveIfVisible, as Steam's
+// keyboard over games does; this overlay carries that flag, a transparent
+// speck far below the floor, so the laser never lands on our keyboard.
+class WindowLaser {
+  public:
+    // Kept on briefly after the ray leaves, so the laser does not flicker at
+    // a window's edge or vanish just before a pull.
+    void update(bool pointing, double now) {
+        if (pointing) {
+            until_ = now + .3;
+        }
+        set(pointing || now < until_);
+    }
+    void off() {
+        until_ = 0;
+        set(false);
+    }
+
+  private:
+    void set(bool on) {
+        if (on == on_ || failed_ || (!handle_ && !create())) {
+            return;
+        }
+        on_ = on;
+        if (on) {
+            vr_overlay()->ShowOverlay(handle_);
+        } else {
+            vr_overlay()->HideOverlay(handle_);
+        }
+    }
+    bool create() {
+        auto overlay = vr_overlay();
+        const std::array<std::uint8_t, 4> pixel{};
+        vr::HmdMatrix34_t pose{};
+        pose.m[0][0] = pose.m[1][1] = pose.m[2][2] = 1;
+        pose.m[1][3] = -100;
+        failed_ = overlay->CreateOverlay("org.framekeyboard.window-laser", "Full Keyboard window laser",
+                                         &handle_) != vr::VROverlayError_None ||
+                  overlay->SetOverlayRaw(handle_, const_cast<std::uint8_t*>(pixel.data()), 1, 1, 4) !=
+                      vr::VROverlayError_None ||
+                  overlay->SetOverlayWidthInMeters(handle_, .01f) != vr::VROverlayError_None ||
+                  overlay->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding, &pose) !=
+                      vr::VROverlayError_None ||
+                  overlay->SetOverlayInputMethod(handle_, vr::VROverlayInputMethod_Mouse) !=
+                      vr::VROverlayError_None ||
+                  overlay->SetOverlayFlag(handle_, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible,
+                                          true) != vr::VROverlayError_None;
+        if (failed_) {
+            std::cerr << "Window laser unavailable.\n";
+            if (handle_) {
+                overlay->DestroyOverlay(handle_);
+                handle_ = 0;
+            }
+        }
+        return !failed_;
+    }
+    vr::VROverlayHandle_t handle_{};
+    bool on_{}, failed_{};
+    double until_{};
+};
 // Each pointer's laser in the world: a controller's from its tip component
 // along -Z, as SteamVR draws it, and the head cursor's straight ahead.
 class LaserRays {
@@ -1579,6 +1643,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool scene_input = false;
     PassthroughRequests passthrough_requests;
     HiddenFocusCue hidden_focus;
+    WindowLaser window_laser;
     // Gamescope's keyboard focus while the panel shows in the dashboard.
     std::unique_ptr<KeyboardFocusProbe> focus_probe;
     DashboardFocus dashboard_focus;
@@ -3053,6 +3118,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     }
                 }
             }
+            // A ray off the keyboard that meets a floating window's overlay
+            // brings SteamVR's laser to click it (WindowLaser).
+            bool on_window = false;
+            for (std::size_t hand = 0; hand < samples.size() && !on_window; ++hand) {
+                const auto& sample = samples[hand];
+                if (sample.ray && !sample.lost && !inside[hand] && !gap[hand] && !on_resizer[hand]) {
+                    const auto visible = hidden_focus.overlays.visible(now);
+                    on_window = !visible.empty() &&
+                                hidden_focus.overlays.pointed(*sample.ray, visible).has_value();
+                }
+            }
+            window_laser.update(on_window, now);
             // A trigger pulled outside the panel may click another field or cursor
             // position in the app, even with a hand that never pointed at the
             // keyboard. Treat it as the laser leaving, before any key from this
@@ -3189,6 +3266,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 app.close_panel();
                 dismiss_panel();
             }
+        }
+        if (!(scene_input && lifecycle.visible()) || done || app.quitting()) {
+            window_laser.off(); // Passthrough only; the dashboard has its own laser.
         }
         if (done || app.quitting()) {
             break;
