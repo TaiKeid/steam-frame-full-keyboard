@@ -136,6 +136,13 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             state.window = packed;
             const auto now_focused = static_cast<std::uint32_t>(packed >> 32);
             if (now_focused != titled) {
+                // Only the focused window is watched: a background window's
+                // property changes would otherwise keep waking this thread.
+                // A window already gone just answers with an error, ignored.
+                if (titled) {
+                    const std::uint32_t none = XCB_EVENT_MASK_NO_EVENT;
+                    xcb_change_window_attributes(connection, titled, XCB_CW_EVENT_MASK, &none);
+                }
                 titled = now_focused;
                 retitle = true;
                 if (titled) {

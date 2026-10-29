@@ -83,6 +83,8 @@ struct AnsweringServer {
     int listener{-1};
     pid_t compositor{};
     std::atomic<int> property_queries{};
+    // Whether window 10, focused first, is still watched for property changes.
+    std::atomic<bool> first_watched{};
     std::uint16_t sequence{};
     int client{-1};
     bool start(int number, pid_t nested) {
@@ -220,7 +222,11 @@ struct AnsweringServer {
                     put32(out, value);
                 }
                 send_all(out);
-            } // ChangeWindowAttributes has no reply
+            } else if (head[0] == 2 && body.size() >= 12 && (body[4] | body[5] << 8) & 0x800 &&
+                       (body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24) == 10) {
+                // ChangeWindowAttributes with an event mask, which has no reply.
+                first_watched = (body[8] | body[9] << 8 | body[10] << 16 | body[11] << 24) != 0;
+            }
         }
     }
 };
@@ -282,6 +288,11 @@ int main() {
         waitpid(nested, nullptr, 0);
         require(answering.property_queries == 4 && !moving.focused(),
                 "the queued focus change is read at once: no longer the Desktop");
+        for (int i = 0; i < 100 && answering.first_watched; ++i) {
+            std::this_thread::sleep_for(10ms);
+        }
+        require(!answering.first_watched,
+                "the window that lost focus is no longer watched for its title");
     } catch (const std::exception& error) {
         std::cerr << "desktop focus test failed: " << error.what() << '\n';
         return 1;
