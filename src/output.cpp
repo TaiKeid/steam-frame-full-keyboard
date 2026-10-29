@@ -121,7 +121,11 @@ bool OutputController::enqueue_text(const std::string& text, std::shared_ptr<Ent
     if (text.empty()) {
         return true;
     }
-    if (!enabled_ || failed_ || queue_.size() >= capacity || !sendable(text)) {
+    if (!enabled_) {
+        return false; // No target: the app shakes Focus mode's icon instead
+                      // (App::refuse_without_target).
+    }
+    if (failed_ || queue_.size() >= capacity || !sendable(text)) {
         status("Text not queued. Check the target and input queue.");
         return false;
     }

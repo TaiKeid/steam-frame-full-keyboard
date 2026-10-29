@@ -333,16 +333,12 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         break;
     case Icon::KeepOpenOn:
     case Icon::KeepOpenOff:
-        // An infinity loop: the panel stays. Off, slashed like Pin.
-        for (int i = 0; i <= 48; ++i) {
-            const double t = i * pi / 24, d = 1 + std::sin(t) * std::sin(t);
-            const double x = 10.5 * std::cos(t) / d, y = 10.5 * std::sin(t) * std::cos(t) / d;
-            if (i == 0) {
-                cairo_move_to(cr, x, y);
-            } else {
-                cairo_line_to(cr, x, y);
-            }
-        }
+        // Focus mode: the window being typed into, a monitor like Computer's.
+        // Off, slashed like Pin.
+        rounded(cr, {-10, -8, 20, 13}, 2);
+        cairo_stroke(cr);
+        line(0, 5, 0, 9);
+        line(-5, 9, 5, 9);
         if (icon == Icon::KeepOpenOff) {
             line(-10, -10, 10, 10);
         }
@@ -594,6 +590,17 @@ double mic_phase(const PanelView& view, double now) {
     constexpr double frame = 1.0 / 30;
     const double sampled = std::floor(now / frame) * frame;
     return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
+}
+// The Focus mode icon's shake, in pixels: a few damped swings, sampled 30
+// times a second like the mic key's bars; 0 once it is over.
+constexpr double focus_shake_duration = .45;
+double focus_shake(const PanelView& view, double now) {
+    constexpr double pi = 3.141592653589793;
+    const double t = std::floor(now * 30) / 30 - view.focus_shake_since;
+    if (view.focus_shake_since < 0 || t < 0 || t >= focus_shake_duration) {
+        return 0;
+    }
+    return std::round(6 * std::sin(t * 2 * pi * 6) * (1 - t / focus_shake_duration) * 2) / 2;
 }
 // A hovered name too long for its row, `overflow` pixels in all, waits,
 // scrolls to its end, rests there, then starts over. Its offset in whole
@@ -1074,6 +1081,71 @@ void soft_shadow(cairo_t* cr, const Rect& r, double radius, double depth) {
         cairo_set_source_rgba(cr, 0, 0, 0, .09);
         cairo_fill(cr);
     }
+}
+// Where the focus tooltip may lie: above the case, centred on the Keep open
+// button and kept on the panel. Its card is as wide as its text, up to this.
+constexpr double focus_tooltip_height = 46, focus_tooltip_pointer = 10;
+std::optional<Rect> focus_tooltip_area(const PanelView& view) {
+    if (view.focus_tooltip.empty() || view.settings) {
+        return {};
+    }
+    const auto button = std::find_if(view.controls.begin(), view.controls.end(),
+                                     [](const Control& c) { return c.id == "keep-open"; });
+    if (button == view.controls.end()) {
+        return {};
+    }
+    constexpr double width = 640;
+    const double centre = button->bounds.x + button->bounds.width / 2;
+    const double bottom = panel_case_bounds(view).y - 4; // the pointer's tip
+    return Rect{std::clamp(centre - width / 2, 8.0, panel_width - 8 - width),
+                bottom - focus_tooltip_pointer - focus_tooltip_height, width,
+                focus_tooltip_height + focus_tooltip_pointer};
+}
+// A raised card like Settings' cards, with a pointer down to the button and
+// the window's title in the legend colour. It floats over whatever is behind
+// the panel, so its fill stays opaque with any Background.
+void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
+    const auto area = focus_tooltip_area(view);
+    if (!area) {
+        return;
+    }
+    const auto& t = *view.theme;
+    const auto& button = *std::find_if(view.controls.begin(), view.controls.end(),
+                                       [](const Control& c) { return c.id == "keep-open"; });
+    constexpr double size = 21, pad = 18;
+    const double ink = text_width(cr, view.focus_tooltip, size, view.language->font);
+    const double width = std::min(area->width, ink + 2 * pad);
+    const double centre = button.bounds.x + button.bounds.width / 2;
+    const double radius = t.radius + 4;
+    const Rect card{std::clamp(centre - width / 2, area->x, area->x + area->width - width), area->y,
+                    width, focus_tooltip_height};
+    // The pointer stays clear of the card's rounded corners.
+    const double tip = std::clamp(centre, card.x + radius + focus_tooltip_pointer,
+                                  card.x + card.width - radius - focus_tooltip_pointer);
+    // One outline, clockwise, the pointer part of the bottom edge: two
+    // separate shapes would leave an antialiased seam where they meet.
+    constexpr double pi = 3.141592653589793;
+    const double left = card.x, top = card.y, right = card.x + card.width, bottom = card.y + card.height;
+    soft_shadow(cr, card, radius, 6);
+    cairo_new_path(cr);
+    cairo_arc(cr, left + radius, top + radius, radius, pi, 1.5 * pi);
+    cairo_arc(cr, right - radius, top + radius, radius, 1.5 * pi, 2 * pi);
+    cairo_arc(cr, right - radius, bottom - radius, radius, 0, .5 * pi);
+    cairo_line_to(cr, tip + focus_tooltip_pointer, bottom);
+    cairo_line_to(cr, tip, bottom + focus_tooltip_pointer);
+    cairo_line_to(cr, tip - focus_tooltip_pointer, bottom);
+    cairo_arc(cr, left + radius, bottom - radius, radius, .5 * pi, pi);
+    cairo_close_path(cr);
+    source(cr, mix(t.surface, t.bottom, .45));
+    cairo_fill(cr);
+    cairo_move_to(cr, card.x + radius, card.y + 1.5);
+    cairo_line_to(cr, card.x + card.width - radius, card.y + 1.5);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+    // label() sets text 4 px inside its area.
+    label(cr, view.focus_tooltip, {card.x + pad - 4, card.y, card.width - 2 * pad + 8, card.height},
+          size, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
 }
 void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
     const double radius = t.radius + 4;
@@ -1617,6 +1689,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             damage.push_back(key_bounds_.at(key.id));
         }
     }
+    // The Focus mode icon shakes inside its button, which alone repaints.
+    const double shake = view.settings ? 0 : focus_shake(view, now);
+    animating_ |= !view.settings && view.focus_shake_since >= 0 &&
+                  now - view.focus_shake_since < focus_shake_duration + .05;
+    if (shake != focus_shake_ && !full) {
+        for (const auto& c : view.controls) {
+            if (c.id == "keep-open") {
+                damage.push_back({std::floor(c.bounds.x), std::floor(c.bounds.y),
+                                  std::ceil(c.bounds.width) + 1, std::ceil(c.bounds.height) + 1});
+            }
+        }
+    }
+    focus_shake_ = shake;
     // The mic key's bars and ring step at 30 fps; between steps a 60 Hz
     // frame would rebuild and compare the whole view for no new pixel.
     next_change_ = continuous ? now : (std::floor(now * 30) + 1) / 30;
@@ -1690,6 +1775,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     if (!full && previous_->view.preedit != view.preedit) {
         const auto body = panel_case_bounds(view);
         damage_area({std::floor(body.x + 20), 94, std::ceil(body.width - 40), 40});
+    }
+    if (!full && (previous_->view.focus_tooltip != view.focus_tooltip ||
+                  (!view.focus_tooltip.empty() && previous_->view.controls != view.controls))) {
+        auto old = view;
+        old.focus_tooltip = previous_->view.focus_tooltip;
+        old.controls = previous_->view.controls;
+        for (const auto& bounds : {focus_tooltip_area(old), focus_tooltip_area(view)}) {
+            if (bounds) {
+                // The card's shadow spreads a few pixels past it.
+                const double left = std::floor(bounds->x - 8), top = std::floor(bounds->y - 4);
+                damage_area({left, top, std::ceil(bounds->x + bounds->width + 8) - left,
+                             std::ceil(bounds->y + bounds->height + 8) - top});
+            }
+        }
     }
     if (!full && previous_->view.flick_preview != view.flick_preview) {
         auto old = view;
@@ -2054,6 +2153,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                       static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
             }
         }
+        draw_focus_tooltip(cr, view);
         if (view.composing && !view.settings) {
             const auto& method = view.language->input_method;
             const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
@@ -2246,7 +2346,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     draw_icon(cr, Icon::Apply, r, legend, 28);
                 }
             } else if (control.icon != Icon::None) {
-                draw_icon(cr, control.icon, r, control.warning ? t.alert : legend);
+                auto at = r;
+                if (control.id == "keep-open") {
+                    at.x += focus_shake_; // Its button stays; only the icon shakes.
+                }
+                draw_icon(cr, control.icon, at, control.warning ? t.alert : legend);
             } else {
                 label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
             }

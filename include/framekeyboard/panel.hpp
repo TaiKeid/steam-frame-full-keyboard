@@ -49,6 +49,7 @@ enum class ControlKind {
     ReplaceNativeKeyboard,
     StartWithSteamos,
     EmojiCloseOnSelect,
+    FocusTooltip,
     ChooseDesktopUnicode,
     DictationDiscard,
     DictationKeep,
@@ -194,6 +195,12 @@ struct PanelView {
         int selected{};
     };
     std::optional<FlickPreview> flick_preview;
+    // Keep open types into a window out of sight (its amber cue): a tooltip
+    // above that button names it. Empty: none.
+    std::string focus_tooltip;
+    // Typing was refused for want of a target: from this time the Focus mode
+    // button's icon shakes, like an error, instead of a status message.
+    double focus_shake_since{-1};
     std::set<std::string> hovered_keys, hovered_controls;
     // Case coordinates of the swipe in progress, drawn above the keys.
     std::vector<std::pair<double, double>> swipe_trail;
@@ -359,7 +366,9 @@ class PanelRenderer {
     std::optional<Rect> trail_extent_;
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
-    double ring_time_{};  // The recognition ring's time, sampled at 30 fps, when last drawn.
+    double ring_time_{};
+    double focus_shake_{}; // The Focus mode icon's shake offset, when last drawn.  // The recognition
+                           // ring's time, sampled at 30 fps, when last drawn.
     double next_change_{};
     bool animating_{};
 };

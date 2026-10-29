@@ -98,6 +98,8 @@ struct Settings {
     bool swipe_typing{};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
+    // Keep open's amber cue names the hidden window it types into in a tooltip.
+    bool focus_tooltip{true};
     // SteamOS's Desktop: non-ASCII text is pasted instead of typed as Unicode entry.
     bool desktop_unicode_paste{};
     // Dictation (docs/dictation.md). The Dictation card in Settings edits the

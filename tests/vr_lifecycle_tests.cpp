@@ -479,6 +479,29 @@ void a_hidden_focused_window_is_flagged() {
     v.update({0, {}, {}});
     require(!v.hidden(), "unknown focus is never flagged");
 
+    // A pinned window stays in sight beside the one clicked: the laser tells
+    // which overlay took focus, so leaving the dashboard flags the browser.
+    constexpr std::uint32_t pinned = 0x4200009;
+    FocusVisibility w;
+    w.update({pinned, {}, {263, 270}});
+    w.update({browser, {}, {263, 270}, 270});
+    require(!w.hidden(), "the clicked browser is in sight");
+    w.update({browser, {}, {263}});
+    require(w.hidden(), "the dashboard closed: only the pinned window is in sight");
+    w.update({pinned, {}, {263, 270}, 999});
+    w.update({browser, {}, {263, 270}, 999});
+    require(!w.hidden(), "a laser on no visible window overlay teaches nothing new");
+
+    // Gamescope names a window's overlay after its title: that link needs no
+    // click, as when SteamOS's Desktop takes focus as it opens.
+    constexpr std::uint32_t nested = 0x4800000;
+    FocusVisibility n;
+    n.update({nested, {}, {263, 286}, {}, 286});
+    require(!n.hidden(), "the Desktop's own overlay is in sight");
+    n.update({nested, {}, {263}, {}, 286});
+    require(n.hidden(),
+            "the dashboard closed: the Desktop is out of sight, the pinned window is not it");
+
     // Focus read for the first time, or again after a reconnect or a hidden
     // spell, is not a click: it teaches nothing and keeps what was learned.
     constexpr std::uint32_t editor = 100;
@@ -513,8 +536,72 @@ void a_hidden_focused_window_is_flagged() {
     require(!keep().warning, "with Keep open off the icon stays normal");
     h.toolbar("keep-open");
     require(keep().warning, "Keep open's icon turns amber while typing goes to a hidden window");
+    h.app->set_hidden_window("New Tab - Brave");
+    require(h.app->view().focus_tooltip == "New Tab - Brave",
+            "a tooltip above it names the hidden window");
+    h.app->set_hidden_window("");
+    require(h.app->view().focus_tooltip == "A window out of sight", "even when its title is unknown");
     h.app->set_hidden_focus(false);
     require(!keep().warning, "and normal again once it is in sight");
+    require(h.app->view().focus_tooltip.empty(), "the tooltip goes with the cue");
+    Headset off(false);
+    Settings quiet;
+    quiet.replace_native_keyboard = quiet.keep_open = true;
+    quiet.focus_tooltip = false;
+    save_settings(off.config.path, quiet);
+    off.app->reload();
+    off.request(71, false);
+    off.display();
+    off.app->set_hidden_focus(true);
+    off.app->set_hidden_window("New Tab - Brave");
+    require(off.app->keep_open() && off.app->view().focus_tooltip.empty(),
+            "Hidden window tooltip off keeps only the amber cue");
+}
+
+void the_dashboard_with_the_keys_types_nothing() {
+    constexpr std::uint32_t kate = 0x4400007, brave = 0x4600001;
+    DashboardFocus d;
+    d.update(true, false, kate, 1);
+    require(!d.focused(), "an app with Gamescope's keys is typed into");
+    d.update(true, true, kate, 2);
+    require(d.focused(), "a click on the dashboard gives a Steam window the keys");
+    d.update(true, false, kate, 3);
+    require(d.focused(), "using our keyboard moves the keys on to the app: not the user's choice");
+    d.click(4);
+    d.update(true, true, kate, 4.1);
+    d.update(true, false, kate, 4.5);
+    require(d.focused(), "a click elsewhere in the dashboard keeps it; the fallback after it too");
+    d.click(5);
+    d.update(true, false, kate, 5.1);
+    require(d.focused(), "a click waits for Gamescope to move the keys");
+    d.update(true, false, kate, 5.1 + DashboardFocus::settle);
+    require(!d.focused(), "a click that leaves an app with the keys chose that app");
+    d.click(6);
+    d.update(true, false, kate, 7);
+    require(!d.focused(), "a click without the dashboard changes nothing");
+    d.update(true, true, kate, 8);
+    d.update(true, false, brave, 8.5);
+    require(!d.focused(), "another app taking focus, such as one just launched, has the keys");
+    d.update(true, true, brave, 9);
+    d.update(false, true, brave, 10);
+    require(!d.focused(), "a closed dashboard has no keys");
+
+    // A local app's field stays open while the dashboard is chosen: its keys
+    // would reach that hidden app.
+    Headset h(false);
+    h.request(80);
+    h.display();
+    h.app->set_dashboard_focus(true);
+    h.press(1, "KeyA");
+    h.app->up(1, h.point("KeyA").first, h.point("KeyA").second);
+    require(h.receiver.text.empty() && h.receiver.downs.empty(),
+            "nothing reaches the app while the dashboard has the keys");
+    require(h.app->view().focus_shake_since == h.now && h.app->view().status.empty(),
+            "the Focus mode icon shakes instead of a message");
+    h.app->set_dashboard_focus(false);
+    h.click(2, "KeyA");
+    require(h.receiver.text == std::vector<std::pair<int, std::string>>{{80, "a"}},
+            "typing reaches the app again once it has the keys");
 }
 
 void late_work_cannot_cross_targets() {
@@ -825,6 +912,7 @@ int main() {
         a_pinned_window_request_opens_passthrough();
         keep_open_holds_the_panel_after_its_request();
         a_hidden_focused_window_is_flagged();
+        the_dashboard_with_the_keys_types_nothing();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

@@ -674,6 +674,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
         }
+        if (auto* tooltip = field(document.get(), "focus_tooltip", json_type_boolean, true)) {
+            settings.focus_tooltip = json_object_get_boolean(tooltip);
+        }
         if (auto* paste = field(document.get(), "desktop_unicode_paste", json_type_boolean, true)) {
             settings.desktop_unicode_paste = json_object_get_boolean(paste);
         }
@@ -875,6 +878,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->swipe_typing));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
+        json_object_object_add(document.get(), "focus_tooltip",
+                               json_object_new_boolean(settings->focus_tooltip));
         json_object_object_add(document.get(), "desktop_unicode_paste",
                                json_object_new_boolean(settings->desktop_unicode_paste));
         json_object_object_add(document.get(), "dictation_send_gap_ms",

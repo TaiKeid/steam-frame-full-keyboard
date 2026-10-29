@@ -21,7 +21,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -119,6 +121,29 @@ class WindowOverlays {
         return result;
     }
     void reset() { *this = {}; }
+    // Which of these window overlays a laser meets, if exactly one.
+    std::optional<std::uint32_t> pointed(const Ray& ray,
+                                         const std::vector<std::uint32_t>& numbers) const {
+        vr::VROverlayIntersectionParams_t params{};
+        params.eOrigin = vr::TrackingUniverseStanding;
+        for (std::size_t i = 0; i < 3; ++i) {
+            params.vSource.v[i] = static_cast<float>(ray.origin[i]);
+            params.vDirection.v[i] = static_cast<float>(ray.direction[i]);
+        }
+        std::optional<std::uint32_t> hit;
+        float nearest = std::numeric_limits<float>::max();
+        for (const auto number : numbers) {
+            const auto it = known_.find(number);
+            vr::VROverlayIntersectionResults_t result{};
+            if (it != known_.end() &&
+                vr_overlay()->ComputeOverlayIntersection(it->second, &params, &result) &&
+                result.fDistance < nearest) {
+                nearest = result.fDistance; // The nearest, as SteamVR's laser stops there.
+                hit = number;
+            }
+        }
+        return hit;
+    }
 
   private:
     static constexpr std::uint32_t step = 1024, sweep_end = 65536;
@@ -147,20 +172,71 @@ class WindowOverlays {
         probe(top, top + step);
         probe(sweep_, sweep_ + step);
         sweep_ = sweep_ + step >= sweep_end ? 0 : sweep_ + step;
+        // Gamescope names each window's overlay after its window's title.
+        names_.clear();
+        for (const auto& [number, handle] : known_) {
+            char name[256]{};
+            vr::EVROverlayError error{};
+            vr_overlay()->GetOverlayName(handle, name, sizeof(name), &error);
+            if (error == vr::VROverlayError_None && *name) {
+                names_[number] = name;
+            }
+        }
+    }
+    std::map<std::uint32_t, std::string> names_;
+
+  public:
+    // The one window overlay named `title`, as of the last scan; none when
+    // several share it.
+    std::optional<std::uint32_t> named(const std::string& title) const {
+        std::optional<std::uint32_t> found;
+        for (const auto& [number, name] : names_) {
+            if (!title.empty() && name == title) {
+                if (found) {
+                    return {};
+                }
+                found = number;
+            }
+        }
+        return found;
     }
     std::map<std::uint32_t, vr::VROverlayHandle_t> known_;
     std::uint32_t sweep_{};
     double next_scan_{};
     bool started_{};
 };
+// Debugging: the status line shows where typing goes, and which window had
+// Gamescope's keys when the laser last came onto the keyboard. Code-only;
+// keep it false in releases.
+constexpr bool show_input_target = false;
+// A KeyboardFocusProbe window, short: Steam's dashboard windows are named
+// "SteamVR - valve.steam.gamepadui.<part> (<handle>)", the main one "SteamVR".
+[[maybe_unused]] std::string target_name(const KeyboardFocusProbe::Window& window) {
+    if (!window.id) {
+        return "unknown";
+    }
+    if (window.steam) {
+        auto part = window.title;
+        if (const auto at = part.find("gamepadui."); at != std::string::npos) {
+            part = part.substr(at + 10, part.find(' ', at) - at - 10);
+        } else if (part == "SteamVR") {
+            part = "main";
+        }
+        return "Steam dashboard (" + part + ")";
+    }
+    return window.title.empty() ? "untitled window" : window.title;
+}
 // The Keep open icon turns amber while its panel types into a window out of sight.
 struct HiddenFocusCue {
     std::unique_ptr<DesktopFocus> focus;
     WindowOverlays overlays;
     FocusVisibility visibility;
+    std::uint32_t last_window{};
     // Sampled only while the panel shows; hidden, it costs nothing and keeps
     // what it found and learned.
-    bool update(bool enabled, bool shown, bool typing_to_focus, double now) {
+    // `ray`: the dashboard laser, read only to learn which window overlay was clicked.
+    bool update(bool enabled, bool shown, bool typing_to_focus, double now,
+                const std::function<std::optional<Ray>()>& ray) {
         if (!enabled) {
             overlays.reset();
             visibility.reset();
@@ -177,6 +253,14 @@ struct HiddenFocusCue {
         }
         const auto window = focus->window();
         FocusVisibility::Sample sample{window.id, {}, overlays.visible(now)};
+        sample.named = overlays.named(focus->title());
+        // Read only when focus just moved: the click that moved it is under the laser.
+        if (window.id != last_window && sample.visible.size() > 1) {
+            if (const auto laser = ray()) {
+                sample.pointed = overlays.pointed(*laser, sample.visible);
+            }
+        }
+        last_window = window.id;
         if (window.app) {
             // A Steam game shows through its own overlay.
             const auto key = "valve.steam.desktopgame." + std::to_string(window.app);
@@ -188,6 +272,14 @@ struct HiddenFocusCue {
         // Learning continues while typing goes elsewhere, so a later switch is known.
         visibility.update(sample);
         return typing_to_focus && visibility.hidden();
+    }
+    // The focus tooltip's name for the focused app window: SteamOS's Desktop
+    // runs nested, and its window's own title is a hint about grabbing input.
+    std::string title() const {
+        if (!focus) {
+            return {};
+        }
+        return focus->focused() ? "KDE Desktop" : focus->title();
     }
 };
 void check(vr::EVROverlayError error, const char* operation) {
@@ -1487,6 +1579,52 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool scene_input = false;
     PassthroughRequests passthrough_requests;
     HiddenFocusCue hidden_focus;
+    // Gamescope's keyboard focus while the panel shows in the dashboard.
+    std::unique_ptr<KeyboardFocusProbe> focus_probe;
+    DashboardFocus dashboard_focus;
+    // DashboardFocus: a trigger pull with the laser off the keyboard may click
+    // another window. Each Frame controller's trigger is read at 20 Hz, only
+    // while the dashboard has the keys.
+    struct ClickWatch {
+        vr::TrackedDeviceIndex_t device{vr::k_unTrackedDeviceIndexInvalid};
+        TriggerWatch watch;
+        std::optional<GapTrigger> rest;
+    };
+    std::array<ClickWatch, 2> click_watches;
+    bool hidden_window_shown = false; // Keep open's amber cue
+    double clicks_checked = -1;
+    auto watch_clicks = [&](bool on_panel, double now) {
+        if (!dashboard_focus.focused() || on_panel) {
+            click_watches = {};
+            return;
+        }
+        if (now - clicks_checked < .05) {
+            return;
+        }
+        clicks_checked = now;
+        for (std::size_t hand = 0; hand < click_watches.size(); ++hand) {
+            auto& click = click_watches[hand];
+            const auto device = vr_system()->GetTrackedDeviceIndexForControllerRole(
+                hand ? vr::TrackedControllerRole_RightHand : vr::TrackedControllerRole_LeftHand);
+            if (device != click.device) {
+                click = {};
+                click.device = device;
+                if (device != vr::k_unTrackedDeviceIndexInvalid) {
+                    click.watch.begin(device, now);
+                }
+            }
+            const auto angle = click.watch.angle();
+            if (!click.rest) {
+                click.rest = GapTrigger::enter(angle, false); // Waits for the trigger to rest.
+            } else if (!click.rest->rests(angle)) {
+                dashboard_focus.click(now);
+                click.rest.reset();
+            }
+        }
+    };
+    // show_input_target only.
+    std::string entry_target;
+    bool laser_on_panel = false;
     std::array<bool, 2> scene_inside{};
     // Each hand's trigger while its ray rests off the keys after leaving
     // them, and when it last released a press (GapTrigger).
@@ -2487,11 +2625,62 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             dismiss_panel();
         }
         app.set_field_needed(lifecycle.field_needed());
-        // Only a Keep open panel without a request types into the focused window.
-        app.set_hidden_focus(
-            hidden_focus.update(!hosted && app.keep_open(), lifecycle.visible(),
-                                lifecycle.held_without_field() && !lifecycle.field_needed(), now));
         const bool dashboard_visible = vr_overlay()->IsDashboardVisible();
+        // Whether Steam's dashboard has the keys, watched only while the panel
+        // shows in the dashboard: the probe polls X then only.
+        const bool on_panel =
+            std::any_of(hovered_devices.begin(), hovered_devices.end(), [](bool on) { return on; });
+        const bool in_dashboard = !hosted && lifecycle.visible() && dashboard_visible && !scene_input;
+        if (!in_dashboard) {
+            focus_probe.reset();
+        } else if (!focus_probe) {
+            // Gamescope's first X display, where Steam runs, as for HiddenFocusCue.
+            const char* display = std::getenv("DISPLAY");
+            focus_probe = std::make_unique<KeyboardFocusProbe>(display && *display ? display : ":0");
+        }
+        if (in_dashboard) {
+            watch_clicks(on_panel, now);
+            // Only the dashboard's own page window: hovering its bottom bar
+            // gives the bar and its popups ("X Close") the keys for a moment,
+            // with no choice made. Steam names that window "SteamVR".
+            const auto keys = focus_probe->window();
+            dashboard_focus.update(true, keys.steam && keys.title == "SteamVR", focus_probe->app().id,
+                                   now);
+        } else {
+            dashboard_focus.reset();
+            click_watches = {};
+        }
+        // A Steam field's own route still types; anything else would reach the
+        // app Gamescope falls back to, not the dashboard the user is in.
+        const bool dashboard_block = dashboard_focus.focused() && !replacement.remote();
+        app.set_dashboard_focus(dashboard_block);
+        // The Keep open cue: typing goes to Gamescope's focused window, held
+        // without a field or into a local app's field, and it is out of sight.
+        hidden_window_shown = hidden_focus.update(
+            !hosted && app.keep_open(), lifecycle.visible(),
+            !replacement.remote() && !lifecycle.field_needed() && !dashboard_block, now,
+            [&]() -> std::optional<Ray> {
+                return dashboard_visible ? laser_rays.read(vr_overlay()->GetPrimaryDashboardDevice())
+                                         : std::nullopt;
+            });
+        app.set_hidden_focus(hidden_window_shown);
+        app.set_hidden_window(hidden_window_shown ? hidden_focus.title() : std::string());
+        if constexpr (show_input_target) {
+            if (focus_probe) {
+                const auto keys = target_name(focus_probe->window());
+                if (on_panel && !laser_on_panel) {
+                    entry_target = keys; // Before SteamVR moves input focus to our overlay.
+                }
+                const auto target = replacement.remote() ? std::string("Steam field")
+                                    : lifecycle.field_needed()
+                                        ? std::string("nothing (waiting for a field)")
+                                    : dashboard_block ? std::string("nothing (dashboard)")
+                                                      : target_name(focus_probe->app());
+                app.set_debug_status("To: " + target + " | keys now: " + keys +
+                                     (entry_target.empty() ? "" : " | on entry: " + entry_target));
+            }
+            laser_on_panel = on_panel;
+        }
         if (!hosted && passthrough_requests.take(replace, native, dashboard_visible)) {
             std::cout << "Passthrough turned on for a request outside the dashboard.\n" << std::flush;
             app.set_passthrough(true);

@@ -17,7 +17,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Phone-style flick keyboards: Japanese 12-key kana and Korean 12-key 천지인.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world.
-- **Keep open**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app.
+- **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app.
 - Controller laser typing with haptic clicks and hover feedback.
 - Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
@@ -88,7 +88,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Use grab movement | Enable **Use Drag to Move** in the **General** settings card and apply. Point anywhere on the keyboard and hold grab/grip; the same hand's thumbstick adjusts depth |
 | Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
 | Keep it open without the dashboard | Toggle **Stay open over apps** beside the pin icon |
-| Keep it open between text fields | With Replace native keyboard on, toggle **Keep open**, the infinity sign beside Stay open over apps. The keyboard stays where it is when a field closes, types into the next field you select, and otherwise types into the app with keyboard focus; × or the keyboard button still hides it |
+| Keep it open between text fields | With Replace native keyboard on, toggle **Focus mode**, the window icon beside Stay open over apps. The keyboard stays where it is when a field closes, types into the next field you select, and otherwise types into the app with keyboard focus; × or the keyboard button still hides it |
 | Cycle favorite layouts and languages | Press the language abbreviation beside the pin icon |
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |

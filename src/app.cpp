@@ -173,6 +173,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
@@ -344,7 +345,7 @@ std::vector<Control> App::controls() const {
     const bool keep_button = resident_replacement() && !hosted();
     if (keep_button) {
         add({ControlKind::KeepOpen},
-            {"keep-open", settings_.keep_open ? "Close when typing ends" : "Keep open", button(4, 1, 1),
+            {"keep-open", settings_.keep_open ? "Leave focus mode" : "Focus mode", button(4, 1, 1),
              false, settings_.keep_open ? Icon::KeepOpenOn : Icon::KeepOpenOff});
         result.back().warning = settings_.keep_open && hidden_focus_;
     }
@@ -647,6 +648,12 @@ void App::update_settings_ui() {
             : "You will see Unicode codes typed for emoji and other Unicode characters. Slow.",
         "", ControlStyle::Note};
     desktop_unicode_note.plain = true;
+    // Too long for a switch's second line: a wrapped row of its own.
+    SettingField focus_tooltip_note{
+        "focus-tooltip-note", "Names the window focus mode types into when that window is out of sight.",
+        "", ControlStyle::Note};
+    focus_tooltip_note.plain = true;
+    focus_tooltip_note.enabled = pending_replace_native_keyboard_;
     // Manage opens the favorites popup over this card, which removes pairs
     // one by one or all at once.
     const auto pairs = favorite_pairs();
@@ -689,7 +696,13 @@ void App::update_settings_ui() {
            field(ControlKind::StartWithSteamos,
                  checkbox("start-with-steamos", "Start with SteamOS",
                           pending_start_with_steamos_ && pending_replace_native_keyboard_,
-                          pending_replace_native_keyboard_))}}}};
+                          pending_replace_native_keyboard_)),
+           // Focus mode, and so its amber cue, exists only with replacement.
+           field(ControlKind::FocusTooltip,
+                 checkbox("focus-tooltip", "Hidden window tooltip",
+                          pending_focus_tooltip_ && pending_replace_native_keyboard_,
+                          pending_replace_native_keyboard_)),
+           focus_tooltip_note}}}};
     if (hosted()) {
         // Replacement and boot start belong to the SteamOS dashboard; under a
         // shell they are unavailable, and their saved values stay as they are.
@@ -815,6 +828,14 @@ PanelView App::build_view(bool picker) const {
     v.case_opacity = case_opacity();
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.controls = controls();
+    v.focus_shake_since = focus_shake_since_;
+    // Keep open's amber cue: a tooltip above it names the hidden window
+    // (Integration's Hidden window tooltip).
+    if (settings_.focus_tooltip &&
+        std::any_of(v.controls.begin(), v.controls.end(),
+                    [](const Control& c) { return c.id == "keep-open" && c.warning; })) {
+        v.focus_tooltip = hidden_window_.empty() ? "A window out of sight" : hidden_window_;
+    }
     if (settings_open_) {
         settings_ui_.append(v);
         append_favorites(v);
@@ -823,7 +844,8 @@ PanelView App::build_view(bool picker) const {
                : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
                : sink_on() ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
                                                                          : host_.sink_client)
-                           : startup_status_;
+               : !debug_status_.empty() ? debug_status_
+                                        : startup_status_;
     // The context's Enter hint is a legend only; the key still sends Enter.
     if (host_.context && host_.hints.enter != "enter") {
         static const std::map<std::string, std::string> legends{
@@ -1348,6 +1370,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
             return false;
         }
+        // Without a target the key still moves, but sends nothing.
+        if (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action))) {
+            if ((!local || sends_text) && !retry_text) {
+                refuse_without_target(now);
+            }
+        }
         if (!output_.admit((!local || sends_text) && !retry_text, now)) {
             update_output_status();
             dirty = true;
@@ -1790,6 +1818,7 @@ void App::show_settings() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
@@ -1998,6 +2027,7 @@ void App::reload() {
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
+        settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
         settings_.dictation_send_paste = updated_settings.dictation_send_paste;
@@ -2022,6 +2052,7 @@ void App::reload() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
@@ -2075,14 +2106,14 @@ void App::refresh_typing() {
                   backend_ready_ && !(native_session_ && external_jis());
     dirty |= typing_ready_ != typing_ready;
     typing_ready_ = typing_ready;
-    if (output_.enabled() && !(interaction_active_ && typing_ready_ && !field_needed_)) {
+    if (output_.enabled() && !(interaction_active_ && typing_ready_ && !target_missing())) {
         // Transport loss ends key ownership, but unsent composition stays for
         // an explicit retry once text delivery is available again.
         cancel(false);
     }
     // A panel held open for dictation without a Steam field sends nothing:
     // the focused application did not ask for this text.
-    output_.set_enabled(interaction_active_ && typing_ready_ && !field_needed_);
+    output_.set_enabled(interaction_active_ && typing_ready_ && !target_missing());
 }
 void App::convert_japanese() {
     // Anthy loads its library and dictionary lazily on first conversion.
@@ -2357,6 +2388,9 @@ bool App::commit_composition() {
     return !composing_text();
 }
 void App::commit_failed() {
+    if (!dictation_open_ && refuse_without_target(monotonic_seconds())) {
+        return;
+    }
     if (dictation_open_) {
         notice_ = "The editor is full. Send or shorten the text to type more.";
         notice_error_ = true;
@@ -2448,6 +2482,7 @@ void App::apply_settings() {
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.swipe_typing = pending_swipe_typing_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
+    settings_.focus_tooltip = pending_focus_tooltip_;
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
     settings_.dictation_send_gap = pending_dictation_send_gap_;
     settings_.dictation_send_paste = pending_dictation_send_paste_;
@@ -2775,6 +2810,9 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::EmojiCloseOnSelect) {
         pending_emoji_close_on_select_ = !pending_emoji_close_on_select_;
         update_settings_ui();
+    } else if (kind == ControlKind::FocusTooltip) {
+        pending_focus_tooltip_ = !pending_focus_tooltip_;
+        update_settings_ui();
     } else if (kind == ControlKind::Favorite) {
         const bool exists =
             std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
@@ -3086,7 +3124,8 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         }
     } else {
         const auto text = keymap_->compose(track.symbol);
-        if (!text.empty() && !preview_input() && !text_output_->commit_text(text)) {
+        if (!text.empty() && !preview_input() && !text_output_->commit_text(text) &&
+            !refuse_without_target(monotonic_seconds())) {
             status_ = "Text was not sent. Release other keys and check the target/input connection.";
         }
         swipe_space_ = false;
@@ -3180,7 +3219,9 @@ void App::apply_swipe(const SwipeService::Result& result) {
     swipe_selected_ = 0;
     const auto text = (swipe_space_ && !hint_no_autospace() ? " " : "") + swipe_candidates_.front();
     if (!preview_input() && !(output_.admit(true) && text_output_->commit_text(text))) {
-        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        if (!refuse_without_target(monotonic_seconds())) {
+            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        }
         swipe_candidates_.clear();
         return;
     }
@@ -3219,7 +3260,9 @@ void App::choose_swipe(int index) {
             return;
         }
         auto refuse = [&] {
-            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+            if (!refuse_without_target(monotonic_seconds())) {
+                status_ = "Text was not sent. Release other keys and check the target/input connection.";
+            }
             discard_swipe();
         };
         // Replace exactly the characters this keyboard just sent.
@@ -3329,6 +3372,22 @@ void App::set_field_needed(bool needed) {
         field_needed_ = needed;
         dirty = true;
         // Gate output now, before this frame's pointer events, not at the next tick.
+        refresh_typing();
+    }
+}
+bool App::refuse_without_target(double now) {
+    if (!target_missing()) {
+        return false;
+    }
+    focus_shake_since_ = now;
+    status_.clear();
+    dirty = true;
+    return true;
+}
+void App::set_dashboard_focus(bool focused) {
+    if (focused != dashboard_focus_) {
+        dashboard_focus_ = focused;
+        dirty = true;
         refresh_typing();
     }
 }
@@ -3799,6 +3858,8 @@ void App::set_dictation_view(PanelView& view) const {
         editor.notice = "Waiting for recognition…";
     } else if (field_needed_) {
         editor.notice = "The text field closed. Select a text field to send.";
+    } else if (dashboard_focus_) {
+        editor.notice = "Steam's dashboard has focus. Select a text field or window to send.";
     }
     if (sending_) {
         editor.sending = true;
@@ -5009,7 +5070,7 @@ std::size_t counted(const SendPiece& piece) {
 } // namespace
 
 bool App::can_send() const {
-    return !sending_ && !send_wait_since_ && !confirm_discard_ && !field_needed_ &&
+    return !sending_ && !send_wait_since_ && !confirm_discard_ && !target_missing() &&
            (editor_.text().find_first_not_of(" \n") != std::string::npos ||
             (enter_pending_ && editor_.empty()) || capturing_ || phrases_pending());
 }

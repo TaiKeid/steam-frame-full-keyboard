@@ -39,7 +39,8 @@ struct SilentServer {
         const auto name = "/tmp/.X11-unix/X" + std::to_string(number);
         name.copy(address.sun_path + 1, name.size());
         const auto size = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + 1 + name.size());
-        if (bind(listener, reinterpret_cast<sockaddr*>(&address), size) != 0 || listen(listener, 4) != 0) {
+        if (bind(listener, reinterpret_cast<sockaddr*>(&address), size) != 0 ||
+            listen(listener, 4) != 0) {
             close(listener);
             listener = -1;
             return false;
@@ -187,7 +188,13 @@ struct AnsweringServer {
                 put32(out, name == "GAMESCOPE_FOCUSED_WINDOW" ? focused_atom : list_atom);
                 out.resize(32);
                 send_all(out);
-            } else if (head[0] == 20) { // GetProperty
+            } else if (head[0] == 20 &&
+                       (body[0] | body[1] << 8 | body[2] << 16 | body[3] << 24) != root) {
+                // A window's own property, such as its title: unset here.
+                put16(out, sequence);
+                out.resize(32);
+                send_all(out);
+            } else if (head[0] == 20) { // GetProperty on the root window
                 const std::uint32_t property = body[4] | body[5] << 8 | body[6] << 16 | body[7] << 24;
                 std::vector<std::uint32_t> values;
                 if (property == focused_atom) {

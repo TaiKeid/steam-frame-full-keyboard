@@ -133,6 +133,17 @@ class App {
         dirty |= hidden != hidden_focus_;
         hidden_focus_ = hidden;
     }
+    // The title of that hidden window, for the focus tooltip; empty when unknown.
+    void set_hidden_window(std::string title) {
+        dirty |= title != hidden_window_;
+        hidden_window_ = std::move(title);
+    }
+    // Debugging only (vr.cpp's show_input_target): shown on the status line
+    // when no notice is.
+    void set_debug_status(std::string text) {
+        dirty |= text != debug_status_;
+        debug_status_ = std::move(text);
+    }
     // Experimental, not saved: the panel stays open while the dashboard is
     // closed, and VR reads the controllers itself so the focused app keeps its input.
     // Either the user's toggle or dictation's own, which keeps the panel open
@@ -156,6 +167,10 @@ class App {
     // Shown without a Steam field to type into: the editor keeps working,
     // but nothing is sent until the user picks a field.
     void set_field_needed(bool needed);
+    // Steam's dashboard has Gamescope's keys (DashboardFocus) and no Steam
+    // field is ours: whatever app Gamescope falls back to is not the one the
+    // user is looking at, so nothing is typed until a field or window is chosen.
+    void set_dashboard_focus(bool focused);
     // The panel left the view; listening pauses. A pause in interaction,
     // such as Steam handing over a new field, does not.
     void panel_hidden();
@@ -493,6 +508,7 @@ class App {
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
     bool pending_emoji_close_on_select_{};
+    bool pending_focus_tooltip_{};
     bool pending_desktop_unicode_paste_{};
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
@@ -584,7 +600,14 @@ class App {
     bool passthrough_{};
     bool dictation_passthrough_{}; // Tracked apart from the user's toggle.
     bool field_needed_{};
-    bool hidden_focus_{};
+    bool hidden_focus_{}, dashboard_focus_{};
+    double focus_shake_since_{-1};
+    // Typing refused for want of a target (target_missing): the Focus mode
+    // button's icon shakes instead of a status message. False with a target.
+    bool refuse_without_target(double now);
+    // No target to type into: a held panel without a field, or the dashboard has the keys.
+    bool target_missing() const { return field_needed_ || dashboard_focus_; }
+    std::string debug_status_, hidden_window_;
     bool interaction_active_{true};
     bool backend_ready_{true}, backend_can_resume_{};
     std::optional<bool> native_num_requested_;
