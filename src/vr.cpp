@@ -1658,10 +1658,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         std::optional<GapTrigger> rest;
     };
     std::array<ClickWatch, 2> click_watches;
+    // Devices whose laser is over the keyboard (grip moves; the click watch skips them).
+    std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     bool hidden_window_shown = false; // Keep open's amber cue
     double clicks_checked = -1;
-    auto watch_clicks = [&](bool on_panel, double now) {
-        if (!dashboard_focus.focused() || on_panel) {
+    // A hand whose laser is on the keyboard presses keys there; the other
+    // hand is still watched, as its pull may choose an app window.
+    auto watch_clicks = [&](double now) {
+        if (!dashboard_focus.focused()) {
             click_watches = {};
             return;
         }
@@ -1673,6 +1677,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             auto& click = click_watches[hand];
             const auto device = vr_system()->GetTrackedDeviceIndexForControllerRole(
                 hand ? vr::TrackedControllerRole_RightHand : vr::TrackedControllerRole_LeftHand);
+            if (device < hovered_devices.size() && hovered_devices[device]) {
+                click = {};
+                continue;
+            }
             if (device != click.device) {
                 click = {};
                 click.device = device;
@@ -1701,7 +1709,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::array<std::optional<GapTrigger>, 2> scene_idle{};
     std::array<double, 2> scene_released{-1, -1};
     std::array<std::pair<double, double>, 2> scene_last{};
-    std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
     std::map<unsigned, vr::TrackedDeviceIndex_t> pointer_devices;
     // Repeating keys held after their laser left the panel (held_keys.hpp).
     OffPanelHolds<TriggerWatch> key_holds;
@@ -2711,7 +2718,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             focus_probe->set_active(true);
         }
         if (in_dashboard) {
-            watch_clicks(on_panel, now);
+            watch_clicks(now);
             // Only the dashboard's own page window: hovering its bottom bar
             // gives the bar and its popups ("X Close") the keys for a moment,
             // with no choice made. Steam names that window "SteamVR".
