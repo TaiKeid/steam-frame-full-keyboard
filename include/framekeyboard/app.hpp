@@ -101,6 +101,11 @@ class App {
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
+    // A decoding word, suggestions or the next word's space: what a pointer
+    // leaving the keyboard discards (cancel_pointer).
+    bool holds_swipe_state() const {
+        return swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_;
+    }
     void cancel_pointer(unsigned pointer);
     // The pointer holds a repeating key, such as Backspace, in the keyboard,
     // the dictation editor or the address popup. It stays held after the
