@@ -985,6 +985,7 @@ class WindowLaser {
         }
         set(pointing || now < until_);
     }
+    bool on() const { return on_; }
     void off() {
         until_ = 0;
         set(false);
@@ -3125,8 +3126,20 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 const auto& sample = samples[hand];
                 if (sample.ray && !sample.lost && !inside[hand] && !gap[hand] && !on_resizer[hand]) {
                     const auto visible = hidden_focus.overlays.visible(now);
-                    on_window = !visible.empty() &&
-                                hidden_focus.overlays.pointed(*sample.ray, visible).has_value();
+                    if (!visible.empty()) {
+                        on_window = hidden_focus.overlays.pointed(*sample.ray, visible).has_value();
+                        // SteamVR shows a pinned window's controls (Return to
+                        // dashboard and others) just below it while its laser
+                        // is on the window; they are SteamVR's own, with no
+                        // overlay to find. A ray up to 40 cm below a window
+                        // keeps the laser, or the controls would vanish on the
+                        // way to them.
+                        for (int step = 1; step <= 8 && window_laser.on() && !on_window; ++step) {
+                            auto raised = *sample.ray;
+                            raised.origin[1] += step * .05;
+                            on_window = hidden_focus.overlays.pointed(raised, visible).has_value();
+                        }
+                    }
                 }
             }
             window_laser.update(on_window, now);
