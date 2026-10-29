@@ -238,7 +238,8 @@ struct HiddenFocusCue {
     bool update(bool enabled, bool shown, bool typing_to_focus, double now,
                 const std::function<std::optional<Ray>()>& ray) {
         if (!enabled) {
-            overlays.reset();
+            // The overlay cache stays: the window laser reads it with Focus
+            // mode off too, and a reset would repeat the first full scan.
             visibility.reset();
             return false;
         }
