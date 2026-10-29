@@ -114,6 +114,19 @@ std::optional<std::array<Rect, 5>> flick_cells(const PanelView& view) {
 bool overlaps(const Rect& a, const Rect& b) {
     return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
+// The panel is a texture seen at any angle, with no fixed pixel layout, so
+// text is antialiased in grey even where the system's fonts ask for subpixel
+// (coloured) antialiasing, as SteamOS's do: that would fringe every legend
+// and, over a clear case, leave colour above alpha in premultiplied pixels.
+// Measuring contexts take the same options, so their metrics match drawing.
+void grey_text(cairo_t* cr) {
+    static cairo_font_options_t* const options = [] {
+        auto* created = cairo_font_options_create();
+        cairo_font_options_set_antialias(created, CAIRO_ANTIALIAS_GRAY);
+        return created;
+    }();
+    cairo_set_font_options(cr, options);
+}
 void source(cairo_t* cr, Color color) {
     cairo_set_source_rgb(cr, color.r, color.g, color.b);
 }
@@ -970,7 +983,11 @@ PangoLayout* editor_layout(const PanelView& view) {
     // Measuring needs a context but no pixels; one tiny surface serves every call
     // on the VR thread.
     static cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
-    static cairo_t* context = cairo_create(surface);
+    static cairo_t* context = [] {
+        auto* created = cairo_create(surface);
+        grey_text(created);
+        return created;
+    }();
     auto* layout = pango_cairo_create_layout(context);
     auto* font = pango_font_description_new();
     pango_font_description_set_family(font, view.language->font.c_str());
@@ -1576,6 +1593,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             const auto& r = choice->bounds;
             const Rect text{r.x + 20, r.y, r.width - 40, r.height};
             auto* measure = cairo_create(surface_);
+            grey_text(measure);
             const double overflow =
                 text_width(measure, choice->label, 21, view.language->font) - (text.width - 8);
             cairo_destroy(measure);
@@ -1887,6 +1905,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
                 auto* bounds_cr = cairo_create(recording);
+                grey_text(bounds_cr);
                 cairo_translate(bounds_cr, p.x, p.y);
                 cairo_scale(bounds_cr, p.scale, p.scale);
                 draw_key(bounds_cr, view, key, 0);
@@ -1918,6 +1937,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }
     marquee_shown_ = marquee_text ? marquee_shift : -1;
     auto* cr = cairo_create(surface_);
+    grey_text(cr);
     cairo_translate(cr, 0, popup_margin);
     // Cairo composites antialiased strokes and glyphs slightly differently
     // under a clip of several rectangles, or a clip edge through a glyph. So

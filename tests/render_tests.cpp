@@ -1,5 +1,6 @@
 #include "framekeyboard/panel.hpp"
 
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -71,8 +72,11 @@ class Comparison {
                 const auto alpha = pixel >> 24;
                 if (((pixel >> 16) & 255u) > alpha || ((pixel >> 8) & 255u) > alpha ||
                     (pixel & 255u) > alpha) {
+                    char value[16];
+                    std::snprintf(value, sizeof value, "%08x", pixel);
                     throw std::runtime_error(std::string(phase) + ": pixel " + std::to_string(x) + "," +
-                                             std::to_string(y) + " is not premultiplied");
+                                             std::to_string(y) + " is not premultiplied (ARGB " +
+                                             value + ")");
                 }
             }
         }
