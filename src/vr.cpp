@@ -523,13 +523,15 @@ class StickReader {
     };
     std::array<Stick, vr::k_unMaxTrackedDeviceCount> sticks_{};
 };
-// A Frame controller's trigger, read from its render model, so a capture can
-// end on the trigger's release even when the laser is off our overlays and
-// SteamVR sends us no button event. Other controllers are not watched.
+// A Frame controller's laser click, read from its render model, so a capture
+// can end on its release even when the laser is off our overlays and SteamVR
+// sends us no button event. The dashboard clicks on the trigger and on the
+// bumper, so both are read. Other controllers are not watched.
 class TriggerWatch {
   public:
     void begin(vr::TrackedDeviceIndex_t device, double now) {
         neutral_.reset();
+        bumper_.reset();
         release_.begin(now);
         auto models = vr_models();
         auto input = vr_input();
@@ -554,33 +556,54 @@ class TriggerWatch {
         }
         vr::VRControllerState_t released{};
         vr::RenderModel_ControllerMode_State_t mode{};
-        vr::RenderModel_ComponentState_t neutral{};
+        vr::RenderModel_ComponentState_t neutral{}, bumper{};
         if (models->GetComponentState(model, "trigger", &released, &mode, &neutral)) {
             model_ = model;
             neutral_ = from_vr(neutral.mTrackingToComponentRenderModel);
+            // A model without a bumper component watches the trigger alone.
+            if (models->GetComponentState(model, "bumper", &released, &mode, &bumper)) {
+                bumper_ = from_vr(bumper.mTrackingToComponentRenderModel);
+            }
         }
     }
-    void reset() { neutral_.reset(); }
+    void reset() {
+        neutral_.reset();
+        bumper_.reset();
+    }
     bool watching() const { return neutral_.has_value(); }
     bool released(double now) { return release_.update(angle(), now); }
-    // The trigger's pull from rest in degrees; none while it cannot be read.
+    // The trigger's pull from rest in degrees, or the bumper's 2.6 degree
+    // travel while it is pressed, whichever is further; none while either
+    // cannot be read.
     std::optional<double> angle() const {
         if (!neutral_) {
             return {};
         }
-        vr::RenderModel_ControllerMode_State_t mode{};
-        vr::RenderModel_ComponentState_t current{};
-        if (!vr_models()->GetComponentStateForDevicePath(model_.c_str(), "trigger", hand_, &mode,
-                                                         &current)) {
+        const auto pull = rotation("trigger", *neutral_);
+        if (!pull || !bumper_) {
+            return pull;
+        }
+        const auto bumper = rotation("bumper", *bumper_);
+        if (!bumper) {
             return {};
         }
-        return component_rotation_degrees(*neutral_, from_vr(current.mTrackingToComponentRenderModel));
+        return std::max(*pull, *bumper);
     }
 
   private:
+    std::optional<double> rotation(const char* component, const Transform& neutral) const {
+        vr::RenderModel_ControllerMode_State_t mode{};
+        vr::RenderModel_ComponentState_t current{};
+        if (!vr_models()->GetComponentStateForDevicePath(model_.c_str(), component, hand_, &mode,
+                                                         &current)) {
+            return {};
+        }
+        return component_rotation_degrees(neutral, from_vr(current.mTrackingToComponentRenderModel));
+    }
+
     std::string model_;
     vr::VRInputValueHandle_t hand_{};
-    std::optional<Transform> neutral_;
+    std::optional<Transform> neutral_, bumper_;
     TriggerReleaseGuard release_;
 };
 class LaserDrag {
@@ -654,8 +677,8 @@ class LaserDrag {
 };
 // Passthrough pointer. Outside the dashboard SteamVR sends overlay mouse events
 // only to overlays that claim scene input, which takes input from the focused
-// app. Instead read each Frame controller's pose and trigger component: neither
-// read takes anything away, so the app receives the trigger too.
+// app. Instead read each Frame controller's pose, trigger and bumper components:
+// no read takes anything away, so the app receives the trigger and bumper too.
 // A trigger while its laser rests off the keys: outside the keyboard or in a
 // clear gap (Background Disabled). It enters at rest, or still springing back
 // from a release just before, and stays at rest until it rises 1°
@@ -736,7 +759,7 @@ class ScenePointer {
                 calibrate(hand, i == 0);
             }
             const auto angle = device < vr::k_unMaxTrackedDeviceCount && hand.travel > 0
-                                   ? trigger_angle(hand)
+                                   ? click_angle(hand)
                                    : std::nullopt;
             const auto& pose = device < vr::k_unMaxTrackedDeviceCount ? poses[device] : poses[0];
             if (!angle || device >= vr::k_unMaxTrackedDeviceCount || !pose.bPoseIsValid ||
@@ -818,6 +841,9 @@ class ScenePointer {
         Transform tip{{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}};
         Transform neutral{};
         double travel{}, press{}, release{}; // Trigger rotation in degrees.
+        // The bumper's rest pose and travel, when the model animates it.
+        std::optional<Transform> bumper;
+        double bumper_travel{};
     };
     // Retried each frame until it succeeds: a controller can connect before its model is known.
     void calibrate(Hand& hand, bool left) {
@@ -862,18 +888,45 @@ class ScenePointer {
         if (hand.travel < 2) {
             hand.travel = 1;
         }
+        // The dashboard laser clicks on the bumper too. The model animates it
+        // from controller button 0; without it the trigger alone clicks.
+        vr::VRControllerState_t bumped{};
+        bumped.ulButtonPressed = vr::ButtonMaskFromId(vr::k_EButton_System);
+        vr::RenderModel_ComponentState_t bumper_rest{}, bumper_down{};
+        if (models->GetComponentState(model, "bumper", &released, &mode, &bumper_rest) &&
+            models->GetComponentState(model, "bumper", &bumped, &mode, &bumper_down)) {
+            const auto rest_pose = from_vr(bumper_rest.mTrackingToComponentRenderModel);
+            const double travel = component_rotation_degrees(
+                rest_pose, from_vr(bumper_down.mTrackingToComponentRenderModel));
+            if (travel >= 1) {
+                hand.bumper = rest_pose;
+                hand.bumper_travel = travel;
+            }
+        }
         std::cout << "Passthrough pointer ready on the " << (left ? "left" : "right") << " controller.\n"
                   << std::flush;
     }
-    std::optional<double> trigger_angle(const Hand& hand) {
+    // The trigger's rotation in degrees, or its full travel while the bumper
+    // is pressed, whichever is further; none while either cannot be read.
+    std::optional<double> click_angle(const Hand& hand) {
+        const auto trigger = rotation(hand, "trigger", hand.neutral);
+        if (!trigger || !hand.bumper) {
+            return trigger;
+        }
+        const auto bumper = rotation(hand, "bumper", *hand.bumper);
+        if (!bumper) {
+            return {};
+        }
+        return std::max(*trigger, *bumper / hand.bumper_travel * hand.travel);
+    }
+    std::optional<double> rotation(const Hand& hand, const char* component, const Transform& neutral) {
         vr::RenderModel_ControllerMode_State_t mode{};
         vr::RenderModel_ComponentState_t current{};
-        if (!vr_models()->GetComponentStateForDevicePath(hand.model.c_str(), "trigger", hand.source,
+        if (!vr_models()->GetComponentStateForDevicePath(hand.model.c_str(), component, hand.source,
                                                          &mode, &current)) {
             return {};
         }
-        return component_rotation_degrees(hand.neutral,
-                                          from_vr(current.mTrackingToComponentRenderModel));
+        return component_rotation_degrees(neutral, from_vr(current.mTrackingToComponentRenderModel));
     }
     std::array<Hand, 2> hands_{};
     bool ready_{};

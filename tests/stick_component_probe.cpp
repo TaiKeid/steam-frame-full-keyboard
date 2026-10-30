@@ -69,6 +69,24 @@ int main() {
             if (maximum_error > .1) {
                 throw std::runtime_error("trigger release fallback model mapping failed");
             }
+            // The dashboard laser also clicks on the bumper, which the model
+            // animates from controller button 0 through 2.6 degrees.
+            vr::VRControllerState_t rest{}, pressed{};
+            pressed.ulButtonPressed = vr::ButtonMaskFromId(vr::k_EButton_System);
+            vr::RenderModel_ControllerMode_State_t mode{};
+            vr::RenderModel_ComponentState_t bumper_rest{}, bumper_pressed{};
+            if (!vr::VRRenderModels()->GetComponentState(model, "bumper", &rest, &mode, &bumper_rest) ||
+                !vr::VRRenderModels()->GetComponentState(model, "bumper", &pressed, &mode,
+                                                         &bumper_pressed)) {
+                throw std::runtime_error("bumper component unavailable");
+            }
+            const double bumper = framekeyboard::component_rotation_degrees(
+                convert(bumper_rest.mTrackingToComponentRenderModel),
+                convert(bumper_pressed.mTrackingToComponentRenderModel));
+            std::cout << model << " bumper press angle=" << bumper << '\n';
+            if (std::abs(bumper - 2.6) > .1) {
+                throw std::runtime_error("bumper release fallback model mapping failed");
+            }
         }
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
