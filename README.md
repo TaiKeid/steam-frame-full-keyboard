@@ -40,14 +40,14 @@ Every release passes automated test suites on the development computer and on th
 
 No AI tools, compilation, `sudo`, or SteamOS write access are needed for the release package.
 
-1. On the **Steam Frame**, open the [GitHub Releases page](https://github.com/TaiKeid/steam-frame-full-keyboard/releases) in a browser. Download `framekeyboard-0.12.0-aarch64.tar.gz` and `SHA256SUMS` from the release assets into **Downloads**. Do not download GitHub's automatic source-code archive for this installation.
+1. On the **Steam Frame**, open the [GitHub Releases page](https://github.com/TaiKeid/steam-frame-full-keyboard/releases) in a browser. Download `framekeyboard-0.12.1-aarch64.tar.gz` and `SHA256SUMS` from the release assets into **Downloads**. Do not download GitHub's automatic source-code archive for this installation.
 2. Open a terminal in the Frame's desktop environment and run:
 
    ```sh
    cd ~/Downloads
    sha256sum -c SHA256SUMS
-   tar -xzf framekeyboard-0.12.0-aarch64.tar.gz
-   cd framekeyboard-0.12.0-aarch64
+   tar -xzf framekeyboard-0.12.1-aarch64.tar.gz
+   cd framekeyboard-0.12.1-aarch64
    bash install.sh
    ```
 

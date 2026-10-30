@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.1: The bumper moves the keyboard
+
+- Fixed the move bar letting go shortly after you grabbed it with the controller's bumper. The dashboard laser clicks on the bumper as well as the trigger, but Full Keyboard watched only the trigger to tell when you let go, so it ended the move while the bumper was still held. Corner resizing had the same problem. Thanks to @LiterallyANoodle for the report (#8).
+- With **Stay open over apps**, the bumper now presses keys and moves the keyboard as the trigger does. The app also receives that bumper press, as it does the trigger.
+
 ## 0.12.0: Focus mode, a see-through keyboard and clicks on floating windows
 
 - Added **Focus mode** to the toolbar, beside Stay open over apps, while Replace native keyboard is on. The keyboard then stays where it is when a text field closes or loses focus, instead of closing, and types into the next field you select. With no field selected, it types into the app that has keyboard focus, as with replacement off. × or the keyboard button still hides it. Its window icon turns amber when that app's window is out of sight, and a tooltip above it names the window; Settings → Integration → **Hidden window tooltip** turns the tooltip off. The setting is saved.
