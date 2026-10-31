@@ -65,6 +65,8 @@ enum class Icon {
     Cloud,
     Eraser,
     Reset,
+    Swipe,
+    SwipeOff,
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.

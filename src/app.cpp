@@ -321,8 +321,8 @@ std::vector<Control> App::controls() const {
         }
         return result;
     }
-    // One row: Settings, Recenter, Pin, passthrough, Keep open, language.
-    // Compact: Settings, Recenter, Pin, language, with passthrough and Keep
+    // One row: Settings, Recenter, Pin, passthrough, Keep open, swipe, language.
+    // Compact: Settings, Recenter, Pin, language, with passthrough, swipe and Keep
     // open below Settings and Recenter.
     const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
@@ -358,16 +358,26 @@ std::vector<Control> App::controls() const {
     }
     // Without replacement no request closes the panel, so the button would do nothing.
     const bool keep_button = resident_replacement() && !hosted();
+    // Hidden while none of the user's languages can swipe; dimmed while this
+    // one can't, though it still turns swiping on for those that can.
+    const bool swipe_button = swipe_in_cycle_ || swipe_known(settings_.active.language);
     if (keep_button) {
         add({ControlKind::KeepOpen},
             {"keep-open", settings_.keep_open ? "Leave focus mode" : "Focus mode", button(4, 1, 1),
              false, settings_.keep_open ? Icon::KeepOpenOn : Icon::KeepOpenOff});
         result.back().warning = settings_.keep_open && hidden_focus_;
     }
+    if (swipe_button) {
+        add({ControlKind::SwipeToggle},
+            {"swipe-toggle", settings_.swipe_typing ? "Turn swipe typing off" : "Turn swipe typing on",
+             button(keep_button ? 5 : 4, keep_button ? 2 : 1, 1), false,
+             settings_.swipe_typing ? Icon::Swipe : Icon::SwipeOff});
+        result.back().dimmed = !swipe_known(settings_.active.language);
+    }
     if (!settings_.favorites.empty() && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
-             button(keep_button ? 5 : 4, 3, 0, 100)});
+             button((keep_button ? 5 : 4) + (swipe_button ? 1 : 0), 3, 0, 100)});
         // The picker belongs to the language it was opened from.
         result.back().enabled = !emoji_open_ && !listening;
     }
@@ -1898,6 +1908,9 @@ void App::rebuild_cycle_entries() {
         append(favorite.selection);
     }
     cycle_entries_ = std::move(entries);
+    swipe_support_.clear(); // Profiles may have changed.
+    swipe_in_cycle_ = std::any_of(cycle_entries_.begin(), cycle_entries_.end(),
+                                  [&](const Selection& entry) { return swipe_known(entry.language); });
 }
 void App::reload() {
     if (!settings_writer_.idle()) {
@@ -2716,6 +2729,15 @@ void App::action(const ControlAction& command) {
         } else {
             use_steam_keyboard();
         }
+    } else if (kind == ControlKind::SwipeToggle) {
+        // Saved at once, like Pin; Settings' switch shows the same setting.
+        cancel(false);
+        const auto before = settings_;
+        settings_.swipe_typing = pending_swipe_typing_ = !settings_.swipe_typing;
+        prepare_swipe();
+        status_.clear();
+        save();
+        host_settings_changed(before, "user");
     } else if (kind == ControlKind::SwipeTyping && swipe_supported(pending_.language)) {
         pending_swipe_typing_ = !pending_swipe_typing_;
         update_settings_ui();
@@ -2925,6 +2947,11 @@ bool App::swipe_supported(const std::string& language_id) const {
     }
     return !swipe_lexicon_path(options_.data_dir, options_.config_dir, language->second.swipe_lexicon)
                 .empty();
+}
+bool App::swipe_known(const std::string& language) const {
+    const auto known = swipe_support_.find(language);
+    return known != swipe_support_.end() ? known->second
+                                         : swipe_support_[language] = swipe_supported(language);
 }
 void App::prepare_swipe() {
     swipe_track_.reset();

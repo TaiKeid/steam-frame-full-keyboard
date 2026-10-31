@@ -442,6 +442,11 @@ class App {
     bool text_key(const Key& key, const std::set<int>& mods) const;
     // Swipe typing. Decoding runs on SwipeService's worker; App alone sends text.
     bool swipe_supported(const std::string& language) const;
+    // The same answer without reading the disk on every frame.
+    bool swipe_known(const std::string& language) const;
+    mutable std::map<std::string, bool> swipe_support_;
+    // Whether the main language or an additional one can swipe.
+    bool swipe_in_cycle_{};
     bool swipe_enabled() const { return swipe_ && swipe_keyboard_ && !hint_private(); }
     void prepare_swipe();
     bool swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
@@ -570,6 +575,9 @@ class App {
             double scroll{}, target{};
         };
         std::string layout; // Whose languages show.
+        // Language -> swipe support, looked up once as it reads the disk.
+        // Empty while swiping is off, so the rows show no icon at all.
+        std::map<std::string, bool> swipe;
         List layouts, languages, additional;
         struct Drag {
             unsigned pointer{};
@@ -599,6 +607,7 @@ class App {
     std::vector<std::string> layout_order() const;
     std::vector<std::string> language_order(const std::string& layout) const;
     double languages_limit(LanguagesPopup::Which which) const;
+    std::optional<bool> language_swipe(const std::string& language) const;
     PanelView::LanguagesView::Row language_row(const Selection& pair) const;
     void append_languages(PanelView& v) const;
     void languages_press(unsigned pointer, double x, double y);

@@ -66,6 +66,7 @@ enum class ControlKind {
     // backspace, left, right, enter or esc), a recent server, or close.
     AddressKey,
     AddressRecent,
+    SwipeToggle,   // the toolbar's shortcut for Swipe typing
     OpenLanguages, // the Additional languages popup
     CloseLanguages,
     LanguagesLayout, // value: the layout whose languages show
@@ -114,6 +115,7 @@ struct Control {
     ControlAction action{};
     bool warning{}; // a toolbar icon drawn in the theme's alert colour
     bool badge{};   // a notification dot on the button's top right corner
+    bool dimmed{};  // a toolbar icon drawn quietly, though it still responds
     bool hit(double x, double y) const {
         return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }
@@ -265,6 +267,8 @@ struct PanelView {
             std::string id, title, note;
             Rect bounds;
             bool selected{}, enabled{true}, checked{}, removing{};
+            // Whether swipe typing works here; empty while swiping is off.
+            std::optional<bool> swipe;
         };
         Rect panel, well, layouts_list, languages_list, additional_list;
         std::vector<Row> layouts, languages, additional; // only those in view

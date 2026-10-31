@@ -2,6 +2,7 @@
 // the main language and the ordered languages the toolbar cycles through.
 // Everything here is pending until Apply, like the rest of Settings.
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/swipe.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -81,6 +82,11 @@ void App::open_languages() {
     settings_ui_.close_popup();
     languages_ = LanguagesPopup{};
     languages_->layout = pending_.layout;
+    if (pending_swipe_typing_ && (options_.swipe_encoder || swipe_engine_installed(options_.data_dir))) {
+        for (const auto& [id, language] : profiles_.languages) {
+            languages_->swipe[id] = swipe_known(id);
+        }
+    }
     pressed_controls_.clear();
     hovered_.clear();
 }
@@ -134,6 +140,10 @@ double App::languages_limit(LanguagesPopup::Which which) const {
     return scroll_limit(static_cast<double>(additional_pairs().size()) * additional_row_height,
                         additional_list_bounds);
 }
+std::optional<bool> App::language_swipe(const std::string& language) const {
+    const auto found = languages_->swipe.find(language);
+    return found == languages_->swipe.end() ? std::nullopt : std::optional{found->second};
+}
 PanelView::LanguagesView::Row App::language_row(const Selection& pair) const {
     PanelView::LanguagesView::Row row;
     const auto language = profiles_.languages.find(pair.language);
@@ -144,6 +154,7 @@ PanelView::LanguagesView::Row App::language_row(const Selection& pair) const {
     if (language == profiles_.languages.end()) {
         row.note += " (language missing)";
     }
+    row.swipe = language_swipe(pair.language);
     return row;
 }
 void App::append_languages(PanelView& v) const {
@@ -214,6 +225,7 @@ void App::append_languages(PanelView& v) const {
         row.bounds = bounds;
         row.enabled = fits(profiles_, pair);
         row.checked = added(pair);
+        row.swipe = language_swipe(languages[i]);
         popup.languages.push_back(row);
         Control control{row.id, row.title, bounds};
         control.enabled = row.enabled;

@@ -1029,6 +1029,119 @@ void disabled_by_default() {
     require(*calls == 0, "the swipe engine is not loaded while swipe is off");
 }
 
+// The Additional languages popup marks swipe support, and only while swiping
+// is on; otherwise its rows say nothing about it.
+void languages_popup_marks() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [] { return std::unique_ptr<SwipeEncoder>(); };
+    TextSink sink;
+    App app(options, sink);
+    auto press = [&](const std::string& id) {
+        const auto view = app.view();
+        const auto control = std::find_if(view.controls.begin(), view.controls.end(),
+                                          [&](const Control& item) { return item.id == id; });
+        require(control != view.controls.end(), "the control shows");
+        const double x = control->bounds.x + control->bounds.width / 2;
+        const double y = control->bounds.y + control->bounds.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+    };
+    // How many listed rows say each thing, as the list runs past what shows.
+    auto rows = [&](std::optional<bool> swipe) {
+        const auto languages = app.view().languages->languages;
+        return std::count_if(languages.begin(), languages.end(),
+                             [&](const auto& item) { return item.swipe == swipe; });
+    };
+    app.show_settings();
+    press("additional-languages");
+    require(rows(true) == 0 && rows(false) == 0, "no icon while swiping is off");
+    require(!app.view().languages->main.swipe, "on the main language either");
+    press("languages-close");
+    press("swipe-typing");
+    press("additional-languages");
+    require(rows(true) > 0, "languages with a word list can swipe");
+    require(rows(false) > 0, "those without are marked as unsupported");
+    require(rows(std::nullopt) == 0, "and every row says which");
+    require(app.view().languages->main.swipe == true, "the main language shows it too");
+}
+
+// The toolbar's shortcut for Swipe typing follows the languages in the cycle.
+void toolbar_toggle() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->calls = std::make_shared<int>(0);
+        return encoder;
+    };
+    auto config = [&](const std::string& language, const std::string& favorites) {
+        std::ofstream(directory.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":")" << language
+            << R"(","theme":"graphite"},"favorites":[)" << favorites << "]}";
+    };
+    auto button = [](App& app) {
+        const auto view = app.view();
+        const auto found = std::find_if(view.controls.begin(), view.controls.end(),
+                                        [](const Control& item) { return item.id == "swipe-toggle"; });
+        return found == view.controls.end() ? std::optional<Control>{} : std::optional{*found};
+    };
+    auto press = [](App& app, const Control& control) {
+        const double x = control.bounds.x + control.bounds.width / 2;
+        const double y = control.bounds.y + control.bounds.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        app.flush_settings();
+    };
+    config("en-us", "");
+    {
+        TextSink sink;
+        App app(options, sink);
+        auto toggle = button(app);
+        require(toggle && toggle->icon == Icon::SwipeOff && !toggle->dimmed,
+                "off shows the slashed icon on a language that can swipe");
+        press(app, *toggle);
+        toggle = button(app);
+        require(toggle && toggle->icon == Icon::Swipe && !toggle->dimmed, "on shows the normal icon");
+        std::vector<std::string> errors;
+        require(load_settings(directory.path, errors).swipe_typing, "the toggle is saved at once");
+        app.show_settings();
+        const auto view = app.view();
+        const auto row = std::find_if(view.controls.begin(), view.controls.end(),
+                                      [](const Control& item) { return item.id == "swipe-typing"; });
+        require(row != view.controls.end() && row->selected, "Settings shows the same setting");
+    }
+    // A main language that can't swipe, with an additional one that can.
+    const auto english = R"({"id":"a","name":"a","layout":"en-us-full","language":"en-us"})";
+    config("bg-bg", english);
+    {
+        TextSink sink;
+        App app(options, sink);
+        auto toggle = button(app);
+        require(toggle && toggle->dimmed, "a language that can't swipe dims the button");
+        const auto before = toggle->icon;
+        press(app, *toggle);
+        toggle = button(app);
+        require(toggle && toggle->dimmed && toggle->icon != before, "it still toggles");
+    }
+    config("bg-bg", "");
+    {
+        TextSink sink;
+        App app(options, sink);
+        require(!button(app), "no language that can swipe, no button");
+    }
+}
+
 // Ideal minimum-jerk path through key centers, sampled at the overlay rate.
 std::vector<SwipePoint> ideal_swipe(const SwipeKeyboard& keyboard, const std::u32string& word) {
     std::vector<SwipePoint> points;
@@ -1145,6 +1258,8 @@ int main(int argc, char** argv) {
         lexicon_paths();
         features();
         disabled_by_default();
+        languages_popup_marks();
+        toolbar_toggle();
         service_reuse();
         leave_while_decoding();
         suggestions_clear_the_toolbar();

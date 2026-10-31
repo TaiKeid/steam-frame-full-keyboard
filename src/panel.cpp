@@ -577,6 +577,24 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_line_to(cr, 8.5, -.5);
         cairo_line_to(cr, -7, -.5);
         break;
+    case Icon::Swipe:
+    case Icon::SwipeOff:
+        // A dot, and beside it the S a swipe leaves behind. Off, slashed like Pin.
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, -6.7, -5.4, 2.4, 0, 2 * pi);
+        cairo_fill(cr);
+        cairo_set_line_width(cr, 2.4);
+        cairo_move_to(cr, -1.1, -5.8);
+        cairo_curve_to(cr, 0.6, -8, 5.5, -8.6, 6, -5);
+        cairo_curve_to(cr, 6.4, -2, 1, -0.5, -2, 1.6);
+        cairo_curve_to(cr, -6, 4.5, -5.5, 8, -2, 7.6);
+        cairo_curve_to(cr, 1, 7.3, 4, 6, 6.6, 4);
+        cairo_stroke(cr);
+        cairo_set_line_width(cr, 1.8);
+        if (icon == Icon::SwipeOff) {
+            line(-10, -10, 10, 10);
+        }
+        break;
     case Icon::Eraser:
         // A block tilted on the line it leaves behind.
         cairo_move_to(cr, -9, 2);
@@ -2398,7 +2416,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 if (control.id == "keep-open") {
                     at.x += focus_shake_; // Its button stays; only the icon shakes.
                 }
-                draw_icon(cr, control.icon, at, control.warning ? t.alert : legend);
+                draw_icon(cr, control.icon, at,
+                          control.warning  ? t.alert
+                          : control.dimmed ? disabled_legend(t)
+                                           : legend);
             } else {
                 // Toolbar names such as a language's short name shrink to fit.
                 label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend,
@@ -2564,21 +2585,32 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             caption("Main language", popup.additional_list.x, popup.layouts_list.y - 36);
             caption("Additional, in cycle order", popup.additional_list.x, popup.additional_list.y - 40);
             const auto hovered = [&](const auto& row) { return view.hovered_controls.contains(row.id); };
-            // The title, and under it a quieter note when there is one.
+            // The title, and under it a quieter note when there is one. A
+            // swipe icon, when shown, sits before them.
             const auto text = [&](const auto& row, double right, Color title, Color note) {
                 const auto& r = row.bounds;
-                const double width = r.width - right;
+                const double left = row.swipe ? 46 : 12;
+                const double width = r.width - left - right + 12;
                 if (row.note.empty()) {
-                    label(cr, row.title, {r.x + 12, r.y, width, r.height}, 21, view.language->font,
+                    label(cr, row.title, {r.x + left, r.y, width, r.height}, 21, view.language->font,
                           title, false, PANGO_ALIGN_LEFT);
                     return;
                 }
-                label(cr, row.title, {r.x + 12, r.y + 3, width, 28}, 21, view.language->font, title,
+                label(cr, row.title, {r.x + left, r.y + 3, width, 28}, 21, view.language->font, title,
                       false, PANGO_ALIGN_LEFT);
-                label(cr, row.note, {r.x + 12, r.y + 29, width, 21}, 15, view.language->font, note,
+                label(cr, row.note, {r.x + left, r.y + 29, width, 21}, 15, view.language->font, note,
                       false, PANGO_ALIGN_LEFT);
             };
             const Color quiet = disabled_legend(t);
+            const Color off = mix(t.legend, t.surface, .72);
+            // At the row's start; the slashed form stays quieter.
+            const auto swipe_icon = [&](const auto& row) {
+                if (row.swipe) {
+                    draw_icon(cr, *row.swipe ? Icon::Swipe : Icon::SwipeOff,
+                              {row.bounds.x + 6, row.bounds.y, 40, row.bounds.height},
+                              *row.swipe ? quiet : off, 24);
+                }
+            };
             const auto clipped = [&](const Rect& list, const auto& draw) {
                 cairo_save(cr);
                 cairo_rectangle(cr, list.x, list.y, list.width, list.height);
@@ -2605,8 +2637,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         source(cr, t.bottom);
                         cairo_fill(cr);
                     }
-                    const Color off = mix(t.legend, t.surface, .72);
                     text(row, 56, row.enabled ? t.legend : off, row.enabled ? quiet : off);
+                    swipe_icon(row);
                     if (row.checked) {
                         draw_icon(
                             cr, Icon::Apply,
@@ -2617,10 +2649,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             });
             draw_cap(cr, t, popup.main.bounds, hovered(popup.main), popup.main_target, true);
             text(popup.main, 92, t.legend, quiet);
+            swipe_icon(popup.main);
             clipped(popup.additional_list, [&] {
                 for (const auto& row : popup.additional) {
                     draw_cap(cr, t, row.bounds, hovered(row), false, true);
                     text(row, 24, t.legend, quiet);
+                    swipe_icon(row);
                 }
             });
             if (!popup.hint.empty()) {
@@ -2661,6 +2695,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     shown.note = "Drop to remove";
                 }
                 text(shown, 24, row.removing ? quiet : t.legend, quiet);
+                swipe_icon(row);
             }
         }
         if (view.confirm) {
