@@ -492,7 +492,7 @@ void NativeReplacement::poll(double now) {
     }
 }
 void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback,
-                               double now, bool watch_main_loop) {
+                               double now, bool watch_main_loop, bool standby) {
     if (enabled != enabled_) {
         enabled_ = enabled;
         retry_now(now);
@@ -513,6 +513,7 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
                        ",\"ready\":" + (ready ? "true" : "false") +
                        ",\"ack\":" + std::to_string(acknowledgement) +
                        ",\"watch\":" + (watch_main_loop ? "true" : "false") +
+                       ",\"standby\":" + (standby ? "true" : "false") +
                        ",\"fallbackRequest\":" + std::to_string(state_.request) +
                        ",\"fallback\":" + (use_fallback ? "true}" : "false}");
     // Dropped heartbeats never extend a lease. A dropped explicit fallback closes IPC.

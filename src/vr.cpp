@@ -3898,8 +3898,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::cout << "Native replacement paused: " << app.replacement_block() << ".\n" << std::flush;
         }
         replacement_was_ready = backend_ready;
+        // Nobody can type with the headset off and the panel hidden, so the
+        // bridge may poll Steam slowly. A shown panel keeps the normal pace.
+        const bool standby = !lifecycle.visible() &&
+                             vr_system()->GetTrackedDeviceActivityLevel(
+                                 vr::k_unTrackedDeviceIndex_Hmd) == vr::k_EDeviceActivityLevel_Standby;
         replacement.update(replace, report.ready, report.acknowledgement, fallback || report.fallback,
-                           completed, true);
+                           completed, true, standby);
         replacement_progress.store(completed);
         app.frame_completed();
         if (!done && !app.quitting() && !interrupted) {

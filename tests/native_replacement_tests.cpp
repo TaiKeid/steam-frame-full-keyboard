@@ -207,6 +207,12 @@ void transport() {
         replacement.update(true, true, 2, false, 10.9);
         require(take(pair[1]).find("\"fallback\":true") != std::string::npos,
                 "timeout requests native restoration");
+        replacement.update(true, true, 2, false, 11, true, true);
+        require(take(pair[1]).find("\"standby\":true") != std::string::npos,
+                "the bridge hears of standby");
+        replacement.update(true, true, 2, false, 11.1, true);
+        require(take(pair[1]).find("\"standby\":false") != std::string::npos,
+                "and of waking, in every frame");
     }
     close(pair[1]);
 }

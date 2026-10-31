@@ -25,12 +25,21 @@ INSTALL_TIMEOUT = 2.0
 ADOPT_OPEN_MS = 3000
 ACTIVE_POLL = 0.035
 IDLE_POLL = 0.075
+# A poll can take 0.4 s, so this keeps replies inside the parent's 0.8 s
+# freshness limit and renewals inside the 0.9 s Steam lease.
+STANDBY_POLL = 0.25
 
 
-def poll_interval(state):
+def poll_interval(state, standby=False):
     # Missing/new/inconsistent metadata must retain the ordinary fast cadence.
-    busy = ('open', 'eligible', 'active', 'external', 'externalCandidate', 'externalRestore')
-    return IDLE_POLL if state.get('idle') is True and not any(state.get(k) for k in busy) else ACTIVE_POLL
+    handover = ('eligible', 'active', 'external', 'externalCandidate', 'externalRestore')
+    # Nobody can type in standby, even with Steam's keyboard left open, but a
+    # handover or restoration keeps its pace.
+    if standby and type(state.get('idle')) is bool and not any(state.get(k) for k in handover):
+        return STANDBY_POLL
+    if state.get('idle') is True and not state.get('open') and not any(state.get(k) for k in handover):
+        return IDLE_POLL
+    return ACTIVE_POLL
 
 
 def install_expression(source, token, external_supported, expires, adopt_open=False):
@@ -427,6 +436,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         frame_sent = time.monotonic()
         last_parent = time.monotonic()
         watch_main_loop = False
+        standby = False
         fallback_request = None
         external_ack = 0
         next_poll = 0.0
@@ -491,6 +501,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     last_parent = time.monotonic()
                     frame_sent = float(message["sent"])
                     watch_main_loop = message.get("watch") is True
+                    if standby and message.get("standby") is not True:
+                        next_poll = 0  # Awake: fast again now, not after the slow wait.
+                    standby = message.get("standby") is True
                 elif operation == "key-up":
                     if type(message.get("id")) is not int or type(message.get("request")) is not int:
                         raise ValueError("invalid-release")
@@ -603,7 +616,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     continue
                 fallback_request = None
                 send(parent, {"op": "state", **result})
-                next_poll = time.monotonic() + poll_interval(result)
+                next_poll = time.monotonic() + poll_interval(result, standby)
     except (Exception, SystemExit) as error:
         # Errors are fixed status codes. Never echo CDP expressions, input packets or field values.
         try:

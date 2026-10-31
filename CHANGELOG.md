@@ -6,6 +6,7 @@
 - Full Keyboard now checks for updates by itself every few hours. When a new version is out, a dot appears on the Settings button and the button at the top of Settings says **Download and install update**. Nothing downloads until you press it, and a check that fails stays out of your way.
 - Installing an update now always takes the newest version, even if another one came out after the check that found this one.
 - Settings now shows the installed version beside the update button.
+- Full Keyboard now uses less power while the headset is off.
 - Opening Settings no longer stops dictation: it keeps listening until you change the language or recognition settings there.
 - **Use Steam keyboard**, **Download and install update** and **Quit Full Keyboard** now ask before ending dictation, whether it's listening or has text not sent yet. Checking for updates doesn't ask.
 

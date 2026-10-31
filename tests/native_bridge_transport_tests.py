@@ -134,6 +134,56 @@ class Lifecycle(unittest.TestCase):
         for field in ('open', 'eligible', 'active', 'external', 'externalCandidate', 'externalRestore'):
             self.assertEqual(bridge.poll_interval(dict(idle=True, **{field: True})), .035)
 
+    def test_standby_cadence_slows_only_what_nobody_can_use(self):
+        for state in (dict(idle=True), dict(idle=False, open=True)):
+            self.assertEqual(bridge.poll_interval(state, True), .25)
+        # A handover or restoration keeps its pace, as does unclear metadata.
+        for field in ('eligible', 'active', 'external', 'externalCandidate', 'externalRestore'):
+            self.assertEqual(bridge.poll_interval(dict(idle=False, open=True, **{field: True}), True), .035)
+        for state in ({}, dict(idle=1), dict(idle="true")):
+            self.assertEqual(bridge.poll_interval(state, True), .035)
+        self.assertEqual(bridge.poll_interval(dict(idle=False, open=True)), .035)
+        # A slow reply on top of the wait must stay inside the parent's 0.8 s limit.
+        self.assertLess(bridge.STANDBY_POLL + .4, .8)
+
+    def test_waking_from_standby_interrupts_a_slow_poll_wait(self):
+        polled = threading.Event()
+        class IdleCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4):
+                if '.bridge.step(' in expression:
+                    polled.set()
+                    return dict(version=1, request=2, idle=True)
+                return super().evaluate(expression, timeout)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        def frame(standby):
+            return json.dumps(dict(op='frame', progress=1, ready=False, ack=0, sent=time.monotonic(),
+                                   standby=standby)).encode()
+        seen = []
+        def interval(state, standby=False):
+            seen.append(standby)
+            return 60 if standby else .035  # A wakeup test, not a timing comparison.
+        with patch.object(bridge, 'poll_interval', side_effect=interval):
+            worker = threading.Thread(target=bridge.run, args=(child, IdleCDP, None, lambda: None))
+            worker.start()
+            try:
+                parent.send(frame(True))
+                deadline = time.monotonic() + 2
+                while True not in seen and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertIn(True, seen, "a standby frame must reach the poll choice")
+                polled.clear()
+                time.sleep(.1)
+                self.assertFalse(polled.is_set(), "standby keeps the slow wait")
+                parent.send(frame(False))
+                self.assertTrue(polled.wait(1), "waking must poll at once")
+                parent.send(b'{"op":"stop"}')
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+            finally:
+                parent.close()
+                worker.join(2)
+
     def test_run_selects_idle_and_busy_polling_from_each_state(self):
         states = [dict(idle=True), dict(idle=False, open=True),
                   dict(idle=False, externalRestore={"request": 2}), dict(idle=True)]
@@ -146,8 +196,8 @@ class Lifecycle(unittest.TestCase):
         parent.settimeout(1)
         selected = []
         original = bridge.poll_interval
-        def interval(state):
-            value = original(state)
+        def interval(state, standby=False):
+            value = original(state, standby)
             selected.append(value)
             return value
         with patch.object(bridge, 'poll_interval', side_effect=interval):

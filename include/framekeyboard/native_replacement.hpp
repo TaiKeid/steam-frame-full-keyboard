@@ -29,7 +29,7 @@ class NativeReplacement : public KeySink {
     // Between hidden frames, wake the idle sleep when session metadata changes.
     void wait_until(std::chrono::steady_clock::time_point deadline);
     void update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback, double now,
-                bool watch_main_loop = false);
+                bool watch_main_loop = false, bool standby = false);
     const State& state() const { return state_; }
     const char* unavailable_reason() const;
     void route(bool remote) { remote_ = remote; }
