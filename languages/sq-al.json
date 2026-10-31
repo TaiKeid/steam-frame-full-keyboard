@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "sq-al",
+  "name": "Albanian",
+  "native_name": "Shqip",
+  "short_name": "Shqip",
+  "locale": "sq-AL",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "al",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "sq"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "es-419",
+  "name": "Spanish (Latin America)",
+  "native_name": "Español (Latinoamérica)",
+  "short_name": "ES LatAm",
+  "locale": "es-419",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "latam",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "swipe": {
+    "lexicon": "es-es"
+  },
+  "dictation": {
+    "language": "es"
+  }
+}

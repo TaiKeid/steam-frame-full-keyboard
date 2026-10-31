@@ -31,6 +31,21 @@ does not automatically select Russian. Updating the app preserves your selection
 | Turkish, F | `tr-tr-f` | International full-size | Turkish F |
 | Spanish | `es-es` | International full-size | Spanish, Spain |
 | Italian | `it-it` | International full-size | Italian XKB |
+| Spanish, Latin America | `es-419` | International full-size | Latin American XKB |
+| German, Switzerland | `de-ch` | International full-size | Swiss German |
+| French, Switzerland | `fr-ch` | International full-size | Swiss French |
+| Catalan | `ca-es` | International full-size | Spanish with Catalan L·L |
+| Serbian, Cyrillic | `sr-rs` | US full-size | Serbian Cyrillic |
+| Serbian, Latin | `sr-rs-latin` | US full-size | Serbian Latin |
+| Persian | `fa-ir` | US full-size | Persian XKB, legends right to left |
+| Filipino | `fil-ph` | US full-size | US with AltGr accents, ñ on AltGr+N |
+| Icelandic | `is-is` | International full-size | Icelandic XKB |
+| Georgian | `ka-ge` | US full-size | Georgian XKB |
+| Armenian | `hy-am` | US full-size | Armenian XKB |
+| Kazakh | `kk-kz` | US full-size | Kazakh XKB |
+| Azerbaijani | `az-az` | US full-size | Azerbaijani XKB |
+| Macedonian | `mk-mk` | US full-size | Macedonian XKB |
+| Albanian | `sq-al` | US full-size | Albanian QWERTZ |
 | Portuguese, Brazil | `pt-br` | Brazilian ABNT2 full-size | Brazilian XKB, including extra slash and keypad separator |
 | Russian | `ru-ru` | US full-size | Russian ЙЦУКЕН |
 | Ukrainian | `uk-ua` | US full-size | Ukrainian ЙЦУКЕН |
@@ -87,7 +102,7 @@ use the US layout, which is standard there, and differ in their dictation
 language. Dutch uses US international with AltGr dead keys, so an apostrophe
 before n or s stays an apostrophe.
 
-Arabic and Hebrew keys show their legends as they appear in right-to-left text,
+Arabic, Persian and Hebrew keys show their legends as they appear in right-to-left text,
 so a bracket key shows the bracket it adds to the text. In the dictation
 editor, right-to-left text aligns to the right, and the arrow keys move the
 cursor the way they point on screen, stepping over a letter together with its

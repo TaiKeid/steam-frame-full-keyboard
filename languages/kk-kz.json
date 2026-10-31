@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "kk-kz",
+  "name": "Kazakh",
+  "native_name": "Қазақша",
+  "short_name": "Қазақша",
+  "locale": "kk-KZ",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "kz",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "kk"
+  }
+}

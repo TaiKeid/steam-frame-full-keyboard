@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "fa-ir",
+  "name": "Persian",
+  "native_name": "فارسی",
+  "short_name": "فارسی",
+  "locale": "fa-IR",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ir",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "Noto Sans Arabic",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "fa"
+  }
+}

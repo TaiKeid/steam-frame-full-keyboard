@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "az-az",
+  "name": "Azerbaijani",
+  "native_name": "Azərbaycanca",
+  "short_name": "Azərbaycan",
+  "locale": "az-AZ",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "az",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "az"
+  }
+}

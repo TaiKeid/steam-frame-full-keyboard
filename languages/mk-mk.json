@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "mk-mk",
+  "name": "Macedonian",
+  "native_name": "Македонски",
+  "short_name": "Македонски",
+  "locale": "mk-MK",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "mk",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "mk"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "sr-rs",
+  "name": "Serbian, Cyrillic",
+  "native_name": "Српски ћирилица",
+  "short_name": "Српски",
+  "locale": "sr-RS",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "rs",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "sr"
+  }
+}

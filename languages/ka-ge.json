@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "ka-ge",
+  "name": "Georgian",
+  "native_name": "ქართული",
+  "short_name": "ქართული",
+  "locale": "ka-GE",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ge",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "Noto Sans Georgian",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "ka"
+  }
+}

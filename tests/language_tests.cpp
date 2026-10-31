@@ -248,6 +248,30 @@ void national_keymaps(const Profiles& profiles) {
         {"bg-bg-phonetic", "en-us-full", {"KeyQ", "KeyW", "KeyA"}, {"ч", "ш", "а"}},
         {"bg-bg-traditional", "en-us-full", {"KeyQ", "KeyW", "KeyA"}, {"я", "в", "а"}},
         {"pt-pt", "international-full", {"KeyQ", "Semicolon"}, {"q", "ç"}},
+        {"es-419", "international-full", {"KeyQ", "Semicolon"}, {"q", "ñ"}},
+        {"de-ch",
+         "international-full",
+         {"KeyY", "Semicolon", "Quote", "BracketLeft"},
+         {"z", "ö", "ä", "ü"}},
+        {"fr-ch",
+         "international-full",
+         {"KeyY", "Semicolon", "Quote", "BracketLeft"},
+         {"z", "é", "à", "è"}},
+        {"ca-es", "international-full", {"KeyQ", "Semicolon"}, {"q", "ñ"}},
+        {"sr-rs", "en-us-full", {"KeyQ", "KeyW", "KeyA"}, {"љ", "њ", "а"}},
+        {"sr-rs-latin",
+         "en-us-full",
+         {"KeyY", "BracketLeft", "Semicolon", "Quote"},
+         {"z", "š", "č", "ć"}},
+        {"fa-ir", "en-us-full", {"KeyQ", "KeyA"}, {"ض", "ش"}},
+        {"fil-ph", "en-us-full", {"KeyQ", "AltGr+KeyN"}, {"q", "ñ"}},
+        {"is-is", "international-full", {"Semicolon", "BracketLeft", "Slash"}, {"æ", "ð", "þ"}},
+        {"ka-ge", "en-us-full", {"KeyQ", "KeyA"}, {"ქ", "ა"}},
+        {"hy-am", "en-us-full", {"KeyQ", "KeyA"}, {"ճ", "ջ"}},
+        {"kk-kz", "en-us-full", {"KeyQ", "Digit2"}, {"й", "ә"}},
+        {"az-az", "en-us-full", {"KeyQ", "BracketRight", "Quote"}, {"q", "ğ", "ə"}},
+        {"mk-mk", "en-us-full", {"KeyQ", "KeyA"}, {"љ", "а"}},
+        {"sq-al", "en-us-full", {"KeyY", "Semicolon", "BracketLeft"}, {"z", "ë", "ç"}},
         // Latching Shift keeps the pending accent for the capital.
         {"de-de", "international-full", {"Equal", "Shift+KeyE"}, {"É"}},
         {"tr-tr",
@@ -376,8 +400,8 @@ void national_keymaps(const Profiles& profiles) {
                         "every letter and digit key types something");
             }
         }
-        require(map.right_to_left() == (id == "ar" || id == "he-il"),
-                "Arabic and Hebrew legends are laid out right to left");
+        require(map.right_to_left() == (id == "ar" || id == "fa-ir" || id == "he-il"),
+                "Arabic, Persian and Hebrew legends are laid out right to left");
     }
 }
 void input_gate_recovery() {

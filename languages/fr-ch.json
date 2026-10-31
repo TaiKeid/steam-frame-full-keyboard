@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "fr-ch",
+  "name": "French (Switzerland)",
+  "native_name": "Français (Suisse)",
+  "short_name": "FR CH",
+  "locale": "fr-CH",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "ch",
+    "variant": "fr",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "swipe": {
+    "lexicon": "fr-fr"
+  },
+  "dictation": {
+    "language": "fr"
+  }
+}

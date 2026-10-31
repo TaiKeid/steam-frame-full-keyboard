@@ -1642,6 +1642,8 @@ void languages_popup() {
     // Sideways lifts a language; it lands between the rows it is over.
     tap_row(app, "International");
     view = app.view();
+    show_row(app, "Danish");
+    view = app.view();
     const auto danish = languages_row(view, "Danish").bounds;
     const Rect& list = additional_list_bounds;
     drag(danish, list.x + 100, list.y + additional_row_height * 1.1);

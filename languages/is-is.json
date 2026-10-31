@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "is-is",
+  "name": "Icelandic",
+  "native_name": "Íslenska",
+  "short_name": "Íslenska",
+  "locale": "is-IS",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "is",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "dictation": {
+    "language": "is"
+  }
+}
