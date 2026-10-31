@@ -191,6 +191,12 @@ void national_keymaps(const Profiles& profiles) {
         {"pl-pl-qwertz", "international-full", {"KeyY", "KeyZ"}, {"z", "y"}},
         {"tr-tr-f", "international-full", {"KeyQ", "KeyW", "KeyE"}, {"f", "g", "ğ"}},
         {"en-us-dvorak", "en-us-full", {"KeyS", "KeyD", "KeyJ", "Semicolon"}, {"o", "e", "h", "s"}},
+        {"en-us-colemak", "en-us-full", {"KeyS", "KeyD", "KeyJ", "KeyK"}, {"r", "s", "n", "e"}},
+        {"en-us-intl", "en-us-full", {"KeyQ", "Quote", "KeyE"}, {"q", "é"}},
+        {"bg-bg", "en-us-full", {"KeyD", "KeyF", "KeyJ"}, {"а", "о", "т"}},
+        {"bg-bg-phonetic", "en-us-full", {"KeyQ", "KeyW", "KeyA"}, {"ч", "ш", "а"}},
+        {"bg-bg-traditional", "en-us-full", {"KeyQ", "KeyW", "KeyA"}, {"я", "в", "а"}},
+        {"pt-pt", "international-full", {"KeyQ", "Semicolon"}, {"q", "ç"}},
         // Latching Shift keeps the pending accent for the capital.
         {"de-de", "international-full", {"Equal", "Shift+KeyE"}, {"É"}},
         {"tr-tr",

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "pt-pt",
+  "name": "Portuguese (Portugal)",
+  "native_name": "Português (Portugal)",
+  "short_name": "Português PT",
+  "locale": "pt-PT",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "pt",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "swipe": {
+    "lexicon": "pt-br"
+  },
+  "dictation": {
+    "language": "pt"
+  }
+}

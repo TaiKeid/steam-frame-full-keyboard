@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "en-us-intl",
+  "name": "English (US), International",
+  "native_name": "English International",
+  "short_name": "US Intl",
+  "locale": "en-US",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "intl",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "swipe": {
+    "lexicon": "en-us"
+  },
+  "dictation": {
+    "language": "en"
+  }
+}

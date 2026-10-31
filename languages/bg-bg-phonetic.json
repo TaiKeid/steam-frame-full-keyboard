@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "bg-bg-phonetic",
+  "name": "Bulgarian, phonetic",
+  "native_name": "Български фонетична",
+  "short_name": "БГ фонетична",
+  "locale": "bg-BG",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "bg",
+    "variant": "bas_phonetic",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "bg"
+  }
+}

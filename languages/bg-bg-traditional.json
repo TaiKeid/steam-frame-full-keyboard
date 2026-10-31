@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "bg-bg-traditional",
+  "name": "Bulgarian, traditional phonetic",
+  "native_name": "Български традиционна",
+  "short_name": "БГ традиционна",
+  "locale": "bg-BG",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "bg",
+    "variant": "phonetic",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "bg"
+  }
+}

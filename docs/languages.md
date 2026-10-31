@@ -11,6 +11,12 @@ does not automatically select Russian. Updating the app preserves your selection
 | --- | --- | --- | --- |
 | English US | `en-us` | US full-size | US XKB |
 | English US, Dvorak | `en-us-dvorak` | US full-size | US Dvorak XKB; legends and swipe follow it |
+| English US, Colemak | `en-us-colemak` | US full-size | US Colemak XKB; legends and swipe follow it |
+| English US, International | `en-us-intl` | US full-size | US international, accents on dead keys |
+| Bulgarian | `bg-bg` | US full-size | Bulgarian BDS |
+| Bulgarian, phonetic | `bg-bg-phonetic` | US full-size | Bulgarian new phonetic |
+| Bulgarian, traditional phonetic | `bg-bg-traditional` | US full-size | Bulgarian traditional phonetic |
+| Portuguese, Portugal | `pt-pt` | International full-size | Portuguese XKB |
 | German | `de-de` | International full-size | German XKB |
 | French | `fr-fr` | International full-size | French AZERTY, France |
 | French, QWERTY | `fr-fr-qwerty` | US full-size | US international, accents on dead keys |

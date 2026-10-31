@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Added **English (US), Dvorak**. Its keys, legends and swipe typing all follow the Dvorak arrangement.
+- Added **English (US), Dvorak** and **Colemak**, whose keys, legends and swipe typing follow those arrangements, and **English (US), International**.
+- Added **Bulgarian**, with two phonetic options, and **Portuguese (Portugal)**.
 - Added **French (Belgium)** and **Dutch (Belgium)**, and keyboard options for existing languages: QWERTY for French, German, Czech, Slovak, Hungarian and Croatian, QWERTZ for Polish and F for Turkish.
 - Settings has a new **Additional languages** page in place of the Favorite switch and Manage. Pick a layout on the left, tap or drag languages into your list, drag to reorder, and drop outside to remove. Your main language stays in sync with the Layout and Language dropdowns. Leaving Settings asks whether to save changes made there.
 - Layouts and languages now have clear names, such as **US QWERTY** and **Japanese, Romaji** with **日本語 ローマ字**. The toolbar's language button shows a short native name instead of a code like JA-JP.
