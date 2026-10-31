@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added **English (US), Dvorak**. Its keys, legends and swipe typing all follow the Dvorak arrangement.
+- Added **French (Belgium)** and **Dutch (Belgium)**, and keyboard options for existing languages: QWERTY for French, German, Czech, Slovak, Hungarian and Croatian, QWERTZ for Polish and F for Turkish.
+- Settings has a new **Additional languages** page in place of the Favorite switch and Manage. Pick a layout on the left, tap or drag languages into your list, drag to reorder, and drop outside to remove. Your main language stays in sync with the Layout and Language dropdowns. Leaving Settings asks whether to save changes made there.
+- Layouts and languages now have clear names, such as **US QWERTY** and **Japanese, Romaji** with **日本語 ローマ字**. The toolbar's language button shows a short native name instead of a code like JA-JP.
 - When closing the dashboard during dictation turns on **Stay open over apps**, a message now explains why the keyboard stayed in view. It shows for 5 seconds, in the dictation editor or, with Type as I speak, on the status line. If Stay open over apps was already on, nothing changes and no message appears.
 - Full Keyboard now checks for updates by itself every few hours. When a new version is out, a dot appears on the Settings button and the button at the top of Settings says **Download and install update**. Nothing downloads until you press it, and a check that fails stays out of your way.
 - Installing an update now always takes the newest version, even if another one came out after the check that found this one.

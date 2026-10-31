@@ -220,6 +220,9 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
         pango_layout_set_auto_dir(layout, FALSE);
         pango_context_set_base_dir(pango_layout_get_context(layout), PANGO_DIRECTION_RTL);
         pango_layout_context_changed(layout);
+    } else if (alignment == PANGO_ALIGN_LEFT) {
+        // Left means left, or Arabic and Hebrew names flip to the far edge.
+        pango_layout_set_auto_dir(layout, FALSE);
     }
     auto* font = pango_font_description_new();
     pango_font_description_set_family(font, family.c_str());
@@ -304,6 +307,9 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-8, 0, -2, 6);
         line(-2, 6, 9, -7);
         break;
+    case Icon::Reset:
+        cairo_scale(cr, -1, 1); // Reload's arrow turned back: undo, not refresh.
+        [[fallthrough]];
     case Icon::Reload:
         cairo_arc(cr, 0, 0, 8, -.5, 4.8);
         line(1, -8, -3, -10);
@@ -570,6 +576,17 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_line_to(cr, 5, -5);
         cairo_line_to(cr, 8.5, -.5);
         cairo_line_to(cr, -7, -.5);
+        break;
+    case Icon::Eraser:
+        // A block tilted on the line it leaves behind.
+        cairo_move_to(cr, -9, 2);
+        cairo_line_to(cr, 1, -8);
+        cairo_line_to(cr, 9, 0);
+        cairo_line_to(cr, -1, 10);
+        cairo_line_to(cr, -5, 10);
+        cairo_close_path(cr);
+        line(-4, -3, 4, 5);
+        line(-1, 10, 10, 10);
         break;
     case Icon::Clear:
         // A bin.
@@ -1639,7 +1656,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.status == view.status &&
         previous_->view.hovered_controls == view.hovered_controls &&
         previous_->view.address == view.address && previous_->view.confirm == view.confirm &&
-        previous_->view.favorites == view.favorites;
+        previous_->view.languages == view.languages;
     bool full = force_full || scene_changed || (view.settings && !settings_still);
     std::vector<Rect> damage;
     animating_ = false;
@@ -2376,7 +2393,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 draw_icon(cr, control.icon, at, control.warning ? t.alert : legend);
             } else {
-                label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
+                // Toolbar names such as a language's short name shrink to fit.
+                label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend,
+                      !view.settings);
             }
             if (control.badge) {
                 // Stays inside the button, whose bounds are its repaint damage.
@@ -2397,7 +2416,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
                 !control.id.starts_with("address-") && !control.id.starts_with("confirm-") &&
-                !control.id.starts_with("favorites-")) {
+                !control.id.starts_with("languages-")) {
                 draw_control(control);
             }
         }
@@ -2514,48 +2533,127 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_set_line_width(cr, 1);
             cairo_stroke(cr);
         };
-        if (view.favorites) {
-            // The favorites popup over the Languages card: a header like the
-            // card's, the list of pairs with their bins, and Clear all.
-            const auto& popup = *view.favorites;
+        if (view.languages) {
+            // One well split by faint lines, as the emoji picker's sections
+            // are: layouts act as tabs, languages list, the chosen ones raised.
+            const auto& popup = *view.languages;
             modal_panel(popup.panel);
-            label(cr, "Favorites", {popup.panel.x + 88, popup.panel.y + 16, popup.panel.width - 112, 36},
-                  21, view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
-            const double line = std::round(popup.list.y - 6) + .5;
-            for (const double y : {line, std::round(popup.list.y + popup.list.height + 6) + .5}) {
-                cairo_move_to(cr, popup.panel.x + 16, y);
-                cairo_line_to(cr, popup.panel.x + popup.panel.width - 16, y);
+            label(cr, "Additional languages", {popup.panel.x + 92, popup.panel.y + 10, 500, 42}, 24,
+                  view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+            draw_well(cr, t, popup.well);
+            for (const double x : {popup.languages_list.x - 15, popup.additional_list.x - 16}) {
+                cairo_move_to(cr, std::round(x) + .5, popup.well.y + 12);
+                cairo_line_to(cr, std::round(x) + .5, popup.well.y + popup.well.height - 12);
                 cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
                 cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
             }
-            cairo_save(cr);
-            cairo_rectangle(cr, popup.list.x, popup.list.y, popup.list.width, popup.list.height);
-            cairo_clip(cr);
-            for (const auto& row : popup.rows) {
-                // The language over its layout, as Settings rows with a note.
-                const double width = row.bounds.width - 104;
-                label(cr, row.language, {row.bounds.x + 12, row.bounds.y + 10, width, 30}, 22,
-                      view.language->font, t.legend, true, PANGO_ALIGN_LEFT);
-                label(cr, row.layout, {row.bounds.x + 12, row.bounds.y + 40, width, 22}, 16,
-                      view.language->font, t.legend, true, PANGO_ALIGN_LEFT);
-            }
-            if (popup.rows.empty()) {
-                label(cr, "No favorites saved", popup.list, 19, view.language->font, disabled_legend(t));
-            }
-            cairo_restore(cr);
-            if (popup.thumb) {
-                rounded(cr, *popup.thumb, 3);
-                source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
-                cairo_fill(cr);
-            }
-            label(cr, popup.count,
-                  {popup.panel.x + 24, popup.panel.y + popup.panel.height - 70, 220, 52}, 16,
-                  view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
-            for (const auto& control : view.controls) {
-                if (control.id.starts_with("favorites-")) {
-                    draw_control(control);
+            const auto caption = [&](const char* text, double x, double y) {
+                label(cr, text, {x, y, 340, 30}, 17, view.language->font, disabled_legend(t), false,
+                      PANGO_ALIGN_LEFT);
+            };
+            caption("Layout", popup.layouts_list.x, popup.layouts_list.y - 36);
+            caption("Languages", popup.languages_list.x, popup.languages_list.y - 36);
+            caption("Main language", popup.additional_list.x, popup.layouts_list.y - 36);
+            caption("Additional, in cycle order", popup.additional_list.x, popup.additional_list.y - 40);
+            const auto hovered = [&](const auto& row) { return view.hovered_controls.contains(row.id); };
+            // The title, and under it a quieter note when there is one.
+            const auto text = [&](const auto& row, double right, Color title, Color note) {
+                const auto& r = row.bounds;
+                const double width = r.width - right;
+                if (row.note.empty()) {
+                    label(cr, row.title, {r.x + 12, r.y, width, r.height}, 21, view.language->font,
+                          title, false, PANGO_ALIGN_LEFT);
+                    return;
                 }
+                label(cr, row.title, {r.x + 12, r.y + 3, width, 28}, 21, view.language->font, title,
+                      false, PANGO_ALIGN_LEFT);
+                label(cr, row.note, {r.x + 12, r.y + 29, width, 21}, 15, view.language->font, note,
+                      false, PANGO_ALIGN_LEFT);
+            };
+            const Color quiet = disabled_legend(t);
+            const auto clipped = [&](const Rect& list, const auto& draw) {
+                cairo_save(cr);
+                cairo_rectangle(cr, list.x, list.y, list.width, list.height);
+                cairo_clip(cr);
+                draw();
+                cairo_restore(cr);
+            };
+            clipped(popup.layouts_list, [&] {
+                for (const auto& row : popup.layouts) {
+                    if (row.selected) {
+                        fill_latched(cr, t, row.bounds, t.radius);
+                    } else if (hovered(row)) {
+                        rounded(cr, row.bounds, t.radius);
+                        source(cr, t.bottom);
+                        cairo_fill(cr);
+                    }
+                    text(row, 24, t.legend, quiet);
+                }
+            });
+            clipped(popup.languages_list, [&] {
+                for (const auto& row : popup.languages) {
+                    if (row.enabled && hovered(row)) {
+                        rounded(cr, row.bounds, t.radius);
+                        source(cr, t.bottom);
+                        cairo_fill(cr);
+                    }
+                    const Color off = mix(t.legend, t.surface, .72);
+                    text(row, 56, row.enabled ? t.legend : off, row.enabled ? quiet : off);
+                    if (row.checked) {
+                        draw_icon(
+                            cr, Icon::Apply,
+                            {row.bounds.x + row.bounds.width - 44, row.bounds.y, 40, row.bounds.height},
+                            quiet, 20);
+                    }
+                }
+            });
+            draw_cap(cr, t, popup.main.bounds, hovered(popup.main), popup.main_target, true);
+            text(popup.main, 92, t.legend, quiet);
+            clipped(popup.additional_list, [&] {
+                for (const auto& row : popup.additional) {
+                    draw_cap(cr, t, row.bounds, hovered(row), false, true);
+                    text(row, 24, t.legend, quiet);
+                }
+            });
+            if (!popup.hint.empty()) {
+                label(cr, popup.hint,
+                      {popup.additional_list.x + 34, popup.additional_list.y + 60,
+                       popup.additional_list.width - 68, 120},
+                      18, view.language->font, quiet, false, PANGO_ALIGN_CENTER, true);
+            }
+            for (const auto& thumb :
+                 {popup.layouts_thumb, popup.languages_thumb, popup.additional_thumb}) {
+                if (thumb) {
+                    rounded(cr, *thumb, 3);
+                    source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+                    cairo_fill(cr);
+                }
+            }
+            for (const auto& control : view.controls) {
+                if (control.id.starts_with("languages-") && !control.id.starts_with("languages-row-")) {
+                    draw_control(control);
+                    if (control.id == "languages-clear" && control.enabled &&
+                        view.hovered_controls.contains(control.id)) {
+                        // Its name, to the button's left, over the caption.
+                        const Rect tip{control.bounds.x - 310, control.bounds.y, 300,
+                                       control.bounds.height};
+                        rounded(cr, tip, t.radius);
+                        source(cr, mix(t.bottom, t.surface, .25));
+                        cairo_fill(cr);
+                        label(cr, control.label, tip, 17, view.language->font, t.legend);
+                    }
+                }
+            }
+            if (popup.lifted) {
+                const auto& row = *popup.lifted;
+                soft_shadow(cr, row.bounds, t.radius + 2, tone_shadow);
+                draw_cap(cr, t, row.bounds, true, false, !row.removing);
+                auto shown = row;
+                if (row.removing) {
+                    shown.note = "Drop to remove";
+                }
+                text(shown, 24, row.removing ? quiet : t.legend, quiet);
             }
         }
         if (view.confirm) {

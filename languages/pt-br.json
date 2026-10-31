@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "pt-br",
-  "name": "Português — Brasil ABNT2",
+  "name": "Portuguese (Brazil)",
+  "native_name": "Português (Brasil)",
+  "short_name": "Português",
   "locale": "pt-BR",
   "keymap": {
     "rules": "evdev",

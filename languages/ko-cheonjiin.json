@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "ko-cheonjiin",
-  "name": "한국어 — 천지인",
+  "name": "Korean, 12-key",
+  "native_name": "한국어 천지인",
+  "short_name": "천지인",
   "locale": "ko-KR",
   "keymap": {
     "rules": "evdev",

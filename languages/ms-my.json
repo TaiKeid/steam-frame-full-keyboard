@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "ms-my",
-  "name": "Bahasa Melayu",
+  "name": "Malay",
+  "native_name": "Bahasa Melayu",
+  "short_name": "Melayu",
   "locale": "ms-MY",
   "keymap": {
     "rules": "evdev",

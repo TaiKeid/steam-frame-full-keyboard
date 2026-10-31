@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "tr-tr",
-  "name": "Türkçe — Q",
+  "name": "Turkish, Q",
+  "native_name": "Türkçe Q",
+  "short_name": "Türkçe",
   "locale": "tr-TR",
   "keymap": {
     "rules": "evdev",

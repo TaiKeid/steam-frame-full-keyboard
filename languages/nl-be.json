@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "nl-be",
+  "name": "Dutch (Belgium)",
+  "native_name": "Nederlands (België)",
+  "short_name": "NL BE",
+  "locale": "nl-BE",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "be",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "swipe": {
+    "lexicon": "nl-nl"
+  },
+  "dictation": {
+    "language": "nl"
+  },
+  "required_keys": [
+    "IntlBackslash"
+  ]
+}

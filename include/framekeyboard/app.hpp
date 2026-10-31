@@ -97,7 +97,7 @@ class App {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
                settings_ui_.pressed(pointer) || (swipe_track_ && swipe_track_->pointer == pointer) ||
                emoji_.pressed(pointer) ||
-               (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer);
+               (languages_ && languages_->drag && languages_->drag->pointer == pointer);
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
@@ -538,7 +538,8 @@ class App {
     // The last three ask before a Settings action ends dictation.
     enum class Confirm {
         None,
-        ClearFavorites,
+        ClearLanguages,
+        SaveLanguages,
         Download,
         DownloadAndApply,
         QuitDictation,
@@ -556,24 +557,56 @@ class App {
     bool dictation_at_stake() const { return dictation_holds_panel() || direct_active(); }
     void quit_keyboard();
     void use_steam_keyboard();
-    // The favorites popup over the Languages card (docs/configuration.md).
-    // Its list glides to stick steps and follows a laser drag past a dead
-    // zone, as the cards do; a drag's release clicks nothing.
-    struct FavoritesPopup {
-        double scroll{}, target{};
+    // The Additional languages popup (app_languages.cpp). Its lists glide to
+    // stick steps as the cards do. The languages list scrolls under an up or
+    // down laser drag; a sideways one, or any on an additional row, lifts the
+    // row. A drag's release clicks nothing.
+    struct LanguagesPopup {
+        enum class Which { Layouts, Languages, Additional };
+        struct List {
+            double scroll{}, target{};
+        };
+        std::string layout; // Whose languages show.
+        List layouts, languages, additional;
         struct Drag {
             unsigned pointer{};
-            double y{}, scroll{};
-            bool active{};
+            Which source{Which::Languages};
+            Selection pair;
+            bool liftable{}, lifted{}, scrolling{}, over_main{};
+            double press_x{}, press_y{}, x{}, y{}, scroll{};
+            std::optional<std::size_t> insert; // Where it would land in the list.
         };
         std::optional<Drag> drag;
         double last_tick{-1};
     };
-    std::optional<FavoritesPopup> favorites_;
-    // Pending favorites in saved order, each pair once, as the popup lists them.
-    std::vector<Favorite> favorite_pairs() const;
-    double favorites_scroll_limit() const;
-    void append_favorites(PanelView& v) const;
+    std::optional<LanguagesPopup> languages_;
+    // Popup edits prompt on leaving Settings; the dropdowns alone do not.
+    bool languages_edited_{};
+    Selection saved_main_;
+    std::vector<Selection> saved_additional_;
+    // Pending additional languages in cycle order, each once, without main.
+    std::vector<Selection> additional_pairs() const;
+    void set_additional_pairs(const std::vector<Selection>& pairs);
+    void set_main_language(const Selection& pair, std::vector<Selection> additional);
+    void remember_languages();
+    bool languages_changed() const;
+    void open_languages();
+    void close_languages();
+    void leave_settings();
+    std::vector<std::string> layout_order() const;
+    std::vector<std::string> language_order(const std::string& layout) const;
+    double languages_limit(LanguagesPopup::Which which) const;
+    PanelView::LanguagesView::Row language_row(const Selection& pair) const;
+    void append_languages(PanelView& v) const;
+    void languages_press(unsigned pointer, double x, double y);
+    bool languages_move(unsigned pointer, double x, double y);
+    void update_languages_drop();
+    bool languages_release(unsigned pointer);
+    void languages_action(const ControlAction& command);
+    bool languages_scroll(unsigned pointer, double dy);
+    LanguagesPopup::List* languages_list_under(double x, double y);
+    std::optional<ScrollRoom> languages_scroll_room(double x, double y) const;
+    void tick_languages(double now);
     void address_key(const std::string& key);
     // The Dictation card's connection line: empty until Test runs.
     std::string dictation_test_;

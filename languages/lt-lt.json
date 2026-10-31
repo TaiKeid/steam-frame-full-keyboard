@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "lt-lt",
-  "name": "Lietuvių",
+  "name": "Lithuanian",
+  "native_name": "Lietuvių",
+  "short_name": "Lietuvių",
   "locale": "lt-LT",
   "keymap": {
     "rules": "evdev",

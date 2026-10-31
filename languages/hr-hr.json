@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "hr-hr",
-  "name": "Hrvatski",
+  "name": "Croatian, QWERTZ",
+  "native_name": "Hrvatski QWERTZ",
+  "short_name": "Hrvatski",
   "locale": "hr-HR",
   "keymap": {
     "rules": "evdev",

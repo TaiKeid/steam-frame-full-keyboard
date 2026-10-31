@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "ja-jis-full",
-  "name": "Japanese full-size JIS with conversion keys",
+  "name": "Japanese JIS",
   "language": "ja-romaji",
   "width": 1480,
   "height": 416,

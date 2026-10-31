@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "en-us-dvorak",
+  "name": "English (US), Dvorak",
+  "native_name": "English Dvorak",
+  "short_name": "Dvorak",
+  "locale": "en-US",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "dvorak",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "swipe": {
+    "lexicon": "en-us"
+  },
+  "dictation": {
+    "language": "en"
+  }
+}

@@ -10,8 +10,19 @@ does not automatically select Russian. Updating the app preserves your selection
 | Language | Profile ID | Layout | Character mapping |
 | --- | --- | --- | --- |
 | English US | `en-us` | US full-size | US XKB |
+| English US, Dvorak | `en-us-dvorak` | US full-size | US Dvorak XKB; legends and swipe follow it |
 | German | `de-de` | International full-size | German XKB |
 | French | `fr-fr` | International full-size | French AZERTY, France |
+| French, QWERTY | `fr-fr-qwerty` | US full-size | US international, accents on dead keys |
+| French, Belgium | `fr-be` | International full-size | Belgian AZERTY |
+| Dutch, Belgium | `nl-be` | International full-size | Belgian AZERTY |
+| German, QWERTY | `de-de-qwerty` | US full-size | German letters on AltGr |
+| Czech, QWERTY | `cs-cz-qwerty` | International full-size | Czech with Y and Z swapped |
+| Slovak, QWERTY | `sk-sk-qwerty` | International full-size | Slovak with Y and Z swapped |
+| Hungarian, QWERTY | `hu-hu-qwerty` | International full-size | Hungarian with Y and Z swapped |
+| Croatian, QWERTY | `hr-hr-qwerty` | US full-size | Croatian letters on AltGr |
+| Polish, QWERTZ | `pl-pl-qwertz` | International full-size | Polish typewriter arrangement |
+| Turkish, F | `tr-tr-f` | International full-size | Turkish F |
 | Spanish | `es-es` | International full-size | Spanish, Spain |
 | Italian | `it-it` | International full-size | Italian XKB |
 | Portuguese, Brazil | `pt-br` | Brazilian ABNT2 full-size | Brazilian XKB, including extra slash and keypad separator |

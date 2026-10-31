@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "da-dk",
-  "name": "Dansk",
+  "name": "Danish",
+  "native_name": "Dansk",
+  "short_name": "Dansk",
   "locale": "da-DK",
   "keymap": {
     "rules": "evdev",

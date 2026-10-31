@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "th-th",
-  "name": "ไทย — เกษมณี",
+  "name": "Thai, Kedmanee",
+  "native_name": "ไทย เกษมณี",
+  "short_name": "ไทย",
   "locale": "th-TH",
   "keymap": {
     "rules": "evdev",

@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "hi-in",
-  "name": "हिन्दी — InScript",
+  "name": "Hindi, InScript",
+  "native_name": "हिन्दी InScript",
+  "short_name": "हिन्दी",
   "locale": "hi-IN",
   "keymap": {
     "rules": "evdev",

@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "hu-hu",
-  "name": "Magyar",
+  "name": "Hungarian, QWERTZ",
+  "native_name": "Magyar QWERTZ",
+  "short_name": "Magyar",
   "locale": "hu-HU",
   "keymap": {
     "rules": "evdev",

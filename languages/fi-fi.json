@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "fi-fi",
-  "name": "Suomi",
+  "name": "Finnish",
+  "native_name": "Suomi",
+  "short_name": "Suomi",
   "locale": "fi-FI",
   "keymap": {
     "rules": "evdev",

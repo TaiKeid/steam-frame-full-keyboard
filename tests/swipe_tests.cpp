@@ -96,6 +96,13 @@ struct FakeEncoder : SwipeEncoder {
     }
 };
 
+// Dvorak's letters sit where its keymap puts them, not where QWERTY has them.
+void dvorak_geometry() {
+    const auto keyboard = keyboard_for("en-us-full", "en-us-dvorak");
+    require(keyboard.key_index.at("KeyS") == letter(keyboard, U'o'), "Dvorak o is on the S key");
+    require(keyboard.key_index.at("KeyD") == letter(keyboard, U'e'), "Dvorak e is on the D key");
+    require(keyboard.key_index.at("KeyJ") == letter(keyboard, U'h'), "Dvorak h is on the J key");
+}
 void keyboard_geometry() {
     const auto us = keyboard_for("en-us-full", "en-us");
     require(us.letters.size() == 26, "US layout has 26 swipe letters");
@@ -1134,6 +1141,7 @@ int main(int argc, char** argv) {
             return chinese_flow();
         }
         keyboard_geometry();
+        dvorak_geometry();
         lexicon_paths();
         features();
         disabled_by_default();

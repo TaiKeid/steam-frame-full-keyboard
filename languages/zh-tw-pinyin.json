@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "zh-tw-pinyin",
-  "name": "中文 — 繁體拼音",
+  "name": "Chinese, Traditional",
+  "native_name": "中文 繁體拼音",
+  "short_name": "繁體",
   "locale": "zh-TW",
   "keymap": {
     "rules": "evdev",

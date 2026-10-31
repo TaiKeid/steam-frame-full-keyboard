@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "sv-se",
-  "name": "Svenska",
+  "name": "Swedish",
+  "native_name": "Svenska",
+  "short_name": "Svenska",
   "locale": "sv-SE",
   "keymap": {
     "rules": "evdev",

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "hr-hr-qwerty",
+  "name": "Croatian, QWERTY",
+  "native_name": "Hrvatski QWERTY",
+  "short_name": "HR QWERTY",
+  "locale": "hr-HR",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "hr",
+    "variant": "us",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "hr"
+  }
+}

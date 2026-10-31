@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "sk-sk-qwerty",
+  "name": "Slovak, QWERTY",
+  "native_name": "Slovenčina QWERTY",
+  "short_name": "SK QWERTY",
+  "locale": "sk-SK",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "sk",
+    "variant": "qwerty",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "sk"
+  }
+}

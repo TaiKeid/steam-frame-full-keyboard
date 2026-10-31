@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "cs-cz-qwerty",
+  "name": "Czech, QWERTY",
+  "native_name": "Čeština QWERTY",
+  "short_name": "CS QWERTY",
+  "locale": "cs-CZ",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "cz",
+    "variant": "qwerty",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "cs"
+  }
+}

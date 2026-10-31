@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "tr-tr-f",
+  "name": "Turkish, F",
+  "native_name": "Türkçe F",
+  "short_name": "TR F",
+  "locale": "tr-TR",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "tr",
+    "variant": "f",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "dictation": {
+    "language": "tr"
+  }
+}

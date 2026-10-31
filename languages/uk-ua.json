@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "uk-ua",
-  "name": "Українська",
+  "name": "Ukrainian",
+  "native_name": "Українська",
+  "short_name": "Українська",
   "locale": "uk-UA",
   "keymap": {
     "rules": "evdev",

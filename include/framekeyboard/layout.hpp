@@ -62,7 +62,9 @@ enum class Icon {
     Undo,
     Headset,
     Computer,
-    Cloud
+    Cloud,
+    Eraser,
+    Reset,
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.

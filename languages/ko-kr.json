@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "ko-kr",
-  "name": "한국어 — 두벌식",
+  "name": "Korean, 2-set",
+  "native_name": "한국어 두벌식",
+  "short_name": "한국어",
   "locale": "ko-KR",
   "keymap": {
     "rules": "evdev",

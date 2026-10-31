@@ -89,7 +89,8 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
 | Keep it open without the dashboard | Toggle **Stay open over apps** beside the pin icon |
 | Keep it open between text fields | With Replace native keyboard on, toggle **Focus mode**, the window icon beside Stay open over apps. The keyboard stays where it is when a field closes, types into the next field you select, and otherwise types into the app with keyboard focus; × or the keyboard button still hides it |
-| Cycle favorite layouts and languages | Press the language abbreviation beside the pin icon |
+| Add languages to switch between | Open Settings → **Additional languages**, then tap or drag languages into the list |
+| Switch between your languages | Press the language button beside the pin icon |
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |

@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "fr-fr",
-  "name": "Français — AZERTY",
+  "name": "French, AZERTY",
+  "native_name": "Français AZERTY",
+  "short_name": "Français",
   "locale": "fr-FR",
   "keymap": {
     "rules": "evdev",

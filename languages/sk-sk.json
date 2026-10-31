@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "sk-sk",
-  "name": "Slovenčina — QWERTZ",
+  "name": "Slovak, QWERTZ",
+  "native_name": "Slovenčina QWERTZ",
+  "short_name": "Slovenčina",
   "locale": "sk-SK",
   "keymap": {
     "rules": "evdev",

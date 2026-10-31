@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "ja-jis",
-  "name": "日本語 — JIS / system IME",
+  "name": "Japanese, JIS",
+  "native_name": "日本語 JIS",
+  "short_name": "日本語 JIS",
   "locale": "ja-JP",
   "keymap": {
     "rules": "evdev",

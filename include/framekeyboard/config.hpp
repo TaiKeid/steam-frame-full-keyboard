@@ -45,7 +45,9 @@ struct FlickKey {
 };
 struct Language {
     bool operator==(const Language&) const = default;
-    std::string id, name, locale, rules, model, keymap, variant, options, font;
+    // name is English, native_name is what speakers call it, and short_name
+    // fits the toolbar. The last two are optional in a user's own profile.
+    std::string id, name, native_name, short_name, locale, rules, model, keymap, variant, options, font;
     std::string input_method{"xkb"};
     std::map<std::string, std::string> kana, kana_shift;
     std::map<std::string, std::string> composition_keys, composition_shift;

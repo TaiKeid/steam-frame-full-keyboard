@@ -41,7 +41,6 @@ enum class ControlKind {
     ChooseLayout,
     ChooseLanguage,
     ChooseTheme,
-    Favorite,
     HideNumpad,
     ChooseBackgroundSurface,
     UseDragToMove,
@@ -67,10 +66,12 @@ enum class ControlKind {
     // backspace, left, right, enter or esc), a recent server, or close.
     AddressKey,
     AddressRecent,
-    ClearFavorites,  // asks first
-    ManageFavorites, // opens the favorites popup
-    FavoritesClose,
-    RemoveFavorite, // value: the pair's layout and language, split by a newline
+    OpenLanguages, // the Additional languages popup
+    CloseLanguages,
+    LanguagesLayout, // value: the layout whose languages show
+    AddLanguage,     // value: the language, on the layout showing
+    ResetMainLanguage,
+    ClearLanguages, // asks first
     ConfirmAccept,
     ConfirmCancel,
     ScrollMenu,
@@ -157,11 +158,16 @@ struct DictationView {
 // The server address popup over Settings, in panel coordinates.
 constexpr Rect address_popup_bounds{300, 36, 1000, 508};
 constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
-// The favorites popup sits over the Languages card, the first card, which
-// the cards scroll back to when it opens. Its list scrolls inside it.
-constexpr Rect favorites_popup_bounds{26, 86, 454, 460};
-constexpr Rect favorites_list_bounds{38, 156, 430, 300};
-constexpr double favorites_row_height = 72;
+// The Additional languages popup covers Settings. One well holds three
+// columns, as the emoji picker's sections share one.
+constexpr Rect languages_popup_bounds{14, 8, 1572, 584};
+constexpr Rect languages_well_bounds{30, 72, 1540, 504};
+constexpr Rect languages_layouts_bounds{38, 116, 270, 452};
+constexpr Rect languages_list_bounds{338, 116, 760, 452};
+constexpr double languages_list_gap = 8;
+constexpr Rect languages_main_bounds{1130, 116, 424, 56};
+constexpr Rect additional_list_bounds{1130, 226, 424, 342};
+constexpr double languages_row_height = 56, additional_row_height = 62;
 // The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
@@ -250,25 +256,29 @@ struct PanelView {
         std::string title, body;
     };
     std::optional<ConfirmView> confirm;
-    // The favorites popup over the Languages card; its close, bin and Clear
-    // all buttons are controls whose ids start with "favorites-".
-    struct FavoritesView {
-        bool operator==(const FavoritesView&) const = default;
-        Rect panel, list;
-        std::string count; // "3 saved"
+    // The Additional languages popup; rows are drawn from here and hit-tested
+    // as controls whose ids start with "languages-row-".
+    struct LanguagesView {
+        bool operator==(const LanguagesView&) const = default;
         struct Row {
             bool operator==(const Row&) const = default;
-            std::string language, layout;
-            Rect bounds; // the whole row, which may reach past the list
+            std::string id, title, note;
+            Rect bounds;
+            bool selected{}, enabled{true}, checked{}, removing{};
         };
-        std::vector<Row> rows;     // only those at least partly in the list
-        std::optional<Rect> thumb; // where the list is scrolled, when it overflows
+        Rect panel, well, layouts_list, languages_list, additional_list;
+        std::vector<Row> layouts, languages, additional; // only those in view
+        Row main;
+        bool main_target{}; // A lifted row would land on it.
+        std::string hint;
+        std::optional<Row> lifted;
+        std::optional<Rect> layouts_thumb, languages_thumb, additional_thumb;
     };
-    std::optional<FavoritesView> favorites;
+    std::optional<LanguagesView> languages;
     // The prefix of the open modal's controls; nothing else responds. A
-    // question asked from the favorites popup sits over it.
+    // question asked from the languages popup sits over it.
     std::string modal_prefix() const {
-        return address ? "address-" : confirm ? "confirm-" : favorites ? "favorites-" : "";
+        return address ? "address-" : confirm ? "confirm-" : languages ? "languages-" : "";
     }
 };
 

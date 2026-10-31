@@ -62,6 +62,45 @@ void click(App& app, const std::string& id, unsigned pointer = 0) {
     app.down(pointer, x, y, 1);
     app.up(pointer, x, y);
 }
+// A row of the Additional languages popup, by what it says.
+const Control& languages_row(const PanelView& view, const std::string& label) {
+    for (const auto& item : view.controls) {
+        if (item.id.starts_with("languages-row-") && item.label == label) {
+            return item;
+        }
+    }
+    throw std::runtime_error("no row: " + label);
+}
+// Scrolls the languages list until the row shows.
+void show_row(App& app, const std::string& label) {
+    static double now = 500;
+    const auto listed = [&] {
+        const auto view = app.view();
+        return std::any_of(view.controls.begin(), view.controls.end(), [&](const Control& item) {
+            return item.id.starts_with("languages-row-") && item.label == label &&
+                   item.bounds.y >= languages_list_bounds.y &&
+                   item.bounds.y + item.bounds.height <=
+                       languages_list_bounds.y + languages_list_bounds.height;
+        });
+    };
+    for (int step = 0; step < 40 && !listed(); ++step) {
+        app.move(0, 700, 300);
+        app.scroll(0, 0, 1);
+        for (int i = 0; i < 10; ++i) {
+            app.tick(now += .05);
+        }
+    }
+}
+void tap_row(App& app, const std::string& label) {
+    show_row(app, label);
+    click(app, languages_row(app.view(), label).id);
+}
+void add_language(App& app, const std::string& layout, const std::string& language) {
+    click(app, "additional-languages");
+    tap_row(app, layout);
+    tap_row(app, language);
+    click(app, "languages-close");
+}
 // Opens the dropdown and scrolls until the choice is visible.
 Control show_choice(App& app, const std::string& field, const std::string& choice) {
     click(app, field);
@@ -658,7 +697,7 @@ void preferences_with_broken_startup() {
     app.up(0, x, y);
     require(saved(app).num_lock, "Num Lock also saves despite a startup error");
     app.show_settings();
-    click(app, "favorite");
+    add_language(app, "International", "German, QWERTZ");
     click(app, "auto-leveling");
     click(app, "replace-native-keyboard");
     click(app, "start-with-steamos");
@@ -1225,24 +1264,23 @@ void app_settings() {
     select(app, "layout", "international-full");
     select(app, "language", "de-de");
     select(app, "layout", "en-us-full");
-    require(app.view().settings && control(app.view(), "language").label == "English (US)",
-            "a layout change replaces a language it cannot type");
+    require(app.view().settings && control(app.view(), "language").label == "Deutsch QWERTY",
+            "a layout change keeps the language on a keyboard option that fits");
     select(app, "layout", "international-full");
-    require(control(app.view(), "language").label == "English (US)",
+    require(control(app.view(), "language").label == "Deutsch QWERTY",
             "a layout change keeps a language that still fits");
-    select(app, "language", "de-de");
-    click(app, "favorite");
-    require(control(app.view(), "favorite").selected, "favorite checkbox reflects pending pair");
     app.back();
-    require(saved(app).favorites.empty(), "Back discards unsaved favorite edits");
     app.show_settings();
-    select(app, "layout", "international-full");
-    select(app, "language", "de-de");
-    click(app, "favorite");
+    add_language(app, "International", "German, QWERTZ");
+    require(control(app.view(), "additional-languages").label == "Additional languages: 1",
+            "the button counts additional languages");
+    app.back();
+    require(app.view().confirm && app.view().settings, "leaving asks about popup edits");
+    click(app, "confirm-cancel");
+    require(!app.view().settings && saved(app).favorites.empty(), "Discard drops them");
+    app.show_settings();
+    add_language(app, "International", "German, QWERTZ");
     select(app, "theme", "midnight");
-    // Save English as default with German retained in the pending favorite set.
-    select(app, "language", "en-us");
-    select(app, "layout", "en-us-full");
     click(app, "apply");
     auto settings = saved(app);
     require(settings.favorites.size() == 1 && settings.active.language == "en-us" &&
@@ -1288,16 +1326,15 @@ void app_settings() {
     click(app, "language-cycle");
     require(app.selection() == same, "one unique favorite equal to default does not cycle");
     app.show_settings();
-    require(control(app.view(), "favorite").selected,
-            "legacy favorites recognized by layout/language pair");
-    click(app, "favorite");
+    require(control(app.view(), "additional-languages").label == "Additional languages",
+            "a legacy favorite of the main language does not count");
     click(app, "apply");
     require(saved(app).favorites.empty() && !has(app.view(), "language-cycle"),
-            "uncheck removes all duplicates and hides main cycle");
+            "Apply removes all duplicates and hides main cycle");
 
     // Reload closes a menu, cancels a pressed choice, and discards staged edits.
     app.show_settings();
-    click(app, "favorite");
+    add_language(app, "International", "Danish");
     click(app, "language");
     // Corrupt config reload keeps the prior valid pin/favorites state and reports
     // the error, while clearing all pending controls.
@@ -1316,7 +1353,9 @@ void app_settings() {
     require(app.pointer_pressed(1), "settings controls participate in pointer cancellation");
     app.reload();
     app.up(1, c.bounds.x + 5, c.bounds.y + 5);
-    require(!app.view().popup && !control(app.view(), "favorite").selected && !app.pointer_pressed(1),
+    require(!app.view().popup &&
+                control(app.view(), "additional-languages").label == "Additional languages" &&
+                !app.pointer_pressed(1),
             "reload clears popup, captures and staged favorites");
     click(app, "language");
     c = control(app.view(), "choose:language:de-de");
@@ -1522,57 +1561,16 @@ void auto_leveling_settings() {
     load_settings(directory.path, errors);
     require(!errors.empty(), "Auto leveling requires a JSON boolean");
 }
-void clear_favorites() {
-    TemporaryDirectory directory;
-    Options options;
-    options.config_dir = directory.path;
-    options.mode = Mode::Render;
-    CaptureSink sink;
-    App app(options, sink);
-    app.show_settings();
-    require(!control(app.view(), "manage-favorites").enabled, "nothing to manage at first");
-    click(app, "favorite");
-    click(app, "apply");
-    require(saved(app).favorites.size() == 1, "one favorite saved");
-    app.show_settings();
-    click(app, "manage-favorites");
-    require(app.view().favorites.has_value(), "Manage opens the favorites popup");
-    click(app, "favorites-clear");
-    require(app.view().confirm.has_value(), "Clear all asks first");
-    const auto apply = control(app.view(), "apply");
-    app.down(0, apply.bounds.x + 5, apply.bounds.y + 5, 1);
-    app.up(0, apply.bounds.x + 5, apply.bounds.y + 5);
-    require(app.view().settings && app.view().confirm.has_value(), "the question is modal");
-    click(app, "confirm-cancel");
-    require(!app.view().confirm && app.view().favorites &&
-                control(app.view(), "favorites-clear").enabled,
-            "Cancel returns to the popup with the favorites");
-    click(app, "favorites-clear");
-    click(app, "confirm-accept");
-    require(!app.view().favorites && !control(app.view(), "manage-favorites").enabled,
-            "Clear empties the pending list and closes the popup");
-    app.back();
-    require(saved(app).favorites.size() == 1, "Back keeps the saved favorites");
-    app.show_settings();
-    click(app, "manage-favorites");
-    click(app, "favorites-clear");
-    click(app, "confirm-accept");
-    click(app, "apply");
-    require(saved(app).favorites.empty(), "Apply saves the cleared list");
-}
-// Manage opens a popup over the Languages card that lists the favorite
-// pairs, each removable on its own as a pending change; its list scrolls with
-// the stick and a laser drag, and a press outside closes it.
-void favorites_popup() {
+// The Additional languages popup (docs/configuration.md): the main language,
+// the ordered languages after it, tap and drag, and the question on leaving.
+void languages_popup() {
     TemporaryDirectory directory;
     std::string favorites;
-    // Enough pairs to overflow the list, a legacy duplicate and a pair whose
-    // layout file is gone.
+    // A legacy repeat, the main language and a pair whose layout file is gone.
     const std::vector<std::pair<std::string, std::string>> pairs{
         {"international-full", "de-de"}, {"en-us-full", "en-us"},
         {"removed-layout", "de-de"},     {"international-full", "es-es"},
-        {"international-full", "fr-fr"}, {"international-full", "it-it"},
-        {"international-full", "de-de"}};
+        {"international-full", "fr-fr"}, {"international-full", "de-de"}};
     for (std::size_t i = 0; i < pairs.size(); ++i) {
         favorites += (i ? "," : "") + std::string(R"({"id":"f)") + std::to_string(i) +
                      R"(","name":"Pair","layout":")" + pairs[i].first + R"(","language":")" +
@@ -1593,84 +1591,153 @@ void favorites_popup() {
             app.tick(now += .05);
         }
     };
-    require(control(app.view(), "manage-favorites").label == "Manage",
-            "the Favorites row offers Manage");
-    // The cards were scrolled sideways; the popup still sits over the first.
-    app.move(0, 800, 300);
-    app.scroll(0, 0.4, 0);
-    settle();
-    click(app, "manage-favorites");
-    settle();
-    auto view = app.view();
-    require(view.favorites && view.favorites->panel.x < 488 &&
-                view.favorites->panel.x + view.favorites->panel.width <= 488,
-            "the popup sits over the Languages card");
-    require(view.cards.front().bounds.x == SettingsUi::viewport.x, "the first card is shown under it");
-    require(view.favorites->count == "6 saved" && view.favorites->rows.front().language == "Deutsch",
-            "a legacy duplicate of a pair shows once; rows name their language");
-    require(control(view, "favorites-remove-0").icon == Icon::Clear, "each row has a bin");
-    require(!has(view, "favorites-remove-5"), "a long list starts at its top");
-    {
-        const auto under = control(view, "layout");
-        const double x = under.bounds.x + 10, y = under.bounds.y + 10;
+    auto drag = [&](const Rect& from, double x, double y) {
+        const double start_x = from.x + from.width / 2, start_y = from.y + from.height / 2;
+        app.move(0, start_x, start_y);
+        app.down(0, start_x, start_y, now);
+        app.move(0, x, start_y);
         app.move(0, x, y);
-        app.down(0, x, y, now);
         app.up(0, x, y);
-        require(!app.view().popup && app.view().favorites,
-                "the Settings rows under the popup do not respond");
+    };
+    auto additional = [&] {
+        std::vector<std::string> titles;
+        for (const auto& row : app.view().languages->additional) {
+            titles.push_back(row.title);
+        }
+        return titles;
+    };
+    using Titles = std::vector<std::string>;
+    require(control(app.view(), "additional-languages").label == "Additional languages: 4",
+            "the count skips legacy repeats and the main language");
+    click(app, "additional-languages");
+    auto view = app.view();
+    require(view.languages && view.languages->layouts.size() == 7, "the layouts show as tabs");
+    require(view.languages->layouts.front().title == "US QWERTY" &&
+                view.languages->layouts.front().selected,
+            "the common layouts lead, on the main language's");
+    require(view.languages->main.title == "English (US)" && !control(view, "languages-reset").enabled,
+            "the main slot starts at English, which needs no reset");
+    require(additional() ==
+                Titles({"German, QWERTZ", "German, QWERTZ", "Spanish (Spain)", "French, AZERTY"}),
+            "the additional list");
+    require(view.languages->additional[1].note.find("(missing)") != std::string::npos,
+            "a pair whose layout is gone stays listed so it can go");
+    tap_row(app, "Korean 12-key");
+    require(!languages_row(app.view(), "Arabic").enabled, "languages a layout can't type stay listed");
+    {
+        const auto r = languages_row(app.view(), "Arabic").bounds;
+        app.move(0, r.x + 20, r.y + 20);
+        app.down(0, r.x + 20, r.y + 20, now);
+        app.up(0, r.x + 20, r.y + 20);
     }
-    // The stick scrolls the list under the laser.
-    const auto list = view.favorites->list;
-    app.move(0, list.x + 100, list.y + 100);
-    require(app.scroll_room(0) == ScrollRoom{false, true}, "the list can scroll on");
-    require(app.scroll(0, 0, 10), "a stick step scrolls it");
+    require(additional().size() == 4, "and cannot be added");
+    tap_row(app, "International");
+    tap_row(app, "Czech, QWERTZ");
+    require(additional().back() == "Czech, QWERTZ", "a tap adds to the end");
+    tap_row(app, "Czech, QWERTZ");
+    require(additional().size() == 5, "only once");
+    tap_row(app, "US QWERTY");
+    tap_row(app, "English (US)");
+    require(additional().size() == 5, "the main language is not also additional");
+    // Sideways lifts a language; it lands between the rows it is over.
+    tap_row(app, "International");
+    view = app.view();
+    const auto danish = languages_row(view, "Danish").bounds;
+    const Rect& list = additional_list_bounds;
+    drag(danish, list.x + 100, list.y + additional_row_height * 1.1);
+    require(additional() == Titles({"German, QWERTZ", "Danish", "German, QWERTZ", "Spanish (Spain)",
+                                    "French, AZERTY", "Czech, QWERTZ"}),
+            "a dropped language lands where it is held");
     settle();
-    require(has(app.view(), "favorites-remove-5"), "the list reaches its last row");
-    // A drag past the dead zone scrolls back without pressing a bin.
-    const auto bin = control(app.view(), "favorites-remove-5");
-    const double x = bin.bounds.x + 20, y = bin.bounds.y + 20;
-    app.move(0, x, y);
-    app.down(0, x, y, now);
-    app.move(0, x, y + 6);
-    require(app.pointer_pressed(0), "a small tremble keeps the press");
-    app.move(0, x, y + 200);
-    app.up(0, x, y + 200);
-    settle();
-    require(app.view().favorites->count == "6 saved" && has(app.view(), "favorites-remove-0"),
-            "a drag scrolls and removes nothing");
-    click(app, "favorites-remove-1"); // English, the pending pair
-    require(app.view().favorites->count == "5 saved", "a bin removes that pair");
-    require(!control(app.view(), "favorite").selected, "the Favorite switch follows the list");
-    // Back first closes the popup, then Settings, discarding the removal.
+    // Up and down scrolls the list instead, and the release adds nothing.
+    view = app.view();
+    const auto arabic = languages_row(view, "Danish").bounds;
+    drag(arabic, arabic.x + arabic.width / 2, arabic.y - 80);
+    require(additional().size() == 6 && languages_row(app.view(), "Danish").bounds.y < arabic.y,
+            "a vertical drag scrolls");
+    // A row reorders, and dropped outside goes.
+    view = app.view();
+    drag(view.languages->additional[5].bounds, list.x + 100, list.y + 5);
+    require(additional().front() == "Czech, QWERTZ", "the additional list sorts");
+    view = app.view();
+    drag(view.languages->additional[0].bounds, 500, 300);
+    require(additional().front() == "German, QWERTZ" && additional().size() == 5,
+            "dropped outside removes");
+    view = app.view();
+    drag(view.languages->additional[0].bounds, languages_main_bounds.x + 50,
+         languages_main_bounds.y + 20);
+    view = app.view();
+    require(view.languages->main.title == "German, QWERTZ" && additional().front() == "English (US)",
+            "an additional language dropped on main trades places with it");
+    require(control(app.view(), "additional-languages").label == "Additional languages: 5",
+            "the count follows");
+    require(control(view, "languages-reset").enabled, "a non-English main can reset");
+    require(control(view, "languages-reset").icon == Icon::Reset, "with an arrow turning back");
+    click(app, "languages-reset");
+    view = app.view();
+    const auto after_reset = additional();
+    require(view.languages->main.title == "English (US)" &&
+                std::count(after_reset.begin(), after_reset.end(), "English (US)") == 0,
+            "reset removes English from the additional list");
+    require(control(app.view(), "language").label == "English (US)", "main is the dropdowns' pair");
+    click(app, "languages-clear");
+    require(app.view().confirm && app.view().confirm->title == "Clear all additional languages?",
+            "clearing asks first");
+    click(app, "confirm-cancel");
+    require(!app.view().confirm && !additional().empty(), "Cancel keeps them");
+    click(app, "languages-clear");
+    click(app, "confirm-accept");
+    require(additional().empty() && app.view().languages->main.title == "English (US)",
+            "clear leaves the main language");
+    require(!app.view().languages->hint.empty() && !control(app.view(), "languages-clear").enabled,
+            "an empty list explains itself");
+    click(app, "languages-close");
+    require(!app.view().languages && app.view().settings && !app.view().confirm,
+            "the arrow returns to Settings without asking");
     app.back();
-    require(app.view().settings && !app.view().favorites, "Back closes the popup first");
+    require(app.view().confirm && app.view().confirm->title == "Save your language changes?",
+            "leaving Settings asks");
+    require(control(app.view(), "confirm-cancel").label == "Discard" &&
+                control(app.view(), "confirm-accept").label == "Save",
+            "Discard or Save");
     app.back();
-    require(saved(app).favorites.size() == 7, "Back keeps the saved favorites");
+    require(!app.view().confirm && app.view().settings, "Esc stays in Settings");
+    app.back();
+    click(app, "confirm-accept");
+    require(!app.view().settings && saved(app).favorites.empty(), "Save applies");
+
+    // The dropdowns alone are ordinary pending changes: Back drops them.
     app.show_settings();
-    click(app, "manage-favorites");
-    click(app, "favorites-remove-0"); // German, with its legacy duplicate
-    click(app, "favorites-remove-1"); // the pair whose layout file is gone
-    require(app.view().favorites->count == "4 saved",
-            "a pair with a missing profile can be removed too");
-    // A press outside the popup only closes it.
-    const auto title = app.view().cards.at(1).bounds;
-    app.move(0, title.x + 100, title.y + 200);
-    app.down(0, title.x + 100, title.y + 200, now);
-    app.up(0, title.x + 100, title.y + 200);
-    require(!app.view().favorites && app.view().settings, "a press outside closes the popup");
+    select(app, "layout", "international-full");
+    app.back();
+    require(!app.view().settings && !app.view().confirm, "no question for the dropdowns alone");
+    // Popup edits undone by hand leave nothing to ask about.
+    app.show_settings();
+    add_language(app, "International", "German, QWERTZ");
+    click(app, "additional-languages");
+    view = app.view();
+    drag(view.languages->additional[0].bounds, 500, 300);
+    click(app, "languages-close");
+    app.back();
+    require(!app.view().settings && !app.view().confirm, "no question without a change");
+    // A language dropped on main replaces it, and its layout follows.
+    app.show_settings();
+    click(app, "additional-languages");
+    tap_row(app, "International");
+    show_row(app, "German, QWERTZ");
+    view = app.view();
+    drag(languages_row(view, "German, QWERTZ").bounds, languages_main_bounds.x + 50,
+         languages_main_bounds.y + 20);
+    require(app.view().languages->main.title == "German, QWERTZ" && additional().empty(),
+            "a language from the list replaces main");
+    require(control(app.view(), "layout").label == "International", "and the layout goes with it");
+    app.back();
     click(app, "apply");
-    const auto kept = saved(app).favorites;
-    require(kept.size() == 4 && kept.front().id == "f1",
-            "Apply saves the list without the removed pairs and their duplicates");
+    require(saved(app).active.language == "de-de", "Apply saves main like the dropdowns");
     app.show_settings();
-    click(app, "manage-favorites");
-    require(control(app.view(), "favorites-close").icon == Icon::Back,
-            "the popup closes with a back arrow");
-    click(app, "favorites-close");
-    require(!app.view().favorites && app.view().settings, "the arrow returns to Settings");
-    click(app, "manage-favorites");
+    click(app, "additional-languages");
     app.summon();
-    require(!app.view().favorites, "summoning closes the popup");
+    require(!app.view().languages, "summoning closes the popup");
 }
 void theme_preview() {
     TemporaryDirectory directory;
@@ -2135,8 +2202,7 @@ int main() {
         dictation_settings();
         desktop_unicode_setting();
         theme_preview();
-        clear_favorites();
-        favorites_popup();
+        languages_popup();
         behavior_settings();
         auto_leveling_settings();
         native_replacement_settings();

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "fr-be",
+  "name": "French (Belgium)",
+  "native_name": "Français (Belgique)",
+  "short_name": "FR BE",
+  "locale": "fr-BE",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "be",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
+  "swipe": {
+    "lexicon": "fr-fr"
+  },
+  "dictation": {
+    "language": "fr"
+  }
+}

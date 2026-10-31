@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "id-id",
-  "name": "Bahasa Indonesia",
+  "name": "Indonesian",
+  "native_name": "Bahasa Indonesia",
+  "short_name": "Indonesia",
   "locale": "id-ID",
   "keymap": {
     "rules": "evdev",

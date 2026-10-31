@@ -304,6 +304,8 @@ Language parse_language(const std::string& json) {
     Language l;
     l.id = identifier(o, "id");
     l.name = text(o, "name");
+    l.native_name = text(o, "native_name", l.name, true);
+    l.short_name = text(o, "short_name", "", true);
     l.locale = text(o, "locale");
     l.input_method = text(o, "input_method", "xkb", true);
     if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&

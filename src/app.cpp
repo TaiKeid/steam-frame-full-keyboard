@@ -89,6 +89,9 @@ bool same_pair(const Selection& a, const Selection& b) {
     return a.layout == b.layout && a.language == b.language;
 }
 std::string language_short_name(const Language& language) {
+    if (!language.short_name.empty()) {
+        return language.short_name;
+    }
     // Locale preserves distinctions such as US/UK English and Chinese script.
     auto name = language.locale.empty() ? language.id : language.locale;
     std::replace(name.begin(), name.end(), '_', '-');
@@ -168,6 +171,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_ = default_ = settings_.active;
     rebuild_cycle_entries();
     pending_favorites_ = settings_.favorites;
+    remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
@@ -247,11 +251,15 @@ std::vector<Control> App::controls() const {
         append_move_handle();
         if (confirm_ != Confirm::None) {
             const Rect panel = confirm_popup_bounds;
+            const bool save = confirm_ == Confirm::SaveLanguages;
             add({ControlKind::ConfirmCancel}, {"confirm-cancel",
-                                               dictation_question() ? "Go back" : "Cancel",
+                                               dictation_question() ? "Go back"
+                                               : save               ? "Discard"
+                                                                    : "Cancel",
                                                {panel.x + 40, panel.y + 160, 210, 52}});
             add({ControlKind::ConfirmAccept}, {"confirm-accept",
-                                               confirm_ == Confirm::ClearFavorites ? "Clear"
+                                               confirm_ == Confirm::ClearLanguages ? "Clear"
+                                               : save                              ? "Save"
                                                : dictation_question()              ? "Proceed"
                                                                                    : "Download",
                                                {panel.x + panel.width - 250, panel.y + 160, 210, 52},
@@ -523,9 +531,6 @@ void App::update_settings_ui() {
         }
         return result;
     };
-    const bool favorite =
-        std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
-                    [&](const Favorite& f) { return same_pair(f.selection, pending_); });
     // Labels have no trailing colon: every row reads label left, control right.
     auto dropdown = [](std::string id, std::string label, std::string value,
                        std::vector<SettingChoice> list) {
@@ -542,6 +547,7 @@ void App::update_settings_ui() {
     // Languages the pending layout cannot type stay listed but dimmed.
     auto language_choices = choices(profiles_.languages);
     for (auto& choice : language_choices) {
+        choice.name = profiles_.languages.at(choice.id).native_name;
         choice.enabled = fits(profiles_, {pending_.layout, choice.id, pending_.theme});
     }
     // Send types one character at a time, slower keeping the order under
@@ -661,14 +667,15 @@ void App::update_settings_ui() {
         "", ControlStyle::Note};
     focus_tooltip_note.plain = true;
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
-    // Manage opens the favorites popup over this card, which removes pairs
-    // one by one or all at once.
-    const auto pairs = favorite_pairs();
-    auto favorites = field(ControlKind::ManageFavorites, SettingField{"manage-favorites", "Favorites",
-                                                                      "Manage", ControlStyle::Button});
-    favorites.note = pairs.empty() ? "None saved" : std::to_string(pairs.size()) + " saved";
-    favorites.enabled = !pairs.empty();
-    favorites.narrow = true;
+    // The popup edits the same main language as the two dropdowns.
+    const auto additional = additional_pairs().size();
+    auto languages =
+        field(ControlKind::OpenLanguages,
+              SettingField{"additional-languages", "",
+                           additional ? "Additional languages: " + std::to_string(additional)
+                                      : "Additional languages",
+                           ControlStyle::Button});
+    languages.width = 412;
     std::vector<SettingsCard> cards{
         {{"languages",
           "Languages and Layouts",
@@ -676,7 +683,7 @@ void App::update_settings_ui() {
                  dropdown("layout", "Layout", pending_.layout, choices(profiles_.layouts))),
            field(ControlKind::ChooseLanguage,
                  dropdown("language", "Language", pending_.language, language_choices)),
-           field(ControlKind::Favorite, checkbox("favorite", "Favorite", favorite)), favorites,
+           languages,
            field(ControlKind::SwipeTyping,
                  checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
                           "Powered by FUTO Swipe"))}},
@@ -716,87 +723,12 @@ void App::update_settings_ui() {
         cards.pop_back();
     }
     settings_ui_.set_cards(std::move(cards));
-    if (favorites_) {
+    if (languages_) {
         // Removing rows shortens the list; keep its end in place.
-        const double limit = favorites_scroll_limit();
-        favorites_->scroll = std::min(favorites_->scroll, limit);
-        favorites_->target = std::min(favorites_->target, limit);
+        const double limit = languages_limit(LanguagesPopup::Which::Additional);
+        languages_->additional.scroll = std::min(languages_->additional.scroll, limit);
+        languages_->additional.target = std::min(languages_->additional.target, limit);
     }
-}
-std::vector<Favorite> App::favorite_pairs() const {
-    std::vector<Favorite> result;
-    for (const auto& entry : pending_favorites_) {
-        // Legacy duplicates of a pair show once; removing it removes them all.
-        if (std::none_of(result.begin(), result.end(),
-                         [&](const Favorite& f) { return same_pair(f.selection, entry.selection); })) {
-            result.push_back(entry);
-        }
-    }
-    return result;
-}
-double App::favorites_scroll_limit() const {
-    const double rows = static_cast<double>(favorite_pairs().size()) * favorites_row_height;
-    return std::max(0.0, rows - favorites_list_bounds.height);
-}
-void App::append_favorites(PanelView& v) const {
-    if (!settings_open_ || !favorites_) {
-        return;
-    }
-    const auto pairs = favorite_pairs();
-    PanelView::FavoritesView popup;
-    popup.panel = favorites_popup_bounds;
-    popup.list = favorites_list_bounds;
-    popup.count = pairs.empty() ? "None saved" : std::to_string(pairs.size()) + " saved";
-    const auto& panel = popup.panel;
-    const auto& list = popup.list;
-    auto add = [&](ControlAction action, Control control) {
-        control.action = std::move(action);
-        v.controls.push_back(std::move(control));
-    };
-    // A back arrow at the top left, as Settings' own Back, before the title.
-    add({ControlKind::FavoritesClose},
-        {"favorites-close", "Back", {panel.x + 12, panel.y + 12, 60, 42}, false, Icon::Back});
-    for (std::size_t i = 0; i < pairs.size(); ++i) {
-        const auto& selection = pairs[i].selection;
-        const Rect row{list.x,
-                       list.y + static_cast<double>(i) * favorites_row_height - favorites_->scroll,
-                       list.width, favorites_row_height};
-        if (row.y + row.height <= list.y || row.y >= list.y + list.height) {
-            continue;
-        }
-        const auto language = profiles_.languages.find(selection.language);
-        const auto layout = profiles_.layouts.find(selection.layout);
-        // A pair whose profiles were removed stays listed, so it can go too.
-        popup.rows.push_back({language != profiles_.languages.end() ? language->second.name
-                              : pairs[i].name.empty()               ? selection.language
-                                                                    : pairs[i].name,
-                              layout == profiles_.layouts.end() ? selection.layout + " (missing)"
-                              : language == profiles_.languages.end()
-                                  ? layout->second.name + " (language missing)"
-                                  : layout->second.name,
-                              row});
-        // The pair itself, not a row index: a press held over the list must
-        // not remove a different pair after the rows shift.
-        Control bin{"favorites-remove-" + std::to_string(i),
-                    "Remove",
-                    {list.x + list.width - 70, row.y + 8, 56, 56},
-                    false,
-                    Icon::Clear};
-        bin.clip = list;
-        add({ControlKind::RemoveFavorite, 0, selection.layout + '\n' + selection.language}, bin);
-    }
-    add({ControlKind::ClearFavorites},
-        {"favorites-clear",
-         "Clear all",
-         {panel.x + panel.width - 194, panel.y + panel.height - 70, 170, 52}});
-    v.controls.back().enabled = !pairs.empty();
-    if (const double limit = favorites_scroll_limit(); limit > 0) {
-        const Rect track{list.x + list.width - 8, list.y + 4, 6, list.height - 8};
-        const double length = track.height * track.height / (track.height + limit);
-        popup.thumb = Rect{track.x, track.y + favorites_->scroll / limit * (track.height - length),
-                           track.width, length};
-    }
-    v.favorites = std::move(popup);
 }
 PanelView App::geometry() const {
     PanelView v;
@@ -845,7 +777,7 @@ PanelView App::build_view(bool picker) const {
     }
     if (settings_open_) {
         settings_ui_.append(v);
-        append_favorites(v);
+        append_languages(v);
     }
     v.status = !status_.empty()            ? status_
                : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
@@ -1036,10 +968,13 @@ PanelView App::build_view(bool picker) const {
             v.disabled_keys.insert("Dictation-undo");
         }
     }
-    if (settings_open_ && confirm_ == Confirm::ClearFavorites) {
+    if (settings_open_ && confirm_ == Confirm::ClearLanguages) {
+        v.confirm = PanelView::ConfirmView{confirm_popup_bounds, "Clear all additional languages?",
+                                           "Your main language stays."};
+    } else if (settings_open_ && confirm_ == Confirm::SaveLanguages) {
         v.confirm =
-            PanelView::ConfirmView{confirm_popup_bounds, "Clear all favorites?",
-                                   "All saved layout and language pairs are removed when you Apply."};
+            PanelView::ConfirmView{confirm_popup_bounds, "Save your language changes?",
+                                   "You changed your languages. Do you want to save or discard them?"};
     } else if (settings_open_ && dictation_question()) {
         v.confirm = PanelView::ConfirmView{
             confirm_popup_bounds, "Dictation is active",
@@ -1088,24 +1023,8 @@ bool App::scroll(unsigned pointer, double dx, double dy) {
     if (address_ || confirm_ != Confirm::None) {
         return false; // nothing under a popup scrolls
     }
-    if (settings_open_ && favorites_) {
-        // Only the popup's list scrolls, under the laser.
-        if (!interaction_active_ || dragging_ || !pointer_positions_.contains(pointer) ||
-            !std::isfinite(dy)) {
-            return false;
-        }
-        const auto [x, y] = pointer_positions_.at(pointer);
-        const double old = favorites_->target;
-        if (favorites_list_bounds.contains(x, y)) {
-            favorites_->target = std::clamp(old + dy * 52, 0.0, favorites_scroll_limit());
-        }
-        if (favorites_->target == old) {
-            return false;
-        }
-        pressed_controls_.clear();
-        hovered_.clear();
-        dirty = true;
-        return true;
+    if (settings_open_ && languages_) {
+        return languages_scroll(pointer, dy); // Only the list under the laser.
     }
     if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer) && std::isfinite(dy)) {
@@ -1168,19 +1087,8 @@ bool App::move(unsigned pointer, double x, double y) {
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_move(x, y);
     }
-    if (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer) {
-        auto& drag = *favorites_->drag;
-        if (!drag.active && std::abs(y - drag.y) > 12) {
-            drag.active = true;
-        }
-        if (drag.active) {
-            favorites_->scroll = favorites_->target =
-                std::clamp(drag.scroll - (y - drag.y), 0.0, favorites_scroll_limit());
-            pressed_controls_.clear();
-            hovered_.clear();
-            dirty = true;
-            return false;
-        }
+    if (languages_move(pointer, x, y)) {
+        return false;
     }
     if (settings_open_ && settings_ui_.move(pointer, x, y)) {
         pressed_controls_.clear();
@@ -1231,22 +1139,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
-    if (settings_open_ && favorites_ && !address_ && confirm_ == Confirm::None) {
-        if (!favorites_popup_bounds.contains(x, y)) {
-            // Like a dropdown, a press outside closes it and does nothing else.
-            favorites_.reset();
-            pressed_controls_.clear();
-            hovered_.clear();
-            dirty = true;
-            return false;
-        }
-        if (favorites_list_bounds.contains(x, y) && !favorites_->drag) {
-            // A drag only once it passes the dead zone; until then the bin
-            // under the press keeps it.
-            favorites_->drag = FavoritesPopup::Drag{pointer, y, favorites_->scroll};
-        }
+    if (settings_open_ && languages_ && !address_ && confirm_ == Confirm::None) {
+        languages_press(pointer, x, y);
     }
-    if (settings_open_ && !address_ && confirm_ == Confirm::None && !favorites_ &&
+    if (settings_open_ && !address_ && confirm_ == Confirm::None && !languages_ &&
         settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;
@@ -1512,14 +1408,8 @@ bool App::up(unsigned pointer, double x, double y) {
         }
         return false;
     }
-    if (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer) {
-        const bool active = favorites_->drag->active;
-        favorites_->drag.reset();
-        if (active) {
-            pressed_controls_.erase(pointer); // a drag's release is not a click
-            dirty = true;
-            return false;
-        }
+    if (languages_release(pointer)) {
+        return false;
     }
     if (settings_open_ && settings_ui_.up(pointer)) {
         pressed_controls_.erase(pointer);
@@ -1606,8 +1496,8 @@ void App::cancel_pointer(unsigned pointer) {
     swipe_space_ = false;
     swipe_detached_ = swipe_waiting_;
     settings_ui_.cancel_pointer(pointer);
-    if (favorites_ && favorites_->drag && favorites_->drag->pointer == pointer) {
-        favorites_->drag.reset();
+    if (languages_ && languages_->drag && languages_->drag->pointer == pointer) {
+        languages_->drag.reset();
     }
     emoji_.cancel_pointer(pointer);
     if (emoji_key_pointer_ == pointer) {
@@ -1627,8 +1517,8 @@ void App::cancel_pointer(unsigned pointer) {
 }
 void App::cancel(bool discard_composition) {
     settings_ui_.cancel();
-    if (favorites_) {
-        favorites_->drag.reset();
+    if (languages_) {
+        languages_->drag.reset();
     }
     emoji_.cancel();
     emoji_key_pointer_.reset();
@@ -1755,18 +1645,8 @@ bool App::tick(double now) {
     if (settings_open_) {
         dirty |= settings_ui_.tick(now);
     }
-    if (settings_open_ && favorites_) {
-        // Stick steps glide, about 70 ms to cover most of one, as the cards do.
-        auto& popup = *favorites_;
-        const double elapsed = popup.last_tick < 0 ? 0 : std::clamp(now - popup.last_tick, 0.0, .1);
-        popup.last_tick = now;
-        if (popup.scroll != popup.target) {
-            popup.scroll =
-                std::abs(popup.target - popup.scroll) < .5
-                    ? popup.target
-                    : popup.scroll + (popup.target - popup.scroll) * (1 - std::exp(-elapsed / .07));
-            dirty = true;
-        }
+    if (settings_open_ && languages_) {
+        tick_languages(now);
     }
     dirty |= tick_send(now);
     forget_failed_swipe();
@@ -1825,10 +1705,11 @@ void App::show_settings() {
     cancel();
     address_.reset();
     confirm_ = Confirm::None;
-    favorites_.reset();
+    languages_.reset();
     settings_open_ = true;
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
+    remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
@@ -1852,27 +1733,32 @@ void App::show_settings() {
 }
 void App::back() {
     if (address_ || confirm_ != Confirm::None) {
-        // A question asked from the favorites popup returns to it.
+        // A question asked from the languages popup returns to it.
         address_.reset();
         confirm_ = Confirm::None;
         pressed_controls_.clear();
         hovered_.clear();
-    } else if (favorites_) {
-        favorites_.reset();
-        pressed_controls_.clear();
-        hovered_.clear();
+    } else if (languages_) {
+        close_languages();
     } else if (settings_ui_.popup_open()) {
         settings_ui_.close_popup();
         pressed_controls_.clear();
         hovered_.clear();
+    } else if (settings_open_ && languages_changed()) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        confirm_ = Confirm::SaveLanguages;
     } else if (settings_open_) {
-        cancel();
-        settings_open_ = false;
-        address_.reset();
-        confirm_ = Confirm::None;
-        favorites_.reset();
+        leave_settings();
     }
     dirty = true;
+}
+void App::leave_settings() {
+    cancel();
+    settings_open_ = false;
+    address_.reset();
+    confirm_ = Confirm::None;
+    languages_.reset();
 }
 void App::summon() {
     dismiss_requested_ = false;
@@ -1882,7 +1768,7 @@ void App::summon() {
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
-    favorites_.reset();
+    languages_.reset();
     recenter_ = true;
     status_.clear();
 }
@@ -2067,6 +1953,7 @@ void App::reload() {
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
     pending_ = settings_.active;
     pending_favorites_ = settings_.favorites;
+    remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
@@ -2504,6 +2391,8 @@ void App::apply_settings() {
     }
     // Prepare/activate first. A failed candidate must leave all saved state intact.
     activate(pending_);
+    // Legacy entries that repeat a pair or hold the main language go here.
+    set_additional_pairs(additional_pairs());
     settings_.favorites = pending_favorites_;
     settings_.hide_numpad = pending_hide_numpad_;
     settings_.background_surface = pending_background_surface_;
@@ -2535,7 +2424,7 @@ void App::apply_settings() {
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
-    favorites_.reset();
+    languages_.reset();
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
@@ -2798,38 +2687,18 @@ void App::action(const ControlAction& command) {
         address_ = AddressEntry{pending_dictation_server_, pending_dictation_server_.size(), {}};
         pressed_controls_.clear();
         hovered_.clear();
-    } else if (kind == ControlKind::ClearFavorites && !pending_favorites_.empty()) {
-        settings_ui_.close_popup();
-        confirm_ = Confirm::ClearFavorites;
-        pressed_controls_.clear();
-        hovered_.clear();
-    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::ClearFavorites) {
-        // Pending like every Settings change: Apply saves it, Back keeps them.
-        // Nothing is left to manage, so the popup closes with the question.
-        pending_favorites_.clear();
+    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::ClearLanguages) {
         confirm_ = Confirm::None;
-        favorites_.reset();
-        update_settings_ui();
-    } else if (kind == ControlKind::ManageFavorites) {
-        settings_ui_.close_popup();
-        settings_ui_.show_first_card();
-        favorites_ = FavoritesPopup{};
         pressed_controls_.clear();
         hovered_.clear();
-    } else if (kind == ControlKind::FavoritesClose) {
-        favorites_.reset();
-        pressed_controls_.clear();
-        hovered_.clear();
-    } else if (kind == ControlKind::RemoveFavorite) {
-        // Pending like Clear all; legacy duplicates of the pair go with it.
-        const auto split = command.value.find('\n');
-        const Selection pair{command.value.substr(0, split),
-                             split == std::string::npos ? "" : command.value.substr(split + 1), ""};
-        std::erase_if(pending_favorites_,
-                      [&](const Favorite& f) { return same_pair(f.selection, pair); });
-        pressed_controls_.clear();
-        hovered_.clear();
-        update_settings_ui();
+        set_additional_pairs({});
+    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::SaveLanguages) {
+        confirm_ = Confirm::None;
+        action({ControlKind::Apply});
+    } else if (kind == ControlKind::ConfirmCancel && confirm_ == Confirm::SaveLanguages) {
+        leave_settings();
+    } else if (kind >= ControlKind::OpenLanguages && kind <= ControlKind::ClearLanguages) {
+        languages_action(command);
     } else if (kind == ControlKind::ConfirmAccept && dictation_question()) {
         const auto question = std::exchange(confirm_, Confirm::None);
         if (question == Confirm::QuitDictation) {
@@ -2876,29 +2745,6 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::FocusTooltip) {
         pending_focus_tooltip_ = !pending_focus_tooltip_;
-        update_settings_ui();
-    } else if (kind == ControlKind::Favorite) {
-        const bool exists =
-            std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
-                        [&](const Favorite& f) { return same_pair(f.selection, pending_); });
-        if (exists) {
-            std::erase_if(pending_favorites_,
-                          [&](const Favorite& f) { return same_pair(f.selection, pending_); });
-        } else {
-            validate_selection(profiles_, pending_);
-            if (pending_favorites_.size() >= 32) {
-                throw std::runtime_error("At most 32 favorites can be saved.");
-            }
-            // IDs are metadata only; choose one that cannot collide with legacy favorites.
-            int index = 1;
-            std::string favorite_id;
-            do {
-                favorite_id = "favorite-" + std::to_string(index++);
-            } while (std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
-                                 [&](const Favorite& f) { return f.id == favorite_id; }));
-            pending_favorites_.push_back(
-                {favorite_id, profiles_.languages.at(pending_.language).name, pending_});
-        }
         update_settings_ui();
     }
 }
@@ -3409,7 +3255,7 @@ void App::close_panel() {
         settings_open_ = false;
         address_.reset();
         confirm_ = Confirm::None;
-        favorites_.reset();
+        languages_.reset();
         dismiss_requested_ = true;
         host_.user_hide = hosted(); // the shell decides whether it shows again
     } else {
@@ -3553,13 +3399,8 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
         return {};
     }
     const auto [x, y] = position->second;
-    if (settings_open_ && favorites_) {
-        const double limit = favorites_scroll_limit();
-        if (address_ || confirm_ != Confirm::None || !favorites_list_bounds.contains(x, y) ||
-            limit == 0) {
-            return {};
-        }
-        return ScrollRoom{favorites_->target > 0, favorites_->target < limit};
+    if (settings_open_ && languages_) {
+        return address_ || confirm_ != Confirm::None ? std::nullopt : languages_scroll_room(x, y);
     }
     if (settings_open_) {
         // Settings rarely overflows; its ends are not worth tracking.

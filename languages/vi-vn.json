@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "vi-vn",
-  "name": "Tiếng Việt",
+  "name": "Vietnamese",
+  "native_name": "Tiếng Việt",
+  "short_name": "Tiếng Việt",
   "locale": "vi-VN",
   "keymap": {
     "rules": "evdev",

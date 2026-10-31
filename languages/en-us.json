@@ -2,6 +2,8 @@
   "schema_version": 1,
   "id": "en-us",
   "name": "English (US)",
+  "native_name": "English (US)",
+  "short_name": "English",
   "locale": "en-US",
   "keymap": {
     "rules": "evdev",

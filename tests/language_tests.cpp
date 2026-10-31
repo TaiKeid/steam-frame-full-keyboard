@@ -179,6 +179,18 @@ void national_keymaps(const Profiles& profiles) {
         std::vector<std::string> typed;
     };
     const std::vector<Case> cases{
+        // Keyboard options of a language: the letters move, its own stay.
+        {"fr-be", "international-full", {"KeyQ", "KeyW", "Digit2", "Semicolon"}, {"a", "z", "é", "m"}},
+        {"nl-be", "international-full", {"KeyQ", "KeyW", "Semicolon"}, {"a", "z", "m"}},
+        {"fr-fr-qwerty", "en-us-full", {"KeyQ", "KeyW", "Quote", "KeyE"}, {"q", "w", "é"}},
+        {"de-de-qwerty", "en-us-full", {"KeyY", "KeyZ", "AltGr+KeyA"}, {"y", "z", "ä"}},
+        {"cs-cz-qwerty", "international-full", {"KeyY", "KeyZ", "Digit2"}, {"y", "z", "ě"}},
+        {"sk-sk-qwerty", "international-full", {"KeyY", "KeyZ", "Digit3"}, {"y", "z", "š"}},
+        {"hu-hu-qwerty", "international-full", {"KeyY", "KeyZ"}, {"y", "z"}},
+        {"hr-hr-qwerty", "en-us-full", {"KeyY", "KeyZ", "AltGr+BracketLeft"}, {"y", "z", "š"}},
+        {"pl-pl-qwertz", "international-full", {"KeyY", "KeyZ"}, {"z", "y"}},
+        {"tr-tr-f", "international-full", {"KeyQ", "KeyW", "KeyE"}, {"f", "g", "ğ"}},
+        {"en-us-dvorak", "en-us-full", {"KeyS", "KeyD", "KeyJ", "Semicolon"}, {"o", "e", "h", "s"}},
         // Latching Shift keeps the pending accent for the capital.
         {"de-de", "international-full", {"Equal", "Shift+KeyE"}, {"É"}},
         {"tr-tr",

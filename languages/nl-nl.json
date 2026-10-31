@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "nl-nl",
-  "name": "Nederlands — US international",
+  "name": "Dutch, US international",
+  "native_name": "Nederlands US international",
+  "short_name": "Nederlands",
   "locale": "nl-NL",
   "keymap": {
     "rules": "evdev",

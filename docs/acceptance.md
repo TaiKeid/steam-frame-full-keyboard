@@ -89,7 +89,7 @@ See [emoji picker](emoji.md#acceptance) for the full list. In the headset:
 - Toggle pin, close/reopen, and confirm the saved icon/state. Neither movement method can move a pinned keyboard; moving/tilting the dashboard still carries it. Unpin and confirm the selected movement method returns.
 - Confirm the settings toolbar order is Back, Apply and save, Reload config. Production shows Languages and Layouts and General cards.
 - Open each dropdown, scroll through all choices, select one, and verify at most five rows are visible. Click outside a list and confirm only dismissal occurs. Verify laser hit positions match menu rows, including any rows beyond the case border.
-- Edit several favorites without saving, then go Back. Reopen and confirm edits were discarded. Repeat with Apply and save and confirm persistence after restart.
+- Edit several additional languages, leave Settings and choose Discard. Reopen and confirm edits were discarded. Repeat with Save and confirm persistence after restart.
 - Cycle default plus favorites, including duplicate pairs, a favorite matching the default, and a single matching favorite. Confirm the active theme stays unchanged and cycling does not replace the saved default.
 - Hide/reopen the dashboard or disconnect a controller while a menu/scrollbar is held. Confirm captures clear and no stale release selects a new row.
 - Run the `settings` test for extra-card horizontal scrolling, independent vertical scrolling, clipping, popup overflow and cancellation. Extra test cards do not ship in the UI.

@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "el-gr",
-  "name": "Ελληνικά",
+  "name": "Greek",
+  "native_name": "Ελληνικά",
+  "short_name": "Ελληνικά",
   "locale": "el-GR",
   "keymap": {
     "rules": "evdev",

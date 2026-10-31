@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "id": "lv-lv",
-  "name": "Latviešu",
+  "name": "Latvian",
+  "native_name": "Latviešu",
+  "short_name": "Latviešu",
   "locale": "lv-LV",
   "keymap": {
     "rules": "evdev",
