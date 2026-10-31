@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "id": "zh-tw-zhuyin",
+  "name": "Chinese, Zhuyin",
+  "native_name": "中文 注音",
+  "short_name": "注音",
+  "locale": "zh-TW",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {
+      "Digit1": "ㄅ",
+      "KeyQ": "ㄆ",
+      "KeyA": "ㄇ",
+      "KeyZ": "ㄈ",
+      "Digit2": "ㄉ",
+      "KeyW": "ㄊ",
+      "KeyS": "ㄋ",
+      "KeyX": "ㄌ",
+      "KeyE": "ㄍ",
+      "KeyD": "ㄎ",
+      "KeyC": "ㄏ",
+      "KeyR": "ㄐ",
+      "KeyF": "ㄑ",
+      "KeyV": "ㄒ",
+      "Digit5": "ㄓ",
+      "KeyT": "ㄔ",
+      "KeyG": "ㄕ",
+      "KeyB": "ㄖ",
+      "KeyY": "ㄗ",
+      "KeyH": "ㄘ",
+      "KeyN": "ㄙ",
+      "KeyU": "ㄧ",
+      "KeyJ": "ㄨ",
+      "KeyM": "ㄩ",
+      "Digit8": "ㄚ",
+      "KeyI": "ㄛ",
+      "KeyK": "ㄜ",
+      "Comma": "ㄝ",
+      "Digit9": "ㄞ",
+      "KeyO": "ㄟ",
+      "KeyL": "ㄠ",
+      "Period": "ㄡ",
+      "Digit0": "ㄢ",
+      "KeyP": "ㄣ",
+      "Semicolon": "ㄤ",
+      "Slash": "ㄥ",
+      "Minus": "ㄦ",
+      "Digit6": "ˊ",
+      "Digit3": "ˇ",
+      "Digit4": "ˋ",
+      "Digit7": "˙"
+    }
+  },
+  "font_families": [
+    "Noto Sans CJK TC",
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "input_method": "chinese-zhuyin",
+  "dictation": {
+    "language": "zh",
+    "prompt": "好的，沒問題。"
+  }
+}

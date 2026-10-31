@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <glib.h>
+#include <map>
 #include <stdexcept>
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
 #include <PyZy/InputContext.h>
@@ -38,6 +39,22 @@ class Engine final : public CjkEngine {
 
 namespace {
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
+// The standard Zhuyin keyboard, which is PyZy's default: what each key means.
+const std::map<char, std::string> zhuyin_symbols{
+    {'1', "ㄅ"}, {'q', "ㄆ"}, {'a', "ㄇ"}, {'z', "ㄈ"}, {'2', "ㄉ"}, {'w', "ㄊ"}, {'s', "ㄋ"},
+    {'x', "ㄌ"}, {'e', "ㄍ"}, {'d', "ㄎ"}, {'c', "ㄏ"}, {'r', "ㄐ"}, {'f', "ㄑ"}, {'v', "ㄒ"},
+    {'5', "ㄓ"}, {'t', "ㄔ"}, {'g', "ㄕ"}, {'b', "ㄖ"}, {'y', "ㄗ"}, {'h', "ㄘ"}, {'n', "ㄙ"},
+    {'u', "ㄧ"}, {'j', "ㄨ"}, {'m', "ㄩ"}, {'8', "ㄚ"}, {'i', "ㄛ"}, {'k', "ㄜ"}, {',', "ㄝ"},
+    {'9', "ㄞ"}, {'o', "ㄟ"}, {'l', "ㄠ"}, {'.', "ㄡ"}, {'0', "ㄢ"}, {'p', "ㄣ"}, {';', "ㄤ"},
+    {'/', "ㄥ"}, {'-', "ㄦ"}, {'6', "ˊ"},  {'3', "ˇ"},  {'4', "ˋ"},  {'7', "˙"}};
+std::string zhuyin_text(const std::string& keys) {
+    std::string result;
+    for (const char key : keys) {
+        const auto symbol = zhuyin_symbols.find(key);
+        result += symbol == zhuyin_symbols.end() ? std::string(1, key) : symbol->second;
+    }
+    return result;
+}
 struct PinyinObserver : PyZy::InputContext::Observer {
     void commitText(PyZy::InputContext*, const std::string&) override {}
     void inputTextChanged(PyZy::InputContext*) override {}
@@ -75,7 +92,7 @@ std::string utf8(const ucschar* text) {
 #endif
 } // namespace
 struct Engine::State {
-    bool pinyin{};
+    bool pinyin{}, zhuyin{};
     std::string keys, prefix, korean_text;
     // Undo a selected Pinyin segment without guessing syllable boundaries.
     std::vector<std::pair<std::string, std::string>> history;
@@ -89,6 +106,23 @@ struct Engine::State {
         for (char ch : keys) {
             context->insert(ch);
         }
+    }
+    // Zhuyin's restText stays empty after a partial choice. Each character is
+    // one syllable, so the keys chosen are the longest start of the reading
+    // that converts to that many characters; a key more begins the next one.
+    std::string zhuyin_rest(const std::string& chosen) {
+        const auto wanted = g_utf8_strlen(chosen.c_str(), -1);
+        std::size_t used = keys.size();
+        context->reset();
+        for (std::size_t count = 1; count <= keys.size(); ++count) {
+            context->insert(keys[count - 1]);
+            PyZy::Candidate candidate;
+            if (context->getCandidate(0, candidate) &&
+                g_utf8_strlen(candidate.text.c_str(), -1) == wanted) {
+                used = count;
+            }
+        }
+        return keys.substr(used);
     }
 #endif
 #ifdef FRAMEKEYBOARD_HAVE_HANGUL
@@ -108,7 +142,8 @@ struct Engine::State {
 };
 bool Engine::supported(const std::string& method) {
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
-    if (method == "chinese-pinyin-simplified" || method == "chinese-pinyin-traditional") {
+    if (method == "chinese-pinyin-simplified" || method == "chinese-pinyin-traditional" ||
+        method == "chinese-zhuyin") {
         return true;
     }
 #endif
@@ -129,7 +164,9 @@ Engine::Engine(const std::string& method) : state_(std::make_unique<State>()) {
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
     if (s.pinyin) {
         s.library = pinyin_library();
-        s.context.reset(PyZy::InputContext::create(PyZy::InputContext::FULL_PINYIN, &s.observer));
+        s.zhuyin = method == "chinese-zhuyin";
+        s.context.reset(PyZy::InputContext::create(
+            s.zhuyin ? PyZy::InputContext::BOPOMOFO : PyZy::InputContext::FULL_PINYIN, &s.observer));
         if (!s.context) {
             throw std::runtime_error("Pinyin engine unavailable");
         }
@@ -139,8 +176,9 @@ Engine::Engine(const std::string& method) : state_(std::make_unique<State>()) {
                                PyZy::Variant::fromBool(method == "chinese-pinyin-simplified"));
         // Check the installed dictionary before accepting a profile. No output,
         // history learning, or app focus is involved in this capability check.
-        s.context->insert('n');
-        s.context->insert('i');
+        // ni in Pinyin, and in Zhuyin the keys for ㄋㄧ.
+        s.context->insert(s.zhuyin ? 's' : 'n');
+        s.context->insert(s.zhuyin ? 'u' : 'i');
         PyZy::Candidate candidate;
         const bool ready = s.context->getCandidate(0, candidate);
         s.context->reset();
@@ -270,7 +308,7 @@ void Engine::choose(int index) {
     // Read the chosen segment and remaining phonetic input instead of invoking
     // PyZy's select/commit methods, which would learn the user's text.
     const auto chosen = s.context->conversionText();
-    const auto rest = s.context->restText();
+    const auto rest = s.zhuyin ? s.zhuyin_rest(chosen) : s.context->restText();
     if (chosen.empty()) {
         return;
     }
@@ -283,6 +321,11 @@ void Engine::choose(int index) {
 #endif
 }
 std::string Engine::preedit() const {
+#ifdef FRAMEKEYBOARD_HAVE_PYZY
+    if (state_->zhuyin) {
+        return state_->prefix + zhuyin_text(state_->keys);
+    }
+#endif
     return state_->pinyin ? state_->prefix + state_->keys : state_->korean_text;
 }
 std::string Engine::text() const {

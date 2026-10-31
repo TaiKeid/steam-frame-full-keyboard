@@ -1,6 +1,7 @@
 #include "framekeyboard/cjk.hpp"
 #include "cjk_engine.hpp"
 #include "framekeyboard/cheonjiin.hpp"
+#include "table_engine.hpp"
 
 #include <dlfcn.h>
 #include <filesystem>
@@ -34,10 +35,11 @@ struct Module {
     ~Module() { dlclose(handle); }
 };
 std::shared_ptr<Module> load(const std::string& method) {
-    const std::string name =
-        method == "korean-2set"                                                           ? "hangul"
-        : method == "chinese-pinyin-simplified" || method == "chinese-pinyin-traditional" ? "pinyin"
-                                                                                          : "";
+    const std::string name = method == "korean-2set" ? "hangul"
+                             : method == "chinese-pinyin-simplified" ||
+                                     method == "chinese-pinyin-traditional" || method == "chinese-zhuyin"
+                                 ? "pinyin"
+                                 : "";
     if (name.empty()) {
         throw std::runtime_error("Unknown Chinese/Korean input method");
     }
@@ -62,6 +64,10 @@ struct CjkComposer::State {
             cheonjiin = std::make_unique<CheonjiinComposer>();
             return;
         }
+        if (const auto table = table_for(method)) {
+            engine = std::make_unique<TableEngine>(table->path, table->max_keys);
+            return;
+        }
         module = load(method);
         engine.reset(module->create(method.c_str()));
         if (!engine) {
@@ -73,13 +79,17 @@ bool CjkComposer::supported(const std::string& method) {
     if (method == "korean-cheonjiin") {
         return true;
     }
+    if (const auto table = table_for(method)) {
+        return TableEngine::available(table->path);
+    }
     try {
         return static_cast<bool>(load(method));
     } catch (const std::exception&) {
         return false;
     }
 }
-CjkComposer::CjkComposer(const std::string& method) : state_(std::make_unique<State>(method)) {
+CjkComposer::CjkComposer(const std::string& method)
+    : state_(std::make_unique<State>(method)), phonetic_keys_(method == "chinese-zhuyin") {
 }
 CjkComposer::~CjkComposer() = default;
 void CjkComposer::type(char key) {
@@ -123,6 +133,9 @@ bool CjkComposer::has_reading() const {
 }
 bool CjkComposer::chinese() const {
     return state_->engine && state_->engine->chinese();
+}
+bool CjkComposer::phonetic_keys() const {
+    return phonetic_keys_;
 }
 bool CjkComposer::flick_input() const {
     return static_cast<bool>(state_->cheonjiin);

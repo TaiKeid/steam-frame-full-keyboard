@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "zh-tw-pinyin",
-  "name": "Chinese, Traditional",
+  "name": "Chinese, Traditional Pinyin",
   "native_name": "中文 繁體拼音",
   "short_name": "繁體",
   "locale": "zh-TW",

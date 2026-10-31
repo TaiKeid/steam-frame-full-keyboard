@@ -5,7 +5,7 @@
 #include <vector>
 
 namespace framekeyboard {
-// Local Pinyin/Hangul composition. The app owns delivery and only clears this
+// Local Pinyin, Zhuyin, Cangjie, Quick and Hangul composition. The app owns delivery and only clears this
 // state after a successful text commit. No engine learning API is used.
 // 천지인 (korean-cheonjiin) composes in this library and loads no engine.
 class CjkComposer {
@@ -24,6 +24,8 @@ class CjkComposer {
     bool empty() const;
     bool has_reading() const;
     bool chinese() const;
+    // Digits and punctuation are part of the reading (Zhuyin), not candidates.
+    bool phonetic_keys() const;
     // 12-key input (천지인): what a key typed, replacing the last unit for a
     // repeated toggle tap, and that unit, which the toggle must still find.
     bool flick_input() const;
@@ -34,5 +36,6 @@ class CjkComposer {
   private:
     struct State;
     std::unique_ptr<State> state_;
+    bool phonetic_keys_{};
 };
 } // namespace framekeyboard

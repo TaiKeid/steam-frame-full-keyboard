@@ -871,7 +871,11 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
               t.font_size, view.language->font, t.legend, true);
         return;
     }
-    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
+    // A Chinese method's symbols apply only while it composes; its Latin mode
+    // types the keymap's letters, so the keys show those.
+    const bool latin = !view.composing && view.language->input_method.starts_with("chinese-");
+    auto text =
+        view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num(), !latin);
     if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
         text = custom->second;
     }
@@ -2197,16 +2201,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         draw_focus_tooltip(cr, view);
         if (view.composing && !view.settings) {
             const auto& method = view.language->input_method;
-            const char* hint = method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
-                               : method == "korean-cheonjiin"
-                                   ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
-                               : method.starts_with("chinese-")
-                                   ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
-                               : method == "japanese-kana"
-                                   ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
-                               : method == "japanese-flick"
-                                   ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
-                                   : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
+            const char* hint =
+                method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
+                : method == "korean-cheonjiin"
+                    ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
+                : method == "chinese-zhuyin"  ? "注音 → Space: select · Enter: commit · Esc: cancel"
+                : method == "chinese-cangjie" ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
+                : method == "chinese-quick"   ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
+                : method.starts_with("chinese-")
+                    ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
+                : method == "japanese-kana" ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
+                : method == "japanese-flick"
+                    ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
+                    : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
             const std::string reading = view.preedit.empty() ? hint : view.preedit;
             const Rect line{body.x + 20, 94, body.width - 40, 40};
             case_plate(cr, view, line, reading, 27, PANGO_ALIGN_CENTER);

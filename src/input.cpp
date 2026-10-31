@@ -386,9 +386,9 @@ void LanguageMap::cancel_compose() {
         xkb_compose_state_reset(compose_);
     }
 }
-std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, bool caps,
-                                bool num) const {
-    if (const auto it = language_.overrides.find(key.id); it != language_.overrides.end()) {
+std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, bool caps, bool num,
+                                bool overrides) const {
+    if (const auto it = language_.overrides.find(key.id); overrides && it != language_.overrides.end()) {
         return it->second;
     }
     if (key.action_kind != ActionKind::Key || key.action == "Space") {

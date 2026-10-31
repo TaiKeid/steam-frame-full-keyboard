@@ -312,7 +312,8 @@ Language parse_language(const std::string& json) {
         l.input_method != "japanese-kana" && l.input_method != "japanese-flick" &&
         l.input_method != "korean-2set" && l.input_method != "korean-cheonjiin" &&
         l.input_method != "chinese-pinyin-simplified" &&
-        l.input_method != "chinese-pinyin-traditional") {
+        l.input_method != "chinese-pinyin-traditional" && l.input_method != "chinese-zhuyin" &&
+        l.input_method != "chinese-cangjie" && l.input_method != "chinese-quick") {
         throw std::runtime_error("unsupported input method");
     }
     auto read_kana = [&](const char* field_name, auto& map) {

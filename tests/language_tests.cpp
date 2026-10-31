@@ -1,6 +1,8 @@
+#include "../src/table_engine.hpp"
 #include "framekeyboard/app.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
@@ -156,6 +158,55 @@ void unicode_input() {
 }
 // Each national keymap types its own letters through Unicode: plain keys,
 // AltGr levels and dead keys composed locally.
+// Cangjie and Quick logic against a small table laid out as the system's are.
+void table_engine() {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-table-test-" + std::to_string(getpid()) + ".db");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove(path); }
+    } cleanup{path};
+    const auto script = "import sqlite3,sys\n"
+                        "c=sqlite3.connect(sys.argv[1])\n"
+                        "c.execute('create table phrases(id integer primary key,tabkeys text,"
+                        "phrase text,freq integer,user_freq integer)')\n"
+                        "c.executemany('insert into phrases(tabkeys,phrase,freq,user_freq) "
+                        "values(?,?,?,0)',[('a','日',10),('a','曰',5),('ab','明',90),('b','月',1)])\n"
+                        "c.commit()\n";
+    const auto file = path.string() + ".py";
+    std::ofstream(file) << script;
+    const auto command = "python3 -I " + file + " " + path.string();
+    const int result = std::system(command.c_str());
+    fs::remove(file);
+    if (result != 0 || !TableEngine::available(path)) {
+        std::cout << "Table engine test skipped: no SQLite.\n";
+        return;
+    }
+    TableEngine table(path, 2);
+    table.type('a');
+    require(table.preedit() == "日", "keys show as radicals");
+    require(table.candidates() == std::vector<std::string>({"日", "曰", "明"}),
+            "exact codes lead, then longer ones by frequency");
+    table.cycle(1);
+    require(table.selected() == 1 && table.text() == "曰", "the selection moves");
+    table.cycle(-2);
+    require(table.selected() == 2, "and wraps");
+    table.type('z');
+    require(table.candidates().empty() && table.text().empty() && table.has_reading(),
+            "a reading that matches nothing has no text");
+    table.type('b');
+    require(table.preedit() == "日重", "the table's key limit holds");
+    table.backspace();
+    table.type('b');
+    require(table.text() == "明" && table.preedit() == "日月", "a corrected reading finds it");
+    table.choose(0);
+    require(!table.has_reading() && !table.empty() && table.text() == "明", "choosing ends the reading");
+    table.cancel();
+    require(table.empty() && table.text().empty(), "cancel clears it");
+    table.type('1');
+    require(table.empty(), "only letters take part");
+    require(!TableEngine::available(path.string() + ".missing"), "a missing table is unavailable");
+}
 void national_keymaps(const Profiles& profiles) {
     const auto path =
         fs::temp_directory_path() / ("framekeyboard-national-test-" + std::to_string(getpid()));
@@ -408,6 +459,45 @@ void engines(const std::string& group = "") {
         }
     }
     if (group != "--korean") {
+        if (CjkComposer::supported("chinese-zhuyin")) {
+            // Digits and punctuation are symbols here: ㄋㄧˇ ㄏㄠˇ.
+            CjkComposer zhuyin("chinese-zhuyin");
+            require(zhuyin.phonetic_keys(), "Zhuyin reads digits as symbols");
+            type(zhuyin, "su3");
+            require(zhuyin.preedit() == "ㄋㄧˇ", "Zhuyin shows its symbols, not the keys");
+            const auto one = zhuyin.candidates();
+            require(std::find(one.begin(), one.end(), "你") != one.end(), "Zhuyin finds a character");
+            type(zhuyin, "cl3");
+            require(zhuyin.text() == "你好", "Zhuyin converts a phrase");
+            const auto both = zhuyin.candidates();
+            const auto first = std::find(both.begin(), both.end(), "你");
+            require(first != both.end(), "a phrase offers its first character alone");
+            zhuyin.choose(static_cast<int>(first - both.begin()));
+            require(zhuyin.has_reading() && zhuyin.preedit() == "你ㄏㄠˇ",
+                    "the rest of the reading stays after a partial choice");
+            zhuyin.backspace();
+            zhuyin.cancel();
+            require(zhuyin.empty(), "Zhuyin cancels");
+        }
+        // The real tables on a system that has them; the fixture test covers logic.
+        if (CjkComposer::supported("chinese-cangjie")) {
+            CjkComposer cangjie("chinese-cangjie");
+            type(cangjie, "cnkq");
+            require(cangjie.preedit() == "金弓大手" && cangjie.text() == "鍵",
+                    "Cangjie looks up a code");
+            cangjie.choose(0);
+            require(!cangjie.has_reading() && cangjie.text() == "鍵", "a choice ends the reading");
+            cangjie.cancel();
+        }
+        if (CjkComposer::supported("chinese-quick")) {
+            CjkComposer quick("chinese-quick");
+            type(quick, "cq");
+            const auto keys = quick.candidates();
+            require(std::find(keys.begin(), keys.end(), "鍵") != keys.end(), "Quick looks up two keys");
+            type(quick, "a");
+            require(quick.preedit() == "金手", "Quick stops at two keys");
+            quick.cancel();
+        }
         if (CjkComposer::supported("chinese-pinyin-simplified")) {
             for (const auto& method : {"chinese-pinyin-simplified", "chinese-pinyin-traditional"}) {
                 CjkComposer chinese(method);
@@ -441,6 +531,78 @@ void engines(const std::string& group = "") {
             std::cout << "Chinese integration skipped: build lacks PyZy\n";
         }
     }
+}
+// Traditional Chinese through real key presses: digits are Zhuyin symbols, but
+// choose a candidate in Cangjie and Quick.
+void app_traditional() {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-traditional-test-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    Options options;
+    options.config_dir = path;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    struct Case {
+        const char* method;
+        const char* language;
+        std::vector<std::string> keys;
+        const char* preedit;
+        const char* finish;
+        const char* typed;
+    };
+    const std::vector<Case> cases{
+        {"chinese-zhuyin", "zh-tw-zhuyin", {"KeyS", "KeyU", "Digit3"}, "ㄋㄧˇ", "Space", "你"},
+        {"chinese-cangjie",
+         "zh-tw-cangjie",
+         {"KeyC", "KeyN", "KeyK", "KeyQ"},
+         "金弓大手",
+         "Space",
+         "鍵"},
+        {"chinese-cangjie", "zh-tw-cangjie", {"KeyL"}, "中", "Digit1", "中"},
+        {"chinese-quick", "zh-tw-quick", {"KeyL"}, "中", "Digit1", "中"},
+    };
+    for (const auto& test : cases) {
+        if (!CjkComposer::supported(test.method)) {
+            continue;
+        }
+        Sink sink;
+        App app(options, sink);
+        app.apply({"en-us-full", test.language, "graphite"});
+        for (const auto& key : test.keys) {
+            click(app, key);
+        }
+        require(app.view().preedit == test.preedit, "keys compose into the reading");
+        require(sink.events.empty(), "nothing is typed while composing");
+        click(app, test.finish);
+        for (int i = 0; i < 40 && sink.events.empty(); ++i) {
+            app.tick(1 + i * .05);
+        }
+        require(sink.events == std::vector<std::string>{test.typed}, "the choice is typed");
+        app.apply({"en-us-full", "en-us", "graphite"}); // Saved; the next case starts clean.
+    }
+}
+// Symbols on the keys while composing, the keymap's letters in Latin mode.
+void traditional_legends(const Profiles& profiles) {
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto key = std::find_if(layout.keys.begin(), layout.keys.end(),
+                                  [](const Key& item) { return item.id == "KeyA"; });
+    const auto digit = std::find_if(layout.keys.begin(), layout.keys.end(),
+                                    [](const Key& item) { return item.id == "Digit1"; });
+    LanguageMap cangjie(profiles.languages.at("zh-tw-cangjie"));
+    require(cangjie.legend(*key, {}, false, false) == "日", "Cangjie shows radicals");
+    require(cangjie.legend(*key, {}, false, false, false) == "a", "and letters in Latin mode");
+    LanguageMap quick(profiles.languages.at("zh-tw-quick"));
+    require(quick.legend(*key, {}, false, false) == "日", "Quick shares the radicals");
+    LanguageMap zhuyin(profiles.languages.at("zh-tw-zhuyin"));
+    require(zhuyin.legend(*key, {}, false, false) == "ㄇ" &&
+                zhuyin.legend(*digit, {}, false, false) == "ㄅ",
+            "Zhuyin's symbols cover the digits too");
 }
 void app_composition(const Profiles& profiles, const std::string& group = "") {
     auto path = fs::temp_directory_path() / ("framekeyboard-language-test-" + std::to_string(getpid()));
@@ -564,7 +726,9 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
 } // namespace
 int main(int argc, char** argv) {
     try {
+        table_engine();
         const auto profiles = load_profiles({}, {});
+        traditional_legends(profiles);
         const std::string group = argc > 1 ? argv[1] : "";
         if (group == "--korean" || group == "--chinese") {
             const auto method = group == "--korean" ? "korean-2set" : "chinese-pinyin-simplified";
@@ -574,6 +738,9 @@ int main(int argc, char** argv) {
             }
             engines(group);
             app_composition(profiles, group);
+            if (group == "--chinese") {
+                app_traditional();
+            }
             std::cout << method << ": engine and delivery ordering passed\n";
             return 0;
         }

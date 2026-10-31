@@ -95,7 +95,7 @@ marks, as in Thai or Hindi. The headset's own Noto fonts draw the Arabic,
 Hebrew, Devanagari, Thai and Greek legends.
 
 Spanish regional variants beyond Spain, French beyond France and Canada,
-Chinese Zhuyin, Cangjie and Wubi, Korean Hanja conversion, Vietnamese Telex and
+Chinese Wubi, Korean Hanja conversion, Vietnamese Telex and
 other Indic scripts are not included.
 
 ## Independent layout selection
@@ -140,6 +140,14 @@ Japanese, Chinese and Korean modes can be selected in VR without changing the
 system keymap or relaunching. The receiving app does not need its own IME enabled.
 Shortcut and navigation actions remain native. This still requires a local app
 that accepts Gamescope's text delivery.
+
+Traditional Chinese also offers Zhuyin, Cangjie and Quick, whose keys show their
+symbols or radicals. Zhuyin uses the standard keyboard, including the digit and
+punctuation keys, and converts phrases; finish a syllable with a tone key, and Space
+chooses the highlighted candidate. Cangjie takes up to five keys and Quick two. Each
+shows the keys as radicals, lists matching characters, longer codes after exact ones,
+and types one character at a time. Cangjie and Quick read the tables SteamOS installs
+in `/usr/share/ibus-table/tables`; without them those languages can't be selected.
 
 For Chinese, type Pinyin without tone numbers. Use `v` for ü and an apostrophe
 for syllable separation where needed. The candidate row shows five entries at a

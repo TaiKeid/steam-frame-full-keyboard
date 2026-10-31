@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "zh-tw-cangjie",
+  "name": "Chinese, Cangjie",
+  "native_name": "中文 倉頡",
+  "short_name": "倉頡",
+  "locale": "zh-TW",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {
+      "KeyA": "日",
+      "KeyB": "月",
+      "KeyC": "金",
+      "KeyD": "木",
+      "KeyE": "水",
+      "KeyF": "火",
+      "KeyG": "土",
+      "KeyH": "竹",
+      "KeyI": "戈",
+      "KeyJ": "十",
+      "KeyK": "大",
+      "KeyL": "中",
+      "KeyM": "一",
+      "KeyN": "弓",
+      "KeyO": "人",
+      "KeyP": "心",
+      "KeyQ": "手",
+      "KeyR": "口",
+      "KeyS": "尸",
+      "KeyT": "廿",
+      "KeyU": "山",
+      "KeyV": "女",
+      "KeyW": "田",
+      "KeyX": "難",
+      "KeyY": "卜",
+      "KeyZ": "重"
+    }
+  },
+  "font_families": [
+    "Noto Sans CJK TC",
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "input_method": "chinese-cangjie",
+  "dictation": {
+    "language": "zh",
+    "prompt": "好的，沒問題。"
+  }
+}

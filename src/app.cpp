@@ -2273,6 +2273,9 @@ void App::commit_cjk() {
         return;
     }
     const auto text = cjk_->text();
+    if (text.empty()) {
+        return; // A table reading that matches nothing stays to be corrected.
+    }
     // In dictation mode the editor takes the text, even in a preview.
     if (!text.empty() && ((preview_input() && !dictation_open_) || text_output_->commit_text(text))) {
         cjk_->cancel();
@@ -2330,9 +2333,25 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     if (execute) {
         flick_toggle_.reset();
     }
-    if (cjk_->chinese() && composing && code.size() == 6 && code.starts_with("Digit") &&
-        code.back() >= '1' && code.back() <= '5' && !mods.contains(key_code("ShiftLeft")) &&
-        !mods.contains(key_code("ShiftRight")) && !cjk_->candidates().empty()) {
+    if (cjk_->phonetic_keys() && !mods.contains(key_code("ShiftLeft")) &&
+        !mods.contains(key_code("ShiftRight"))) {
+        // Zhuyin keeps its symbols on the digits and punctuation too.
+        const char ch = code.size() == 6 && code.starts_with("Digit") ? code.back()
+                        : code == "Minus"                             ? '-'
+                        : code == "Comma"                             ? ','
+                        : code == "Period"                            ? '.'
+                        : code == "Slash"                             ? '/'
+                        : code == "Semicolon"                         ? ';'
+                                                                      : '\0';
+        if (ch) {
+            if (execute) {
+                cjk_->type(ch);
+            }
+            return true;
+        }
+    } else if (cjk_->chinese() && composing && code.size() == 6 && code.starts_with("Digit") &&
+               code.back() >= '1' && code.back() <= '5' && !mods.contains(key_code("ShiftLeft")) &&
+               !mods.contains(key_code("ShiftRight")) && !cjk_->candidates().empty()) {
         const int index = cjk_->selected() / 5 * 5 + code.back() - '1';
         if (execute && index < static_cast<int>(cjk_->candidates().size())) {
             choose_cjk(index);
@@ -2370,8 +2389,8 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         }
         return true;
     }
-    if (cjk_->chinese() && code == "Quote" && composing && !mods.contains(key_code("ShiftLeft")) &&
-        !mods.contains(key_code("ShiftRight"))) {
+    if (cjk_->chinese() && !cjk_->phonetic_keys() && code == "Quote" && composing &&
+        !mods.contains(key_code("ShiftLeft")) && !mods.contains(key_code("ShiftRight"))) {
         if (execute) {
             cjk_->type('\'');
         }
