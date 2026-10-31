@@ -599,6 +599,9 @@ class App {
     bool dragging_{}, resizing_{};
     bool passthrough_{};
     bool dictation_passthrough_{}; // Tracked apart from the user's toggle.
+    // Since when the message explaining it has shown; negative until the next
+    // tick times it. Empty once it is gone or another message replaced it.
+    std::optional<double> passthrough_message_since_;
     bool field_needed_{};
     bool hidden_focus_{}, dashboard_focus_{};
     double focus_shake_since_{-1};
@@ -805,6 +808,8 @@ class App {
     void tick_direct(double now);
     // Shows a dictation message over the editor, or in direct mode on the status line.
     void dictation_message(std::string text, bool error);
+    void tick_passthrough_message(double now);
+    void end_passthrough_message();
     // Recognized phrases waiting for room in the output queue, in order. The
     // front one may be partly typed already.
     std::deque<std::string> direct_waiting_;

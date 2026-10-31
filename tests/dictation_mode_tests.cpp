@@ -1425,6 +1425,151 @@ void passthrough_tests() {
     }
 }
 
+void passthrough_message_tests() {
+    const std::string message = "The keyboard stayed open because dictation is active.";
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    auto notice = [](const App& app) { return app.view().dictation->notice; };
+    {
+        // Nothing switched, so there is nothing to explain.
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        require(!app.dashboard_visibility(false) && notice(app).empty(),
+                "a paused editor closes with the dashboard, without the message");
+        press(app, "Escape");
+        app.set_passthrough(true);
+        press(app, "Dictation");
+        require(!app.dashboard_visibility(false) && notice(app).empty(),
+                "the user's own passthrough needs no message");
+        press(app, "Escape");
+        press(app, "Escape");
+        app.set_passthrough(false); // It is saved; the next launch must start without it.
+    }
+    {
+        // The editor shows it in its band, for five seconds from the next tick.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false) && notice(app) == message,
+                "the editor explains why the keyboard stayed");
+        require(!app.dashboard_visibility(false), "the message is shown once");
+        app.tick(clock += .01);
+        app.tick(clock += 4.9);
+        require(notice(app) == message, "it is still there just before five seconds");
+        app.dirty = false;
+        app.tick(clock += .2);
+        require(notice(app).empty() && app.dirty, "and clears itself, repainting the panel");
+        require(app.passthrough(), "while passthrough stays on");
+    }
+    {
+        // A newer message in the editor outlives the timer.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false), "listening with the dashboard closed");
+        app.tick(clock += .01);
+        app.stop_listening("Dictation stopped: the headset was taken off.");
+        app.tick(clock += 6);
+        require(notice(app) == "Dictation stopped: the headset was taken off.",
+                "a newer notice stays past the five seconds");
+    }
+    {
+        // The field usually closes with the dashboard: its own notice follows.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        app.set_field_needed(true);
+        require(app.dashboard_visibility(false) && notice(app) == message,
+                "the message comes first when the field closes too");
+        app.tick(clock += .01);
+        app.tick(clock += 5.1);
+        require(notice(app) == "The text field closed. Select a text field to send.",
+                "and the field's notice takes over");
+    }
+    {
+        // Reopening the dashboard leaves nothing to explain, and passthrough
+        // being on already, closing it again is no new switch.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false), "listening with the dashboard closed");
+        app.tick(clock += .01);
+        require(!app.dashboard_visibility(true) && notice(app).empty(),
+                "reopening the dashboard removes the message");
+        require(!app.dashboard_visibility(false) && notice(app).empty(),
+                "closing it again does not repeat it");
+    }
+    {
+        // Turning passthrough off makes the message wrong at once.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false), "listening with the dashboard closed");
+        app.tick(clock += .01);
+        app.set_passthrough(false);
+        app.tick(clock += .01);
+        require(notice(app).empty(), "it leaves with passthrough");
+    }
+    options.dictation_arguments = {"--scenario", "direct"};
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")"
+                                 R"(,"dictation_direct":true)");
+    {
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        app.set_passthrough(true);
+        press(app, "Dictation");
+        require(!app.dashboard_visibility(false) && app.view().status != message,
+                "nor does Type as I speak with the user's own passthrough");
+        app.set_passthrough(false);
+    }
+    {
+        // Type as I speak has no editor: the status line shows it.
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false) && app.view().status == message,
+                "the status line explains why the keyboard stayed");
+        app.tick(clock += .01);
+        app.tick(clock += 5.1);
+        require(app.view().status != message, "and clears itself");
+    }
+    {
+        // A newer status outlives the timer.
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false), "listening with the dashboard closed");
+        app.tick(clock += .01);
+        app.report_status("Another message");
+        app.tick(clock += 6);
+        require(app.view().status == "Another message", "a newer status stays past the five seconds");
+    }
+    {
+        // Once the last phrase is typed the keyboard closes, so the message
+        // must not wait there for the next time it opens.
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        require(app.dashboard_visibility(false), "listening with the dashboard closed");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        app.tick(clock += .1);
+        require(!app.passthrough() && app.view().status != message,
+                "it leaves with the session's passthrough");
+    }
+}
+
 void field_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -2595,6 +2740,7 @@ int main() {
         scroll_tests();
         paste_tests();
         passthrough_tests();
+        passthrough_message_tests();
         field_tests();
         settings_and_update_tests();
         card_tests();

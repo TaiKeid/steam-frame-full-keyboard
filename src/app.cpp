@@ -1686,6 +1686,7 @@ bool App::tick(double now) {
         }
     }
     tick_direct(now);
+    tick_passthrough_message(now);
     if (editor_repeat_ && now >= editor_repeat_->next) {
         if (!dictation_open_ || !keyboard_.pointer_pressed(editor_repeat_->pointer)) {
             editor_repeat_.reset();
@@ -3423,7 +3424,17 @@ void App::stop_listening(const std::string& reason) {
     pause_capture();
     dictation_message(reason, false);
 }
+namespace {
+// Shown for a few seconds when the dashboard closes during dictation, so the
+// keyboard staying in view has an explanation.
+constexpr const char* passthrough_message = "The keyboard stayed open because dictation is active.";
+constexpr double passthrough_message_seconds = 5;
+} // namespace
+
 bool App::dashboard_visibility(bool visible) {
+    if (visible && passthrough_message_since_) {
+        end_passthrough_message(); // Back in the dashboard, nothing needs explaining.
+    }
     // Listening in the editor, or Type as I speak until its phrases are typed.
     const bool keep = dictation_open_ ? capturing_ : direct_active();
     if (visible || !keep || !interaction_active_ || passthrough()) {
@@ -3431,8 +3442,32 @@ bool App::dashboard_visibility(bool visible) {
     }
     // The VR loop switches to the passthrough pointer and releases presses.
     dictation_passthrough_ = true;
-    dirty = true;
+    dictation_message(passthrough_message, false);
+    passthrough_message_since_ = -1; // Timed from the next tick.
     return true;
+}
+void App::tick_passthrough_message(double now) {
+    if (!passthrough_message_since_) {
+        return;
+    }
+    if (*passthrough_message_since_ < 0) {
+        passthrough_message_since_ = now;
+    }
+    if (status_ != passthrough_message && notice_ != passthrough_message) {
+        passthrough_message_since_.reset(); // A newer message took its place and stays.
+    } else if (!dictation_passthrough_ ||
+               now - *passthrough_message_since_ >= passthrough_message_seconds) {
+        end_passthrough_message();
+    }
+}
+void App::end_passthrough_message() {
+    passthrough_message_since_.reset();
+    for (auto* message : {&status_, &notice_}) {
+        if (*message == passthrough_message) {
+            message->clear();
+            dirty = true;
+        }
+    }
 }
 bool App::take_dismissal() {
     return std::exchange(dismiss_requested_, false);

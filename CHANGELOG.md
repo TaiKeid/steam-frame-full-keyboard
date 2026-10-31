@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- When closing the dashboard during dictation turns on **Stay open over apps**, a message now explains why the keyboard stayed in view. It shows for 5 seconds, in the dictation editor or, with Type as I speak, on the status line. If Stay open over apps was already on, nothing changes and no message appears.
+
 ## 0.12.1: The bumper moves the keyboard
 
 - Fixed the move bar letting go shortly after you grabbed it with the controller's bumper. The dashboard laser clicks on the bumper as well as the trigger, but Full Keyboard watched only the trigger to tell when you let go, so it ended the move while the bumper was still held. Corner resizing had the same problem. Thanks to @LiterallyANoodle for the report (#8).

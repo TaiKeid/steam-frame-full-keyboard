@@ -172,7 +172,7 @@ The **Type as I speak** switch on the Dictation card skips the editor. The mic k
 
 ## Dashboard, passthrough and focus
 
-- **Dashboard closed while capturing:** passthrough is turned on automatically, so the keyboard stays open and capture continues, even if Steam asks to close the keyboard. That passthrough is tracked apart from the user's own toggle; the toolbar button shows either, and turning it off ends both. It stays on until dictation mode ends; with Type as I speak, until the last phrase is typed.
+- **Dashboard closed while capturing:** passthrough is turned on automatically, so the keyboard stays open and capture continues, even if Steam asks to close the keyboard. That passthrough is tracked apart from the user's own toggle; the toolbar button shows either, and turning it off ends both. It stays on until dictation mode ends; with Type as I speak, until the last phrase is typed. Only when this turns passthrough on, a message explains it for 5 s, in the editor's band or, with Type as I speak, on the status line. It leaves sooner when passthrough ends or the dashboard reopens, and any newer message replaces it and stays. With passthrough already on nothing switches, so nothing shows.
 - **Dashboard closed while not capturing:** the keyboard hides as usual. The dictation state (mode, editor text, cursor, scroll) is kept in memory and restored when the keyboard opens again. A paused editor whose capture already turned passthrough on stays open, because that passthrough lasts until the mode ends.
 - **X** discards everything, without asking: capture stops, pending phrases and the editor text are dropped, and dictation mode ends.
 - **Typing target lost,** for example when Steam's field closes:
