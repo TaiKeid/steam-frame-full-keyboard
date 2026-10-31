@@ -535,8 +535,27 @@ class App {
     // A question over Settings: clearing favorites, or downloading the
     // on-device model, either on its own or before applying the settings
     // that need it.
-    enum class Confirm { None, ClearFavorites, Download, DownloadAndApply };
+    // The last three ask before a Settings action ends dictation.
+    enum class Confirm {
+        None,
+        ClearFavorites,
+        Download,
+        DownloadAndApply,
+        QuitDictation,
+        SteamKeyboardDictation,
+        UpdateDictation
+    };
     Confirm confirm_{Confirm::None};
+    bool dictation_question() const {
+        return confirm_ == Confirm::QuitDictation || confirm_ == Confirm::SteamKeyboardDictation ||
+               confirm_ == Confirm::UpdateDictation;
+    }
+    // Something a Settings action would end: listening, whether or not the
+    // user is speaking; an editor with text or phrases on the way; a Type as I
+    // speak session still typing.
+    bool dictation_at_stake() const { return dictation_holds_panel() || direct_active(); }
+    void quit_keyboard();
+    void use_steam_keyboard();
     // The favorites popup over the Languages card (docs/configuration.md).
     // Its list glides to stick steps and follows a laser drag past a dead
     // zone, as the cards do; a drag's release clicks nothing.

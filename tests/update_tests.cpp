@@ -462,6 +462,51 @@ if mode=='marked':
                     "the Settings button shows the offer");
         }
         {
+            // Dictation under way: installing asks, checking does not, and the
+            // editor is discarded only once the update is ready to restart.
+            std::filesystem::create_directories(directory / "dictation-config");
+            std::ofstream(directory / "dictation-config" / "config.json")
+                << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+                   R"("theme":"graphite"},"dictation":"server","dictation_server":"127.0.0.1"})";
+            Updates updates("0.6.0", {"available"}, helper);
+            NullSink sink;
+            Options options;
+            options.mode = Mode::Preview;
+            options.config_dir = directory / "dictation-config";
+            App app(options, sink, {}, &updates);
+            app.show_dictation();
+            require(app.dictation_holds_panel(), "the editor has text");
+            app.show_settings();
+            const auto button = [&](double x, double y) {
+                app.down(0, x, y, monotonic_seconds());
+                app.up(0, x, y);
+            };
+            button(800, 30);
+            require(updates.busy() && !app.view().confirm, "checking never asks");
+            for (int i = 0; i < 300 && updates.label() != "Download and install update"; ++i) {
+                app.tick(monotonic_seconds());
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            button(800, 30);
+            require(app.view().confirm && !updates.busy(), "installing asks first");
+            require(app.view().confirm->body.find("dictation") != std::string::npos,
+                    "and says what it would cancel");
+            button(675, 356); // Go back
+            require(!app.view().confirm && !updates.busy() && app.dictation_holds_panel(),
+                    "going back starts nothing");
+            button(800, 30);
+            button(925, 356); // Proceed
+            require(!app.view().confirm && updates.busy() && app.dictation_holds_panel(),
+                    "the update starts while the text stays until it can install");
+            for (int i = 0; i < 300 && !updates.prepared(); ++i) {
+                app.tick(monotonic_seconds());
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            app.tick(monotonic_seconds());
+            require(app.updating() && !app.dictation_holds_panel(),
+                    "a prepared update discards dictation");
+        }
+        {
             Updates updates("0.6.0", {"failure"}, helper);
             updates.click(10);
             wait_label(updates, "Download and install update", 20);

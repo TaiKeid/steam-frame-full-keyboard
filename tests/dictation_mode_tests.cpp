@@ -1570,6 +1570,144 @@ void passthrough_message_tests() {
     }
 }
 
+void leaving_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")"
+                                 R"(,"replace_native_keyboard":true)");
+    use_fake_helper(options, directory.path, "silent");
+    auto open_with_text = [](App& app) {
+        open_editor(app);
+        press(app, "KeyA");
+        require(editor_text(app) == "a", "the editor has text");
+        app.show_settings();
+    };
+    {
+        Sink sink;
+        App app(options, sink);
+        open_with_text(app);
+        click(app, "quit");
+        auto view = app.view();
+        require(view.confirm && view.confirm->title == "Dictation is active" &&
+                    view.confirm->body.find("cancel the current dictation") != std::string::npos &&
+                    !app.quitting(),
+                "Quit asks before ending dictation");
+        require(has_control(app, "confirm-accept"), "the question has its answers");
+        click(app, "confirm-cancel");
+        require(!app.view().confirm && !app.quitting() && app.dictation_open(),
+                "Go back changes nothing");
+        click(app, "quit");
+        click(app, "confirm-accept");
+        require(app.quitting(), "and the answer quits");
+    }
+    {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        app.show_settings();
+        click(app, "quit");
+        require(!app.view().confirm && app.quitting(), "an empty, paused editor has nothing to lose");
+    }
+    {
+        // Listening counts, though nothing has been said.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        settle(app);
+        app.show_settings();
+        require(app.view().dictation_capturing && editor_text(app).empty(),
+                "the microphone stays on in Settings");
+        click(app, "quit");
+        require(app.view().confirm && !app.quitting(), "a silent microphone asks too");
+        click(app, "confirm-cancel");
+        require(app.view().dictation_capturing, "and goes on listening after Go back");
+        app.back();
+        require(app.view().dictation_capturing, "back on the keyboard too");
+    }
+    {
+        // What a capture was started with pauses it; the rest does not.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        app.show_settings();
+        click(app, "apply");
+        app.flush_settings();
+        require(app.view().dictation_capturing, "an unrelated Apply keeps listening");
+        app.show_settings();
+        click(app, "reload");
+        require(!app.view().dictation_capturing, "Reload pauses it");
+    }
+    {
+        // Settings covers the editor's band, so the status line explains.
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        app.show_settings();
+        require(app.dashboard_visibility(false) && !app.view().status.empty() &&
+                    app.view().status.find("dictation is active") != std::string::npos,
+                "closing the dashboard in Settings explains itself");
+        app.tick(clock += .01);
+        app.tick(clock += 5.1);
+        require(app.view().status.find("dictation is active") == std::string::npos,
+                "and the message leaves by itself");
+        app.set_passthrough(false);
+    }
+    {
+        // Only the fallback's own question and its answer are tested here;
+        // the button itself needs a native session.
+        Sink sink;
+        App app(options, sink);
+        open_with_text(app);
+        app.set_native_session(true);
+        click(app, "native-fallback");
+        require(app.view().confirm && !app.take_native_fallback(), "Use Steam keyboard asks too");
+        click(app, "confirm-cancel");
+        require(app.dictation_open() && !app.take_native_fallback(), "and keeps dictation on no");
+        click(app, "native-fallback");
+        click(app, "confirm-accept");
+        require(app.take_native_fallback() && !app.dictation_open() && !app.dictation_holds_panel(),
+                "on yes the dictation is discarded and Steam's keyboard takes over");
+        app.back();
+        open_editor(app);
+        require(editor_text(app).empty(), "its text is gone");
+    }
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")"
+                                 R"(,"replace_native_keyboard":true,"dictation_direct":true)");
+    options.dictation_arguments = {"--scenario", "direct"};
+    {
+        // Type as I speak: phrases still on their way are at stake.
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        settle(app);
+        app.show_settings();
+        require(app.view().dictation_capturing, "Type as I speak keeps listening in Settings");
+        click(app, "quit");
+        require(app.view().confirm && !app.quitting(), "Type as I speak asks too");
+        click(app, "confirm-accept");
+        require(app.quitting(), "and quits on yes");
+    }
+    {
+        Sink sink;
+        App app(options, sink);
+        app.set_interaction_active(true);
+        press(app, "Dictation");
+        settle(app);
+        app.show_settings();
+        app.set_native_session(true);
+        click(app, "native-fallback");
+        require(app.view().confirm && !app.take_native_fallback(), "the Steam keyboard asks too");
+        click(app, "confirm-accept");
+        require(app.take_native_fallback() && !app.view().dictation_capturing,
+                "and on yes the session stops");
+    }
+}
+
 void field_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -1627,8 +1765,10 @@ void settings_and_update_tests() {
     press(app, "Dictation");
     require(control_enabled(app, "settings"), "Settings stays available while listening");
     app.show_settings();
-    require(!app.view().dictation_capturing, "opening Settings pauses dictation");
+    require(app.view().dictation_capturing, "opening Settings keeps listening");
     app.back();
+    require(app.view().dictation_capturing, "and it is still listening after Settings");
+    press(app, "Dictation");
     wait_until(app, [&] { return !editor_text(app).empty() && !app.view().dictation->revealing; });
     require(app.dictation_open() && editor_text(app) == "Hello there.",
             "the phrase spoken before Settings is kept, and the mode is still open");
@@ -2741,6 +2881,7 @@ int main() {
         paste_tests();
         passthrough_tests();
         passthrough_message_tests();
+        leaving_tests();
         field_tests();
         settings_and_update_tests();
         card_tests();
