@@ -7,6 +7,7 @@
 - Installing an update now always takes the newest version, even if another one came out after the check that found this one.
 - Settings now shows the installed version beside the update button.
 - Full Keyboard now uses less power while the headset is off.
+- Fixed Steam's keyboard flashing for a moment when opening Full Keyboard right after closing it.
 - Opening Settings no longer stops dictation: it keeps listening until you change the language or recognition settings there.
 - **Use Steam keyboard**, **Download and install update** and **Quit Full Keyboard** now ask before ending dictation, whether it's listening or has text not sent yet. Checking for updates doesn't ask.
 

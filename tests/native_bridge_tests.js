@@ -785,6 +785,44 @@ for (const production of [false, true]) {
     assert(!s.active && s.externalRestore && f.nodes.size===0, "UI lease withdraws external suppression before guard recovery");
     f.bridge.dispose();
 }
+{
+    // Steam closes its keyboard a moment after Hide. It stays transparent until
+    // then, or real keys reach its texture and the next Show flashes them.
+    const closing = () => {
+        const f = fixture(); owned(f);
+        f.deferHide(true);
+        f.status({bIsOpen: true});
+        assert(f.nativeOpen(), "Steam has not closed yet");
+        assert.equal(f.step().events.at(-1).code, "button-toggle");
+        assert.equal(f.nodes.size, 1, "a dismissal keeps Steam's keyboard transparent while it closes");
+        return f;
+    };
+    let f = closing();
+    f.deferHide(false);
+    f.advance(100);
+    assert.equal(f.nodes.size, 1, "and through repeated inspections");
+    f.status({bIsOpen: false});
+    assert.equal(f.nodes.size, 1, "the closed keyboard stays armed for the next summon");
+    f.bridge.dispose();
+    assert.equal(f.nodes.size, 0, "disposal removes it");
+
+    f = closing();
+    f.advance(399);
+    assert.equal(f.nodes.size, 1, "the wait is bounded");
+    f.step(); f.advance(2);
+    assert.equal(f.nodes.size, 0, "a keyboard Steam kept open becomes visible after 400 ms");
+    f.bridge.dispose();
+
+    f = closing();
+    f.advance(901);
+    assert(f.bridge.expired() && f.nodes.size === 0, "lease expiry always shows the stock keyboard");
+    f.bridge.dispose();
+
+    f = closing();
+    f.status({bIsOpen: true, sOverlayKey: "valve.steam.gamepadui.barpopup"});
+    assert.equal(f.nodes.size, 0, "another owner's keyboard is never kept transparent");
+    f.bridge.dispose();
+}
 for (const staleField of [false, true]) {
     const f = fixture(false, false, true);
     if (staleField) f.newTarget();

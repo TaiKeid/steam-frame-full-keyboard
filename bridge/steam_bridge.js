@@ -89,6 +89,9 @@
         if (events.length > 32) events.shift();
     }
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
+    // Steam's keyboard is closing at our request; until it has, it stays
+    // transparent, or Steam paints real keys that the next Show can flash.
+    let closingUntil = 0, closingKey = null;
     let lastClock = now(), lastStep = now(), lastInspection = now(), timer, subscription;
     const oldWindowShow = windowApi.ShowWindow;
     const style = win.document.createElement("style");
@@ -206,8 +209,8 @@
         return owner?.fieldHook && !fieldRequest(s);
     }
     function blocking() {
-        return fresh() && !ignoreOpen && !restoringUntil &&
-            (logical || !native.open || potential(native) && now() < rawDeadline);
+        return fresh() && !restoringUntil && (now() < closingUntil || !ignoreOpen &&
+            (logical || !native.open || potential(native) && now() < rawDeadline));
     }
     function restoreWindow() {
         setHidden(false);
@@ -267,7 +270,10 @@
         ++request;
         ignoreOpen = true;
         if (!restore) interceptedShow = false;
-        restoreWindow();
+        if (session && closeNative && !restore && native.open) {
+            closingUntil = now() + REQUEST_MS;
+            closingKey = native.key;
+        } else restoreWindow();
         if (!session) return;
         if (restore && native.open && native.key !== session.owner.key) {
             record("competing-owner");
@@ -345,6 +351,7 @@
             if (win.closed || root.g_PopupManager.GetPopupForVROverlayKey("valve.steam.gamepadui.keyboard") !== popup)
                 throw Error("steam-popup-changed");
             native = nativeStatus();
+            if (!native.open || native.key !== closingKey) closingUntil = 0;
             checkRestore();
             if (!restoringOwner && restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
             if (!native.open && !restoringUntil) ignoreOpen = false;
