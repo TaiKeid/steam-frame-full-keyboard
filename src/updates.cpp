@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 
 extern char** environ;
 namespace framekeyboard {
@@ -28,6 +29,9 @@ double startup_started = -1, startup_last = -1;
 // Started by the helper for a hosted shell: the acknowledgement socket stays
 // open after probation until the helper's commit arrives.
 bool startup_hosted = false, startup_awaiting_commit = false;
+// Long enough for the network to come up after a boot.
+constexpr double first_check_delay = 60;
+constexpr double check_interval = 3 * 60 * 60;
 using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
 std::string field(json_object* object, const char* key) {
     json_object* value{};
@@ -171,10 +175,14 @@ bool Updates::start() {
     child_ = child;
     return true;
 }
-bool Updates::send(const std::string& operation) {
+bool Updates::send(const std::string& operation, bool silent) {
     Json packet(json_object_new_object(), json_object_put);
+    // No version: an install takes the newest stable release, even one newer
+    // than the offer that was found hours ago.
     json_object_object_add(packet.get(), "op", json_object_new_string(operation.c_str()));
-    json_object_object_add(packet.get(), "version", json_object_new_string(offer_.c_str()));
+    if (silent) {
+        json_object_object_add(packet.get(), "silent", json_object_new_boolean(true));
+    }
     const std::string data = json_object_to_json_string_ext(packet.get(), JSON_C_TO_STRING_PLAIN);
     return fd_ >= 0 && ::send(fd_, data.data(), data.size(), MSG_DONTWAIT | MSG_NOSIGNAL) ==
                            static_cast<ssize_t>(data.size());
@@ -205,6 +213,12 @@ std::string Updates::failure_reason() const {
     return state_ == State::Error ? failure_ : "";
 }
 void Updates::fail(double now, const std::string& reason) {
+    if (std::exchange(silent_check_, false)) {
+        return;
+    }
+    if (reason == "not-newer-release") {
+        offer_.clear(); // The offered release was withdrawn.
+    }
     state_ = State::Error;
     reason_ = reason.empty() ? "failed" : reason;
     failure_ = failure_message(reason);
@@ -215,12 +229,45 @@ void Updates::click(double now) {
     if (busy() || state_ == State::Latest || state_ == State::Error) {
         return;
     }
+    if (silent_check_) {
+        // The answer on its way is the one the user asked for.
+        silent_check_ = false;
+        state_ = State::Checking;
+        return;
+    }
     if (!start() || !send(offer_.empty() ? "check" : "install")) {
         fail(now, "helper-unavailable");
         return;
     }
     state_ = offer_.empty() ? State::Checking : State::Installing;
     progress_.clear();
+}
+void Updates::check_periodically(double clock) {
+    if (next_check_ < 0) {
+        next_check_ = clock + first_check_delay;
+    }
+    if (clock < next_check_ || state_ != State::Idle || silent_check_ || !offer_.empty()) {
+        return;
+    }
+    next_check_ = clock + check_interval;
+    try {
+        silent_check_ = start() && send("check", true);
+    } catch (const std::filesystem::filesystem_error&) {
+        return; // The running executable's path is gone; there is no helper to start.
+    }
+    if (!silent_check_) {
+        end_silent_check();
+    }
+}
+void Updates::end_silent_check() {
+    silent_check_ = false;
+    // The helper exits by itself once its channel closes, and tick reaps it,
+    // so a Python process is not left running for hours and the VR thread
+    // never waits for it.
+    if (fd_ >= 0) {
+        close(fd_);
+        fd_ = -1;
+    }
 }
 bool Updates::check(double now) {
     if (busy()) {
@@ -296,6 +343,14 @@ bool Updates::tick(double now) {
         }
         Json packet(json_tokener_parse(data.data()), json_object_put);
         const auto state = packet ? field(packet.get(), "state") : "";
+        if (silent_check_) {
+            if (state == "available") {
+                offer_ = field(packet.get(), "version");
+                state_ = offer_.empty() ? state_ : State::Available;
+            }
+            end_silent_check();
+            break;
+        }
         if (state == "latest" && state_ == State::Checking) {
             state_ = State::Latest;
             reset_at_ = now + 5;

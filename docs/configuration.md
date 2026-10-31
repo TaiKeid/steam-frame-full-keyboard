@@ -149,9 +149,9 @@ Integration → Replace native keyboard is saved as the optional boolean `replac
 
 With replacement enabled in VR, the main × dismisses the typing session and hides the panel while the app stays resident. Native summon requests can then reopen Full Keyboard without another manual launch. **Quit Full Keyboard** is shown only in Settings while replacement is enabled; that action exits the app and restores native fallback. With replacement disabled, × retains its normal quit behavior.
 
-## Manual updates
+## Updates
 
-The Settings header has a centered Check for updates button. Its latest-version message resets after five seconds; an available update remains offered until the process exits. This state is not a saved preference. Download and install update verifies, stages and restarts into a newer stable GitHub release. It preserves configuration and placement. See [updates](updates.md).
+The Settings header has a centered Check for updates button, with the running version in faint text beside it. Its latest-version message resets after five seconds; an available update remains offered until the process exits. The keyboard also checks silently every few hours, and a dot on the main toolbar's Settings button marks an offer. This state is not a saved preference. Download and install update verifies, stages and restarts into the newest stable GitHub release. It preserves configuration and placement. See [updates](updates.md).
 
 Integration → Hidden window tooltip is saved as the optional boolean `focus_tooltip`, defaulting to true; it applies only with Focus mode, so only while replacement is on.
 

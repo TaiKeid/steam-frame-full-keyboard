@@ -15,11 +15,19 @@ class Updates {
     ~Updates();
     Updates(const Updates&) = delete;
     Updates& operator=(const Updates&) = delete;
+    const std::string& version() const { return version_; }
     std::string label() const;
     std::string failure_reason() const;
     bool busy() const;
     void click(double now);
     bool tick(double now);
+    // Call every tick, with a clock that counts sleep so a headset that mostly
+    // sleeps still comes due. Checks a while after startup and every few hours
+    // until an update is on offer, without a visible state or any error report
+    // (docs/updates.md, Automatic checks).
+    void check_periodically(double clock);
+    // A newer release is known, whatever the button says right now.
+    bool offered() const { return !offer_.empty(); }
     bool prepared() const { return state_ == State::Prepared; }
     // Call after App, input, VR, replacement and the instance lock are gone.
     bool handoff();
@@ -45,9 +53,10 @@ class Updates {
 
   private:
     bool start();
-    bool send(const std::string& operation);
+    bool send(const std::string& operation, bool silent = false);
     void stop();
     void fail(double now, const std::string& reason = {});
+    void end_silent_check();
     std::string version_, offer_, progress_, failure_, reason_;
     std::uint64_t done_{}, total_{};
     // Installed for a shell, whose keyboard waits for idleness while
@@ -57,6 +66,9 @@ class Updates {
     std::filesystem::path helper_;
     State state_{State::Idle};
     double reset_at_{};
+    // A silent check leaves state_ alone until it finds an offer.
+    bool silent_check_{};
+    double next_check_{-1};
     int fd_{-1}, child_{-1};
     bool handed_off_{};
 };

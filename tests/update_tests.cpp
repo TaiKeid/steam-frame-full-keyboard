@@ -209,7 +209,7 @@ int main(int argc, char** argv) {
         char temporary[] = "/tmp/full-keyboard-update-ui-XXXXXX";
         const auto directory = std::filesystem::path(mkdtemp(temporary));
         const auto helper = directory / "helper.py";
-        std::ofstream(helper) << R"PY(import json,socket,sys
+        std::ofstream(helper) << R"PY(import json,os,socket,sys,time
 peer=socket.socket(fileno=3)
 peer.setblocking(True)
 assert '--autostart' not in sys.argv[1:]
@@ -222,15 +222,24 @@ while True:
     if not packet: break
     command=json.loads(packet)
     if command['op']=='check':
+        if command.get('silent'):
+            open(os.path.join(os.path.dirname(sys.argv[0]),'silent-checks'),'a').write('x')
         if mode=='exit': break
-        value={'state':'latest'} if mode=='latest' else {'state':'available','version':'9.0.0'}
+        if mode=='slow-latest': time.sleep(.2)
+        if mode=='check-error':
+            peer.send(b'{"state":"error","reason":"rate-limit"}')
+            continue
+        value={'state':'latest'} if mode in ('latest','slow-latest') else {'state':'available','version':'9.0.0'}
         peer.send(json.dumps(value).encode())
     elif command['op']=='install':
-        assert command.get('version','9.0.0')=='9.0.0'
+        assert 'version' not in command # Always the newest release.
         if mode=='hosted-expire':
-            assert command['protocol']==1 and 'version' not in command
+            assert command['protocol']==1
             peer.send(b'{"state":"prepared"}')
             break
+        if mode=='withdrawn':
+            peer.send(b'{"state":"error","reason":"not-newer-release"}')
+            continue
         if mode in ('failure','unknown-failure'):
             peer.send(json.dumps({'state':'error','reason':'checksum-failed' if mode=='failure' else 'untrusted exception text'}).encode())
         else:
@@ -240,7 +249,95 @@ while True:
         assert mode in ('supervised','supervised-error')
         peer.send(json.dumps({'state':'activated' if mode=='supervised' else 'error'}).encode())
         break
+if mode=='marked':
+    open(os.path.join(os.path.dirname(sys.argv[0]),'helper-exited'),'w').close()
 )PY";
+        const auto silent_checks = [&] {
+            std::ifstream stream(directory / "silent-checks");
+            return std::string((std::istreambuf_iterator<char>(stream)), {}).size();
+        };
+        // Lets the helper answer, or fail, with nothing else going on.
+        const auto settle = [](Updates& updates, double now) {
+            for (int i = 0; i < 60; ++i) {
+                updates.tick(now);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        };
+        {
+            // A found update appears without the button ever saying it checked.
+            Updates updates("0.6.0", {"marked"}, helper);
+            updates.check_periodically(1000);
+            updates.check_periodically(1059);
+            settle(updates, 10);
+            require(silent_checks() == 0, "the first check waits for the network to come up");
+            updates.check_periodically(1060);
+            require(!updates.busy() && updates.label() == "Check for updates",
+                    "a silent check shows nothing while it runs");
+            for (int i = 0; i < 400 && !updates.offered(); ++i) {
+                updates.tick(10);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            require(updates.offered() && updates.label() == "Download and install update",
+                    "a silent check's offer takes the button");
+            for (int i = 0; i < 400 && !std::filesystem::exists(directory / "helper-exited"); ++i) {
+                updates.tick(10);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            require(std::filesystem::exists(directory / "helper-exited"),
+                    "no helper stays running for hours after a silent check");
+            updates.check_periodically(100000);
+            settle(updates, 10);
+            require(silent_checks() == 1, "an offer ends the checks");
+            updates.click(11);
+            require(updates.busy(), "the offer installs with a new helper");
+            wait_label(updates, "Restarting keyboard...", 12);
+        }
+        std::filesystem::remove(directory / "silent-checks");
+        for (const auto mode : {"check-error", "exit"}) {
+            // Any failure leaves no trace, and the schedule carries on.
+            const auto log = directory / "silent-output.log";
+            {
+                CaptureLogs capture(log);
+                Updates updates("0.6.0", {mode}, helper);
+                updates.check_periodically(1000);
+                updates.check_periodically(1060);
+                settle(updates, 10);
+                updates.tick(100);
+                require(updates.state() == Updates::State::Idle &&
+                            updates.label() == "Check for updates" && updates.failure_reason().empty() &&
+                            updates.failure_code().empty() && !updates.offered(),
+                        "a failed silent check changes nothing the user can see");
+                updates.check_periodically(1060 + 3 * 3600 - 1);
+                settle(updates, 10);
+                require(silent_checks() == 1, "the next check waits three hours");
+                updates.check_periodically(1060 + 3 * 3600);
+                settle(updates, 10);
+                require(silent_checks() == 2, "and comes then, failure or not");
+            }
+            require(std::filesystem::file_size(log) == 0, "a failed silent check logs nothing");
+            std::filesystem::remove(directory / "silent-checks");
+        }
+        {
+            // Pressing the button during a silent check gets its answer.
+            Updates updates("0.6.0", {"slow-latest"}, helper);
+            updates.check_periodically(1000);
+            updates.check_periodically(1060);
+            updates.click(10);
+            require(updates.label() == "Checking for updates...", "the button takes over the check");
+            wait_label(updates, "You are on latest version", 11);
+            require(silent_checks() == 1, "without asking GitHub twice");
+            std::filesystem::remove(directory / "silent-checks");
+        }
+        {
+            Updates updates("0.6.0", {"withdrawn"}, helper);
+            updates.click(10);
+            wait_label(updates, "Download and install update", 20);
+            updates.click(21);
+            wait_label(updates, "Update failed. Try again", 22);
+            require(!updates.offered(), "a withdrawn release ends the offer");
+            updates.tick(27);
+            require(updates.label() == "Check for updates", "and the button checks again");
+        }
         {
             // A shell's install: losing the helper while Prepared is a failure
             // the shell can retry, never a Prepared that cannot activate.
@@ -332,6 +429,9 @@ while True:
             options.config_dir = directory / "config";
             App app(options, sink, {}, &updates);
             require(!app.updating(), "ordinary operation retains native recovery on exit");
+            for (const auto& control : app.view().controls) {
+                require(!control.badge, "no dot without an offer");
+            }
             app.show_settings();
             app.down(0, 800, 30, monotonic_seconds());
             app.up(0, 800, 30);
@@ -351,6 +451,15 @@ while True:
                              [](const auto& control) { return control.id == "updates"; });
             require(button != view.controls.end() && button->label == "Download and install update",
                     "reopening Settings preserves the offer");
+            require(view.version == "v0.6.0", "Settings shows the running version");
+            app.back();
+            const auto keyboard = app.view();
+            require(keyboard.version.empty(), "the version stays in Settings");
+            const auto settings =
+                std::find_if(keyboard.controls.begin(), keyboard.controls.end(),
+                             [](const auto& control) { return control.id == "settings"; });
+            require(settings != keyboard.controls.end() && settings->badge,
+                    "the Settings button shows the offer");
         }
         {
             Updates updates("0.6.0", {"failure"}, helper);
@@ -393,8 +502,8 @@ while True:
             require(updates.label() == "Check for updates", "failed check can retry");
         }
         std::filesystem::remove_all(directory);
-        std::cout << "Update button timing, persistent offers, duplicate clicks, cancellation and retry "
-                     "passed.\n";
+        std::cout << "Update button timing, silent checks, persistent offers, duplicate clicks, "
+                     "cancellation and retry passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

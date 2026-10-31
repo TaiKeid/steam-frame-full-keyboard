@@ -62,7 +62,7 @@ The installer adds a desktop application entry named **Full Keyboard**. If you a
 
 Everything installs under your home directory. The installer preserves settings and custom profiles, replaces the current production release, and does not enable autostart or alter Steam files. Development deployments and older unmarked release directories are preserved. Internal filenames and commands remain `framekeyboard`.
 
-To update from the installed keyboard, open Settings and press **Check for updates** at the top center. If a newer stable release is available, press **Download and install update**. The keyboard verifies the archive, installs it and restarts, preserving your settings. The old production release stays until the new one confirms a healthy start, then is removed. A failed start rolls back automatically. See [updates](docs/updates.md).
+The keyboard checks for a new stable release every few hours and puts a dot on the Settings button when there is one. To update, open Settings and press **Download and install update** at the top center, or **Check for updates** there to check right now. The keyboard verifies the archive, installs it and restarts, preserving your settings. The old production release stays until the new one confirms a healthy start, then is removed. A failed start rolls back automatically. See [updates](docs/updates.md).
 
 To uninstall, run `bash ~/.local/share/framekeyboard/current/uninstall.sh`. It stops the keyboard and its helpers, removes the app, its startup service, launcher and menu entry, and keeps your settings unless you add `--purge`. Steam's keyboard is used again. See [rollback and removal](docs/runtime.md#update-rollback-and-removal).
 

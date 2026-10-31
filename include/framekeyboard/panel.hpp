@@ -112,6 +112,7 @@ struct Control {
     bool enabled{true};
     ControlAction action{};
     bool warning{}; // a toolbar icon drawn in the theme's alert colour
+    bool badge{};   // a notification dot on the button's top right corner
     bool hit(double x, double y) const {
         return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }
@@ -176,6 +177,7 @@ struct PanelView {
     std::vector<FieldLabel> field_labels;
     std::optional<Rect> popup;
     std::string status;
+    std::string version; // Shown in Settings; empty without an installed updater.
     bool settings{};
     bool composing{};
     bool hide_numpad{};

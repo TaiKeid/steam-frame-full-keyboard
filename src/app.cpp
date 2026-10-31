@@ -10,6 +10,7 @@
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
+#include <time.h>
 #include <tuple>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -328,6 +329,8 @@ std::vector<Control> App::controls() const {
         add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
         // Opening Settings pauses dictation; it waits only while Send runs.
         result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
+        // A shell decides about updates itself.
+        result.back().badge = updates_ && updates_->offered() && !hosted();
     }
     // The language button waits while dictation listens and until every phrase
     // is recognized and typed: their joining and context follow the language.
@@ -858,6 +861,9 @@ PanelView App::build_view(bool picker) const {
                 v.key_labels[key.id] = legends.at(host_.hints.enter);
             }
         }
+    }
+    if (settings_open_ && updates_) {
+        v.version = "v" + updates_->version();
     }
     if (settings_open_ && updates_ && !updates_->failure_reason().empty()) {
         v.status = updates_->failure_reason();
@@ -1663,6 +1669,11 @@ bool App::tick(double now) {
             end_dictation_for_update();
             set_interaction_active(false);
             quit_ = true;
+        }
+        if (!hosted()) {
+            timespec boot{};
+            clock_gettime(CLOCK_BOOTTIME, &boot);
+            updates_->check_periodically(static_cast<double>(boot.tv_sec));
         }
     }
     update_save_status();

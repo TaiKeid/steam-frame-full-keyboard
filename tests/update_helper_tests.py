@@ -787,6 +787,55 @@ class Protocol(unittest.TestCase):
             if isinstance(error, u.HTTPError):
                 error.close()
 
+    def serve_commands(self, executable, commands):
+        client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        client.settimeout(2)
+        thread = threading.Thread(target=lambda: u.serve(server, str(executable), "0.6.0", []))
+        thread.start()
+        try:
+            replies = []
+            for command in commands:
+                client.send(json.dumps(command).encode())
+                replies.append(json.loads(client.recv(2048)))
+            return replies
+        finally:
+            client.close()
+            thread.join(timeout=3)
+
+    def test_silent_check_failure_leaves_no_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "releases/old/bin/framekeyboard"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            with patch.object(u, "release", side_effect=u.UpdateError("rate-limit")), \
+                    patch.object(sys, "stderr", io.StringIO()) as log:
+                replies = self.serve_commands(executable, [dict(op="check", silent=True)])
+            self.assertEqual(replies[0]["state"], "error")
+            self.assertEqual(log.getvalue(), "")
+            self.assertFalse((root / "update-status.log").exists())
+
+    def test_install_without_version_takes_the_newest_release(self):
+        # The check found 9.0.0; 9.1.0 came out before the button was pressed.
+        newest = {"tag": "9.1.0", "parts": (9, 1, 0)}
+        prepared = []
+
+        class Staged:
+            def __init__(self, executable):
+                pass
+
+            def prepare(self, selected, progress):
+                prepared.append(selected["tag"])
+
+            def close(self):
+                pass
+        with patch.object(u, "release", side_effect=[{"tag": "9.0.0", "parts": (9, 0, 0)}, newest]) as release, \
+                patch.object(u, "Installation", Staged):
+            replies = self.serve_commands("/unused", [dict(op="check"), dict(op="install")])
+        self.assertEqual(replies, [{"state": "available", "version": "9.0.0"}, {"state": "prepared"}])
+        self.assertEqual(prepared, ["9.1.0"])
+        self.assertEqual(release.call_args_list[1], unittest.mock.call())
+
     def test_closing_channel_cancels_prepared_install_without_activation(self):
         client, server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         selected = {"tag": "9.0.0", "parts": (9, 0, 0)}

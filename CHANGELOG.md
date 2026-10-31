@@ -3,6 +3,9 @@
 ## Unreleased
 
 - When closing the dashboard during dictation turns on **Stay open over apps**, a message now explains why the keyboard stayed in view. It shows for 5 seconds, in the dictation editor or, with Type as I speak, on the status line. If Stay open over apps was already on, nothing changes and no message appears.
+- Full Keyboard now checks for updates by itself every few hours. When a new version is out, a dot appears on the Settings button and the button at the top of Settings says **Download and install update**. Nothing downloads until you press it, and a check that fails stays out of your way.
+- Installing an update now always takes the newest version, even if another one came out after the check that found this one.
+- Settings now shows the installed version beside the update button.
 
 ## 0.12.1: The bumper moves the keyboard
 

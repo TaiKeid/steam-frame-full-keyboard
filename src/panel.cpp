@@ -2378,6 +2378,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             } else {
                 label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend);
             }
+            if (control.badge) {
+                // Stays inside the button, whose bounds are its repaint damage.
+                // The ring of the button's own colour parts it from the icon.
+                constexpr double pi = 3.141592653589793;
+                const double x = r.x + r.width - 11, y = r.y + 11;
+                cairo_new_path(cr);
+                cairo_arc(cr, x, y, 7, 0, 2 * pi);
+                source(cr, control.enabled && view.hovered_controls.contains(control.id) ? t.hover
+                                                                                         : t.bottom);
+                cairo_fill(cr);
+                cairo_arc(cr, x, y, 5, 0, 2 * pi);
+                source(cr, t.alert);
+                cairo_fill(cr);
+            }
             cairo_restore(cr);
         };
         for (const auto& control : view.controls) {
@@ -2385,6 +2399,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 !control.id.starts_with("address-") && !control.id.starts_with("confirm-") &&
                 !control.id.starts_with("favorites-")) {
                 draw_control(control);
+            }
+        }
+        if (view.settings && !view.version.empty()) {
+            // Beside the button that acts on it, quiet enough to overlook.
+            for (const auto& control : view.controls) {
+                if (control.action.kind == ControlKind::Updates) {
+                    const auto& r = control.bounds;
+                    label(cr, view.version, {r.x + r.width + 6, r.y, 120, r.height}, 16,
+                          view.language->font, disabled_legend(t), false, PANGO_ALIGN_LEFT);
+                }
             }
         }
         if (!view.status.empty() && view.dictation && !view.settings) {

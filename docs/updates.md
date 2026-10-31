@@ -1,10 +1,18 @@
 # Updates from Settings
 
-The centered **Check for updates** button in the Settings header checks the newest stable release from [this project's GitHub releases](https://github.com/TaiKeid/steam-frame-full-keyboard/releases). There are no automatic checks. Python 3.12 or newer, HTTPS access and a normal versioned ARM64 installation are required to install. The feature uses Python's standard library and adds no service or listening port.
+The centered **Check for updates** button in the Settings header checks the newest stable release from [this project's GitHub releases](https://github.com/TaiKeid/steam-frame-full-keyboard/releases). It also [checks by itself](#automatic-checks) every few hours. Python 3.12 or newer, HTTPS access and a normal versioned ARM64 installation are required to install. The feature uses Python's standard library and adds no service or listening port.
 
 If the published version is equal to or older than the running version, the button says **You are on latest version** for five seconds, then returns to **Check for updates**. Versions are compared numerically, so 0.10.0 is newer than 0.9.0. Drafts and prereleases are excluded.
 
-When a newer stable release is available, **Download and install update** stays available until the process exits, including across closing/reopening Settings. Pressing it starts the update. Checking alone never downloads or installs a package. During an operation, duplicate presses do nothing. If checking or preparation fails, **Update failed. Try again** appears for five seconds, with a short reason in the Settings status line. Reasons distinguish network errors, GitHub request limits, checksum failures, another installer, disk/permission errors and invalid packages. A known update remains offered after a failed install.
+When a newer stable release is available, **Download and install update** stays available until the process exits, including across closing/reopening Settings. Pressing it starts the update and always installs the newest stable release, even if a newer one came out after the check that found this one. Checking alone never downloads or installs a package. If the release was withdrawn and nothing newer exists, the offer ends and the button checks again. During an operation, duplicate presses do nothing. If checking or preparation fails, **Update failed. Try again** appears for five seconds, with a short reason in the Settings status line. Reasons distinguish network errors, GitHub request limits, checksum failures, another installer, disk/permission errors and invalid packages. A known update remains offered after a failed install.
+
+The running version shows in faint text beside the button.
+
+## Automatic checks
+
+The keyboard checks a minute after it starts and every 3 hours after that, until an update is on offer. The hours count while the headset sleeps, so a check that came due runs soon after it wakes. Each check is one GitHub API request with no credentials, made by a helper that exits when it is done. The check happens only in VR, and not under a shell, which decides about updates itself.
+
+A check that finds an update puts a dot on the Settings button and turns the Settings header button into **Download and install update**. Nothing downloads or installs until that button is pressed. Otherwise a check is invisible: the button keeps its label, and a failure of any kind shows nothing and writes nothing to `update-status.log` or stderr. The next check comes at its usual time. Pressing **Check for updates** during an automatic check shows that check's answer.
 
 ## Verification and installation
 

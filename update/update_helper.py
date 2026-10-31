@@ -726,6 +726,7 @@ def serve(peer, executable, current, arguments):
                         os.close(fd)
                 fds = []
             operation = "check" if command.get("op") == "check" else "install"
+            silent = command.get("silent") is True  # An automatic check leaves no trace.
             try:
                 if command["op"] == "check":
                     selected = release()
@@ -815,7 +816,8 @@ def serve(peer, executable, current, arguments):
                     raise UpdateError("invalid-command")
             except (OSError, ValueError, TypeError, KeyError, UpdateError, subprocess.SubprocessError, tarfile.TarError) as error:
                 reason = failure_reason(error)
-                record_failure(executable, operation, reason)
+                if not silent:
+                    record_failure(executable, operation, reason)
                 if installation:
                     with contextlib.suppress(OSError):
                         installation.close()

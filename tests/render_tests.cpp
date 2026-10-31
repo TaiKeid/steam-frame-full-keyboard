@@ -522,6 +522,15 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
     view.status = "Connection status changed";
     compare.frame(view, "status");
     require_clear(compare, "beside the status plate");
+    const auto badge = [&](bool on) {
+        for (auto& control : view.controls) {
+            control.badge = on && control.id == "settings";
+        }
+    };
+    badge(true);
+    compare.frame(view, "update dot");
+    badge(false);
+    compare.frame(view, "update dot cleared");
     view.settings = true;
     compare.frame(view, "settings");
     // Settings hides the keys and key_bounds_ is empty: a speech model
