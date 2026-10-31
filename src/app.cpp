@@ -1707,7 +1707,7 @@ void App::show_settings() {
     confirm_ = Confirm::None;
     languages_.reset();
     settings_open_ = true;
-    pending_ = settings_.active;
+    pending_ = main_selection();
     pending_favorites_ = settings_.favorites;
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
@@ -1846,6 +1846,16 @@ void App::flush_settings() {
     settings_writer_.flush();
     update_save_status();
 }
+Selection App::main_selection() const {
+    auto result = settings_.active;
+    // A field's hint is shown as before: Apply sorts out what is the user's.
+    if (!language_hint_in_place() &&
+        fits(profiles_, {default_.layout, default_.language, result.theme})) {
+        result.layout = default_.layout;
+        result.language = default_.language;
+    }
+    return result;
+}
 void App::allow_slow_work() {
     double unset = 0;
     slow_work_deadline_.compare_exchange_strong(unset, monotonic_seconds() + 30);
@@ -1951,7 +1961,7 @@ void App::reload() {
         keyboard_.set_num(settings_.num_lock);
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
-    pending_ = settings_.active;
+    pending_ = main_selection();
     pending_favorites_ = settings_.favorites;
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
@@ -2400,8 +2410,22 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
 }
 void App::apply_settings() {
     const auto before = settings_;
+    const auto main = pending_;
+    const bool main_changed = !same_pair(main, default_);
+    // Cycling leaves the typing language apart from the main one. It stays
+    // unless the main one changed or it just left the additional list.
+    auto typing = main;
+    const auto pairs = additional_pairs();
+    const auto listed = [&](const std::vector<Selection>& list) {
+        return std::any_of(list.begin(), list.end(),
+                           [&](const Selection& pair) { return same_pair(pair, settings_.active); });
+    };
+    if (!main_changed && (!listed(saved_additional_) || listed(pairs))) {
+        typing.layout = settings_.active.layout;
+        typing.language = settings_.active.language;
+    }
     // Capture started with these; the rest of Apply leaves listening alone.
-    if (pending_.language != settings_.active.language || pending_dictation_ != settings_.dictation ||
+    if (typing.language != settings_.active.language || pending_dictation_ != settings_.dictation ||
         pending_dictation_direct_ != settings_.dictation_direct ||
         pending_dictation_server_ != settings_.dictation_server ||
         pending_dictation_fallback_ != settings_.dictation_fallback ||
@@ -2409,7 +2433,9 @@ void App::apply_settings() {
         pause_capture();
     }
     // Prepare/activate first. A failed candidate must leave all saved state intact.
-    activate(pending_);
+    activate(typing);
+    pending_.layout = main.layout;
+    pending_.language = main.language;
     // Legacy entries that repeat a pair or hold the main language go here.
     set_additional_pairs(additional_pairs());
     settings_.favorites = pending_favorites_;
@@ -2436,7 +2462,12 @@ void App::apply_settings() {
     prepare_swipe();
     // A field's language hint is not the user's choice: unless they picked a
     // layout or language here, the saved ones stay those before the hint.
-    default_ = persisted_active_ = persisted_selection();
+    if (main_changed) {
+        default_ = persisted_active_ = persisted_selection();
+    } else {
+        default_.theme = settings_.active.theme;
+        persisted_active_ = default_;
+    }
     startup_status_.clear();
     rebuild_cycle_entries();
     save();

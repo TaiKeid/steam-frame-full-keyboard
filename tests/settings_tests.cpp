@@ -1739,6 +1739,79 @@ void languages_popup() {
     app.summon();
     require(!app.view().languages, "summoning closes the popup");
 }
+// Cycling changes the language being typed in, never what Settings calls main.
+void main_language_stays() {
+    TemporaryDirectory directory;
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"favorites":[{"id":"a","name":"a","layout":"international-full","language":"de-de"},{"id":"b","name":"b","layout":"international-full","language":"fr-fr"}]})";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    auto titles = [&] {
+        std::vector<std::string> result;
+        for (const auto& row : app.view().languages->additional) {
+            result.push_back(row.title);
+        }
+        return result;
+    };
+    const std::vector<std::string> both{"German, QWERTZ", "French, AZERTY"};
+    click(app, "language-cycle");
+    require(app.selection().language == "de-de", "cycling types in the next language");
+    app.show_settings();
+    require(control(app.view(), "language").label == "English (US)" &&
+                control(app.view(), "layout").label == "US QWERTY",
+            "Settings shows the main language, not the one being typed in");
+    require(control(app.view(), "additional-languages").label == "Additional languages: 2",
+            "the count is unchanged");
+    click(app, "additional-languages");
+    require(app.view().languages->main.title == "English (US)" && titles() == both,
+            "the popup keeps main and the whole list");
+    click(app, "languages-close");
+    app.back();
+    require(!app.view().confirm && app.selection().language == "de-de",
+            "looking changes nothing, and typing goes on in the same language");
+
+    app.show_settings();
+    select(app, "theme", "midnight");
+    click(app, "apply");
+    require(app.selection().language == "de-de" && app.selection().theme == "midnight",
+            "an unrelated Apply keeps the typing language");
+    require(saved(app).active.language == "en-us" && saved(app).favorites.size() == 2 &&
+                saved(app).active.theme == "midnight",
+            "and saves the main language, with the theme");
+    click(app, "language-cycle");
+    require(app.selection().language == "fr-fr", "the cycle order holds");
+    click(app, "language-cycle");
+    require(app.selection().language == "en-us", "and returns to main");
+
+    click(app, "language-cycle");
+    require(app.selection().language == "de-de", "typing in an additional language again");
+    app.show_settings();
+    click(app, "additional-languages");
+    {
+        const auto row = app.view().languages->additional.front().bounds;
+        const double x = row.x + row.width / 2, y = row.y + row.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, 1);
+        app.move(0, 500, 300);
+        app.up(0, 500, 300);
+    }
+    click(app, "languages-close");
+    click(app, "apply");
+    require(app.selection().language == "en-us" && saved(app).favorites.size() == 1,
+            "removing the language being typed in returns to main");
+
+    click(app, "language-cycle");
+    require(app.selection().language == "fr-fr", "typing in the one left");
+    app.show_settings();
+    select(app, "layout", "international-full");
+    select(app, "language", "de-de");
+    click(app, "apply");
+    require(app.selection().language == "de-de" && saved(app).active.language == "de-de",
+            "a new main language takes over typing");
+}
 void theme_preview() {
     TemporaryDirectory directory;
     Options options;
@@ -2203,6 +2276,7 @@ int main() {
         desktop_unicode_setting();
         theme_preview();
         languages_popup();
+        main_language_stays();
         behavior_settings();
         auto_leveling_settings();
         native_replacement_settings();

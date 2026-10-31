@@ -493,7 +493,10 @@ class App {
     std::string save_status_;
     bool save_status_is_startup_{};
     bool reload_requested_{};
+    // default_ is the main language, which stays while cycling changes
+    // settings_.active, the one being typed in. Settings edits main.
     Selection pending_, default_;
+    Selection main_selection() const;
     // Only explicit Apply changes the saved choice. Startup fallback and
     // favorite cycling affect the runtime selection/default independently.
     Selection persisted_active_;
