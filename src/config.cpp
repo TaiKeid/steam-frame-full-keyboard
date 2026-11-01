@@ -780,12 +780,16 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             errors.push_back("config.json: haptic_effect must be \"a\" to \"f\"; it is \"e\"");
             settings.haptic_effect = "e";
         }
-        if (auto* volume = field(document.get(), "haptic_volume", json_type_int, true)) {
-            settings.haptic_volume = json_object_get_int(volume);
-            if (!valid_haptic_volume(settings.haptic_volume)) {
-                errors.push_back("config.json: haptic_volume must be 25, 50, 75 or 100; it is 75");
-                settings.haptic_volume = 75;
+        try {
+            if (auto* volume = field(document.get(), "haptic_volume", json_type_int, true)) {
+                settings.haptic_volume = json_object_get_int(volume);
+                if (!valid_haptic_volume(settings.haptic_volume)) {
+                    throw std::runtime_error("bad value");
+                }
             }
+        } catch (const std::exception&) {
+            errors.push_back("config.json: haptic_volume must be 25, 50, 75 or 100; it is 75");
+            settings.haptic_volume = 75;
         }
         try {
             // Like the dictation fields, a bad value fails on its own.

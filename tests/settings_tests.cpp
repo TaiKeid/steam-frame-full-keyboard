@@ -1322,6 +1322,13 @@ void haptic_sounds_setting() {
         const auto loaded = load_settings(edited.path, errors);
         require(loaded.haptic_effect == "e" && loaded.haptic_volume == 75 && errors.size() == 2,
                 "bad values are reported and fall back");
+        std::ofstream(edited.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"de-de",)"
+               R"("theme":"graphite"},"haptic_volume":"75"})";
+        errors.clear();
+        const auto typed = load_settings(edited.path, errors);
+        require(typed.active.language == "de-de" && typed.haptic_volume == 75 && errors.size() == 1,
+                "a volume of the wrong type fails on its own");
     }
     // The pops themselves: short, level with each other, and release higher.
     const int rate = 48000;
