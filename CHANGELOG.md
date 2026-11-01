@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1: The keyboard comes back after an update
+
+- After an update you start from Settings, Full Keyboard now shows itself again where it was. With **Replace native keyboard** on, it used to stay hidden until the next keyboard request, so it looked as if it had not restarted. If Steam's own keyboard was open, Full Keyboard takes it over first and then shows, so you don't see two keyboards at once.
+
 ## 0.13.0: Additional languages, keyboards, haptic sounds and updated settings
 
 - Added **English (US), Dvorak** and **Colemak**, whose keys, legends and swipe typing follow those arrangements, and **English (US), International**.
