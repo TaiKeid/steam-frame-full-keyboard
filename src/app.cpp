@@ -3113,6 +3113,7 @@ void App::prepare_swipe() {
         swipe_keyboard_.reset();
         return;
     }
+    keyboard->spelling = language.swipe_replace;
     swipe_keyboard_ = std::make_shared<const SwipeKeyboard>(std::move(*keyboard));
     swipe_prepared_ = prepared;
     if (!swipe_) {

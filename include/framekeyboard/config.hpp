@@ -58,6 +58,8 @@ struct Language {
     std::vector<std::string> required_keys;
     // Optional swipe word list ID; empty means the profile does not offer swipe.
     std::string swipe_lexicon;
+    // Regional spelling applied to the word list, such as Swiss ss for ß.
+    std::map<std::string, std::string> swipe_replace;
     // Whisper language code for dictation; empty means the profile has no dictation.
     std::string dictation_language;
     // Text put before each phrase's context in Whisper's prompt, to fix the

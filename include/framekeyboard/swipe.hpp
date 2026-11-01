@@ -50,6 +50,8 @@ struct SwipeKeyboard {
     // For a letter key outside the letter block (AZERTY é on the number row),
     // the base letter key a swipe may cross instead; -1 otherwise.
     std::vector<int> alternate;
+    // Word list spelling for this language; see Language::swipe_replace.
+    std::map<std::string, std::string> spelling;
     // A letter, its lowercase form, its key's AltGr letter or its accent-free base; -1 if none.
     int index_of(char32_t character) const;
 };

@@ -24,7 +24,10 @@
     "IntlBackslash"
   ],
   "swipe": {
-    "lexicon": "de-de"
+    "lexicon": "de-de",
+    "replace": {
+      "ß": "ss"
+    }
   },
   "dictation": {
     "language": "de"

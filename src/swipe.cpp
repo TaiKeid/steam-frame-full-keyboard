@@ -205,6 +205,7 @@ SwipeLexicon SwipeLexicon::parse(std::istream& input, const SwipeKeyboard& keybo
     SwipeLexicon lexicon;
     std::vector<std::vector<Child>> children(1);
     std::vector<std::vector<std::uint32_t>> words(1);
+    std::set<std::string> respelled;
     std::string line;
     while (std::getline(input, line) && lexicon.words_.size() < max_words) {
         if (line.empty() || line[0] == '#') {
@@ -215,8 +216,20 @@ SwipeLexicon SwipeLexicon::parse(std::istream& input, const SwipeKeyboard& keybo
             !g_utf8_validate(line.data(), static_cast<gssize>(tab), nullptr)) {
             continue;
         }
-        const std::string word = line.substr(0, tab);
+        std::string word = line.substr(0, tab);
         const double frequency = std::clamp(std::atof(line.c_str() + tab + 1), 0.0, 255.0);
+        if (!keyboard.spelling.empty()) {
+            for (const auto& [from, to] : keyboard.spelling) {
+                for (auto at = word.find(from); at != std::string::npos;
+                     at = word.find(from, at + to.size())) {
+                    word.replace(at, from.size(), to);
+                }
+            }
+            // Two spellings can meet; the more frequent comes first in the list.
+            if (!respelled.insert(word).second) {
+                continue;
+            }
+        }
         std::vector<std::uint8_t> path;
         bool mapped = true;
         std::size_t length = 0;

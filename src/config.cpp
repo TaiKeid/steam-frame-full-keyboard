@@ -446,6 +446,14 @@ Language parse_language(const std::string& json) {
             throw std::runtime_error("swipe typing needs an xkb or Pinyin input method");
         }
         l.swipe_lexicon = identifier(swipe, "lexicon");
+        if (auto* replace = field(swipe, "replace", json_type_object, true)) {
+            json_object_object_foreach(replace, from, to) {
+                if (!*from || !json_object_is_type(to, json_type_string)) {
+                    throw std::runtime_error("invalid swipe spelling");
+                }
+                l.swipe_replace[from] = json_object_get_string(to);
+            }
+        }
     }
     LanguageMap check(l);
     return l;

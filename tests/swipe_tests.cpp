@@ -167,6 +167,14 @@ void lexicon_paths() {
     auto words = lexicon.decode(log_probs, steps, swipe_max_keys + 1, 5);
     require(words.size() == 2 && words[0].word == "hello" && words[1].word == "helo",
             "a doubled letter shares its collapsed path; frequency orders them");
+    auto swiss = us;
+    swiss.spelling = {{"ß", "ss"}};
+    std::istringstream german("Masse\t200\nMaße\t150\nStraße\t100\n");
+    const auto respelled = SwipeLexicon::parse(german, swiss);
+    require(respelled.size() == 2, "a regional spelling merges the words it makes the same");
+    log_probs = emissions(path_of(swiss, U"Strasse"), steps);
+    words = respelled.decode(log_probs, steps, swipe_max_keys + 1, 5);
+    require(!words.empty() && words[0].word == "Strasse", "and the word list types it");
     log_probs = emissions(path_of(us, U"dont"), steps);
     words = lexicon.decode(log_probs, steps, swipe_max_keys + 1, 5);
     require(!words.empty() && words[0].word == "don't", "apostrophes are skipped in the path");
