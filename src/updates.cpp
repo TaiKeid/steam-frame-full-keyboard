@@ -241,7 +241,7 @@ void Updates::click(double now) {
     if (busy() || state_ == State::Latest || state_ == State::Error) {
         return;
     }
-    if (silent_check_) {
+    if (silent_check_ && fd_ >= 0) {
         // The answer on its way is the one the user asked for.
         silent_check_ = false;
         state_ = State::Checking;
@@ -412,8 +412,8 @@ bool Updates::tick(double now) {
             close(fd_);
             fd_ = -1;
         }
-        if (busy()) {
-            fail(now, "connection-lost");
+        if (busy() || silent_check_) {
+            fail(now, "connection-lost"); // fail keeps a silent check silent.
         }
     }
     return before != label() || before_reason != failure_reason();
