@@ -37,7 +37,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - [x] Resident panel dismissal with × and a separate Settings Quit shown only in replacement mode.
 - [x] Optional Start with SteamOS, dependent on replacement, with hidden background startup.
 - [x] Isolated request, timeout, target-switch, Unicode and cleanup regressions.
-- [ ] In-headset automatic Steam-field, dashboard summon and zero-flash acceptance.
+- [x] In-headset automatic Steam-field, dashboard summon and zero-flash acceptance.
 - [ ] Crash, hang, backend loss and sleep/wake acceptance with usable native recovery.
 - [ ] Buffered requests and broader native target coverage.
 
