@@ -217,6 +217,27 @@ void table_engine() {
     table.cancel();
     require(!TableEngine::available(path.string() + ".missing"), "a missing table is unavailable");
 }
+// Caps Lock is the keyboard's state, whatever a layout does with its key, and
+// every dead key shows its accent.
+void locks_and_accents(const Profiles& profiles) {
+    const auto find = [](const Layout& layout, const std::string& id) -> const Key& {
+        return *std::find_if(layout.keys.begin(), layout.keys.end(),
+                             [&](const Key& key) { return key.id == id; });
+    };
+    const auto& us = profiles.layouts.at("en-us-full");
+    LanguageMap colemak(profiles.languages.at("en-us-colemak"));
+    require(colemak.symbol(find(us, "KeyA"), {}, true, false) == XKB_KEY_A,
+            "Caps Lock works on a layout that makes its key a Backspace");
+    require(colemak.legend(find(us, "KeyA"), {}, true, false) == "A", "and the keys show it");
+    LanguageMap english(profiles.languages.at("en-us"));
+    require(english.symbol(find(us, "KeyA"), {key_code("ShiftLeft")}, true, false) == XKB_KEY_a,
+            "Shift still undoes it");
+    LanguageMap serbian(profiles.languages.at("sr-rs"));
+    const std::set<int> altgr{key_code("AltRight")};
+    require(serbian.legend(find(us, "Digit8"), altgr, false, false) == "◌̏" &&
+                serbian.legend(find(us, "Digit0"), altgr, false, false) == "◌̑",
+            "a dead accent shows on its key, not the digit");
+}
 void national_keymaps(const Profiles& profiles) {
     const auto path =
         fs::temp_directory_path() / ("framekeyboard-national-test-" + std::to_string(getpid()));
@@ -817,6 +838,7 @@ int main(int argc, char** argv) {
         require(key_code("NumpadComma") == KEY_KPCOMMA, "ABNT2 keypad separator evdev code");
         unicode_input();
         national_keymaps(profiles);
+        locks_and_accents(profiles);
         if (group.empty()) {
             engines();
             app_composition(profiles);

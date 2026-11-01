@@ -333,8 +333,13 @@ xkb_keysym_t LanguageMap::symbol(const Key& key, const std::set<int>& modifiers,
         xkb_state_update_key(state, static_cast<xkb_keycode_t>(modifier + 8), XKB_KEY_DOWN);
     }
     if (caps) {
-        xkb_state_update_key(state, KEY_CAPSLOCK + 8, XKB_KEY_DOWN);
-        xkb_state_update_key(state, KEY_CAPSLOCK + 8, XKB_KEY_UP);
+        // The lock itself, not its key: Colemak makes that key a Backspace.
+        const auto group = xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE);
+        xkb_state_update_mask(state, xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED),
+                              xkb_state_serialize_mods(state, XKB_STATE_MODS_LATCHED),
+                              xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED) |
+                                  1u << xkb_keymap_mod_get_index(keymap_, XKB_MOD_NAME_CAPS),
+                              0, 0, group);
     }
     if (num) {
         xkb_state_update_key(state, KEY_NUMLOCK + 8, XKB_KEY_DOWN);
@@ -450,6 +455,12 @@ std::string LanguageMap::legend(const Key& key, const std::set<int>& modifiers, 
         return "◌̸";
     case XKB_KEY_dead_belowcomma:
         return "◌̦";
+    case XKB_KEY_dead_doublegrave:
+        return "◌̏";
+    case XKB_KEY_dead_invertedbreve:
+        return "◌̑";
+    case XKB_KEY_dead_belowmacron:
+        return "◌̱";
     case XKB_KEY_dead_greek: // Prefixes a Latin letter to type its Greek counterpart.
         return "α";
     default:
