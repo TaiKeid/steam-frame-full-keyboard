@@ -5,6 +5,7 @@
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
+#include <thread>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -563,6 +564,11 @@ void a_hidden_focused_window_is_flagged() {
     quiet.focus_tooltip = false;
     save_settings(off.config.path, quiet);
     off.app->reload();
+    // Reload waits for a save still in progress; a slower machine can be there.
+    for (int i = 0; i < 400 && !off.app->keep_open(); ++i) {
+        off.app->tick(monotonic_seconds());
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     off.request(71, false);
     off.display();
     off.app->set_hidden_focus(true);
