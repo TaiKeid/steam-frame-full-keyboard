@@ -23,7 +23,7 @@ Check the model's SHA-256 after downloading it: `sha256sum` on Linux, `shasum -a
 | --- | --- | --- |
 | Linux | Vulkan | Verified 2026-10-25: built from source, run under systemd as a user unit, and reached from the Frame over Wi-Fi |
 | Linux | NVIDIA CUDA | Not tested; same steps with the CUDA option |
-| macOS (Apple silicon) | Metal | The Metal build of v1.9.5 was benchmarked; the server and LaunchAgent steps are not tested |
+| macOS (Apple silicon) | Metal | Verified: the Metal build of v1.9.5, run as a LaunchAgent and reached from the Frame |
 | Windows | NVIDIA CUDA | Not tested; uses whisper.cpp's prebuilt CUDA package |
 | Windows | Other GPUs (Vulkan) | Not tested; needs a source build |
 
