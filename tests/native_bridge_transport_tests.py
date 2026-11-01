@@ -918,6 +918,41 @@ class Lifecycle(unittest.TestCase):
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)
 
+    def test_update_handoff_reports_guard_refusal_without_acquiring_input(self):
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        guard = FakeGuard()
+        guard.reject.add("prepare")
+
+        class RefusedCDP(ExternalCDP):
+            refused = False
+
+            def evaluate(self, expression, timeout=.4):
+                if ".bridge.prepareExternal(" in expression:
+                    self.assert_refused = expression.endswith(",false)")
+                    assert self.assert_refused and not guard.armed
+                    self.refused = True
+                if self.refused and (".bridge.step(" in expression or ".bridge.prepareExternal(" in expression):
+                    return dict(version=1, request=2, open=False, eligible=False, active=False)
+                return super().evaluate(expression, timeout)
+
+        client = RefusedCDP(guard)
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard),
+                                  kwargs={"adopt_open": True})
+        worker.start()
+        try:
+            parent.send(json.dumps(dict(op="frame", progress=1, ready=True, ack=0,
+                                        sent=time.monotonic())).encode())
+            while self.receive(parent, "state").get("open"):
+                pass
+            self.assertTrue(client.refused)
+            self.assertFalse(guard.armed)
+            self.assertFalse(client.external)
+        finally:
+            parent.close()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+
     def test_guard_renews_only_while_armed(self):
         # An unarmed guard ignores renewals, so frames must not cost a guard
         # round trip until a local request arms it, nor after it is cancelled.

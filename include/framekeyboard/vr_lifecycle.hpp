@@ -56,9 +56,9 @@ class VrLifecycle {
         bool replacement_enabled{};
         NativeReplacement::State native;
         bool routed_remote{}, watchdog_stalled{}, relaunch{};
-        bool reveal{}; // Show a hidden panel where it is, as after an update.
-        bool dictation_hold{};                 // App::dictation_holds_panel()
-        bool keep_open{};                      // App::keep_open()
+        bool reveal{};         // An update requests visibility independently of native eligibility.
+        bool dictation_hold{}; // App::dictation_holds_panel()
+        bool keep_open{};      // App::keep_open()
         NativeReplacement::ButtonPress button; // NativeReplacement::take_button_press()
         double now{};
     };
@@ -91,7 +91,10 @@ class VrLifecycle {
     // An open request that is not ours yet (Steam's keyboard still closing,
     // or awaiting acknowledgement) is no reason to type into the focused
     // window: its target is being prepared.
-    bool field_needed() const { return held_without_field() && (!keep_armed_ || native_.open); }
+    bool field_needed() const {
+        return (update_revealed_ && !native_.active) ||
+               (held_without_field() && (!keep_armed_ || native_.open));
+    }
     // The native keyboard button asked to close a panel Keep open holds;
     // the shell closes it as X does, then calls dismiss().
     bool take_button_close() { return std::exchange(button_close_, false); }
@@ -110,10 +113,18 @@ class VrLifecycle {
     ReplacementPresentation presentation_;
     TrackingReadiness tracking_;
     NativeReplacement::State native_;
-    bool requested() const { return hosted_ ? shell_visible_ : presentation_.show(); }
-    bool interactive() const { return hosted_ ? shell_visible_ : presentation_.interactive(); }
+    bool requested() const {
+        return hosted_ ? shell_visible_ : update_revealed_ || presentation_.show();
+    }
+    bool interactive() const {
+        return hosted_ ? shell_visible_ : update_revealed_ || presentation_.interactive();
+    }
     std::uint64_t last_request_{};
     bool visible_{}, show_pending_{};
+    // A user-started update must show even without an adoptable native request.
+    // Keep it up until a presented panel acquires a field, X or native fallback.
+    // field_needed() gates typing separately while the panel's controls remain usable.
+    bool update_revealed_{};
     // Keep open holds the panel only once it has been shown, and X or a
     // native fallback lets go until a request or summon shows it again.
     bool keep_armed_{};

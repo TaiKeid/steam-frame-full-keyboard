@@ -53,7 +53,7 @@ const char* session_code(const char* code) {
              {"begin", "acknowledged", "release-dismissed", "release-fallback", "competing-owner",
               "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
               "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-              "button-summon"}) {
+              "button-summon", "update-native-close"}) {
             if (std::string_view(code) == allowed) {
                 return allowed;
             }

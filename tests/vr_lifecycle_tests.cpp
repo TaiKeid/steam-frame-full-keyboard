@@ -153,7 +153,8 @@ struct Headset {
     }
     // As in the VR loop: the panel may appear with the dashboard open, or in passthrough.
     bool presentable() const { return dashboard || app->passthrough(); }
-    void status(NativeReplacement::State native, bool stalled = false, bool relaunch = false) {
+    void status(NativeReplacement::State native, bool stalled = false, bool relaunch = false,
+                bool reveal = false) {
         next_target = static_cast<int>(native.request);
         app->set_native_session(native.open);
         app->set_replacement_available(native.available);
@@ -162,6 +163,7 @@ struct Headset {
                                 .routed_remote = remote,
                                 .watchdog_stalled = stalled,
                                 .relaunch = relaunch,
+                                .reveal = reveal,
                                 .dictation_hold = dictation_hold,
                                 .keep_open = app->keep_open(),
                                 .button = std::exchange(button, {}),
@@ -889,6 +891,60 @@ void an_update_reveals_the_hidden_panel() {
     require(h.compositor, "and it stays up with no request");
 }
 
+void an_update_reveals_without_a_native_target() {
+    for (const auto native :
+         {NativeReplacement::State{71, true, false, false, true},
+          NativeReplacement::State{71, true, true, false, true},
+          NativeReplacement::State{71, false, false, false, true}, NativeReplacement::State{}}) {
+        Headset h;
+        h.status(native, false, false, true);
+        h.display(false);
+        require(!h.compositor, "update reveal waits for placement");
+        h.status(native);
+        h.display();
+        require(h.compositor, "an update shows even when the native session cannot be adopted");
+        require(h.report().acknowledgement == (native.open && native.eligible ? native.request : 0),
+                "revealing acknowledges only an eligible native request");
+        require(h.lifecycle->field_needed(), "revealing alone grants no typing target");
+        h.click(1, "KeyA");
+        h.tick();
+        require(h.receiver.text.empty() && h.receiver.downs.empty(),
+                "the revealed panel must not type into compositor focus");
+        h.status({71, false, false, false, true});
+        h.display();
+        require(h.compositor && h.lifecycle->field_needed(),
+                "native closing after a refused adoption neither hides nor authorizes the panel");
+        h.request(72, false);
+        h.display();
+        h.click(2, "KeyB");
+        h.tick();
+        require(h.receiver.text == std::vector<std::pair<int, std::string>>{{72, "b"}},
+                "an acquired field resumes ordinary typing");
+        h.status({72, false, false, false, true});
+        h.display();
+        require(!h.compositor, "after takeover, closing the field follows ordinary visibility");
+    }
+    for (const bool fallback : {false, true}) {
+        Headset h;
+        h.dashboard = false;
+        h.status({81, true, false, false, true}, false, false, true);
+        h.display();
+        require(!h.compositor, "update reveal respects a closed dashboard");
+        h.dashboard = true;
+        h.status({81, true, false, false, true});
+        h.display();
+        require(h.compositor, "update reveal survives until the dashboard can present it");
+        if (fallback) {
+            h.lifecycle->fallback();
+        } else {
+            h.lifecycle->dismiss();
+        }
+        h.status({81, false, false, false, true});
+        h.display();
+        require(!h.compositor, "dismissal and native fallback cancel the update visibility hold");
+    }
+}
+
 void cancellation_respects_device_ownership() {
     Headset h;
     h.request();
@@ -950,6 +1006,7 @@ int main() {
         a_closed_dashboard_delivers_nothing();
         a_pinned_window_request_opens_passthrough();
         an_update_reveals_the_hidden_panel();
+        an_update_reveals_without_a_native_target();
         keep_open_holds_the_panel_after_its_request();
         a_hidden_focused_window_is_flagged();
         the_dashboard_with_the_keys_types_nothing();

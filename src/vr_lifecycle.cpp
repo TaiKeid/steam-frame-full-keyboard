@@ -9,6 +9,9 @@ VrLifecycle::VrLifecycle(bool background_start, VrLifecycleEffects effects)
 void VrLifecycle::begin_frame(const Frame& frame) {
     const auto& native = frame.native;
     native_ = native;
+    if (!frame.replacement_enabled || (visible_ && native.active)) {
+        update_revealed_ = false;
+    }
     // The native keyboard button closes a panel Keep open holds, as X does:
     // whether it ended our request or opened a new one without a field. The
     // shell closes it through X's own path (take_button_close), which also
@@ -36,10 +39,12 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     presentation_.hold(frame.dictation_hold || keep_armed_);
     presentation_.update(frame.replacement_enabled, native);
     if (frame.watchdog_stalled) {
+        update_revealed_ = false;
         presentation_.fallback();
     }
-    if (frame.reveal) {
+    if (frame.reveal && !frame.watchdog_stalled && !hosted_) {
         show_pending_ = true;
+        update_revealed_ = frame.replacement_enabled;
         presentation_.summon();
     }
     if (frame.relaunch) {
@@ -85,6 +90,7 @@ void VrLifecycle::dashboard_visibility(bool visible) {
     }
 }
 void VrLifecycle::dismiss() {
+    update_revealed_ = false;
     presentation_.hold(false); // X discarded dictation; never reshown this frame.
     keep_armed_ = false;
     close_when_acknowledged_ = 0;
@@ -95,6 +101,7 @@ void VrLifecycle::dismiss() {
     show_pending_ = false;
 }
 void VrLifecycle::fallback() {
+    update_revealed_ = false;
     presentation_.hold(false);
     keep_armed_ = false;
     close_when_acknowledged_ = 0;
@@ -136,6 +143,9 @@ void VrLifecycle::present(bool placement_ready, bool dashboard_visible, bool com
         (show_pending_ || !visible_ || !compositor_visible)) {
         effects_.show_overlay(now);
         visible_ = true;
+        if (native_.active) {
+            update_revealed_ = false; // The acquired request now owns ordinary visibility.
+        }
         effects_.set_interaction(interactive());
         show_pending_ = false;
     }
@@ -148,6 +158,7 @@ VrLifecycle::FrameReport VrLifecycle::frame_report(bool backend_ready, bool dash
     const bool available = ready(backend_ready, dashboard_visible);
     const bool presented = available && dashboard_visible && visible_ && compositor_visible;
     return {available, !hosted_ && presentation_.fallback_requested(),
-            presented && requested() && !hosted_ ? native_.request : 0};
+            presented && requested() && !hosted_ && native_.open && native_.eligible ? native_.request
+                                                                                     : 0};
 }
 } // namespace framekeyboard

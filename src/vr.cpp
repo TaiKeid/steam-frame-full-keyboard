@@ -1683,7 +1683,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::optional<vr::TrackedDeviceIndex_t> last_pressed; // Controller of the last laser press.
     bool was_listening = false;
     bool reveal_pending = app.reveal_after_update();
-    const double reveal_deadline = monotonic_seconds() + 5;
+    bool reveal_requested = false;
     double last_suspended = suspended_seconds(), next_presence_check = 0;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
@@ -2753,22 +2753,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             json_object_object_add(fields.get(), "source", json_object_new_string("launcher"));
             shell->event("launch", std::move(fields));
         }
-        // After an update the user started, taking over Steam's handed-back
-        // keyboard shows ours. With none to take over, it shows itself once the
-        // bridge reports no keyboard open, or after a while without a bridge.
-        bool reveal = false;
-        if (reveal_pending) {
-            if (lifecycle.visible()) {
-                reveal_pending = false;
-                std::cout << "Update: shown by taking over Steam's keyboard.\n" << std::flush;
-            } else if ((native.available && !native.open) || now >= reveal_deadline) {
-                reveal = true;
-                reveal_pending = false;
-                std::cout << (native.available ? "Update: shown, with no Steam keyboard to take over.\n"
-                                               : "Update: shown, without the bridge.\n")
-                          << std::flush;
-            }
-        }
+        // The user started this update: request visibility on the first frame,
+        // independently of native eligibility. The bridge closes the handed-back
+        // native presentation; the lifecycle gates typing separately from visibility.
+        const bool reveal = reveal_pending && !reveal_requested;
+        reveal_requested |= reveal;
         lifecycle.begin_frame({.replacement_enabled = replace,
                                .native = native,
                                .routed_remote = replacement.remote(),
@@ -3951,6 +3940,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                         panel_presentable && lifecycle.visible() &&
                                         vr_overlay()->IsOverlayVisible(panel.handle());
         const auto report = lifecycle.frame_report(backend_ready, panel_presentable, compositor_visible);
+        if (reveal_pending && compositor_visible) {
+            reveal_pending = false;
+            std::cout << "Update: Full Keyboard shown.\n" << std::flush;
+        }
         const auto completed = monotonic_seconds();
         // Diagnostics with fixed text only. A frame over the 0.9 s lease ends a
         // Steam typing session, so record both causes for later troubleshooting.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: Full Keyboard returns as soon as an update restarts it, without the five-second wait. An unadoptable handed-back Steam keyboard closes so it cannot remain over Full Keyboard; typing waits for a safe target.
+
 ## 0.14.0: Text selection in dictation and a Cut key
 
 - Fixed: Dictation's **Send** no longer presses Enter after the text. It leaves the text in the focused application, so you decide when to submit it. Pressing Enter on the normal keyboard submits it.

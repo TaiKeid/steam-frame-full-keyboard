@@ -598,11 +598,12 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             # be cancelled before the next exact target is armed.
                             if guard.armed:
                                 guard.cancel()
-                            if guard.prepare(candidate, frame):
-                                result = evaluate(f"{reference}?.bridge.prepareExternal("
-                                                         f"{candidate['request']},{json.dumps(candidate['key'])})")
-                                if not isinstance(result, dict):
-                                    raise BridgeUnavailable("steam-incompatible")
+                            guarded = guard.prepare(candidate, frame)
+                            result = evaluate(f"{reference}?.bridge.prepareExternal("
+                                              f"{candidate['request']},{json.dumps(candidate['key'])},"
+                                              f"{str(guarded).lower()})")
+                            if not isinstance(result, dict):
+                                raise BridgeUnavailable("steam-incompatible")
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:
                             guard.restore()

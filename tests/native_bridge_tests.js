@@ -7,7 +7,7 @@ const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-    "button-summon"]);
+    "button-summon", "update-native-close"]);
 const nativeSource = fs.readFileSync(require("node:path").join(__dirname, "../src/native_replacement.cpp"), "utf8");
 const sessionCodes = nativeSource.match(/const char\* session_code\([\s\S]*?\n\}/)?.[0];
 assert(sessionCodes, "native session-code parser anchor must match the production function");
@@ -1107,6 +1107,63 @@ for (const values of [
 // After an in-app update, the outgoing version's cleanup can leave Steam's
 // keyboard open for its request. The incoming bridge adopts that session once
 // the app's frames become ready; until then it sends not-ready frames.
+{
+    const f = fixture(true, false, false, false, false, false, 3000);
+    f.manager.m_fnVROnTextEnteredOverride = null;
+    const s = f.step();
+    assert(!f.nativeOpen() && !s.eligible && !s.active,
+        "an update closes an unadoptable handed-back keyboard without acquiring its typing target");
+    assert(s.events.some(e => e.code === "update-native-close"));
+    assert(!f.bridge.send(s.request, "never delivered"));
+    assert.equal(f.wrongTarget.length, 0);
+    f.bridge.dispose();
+}
+{
+    const f = fixture(true, false, false, false, false, false, 3000);
+    f.manager.m_fnVROnTextEnteredOverride = null;
+    f.step(0, false);
+    assert(f.nativeOpen(), "a not-ready successor leaves its native fallback available");
+    notReadyFor(f, 1000);
+    f.status({bIsOpen: true, sOverlayKey: "unknown.new-owner"});
+    f.step();
+    assert(f.nativeOpen() && !f.calls.includes("native-hide"),
+        "an unrelated later native request is not the recorded update handoff");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(true, false, false, false, false, false, 3000);
+    f.manager.m_fnVROnTextEnteredOverride = null;
+    f.step(0, false);
+    f.manager.SetVirtualKeyboardShownInternal(true);
+    f.step();
+    assert(f.nativeOpen() && !f.calls.includes("native-hide"),
+        "an explicit same-owner Show supersedes the update handoff");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, false, false, false, false, 3000);
+    f.manager.m_fnVROnTextEnteredOverride = null;
+    f.step(0, false);
+    f.keyboard.Show();
+    const s = f.step();
+    assert(!f.nativeOpen() && !s.eligible,
+        "the first delayed provider Show is still the update handoff, not a later request");
+    f.bridge.dispose();
+}
+for (const guarded of [true, false]) {
+    const f = fixture(false, false, true, false, false, false, 3000);
+    f.status({bIsOpen: true, sOverlayKey: "gamescope.gamescope-0.window.62"});
+    let s = f.step();
+    assert(f.nativeOpen() && s.externalCandidate,
+        "an update preserves the local-app candidate while the recovery guard prepares");
+    s = f.bridge.prepareExternal(s.request, s.externalCandidate.key, guarded);
+    s = f.step();
+    assert(!f.nativeOpen() && s.eligible === guarded,
+        "a guarded handoff keeps its route; a refused guard closes presentation without a route");
+    if (guarded) assert(f.step(s.request).active && s.local);
+    else assert(!f.bridge.send(s.request, "refused"));
+    f.bridge.dispose();
+}
 function notReadyFor(f, ms) {
     for (let waited = 0; waited < ms; waited += 250) { f.advance(250); f.step(0, false); }
 }
@@ -1139,8 +1196,8 @@ function notReadyFor(f, ms) {
     f.bridge.dispose();
 }
 {
-    // Handed back near the end of the window, and taken over only after it ends
-    // because Steam's callback comes late: still no button press.
+    // A missing callback cannot hold Steam's keyboard over the update's panel.
+    // It is dismissed without acquiring a field; a later field request still works.
     const f = fixture(false, false, false, false, false, false, 3000);
     f.manager.m_fnVROnTextEnteredOverride = null;
     for (let at = 0; at < 2750; at += 250) { f.step(); f.advance(250); } // now 2750 ms
@@ -1149,7 +1206,8 @@ function notReadyFor(f, ms) {
     f.advance(150); f.step(); f.advance(150);
     f.manager.m_fnVROnTextEnteredOverride = () => {};
     const s = f.step(), next = f.step(s.request);
-    assert(s.eligible && next.active, "the late handed-back session is adopted");
+    assert(!s.eligible && !next.active && !f.nativeOpen(),
+        "a late callback does not retroactively authorize the dismissed update target");
     assert(![...s.events, ...next.events].some(e => e.code === "button-summon"),
         "and still not reported as a button summon");
     f.bridge.dispose();
@@ -1157,7 +1215,8 @@ function notReadyFor(f, ms) {
 {
     const f = fixture(true, false, false, false, false, false, 3000);
     notReadyFor(f, 3250);
-    assert(!f.step().eligible && f.nativeOpen(), "a session older than the handoff window stays native");
+    assert(!f.step().eligible && !f.nativeOpen(),
+        "late readiness still closes the recorded update handoff without a typing target");
     f.status({bIsOpen: false}); f.newTarget(); f.status({bIsOpen: true}); const s = f.step();
     assert(f.step(s.request).active, "later native requests are taken over as usual");
     f.bridge.dispose();

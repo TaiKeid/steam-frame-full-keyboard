@@ -82,6 +82,16 @@
     // That handed-back session is no button press, however long taking it over
     // takes; it is marked when it opens, not when it is acquired.
     let handedBack = native.open && !!adoptUntil;
+    // Presentation fallback belongs to one observed handoff, not every Show
+    // during the adoption window. Later owner changes or explicit user intent
+    // invalidate it even if the overlay key is unchanged.
+    let updateCloseKey = handedBack ? native.key : null;
+    let updateCloseSeen = handedBack, updateSuperseded = false;
+    function supersedeUpdatePresentation() {
+        updateCloseKey = null;
+        updateCloseSeen = updateSuperseded = true;
+        handedBack = false;
+    }
     let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
@@ -317,6 +327,8 @@
         }
     }
     function begin(owner) {
+        updateCloseKey = null;
+        updateCloseSeen = true;
         const route = owner.external ? null : routeFor(owner);
         // Steam clears its current ref on X. Restore only its own still-valid
         // last field, in response to this new explicit native summon.
@@ -361,8 +373,13 @@
             const newOpen = native.open && (!previousOpen || native.key !== previousKey);
             if (newOpen) {
                 rawDeadline = Math.max(time + REQUEST_MS, adoptUntil);
-                handedBack = time < adoptUntil;
+                handedBack = time < adoptUntil && !updateSuperseded;
+                if (handedBack && !updateCloseSeen) {
+                    updateCloseKey = native.key;
+                    updateCloseSeen = true;
+                }
             } else if (!native.open) handedBack = false;
+            if (!native.open || updateCloseSeen && native.key !== updateCloseKey) updateCloseKey = null;
             previousOpen = native.open;
             previousKey = native.key;
             const frame = selectedFrame();
@@ -492,6 +509,9 @@
                 else if (!fresh() && time < adoptUntil) { /* Keep the handoff session adoptable. */ }
                 else if (!fresh() || !potential(native) || time >= rawDeadline) ignoreOpen = true;
             }
+            // A local-app candidate first needs its asynchronous recovery guard.
+            // Only an explicit guard refusal may take its presentation-only path.
+            if (!localTarget(native)) closeUpdatePresentation();
             // A show can arrive before its native status. Replay it when that
             // request falls back, even if we never acquired a logical session.
             if (blocking()) setHidden(true);
@@ -501,6 +521,17 @@
     function idle() {
         return !logical && !native.open && !handoff && !preparedExternal && !externalRestore &&
             !restoringOwner && !restoringUntil && !expectedClose && !closingNative && !interceptedShow;
+    }
+    function closeUpdatePresentation() {
+        if (logical || updateCloseKey == null || !native.open || native.key !== updateCloseKey ||
+            !fresh() || typeof externalHide !== "function") return;
+        updateCloseKey = null;
+        handedBack = false;
+        ignoreOpen = true;
+        closingUntil = now() + REQUEST_MS;
+        closingKey = native.key;
+        record("update-native-close");
+        externalHide.call(keyboardApi);
     }
     function snapshot() {
         const eligible = !!logical && !closingNative && !ignoreOpen;
@@ -574,6 +605,7 @@
             if (typeof manager.SetVirtualKeyboardShownInternal === "function") {
                 owner.fieldHook = true;
                 hook(manager, "SetVirtualKeyboardShownInternal", original => function(open, ...args) {
+                    supersedeUpdatePresentation();
                     if (open && targetOf(this))
                         owner.fieldIntent = {target: targetOf(this), until: now() + REQUEST_MS};
                     else if (!open) owner.fieldIntent = null;
@@ -602,7 +634,15 @@
             owners.push(owner);
             if (!hookedApis.has(api)) {
                 hookedApis.set(api, originals);
+                hook(api, "Show", original => function(...args) {
+                    // The first provider Show may itself be the delayed update
+                    // hand-back. Only later Shows supersede that observed handoff;
+                    // an explicit field request already invalidates it above.
+                    if (updateCloseSeen || now() >= adoptUntil) supersedeUpdatePresentation();
+                    return original.apply(this, args);
+                });
                 hook(api, "Hide", original => function(...args) {
+                    supersedeUpdatePresentation();
                     if (logical?.owner.api === this) releaseLogical(false);
                     return original.apply(this, args);
                 });
@@ -698,10 +738,15 @@
             inspect();
             return true;
         },
-        prepareExternal(generation, key) {
+        prepareExternal(generation, key, guarded = true) {
             inspect();
             const pending = snapshot().externalCandidate;
             if (!pending || pending.request !== generation || pending.key !== key) return snapshot();
+            if (guarded === false) {
+                closeUpdatePresentation();
+                inspect();
+                return snapshot();
+            }
             preparedExternal = {external: true, key, api: keyboardApi, hide: externalHide};
             if (handoff && !native.open) begin(preparedExternal);
             inspect();

@@ -196,7 +196,7 @@ class App {
     bool start_with_steamos() const { return replace_native_keyboard() && settings_.start_with_steamos; }
     // A hosted keyboard starts hidden too: only its shell shows it.
     // An update with replacement on starts hidden too, and then shows itself
-    // (reveal_after_update): never while Steam's handed-back keyboard is up.
+    // (reveal_after_update), even if Steam's handed-back keyboard cannot be adopted.
     bool background_start() const { return hosted() || options_.autostart || reveal_after_update(); }
     bool reveal_after_update() const {
         return !hosted() && options_.update_launch && settings_.replace_native_keyboard;
