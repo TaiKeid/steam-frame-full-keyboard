@@ -313,8 +313,9 @@ void swipe(App& app, const std::vector<std::string>& actions, double now) {
     }
     app.up(0, x, y);
 }
-template <class Done> void settle(App& app, Done done) {
-    for (int i = 0; i < 200 && !done(); ++i) {
+// Long enough for a sanitizer build, whose word lists load several times slower.
+template <class Done> void settle(App& app, Done done, int tries = 2000) {
+    for (int i = 0; i < tries && !done(); ++i) {
         app.tick(monotonic_seconds());
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -506,7 +507,7 @@ void app_flow(bool ordered_replace) {
     const auto count = sink.text.size();
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7);
     app.cancel();
-    settle(app, [&] { return false; });
+    settle(app, [&] { return false; }, 200);
     require(sink.text.size() == count, "a decode cancelled by hiding is discarded");
 
     // Leaving the panel mid-swipe drops the path, and the release types nothing.
@@ -518,7 +519,7 @@ void app_flow(bool ordered_replace) {
             "a swipe still captures its pointer, so lost tracking can cancel it");
     app.cancel_pointer(0);
     app.up(0, ex, ey);
-    settle(app, [&] { return false; });
+    settle(app, [&] { return false; }, 200);
     require(sink.text.size() == count, "a cancelled pointer leaves no swipe behind");
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 9);
     settle(app, [&] { return sink.text.size() == count + 1; });
@@ -924,7 +925,7 @@ void long_gestures() {
     require(app.view().swipe_trail.empty() && app.view().status.find("too long") != std::string::npos,
             "an endless gesture ends without typing");
     app.up(0, x, y);
-    settle(app, [&] { return false; });
+    settle(app, [&] { return false; }, 200);
     require(sink.text.size() == 1, "nothing types for the ended gesture");
 }
 // A word list still loading must not hold up keys on the VR thread.
@@ -1226,7 +1227,7 @@ void swipes_after_listening() {
     require(!toggle().enabled && toggle().icon == Icon::SwipeOff,
             "the swipe button is disabled while the editor can't be typed in");
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
-    settle(app, [&] { return !app.view().dictation->text.empty(); });
+    settle(app, [&] { return !app.view().dictation->text.empty(); }, 200);
     require(app.view().dictation->text.empty() && *calls == 0,
             "while listening the editor is read-only, so a swipe does nothing");
     press("Dictation");
