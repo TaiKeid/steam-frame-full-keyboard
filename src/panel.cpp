@@ -1846,11 +1846,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
         previous_->view.dictation.has_value() != view.dictation.has_value() ||
         previous_->view.dictation_available != view.dictation_available;
-    // A row carried across the languages popup moves alone, and repaints alone.
+    // A row carried over the popup's lists moves alone, and repaints alone.
     const bool only_lifted_moved = [&] {
         const auto* before = previous_ ? &previous_->view.languages : nullptr;
         if (!before || !*before || !view.languages || !(*before)->lifted || !view.languages->lifted ||
             (*before)->lifted == view.languages->lifted) {
+            return false;
+        }
+        const auto over_lists = [](const Rect& r) {
+            const auto area = pixel_bounds(r, tone_shadow + 1);
+            return area.y >= languages_list_bounds.y &&
+                   area.y + area.height <= languages_list_bounds.y + languages_list_bounds.height;
+        };
+        if (!over_lists((*before)->lifted->bounds) || !over_lists(view.languages->lifted->bounds)) {
             return false;
         }
         auto carried = **before;
@@ -2115,8 +2123,33 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
     }
     if (!full && only_lifted_moved) {
-        damage_area(pixel_bounds(previous_->view.languages->lifted->bounds, tone_shadow + 1));
-        damage_area(pixel_bounds(view.languages->lifted->bounds, tone_shadow + 1));
+        // One area, grown to every row it touches: its edge must not cut
+        // through a row's text, which a clip draws differently.
+        const auto old_row = pixel_bounds(previous_->view.languages->lifted->bounds, tone_shadow + 1);
+        const auto new_row = pixel_bounds(view.languages->lifted->bounds, tone_shadow + 1);
+        double left = std::min(old_row.x, new_row.x), top = std::min(old_row.y, new_row.y);
+        double right = std::max(old_row.x + old_row.width, new_row.x + new_row.width);
+        double bottom = std::max(old_row.y + old_row.height, new_row.y + new_row.height);
+        const auto take = [&](const Rect& bounds) {
+            const auto row = pixel_bounds(bounds, 1);
+            if (overlaps(row, {left, top, right - left, bottom - top}) &&
+                (row.x < left || row.x + row.width > right || row.y < top ||
+                 row.y + row.height > bottom)) {
+                left = std::min(left, row.x);
+                top = std::min(top, row.y);
+                right = std::max(right, row.x + row.width);
+                bottom = std::max(bottom, row.y + row.height);
+                return true;
+            }
+            return false;
+        };
+        for (bool grew = true; grew;) {
+            grew = take(view.languages->main.bounds);
+            for (const auto& control : view.controls) {
+                grew |= take(control.bounds);
+            }
+        }
+        damage_area({left, top, right - left, bottom - top});
     }
     // The editor and its counter repaint only their own areas.
     if (!full && previous_->view.dictation != view.dictation) {

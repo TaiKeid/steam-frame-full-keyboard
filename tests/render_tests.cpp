@@ -667,6 +667,16 @@ void carried_row() {
     popup.additional = {row};
     popup.main = row;
     popup.main.bounds = languages_main_bounds;
+    for (int i = 0; i < 16; ++i) {
+        auto listed = row;
+        listed.id = "row-" + std::to_string(i);
+        listed.title = "Language with a long name " + std::to_string(i);
+        listed.note = "Its own name";
+        listed.bounds = {338 + (i % 2) * 380.0, 116 + (i / 2) * 56.0, 372, 52};
+        popup.languages.push_back(listed);
+        view.controls.push_back({listed.id, listed.title, listed.bounds});
+    }
+    popup.hint = "Drag a language here";
     row.bounds = {420, 280, 312, 52};
     popup.lifted = row;
     view.languages = popup;
@@ -675,14 +685,14 @@ void carried_row() {
     for (int i = 0; i < 16; ++i) {
         auto& lifted = *view.languages->lifted;
         lifted.bounds.x += 37;
-        lifted.bounds.y += i % 2 ? -23 : 31;
+        lifted.bounds.y += i % 2 ? -23 : 11;
         lifted.removing = i > 10;
         compare.frame(view, "carried row");
         double area = 0;
         for (const auto& r : compare.incremental.damage()) {
             area += r.width * r.height;
         }
-        if (area == 0 || area > panel_width * panel_height / 4) {
+        if (area == 0 || area > panel_width * panel_height / 2) {
             throw std::runtime_error("a carried row repaints the popup");
         }
     }
