@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0: Additional languages, keyboards, haptic sounds and updated settings
 
 - Added **English (US), Dvorak** and **Colemak**, whose keys, legends and swipe typing follow those arrangements, and **English (US), International**.
 - Added **Bulgarian**, with two phonetic options, and **Portuguese (Portugal)**.
@@ -17,7 +17,7 @@
 - Added a haptic sounds button to the toolbar while Haptic sounds is on. It mutes key sounds without changing the setting, and remembers its state. It's disabled while the microphone is listening or recognition is still working.
 - Layouts and languages now have clear names, such as **US QWERTY** and **Japanese, Romaji** with **日本語 ローマ字**. The toolbar's language button shows a short native name instead of a code like JA-JP.
 - When closing the dashboard during dictation turns on **Stay open over apps**, a message now explains why the keyboard stayed in view. It shows for 5 seconds, in the dictation editor or, with Type as I speak, on the status line. If Stay open over apps was already on, nothing changes and no message appears.
-- Full Keyboard now checks for updates by itself every few hours. When a new version is out, a dot appears on the Settings button and the button at the top of Settings says **Download and install update**. Nothing downloads until you press it, and a check that fails stays out of your way.
+- Full Keyboard now checks for updates by itself every few hours. When a new version is out, a dot appears on the Settings button and the button at the top of Settings says **Download and install update**. Nothing downloads until you press it. A check that fails stays out of your way and tries again a few minutes later.
 - Installing an update now always takes the newest version, even if another one came out after the check that found this one.
 - Settings now shows the installed version beside the update button.
 - Full Keyboard now uses less power while the headset is off.
