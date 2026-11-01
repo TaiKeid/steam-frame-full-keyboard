@@ -321,6 +321,8 @@ while True:
         if scenario == "testexit":
             with open(os.path.join(os.path.dirname(sys.argv[0]), "test-exits"), "ab") as log:
                 log.write(b"1")
+            with open(os.path.join(os.path.dirname(sys.argv[0]), "test-exit-pid"), "w") as log:
+                log.write(str(os.getpid()))
             sys.exit(0)  # gone before answering
         if scenario == "slowtest":
             import time
@@ -2387,6 +2389,12 @@ void test_race_tests() {
     wait_until(lost, [&] { return field_label(lost, "Helper stopped"); });
     require(control_enabled(lost, "dictation-test"), "Test can run again after the helper exits");
     require(fs::file_size(directory.path / "test-exits") == 1, "the first helper received Test");
+    // EOF can precede process exit. Let normal ticks reap the fixture before
+    // testing a new helper, as distinct from retrying during async cleanup.
+    int exited_pid{};
+    std::ifstream(directory.path / "test-exit-pid") >> exited_pid;
+    require(exited_pid > 0, "the fixture recorded its process");
+    wait_until(lost, [&] { return !fs::exists(fs::path("/proc") / std::to_string(exited_pid)); });
     click(lost, "dictation-test");
     // The retry can exit before click's tick, especially on the Frame. Check
     // that it received Test rather than requiring a transient pending label.
