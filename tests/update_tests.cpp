@@ -294,7 +294,7 @@ if mode=='marked':
         }
         std::filesystem::remove(directory / "silent-checks");
         for (const auto mode : {"check-error", "exit"}) {
-            // Any failure leaves no trace, and the schedule carries on.
+            // Any failure leaves no trace, and the next check comes sooner.
             const auto log = directory / "silent-output.log";
             {
                 CaptureLogs capture(log);
@@ -307,14 +307,51 @@ if mode=='marked':
                             updates.label() == "Check for updates" && updates.failure_reason().empty() &&
                             updates.failure_code().empty() && !updates.offered(),
                         "a failed silent check changes nothing the user can see");
-                updates.check_periodically(1060 + 3 * 3600 - 1);
+                updates.check_periodically(1061);
+                updates.check_periodically(1180);
                 settle(updates, 10);
-                require(silent_checks() == 1, "the next check waits three hours");
-                updates.check_periodically(1060 + 3 * 3600);
+                require(silent_checks() == 1, "the next check waits two minutes");
+                updates.check_periodically(1181);
                 settle(updates, 10);
-                require(silent_checks() == 2, "and comes then, failure or not");
+                require(silent_checks() == 2, "and comes then");
+                updates.check_periodically(1182);
+                updates.check_periodically(1302);
+                updates.check_periodically(1182 + 239);
+                settle(updates, 10);
+                require(silent_checks() == 2, "a second failure waits twice as long");
+                updates.check_periodically(1182 + 240);
+                settle(updates, 10);
+                require(silent_checks() == 3, "and again comes then");
+                // A wake's first look finds no network yet, so it waits as a boot does.
+                updates.check_periodically(1183 + 240);
+                updates.check_periodically(100000);
+                updates.check_periodically(100059);
+                settle(updates, 10);
+                require(silent_checks() == 3, "a check due over a sleep waits for the network");
+                updates.check_periodically(100060);
+                settle(updates, 10);
+                require(silent_checks() == 4, "and comes a minute after waking");
+                updates.check_periodically(100061);
+                updates.check_periodically(100180);
+                settle(updates, 10);
+                require(silent_checks() == 4, "the wait starts over after a sleep");
+                updates.check_periodically(100181);
+                settle(updates, 10);
+                require(silent_checks() == 5, "at two minutes");
             }
             require(std::filesystem::file_size(log) == 0, "a failed silent check logs nothing");
+            std::filesystem::remove(directory / "silent-checks");
+        }
+        {
+            // An answer, even that nothing is new, keeps the usual schedule.
+            Updates updates("0.6.0", {"latest"}, helper);
+            updates.check_periodically(1000);
+            updates.check_periodically(1060);
+            settle(updates, 10);
+            updates.check_periodically(1061);
+            updates.check_periodically(1181);
+            settle(updates, 10);
+            require(silent_checks() == 1, "a check that worked isn't followed up");
             std::filesystem::remove(directory / "silent-checks");
         }
         {

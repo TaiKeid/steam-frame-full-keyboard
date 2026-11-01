@@ -1,5 +1,6 @@
 #include "framekeyboard/updates.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <charconv>
@@ -29,9 +30,14 @@ double startup_started = -1, startup_last = -1;
 // Started by the helper for a hosted shell: the acknowledgement socket stays
 // open after probation until the helper's commit arrives.
 bool startup_hosted = false, startup_awaiting_commit = false;
-// Long enough for the network to come up after a boot.
+// Long enough for the network to come up after a boot or a sleep.
 constexpr double first_check_delay = 60;
 constexpr double check_interval = 3 * 60 * 60;
+// A check that failed, usually for want of a network, returns soon and then
+// less often, doubling up to the usual interval.
+constexpr double check_retry = 2 * 60;
+// More than any gap between ticks, so the clock ran on while the system slept.
+constexpr double sleep_gap = 2 * 60;
 using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
 std::string field(json_object* object, const char* key) {
     json_object* value{};
@@ -215,6 +221,7 @@ std::string Updates::failure_reason() const {
 }
 void Updates::fail(double now, const std::string& reason) {
     if (std::exchange(silent_check_, false)) {
+        check_failed_ = true;
         return;
     }
     if (reason == "not-newer-release") {
@@ -244,8 +251,13 @@ void Updates::click(double now) {
     progress_.clear();
 }
 void Updates::check_periodically(double clock) {
-    if (next_check_ < 0) {
-        next_check_ = clock + first_check_delay;
+    if (next_check_ < 0 || clock - last_clock_ > sleep_gap) {
+        next_check_ = std::max(next_check_, clock + first_check_delay);
+        failed_checks_ = 0;
+    }
+    last_clock_ = clock;
+    if (std::exchange(check_failed_, false)) {
+        next_check_ = clock + std::min(check_interval, std::ldexp(check_retry, failed_checks_++));
     }
     if (clock < next_check_ || state_ != State::Idle || silent_check_ || !offer_.empty()) {
         return;
@@ -254,9 +266,11 @@ void Updates::check_periodically(double clock) {
     try {
         silent_check_ = start() && send("check", true);
     } catch (const std::filesystem::filesystem_error&) {
+        check_failed_ = true;
         return; // The running executable's path is gone; there is no helper to start.
     }
     if (!silent_check_) {
+        check_failed_ = true;
         end_silent_check();
     }
 }
@@ -348,6 +362,11 @@ bool Updates::tick(double now) {
             if (state == "available") {
                 offer_ = field(packet.get(), "version");
                 state_ = offer_.empty() ? state_ : State::Available;
+            }
+            if (state == "available" || state == "latest") {
+                failed_checks_ = 0;
+            } else {
+                check_failed_ = true;
             }
             end_silent_check();
             break;

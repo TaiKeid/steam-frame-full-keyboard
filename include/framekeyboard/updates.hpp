@@ -68,7 +68,10 @@ class Updates {
     double reset_at_{};
     // A silent check leaves state_ alone until it finds an offer.
     bool silent_check_{};
-    double next_check_{-1};
+    // A failed check is followed sooner; check_periodically has the clock.
+    bool check_failed_{};
+    int failed_checks_{};
+    double next_check_{-1}, last_clock_{-1};
     int fd_{-1}, child_{-1};
     bool handed_off_{};
 };

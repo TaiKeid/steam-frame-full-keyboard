@@ -10,7 +10,7 @@ The running version shows in faint text beside the button.
 
 ## Automatic checks
 
-The keyboard checks a minute after it starts and every 3 hours after that, until an update is on offer. The hours count while the headset sleeps, so a check that came due runs soon after it wakes. Each check is one GitHub API request with no credentials, made by a helper that exits when it is done. The check happens only in VR, and not under a shell, which decides about updates itself.
+The keyboard checks a minute after it starts and every 3 hours after that, until an update is on offer. The hours count while the headset sleeps, so a check that came due runs a minute after it wakes, once the network has had time to return. A check that fails, as it does with no network, is tried again after 2 minutes, then at doubling intervals up to the usual 3 hours. Each check is one GitHub API request with no credentials, made by a helper that exits when it is done. The check happens only in VR, and not under a shell, which decides about updates itself.
 
 A check that finds an update puts a dot on the Settings button and turns the Settings header button into **Download and install update**. Nothing downloads or installs until that button is pressed. Otherwise a check is invisible: the button keeps its label, and a failure of any kind shows nothing and writes nothing to `update-status.log` or stderr. The next check comes at its usual time. Pressing **Check for updates** during an automatic check shows that check's answer.
 
