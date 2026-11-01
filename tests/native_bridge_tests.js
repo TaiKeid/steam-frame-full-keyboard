@@ -1128,6 +1128,17 @@ function notReadyFor(f, ms) {
     f.bridge.dispose();
 }
 {
+    // The handed-back session came from the keyboard button, but adopting it is
+    // no new press: a successor held open by Keep open must not close on it.
+    const f = fixture(false, false, false, false, true, false, 3000);
+    f.step(0, false); f.status({bIsOpen: true}); notReadyFor(f, 1000);
+    const s = f.step(), next = f.step(s.request);
+    assert(s.eligible && next.active, "the handed-back button session is adopted");
+    assert(![...s.events, ...next.events].some(e => e.code === "button-summon"),
+        "and not reported as a button summon");
+    f.bridge.dispose();
+}
+{
     const f = fixture(true, false, false, false, false, false, 3000);
     notReadyFor(f, 3250);
     assert(!f.step().eligible && f.nativeOpen(), "a session older than the handoff window stays native");

@@ -477,7 +477,9 @@
                     const button = buttonRequest(native);
                     begin(owner);
                     // A panel held open by Keep open treats this press as closing it.
-                    if (button) record("button-summon");
+                    // An update's handed-back session is no press: the successor
+                    // already shows itself and would close both keyboards.
+                    if (button && time >= adoptUntil) record("button-summon");
                 }
                 // The incoming app renews the lease only after its first frame.
                 else if (!fresh() && time < adoptUntil) { /* Keep the handoff session adoptable. */ }
