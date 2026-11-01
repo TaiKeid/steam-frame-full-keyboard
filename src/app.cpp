@@ -324,9 +324,8 @@ std::vector<Control> App::controls() const {
         }
         return result;
     }
-    // One row: Settings, Recenter, Pin, passthrough, Keep open, swipe, language.
-    // Compact: Settings, Recenter, Pin, language, with passthrough, swipe and Keep
-    // open below Settings and Recenter.
+    // One row: Settings, Recenter, Pin, passthrough, Keep open, swipe, sounds,
+    // language. Compact: Settings, Recenter, Pin, language, with the rest below.
     const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
     auto slot = [&](int row_one, int compact_column, int compact_row) {
@@ -361,26 +360,49 @@ std::vector<Control> App::controls() const {
     }
     // Without replacement no request closes the panel, so the button would do nothing.
     const bool keep_button = resident_replacement() && !hosted();
-    // Hidden while none of the user's languages can swipe; dimmed while this
-    // one can't, though it still turns swiping on for those that can.
-    const bool swipe_button = swipe_in_cycle_ || swipe_known(settings_.active.language);
     if (keep_button) {
         add({ControlKind::KeepOpen},
             {"keep-open", settings_.keep_open ? "Leave focus mode" : "Focus mode", button(4, 1, 1),
              false, settings_.keep_open ? Icon::KeepOpenOn : Icon::KeepOpenOff});
         result.back().warning = settings_.keep_open && hidden_focus_;
     }
-    if (swipe_button) {
+    int next_slot = keep_button ? 5 : 4, next_column = keep_button ? 2 : 1;
+    // Swipe typing in Settings decides whether the button exists; the button is
+    // a switch of its own within that. With no language that can swipe it only
+    // shakes, a flick layout never swipes at all, and a language that can't
+    // dims it while it still works for those that can. The editor takes no
+    // swipes while it can't be typed in; Type as I speak's keyboard still does.
+    if (settings_.swipe_typing) {
+        const bool here = swipe_known(settings_.active.language);
+        const bool flick = !profiles_.languages.at(settings_.active.language).flick.empty();
+        const bool blocked = flick || (dictation_open_ && (listening || sending_ || reveal_));
+        const bool on = settings_.swipe_switch && !blocked && (swipe_in_cycle_ || here);
         add({ControlKind::SwipeToggle},
-            {"swipe-toggle", settings_.swipe_typing ? "Turn swipe typing off" : "Turn swipe typing on",
-             button(keep_button ? 5 : 4, keep_button ? 2 : 1, 1), false,
-             settings_.swipe_typing ? Icon::Swipe : Icon::SwipeOff});
-        result.back().dimmed = !swipe_known(settings_.active.language);
+            {"swipe-toggle", on ? "Turn swiping off" : "Turn swiping on",
+             button(next_slot++, next_column++, 1), false, on ? Icon::Swipe : Icon::SwipeOff});
+        result.back().enabled = !blocked;
+        result.back().dimmed = !here;
+    }
+    // A switch of its own too, with nothing to do while Settings has sounds off.
+    // The second row of a compact toolbar holds three: a fourth would sit on the
+    // dictation editor, so it joins the first, still before the language.
+    const bool sounds_button = settings_.haptic_sounds != "off";
+    const bool sounds_on_top = compact && sounds_button && next_column == 3;
+    if (sounds_button) {
+        const bool on = settings_.haptic_sounds_switch && !capturing_;
+        add({ControlKind::SoundsToggle},
+            {"sounds-toggle", on ? "Turn haptic sounds off" : "Turn haptic sounds on",
+             sounds_on_top ? button(0, 3, 0) : button(next_slot, next_column, 1), false,
+             on ? Icon::HapticSound : Icon::HapticSoundOff});
+        ++next_slot;
+        // Waits with the language button. Crossed only while the microphone
+        // keeps keys silent, whatever the switch says.
+        result.back().enabled = !listening;
     }
     if (!settings_.favorites.empty() && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
-             button((keep_button ? 5 : 4) + (swipe_button ? 1 : 0), 3, 0, 100)});
+             button(next_slot, sounds_on_top ? 4 : 3, 0, 100)});
         // The picker belongs to the language it was opened from.
         result.back().enabled = !emoji_open_ && !listening;
     }
@@ -517,7 +539,8 @@ std::vector<Control> App::controls() const {
     // the first toolbar row or reach the close button; many share the room.
     if (!swipe_candidates_.empty()) {
         const double start = std::max(body.x + 610 * scale, toolbar_end + 10);
-        const double end = body.x + body.width - 78 - 10;
+        // In dictation mode the counter sits left of the close button.
+        const double end = body.x + body.width - 78 - 10 - (dictation_open_ ? 156 : 0);
         const double pitch = std::min(180 * scale, (end - start + 10 * scale) /
                                                        static_cast<double>(swipe_candidates_.size()));
         for (std::size_t i = 0; i < swipe_candidates_.size(); ++i) {
@@ -712,22 +735,22 @@ void App::update_settings_ui() {
     std::vector<SettingField> general_fields{
         field(ControlKind::ChooseTheme,
               dropdown("theme", "Theme", pending_.theme, choices(profiles_.themes))),
-        background_surface, haptic_sounds};
+        background_surface,
+        field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
+        field(ControlKind::UseDragToMove,
+              checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
+        field(ControlKind::AutoLeveling,
+              checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))};
+    std::vector<SettingField> typing_fields{haptic_sounds};
     if (pending_haptic_sounds_ != "off") {
-        general_fields.push_back(haptic_effect);
-        general_fields.push_back(haptic_volume);
+        typing_fields.push_back(haptic_effect);
+        typing_fields.push_back(haptic_volume);
     }
-    general_fields.insert(
-        general_fields.end(),
-        {field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
-         field(ControlKind::UseDragToMove,
-               checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
-         field(ControlKind::AutoLeveling,
-               checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_)),
-         field(ControlKind::EmojiCloseOnSelect,
-               checkbox("emoji-close-on-select", "Close emoji picker after choosing",
-                        pending_emoji_close_on_select_)),
-         desktop_unicode, desktop_unicode_note});
+    typing_fields.insert(typing_fields.end(),
+                         {field(ControlKind::EmojiCloseOnSelect,
+                                checkbox("emoji-close-on-select", "Close emoji picker after choosing",
+                                         pending_emoji_close_on_select_)),
+                          desktop_unicode, desktop_unicode_note});
     // The popup edits the same main language as the two dropdowns.
     const auto additional = additional_pairs().size();
     auto languages =
@@ -749,6 +772,7 @@ void App::update_settings_ui() {
                  checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
                           "Powered by FUTO Swipe"))}},
          {"general", "General", general_fields},
+         {"typing", "Typing", typing_fields},
          {"dictation", "Dictation", dictation_fields},
          {"integration",
           "Integration",
@@ -825,6 +849,7 @@ PanelView App::build_view(bool picker) const {
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.controls = controls();
     v.focus_shake_since = focus_shake_since_;
+    v.swipe_shake_since = swipe_shake_since_;
     // Keep open's amber cue: a tooltip above it names the hidden window
     // (Integration's Hidden window tooltip).
     if (settings_.focus_tooltip &&
@@ -836,10 +861,9 @@ PanelView App::build_view(bool picker) const {
         settings_ui_.append(v);
         append_languages(v);
     }
-    v.status = !status_.empty()            ? status_
-               : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
-               : sink_on() ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
-                                                                         : host_.sink_client)
+    v.status = !status_.empty() ? status_
+               : sink_on()      ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
+                                                                              : host_.sink_client)
                : !debug_status_.empty() ? debug_status_
                                         : startup_status_;
     // The context's Enter hint is a legend only; the key still sends Enter.
@@ -1012,11 +1036,10 @@ PanelView App::build_view(bool picker) const {
     v.dictation_level_since = mic_level_since_;
     if (dictation_open_) {
         // The mode has its own keys, with the composers' labels and flick
-        // preview; swipe is off in it. The reading shows in the editor.
+        // preview. The reading shows in the editor.
         v.layout = &dictation_layout_.layout;
         v.composing = false;
         v.preedit.clear();
-        v.swipe_trail.clear();
         set_dictation_view(v);
         if (!can_send()) {
             v.disabled_keys.insert("Dictation-send");
@@ -1306,11 +1329,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
         // While a word list loads, letters type as without swipe: a swipe would
         // make the next key wait for the whole load on the VR thread.
-        if (!emoji_open_ && swipe_enabled() && swipe_->ready() && !(cjk_ && cjk_latin_) &&
-            swipe_keyboard_->key_index.contains(key->id) && !keymap_->composing() &&
-            std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
-                return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
-            })) {
+        if (swipes(*key, modifiers)) {
             return swipe_down(pointer, *key, x, y, now, modifiers);
         }
         // Any other key ends the swiped word: deliver it first, then forget its alternatives.
@@ -1456,6 +1475,8 @@ bool App::up(unsigned pointer, double x, double y) {
         if (!drag.scrolling && dictation_open_ && !capturing_ && !sending_ && !confirm_discard_ &&
             !reveal_ && !send_wait_since_) {
             commit_composition(); // A reading stays where it was typed.
+            finish_swipe(true);   // So does a word, and its alternatives end here.
+            discard_swipe();
             const auto v = geometry();
             const auto area = editor_text_area(v);
             editor_.set_cursor(editor_index_at(v, drag.x - area.x, drag.y - area.y + drag.scroll));
@@ -2011,6 +2032,8 @@ void App::reload() {
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
+        settings_.swipe_switch = updated_settings.swipe_switch;
+        settings_.haptic_sounds_switch = updated_settings.haptic_sounds_switch;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
@@ -2802,13 +2825,22 @@ void App::action(const ControlAction& command) {
         } else {
             use_steam_keyboard();
         }
+    } else if (kind == ControlKind::SwipeToggle && !swipe_in_cycle_ &&
+               !swipe_known(settings_.active.language)) {
+        swipe_shake_since_ = monotonic_seconds(); // Nothing to switch: it says so.
+        dirty = true;
     } else if (kind == ControlKind::SwipeToggle) {
-        // Saved at once, like Pin; Settings' switch shows the same setting.
+        // Saved at once, like Pin; the Settings option stays as it is.
         cancel(false);
         const auto before = settings_;
-        settings_.swipe_typing = pending_swipe_typing_ = !settings_.swipe_typing;
+        settings_.swipe_switch = !settings_.swipe_switch;
         prepare_swipe();
         status_.clear();
+        save();
+        host_settings_changed(before, "user");
+    } else if (kind == ControlKind::SoundsToggle) {
+        const auto before = settings_;
+        settings_.haptic_sounds_switch = !settings_.haptic_sounds_switch;
         save();
         host_settings_changed(before, "user");
     } else if (kind == ControlKind::SwipeTyping && swipe_supported(pending_.language)) {
@@ -3029,7 +3061,7 @@ bool App::swipe_known(const std::string& language) const {
 void App::prepare_swipe() {
     swipe_track_.reset();
     discard_swipe();
-    if (!settings_.swipe_typing) {
+    if (!settings_.swipe_typing || !settings_.swipe_switch) {
         // Turning swipe off returns the word list's memory; the encoder stays.
         swipe_keyboard_.reset();
         swipe_prepared_.clear();
@@ -3069,6 +3101,13 @@ void App::prepare_swipe() {
     }
     swipe_->prepare(swipe_keyboard_, lexicon);
 }
+bool App::swipes(const Key& key, const std::set<int>& modifiers) const {
+    return !emoji_open_ && swipe_enabled() && swipe_->ready() && !(cjk_ && cjk_latin_) &&
+           swipe_keyboard_->key_index.contains(key.id) && !keymap_->composing() &&
+           std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
+               return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
+           });
+}
 bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
                      const std::set<int>& mods) {
     if (!backend_ready_ || keyboard_.pointer_pressed(pointer) || swipe_track_) {
@@ -3076,8 +3115,9 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
     }
     finish_swipe(true);
     discard_swipe();
-    // Pinyin letters only reach the local composer; they need no output slot.
-    if (!output_.admit(!cjk_, now)) {
+    // Pinyin letters only reach the local composer, and the editor is local too:
+    // neither needs an output slot.
+    if (!dictation_open_ && !output_.admit(!cjk_, now)) {
         update_output_status();
         dirty = true;
         return false;
@@ -3184,13 +3224,23 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         }
     } else {
         const auto text = keymap_->compose(track.symbol);
-        if (!text.empty() && !preview_input() && !text_output_->commit_text(text) &&
-            !refuse_without_target(monotonic_seconds())) {
-            status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        if (!text.empty() && !preview_input() && !text_output_->commit_text(text)) {
+            text_refused();
         }
         swipe_space_ = false;
     }
+    if (dictation_open_) {
+        editor_goal_x_.reset();
+        follow_cursor();
+    }
     dirty = true;
+}
+void App::text_refused() {
+    if (dictation_open_) {
+        notice_ = "The editor is full. Send or shorten the text to type more.";
+    } else if (!refuse_without_target(monotonic_seconds())) {
+        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+    }
 }
 void App::finish_swipe(bool wait) {
     if (!swipe_waiting_ || !swipe_) {
@@ -3277,15 +3327,22 @@ void App::apply_swipe(const SwipeService::Result& result) {
         }
     }
     swipe_selected_ = 0;
-    const auto text = (swipe_space_ && !hint_no_autospace() ? " " : "") + swipe_candidates_.front();
-    if (!preview_input() && !(output_.admit(true) && text_output_->commit_text(text))) {
-        if (!refuse_without_target(monotonic_seconds())) {
-            status_ = "Text was not sent. Release other keys and check the target/input connection.";
-        }
+    // The editor shows what the word follows, so the space need not be a guess.
+    const bool spaced =
+        dictation_open_ ? editor_.cursor() > 0 && !g_ascii_isspace(editor_.text()[editor_.cursor() - 1])
+                        : swipe_space_ && !hint_no_autospace();
+    const auto text = (spaced ? " " : "") + swipe_candidates_.front();
+    if (!preview_input() &&
+        !((dictation_open_ || output_.admit(true)) && text_output_->commit_text(text))) {
+        text_refused();
         swipe_candidates_.clear();
         return;
     }
     status_.clear();
+    if (dictation_open_) {
+        editor_goal_x_.reset();
+        follow_cursor();
+    }
     swipe_committed_ = swipe_candidates_.front();
     swipe_failures_ = output_.failures();
     swipe_space_ = true;
@@ -3307,7 +3364,7 @@ void App::forget_failed_swipe() {
 void App::choose_swipe(int index) {
     // Settle earlier deliveries before trusting the typed word: admission can
     // discover that one failed, and it then clears the failure for new input.
-    const bool admitted = preview_input() || output_.admit(true);
+    const bool admitted = preview_input() || dictation_open_ || output_.admit(true);
     forget_failed_swipe();
     if (index < 0 || index >= static_cast<int>(swipe_candidates_.size()) || index == swipe_selected_) {
         return;
@@ -3320,9 +3377,7 @@ void App::choose_swipe(int index) {
             return;
         }
         auto refuse = [&] {
-            if (!refuse_without_target(monotonic_seconds())) {
-                status_ = "Text was not sent. Release other keys and check the target/input connection.";
-            }
+            text_refused();
             discard_swipe();
         };
         // Replace exactly the characters this keyboard just sent.
@@ -3340,6 +3395,9 @@ void App::choose_swipe(int index) {
             swipe_selected_ = index;
             dirty = true;
             forget_failed_swipe(); // A synchronous rejection already counts.
+            if (dictation_open_) {
+                follow_cursor();
+            }
             return;
         }
         // Steam fields acknowledge each Backspace before the text. Each is one
@@ -3912,6 +3970,23 @@ void App::refresh_dictation_layout() {
     main.language = &profiles_.languages.at(settings_.active.language);
     main.hide_numpad = numpad_hidden();
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main));
+    // A layout's own scale can raise the editor into the first toolbar row,
+    // which holds the Japanese input buttons: keep a gap under that row.
+    auto& editor = dictation_layout_.editor;
+    const auto shown = panel_rect(main, editor);
+    const double scale = shown.height / editor.height;
+    if (const double over = 64 - shown.y; over > 0) {
+        editor.y += over / scale;
+        editor.height -= over / scale;
+    }
+    // A compact toolbar's second row, three buttons wide, ends beside it too.
+    if (compact_toolbar(main)) {
+        const double row_end = panel_case_bounds(main).x + 18 + 3 * 70 - 10;
+        if (const double over = row_end + 12 - shown.x; over > 0) {
+            editor.x += over / scale;
+            editor.width -= over / scale;
+        }
+    }
     dictation_layout_key_ = key;
     dirty = true;
 }
@@ -3990,6 +4065,28 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     if (flick_track_ && flick_track_->pointer != pointer) {
         finish_flick();
         follow_cursor();
+    }
+    if (swipe_track_ && swipe_track_->pointer != pointer && !swipe_track_->swiping) {
+        const auto track = std::move(*swipe_track_);
+        swipe_track_.reset();
+        type_swipe_tap(track);
+    }
+    // Letters swipe here as on the keyboard, while the editor can be typed in.
+    // Any other key ends the swiped word first, so its alternatives never
+    // replace text they did not type; a latch changes nothing there.
+    if (swipe_track_) {
+        return false; // Only one pointer types while another is swiping.
+    }
+    const bool can_type = !sending_ && !reveal_ && !confirm_discard_ && !capturing_ && !send_wait_since_;
+    if (const auto held = keyboard_.modifiers(); can_type && swipes(key, held)) {
+        clear_editor_error();
+        return swipe_down(pointer, key, x, y, now, held);
+    }
+    finish_swipe(true);
+    if (key.action_kind != ActionKind::Key ||
+        !((key.sticky && is_modifier(key_code(key.action))) || key.action == "CapsLock")) {
+        discard_swipe();
+        swipe_space_ = false;
     }
     if (sending_) {
         // The editor is locked while it sends; Esc stops sending.
@@ -4208,7 +4305,6 @@ bool App::start_capture() {
     // that session, its spacing and context included.
     const bool new_session = !dictation_open_ && !direct_active();
     capturing_ = true;
-    game_sound_ = false;
     if (new_session) {
         // A new Type as I speak session: its own context and spacing, and
         // the field it types into.
@@ -4899,12 +4995,11 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         dirty = true;
         break;
     case Kind::Microphone:
-        // Shown in the status line only while capturing, never blocking.
+        // For the log only: these filters also run with no game, so a message
+        // about game sound would be a false alarm.
         std::cout << (direct_ ? "Type as I speak" : "Dictation")
-                  << ": recording the microphone without the game's voice filters.\n"
+                  << ": recording the microphone without SteamOS's voice filters.\n"
                   << std::flush;
-        game_sound_ = true;
-        dirty = true;
         break;
     case Kind::Test:
         // Only the Dictation card's Test asks. The line under the row label is

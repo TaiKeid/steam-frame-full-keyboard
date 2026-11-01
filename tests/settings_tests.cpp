@@ -1207,11 +1207,13 @@ void haptic_sounds_setting() {
             "haptic sounds start off");
     app.show_settings();
     require(control(app.view(), "haptic-sounds").label == "Off" &&
-                control(app.view(), "haptic-sounds").bounds.y >
-                    control(app.view(), "background-surface").bounds.y &&
+                control(app.view(), "haptic-sounds").bounds.x >
+                    control(app.view(), "hide-numpad").bounds.x &&
                 control(app.view(), "haptic-sounds").bounds.y <
-                    control(app.view(), "hide-numpad").bounds.y,
-            "the dropdown sits in General, below Background");
+                    control(app.view(), "emoji-close-on-select").bounds.y &&
+                control(app.view(), "emoji-close-on-select").bounds.y <
+                    control(app.view(), "desktop-unicode").bounds.y,
+            "the Typing card, right of General, leads with the sounds");
     select(app, "haptic-sounds", "press");
     require(saved(app).haptic_sounds == "off" && !app.pops(KeyFeedback::Press),
             "the choice stays pending until Apply");
@@ -1281,6 +1283,36 @@ void haptic_sounds_setting() {
             "both rows hide with sounds off");
     app.back();
     require(app.haptic_sounds(), "Back restores the saved choice");
+    // The toolbar button: gone with sounds off, otherwise a switch of its own.
+    app.show_settings();
+    select(app, "haptic-sounds", "off");
+    click(app, "apply");
+    require(!has(app.view(), "sounds-toggle") && !app.pops(KeyFeedback::Press),
+            "with sounds off there is no toolbar button");
+    app.show_settings();
+    select(app, "haptic-sounds", "both");
+    click(app, "apply");
+    require(control(app.view(), "sounds-toggle").enabled &&
+                control(app.view(), "sounds-toggle").icon == Icon::HapticSound &&
+                app.pops(KeyFeedback::Press),
+            "with sounds on it shows them on");
+    app.paint(6);
+    app.renderer.write_png("/tmp/framekeyboard-haptic-toolbar.png");
+    click(app, "sounds-toggle");
+    app.flush_settings();
+    require(control(app.view(), "sounds-toggle").icon == Icon::HapticSoundOff &&
+                !app.pops(KeyFeedback::Press) && !app.pops(KeyFeedback::Release) &&
+                !app.haptic_sounds() && !saved(app).haptic_sounds_switch &&
+                saved(app).haptic_sounds == "both",
+            "it mutes the keys, saved on its own, and leaves the setting alone");
+    app.show_settings();
+    require(app.haptic_sounds(), "Settings can still preview while muted");
+    click(app, "haptic-effect:a");
+    require(app.take_sound_preview().has_value(), "and does");
+    app.back();
+    click(app, "sounds-toggle");
+    app.flush_settings();
+    require(app.pops(KeyFeedback::Press), "it turns back on");
     {
         TemporaryDirectory edited;
         std::ofstream(edited.path / "config.json")
@@ -1362,9 +1394,9 @@ void app_settings() {
 
     app.show_settings();
     const auto cards = app.view().cards;
-    require(cards.size() == 4 && cards[1].title == "General" && cards[2].title == "Dictation" &&
-                cards[3].title == "Integration",
-            "production settings contains Languages and Layouts, General, Dictation and Integration");
+    require(cards.size() == 4 && cards[1].title == "General" && cards[2].title == "Typing" &&
+                cards[3].title == "Dictation",
+            "production settings shows Languages and Layouts, General, Typing and Dictation");
     require(cards[3].bounds.x + cards[3].bounds.width >
                     SettingsUi::viewport.x + SettingsUi::viewport.width &&
                 cards[3].bounds.x < SettingsUi::viewport.x + SettingsUi::viewport.width - 80,
@@ -2000,10 +2032,10 @@ void desktop_unicode_setting() {
     App app(options, sink);
     require(!sink.routes.empty() && sink.routes.back() == nullptr, "Type by default");
     app.show_settings();
-    // The row sits at the foot of the General card: scroll down to it.
+    // The row sits at the foot of the Typing card: scroll down to it.
     double now = 200;
     const auto to_row = [&] {
-        app.move(1, 740, 300);
+        app.move(1, 1200, 300);
         app.scroll(1, 0, 20);
         for (int i = 0; i < 40; ++i) {
             app.tick(now += .05);
@@ -2037,6 +2069,16 @@ void desktop_unicode_setting() {
     require(!saved(app).desktop_unicode_paste && sink.routes.back() == nullptr, "back to Type");
     require(sink.events.empty(), "the setting sends no input");
 }
+// Settings, scrolled so the Dictation card shows whole.
+void open_dictation_card(App& app) {
+    app.show_settings();
+    app.move(9, 800, 300);
+    app.scroll(9, 4, 0);
+    static double now = 300;
+    for (int i = 0; i < 20; ++i) {
+        app.tick(now += .05);
+    }
+}
 void dictation_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -2044,7 +2086,7 @@ void dictation_settings() {
     options.mode = Mode::Render;
     CaptureSink sink;
     App app(options, sink);
-    app.show_settings();
+    open_dictation_card(app);
     require(control(app.view(), "send-gap").label.find("20 ms") != std::string::npos,
             "Send types at 20 ms by default");
     select(app, "send-gap", "40");
@@ -2054,18 +2096,18 @@ void dictation_settings() {
             "Apply saves the pace");
     {
         App reopened(options, sink);
-        reopened.show_settings();
+        open_dictation_card(reopened);
         require(control(reopened.view(), "send-gap").label.find("40 ms") != std::string::npos,
                 "the pace survives restart");
     }
-    app.show_settings();
+    open_dictation_card(app);
     select(app, "send-gap", "paste");
     click(app, "apply");
     require(saved(app).dictation_send_paste && saved(app).dictation_send_gap == 40,
             "Paste is saved apart from the pace");
     {
         App reopened(options, sink);
-        reopened.show_settings();
+        open_dictation_card(reopened);
         require(control(reopened.view(), "send-gap").label == "Paste", "Paste survives restart");
     }
     {

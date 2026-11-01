@@ -9,8 +9,12 @@
 - Added **French (Belgium)** and **Dutch (Belgium)**, and keyboard options for existing languages: QWERTY for French, German, Czech, Slovak, Hungarian and Croatian, QWERTZ for Polish and F for Turkish.
 - Settings has a new **Additional languages** page in place of the Favorite switch and Manage. Pick a layout on the left, tap or drag languages into your list, drag to reorder, and drop outside to remove. Your main language stays in sync with the Layout and Language dropdowns. Leaving Settings asks whether to save changes made there.
 - While Swipe typing is on, Additional languages marks which languages can swipe and which can't.
-- Added **Haptic sounds** to General: a pop on key press, release or both, off by default, with six effects and four volume levels you can preview in Settings. They stay silent while the microphone is listening.
-- Added a swipe button to the toolbar that turns Swipe typing on and off. It's dimmed while the current language can't swipe, and hidden if none of your languages can.
+- Settings has a new **Typing** card, with **Close emoji picker after choosing** and **KDE Desktop Unicode** moved there from General.
+- Dictation no longer warns that game sounds may be picked up, which it also did with no game running.
+- Added **Haptic sounds** to the Typing card: a pop on key press, release or both, off by default, with six effects and four volume levels you can preview in Settings. They stay silent while the microphone is listening.
+- Swipe typing now works in the dictation editor too.
+- Added a swipe button to the toolbar while Swipe typing is on. It turns swiping on and off without changing the setting, and remembers its state. It's greyed out while the current language can't swipe, and disabled if none of your languages can, on a flick keyboard, or while the dictation editor can't be typed in.
+- Added a haptic sounds button to the toolbar while Haptic sounds is on. It mutes key sounds without changing the setting, and remembers its state. It's disabled while the microphone is listening or recognition is still working.
 - Layouts and languages now have clear names, such as **US QWERTY** and **Japanese, Romaji** with **日本語 ローマ字**. The toolbar's language button shows a short native name instead of a code like JA-JP.
 - When closing the dashboard during dictation turns on **Stay open over apps**, a message now explains why the keyboard stayed in view. It shows for 5 seconds, in the dictation editor or, with Type as I speak, on the status line. If Stay open over apps was already on, nothing changes and no message appears.
 - Full Keyboard now checks for updates by itself every few hours. When a new version is out, a dot appears on the Settings button and the button at the top of Settings says **Download and install update**. Nothing downloads until you press it, and a check that fails stays out of your way.

@@ -80,7 +80,8 @@ enum class ControlKind {
     // backspace, left, right, enter or esc), a recent server, or close.
     AddressKey,
     AddressRecent,
-    SwipeToggle,   // the toolbar's shortcut for Swipe typing
+    SwipeToggle,   // the toolbar's own switch for swiping
+    SoundsToggle,  // the toolbar's own switch for haptic sounds
     OpenLanguages, // the Additional languages popup
     CloseLanguages,
     LanguagesLayout, // value: the layout whose languages show
@@ -226,6 +227,9 @@ struct PanelView {
     // Typing was refused for want of a target: from this time the Focus mode
     // button's icon shakes, like an error, instead of a status message.
     double focus_shake_since{-1};
+    // The swipe button was pressed with no language that can swipe: from this
+    // time its icon shakes, fading from the alert colour.
+    double swipe_shake_since{-1};
     std::set<std::string> hovered_keys, hovered_controls;
     // Case coordinates of the swipe in progress, drawn above the keys.
     std::vector<std::pair<double, double>> swipe_trail;
@@ -398,6 +402,7 @@ class PanelRenderer {
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
     double ring_time_{};
+    double swipe_shake_{}, swipe_fade_{}; // The swipe icon's, and its alert colour left.
     double focus_shake_{}; // The Focus mode icon's shake offset, when last drawn.  // The recognition
                            // ring's time, sampled at 30 fps, when last drawn.
     double next_change_{};

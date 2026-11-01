@@ -87,7 +87,7 @@ Added 2026-10-27 at the owner's request: a Favorites section after Recent and be
 
 ## Setting
 
-**Close emoji picker after choosing**: a checkbox in the General card, saved as the optional global boolean `emoji_close_on_select`. It defaults to false.
+**Close emoji picker after choosing**: a checkbox in the Typing card, saved as the optional global boolean `emoji_close_on_select`. It defaults to false.
 
 ## Delivery
 

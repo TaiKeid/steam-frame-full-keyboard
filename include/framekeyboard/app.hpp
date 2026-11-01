@@ -240,9 +240,10 @@ class App {
     bool dragging() const { return dragging_; }
     // The microphone is open for dictation or Type as I speak.
     bool listening() const { return capturing_; }
-    // Pending counts: Settings previews a choice before Apply.
+    // The stream runs for keys that can pop, or for Settings to preview a choice.
     bool haptic_sounds() const {
-        return settings_.haptic_sounds != "off" || pending_haptic_sounds_ != "off";
+        return (settings_.haptic_sounds != "off" && settings_.haptic_sounds_switch) ||
+               (settings_open_ && pending_haptic_sounds_ != "off");
     }
     const std::string& haptic_effect() const { return settings_.haptic_effect; }
     int haptic_volume() const { return settings_.haptic_volume; }
@@ -251,7 +252,7 @@ class App {
     // listening: the speakers sit close enough for it to hear them.
     bool pops(KeyFeedback kind) const {
         const auto& sounds = settings_.haptic_sounds;
-        return !capturing_ && kind != KeyFeedback::Hover &&
+        return !capturing_ && settings_.haptic_sounds_switch && kind != KeyFeedback::Hover &&
                (sounds == "both" || sounds == (kind == KeyFeedback::Press ? "press" : "release"));
     }
     // Hiding the VR context releases keys before closing the input gate.
@@ -471,6 +472,10 @@ class App {
     bool swipe_in_cycle_{};
     bool swipe_enabled() const { return swipe_ && swipe_keyboard_ && !hint_private(); }
     void prepare_swipe();
+    // Whether a press of this key can start a swipe.
+    bool swipes(const Key& key, const std::set<int>& modifiers) const;
+    // Says why text went nowhere: a full editor or a missing target.
+    void text_refused();
     bool swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
                     const std::set<int>& mods);
     void swipe_move(double x, double y);
@@ -695,6 +700,7 @@ class App {
     bool field_needed_{};
     bool hidden_focus_{}, dashboard_focus_{};
     double focus_shake_since_{-1};
+    double swipe_shake_since_{-1};
     // Typing refused for want of a target (target_missing): the Focus mode
     // button's icon shakes instead of a status message. False with a target.
     bool refuse_without_target(double now);
@@ -781,8 +787,13 @@ class App {
             return editor_.type(text);
         }
         bool commit_text(const std::string& text) override { return editor_.type(text); }
-        bool replaces_text() override { return false; }
-        bool replace_text(std::size_t, const std::string&) override { return false; }
+        bool replaces_text() override { return true; }
+        bool replace_text(std::size_t delete_before, const std::string& text) override {
+            while (delete_before-- > 0) {
+                editor_.backspace();
+            }
+            return editor_.type(text);
+        }
         bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
 
       private:
@@ -960,7 +971,6 @@ class App {
     bool capturing_{};
     // A game is running and this capture hears its sound: the status line
     // says so while capturing. The helper reports it once per capture.
-    bool game_sound_{};
     double alive_until_{}; // The helper gets keep-alives until then.
     // How long Send waits for one phrase to be recognized, and the restart of
     // that wait when a phrase comes back.

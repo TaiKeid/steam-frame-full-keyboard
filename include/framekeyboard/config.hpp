@@ -106,6 +106,10 @@ struct Settings {
     bool start_with_steamos{};
     // Active only when the current language also supports swipe.
     bool swipe_typing{};
+    // The toolbar's own switches, saved apart from the Settings options above
+    // and below: each works only while its option allows it.
+    bool swipe_switch{true};
+    bool haptic_sounds_switch{true};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
     // Keep open's amber cue names the hidden window it types into in a tooltip.

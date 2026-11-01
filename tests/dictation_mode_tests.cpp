@@ -105,6 +105,15 @@ void press(App& app, const std::string& id, unsigned pointer = 0) {
     clock += .1;
     app.tick(clock);
 }
+// Settings, scrolled so the Dictation card shows whole.
+void open_settings(App& app) {
+    app.show_settings();
+    app.move(9, 800, 300);
+    app.scroll(9, 4, 0);
+    for (int i = 0; i < 20; ++i) {
+        app.tick(clock += .05);
+    }
+}
 void settle(App& app) {
     for (int i = 0; i < 100; ++i) {
         app.tick(clock += .02);
@@ -880,7 +889,7 @@ void direct_tests() {
     {
         Sink sink;
         App app(options, sink);
-        app.show_settings();
+        open_settings(app);
         click(app, "dictation-direct");
         click(app, "apply");
         app.flush_settings();
@@ -913,7 +922,7 @@ void direct_tests() {
         require(app.paint(step + 1.0 / 30 + .001), "and paints at the next step");
         // Settings covers the mic key: the phrase is still recognized, but its
         // ring repaints nothing.
-        app.show_settings();
+        open_settings(app);
         app.paint(step + 2.0 / 30 + .001);
         require(app.view().dictation_recognizing && !app.renderer.animating(),
                 "under Settings the hidden ring asks for no frames");
@@ -942,7 +951,7 @@ void direct_tests() {
         press(app, "Dictation");
         press(app, "Dictation");
         require(app.dictation_open(), "the mic key opened dictation mode");
-        app.show_settings();
+        open_settings(app);
         click(app, "dictation-direct");
         click(app, "apply");
         app.tick(clock += .1);
@@ -1586,7 +1595,7 @@ void leaving_tests() {
         open_editor(app);
         press(app, "KeyA");
         require(editor_text(app) == "a", "the editor has text");
-        app.show_settings();
+        open_settings(app);
     };
     {
         Sink sink;
@@ -1610,7 +1619,7 @@ void leaving_tests() {
         Sink sink;
         App app(options, sink);
         open_editor(app);
-        app.show_settings();
+        open_settings(app);
         click(app, "quit");
         require(!app.view().confirm && app.quitting(), "an empty, paused editor has nothing to lose");
     }
@@ -1620,7 +1629,7 @@ void leaving_tests() {
         App app(options, sink);
         press(app, "Dictation");
         settle(app);
-        app.show_settings();
+        open_settings(app);
         require(app.view().dictation_capturing && editor_text(app).empty(),
                 "the microphone stays on in Settings");
         click(app, "quit");
@@ -1635,11 +1644,11 @@ void leaving_tests() {
         Sink sink;
         App app(options, sink);
         press(app, "Dictation");
-        app.show_settings();
+        open_settings(app);
         click(app, "apply");
         app.flush_settings();
         require(app.view().dictation_capturing, "an unrelated Apply keeps listening");
-        app.show_settings();
+        open_settings(app);
         click(app, "reload");
         require(!app.view().dictation_capturing, "Reload pauses it");
     }
@@ -1648,7 +1657,7 @@ void leaving_tests() {
         Sink sink;
         App app(options, sink);
         press(app, "Dictation");
-        app.show_settings();
+        open_settings(app);
         require(app.dashboard_visibility(false) && !app.view().status.empty() &&
                     app.view().status.find("dictation is active") != std::string::npos,
                 "closing the dashboard in Settings explains itself");
@@ -1687,7 +1696,7 @@ void leaving_tests() {
         app.set_interaction_active(true);
         press(app, "Dictation");
         settle(app);
-        app.show_settings();
+        open_settings(app);
         require(app.view().dictation_capturing, "Type as I speak keeps listening in Settings");
         click(app, "quit");
         require(app.view().confirm && !app.quitting(), "Type as I speak asks too");
@@ -1700,7 +1709,7 @@ void leaving_tests() {
         app.set_interaction_active(true);
         press(app, "Dictation");
         settle(app);
-        app.show_settings();
+        open_settings(app);
         app.set_native_session(true);
         click(app, "native-fallback");
         require(app.view().confirm && !app.take_native_fallback(), "the Steam keyboard asks too");
@@ -1766,7 +1775,7 @@ void settings_and_update_tests() {
     App app(options, sink);
     press(app, "Dictation");
     require(control_enabled(app, "settings"), "Settings stays available while listening");
-    app.show_settings();
+    open_settings(app);
     require(app.view().dictation_capturing, "opening Settings keeps listening");
     app.back();
     require(app.view().dictation_capturing, "and it is still listening after Settings");
@@ -1810,7 +1819,7 @@ void device_tests() {
     write_config(directory.path, R"(,"dictation":"off","dictation_server":"127.0.0.1")");
     Sink sink;
     App app(options, sink);
-    app.show_settings();
+    open_settings(app);
     click(app, "dictation");
     click(app, "choose:dictation:device");
     require(field_label(app, "Model") && !field_label(app, "Server"),
@@ -1827,7 +1836,7 @@ void device_tests() {
                 !fs::exists(directory.path / "models"),
             "Cancel downloads and applies nothing");
 
-    app.show_settings();
+    open_settings(app);
     click(app, "dictation");
     click(app, "choose:dictation:device");
     click(app, "apply");
@@ -1859,7 +1868,7 @@ void device_tests() {
     press(app, "Escape");
     press(app, "Escape"); // asked, then discarded
 
-    app.show_settings();
+    open_settings(app);
     require(field_label(app, "Ready"), "the model row says the model is ready");
     click(app, "model-action");
     require(!fs::exists(directory.path / "models/ggml-small-q8_0.bin") && field_label(app, "264 MB"),
@@ -1885,7 +1894,7 @@ void device_tests() {
             return label.warning && label.text.find("low accuracy") != std::string::npos;
         });
     };
-    app.show_settings();
+    open_settings(app);
     require(!warns(app) && !field_label(app, "Format"),
             "English has no warning, and the model format is a development option");
     click(app, "settings"); // Back
@@ -1893,7 +1902,7 @@ void device_tests() {
         write_config(directory.path, R"(,"dictation":"device")", language,
                      std::string(language) == "ja-romaji" ? "en-us-full" : "international-full");
         App other(options, sink);
-        other.show_settings();
+        open_settings(other);
         require(warns(other) == (std::string(language) != "es-es"),
                 "a language other than English or Spanish warns on device");
     }
@@ -1920,7 +1929,7 @@ void fallback_tests() {
         write_config(directory.path, R"(,"dictation":"device","dictation_server":"127.0.0.1")");
         Sink sink;
         App app(options, sink);
-        app.show_settings();
+        open_settings(app);
         click(app, "dictation");
         click(app, "choose:dictation:server");
         click(app, "dictation-fallback");
@@ -1940,7 +1949,7 @@ void fallback_tests() {
                  R"(,"dictation":"server","dictation_server":"127.0.0.1","developer_options":true)");
     Sink sink;
     App app(options, sink);
-    app.show_settings();
+    open_settings(app);
     require(field_label(app, "Fall back to on device") && !field_label(app, "Model"),
             "the server offers the fallback; the model row waits for it");
     click(app, "dictation-fallback");
@@ -2030,7 +2039,7 @@ void direct_to_editor_tests() {
     press(app, "Dictation"); // the second phrase ends and waits for its text
     app.tick(clock += .01);
     const auto typed = sink.text;
-    app.show_settings();
+    open_settings(app);
     click(app, "dictation-direct");
     click(app, "apply");
     press(app, "Dictation");
@@ -2086,7 +2095,7 @@ void download_helper_exit_tests() {
     write_config(directory.path, R"(,"dictation":"off","dictation_server":"127.0.0.1")");
     Sink sink;
     App app(options, sink);
-    app.show_settings();
+    open_settings(app);
     click(app, "dictation");
     click(app, "choose:dictation:device");
     click(app, "apply");
@@ -2159,8 +2168,8 @@ void send_during_reveal_tests() {
     }
 }
 
-// A game turned SteamOS's voice filters on and the helper records around
-// them: the status line says game sound may come through, without blocking.
+// The helper records around SteamOS's voice filters. They also run with no
+// game, so the status line stays quiet and only the log hears of it.
 void microphone_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -2172,14 +2181,11 @@ void microphone_tests() {
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
     Sink sink;
     App app(options, sink);
-    const std::string notice = "Game sounds may be picked up during a play session.";
     press(app, "Dictation");
-    wait_until(app, [&] { return app.view().status == notice; });
-    require(app.view().dictation && !app.view().dictation->notice_error,
-            "while listening in a game, the status line says game sound may come through");
-    press(app, "Dictation");
-    settle_pause(app);
-    require(app.view().status.empty(), "and it goes when listening stops");
+    settle(app);
+    require(app.listening() && app.view().status.empty() && app.view().dictation &&
+                !app.view().dictation->notice_error,
+            "the filters being on shows nothing");
 }
 
 // A Test answers for the address it checked: editing the field meanwhile
@@ -2195,7 +2201,7 @@ void test_race_tests() {
     use_fake_helper(options, directory.path, "slowtest");
     Sink sink;
     App app(options, sink);
-    app.show_settings();
+    open_settings(app);
     click(app, "dictation-test");
     require(field_label(app, "Testing…") && !control_enabled(app, "dictation-test"),
             "one Test runs at a time");
@@ -2219,7 +2225,7 @@ void test_race_tests() {
     // The helper exits before it answers: Test reports it and works again.
     use_fake_helper(options, directory.path, "testexit");
     App lost(options, sink);
-    lost.show_settings();
+    open_settings(lost);
     click(lost, "dictation-test");
     wait_until(lost, [&] { return field_label(lost, "Helper stopped"); });
     require(control_enabled(lost, "dictation-test"), "Test can run again after the helper exits");
@@ -2248,7 +2254,7 @@ void hosted_tests() {
     require(app.hosted() && !app.replace_native_keyboard() && !app.start_with_steamos() &&
                 app.background_start(),
             "hosted, replacement and boot start are inactive and the panel starts hidden");
-    app.show_settings();
+    open_settings(app);
     const auto cards = app.view().cards;
     require(std::none_of(cards.begin(), cards.end(),
                          [](const auto& card) { return card.title == "Integration"; }) &&
@@ -2328,7 +2334,7 @@ void hosted_tests() {
     App::HostHints german_field;
     german_field.language = "de-de";
     app.set_context(std::string("field"), german_field);
-    app.show_settings();
+    open_settings(app);
     click(app, "auto-leveling");
     click(app, "apply");
     app.set_context(std::nullopt);
@@ -2648,7 +2654,14 @@ void away_tests() {
     require(app.listening() && !app.dictation_open(), "Type as I speak listens on the keyboard");
     require(!app.pops(KeyFeedback::Press) && !app.pops(KeyFeedback::Release),
             "the microphone never hears a pop");
-    app.show_settings();
+    const auto sounds_button = [](const PanelView& view) {
+        return *std::find_if(view.controls.begin(), view.controls.end(),
+                             [](const Control& item) { return item.id == "sounds-toggle"; });
+    };
+    const auto toolbar = sounds_button(app.view());
+    require(!toolbar.enabled && !toolbar.warning && toolbar.icon == Icon::HapticSoundOff,
+            "the toolbar button waits, crossed but not orange");
+    open_settings(app);
     const auto effect = std::find_if(app.view().controls.begin(), app.view().controls.end(),
                                      [](const Control& item) { return item.id == "haptic-effect:b"; });
     require(effect != app.view().controls.end(), "listening continues under Settings");
@@ -2661,7 +2674,68 @@ void away_tests() {
     app.stop_listening(reason);
     require(!app.listening() && app.view().status == reason, "Type as I speak stops and says why");
     require(app.pops(KeyFeedback::Release), "keys pop again once it stops");
+    const auto after = sounds_button(app.view());
+    require(after.enabled && !after.warning && after.icon == Icon::HapticSound,
+            "and the button returns to normal");
     require(sink.text.empty() && sink.keys.empty(), "stopping types nothing");
+}
+
+// The toolbar's second row of a narrow keyboard stays clear of the editor.
+void compact_toolbar_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    const std::string extra = R"(,"hide_numpad":true,"dictation":"server",)"
+                              R"("dictation_server":"127.0.0.1","haptic_sounds":"both",)"
+                              R"("swipe_typing":true,"replace_native_keyboard":true,)"
+                              R"("favorites":[{"id":"a","name":"a","layout":"international-full",)"
+                              R"("language":"de-de"}])";
+    struct Case {
+        const char* name;
+        const char* language;
+        const char* layout;
+    };
+    for (const auto& [name, language, layout] :
+         std::array<Case, 3>{{{"english", "en-us", "en-us-full"},
+                              {"romaji", "ja-romaji", "ja-jis-full"},
+                              {"flick", "ja-flick", "ja-flick-12"}}}) {
+        write_config(directory.path, extra, language, layout);
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        settle(app);
+        require(app.dictation_open(), "the narrow keyboard opens the editor");
+        if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+            app.paint(clock);
+            app.renderer.write_png(fs::path(render) / (std::string("compact-") + name + ".png"));
+        }
+        const auto view = app.view();
+        const auto editor = view.dictation->bounds;
+        require(editor.y >= 64, "the editor keeps a gap under the first toolbar row");
+        double cycle = -1, others = 0;
+        for (const auto& control : view.controls) {
+            if (control.id == "language-cycle") {
+                cycle = control.bounds.x;
+            } else if (control.id == "settings" || control.id == "recenter" || control.id == "pin" ||
+                       control.id == "passthrough" || control.id == "keep-open" ||
+                       control.id == "swipe-toggle" || control.id == "sounds-toggle") {
+                others = std::max(others, control.bounds.x);
+            }
+        }
+        require(cycle > others, "the language button stays last");
+        for (const auto& control : view.controls) {
+            if (control.style != ControlStyle::MoveHandle && control.bounds.y < 110) {
+                const bool clear = control.bounds.y + control.bounds.height <= editor.y ||
+                                   control.bounds.x + control.bounds.width <= editor.x ||
+                                   control.bounds.x >= editor.x + editor.width;
+                require(clear, "no toolbar control sits on the editor");
+            }
+        }
+    }
 }
 
 void card_tests() {
@@ -2676,7 +2750,7 @@ void card_tests() {
     Sink sink;
     App app(options, sink);
     require(!app.view().dictation_available, "dictation starts off");
-    app.show_settings();
+    open_settings(app);
     const std::array<const char*, 6> others{"dictation-server", "dictation-test", "dictation-fallback",
                                             "model-action",     "send-gap",       "dictation-direct"};
     require(has_control(app, "dictation") &&
@@ -2700,7 +2774,7 @@ void card_tests() {
     require(sink.text.empty() && sink.keys.empty(), "the card sends nothing to the target");
 
     // The address popup: its own field and keys, Enter checks, Esc cancels.
-    app.show_settings();
+    open_settings(app);
     auto type = [&](const std::string& keys) {
         for (char c : keys) {
             click(app, std::string("address-key-") + c);
@@ -2906,6 +2980,7 @@ int main() {
         leaving_tests();
         field_tests();
         settings_and_update_tests();
+        compact_toolbar_tests();
         card_tests();
         live_tests();
         language_tests();

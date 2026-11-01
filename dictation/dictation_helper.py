@@ -101,7 +101,7 @@ MANAGER_REMOTE = "pipewire-0-manager"
 DIRECT_NODE = "framekeyboard-dictation"
 LINK_WAIT = 1.0  # for the recorder's input port to appear
 STALL_TIMEOUT = 1.0  # a linked recorder that delivers nothing is replaced
-GAME_CHECK = 20.0  # how often a phrase start looks again for a game's filters
+GAME_CHECK = 20.0  # how often a phrase start looks again for linked filters
 
 
 class Failure(Exception):
@@ -837,7 +837,7 @@ class Helper:
         self.capturing = False
         self.recorder = None
         self.direct = False  # the recorder is linked to the microphone itself
-        self.notified = False  # the keyboard heard that game sound may come through
+        self.notified = False  # the keyboard heard that the filters are bypassed
         self.checked = 0.0  # when the graph was last looked at
         self.game_check = GAME_CHECK
         self.last_audio = 0.0
@@ -1008,8 +1008,8 @@ class Helper:
             self.checked = self.last_audio = self.last_packet = time.monotonic()
 
     def notify(self, filtered):
-        # The filters are linked only while a game runs; then its sound
-        # reaches dictation unfiltered. Said once per capture.
+        # Audio the filters would have cancelled reaches dictation. Said once
+        # per capture, for the keyboard's log.
         if filtered and not self.notified:
             self.notified = True
             self.send("microphone", unfiltered=True)
@@ -1058,7 +1058,7 @@ class Helper:
             self.send_level(event[1])
         elif kind == "start":
             if self.direct and not self.notified and time.monotonic() - self.checked > self.game_check:
-                # A game may have started since capture did. Each look runs
+                # The filters may have linked since capture started. Each look runs
                 # pw-dump, so it is not repeated for every phrase.
                 microphone = self.microphone()
                 self.notify(microphone is not None and microphone[2])

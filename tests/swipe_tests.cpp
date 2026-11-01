@@ -1072,6 +1072,139 @@ void languages_popup_marks() {
 }
 
 // The toolbar's shortcut for Swipe typing follows the languages in the cycle.
+// The editor takes swipes as the keyboard does, and its alternatives replace
+// only the word they typed.
+void swipes_in_the_editor() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::RenderDictation;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    auto calls = std::make_shared<int>(0);
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    app.show_dictation();
+    auto text = [&] { return app.view().dictation->text; };
+    const auto before = text();
+    {
+        const auto [hx, hy] = key_point(app, "KeyH");
+        const auto [ox, oy] = key_point(app, "KeyO");
+        app.down(0, hx, hy, 1);
+        for (int step = 1; step <= 6; ++step) {
+            app.move(0, hx + (ox - hx) * step / 6, hy + (oy - hy) * step / 6);
+        }
+        require(app.view().swipe_trail.size() > 1, "a swipe in the editor draws its trail");
+        app.cancel_pointer(0);
+        require(app.view().swipe_trail.empty(), "and the trail ends with it");
+    }
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return text() != before; });
+    const auto word = text().find(" hello in one go") != std::string::npos ? "hello" : "helo";
+    require(text().find(std::string(" ") + word + " in one go") != std::string::npos,
+            "a swiped word joins the editor at the cursor, with its space");
+    require(sink.text.empty(), "and nothing reaches the target");
+    const auto other = std::string(word) == "hello" ? "helo" : "hello";
+    const auto view = app.view();
+    const auto candidate =
+        std::find_if(view.controls.begin(), view.controls.end(), [&](const Control& c) {
+            return c.id.starts_with("swipe-candidate-") && c.label == other;
+        });
+    require(candidate != view.controls.end(), "its alternatives show");
+    click(app, candidate->id);
+    require(text().find(std::string(" ") + other + " in one go") != std::string::npos,
+            "an alternative replaces just that word");
+    auto [ax, ay] = key_point(app, "KeyA");
+    app.down(0, ax, ay, 3);
+    app.up(0, ax, ay);
+    require(text().find(std::string(" ") + other + "a in one go") != std::string::npos,
+            "a tap still types one letter, on release");
+    const auto [bx, by] = key_point(app, "Backspace");
+    app.down(0, bx, by, 3.2);
+    app.up(0, bx, by);
+    bool left = false;
+    for (const auto& control : app.view().controls) {
+        left |= control.id.starts_with("swipe-candidate-");
+    }
+    require(!left, "another key ends the alternatives");
+}
+
+// The way a wearer gets there: the mic key opens the editor and listens, and a
+// second press stops, leaving the editor to type in.
+void swipes_after_listening() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    settings.hide_numpad = true;
+    settings.dictation = "server";
+    settings.dictation_server = "127.0.0.1";
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    auto press = [&](const char* id) {
+        const auto view = app.view();
+        const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
+                                      [&](const Key& item) { return item.id == id; });
+        require(key != view.layout->keys.end(), "the mic key shows");
+        const auto r = panel_rect(view, key->bounds);
+        app.move(0, r.x + r.width / 2, r.y + r.height / 2);
+        app.down(0, r.x + r.width / 2, r.y + r.height / 2, 1);
+        app.up(0, r.x + r.width / 2, r.y + r.height / 2);
+    };
+    press("Dictation");
+    require(app.dictation_open() && app.listening(), "the mic key opens the editor and listens");
+    const auto toggle = [&] {
+        const auto view = app.view();
+        return *std::find_if(view.controls.begin(), view.controls.end(),
+                             [](const Control& item) { return item.id == "swipe-toggle"; });
+    };
+    require(!toggle().enabled && toggle().icon == Icon::SwipeOff,
+            "the swipe button is disabled while the editor can't be typed in");
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return !app.view().dictation->text.empty(); });
+    require(app.view().dictation->text.empty() && *calls == 0,
+            "while listening the editor is read-only, so a swipe does nothing");
+    press("Dictation");
+    settle(app, [&] { return !app.listening(); });
+    require(app.dictation_open() && !app.listening(), "the mic key stops listening");
+    settle(app, [&] { return toggle().enabled; });
+    require(toggle().enabled && toggle().icon == Icon::Swipe, "and it returns once it can");
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return !app.view().dictation->text.empty(); });
+    require(!app.view().dictation->text.empty(), "a swipe types once listening has stopped");
+}
+
 void toolbar_toggle() {
     TemporaryDirectory directory;
     Options options;
@@ -1084,10 +1217,12 @@ void toolbar_toggle() {
         encoder->calls = std::make_shared<int>(0);
         return encoder;
     };
-    auto config = [&](const std::string& language, const std::string& favorites) {
+    auto config = [&](const std::string& language, const std::string& favorites, bool swipe = true,
+                      const std::string& layout = "en-us-full") {
         std::ofstream(directory.path / "config.json")
-            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":")" << language
-            << R"(","theme":"graphite"},"favorites":[)" << favorites << "]}";
+            << R"({"schema_version":1,"active":{"layout":")" << layout << R"(","language":")" << language
+            << R"(","theme":"graphite"},"swipe_typing":)" << (swipe ? "true" : "false")
+            << R"(,"favorites":[)" << favorites << "]}";
     };
     auto button = [](App& app) {
         const auto view = app.view();
@@ -1103,23 +1238,41 @@ void toolbar_toggle() {
         app.up(0, x, y);
         app.flush_settings();
     };
+    auto saved = [&] {
+        std::vector<std::string> errors;
+        return load_settings(directory.path, errors);
+    };
+    config("en-us", "", false);
+    {
+        TextSink sink;
+        App app(options, sink);
+        require(!button(app), "with the option off there is no button");
+    }
     config("en-us", "");
     {
         TextSink sink;
         App app(options, sink);
         auto toggle = button(app);
-        require(toggle && toggle->icon == Icon::SwipeOff && !toggle->dimmed,
-                "off shows the slashed icon on a language that can swipe");
+        require(toggle && toggle->enabled && toggle->icon == Icon::Swipe && !toggle->dimmed,
+                "with the option on, the button shows on a language that can swipe");
         press(app, *toggle);
         toggle = button(app);
-        require(toggle && toggle->icon == Icon::Swipe && !toggle->dimmed, "on shows the normal icon");
-        std::vector<std::string> errors;
-        require(load_settings(directory.path, errors).swipe_typing, "the toggle is saved at once");
+        require(toggle && toggle->icon == Icon::SwipeOff && !toggle->dimmed, "off slashes the icon");
+        require(!saved().swipe_switch && saved().swipe_typing,
+                "the button is saved on its own and leaves the option alone");
         app.show_settings();
         const auto view = app.view();
         const auto row = std::find_if(view.controls.begin(), view.controls.end(),
                                       [](const Control& item) { return item.id == "swipe-typing"; });
-        require(row != view.controls.end() && row->selected, "Settings shows the same setting");
+        require(row != view.controls.end() && row->selected, "Settings keeps the option on");
+    }
+    {
+        TextSink sink;
+        App app(options, sink);
+        const auto toggle = button(app);
+        require(toggle && toggle->icon == Icon::SwipeOff, "its state survives a restart");
+        press(app, *toggle);
+        require(saved().swipe_switch, "and it turns back on");
     }
     // A main language that can't swipe, with an additional one that can.
     const auto english = R"({"id":"a","name":"a","layout":"en-us-full","language":"en-us"})";
@@ -1128,17 +1281,37 @@ void toolbar_toggle() {
         TextSink sink;
         App app(options, sink);
         auto toggle = button(app);
-        require(toggle && toggle->dimmed, "a language that can't swipe dims the button");
-        const auto before = toggle->icon;
+        require(toggle && toggle->enabled && toggle->dimmed && toggle->icon == Icon::Swipe,
+                "a language that can't swipe greys the icon");
         press(app, *toggle);
         toggle = button(app);
-        require(toggle && toggle->dimmed && toggle->icon != before, "it still toggles");
+        require(toggle && toggle->dimmed && toggle->icon == Icon::SwipeOff && !saved().swipe_switch,
+                "it still toggles");
+        press(app, *toggle);
     }
+    // No language that can swipe: the press shakes the icon and changes nothing.
     config("bg-bg", "");
     {
         TextSink sink;
         App app(options, sink);
-        require(!button(app), "no language that can swipe, no button");
+        const auto toggle = button(app);
+        require(toggle && toggle->enabled && toggle->dimmed && toggle->icon == Icon::SwipeOff,
+                "no language can swipe: greyed out and crossed");
+        require(app.view().swipe_shake_since < 0, "nothing shakes yet");
+        press(app, *toggle);
+        require(app.view().swipe_shake_since >= 0, "a press shakes it");
+        require(saved().swipe_switch, "and toggles nothing");
+    }
+    // A flick layout: greyed out and not reactive, even with a language that can swipe.
+    config("ja-flick", english, true, "ja-flick-12");
+    {
+        TextSink sink;
+        App app(options, sink);
+        const auto toggle = button(app);
+        require(toggle && !toggle->enabled && toggle->dimmed && toggle->icon == Icon::SwipeOff,
+                "a flick layout disables the button");
+        press(app, *toggle);
+        require(app.view().swipe_shake_since < 0 && saved().swipe_switch, "and ignores presses");
     }
 }
 
@@ -1260,6 +1433,8 @@ int main(int argc, char** argv) {
         disabled_by_default();
         languages_popup_marks();
         toolbar_toggle();
+        swipes_in_the_editor();
+        swipes_after_listening();
         service_reuse();
         leave_while_decoding();
         suggestions_clear_the_toolbar();

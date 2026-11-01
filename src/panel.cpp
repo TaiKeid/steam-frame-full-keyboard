@@ -271,6 +271,24 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_line_to(cr, x2, y2);
     };
     switch (icon) {
+    case Icon::HapticSound:
+    case Icon::HapticSoundOff:
+        // A dot sounding out to both sides. Off, slashed like Pin.
+        cairo_arc(cr, 0, 0, 3.8, 0, 2 * pi);
+        cairo_fill(cr);
+        cairo_set_line_width(cr, 2);
+        for (const double radius : {7.2, 10.8}) {
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, 0, 0, radius, -pi / 4.5, pi / 4.5);
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, 0, 0, radius, pi - pi / 4.5, pi + pi / 4.5);
+        }
+        cairo_stroke(cr);
+        cairo_set_line_width(cr, 1.8);
+        if (icon == Icon::HapticSoundOff) {
+            line(-10, -10, 10, 10);
+        }
+        break;
     case Icon::Volume25:
     case Icon::Volume50:
     case Icon::Volume75:
@@ -701,16 +719,22 @@ double mic_phase(const PanelView& view, double now) {
     const double sampled = std::floor(now / frame) * frame;
     return std::clamp((sampled - view.dictation_level_since) / dictation_level_period, 0.0, 1.0);
 }
-// The Focus mode icon's shake, in pixels: a few damped swings, sampled 30
-// times a second like the mic key's bars; 0 once it is over.
-constexpr double focus_shake_duration = .45;
-double focus_shake(const PanelView& view, double now) {
+// A toolbar icon's shake from `since`, in pixels: a few damped swings, sampled
+// 30 times a second like the mic key's bars; 0 once it is over.
+constexpr double icon_shake_duration = .45;
+double icon_shake(double since, double now) {
     constexpr double pi = 3.141592653589793;
-    const double t = std::floor(now * 30) / 30 - view.focus_shake_since;
-    if (view.focus_shake_since < 0 || t < 0 || t >= focus_shake_duration) {
+    const double t = std::floor(now * 30) / 30 - since;
+    if (since < 0 || t < 0 || t >= icon_shake_duration) {
         return 0;
     }
-    return std::round(6 * std::sin(t * 2 * pi * 6) * (1 - t / focus_shake_duration) * 2) / 2;
+    return std::round(6 * std::sin(t * 2 * pi * 6) * (1 - t / icon_shake_duration) * 2) / 2;
+}
+// How much of its alert colour the shaking icon has left: 1 at the start, then
+// down to 0 as the shake ends.
+double icon_shake_fade(double since, double now) {
+    const double t = std::floor(now * 30) / 30 - since;
+    return since < 0 || t >= icon_shake_duration ? 0 : 1 - std::max(t, 0.0) / icon_shake_duration;
 }
 // A hovered name too long for its row, `overflow` pixels in all, waits,
 // scrolls to its end, rests there, then starts over. Its offset in whole
@@ -1812,18 +1836,29 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             damage.push_back(key_bounds_.at(key.id));
         }
     }
-    // The Focus mode icon shakes inside its button, which alone repaints.
-    const double shake = view.settings ? 0 : focus_shake(view, now);
-    animating_ |= !view.settings && view.focus_shake_since >= 0 &&
-                  now - view.focus_shake_since < focus_shake_duration + .05;
-    if (shake != focus_shake_ && !full) {
+    // A shaking icon stays inside its button, which alone repaints.
+    const double shake = view.settings ? 0 : icon_shake(view.focus_shake_since, now);
+    const double swipe_shake = view.settings ? 0 : icon_shake(view.swipe_shake_since, now);
+    const double swipe_fade = view.settings ? 0 : icon_shake_fade(view.swipe_shake_since, now);
+    for (const double since : {view.focus_shake_since, view.swipe_shake_since}) {
+        animating_ |= !view.settings && since >= 0 && now - since < icon_shake_duration + .05;
+    }
+    auto repaint = [&](const char* id) {
         for (const auto& c : view.controls) {
-            if (c.id == "keep-open") {
+            if (c.id == id) {
                 damage.push_back({std::floor(c.bounds.x), std::floor(c.bounds.y),
                                   std::ceil(c.bounds.width) + 1, std::ceil(c.bounds.height) + 1});
             }
         }
+    };
+    if (shake != focus_shake_ && !full) {
+        repaint("keep-open");
     }
+    if ((swipe_shake != swipe_shake_ || swipe_fade != swipe_fade_) && !full) {
+        repaint("swipe-toggle");
+    }
+    swipe_shake_ = swipe_shake;
+    swipe_fade_ = swipe_fade;
     focus_shake_ = shake;
     // The mic key's bars and ring step at 30 fps; between steps a 60 Hz
     // frame would rebuild and compare the whole view for no new pixel.
@@ -2503,13 +2538,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
             } else if (control.icon != Icon::None) {
                 auto at = r;
+                auto tint = control.warning ? t.alert : control.dimmed ? disabled_legend(t) : legend;
                 if (control.id == "keep-open") {
                     at.x += focus_shake_; // Its button stays; only the icon shakes.
+                } else if (control.id == "swipe-toggle") {
+                    at.x += swipe_shake_;
+                    tint = mix(tint, t.alert, swipe_fade_);
                 }
-                draw_icon(cr, control.icon, at,
-                          control.warning  ? t.alert
-                          : control.dimmed ? disabled_legend(t)
-                                           : legend);
+                draw_icon(cr, control.icon, at, tint);
             } else {
                 // Toolbar names such as a language's short name shrink to fit.
                 label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend,
@@ -2554,7 +2590,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             // the counter, wrapping onto a second line when long.
             double left = body.x + 18, right = body.x + body.width - 18;
             for (const auto& control : view.controls) {
-                if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 400) {
+                if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 640) {
                     left = std::max(left, control.bounds.x + control.bounds.width);
                 }
             }
