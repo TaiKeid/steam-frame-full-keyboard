@@ -2739,9 +2739,10 @@ void away_tests() {
     require(!toolbar.enabled && !toolbar.warning && toolbar.icon == Icon::HapticSoundOff,
             "the toolbar button waits, crossed but not orange");
     open_settings(app);
-    const auto effect = std::find_if(app.view().controls.begin(), app.view().controls.end(),
+    const auto under_settings = app.view();
+    const auto effect = std::find_if(under_settings.controls.begin(), under_settings.controls.end(),
                                      [](const Control& item) { return item.id == "haptic-effect:b"; });
-    require(effect != app.view().controls.end(), "listening continues under Settings");
+    require(effect != under_settings.controls.end(), "listening continues under Settings");
     const double x = effect->bounds.x + effect->bounds.width / 2,
                  y = effect->bounds.y + effect->bounds.height / 2;
     app.down(0, x, y, 1);

@@ -1784,7 +1784,8 @@ void languages_popup() {
     };
     auto additional = [&] {
         std::vector<std::string> titles;
-        for (const auto& row : app.view().languages->additional) {
+        const auto view = app.view();
+        for (const auto& row : view.languages->additional) {
             titles.push_back(row.title);
         }
         return titles;
@@ -1936,7 +1937,8 @@ void main_language_stays() {
     App app(options, sink);
     auto titles = [&] {
         std::vector<std::string> result;
-        for (const auto& row : app.view().languages->additional) {
+        const auto view = app.view();
+        for (const auto& row : view.languages->additional) {
             result.push_back(row.title);
         }
         return result;
