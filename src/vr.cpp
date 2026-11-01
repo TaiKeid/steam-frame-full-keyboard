@@ -20,7 +20,6 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <sstream>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
@@ -1685,9 +1684,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool was_listening = false;
     bool reveal_pending = app.reveal_after_update();
     const double reveal_deadline = monotonic_seconds() + 5;
-    // Diagnostics: what SteamVR makes of a panel we believe is up.
-    std::string overlay_report;
-    double next_overlay_check = 0;
     double last_suspended = suspended_seconds(), next_presence_check = 0;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
@@ -3625,42 +3621,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
                 lifecycle.present(placement.ready(), presentable(), compositor_visible, now);
-            }
-        }
-        // Checked once a second and logged when it changes, so a panel that is
-        // up for us but unseen in the headset leaves a trace.
-        if (now >= next_overlay_check) {
-            next_overlay_check = now + 1;
-            std::string report;
-            if (lifecycle.visible()) {
-                float alpha = 0;
-                vr_overlay()->GetOverlayAlpha(panel.handle(), &alpha);
-                vr::TrackedDevicePose_t head{};
-                vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &head, 1);
-                double distance = -1;
-                if (head.bPoseIsValid && displayed.ready()) {
-                    const auto t = displayed.transform();
-                    const auto& m = head.mDeviceToAbsoluteTracking.m;
-                    // Half metres, so an ordinary head movement does not log.
-                    distance = std::round(2 * std::hypot(t[0][3] - m[0][3], t[1][3] - m[1][3],
-                                                         t[2][3] - m[2][3])) / 2;
-                }
-                std::ostringstream text;
-                text << "shown by SteamVR " << (vr_overlay()->IsOverlayVisible(panel.handle()) ? "yes" : "no")
-                     << ", alpha " << std::round(alpha * 10) / 10 << ", dashboard "
-                     << (vr_overlay()->IsDashboardVisible() ? "open" : "closed") << ", ";
-                if (distance < 0) {
-                    text << "no placement";
-                } else {
-                    text << distance << " m away";
-                }
-                report = text.str();
-            }
-            if (report != overlay_report) {
-                overlay_report = report;
-                if (!report.empty()) {
-                    std::cout << "Overlay: " << report << ".\n" << std::flush;
-                }
             }
         }
         if (anchor && shell_shown) {
