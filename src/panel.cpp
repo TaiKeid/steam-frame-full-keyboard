@@ -1216,13 +1216,16 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
     }
     return {};
 }
+// Narrower than this, no word of a status would fit.
+constexpr double min_status_width = 40;
 // The editor covers the status line, so it moves up into the toolbar row,
 // between the left buttons and the next control or the counter.
 Rect dictation_status_line(const PanelView& view) {
     const auto body = panel_case_bounds(view);
     double left = body.x + 18, right = body.x + body.width - 18;
     for (const auto& control : view.controls) {
-        if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 640) {
+        if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 640 &&
+            !control.id.starts_with("swipe-candidate-")) {
             left = std::max(left, control.bounds.x + control.bounds.width);
         }
     }
@@ -1234,7 +1237,7 @@ Rect dictation_status_line(const PanelView& view) {
     if (const auto counter = dictation_counter_bounds(view)) {
         right = std::min(right, counter->x);
     }
-    return {left + 12, 12, right - left - 24, 42};
+    return {left + 12, 12, std::max(0.0, right - left - 24), 42};
 }
 // Settings surfaces, in the keyboard's language: raised panels and keycaps
 // instead of outlines. Every colour derives from the theme.
@@ -1732,6 +1735,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     bool marquee_status = false;
     double marquee_shift = 0;
     std::optional<double> marquee_due;
+    const bool in_editor = view.dictation && !view.settings;
+    const bool status_shown =
+        in_editor && !view.status.empty() && dictation_status_line(view).width >= min_status_width;
     {
         const Control* choice = nullptr;
         for (const auto& control : view.controls) {
@@ -1739,22 +1745,25 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 choice = &control;
             }
         }
-        // Japanese and Korean input buttons narrow the toolbar's gap: a dictation
-        // status too long for two lines of it sits on one, and scrolls under the
-        // laser. Moving by itself it would distract.
+        // An input button can narrow the toolbar's gap: a dictation status too
+        // long for two lines of it sits on one, and scrolls under the laser.
+        // Moving by itself it would distract. One paint a frame goes on while
+        // the microphone's bars move, so the text is measured once.
         std::optional<Rect> status_line;
         double status_overflow = 0;
-        const bool input_buttons =
-            view.language->id.starts_with("ja-") || view.language->id.starts_with("ko-");
-        if (!choice && input_buttons && view.dictation && !view.settings && !view.status.empty()) {
-            const auto line = dictation_status_line(view);
+        if (status_shown && (status_measured_ != view.status || status_font_ != view.language->font)) {
             auto* measure = cairo_create(surface_);
             grey_text(measure);
-            const double width = text_width(measure, view.status, 15, view.language->font);
+            status_width_ = text_width(measure, view.status, 15, view.language->font);
             cairo_destroy(measure);
-            if (width > 1.8 * line.width) {
+            status_measured_ = view.status;
+            status_font_ = view.language->font;
+        }
+        if (!choice && status_shown) {
+            const auto line = dictation_status_line(view);
+            if (status_width_ > 1.8 * line.width) {
                 status_line = line;
-                status_overflow = width - (line.width - 8);
+                status_overflow = status_width_ - (line.width - 8);
             }
         }
         const std::string hovered = choice ? choice->id : status_line ? "status: " + view.status : "";
@@ -2667,7 +2676,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
             }
         }
-        if (!view.status.empty() && view.dictation && !view.settings) {
+        if (status_shown) {
             const auto line = dictation_status_line(view);
             case_plate(cr, view, line, view.status, 15, PANGO_ALIGN_LEFT);
             if (marquee_status) {
@@ -2676,7 +2685,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
                       true);
             }
-        } else if (!view.status.empty()) {
+        } else if (!view.status.empty() && !in_editor) {
             // A compact toolbar's second row takes the left of the status line.
             const double inset = compact_toolbar(view) ? 88 : 18;
             const Rect line = view.settings ? Rect{30, 574, 1540, 24}

@@ -399,6 +399,8 @@ class PanelRenderer {
     double marquee_since_{}, marquee_shown_{-1};
     // A status too long for its gap scrolls under the laser. Once the laser
     // leaves, the pass under way ends here and the text returns to its start.
+    std::string status_measured_, status_font_;
+    double status_width_{};
     bool status_scrolling_{};
     std::optional<double> status_scroll_end_;
     cairo_surface_t* surface_{};

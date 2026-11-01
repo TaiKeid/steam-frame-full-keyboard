@@ -838,13 +838,12 @@ PanelView App::geometry() const {
     return v;
 }
 std::string App::game_sound_message() const {
-    // These languages' input buttons leave the toolbar little room, and a
-    // user typing in them may not read English comfortably.
-    const auto& language = settings_.active.language;
-    if (language.starts_with("ja-")) {
+    // A user dictating in these languages may not read English comfortably.
+    const auto& language = profiles_.languages.at(settings_.active.language).dictation_language;
+    if (language == "ja") {
         return "プレイ中はゲームの音が入ることがあります。";
     }
-    if (language.starts_with("ko-")) {
+    if (language == "ko") {
         return "플레이 중에는 게임 소리가 입력될 수 있습니다.";
     }
     return "Game sounds may be picked up during a play session.";

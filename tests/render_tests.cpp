@@ -638,9 +638,53 @@ void latin_legends(const Layout& layout, const Theme& theme, const Language& lan
         throw std::runtime_error(language.id + ": Latin legends still show the method's symbols");
     }
 }
+// A status the toolbar's gap can't hold scrolls under the laser, whatever the
+// language, and one with no room at all stays out of the way.
+void status_line() {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at("graphite");
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.dictation = DictationView{};
+    view.dictation->bounds = {100, 120, 1200, 300};
+    view.status = "Game sounds may be picked up during a play session.";
+    view.status_hovered = true;
+    const auto scrolls = [&] {
+        PanelRenderer renderer;
+        renderer.paint(view, 1);
+        return renderer.animating();
+    };
+    const Control buttons{"buttons", "", {18, 12, 590, 42}};
+    if (scrolls()) {
+        throw std::runtime_error("a status that fits does not scroll");
+    }
+    view.controls = {buttons, {"toggle", "", {680, 12, 150, 42}}};
+    if (!scrolls()) {
+        throw std::runtime_error("a long status in a narrow gap scrolls");
+    }
+    view.controls = {buttons, {"swipe-candidate-0", "word", {618, 12, 100, 42}}};
+    if (scrolls() || dictation_status_bounds(view).width != 0) {
+        throw std::runtime_error("a status with no room stays out of the way");
+    }
+    view.controls = {{"swipe-candidate-0", "word", {300, 12, 100, 42}},
+                     {"swipe-candidate-1", "word", {410, 12, 100, 42}}};
+    if (dictation_status_bounds(view).x > 300) {
+        throw std::runtime_error("a candidate is not a toolbar button");
+    }
+}
 int main() {
     try {
         handle_states();
+        status_line();
         const auto profiles = load_profiles({}, {});
         for (const auto& [id, language] : profiles.languages) {
             const auto layout = id == "ko-cheonjiin"                           ? "ko-12key"
