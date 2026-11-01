@@ -999,11 +999,16 @@ class Helper:
 
     def microphone(self):
         """filtered_microphone() for the graph as it is now, or None."""
+        dump = self.graph()
+        return None if dump is None else filtered_microphone(dump)
+
+    def graph(self):
+        """The pw-dump listing as it is now, or None if it could not be read."""
         try:
             listing = subprocess.run(["pw-dump"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, timeout=2, check=True,
                                      env=dict(os.environ, PIPEWIRE_REMOTE=MANAGER_REMOTE))
-            return filtered_microphone(json.loads(listing.stdout))
+            return json.loads(listing.stdout)
         except (OSError, ValueError, subprocess.SubprocessError):
             return None
         finally:
@@ -1064,8 +1069,11 @@ class Helper:
             if self.direct and time.monotonic() - self.checked > self.game_check:
                 # A session may have started or ended since capture did. Each
                 # look runs pw-dump, so it is not repeated for every phrase.
-                microphone = self.microphone()
-                self.notify(microphone is not None and microphone[2])
+                # A look that failed says nothing about the filters.
+                dump = self.graph()
+                if dump is not None:
+                    microphone = filtered_microphone(dump)
+                    self.notify(microphone is not None and microphone[2])
             self.current = self.next_id
             self.next_id += 1
             self.live_prompt, self.live_asked, self.live_frames = None, False, 0
@@ -1297,8 +1305,9 @@ class Helper:
                         self.fail(str(failure))
                 if self.capturing and self.direct and time.monotonic() - self.last_audio > STALL_TIMEOUT:
                     # The link was lost, for example as the filters were
-                    # rearranged; the default source still works.
+                    # rearranged; the default source still works, filtered.
                     self.stop_recorder()
+                    self.notify(False)
                     try:
                         self.start_recorder(direct=False)
                     except Failure as failure:
