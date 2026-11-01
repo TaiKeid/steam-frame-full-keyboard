@@ -208,6 +208,9 @@ struct KeySounds::Player {
                     std::cerr << "Haptic sounds lost PipeWire; trying again.\n";
                 }
                 changed.wait_for(lock, connect_retry, [&] { return stopping || !wanted; });
+                // Pops pressed meanwhile are too late to play.
+                press_requests.store(0, std::memory_order_relaxed);
+                release_requests.store(0, std::memory_order_relaxed);
             } else {
                 reported = false;
             }
@@ -265,9 +268,9 @@ struct KeySounds::Player {
         }
         changed.notify_all();
     }
-    // The loop stops first, so no event arrives during what follows. Destroying
-    // the stream takes it off the data thread, which runs process(), and ends
-    // that thread with its context.
+    // The loop stops first, so no event races what follows. Destroying the
+    // stream takes it off the data thread, which runs process(), and ends that
+    // thread with its context; its last state change calls lost() from here.
     void disconnect() {
         if (loop) {
             pw.thread_loop_stop(loop);
