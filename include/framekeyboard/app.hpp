@@ -468,6 +468,8 @@ class App {
     bool swipe_supported(const std::string& language) const;
     // The same answer without reading the disk on every frame.
     bool swipe_known(const std::string& language) const;
+    // Settings' switch reaches every language of the cycle, not only the main one.
+    bool pending_can_swipe() const;
     mutable std::map<std::string, bool> swipe_support_;
     // Whether the main language or an additional one can swipe.
     bool swipe_in_cycle_{};

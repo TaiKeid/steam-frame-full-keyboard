@@ -579,7 +579,7 @@ void App::update_settings_ui() {
             std::move(id),  std::move(label), "", ControlStyle::Checkbox, checked, {}, enabled, {},
             std::move(note)};
     };
-    const bool swipe = swipe_supported(pending_.language);
+    const bool swipe = pending_can_swipe();
     // Languages the pending layout cannot type stay listed but dimmed.
     auto language_choices = choices(profiles_.languages);
     for (auto& choice : language_choices) {
@@ -2862,7 +2862,7 @@ void App::action(const ControlAction& command) {
         settings_.haptic_sounds_switch = !settings_.haptic_sounds_switch;
         save();
         host_settings_changed(before, "user");
-    } else if (kind == ControlKind::SwipeTyping && swipe_supported(pending_.language)) {
+    } else if (kind == ControlKind::SwipeTyping && pending_can_swipe()) {
         pending_swipe_typing_ = !pending_swipe_typing_;
         update_settings_ui();
     } else if (kind == ControlKind::SwipeCandidate) {
@@ -3071,6 +3071,12 @@ bool App::swipe_supported(const std::string& language_id) const {
     }
     return !swipe_lexicon_path(options_.data_dir, options_.config_dir, language->second.swipe_lexicon)
                 .empty();
+}
+bool App::pending_can_swipe() const {
+    return swipe_known(pending_.language) ||
+           std::any_of(pending_favorites_.begin(), pending_favorites_.end(), [&](const Favorite& favorite) {
+               return swipe_known(favorite.selection.language);
+           });
 }
 bool App::swipe_known(const std::string& language) const {
     const auto known = swipe_support_.find(language);

@@ -1359,6 +1359,12 @@ void toolbar_toggle() {
         require(toggle && toggle->dimmed && toggle->icon == Icon::SwipeOff && !saved().swipe_switch,
                 "it still toggles");
         press(app, *toggle);
+        app.show_settings();
+        const auto view = app.view();
+        const auto row = std::find_if(view.controls.begin(), view.controls.end(),
+                                      [](const Control& item) { return item.id == "swipe-typing"; });
+        require(row != view.controls.end() && row->enabled && row->selected,
+                "Settings can turn swiping off for the language that can swipe");
     }
     // No language that can swipe: the press shakes the icon and changes nothing.
     config("bg-bg", "");
@@ -1372,6 +1378,11 @@ void toolbar_toggle() {
         press(app, *toggle);
         require(app.view().swipe_shake_since >= 0, "a press shakes it");
         require(saved().swipe_switch, "and toggles nothing");
+        app.show_settings();
+        const auto view = app.view();
+        const auto row = std::find_if(view.controls.begin(), view.controls.end(),
+                                      [](const Control& item) { return item.id == "swipe-typing"; });
+        require(row != view.controls.end() && !row->enabled, "and the option has nothing to reach");
     }
     // A flick layout: greyed out and not reactive, even with a language that can swipe.
     config("ja-flick", english, true, "ja-flick-12");
