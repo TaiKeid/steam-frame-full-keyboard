@@ -6,8 +6,6 @@
 
 namespace framekeyboard {
 namespace {
-// Enough to page through; a prefix of one key would otherwise match thousands.
-constexpr int max_candidates = 50;
 // The radical each letter key stands for, shown while composing.
 constexpr std::array<const char*, 26> radicals{"日", "月", "金", "木", "水", "火", "土", "竹", "戈",
                                                "十", "大", "中", "一", "弓", "人", "心", "手", "口",
@@ -90,10 +88,13 @@ struct TableEngine::Database {
     ~Database() { release(); }
     std::vector<std::string> find(const std::string& keys) {
         const auto& api = sqlite();
-        // Exact matches first, then what the keys so far can still become.
+        // Exact matches first, then what the keys so far can still become. A
+        // short prefix would match thousands, so those stop at enough to page
+        // through; every exact match stays, or its character cannot be typed.
         void* query{};
         const char* text = "SELECT phrase FROM phrases WHERE tabkeys >= ?1 AND tabkeys < ?2 "
-                           "ORDER BY tabkeys = ?1 DESC, freq DESC, id LIMIT 50";
+                           "ORDER BY tabkeys = ?1 DESC, freq DESC, id "
+                           "LIMIT max(50, (SELECT count(*) FROM phrases WHERE tabkeys = ?1))";
         std::vector<std::string> result;
         if (api.prepare(handle, text, -1, &query, nullptr) != 0) {
             return result;
@@ -102,7 +103,7 @@ struct TableEngine::Database {
         const auto end = keys + '{';
         api.bind(query, 1, keys.c_str(), -1, sqlite_transient);
         api.bind(query, 2, end.c_str(), -1, sqlite_transient);
-        while (api.step(query) == sqlite_row && static_cast<int>(result.size()) < max_candidates) {
+        while (api.step(query) == sqlite_row) {
             if (const auto* phrase = api.column(query, 0)) {
                 result.emplace_back(reinterpret_cast<const char*>(phrase));
             }

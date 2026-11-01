@@ -171,7 +171,10 @@ void table_engine() {
                         "c.execute('create table phrases(id integer primary key,tabkeys text,"
                         "phrase text,freq integer,user_freq integer)')\n"
                         "c.executemany('insert into phrases(tabkeys,phrase,freq,user_freq) "
-                        "values(?,?,?,0)',[('a','日',10),('a','曰',5),('ab','明',90),('b','月',1)])\n"
+                        "values(?,?,?,0)',[('a','日',10),('a','曰',5),('ab','明',90),('b','月',1)]"
+                        "+[('c',str(i),1) for i in range(60)]+[('c'+chr(97+i%26)+chr(97+i//26),"
+                        "'x',1) for i in range(120)]+[('d'+chr(97+i%26)+chr(97+i//26),'y',1) "
+                        "for i in range(120)])\n"
                         "c.commit()\n";
     const auto file = path.string() + ".py";
     std::ofstream(file) << script;
@@ -205,6 +208,13 @@ void table_engine() {
     require(table.empty() && table.text().empty(), "cancel clears it");
     table.type('1');
     require(table.empty(), "only letters take part");
+    table.type('c');
+    require(table.candidates().size() == 60 && table.candidates().back() == "59",
+            "a long list of exact matches is typed in full");
+    table.cancel();
+    table.type('d');
+    require(table.candidates().size() == 50, "a prefix alone stops at enough to page through");
+    table.cancel();
     require(!TableEngine::available(path.string() + ".missing"), "a missing table is unavailable");
 }
 void national_keymaps(const Profiles& profiles) {
