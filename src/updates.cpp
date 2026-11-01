@@ -132,7 +132,10 @@ bool Updates::start() {
         return true;
     }
     if (child_ > 0) {
-        return false;
+        if (prepared()) {
+            return false;
+        }
+        stop(); // Released and on its way out; tick just hasn't reaped it.
     }
     const auto executable = std::filesystem::canonical("/proc/self/exe");
     auto helper = helper_;
@@ -232,6 +235,7 @@ void Updates::fail(double now, const std::string& reason) {
     failure_ = failure_message(reason);
     std::cerr << failure_ << '\n';
     reset_at_ = now + 5;
+    release_helper();
 }
 void Updates::click(double now) {
     if (busy() || state_ == State::Latest || state_ == State::Error) {
@@ -271,14 +275,14 @@ void Updates::check_periodically(double clock) {
     }
     if (!silent_check_) {
         check_failed_ = true;
-        end_silent_check();
+        release_helper();
     }
 }
-void Updates::end_silent_check() {
+void Updates::release_helper() {
     silent_check_ = false;
     // The helper exits by itself once its channel closes, and tick reaps it,
     // so a Python process is not left running for hours and the VR thread
-    // never waits for it.
+    // never waits for it. The next check or install starts a new one.
     if (fd_ >= 0) {
         close(fd_);
         fd_ = -1;
@@ -368,16 +372,18 @@ bool Updates::tick(double now) {
             } else {
                 check_failed_ = true;
             }
-            end_silent_check();
+            release_helper();
             break;
         }
         if (state == "latest" && state_ == State::Checking) {
             state_ = State::Latest;
             reset_at_ = now + 5;
+            release_helper();
         } else if (state == "available" && state_ == State::Checking) {
             offer_ = field(packet.get(), "version");
             state_ = offer_.empty() ? State::Error : State::Available;
             reset_at_ = now + 5;
+            release_helper();
         } else if (state == "progress" && state_ == State::Installing) {
             const auto phase = field(packet.get(), "phase");
             if (phase == "download") {

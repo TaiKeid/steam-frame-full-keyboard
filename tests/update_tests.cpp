@@ -355,6 +355,19 @@ if mode=='marked':
             std::filesystem::remove(directory / "silent-checks");
         }
         {
+            // A check the user asked for leaves no helper behind either.
+            std::filesystem::remove(directory / "helper-exited");
+            Updates updates("0.6.0", {"marked"}, helper);
+            updates.click(10);
+            wait_label(updates, "Download and install update", 11);
+            for (int i = 0; i < 400 && !std::filesystem::exists(directory / "helper-exited"); ++i) {
+                updates.tick(11);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            require(std::filesystem::exists(directory / "helper-exited"),
+                    "the helper exits once it has answered");
+        }
+        {
             // Pressing the button during a silent check gets its answer.
             Updates updates("0.6.0", {"slow-latest"}, helper);
             updates.check_periodically(1000);

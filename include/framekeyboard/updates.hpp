@@ -56,7 +56,7 @@ class Updates {
     bool send(const std::string& operation, bool silent = false);
     void stop();
     void fail(double now, const std::string& reason = {});
-    void end_silent_check();
+    void release_helper();
     std::string version_, offer_, progress_, failure_, reason_;
     std::uint64_t done_{}, total_{};
     // Installed for a shell, whose keyboard waits for idleness while
