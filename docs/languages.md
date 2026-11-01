@@ -10,6 +10,7 @@ does not automatically select Russian. Updating the app preserves your selection
 | Language | Profile ID | Layout | Character mapping |
 | --- | --- | --- | --- |
 | English US | `en-us` | US full-size | US XKB |
+| English UK | `en-gb` | UK full-size | UK XKB |
 | English US, Dvorak | `en-us-dvorak` | US full-size | US Dvorak XKB; legends and swipe follow it |
 | English US, Colemak | `en-us-colemak` | US full-size | US Colemak XKB; legends and swipe follow it |
 | English US, International | `en-us-intl` | US full-size | US international, accents on dead keys |
@@ -76,6 +77,9 @@ does not automatically select Russian. Updating the app preserves your selection
 | Vietnamese | `vi-vn` | US full-size | Vietnamese XKB, tone keys on the number row |
 | Simplified Chinese | `zh-cn-pinyin` | US full-size | Local Pinyin with candidates |
 | Traditional Chinese | `zh-tw-pinyin` | US full-size | Local Pinyin with Traditional output |
+| Traditional Chinese, Zhuyin | `zh-tw-zhuyin` | US full-size | Local Zhuyin with candidates |
+| Traditional Chinese, Cangjie | `zh-tw-cangjie` | US full-size | Local Cangjie table |
+| Traditional Chinese, Quick | `zh-tw-quick` | US full-size | Local Quick table |
 | Korean | `ko-kr`, `ko-cheonjiin` | US full-size, or 12-key 천지인 (`ko-cheonjiin` only) | Local two-set Hangul, or 천지인 strokes |
 | Japanese | `ja-romaji`, `ja-kana`, `ja-jis`, `ja-flick` | US, Japanese JIS, or flick 12-key (`ja-flick` only) | See [Japanese input](japanese.md) |
 

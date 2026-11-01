@@ -1,6 +1,6 @@
 # Full Keyboard for Steam Frame
 
-A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons, plus swipe typing, dictation and emoji, in 37 languages.
+A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons, plus swipe typing, dictation and emoji, in 47 languages.
 
 **Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
@@ -13,18 +13,18 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
 - Dedicated Copy and Paste keys that send Ctrl+C and Ctrl+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
-- Swipe typing, off by default, for English, German, French, Spanish, Italian, Brazilian Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
+- Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
 - Phone-style flick keyboards: Japanese 12-key kana and Korean 12-key 천지인.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
 - **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
-- Controller laser typing with haptic clicks and hover feedback.
+- Controller laser typing with haptic clicks and hover feedback, plus optional key sounds with six effects.
 - Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Twelve themes, light and dark, with a see-through Background option. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
 - Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
 - An experimental integration protocol that lets alternative Steam Frame shells host the keyboard: launching, placing, styling and updating it. See [shell integration](docs/integration.md).
-- English, Spanish, Simplified and Traditional Chinese, Japanese, German, French (France and Canada), Brazilian Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian and Lithuanian, each on its standard national layout. Chinese has Simplified and Traditional Pinyin; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
+- English, Spanish, Simplified and Traditional Chinese, Japanese, German, French, Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian, Lithuanian, Bulgarian, Catalan, Serbian, Persian, Filipino, Icelandic, Georgian, Armenian, Kazakh, Azerbaijani, Macedonian and Albanian, each on its standard national layout, with regional and alternative keyboards for many of them. Chinese has Simplified and Traditional Pinyin, and Traditional also has Zhuyin, Cangjie and Quick; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
 
 ## Where it works
 

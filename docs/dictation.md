@@ -51,9 +51,9 @@ The mic key is the third of the three equal side-column keys, below Copy and Pas
 - **Send** takes the place of the right-hand Alt to Ctrl keys. Layouts without them, such as flick, put it in Tab's place.
 - **Undo last phrase** takes the first freed side slot, directly above the mic key.
 - Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
-- The status line, which the editor covers, moves into the toolbar row, wrapping onto a second line when long.
-- The toolbar stays. Listening continues under Settings, which waits only while Send runs. Applying a change to the language or recognition settings, Reload, the server test and downloading or deleting a model pause it. The language button waits until no phrase is being captured, recognized or typed. X, Pin, Recenter and Esc keep working.
-- Swipe typing and the emoji key are unavailable in dictation mode.
+- The status line, which the editor covers, moves into the toolbar row, wrapping onto a second line when long. Japanese and Korean input buttons narrow that space, so there a status too long for two lines stays on one and scrolls under the laser.
+- The toolbar stays. Listening continues under Settings, which waits only while Send runs. Applying a change to the language or recognition settings, Reload, the server test and downloading or deleting a model pause it. The language and haptic sounds buttons wait until no phrase is being captured, recognized or typed, and the swipe button waits while the editor can't be typed in. X, Pin, Recenter and Esc keep working.
+- Letters swipe as on the keyboard while the editor can be typed in. The emoji key is unavailable in dictation mode.
 - The editor is a well recessed into the case, darker than it on dark themes and lighter on light ones, with every colour taken from the theme.
 
 ### Capturing
@@ -393,7 +393,7 @@ The repository ships instructions only, no server code; they are in [speech serv
 | `DictationEditor` (`src/dictation_editor.cpp`) | UTF-8 text with a byte cursor on character boundaries, line layout, limits in code points, phrase insertion and joining, phrase undo, context | Pure and host-testable. |
 | Dictation layout (`src/dictation_mode.cpp`) | The mode's keys, derived from the active layout as the emoji picker does | The mic key is a `dictation` action at the free side slot in every bundled layout. |
 | Send (`src/dictation_send.cpp`) | Cuts the editor text into pieces: commits, Shift+Enter breaks or single-line spaces, and the final Enter, each with the editor bytes it covers | App sends one piece at a time through the output queue. |
-| App integration | Dictation mode, key routing to the editor, Esc rules, Send, Type as I speak, composer commits into the editor | In dictation mode every key goes to the editor before swipe, the composers or the output queue; keys still show as pressed and latch through `KeyboardState` as local keys. Typed text reaches the editor through `TextOutput`. Rendering stays free of input delivery. |
+| App integration | Dictation mode, key routing to the editor, Esc rules, Send, Type as I speak, composer commits into the editor | In dictation mode every key goes to the editor before the composers or the output queue, and a letter can start a swipe while the editor can be typed in; keys still show as pressed and latch through `KeyboardState` as local keys. Typed text reaches the editor through `TextOutput`. Rendering stays free of input delivery. |
 | Panel | Editor drawing, greyed text, overlays, counter, mic bars, ring, Settings text fields, address popup | The bars and ring redraw at 30 fps and only the mic key's region, which a partial texture upload copies to the GPU. |
 | VR | Passthrough while capturing, stick scrolling in both modes, the dashboard and Steam keyboard request reported to App each frame | |
 

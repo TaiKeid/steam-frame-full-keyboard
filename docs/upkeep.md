@@ -41,6 +41,7 @@ It reads each pin from the file that owns it and compares it with the upstream's
 These are linked or used as the Frame provides them, never bundled:
 - Anthy;
 - PyZy and libhangul;
+- libsqlite3 and the `cangjie5` and `quick5` tables in `/usr/share/ibus-table/tables` (Cangjie and Quick);
 - Cairo, Pango and HarfBuzz;
 - json-c, xkbcommon and the Wayland client;
 - Python 3, 3.12 on the Frame (the dictation and update helpers);

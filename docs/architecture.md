@@ -194,7 +194,7 @@ SteamOS's Desktop runs Plasma as one window on Gamescope's second X display: a n
   - The Desktop's own IBus does the entry, so it works in applications that use IBus there (Qt and GTK). The keys are physical positions, correct on US-like layouts.
   - Cancelling (hiding, a target change) sends nothing more: the keys the entry holds are released at once and the rest is dropped. A half-entered code may stay as IBus preedit in the Desktop application; cleaning it up with more keys could reach a different target. If the Desktop loses focus mid-entry, the entry stops the same way and fails, counting only whole characters as delivered. Native downs wait while an entry runs, as they do for Gamescope commits.
   - Printable ASCII still goes through Gamescope, which types it on its ordinary keymap.
-- **Paste instead:** General → KDE Desktop Unicode set to Paste (`desktop_unicode_paste`) hands `EiSink` the clipboard writer. Such text is then written to the clipboard, and Ctrl+V follows once the clipboard holds it. The commit succeeds when an application asks for the text, and fails after 2 s; a paste counts as possibly arrived, never as delivered. Cancelling before Ctrl+V sends nothing; during it, Ctrl and V are released at once.
+- **Paste instead:** Typing → KDE Desktop Unicode set to Paste (`desktop_unicode_paste`) hands `EiSink` the clipboard writer. Such text is then written to the clipboard, and Ctrl+V follows once the clipboard holds it. The commit succeeds when an application asks for the text, and fails after 2 s; a paste counts as possibly arrived, never as delivered. Cancelling before Ctrl+V sends nothing; during it, Ctrl and V are released at once.
 - **Clipboard:** the Desktop keeps its own clipboard. The clipboard writer also sets it through `zwlr_data_control_v1` on any Wayland socket one directory below `XDG_RUNTIME_DIR` (SteamOS: `nested_plasma/wayland-0`), so Paste Send works there. Offers it receives back are destroyed unread.
 
 Measured on the Frame under full CPU load, with a disposable Brave receiver flipping *there* and *three* (`tests/text_replace_probe.cpp` drives it): whole-string commits scrambled 12 of 120 words, and the per-character path 0 of 120. Acknowledgement alone, about 5 ms apart, still let IBus reorder keys.
@@ -235,6 +235,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Shell integration | `src/shell_protocol.cpp` (connection, session, lease), `src/shell_sink.cpp` (text sink between the output queue and the backend), `src/app_host.cpp` (App's side: contexts, hints, settings, themes, dictation), `src/shell_host.cpp` (matrices, update handover, preview renders); dispatch in `src/vr.cpp`. See [shell integration](integration.md) |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |
 | Grip model and haptic state | `src/grip.cpp`, `include/framekeyboard/feedback.hpp`, `include/framekeyboard/vr_haptics.hpp` |
+| Haptic sounds | `src/key_sounds.cpp`: synthesizes the pops and plays them through PipeWire, loaded at run time |
 | OpenVR lifecycle and event loop | `src/vr.cpp` |
 | Tests and opt-in receiver probes | `tests/` |
 
