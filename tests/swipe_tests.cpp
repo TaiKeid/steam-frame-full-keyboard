@@ -731,7 +731,7 @@ void suggestions_clear_the_toolbar() {
             settings.swipe_typing = true;
             settings.hide_numpad = hide_numpad;
             if (favorite) {
-                settings.favorites.push_back({"us", "US", {}});
+                settings.favorites.push_back({"de", "German", {"international-full", "de-de", "graphite"}});
             }
             save_settings(directory.path, settings);
             auto path = std::make_shared<std::vector<int>>(

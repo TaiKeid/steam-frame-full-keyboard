@@ -401,7 +401,7 @@ std::vector<Control> App::controls() const {
         // keeps keys silent, whatever the switch says.
         result.back().enabled = !listening;
     }
-    if (!settings_.favorites.empty() && host_.chrome.favorites) {
+    if (cycle_entries_.size() > 1 && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
              button(next_slot, sounds_on_top ? 4 : 3, 0, 100)});

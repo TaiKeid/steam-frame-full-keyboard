@@ -256,13 +256,12 @@ void App::append_languages(PanelView& v) const {
     add({ControlKind::ClearLanguages}, clear);
 
     // A lifted row leaves its place, and the rest open where it would land.
-    const auto lifted_from_list =
-        state.drag && state.drag->lifted && state.drag->source == Which::Additional;
+    const bool lifted = state.drag && state.drag->lifted;
     const auto gap =
         state.drag && state.drag->lifted ? state.drag->insert : std::optional<std::size_t>{};
     std::size_t slot = 0;
     for (std::size_t i = 0; i < pairs.size(); ++i) {
-        if (lifted_from_list && same_pair(pairs[i], state.drag->pair)) {
+        if (lifted && same_pair(pairs[i], state.drag->pair)) {
             continue;
         }
         if (gap == slot) {

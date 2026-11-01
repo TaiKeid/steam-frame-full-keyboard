@@ -1506,9 +1506,8 @@ void app_settings() {
         {"duplicate", "duplicate", {"international-full", "de-de", "graphite"}});
     save_settings(directory.path, settings);
     app.reload();
-    const auto same = app.selection();
-    click(app, "language-cycle");
-    require(app.selection() == same, "one unique favorite equal to default does not cycle");
+    require(!has(app.view(), "language-cycle"),
+            "one unique favorite equal to default leaves nothing to cycle");
     app.show_settings();
     require(control(app.view(), "additional-languages").label == "Additional languages",
             "a legacy favorite of the main language does not count");
@@ -2142,7 +2141,7 @@ void dictation_settings() {
 void keep_open_setting() {
     TemporaryDirectory directory;
     Settings settings;
-    settings.favorites = {{"en", "English", {}}};
+    settings.favorites = {{"de", "German", {"international-full", "de-de", "graphite"}}};
     save_settings(directory.path, settings);
     Options options;
     options.config_dir = directory.path;
