@@ -21,6 +21,9 @@
     "Noto Sans Armenian",
     "sans-serif"
   ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
   "dictation": {
     "language": "hy"
   }

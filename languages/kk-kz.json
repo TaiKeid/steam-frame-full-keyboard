@@ -20,6 +20,9 @@
     "Noto Sans",
     "sans-serif"
   ],
+  "required_keys": [
+    "IntlBackslash"
+  ],
   "dictation": {
     "language": "kk"
   }
