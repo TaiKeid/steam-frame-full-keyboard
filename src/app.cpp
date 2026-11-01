@@ -2167,7 +2167,7 @@ void App::commit_japanese() {
     if (text.empty()) {
         return;
     }
-    if (preview_input() && !dictation_open_) {
+    if (preview_output()) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
     } else if (text_output_->commit_text(text)) {
@@ -2409,7 +2409,7 @@ void App::commit_cjk() {
         return;
     }
     // In dictation mode the editor takes the text, even in a preview.
-    if (!text.empty() && ((preview_input() && !dictation_open_) || text_output_->commit_text(text))) {
+    if (!text.empty() && (preview_output() || text_output_->commit_text(text))) {
         cjk_->cancel();
         status_.clear();
     } else {
@@ -3269,7 +3269,7 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         }
     } else {
         const auto text = keymap_->compose(track.symbol);
-        if (!text.empty() && !preview_input() && !text_output_->commit_text(text)) {
+        if (!text.empty() && !preview_output() && !text_output_->commit_text(text)) {
             text_refused();
         }
         swipe_space_ = false;
@@ -3385,7 +3385,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
         dictation_open_ ? editor_.cursor() > 0 && !g_ascii_isspace(editor_.text()[editor_.cursor() - 1])
                         : swipe_space_ && !hint_no_autospace();
     const auto text = (spaced ? " " : "") + swipe_candidates_.front();
-    if (!preview_input() &&
+    if (!preview_output() &&
         !((dictation_open_ || output_.admit(true)) && text_output_->commit_text(text))) {
         text_refused();
         swipe_candidates_.clear();
@@ -3424,7 +3424,7 @@ void App::choose_swipe(int index) {
     }
     // A copy: refusing below clears the alternatives.
     const std::string word = swipe_candidates_[static_cast<std::size_t>(index)];
-    if (!preview_input()) {
+    if (!preview_output()) {
         if (!admitted) {
             update_output_status(); // Busy or full; the alternatives stay valid.
             return;

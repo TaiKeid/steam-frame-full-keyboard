@@ -1240,6 +1240,54 @@ void swipes_after_listening() {
     require(!app.view().dictation->text.empty(), "a swipe types once listening has stopped");
 }
 
+// A launch that cannot type still has the local editor.
+void editor_in_preview() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::RenderDictation;
+    options.input = InputBackend::None;
+    options.swipe_encoder = [path] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = std::make_shared<int>(0);
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    app.show_dictation();
+    const auto text = [&] { return app.view().dictation->text; };
+    const auto before = text();
+    const auto [ax, ay] = key_point(app, "KeyA");
+    app.down(0, ax, ay, 1);
+    app.up(0, ax, ay);
+    require(text().size() == before.size() + 1, "a tap types in the preview's editor");
+    const auto tapped = text();
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return text() != tapped; });
+    require(text().size() > tapped.size(), "and so does a swipe");
+    const auto swiped = text();
+    const auto word = swiped.find("hello") != std::string::npos ? "hello" : "helo";
+    const auto other = std::string(word) == "hello" ? "helo" : "hello";
+    const auto view = app.view();
+    const auto candidate =
+        std::find_if(view.controls.begin(), view.controls.end(), [&](const Control& c) {
+            return c.id.starts_with("swipe-candidate-") && c.label == other;
+        });
+    require(candidate != view.controls.end(), "its alternatives show");
+    click(app, candidate->id);
+    require(text().find(other) != std::string::npos && text() != swiped, "and they replace it");
+    require(sink.text.empty() && sink.events.empty(), "nothing leaves the keyboard");
+}
+
 // Listening has paused, and a phrase is still being recognized.
 void swipes_wait_for_recognition() {
     TemporaryDirectory directory;
@@ -1553,6 +1601,7 @@ int main(int argc, char** argv) {
         swipes_in_the_editor();
         swipes_after_listening();
     swipes_wait_for_recognition();
+    editor_in_preview();
         service_reuse();
         leave_while_decoding();
         suggestions_clear_the_toolbar();

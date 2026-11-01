@@ -379,6 +379,8 @@ class App {
     // A launch that cannot type: the desktop preview, or `--input none`
     // without the shell's text sink.
     bool preview_input() const { return options_.input == InputBackend::None && !sink_on(); }
+    // Nothing leaves the keyboard, but the editor still takes text: it is local.
+    bool preview_output() const { return preview_input() && !dictation_open_; }
     // What the context's purpose rules out (docs/integration.md, Hints).
     bool hint_private() const {
         return host_.context && (host_.hints.purpose == "password" || host_.hints.purpose == "pin");
