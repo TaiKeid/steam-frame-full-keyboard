@@ -2140,6 +2140,41 @@ void dictation_settings() {
     require(sink.events.empty(), "dictation settings send no desktop input");
 }
 
+// Clear all from the other hand takes what one hand is holding with it.
+void language_drag_with_two_hands() {
+    TemporaryDirectory directory;
+    const auto favorite = [](const char* language) {
+        return std::string(R"({"id":")") + language + R"(","name":"n","layout":"international-full",)" +
+               R"("language":")" + language + R"("})";
+    };
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+           R"("theme":"graphite"},"favorites":[)"
+        << favorite("de-de") << ',' << favorite("fr-fr") << ',' << favorite("es-es") << "]}";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    app.show_settings();
+    click(app, "additional-languages");
+    const auto listed = [&] {
+        const auto view = app.view();
+        return view.languages->additional;
+    };
+    const auto row = listed().front().bounds;
+    const double x = row.x + row.width / 2, y = row.y + row.height / 2;
+    app.move(0, x, y);
+    app.down(0, x, y, 1);
+    app.move(0, x - 90, y + 2 * additional_row_height);
+    require(app.view().languages->lifted.has_value(), "the first hand lifts a row");
+    click(app, "languages-clear", 1);
+    click(app, "confirm-accept", 1);
+    require(listed().empty() && !app.view().languages->lifted, "clearing drops the held row too");
+    app.up(0, x - 90, y + 2 * additional_row_height);
+    require(listed().empty() && !app.view().confirm, "and letting go changes nothing");
+}
+
 void keep_open_setting() {
     TemporaryDirectory directory;
     Settings settings;
@@ -2474,6 +2509,7 @@ int main() {
         desktop_unicode_setting();
         theme_preview();
         languages_popup();
+        language_drag_with_two_hands();
         main_language_stays();
         behavior_settings();
         auto_leveling_settings();

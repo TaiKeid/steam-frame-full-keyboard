@@ -2902,6 +2902,9 @@ void App::action(const ControlAction& command) {
         confirm_ = Confirm::None;
         pressed_controls_.clear();
         hovered_.clear();
+        if (languages_) {
+            languages_->drag.reset(); // Whatever the other hand holds went with the list.
+        }
         set_additional_pairs({});
     } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::SaveLanguages) {
         confirm_ = Confirm::None;

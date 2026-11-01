@@ -390,6 +390,11 @@ bool App::languages_release(unsigned pointer) {
     if (!languages_ || !languages_->drag || languages_->drag->pointer != pointer) {
         return false;
     }
+    // The other hand or the list's scrolling may have moved things since the
+    // last pointer move, so the drop is worked out on the list as it is now.
+    if (languages_->drag->lifted) {
+        update_languages_drop();
+    }
     const auto drag = *languages_->drag;
     languages_->drag.reset();
     if (!drag.lifted) {
@@ -533,6 +538,7 @@ void App::tick_languages(double now) {
         }
     }
     // Stick steps glide, about 70 ms to cover most of one, as the cards do.
+    const double additional_was = state.additional.scroll;
     for (auto* list : {&state.layouts, &state.languages, &state.additional}) {
         if (list->scroll != list->target) {
             list->scroll =
@@ -541,6 +547,9 @@ void App::tick_languages(double now) {
                     : list->scroll + (list->target - list->scroll) * (1 - std::exp(-elapsed / .07));
             dirty = true;
         }
+    }
+    if (state.additional.scroll != additional_was && state.drag && state.drag->lifted) {
+        update_languages_drop(); // The rows moved under a held row.
     }
 }
 } // namespace framekeyboard
