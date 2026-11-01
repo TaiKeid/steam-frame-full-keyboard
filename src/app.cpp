@@ -2946,7 +2946,7 @@ void App::action(const ControlAction& command) {
 }
 bool App::flick_down(unsigned pointer, const Key& key, double x, double y, double now) {
     const auto& language = profiles_.languages.at(settings_.active.language);
-    if (!backend_ready_ || keyboard_.pointer_pressed(pointer) || flick_track_ ||
+    if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || flick_track_ ||
         !language.flick.contains(key.action)) {
         return false;
     }
@@ -3135,7 +3135,8 @@ bool App::swipes(const Key& key, const std::set<int>& modifiers) const {
 }
 bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
                      const std::set<int>& mods) {
-    if (!backend_ready_ || keyboard_.pointer_pressed(pointer) || swipe_track_) {
+    // The editor is local, and keeps working without a connection.
+    if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || swipe_track_) {
         return false;
     }
     finish_swipe(true);

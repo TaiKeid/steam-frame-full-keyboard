@@ -211,7 +211,9 @@ struct TextSink : KeySink {
     // stays pending; it fails once `polls_until_failure` more checks reach 0.
     bool hold{}, held_pending{};
     int polls_until_failure{-1};
+    bool offline{}; // The input connection is lost.
     std::vector<std::size_t> replaced;
+    bool pump() override { return !offline; }
     void send(int code, int value) override { events.emplace_back(code, value); }
     bool held_failed() {
         if (polls_until_failure == 0) {
@@ -1141,6 +1143,15 @@ void swipes_in_the_editor() {
         left |= control.id.starts_with("swipe-candidate-");
     }
     require(!left, "another key ends the alternatives");
+    sink.offline = true;
+    app.tick(monotonic_seconds());
+    const auto connected = text();
+    const auto [cx, cy] = key_point(app, "KeyC");
+    app.down(0, cx, cy, 4);
+    app.up(0, cx, cy);
+    require(text() != connected, "the editor is local, so its keys work without a connection");
+    sink.offline = false;
+    app.tick(monotonic_seconds());
 }
 
 // The way a wearer gets there: the mic key opens the editor and listens, and a
