@@ -126,10 +126,11 @@ Dictation was released in 0.11.0; the design is in [dictation](dictation.md). Th
 - `dictation_model`: the model name, for servers and providers that need one.
 - `dictation_send_gap_ms`: how many milliseconds Send waits between characters, `20` (the default), `30` or `40`. Slower keeps characters in order when the Frame is busy.
 - `dictation_send_paste`: `true` makes Send, and Type as I speak for each phrase, paste through the clipboard instead of typing; the keyboard writes the clipboard but never reads it.
+- `dictation_send_enter`: `true` (the default) makes Send press Enter after the text; `false` leaves the text in the focused application without submitting it, ready to edit.
 - `dictation_direct`: `true` turns on Type as I speak: the mic key listens on the normal keyboard, and each phrase is typed into the focused application as soon as it is recognized, without the editor.
 - `dictation_recent_servers`: up to five server addresses that passed the Dictation card's Test, newest first, offered when entering the address. Unusable entries are skipped.
 
-Both are the **Send** row of the Dictation card in Settings, which also sets `dictation` (Off, On device or Self-hosted) and shows `dictation_server`, with a **Test** of the connection, and its **Type as I speak** switch sets `dictation_direct`. An invalid value of these fields falls back to typing at 20 ms into the editor, with a message.
+The **Send** row of the Dictation card sets `dictation_send_gap_ms` and `dictation_send_paste`. The card also sets `dictation` (Off, On device or Self-hosted) and shows `dictation_server`, with a **Test** of the connection, and offers **Type as I speak** (`dictation_direct`) and **Press Enter after Send** (`dictation_send_enter`). An invalid value of these fields falls back to typing at 20 ms into the editor, with a message.
 
 The API key for a provider is not stored here, but in `dictation-key` beside `config.json`, readable only by the user (see [speech server setup](speech-server.md#hosted-providers)). An invalid dictation field turns dictation off with a message and leaves every other setting as it is. Saving from Settings keeps these fields.
 

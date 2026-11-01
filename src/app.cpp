@@ -190,6 +190,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_send_enter_ = settings_.dictation_send_enter;
     pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
@@ -674,6 +675,10 @@ void App::update_settings_ui() {
             field(ControlKind::DictationDirect,
                   checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
                            "Skips the editor but lower accuracy")));
+        dictation_fields.push_back(
+            field(ControlKind::DictationSendEnter,
+                  checkbox("dictation-send-enter", "Press Enter after Send",
+                           pending_dictation_send_enter_, true, "Leaves the text ready to edit")));
     }
     // Semi-transparent and Invisible keep the case's laser area; Disabled lets
     // the laser through its clear gaps (docs/configuration.md, Background).
@@ -1828,6 +1833,7 @@ void App::show_settings() {
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_send_enter_ = settings_.dictation_send_enter;
     pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
@@ -2064,6 +2070,7 @@ void App::reload() {
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
         settings_.dictation_send_paste = updated_settings.dictation_send_paste;
+        settings_.dictation_send_enter = updated_settings.dictation_send_enter;
         settings_.dictation_direct = updated_settings.dictation_direct;
         settings_.dictation = updated_settings.dictation;
         settings_.dictation_server = updated_settings.dictation_server;
@@ -2093,6 +2100,7 @@ void App::reload() {
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
     pending_dictation_send_paste_ = settings_.dictation_send_paste;
+    pending_dictation_send_enter_ = settings_.dictation_send_enter;
     pending_dictation_direct_ = settings_.dictation_direct;
     pending_dictation_ = settings_.dictation;
     pending_dictation_server_ = settings_.dictation_server;
@@ -2580,6 +2588,7 @@ void App::apply_settings() {
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
     settings_.dictation_send_gap = pending_dictation_send_gap_;
     settings_.dictation_send_paste = pending_dictation_send_paste_;
+    settings_.dictation_send_enter = pending_dictation_send_enter_;
     settings_.dictation_direct = pending_dictation_direct_;
     settings_.dictation = pending_dictation_;
     if (settings_.dictation_server != pending_dictation_server_) {
@@ -2950,6 +2959,9 @@ void App::action(const ControlAction& command) {
             pending_dictation_send_gap_ = std::stoi(command.value);
         }
         settings_ui_.close_popup();
+        update_settings_ui();
+    } else if (kind == ControlKind::DictationSendEnter) {
+        pending_dictation_send_enter_ = !pending_dictation_send_enter_;
         update_settings_ui();
     } else if (kind == ControlKind::DictationDirect) {
         pending_dictation_direct_ = !pending_dictation_direct_;
@@ -5332,6 +5344,7 @@ std::size_t counted(const SendPiece& piece) {
     case SendPiece::Kind::Paste:
         return static_cast<std::size_t>(g_utf8_strlen(piece.text.c_str(), -1));
     case SendPiece::Kind::Enter:
+    case SendPiece::Kind::Discard:
         return 0;
     default:
         return 1;
@@ -5359,9 +5372,10 @@ void App::start_send() {
         send.pieces = {{SendPiece::Kind::Enter, {}, 0, editor_.text().size()}};
     } else if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on()) {
         // Steam's own fields take text directly; the clipboard cannot reach them.
-        send.pieces = paste_pieces(editor_.text());
+        send.pieces = paste_pieces(editor_.text(), settings_.dictation_send_enter);
     } else {
-        send.pieces = send_pieces(editor_.text(), !output_.single_line_target());
+        send.pieces =
+            send_pieces(editor_.text(), !output_.single_line_target(), settings_.dictation_send_enter);
     }
     for (const auto& piece : send.pieces) {
         send.total += counted(piece);
@@ -5385,6 +5399,12 @@ bool App::tick_send(double now) {
     const auto& piece = s.pieces[s.next];
     if (piece.kind == SendPiece::Kind::Paste) {
         return tick_paste(now);
+    }
+    // Dropped trailing spaces and breaks need no key; they only leave the
+    // editor, together with the text before them.
+    if (piece.kind == SendPiece::Kind::Discard) {
+        finish_piece(now);
+        return true;
     }
     if (!s.in_flight) {
         // A held key could turn letters into shortcuts, and earlier output
@@ -5413,6 +5433,8 @@ bool App::tick_send(double now) {
             break;
         case SendPiece::Kind::Paste:
             break; // tick_paste
+        case SendPiece::Kind::Discard:
+            break; // finished above
         }
         if (!accepted) {
             // A target briefly busy with an earlier request accepts it later.
@@ -5541,7 +5563,8 @@ bool App::tick_paste(double now) {
         return false;
     default:
         // The application has the text; give it a moment to insert it
-        // before Enter, which would otherwise overtake it.
+        // before Enter, which would otherwise overtake it. Without Enter,
+        // this still lets the insertion land before the mode closes.
         if (now - s.paste_at < .1 || output_.text_pending()) {
             return false;
         }

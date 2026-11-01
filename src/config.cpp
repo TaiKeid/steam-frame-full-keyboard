@@ -803,6 +803,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             if (auto* paste = field(document.get(), "dictation_send_paste", json_type_boolean, true)) {
                 settings.dictation_send_paste = json_object_get_boolean(paste);
             }
+            if (auto* enter = field(document.get(), "dictation_send_enter", json_type_boolean, true)) {
+                settings.dictation_send_enter = json_object_get_boolean(enter);
+            }
             if (auto* direct = field(document.get(), "dictation_direct", json_type_boolean, true)) {
                 settings.dictation_direct = json_object_get_boolean(direct);
             }
@@ -820,11 +823,12 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 }
             }
         } catch (const std::exception&) {
-            errors.push_back(
-                "config.json: dictation_send_gap_ms must be 10, 20, 30 or 40, and dictation_send_paste "
-                "and dictation_direct booleans; Send types at 20 ms into the editor");
+            errors.push_back("config.json: dictation_send_gap_ms must be 10, 20, 30 or 40, and "
+                             "dictation_send_paste, dictation_send_enter and dictation_direct booleans; "
+                             "Send types at 20 ms into the editor");
             settings.dictation_send_gap = 20;
             settings.dictation_send_paste = false;
+            settings.dictation_send_enter = true;
             settings.dictation_direct = false;
         }
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
@@ -957,6 +961,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_int(settings->dictation_send_gap));
         json_object_object_add(document.get(), "dictation_send_paste",
                                json_object_new_boolean(settings->dictation_send_paste));
+        json_object_object_add(document.get(), "dictation_send_enter",
+                               json_object_new_boolean(settings->dictation_send_enter));
         json_object_object_add(document.get(), "dictation_direct",
                                json_object_new_boolean(settings->dictation_direct));
         json_object_object_add(document.get(), "dictation_fallback",

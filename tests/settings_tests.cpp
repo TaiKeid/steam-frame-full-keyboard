@@ -2097,6 +2097,13 @@ void dictation_settings() {
     open_dictation_card(app);
     require(control(app.view(), "send-gap").label.find("20 ms") != std::string::npos,
             "Send types at 20 ms by default");
+    require(control(app.view(), "dictation-send-enter").selected, "Send presses Enter by default");
+    click(app, "dictation-send-enter");
+    require(saved(app).dictation_send_enter, "the switch stays pending until Apply");
+    click(app, "apply");
+    require(!saved(app).dictation_send_enter, "Apply saves leaving out the final Enter");
+    open_dictation_card(app);
+    require(!control(app.view(), "dictation-send-enter").selected, "the switch survives restart");
     select(app, "send-gap", "40");
     require(saved(app).dictation_send_gap == 20, "the choice stays pending until Apply");
     click(app, "apply");
@@ -2127,15 +2134,16 @@ void dictation_settings() {
                 "Send can type at 10 ms");
     }
     for (const auto* value : {R"("dictation_send_gap_ms":25)", R"("dictation_send_gap_ms":"30")",
-                              R"("dictation_send_paste":"yes")"}) {
+                              R"("dictation_send_paste":"yes")", R"("dictation_send_enter":"yes")"}) {
         std::ofstream(directory.path / "config.json")
             << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},)"
             << R"("dictation":"server","dictation_server":"host",)" << value << "}";
         std::vector<std::string> errors;
         const auto settings = load_settings(directory.path, errors);
         require(errors.size() == 1 && settings.dictation_send_gap == 20 &&
-                    !settings.dictation_send_paste && settings.dictation == "server",
-                "a bad Send setting falls back to typing at 20 ms on its own");
+                    !settings.dictation_send_paste && settings.dictation_send_enter &&
+                    settings.dictation == "server",
+                "a bad Send setting falls back to typing at 20 ms and Enter on its own");
     }
     require(sink.events.empty(), "dictation settings send no desktop input");
 }

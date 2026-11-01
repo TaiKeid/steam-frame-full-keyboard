@@ -30,17 +30,25 @@ std::vector<std::string> text_commits(const std::string& text) {
     return result;
 }
 
-std::vector<SendPiece> paste_pieces(const std::string& text) {
+std::vector<SendPiece> paste_pieces(const std::string& text, bool press_enter) {
     const auto first = text.find_first_not_of(" \n");
     if (first == std::string::npos) {
         return {};
     }
     const auto last = text.find_last_not_of(" \n") + 1;
+    if (!press_enter) {
+        std::vector<SendPiece> pieces{
+            {SendPiece::Kind::Paste, text.substr(first, last - first), 0, last}};
+        if (last < text.size()) {
+            pieces.push_back({SendPiece::Kind::Discard, {}, last, text.size()});
+        }
+        return pieces;
+    }
     return {{SendPiece::Kind::Paste, text.substr(first, last - first), 0, last},
             {SendPiece::Kind::Enter, {}, last, text.size()}};
 }
 
-std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks) {
+std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks, bool press_enter) {
     const auto first = text.find_first_not_of(" \n");
     if (first == std::string::npos) {
         return {};
@@ -79,6 +87,12 @@ std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks) {
     }
     add_text(pieces, text, start, last);
     pieces.front().begin = 0; // it also covers the dropped spaces and breaks
+    if (!press_enter) {
+        if (last < text.size()) {
+            pieces.push_back({SendPiece::Kind::Discard, {}, last, text.size()});
+        }
+        return pieces;
+    }
     pieces.push_back({SendPiece::Kind::Enter, {}, last, text.size()});
     return pieces;
 }

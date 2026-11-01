@@ -319,6 +319,7 @@ JsonPtr App::host_settings() const {
     json_object_object_add(object.get(), "dictation_send_gap",
                            json_object_new_int(settings_.dictation_send_gap));
     flag("dictation_send_paste", settings_.dictation_send_paste);
+    flag("dictation_send_enter", settings_.dictation_send_enter);
     flag("dictation_direct", settings_.dictation_direct);
     flag("dictation_fallback", settings_.dictation_fallback);
     return object;
@@ -331,8 +332,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
     static const std::set<std::string> booleans{
         "swipe_typing",          "swipe_switch",         "haptic_sounds_switch", "num_lock",
         "hide_numpad",           "use_drag_to_move",     "auto_leveling",        "pinned",
-        "emoji_close_on_select", "dictation_send_paste", "dictation_direct",     "dictation_fallback",
-        "desktop_unicode_paste"};
+        "emoji_close_on_select", "dictation_send_paste", "dictation_send_enter", "dictation_direct",
+        "dictation_fallback",    "desktop_unicode_paste"};
     // Every value is checked before any is applied: one invalid value
     // rejects the whole request.
     json_object_object_foreach(values, check_key, check_value) {
@@ -414,6 +415,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
             settings_.desktop_unicode_paste = pending_desktop_unicode_paste_ = on;
         } else if (key == "dictation_send_paste") {
             settings_.dictation_send_paste = pending_dictation_send_paste_ = on;
+        } else if (key == "dictation_send_enter") {
+            settings_.dictation_send_enter = pending_dictation_send_enter_ = on;
         } else if (key == "dictation_direct") {
             settings_.dictation_direct = pending_dictation_direct_ = on;
         } else if (key == "dictation_fallback") {
@@ -782,6 +785,7 @@ void App::host_settings_changed(const Settings& before, const char* source) {
     compare("dictation_server", before.dictation_server != settings_.dictation_server);
     compare("dictation_send_gap", before.dictation_send_gap != settings_.dictation_send_gap);
     compare("dictation_send_paste", before.dictation_send_paste != settings_.dictation_send_paste);
+    compare("dictation_send_enter", before.dictation_send_enter != settings_.dictation_send_enter);
     compare("dictation_direct", before.dictation_direct != settings_.dictation_direct);
     compare("dictation_fallback", before.dictation_fallback != settings_.dictation_fallback);
     if (!changed.empty()) {

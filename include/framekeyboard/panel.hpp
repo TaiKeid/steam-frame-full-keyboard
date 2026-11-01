@@ -67,6 +67,7 @@ enum class ControlKind {
     DictationDiscard,
     DictationKeep,
     ChooseSendGap,
+    DictationSendEnter,
     DictationDirect,
     // On device: the model row's button (Download, Cancel or Delete), the
     // server's fallback switch and the development model format.

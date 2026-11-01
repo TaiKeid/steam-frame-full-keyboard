@@ -12,14 +12,15 @@ void require(bool value, const char* message) {
         throw std::runtime_error(message);
     }
 }
-// One letter per piece: T text, S space, B break, E Enter.
+// One letter per piece: T text, S space, B break, E Enter, D discarded end.
 std::string shape(const std::vector<SendPiece>& pieces) {
     std::string result;
     for (const auto& piece : pieces) {
-        result += piece.kind == Kind::Text    ? 'T'
-                  : piece.kind == Kind::Space ? 'S'
-                  : piece.kind == Kind::Break ? 'B'
-                                              : 'E';
+        result += piece.kind == Kind::Text      ? 'T'
+                  : piece.kind == Kind::Space   ? 'S'
+                  : piece.kind == Kind::Break   ? 'B'
+                  : piece.kind == Kind::Discard ? 'D'
+                                                : 'E';
     }
     return result;
 }
@@ -44,6 +45,15 @@ void plain() {
     const auto pieces = send_pieces("Hello there.", true);
     require(shape(pieces) == "TE" && pieces[0].text == "Hello there.", "one commit and Enter");
     require_cover("Hello there.", pieces);
+
+    const std::string text = "Hello there. \n";
+    const auto without_enter = send_pieces(text, true, false);
+    require(shape(without_enter) == "TD" && without_enter[0].text == "Hello there.",
+            "without Enter the text is typed and the dropped end discarded");
+    require(without_enter.back().end == text.size(), "the discard covers the dropped end");
+    require_cover(text, without_enter);
+    require(shape(send_pieces("Hi", true, false)) == "T",
+            "without trailing spaces there is nothing to discard");
 }
 
 void chunks() {
@@ -69,6 +79,10 @@ void line_breaks() {
     const auto spaced = send_pieces("a \n b", true);
     require(shape(spaced) == "TBTE" && spaced[0].text == "a " && spaced[2].text == " b",
             "spaces next to a break stay where the target takes line breaks");
+
+    const auto without_enter = send_pieces(text, true, false);
+    require(shape(without_enter) == "TBTBBTD", "inner breaks stay; the final Enter becomes a discard");
+    require_cover(text, without_enter);
 }
 
 void single_line() {
@@ -91,6 +105,12 @@ void paste() {
             "a paste is the trimmed text in one piece, then Enter");
     require(pieces.back().begin == pasted[1].begin, "both end where the trimmed text ends");
     require(paste_pieces(" \n").empty(), "nothing to paste without text");
+    const auto without_enter = paste_pieces(text, false);
+    require(without_enter.size() == 2 && without_enter[0].kind == Kind::Paste &&
+                without_enter[0].text == "One\n\ntwo" && without_enter[0].begin == 0 &&
+                without_enter[0].end == text.find_last_not_of(" \n") + 1 &&
+                without_enter[1].kind == Kind::Discard && without_enter[1].end == text.size(),
+            "without Enter the paste is the trimmed text and a discarded end");
 }
 void commits() {
     std::string text = "ab";

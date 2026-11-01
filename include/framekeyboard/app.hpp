@@ -560,6 +560,7 @@ class App {
     bool pending_desktop_unicode_paste_{};
     int pending_dictation_send_gap_{20};
     bool pending_dictation_send_paste_{};
+    bool pending_dictation_send_enter_{true};
     bool pending_dictation_direct_{};
     bool pending_dictation_fallback_{};
     std::string pending_dictation_device_model_{"small-q8_0"};
@@ -853,7 +854,7 @@ class App {
         std::size_t total{}, done{};           // Code points, for the counter.
         // A paste: 0 not begun, 1 taking the clipboard, 2 letting Gamescope
         // fetch it, 3 Ctrl+V sent, waiting for the application's request,
-        // 4 a short wait for it to insert the text before Enter.
+        // 4 a short wait for it to insert the text before Enter, if any.
         int paste_stage{};
         std::uint64_t paste_write{}, paste_served{};
         double paste_at{};

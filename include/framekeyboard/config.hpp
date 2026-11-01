@@ -136,6 +136,9 @@ struct Settings {
     // Send pastes through the clipboard instead of typing; Steam's own fields
     // keep their direct path.
     bool dictation_send_paste{};
+    // Send presses Enter after the text, so chat applications submit it. Off,
+    // the text stays in the field ready to edit (docs/dictation.md, Send).
+    bool dictation_send_enter{true};
     // Type as I speak: the mic key captures on the normal keyboard and each
     // phrase is typed into the target as soon as it is recognized.
     bool dictation_direct{};

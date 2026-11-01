@@ -130,8 +130,12 @@ void settings_tests() {
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"speech.local:8031")");
     std::vector<std::string> errors;
     auto settings = load_settings(directory.path, errors);
-    require(settings.dictation_send_gap == 20 && !settings.dictation_send_paste,
-            "Send types at 20 ms by default");
+    require(settings.dictation_send_gap == 20 && !settings.dictation_send_paste &&
+                settings.dictation_send_enter,
+            "Send types at 20 ms and presses Enter by default");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"speech.local:8031",)"
+                                 R"("dictation_send_enter":false)");
+    require(!load_settings(directory.path, errors).dictation_send_enter, "Send can leave out the Enter");
     write_config(directory.path, "");
     require(load_settings(directory.path, errors).dictation == "device" &&
                 load_settings(directory.path, errors).dictation_device_model == "small-q8_0",
@@ -2516,8 +2520,8 @@ void hosted_tests() {
                 std::pair<std::string, std::string>{"invalid_setting", "haptic_sounds"},
             "a sound choice outside off, press, release and both is refused");
     auto good = json_ptr(json_tokener_parse(
-        R"({"auto_leveling":false,"dictation_send_gap":40,"background_surface":"disabled",)"
-        R"("haptic_sounds":"press"})"));
+        R"({"auto_leveling":false,"dictation_send_gap":40,"dictation_send_enter":false,)"
+        R"("background_surface":"disabled","haptic_sounds":"press"})"));
     require(app.host_settings_set(good.get(), 7).first.empty(), "valid settings apply");
     app.flush_settings();
     app.tick(clock += .1);
@@ -2541,7 +2545,7 @@ void hosted_tests() {
     require(saw("saved", R"("requests": [ -2, 3 ])"), "a save names exactly the requests it covers");
     std::vector<std::string> errors;
     auto saved = load_settings(directory.path, errors);
-    require(!saved.auto_leveling && saved.dictation_send_gap == 40 &&
+    require(!saved.auto_leveling && saved.dictation_send_gap == 40 && !saved.dictation_send_enter &&
                 saved.background_surface == "disabled" && saved.haptic_sounds == "press" &&
                 saved.replace_native_keyboard,
             "the change persists; the standalone flags stay as they were");
@@ -2830,8 +2834,9 @@ void card_tests() {
     App app(options, sink);
     require(!app.view().dictation_available, "dictation starts off");
     open_settings(app);
-    const std::array<const char*, 6> others{"dictation-server", "dictation-test", "dictation-fallback",
-                                            "model-action",     "send-gap",       "dictation-direct"};
+    const std::array<const char*, 7> others{"dictation-server", "dictation-test", "dictation-fallback",
+                                            "model-action",     "send-gap",       "dictation-send-enter",
+                                            "dictation-direct"};
     require(has_control(app, "dictation") &&
                 std::none_of(others.begin(), others.end(),
                              [&](const char* id) { return has_control(app, id); }),
@@ -2839,8 +2844,13 @@ void card_tests() {
     click(app, "dictation");
     click(app, "choose:dictation:server");
     require(field_label(app, "Not tested") && control_enabled(app, "dictation-test") &&
-                has_control(app, "send-gap") && has_control(app, "dictation-direct"),
+                has_control(app, "send-gap"),
             "Self-hosted shows the server, not yet tested, and how Send delivers");
+    app.move(0, 1200, 300); // over the Dictation card
+    require(app.scroll(0, 0, 4), "the Dictation card scrolls to its last rows");
+    settle(app);
+    require(has_control(app, "dictation-direct") && has_control(app, "dictation-send-enter"),
+            "Self-hosted also offers Type as I speak and the final Enter switch");
     click(app, "dictation-test");
     wait_until(app, [&] { return field_label(app, "Reachable"); });
     click(app, "apply");
@@ -3042,6 +3052,21 @@ void send_tests() {
         require(sink.text.size() == 1 && sink.keys == Keys{{KEY_ENTER, 1}, {KEY_ENTER, 0}} &&
                     !app.dictation_open(),
                 "the retry presses Enter without the text");
+    }
+    {
+        // Press Enter after Send off: the text arrives, the application keeps
+        // it unsent for editing.
+        write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                                     R"("dictation_send_enter":false)");
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "hi there");
+        press(app, "Dictation-send");
+        settle(app);
+        require(sink.text == std::vector<std::string>{"hi there"} && sink.keys.empty(),
+                "Send types the text without pressing Enter");
+        require(!app.dictation_open(), "Send still returns to the normal keyboard");
     }
 }
 } // namespace

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added **Press Enter after Send** to the Dictation card, on by default. Turn it off to have Send type the text into the focused application without pressing Enter, leaving it there ready to edit instead of submitting it. It affects Send only; Type as I speak never presses Enter.
+
 ## 0.13.1: The keyboard comes back after an update
 
 - After an update you start from Settings, Full Keyboard now shows itself again where it was. With **Replace native keyboard** on, it used to stay hidden until the next keyboard request, so it looked as if it had not restarted. If Steam's own keyboard was open, Full Keyboard takes it over first and then shows, so you don't see two keyboards at once.
