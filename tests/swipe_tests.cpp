@@ -1151,6 +1151,21 @@ void swipes_in_the_editor() {
         left |= control.id.starts_with("swipe-candidate-");
     }
     require(!left, "another key ends the alternatives");
+    // A word that doesn't fit stays out whole, and so do its alternatives'
+    // replacements of text before it. The notice goes with the text.
+    for (const auto [dx, dy] = key_point(app, "KeyD"); text().size() < DictationEditor::hard_limit - 2;) {
+        app.down(0, dx, dy, 3.5);
+        app.up(0, dx, dy);
+    }
+    const auto full = text();
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 3.6);
+    settle(app, [&] { return !app.view().dictation->notice.empty(); });
+    require(text() == full && app.view().dictation->notice.starts_with("The editor is full"),
+            "a swiped word too long for the editor says so and types nothing");
+    const auto [back_x, back_y] = key_point(app, "Backspace");
+    app.down(0, back_x, back_y, 3.7);
+    app.up(0, back_x, back_y);
+    require(app.view().dictation->notice.empty(), "and making room clears the notice");
     sink.offline = true;
     app.tick(monotonic_seconds());
     const auto connected = text();

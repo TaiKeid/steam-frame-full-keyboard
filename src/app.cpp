@@ -3271,9 +3271,14 @@ void App::type_swipe_tap(const SwipeTrack& track) {
     }
     dirty = true;
 }
+bool App::EditorOutput::fits(const std::string& text, std::size_t freed) const {
+    const auto length = static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1));
+    return editor_.length() + length <= DictationEditor::hard_limit + freed;
+}
 void App::text_refused() {
     if (dictation_open_) {
         notice_ = "The editor is full. Send or shorten the text to type more.";
+        notice_error_ = true;
     } else if (!refuse_without_target(monotonic_seconds())) {
         status_ = "Text was not sent. Release other keys and check the target/input connection.";
     }
@@ -3326,6 +3331,9 @@ void App::apply_swipe(const SwipeService::Result& result) {
             return;
         }
         status_.clear();
+        if (dictation_open_) {
+            follow_cursor(); // The reading grows at the cursor.
+        }
         return;
     }
     if (std::exchange(swipe_detached_, false)) {

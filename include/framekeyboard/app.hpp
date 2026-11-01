@@ -793,9 +793,14 @@ class App {
         bool text_press(unsigned, const std::string& text, double) override {
             return editor_.type(text);
         }
-        bool commit_text(const std::string& text) override { return editor_.type(text); }
+        bool commit_text(const std::string& text) override {
+            return fits(text, 0) && editor_.type(text);
+        }
         bool replaces_text() override { return true; }
         bool replace_text(std::size_t delete_before, const std::string& text) override {
+            if (!fits(text, delete_before)) {
+                return false;
+            }
             while (delete_before-- > 0) {
                 editor_.backspace();
             }
@@ -804,6 +809,9 @@ class App {
         bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
 
       private:
+        // Whole or not at all, where the editor by itself takes what has room:
+        // a word's alternatives and a reading count on all of it being there.
+        bool fits(const std::string& text, std::size_t freed) const;
         DictationEditor& editor_;
     };
     struct EditorRepeat {
