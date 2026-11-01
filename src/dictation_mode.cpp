@@ -63,9 +63,13 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
     result.layout.width = main.width;
     result.layout.height = main.height;
     std::optional<Rect> paste;
+    double mic_height = 0;
     for (const auto& key : main.keys) {
         if (key.action_kind == ActionKind::Shortcut && key.action == "paste") {
             paste = key.bounds;
+        }
+        if (key.action_kind == ActionKind::Dictation) {
+            mic_height = key.bounds.height;
         }
         if (!removed(key)) {
             auto copy = key;
@@ -95,7 +99,10 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
         result.layout.keys.push_back(dictation_key("cut", "Cut", *meta, Icon::Cut));
         result.layout.keys.push_back(dictation_key("paste", "Paste", *alt, Icon::Paste));
         if (paste) {
-            result.layout.keys.push_back(dictation_key("undo", "Undo", *paste, Icon::Undo));
+            // As tall as the mic key below it, up over Paste's freed neighbours.
+            const double height = std::max(paste->height, mic_height);
+            const Rect undo{paste->x, paste->y + paste->height - height, paste->width, height};
+            result.layout.keys.push_back(dictation_key("undo", "Undo", undo, Icon::Undo));
         }
     } else if (paste) {
         double y = paste->y + paste->height - 4 * stack_key_height - 3 * stack_gap;

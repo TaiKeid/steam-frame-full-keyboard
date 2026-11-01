@@ -21,7 +21,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .indicator.on .led { background:#d5e9dd; box-shadow:0 0 7px #d5e9dd65; }
 .layout { display:grid; grid-template-columns:94px 900px 174px 234px; gap:26px; }
 .macro { padding-top:56px; display:flex; flex-direction:column; gap:15px; border-right:1px solid #17181988; padding-right:15px; margin-right:-2px; }
-.macro .key { height:116px; }
+.macro .key { height:calc((247px - 30px) / 3); }
 .macro .cap { align-items:center; justify-content:center; flex-direction:column; gap:15px; padding:0; }
 .macro svg { width:25px; height:25px; stroke:#f5f5f5; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; opacity:.94; }
 .macro .legend { font-size:15px; font-weight:500; letter-spacing:.1px; }
@@ -76,6 +76,7 @@ textarea:focus { border-color:#777e85; }
  <div class="layout">
   <aside class="macro" aria-label="Clipboard shortcuts">
    <button class="key" data-key="Copy" aria-label="Copy selected preview text"><span class="cap"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></span></button>
+   <button class="key" data-key="Cut" aria-label="Cut selected preview text"><span class="cap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="19" r="3"/><circle cx="17.5" cy="19" r="3"/><path d="M8.2 16.5 18 3M15.8 16.5 6 3"/></svg></span></button>
    <button class="key" data-key="Paste" aria-label="Paste copied preview text"><span class="cap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="6" rx="2"/><path d="M8 12h8M8 16h6"/></svg></span></button>
   </aside>
   <div class="main"><div class="function-row" id="functions"></div><div id="typing" style="display:flex;flex-direction:column;gap:10px"></div></div>
@@ -145,7 +146,7 @@ function apply(b){
  const k=b.dataset.key;const start=input.selectionStart,end=input.selectionEnd;
  if(k in modifiers){modifiers[k]=!modifiers[k];updateModifiers();return;}
  if(k==='CapsLock'){caps=!caps;updateModifiers();return;}if(k==='NumLock'){num=!num;updateModifiers();return;}if(k==='ScrollLock'){scroll=!scroll;updateModifiers();say('Scroll Lock '+(scroll?'on':'off'));return;}
- if(k==='Copy'){copy();return;}if(k==='Paste'){paste();return;}
+ if(k==='Copy'){copy();return;}if(k==='Cut'){copy();if(start!==end)replace('');return;}if(k==='Paste'){paste();return;}
  input.focus({preventScroll:true});
  if(modifiers.Control){if(k==='a'){input.select();say('Selected all');}else if(k==='c')copy();else if(k==='v')paste();else if(k==='x'){copy();if(start!==end)replace('');}else say('Ctrl + '+k+' · layout preview');}
  else if(modifiers.Alt){say(Object.keys(modifiers).filter(k=>modifiers[k]).join(' + ')+' + '+k+' · layout preview');}

@@ -148,6 +148,10 @@ void write_event(int fd, unsigned short type, unsigned short code, int value) {
 }
 } // namespace
 
+const char* shortcut_key(const std::string& action) {
+    return action == "copy" ? "KeyC" : action == "cut" ? "KeyX" : "KeyV";
+}
+
 int key_code(const std::string& name) {
     const auto found = key_codes.find(name);
     return found == key_codes.end() ? 0 : found->second;
@@ -552,7 +556,7 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         press.codes.push_back(modifier);
     }
     const int action_code = key.action_kind == ActionKind::Shortcut
-                                ? (native_code ? native_code : (key.action == "copy" ? KEY_C : KEY_V))
+                                ? (native_code ? native_code : key_code(shortcut_key(key.action)))
                                 : code;
     press.codes.push_back(action_code);
     if (local) {

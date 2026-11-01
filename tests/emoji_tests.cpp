@@ -108,7 +108,7 @@ void layout_tests() {
                                     [&](const Key& key) { return key.action == action; });
             };
             for (const auto* action : {"Space", "Backspace", "Enter", "ArrowUp", "ArrowLeft",
-                                       "ArrowDown", "ArrowRight", "copy", "paste", "picker"}) {
+                                       "ArrowDown", "ArrowRight", "copy", "cut", "paste", "picker"}) {
                 require(find(action) != keys.end(), "picker has its keys");
             }
             require(find("picker")->icon == Icon::Back, "the emoji key turns into Back");
@@ -1039,7 +1039,7 @@ void app_tests() {
         return;
     }
     auto view = app.view();
-    require(view.emoji && view.layout->keys.size() == 10, "the picker has its own keys");
+    require(view.emoji && view.layout->keys.size() == 11, "the picker has its own keys");
     require(view.emoji->width == app.geometry().emoji->width, "geometry keeps the case width");
     const auto input = app.input_view();
     require(input.emoji && input.emoji->cells.empty() && input.emoji->width == view.emoji->width &&

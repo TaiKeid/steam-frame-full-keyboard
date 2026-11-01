@@ -196,6 +196,8 @@ Layout parse_layout(const std::string& json) {
         const auto icon = text(entry, "icon", "", true);
         if (icon == "copy") {
             key.icon = Icon::Copy;
+        } else if (icon == "cut") {
+            key.icon = Icon::Cut;
         } else if (icon == "paste") {
             key.icon = Icon::Paste;
         } else if (icon == "steam-frame") {
@@ -219,7 +221,8 @@ Layout parse_layout(const std::string& json) {
         key.action = text(action, "value");
         if (kind == "key" && key_code(key.action) > 0) {
             key.action_kind = ActionKind::Key;
-        } else if (kind == "shortcut" && (key.action == "copy" || key.action == "paste")) {
+        } else if (kind == "shortcut" &&
+                   (key.action == "copy" || key.action == "cut" || key.action == "paste")) {
             key.action_kind = ActionKind::Shortcut;
         } else if (kind == "flick" && !key.action.empty() && key.action.size() <= 32) {
             key.action_kind = ActionKind::Flick;

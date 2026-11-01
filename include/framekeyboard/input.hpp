@@ -14,6 +14,8 @@ class Clipboard;
 class OutputController;
 enum class Delivery { Waiting, Success, Failure };
 int key_code(const std::string& name);
+// The letter key a shortcut action presses with Ctrl.
+const char* shortcut_key(const std::string& action);
 // The logical key ID for an evdev code, such as "KeyA" or "Enter"; empty when unknown.
 const std::string& key_name(int code);
 bool is_modifier(int code);

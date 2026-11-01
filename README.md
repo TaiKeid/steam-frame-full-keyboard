@@ -11,7 +11,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 ## What it does
 
 - Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
-- Dedicated Copy and Paste keys that send Ctrl+C and Ctrl+V.
+- Dedicated Copy, Cut and Paste keys that send Ctrl+C, Ctrl+X and Ctrl+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
 - Phone-style flick keyboards: Japanese 12-key kana and Korean 12-key 천지인.
@@ -80,7 +80,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Lock Shift | Hold Shift for half a second; press it again to unlock |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Copy / paste | Use the two icons on the left; select text first when copying |
-| Dictate | Press the mic key below Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
+| Dictate | Press the mic key below Copy, Cut and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
 | Type as I speak | Turn it on in the **Dictation** settings card. The mic key then listens on the normal keyboard and types each phrase into the app |
 | Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. Hold an emoji in Recent and drag it into Favorites to keep it. The arrow key at the top left returns to the keyboard |
 | Move / rotate | Unpin, point at the line below the keyboard, hold the trigger, move your hand, then release |
@@ -145,7 +145,7 @@ See [dictation](docs/dictation.md) for the details.
 
 The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It goes online only to check for and install updates when you ask, to download the on-device speech model once, and to reach a speech server you set up.
 
-Copy and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or General → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V. It does not log typed text or save composition history; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
+Copy, Cut and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or General → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V. It does not log typed text or save composition history; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
 
 The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 

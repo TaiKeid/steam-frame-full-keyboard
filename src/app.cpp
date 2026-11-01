@@ -2359,8 +2359,10 @@ int App::native_code(const Key& key, const std::set<int>& mods) {
         return 0;
     }
     if (key.action_kind == ActionKind::Shortcut) {
-        return output_.shortcut_code(key.action == "copy" ? XKB_KEY_c : XKB_KEY_v,
-                                     key_code(key.action == "copy" ? "KeyC" : "KeyV"));
+        const auto symbol = key.action == "copy"  ? XKB_KEY_c
+                            : key.action == "cut" ? XKB_KEY_x
+                                                  : XKB_KEY_v;
+        return output_.shortcut_code(symbol, key_code(shortcut_key(key.action)));
     }
     if (key.action.starts_with("Numpad")) {
         // Num Lock is local in Unicode mode. Send explicit navigation codes,

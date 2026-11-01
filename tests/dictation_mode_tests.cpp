@@ -229,8 +229,9 @@ void layout_tests() {
         return std::any_of(mode.layout.keys.begin(), mode.layout.keys.end(),
                            [&](const Key& key) { return key.id == id; });
     };
-    for (const auto* gone : {"F1", "F12", "PrintScreen", "Tab", "Insert", "ControlLeft", "MetaLeft",
-                             "AltRight", "ContextMenu", "ControlRight", "Copy", "Paste", "Emoji"}) {
+    for (const auto* gone :
+         {"F1", "F12", "PrintScreen", "Tab", "Insert", "ControlLeft", "MetaLeft", "AltRight",
+          "ContextMenu", "ControlRight", "Copy", "Cut", "Paste", "Emoji"}) {
         require(!has(gone), "dictation mode drops keys that cannot edit text");
     }
     for (const auto* kept : {"Escape", "KeyA", "Backspace", "Enter", "ShiftLeft", "CapsLock", "Home",
@@ -246,8 +247,8 @@ void layout_tests() {
     require(bounds_in(mode.layout, "Dictation-copy") == bounds_in(main, "ControlLeft") &&
                 bounds_in(mode.layout, "Dictation-cut") == bounds_in(main, "MetaLeft") &&
                 bounds_in(mode.layout, "Dictation-paste") == bounds_in(main, "AltLeft") &&
-                bounds_in(mode.layout, "Dictation-undo") == bounds_in(main, "Paste"),
-            "Copy, Cut and Paste take the left modifiers' slots; Undo stays in Paste's");
+                bounds_in(mode.layout, "Dictation-undo") == Rect{0, 186, 79, 110},
+            "Copy, Cut and Paste take the left modifiers' slots; Undo sits above the mic key, as tall");
     const auto& zero = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
                                      [](const Key& key) { return key.id == "Numpad0"; });
     const auto& decimal = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),

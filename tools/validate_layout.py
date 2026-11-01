@@ -51,7 +51,7 @@ def validate(data):
         if action["kind"] not in ("key", "shortcut", "flick", "emoji", "dictation"):
             raise ValueError(f"{ident}: unsupported action kind")
         text(action["value"], ident + ".action.value")
-        if action["kind"] == "shortcut" and action["value"] not in ("copy", "paste"):
+        if action["kind"] == "shortcut" and action["value"] not in ("copy", "cut", "paste"):
             raise ValueError(f"{ident}: unsupported shortcut")
         if action["kind"] == "emoji" and action["value"] != "picker":
             raise ValueError(f"{ident}: unsupported emoji action")

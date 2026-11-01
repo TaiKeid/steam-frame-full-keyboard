@@ -113,6 +113,13 @@ void state_tests(const fk::Layout& layout) {
                     {KEY_LEFTCTRL, 1}, {KEY_C, 1}, {KEY_C, 0}, {KEY_LEFTCTRL, 0}},
             "Copy order");
     sink.events.clear();
+    state.down(0, key(layout, "Cut"), 2);
+    state.up(0);
+    require(sink.events ==
+                std::vector<std::pair<int, int>>{
+                    {KEY_LEFTCTRL, 1}, {KEY_X, 1}, {KEY_X, 0}, {KEY_LEFTCTRL, 0}},
+            "Cut order");
+    sink.events.clear();
     state.down(0, key(layout, "KeyA"), 3);
     state.down(1, key(layout, "KeyA"), 3);
     state.up(0);
@@ -398,8 +405,8 @@ int main() {
     try {
         const auto defaults = fk::load_profiles({}, {});
         require(defaults.errors.empty(), "bundled profiles valid");
-        require(defaults.layouts.at("en-us-full").keys.size() == 108,
-                "108 baseline keys, with the mic key");
+        require(defaults.layouts.at("en-us-full").keys.size() == 109,
+                "109 baseline keys, with the mic key");
         for (const auto& [id, layout] : defaults.layouts) {
             require(key(layout, "Backspace").icon == fk::Icon::Backspace,
                     "Backspace uses the |<- icon, distinct from the left arrow");

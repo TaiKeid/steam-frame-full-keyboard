@@ -32,7 +32,7 @@ The modes never switch on their own. Audio never goes to a server while On devic
 
 ## Mic key
 
-The mic key is the third of the three equal side-column keys, below Copy and Paste and the small emoji key above them (see [emoji picker](emoji.md#side-column)). It is shown only when dictation is usable in the chosen mode for the active language (see [mic key visibility](#mic-key-visibility)); otherwise its slot stays empty.
+The mic key is the tall key at the bottom of the side column, below Copy, Cut and Paste and the small emoji key above them (see [emoji picker](emoji.md#side-column)). It is shown only when dictation is usable in the chosen mode for the active language (see [mic key visibility](#mic-key-visibility)); otherwise its slot stays empty.
 
 - **Normal mode:** pressing the mic key enters dictation mode and starts capturing at once.
 - **Type as I speak:** pressing it starts capture without leaving the normal keyboard.
@@ -47,9 +47,9 @@ The mic key is the third of the three equal side-column keys, below Copy and Pas
 ### Dictation mode layout
 
 - An editor replaces the function-key row. Esc stays at its left.
-- **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy and Paste side keys.
+- **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy, Cut and Paste side keys, which act on the focused application.
 - **Send** takes the place of the right-hand Alt to Ctrl keys. Layouts without them, such as flick, put it in Tab's place.
-- **Undo last phrase** takes the first freed side slot, directly above the mic key.
+- **Undo last phrase** takes the freed side space directly above the mic key, as tall as it.
 - **Copy, Cut and Paste,** shown as icons, take the left Ctrl, Super and Alt keys' places. Layouts without them, such as flick, stack the three above a shorter Undo, between Convert's slot and the mic key.
 - Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
 - The status line, which the editor covers, moves into the toolbar row, wrapping onto a second line when long. Japanese and Korean input buttons narrow that space, so there a status too long for two lines stays on one and scrolls under the laser.
