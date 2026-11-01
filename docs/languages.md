@@ -9,78 +9,78 @@ does not automatically select Russian. Updating the app preserves your selection
 
 | Language | Profile ID | Layout | Character mapping |
 | --- | --- | --- | --- |
-| English US | `en-us` | US full-size | US XKB |
-| English UK | `en-gb` | UK full-size | UK XKB |
-| English US, Dvorak | `en-us-dvorak` | US full-size | US Dvorak XKB; legends and swipe follow it |
-| English US, Colemak | `en-us-colemak` | US full-size | US Colemak XKB; legends and swipe follow it |
-| English US, International | `en-us-intl` | US full-size | US international, accents on dead keys |
-| Bulgarian | `bg-bg` | US full-size | Bulgarian BDS |
-| Bulgarian, phonetic | `bg-bg-phonetic` | US full-size | Bulgarian new phonetic |
-| Bulgarian, traditional phonetic | `bg-bg-traditional` | US full-size | Bulgarian traditional phonetic |
-| Portuguese, Portugal | `pt-pt` | International full-size | Portuguese XKB |
-| German | `de-de` | International full-size | German XKB |
-| French | `fr-fr` | International full-size | French AZERTY, France |
-| French, QWERTY | `fr-fr-qwerty` | US full-size | US international, accents on dead keys |
-| French, Belgium | `fr-be` | International full-size | Belgian AZERTY |
-| Dutch, Belgium | `nl-be` | International full-size | Belgian AZERTY |
-| German, QWERTY | `de-de-qwerty` | US full-size | German letters on AltGr |
-| Czech, QWERTY | `cs-cz-qwerty` | International full-size | Czech with Y and Z swapped |
-| Slovak, QWERTY | `sk-sk-qwerty` | International full-size | Slovak with Y and Z swapped |
-| Hungarian, QWERTY | `hu-hu-qwerty` | International full-size | Hungarian with Y and Z swapped |
-| Croatian, QWERTY | `hr-hr-qwerty` | US full-size | Croatian letters on AltGr |
-| Polish, QWERTZ | `pl-pl-qwertz` | International full-size | Polish typewriter arrangement |
-| Turkish, F | `tr-tr-f` | International full-size | Turkish F |
-| Spanish | `es-es` | International full-size | Spanish, Spain |
-| Italian | `it-it` | International full-size | Italian XKB |
-| Spanish, Latin America | `es-419` | International full-size | Latin American XKB |
-| German, Switzerland | `de-ch` | International full-size | Swiss German |
-| French, Switzerland | `fr-ch` | International full-size | Swiss French |
-| Catalan | `ca-es` | International full-size | Spanish with Catalan L·L |
-| Serbian, Cyrillic | `sr-rs` | US full-size | Serbian Cyrillic |
-| Serbian, Latin | `sr-rs-latin` | US full-size | Serbian Latin |
-| Persian | `fa-ir` | US full-size | Persian XKB, legends right to left |
-| Filipino | `fil-ph` | US full-size | US with AltGr accents, ñ on AltGr+N |
-| Icelandic | `is-is` | International full-size | Icelandic XKB |
-| Georgian | `ka-ge` | US full-size | Georgian XKB |
-| Armenian | `hy-am` | US full-size | Armenian XKB |
-| Kazakh | `kk-kz` | US full-size | Kazakh XKB |
-| Azerbaijani | `az-az` | US full-size | Azerbaijani XKB |
-| Macedonian | `mk-mk` | US full-size | Macedonian XKB |
-| Albanian | `sq-al` | US full-size | Albanian QWERTZ |
-| Portuguese, Brazil | `pt-br` | Brazilian ABNT2 full-size | Brazilian XKB, including extra slash and keypad separator |
-| Russian | `ru-ru` | US full-size | Russian ЙЦУКЕН |
-| Ukrainian | `uk-ua` | US full-size | Ukrainian ЙЦУКЕН |
-| French, Canada | `fr-ca` | International full-size | Canadian French, accents on dead keys |
-| Arabic | `ar` | International full-size | Arabic XKB, legends right to left |
-| Croatian | `hr-hr` | International full-size | Croatian QWERTZ |
-| Czech | `cs-cz` | International full-size | Czech QWERTZ, accented letters on the number row |
-| Danish | `da-dk` | International full-size | Danish XKB |
-| Dutch | `nl-nl` | US full-size | US international with AltGr dead keys; ' and " stay plain |
-| Estonian | `et-ee` | International full-size | Estonian XKB |
-| Finnish | `fi-fi` | International full-size | Finnish XKB |
-| Greek | `el-gr` | US full-size | Greek XKB, tonos and dialytika dead keys |
-| Hebrew | `he-il` | US full-size | Hebrew SI-1452, legends right to left |
-| Hindi | `hi-in` | International full-size | Devanagari InScript |
-| Hungarian | `hu-hu` | International full-size | Hungarian QWERTZ, 0 left of 1 |
-| Indonesian | `id-id` | US full-size | US XKB, the standard layout there |
-| Latvian | `lv-lv` | US full-size | Latvian, letters on AltGr |
-| Lithuanian | `lt-lt` | US full-size | Lithuanian, letters on the number row |
-| Malay | `ms-my` | US full-size | US XKB, the standard layout there |
-| Norwegian | `nb-no` | International full-size | Norwegian XKB |
-| Polish | `pl-pl` | US full-size | Polish programmer, letters on AltGr |
-| Romanian | `ro-ro` | International full-size | Romanian standard, ș and ț with comma below |
-| Slovak | `sk-sk` | International full-size | Slovak QWERTZ |
-| Slovenian | `sl-si` | International full-size | Slovenian QWERTZ |
-| Swedish | `sv-se` | International full-size | Swedish XKB |
-| Thai | `th-th` | International full-size | Thai Kedmanee |
-| Turkish | `tr-tr` | International full-size | Turkish Q |
-| Vietnamese | `vi-vn` | US full-size | Vietnamese XKB, tone keys on the number row |
-| Simplified Chinese | `zh-cn-pinyin` | US full-size | Local Pinyin with candidates |
-| Traditional Chinese | `zh-tw-pinyin` | US full-size | Local Pinyin with Traditional output |
-| Traditional Chinese, Zhuyin | `zh-tw-zhuyin` | US full-size | Local Zhuyin with candidates |
-| Traditional Chinese, Cangjie | `zh-tw-cangjie` | US full-size | Local Cangjie table |
-| Traditional Chinese, Quick | `zh-tw-quick` | US full-size | Local Quick table |
-| Korean | `ko-kr`, `ko-cheonjiin` | US full-size, or 12-key 천지인 (`ko-cheonjiin` only) | Local two-set Hangul, or 천지인 strokes |
+| English US | `en-us` | US QWERTY | US XKB |
+| English UK | `en-gb` | UK QWERTY | UK XKB |
+| English US, Dvorak | `en-us-dvorak` | US QWERTY | US Dvorak XKB; legends and swipe follow it |
+| English US, Colemak | `en-us-colemak` | US QWERTY | US Colemak XKB; legends and swipe follow it |
+| English US, International | `en-us-intl` | US QWERTY | US international, accents on dead keys |
+| Bulgarian | `bg-bg` | US QWERTY | Bulgarian BDS |
+| Bulgarian, phonetic | `bg-bg-phonetic` | US QWERTY | Bulgarian new phonetic |
+| Bulgarian, traditional phonetic | `bg-bg-traditional` | US QWERTY | Bulgarian traditional phonetic |
+| Portuguese, Portugal | `pt-pt` | International | Portuguese XKB |
+| German | `de-de` | International | German XKB |
+| French | `fr-fr` | International | French AZERTY, France |
+| French, QWERTY | `fr-fr-qwerty` | US QWERTY | US international, accents on dead keys |
+| French, Belgium | `fr-be` | International | Belgian AZERTY |
+| Dutch, Belgium | `nl-be` | International | Belgian AZERTY |
+| German, QWERTY | `de-de-qwerty` | US QWERTY | German letters on AltGr |
+| Czech, QWERTY | `cs-cz-qwerty` | International | Czech with Y and Z swapped |
+| Slovak, QWERTY | `sk-sk-qwerty` | International | Slovak with Y and Z swapped |
+| Hungarian, QWERTY | `hu-hu-qwerty` | International | Hungarian with Y and Z swapped |
+| Croatian, QWERTY | `hr-hr-qwerty` | US QWERTY | Croatian letters on AltGr |
+| Polish, QWERTZ | `pl-pl-qwertz` | International | Polish typewriter arrangement |
+| Turkish, F | `tr-tr-f` | International | Turkish F |
+| Spanish | `es-es` | International | Spanish, Spain |
+| Italian | `it-it` | International | Italian XKB |
+| Spanish, Latin America | `es-419` | International | Latin American XKB |
+| German, Switzerland | `de-ch` | International | Swiss German |
+| French, Switzerland | `fr-ch` | International | Swiss French |
+| Catalan | `ca-es` | International | Spanish with Catalan L·L |
+| Serbian, Cyrillic | `sr-rs` | US QWERTY | Serbian Cyrillic |
+| Serbian, Latin | `sr-rs-latin` | US QWERTY | Serbian Latin |
+| Persian | `fa-ir` | US QWERTY | Persian XKB, legends right to left |
+| Filipino | `fil-ph` | US QWERTY | US with AltGr accents, ñ on AltGr+N |
+| Icelandic | `is-is` | International | Icelandic XKB |
+| Georgian | `ka-ge` | US QWERTY | Georgian XKB |
+| Armenian | `hy-am` | International | Armenian XKB |
+| Kazakh | `kk-kz` | International | Kazakh XKB |
+| Azerbaijani | `az-az` | International | Azerbaijani XKB |
+| Macedonian | `mk-mk` | International | Macedonian XKB |
+| Albanian | `sq-al` | US QWERTY | Albanian QWERTZ |
+| Portuguese, Brazil | `pt-br` | Brazilian ABNT2 | Brazilian XKB, including extra slash and keypad separator |
+| Russian | `ru-ru` | US QWERTY | Russian ЙЦУКЕН |
+| Ukrainian | `uk-ua` | US QWERTY | Ukrainian ЙЦУКЕН |
+| French, Canada | `fr-ca` | International | Canadian French, accents on dead keys |
+| Arabic | `ar` | International | Arabic XKB, legends right to left |
+| Croatian | `hr-hr` | International | Croatian QWERTZ |
+| Czech | `cs-cz` | International | Czech QWERTZ, accented letters on the number row |
+| Danish | `da-dk` | International | Danish XKB |
+| Dutch | `nl-nl` | US QWERTY | US international with AltGr dead keys; ' and " stay plain |
+| Estonian | `et-ee` | International | Estonian XKB |
+| Finnish | `fi-fi` | International | Finnish XKB |
+| Greek | `el-gr` | US QWERTY | Greek XKB, tonos and dialytika dead keys |
+| Hebrew | `he-il` | US QWERTY | Hebrew SI-1452, legends right to left |
+| Hindi | `hi-in` | International | Devanagari InScript |
+| Hungarian | `hu-hu` | International | Hungarian QWERTZ, 0 left of 1 |
+| Indonesian | `id-id` | US QWERTY | US XKB, the standard layout there |
+| Latvian | `lv-lv` | US QWERTY | Latvian, letters on AltGr |
+| Lithuanian | `lt-lt` | US QWERTY | Lithuanian, letters on the number row |
+| Malay | `ms-my` | US QWERTY | US XKB, the standard layout there |
+| Norwegian | `nb-no` | International | Norwegian XKB |
+| Polish | `pl-pl` | US QWERTY | Polish programmer, letters on AltGr |
+| Romanian | `ro-ro` | International | Romanian standard, ș and ț with comma below |
+| Slovak | `sk-sk` | International | Slovak QWERTZ |
+| Slovenian | `sl-si` | International | Slovenian QWERTZ |
+| Swedish | `sv-se` | International | Swedish XKB |
+| Thai | `th-th` | International | Thai Kedmanee |
+| Turkish | `tr-tr` | International | Turkish Q |
+| Vietnamese | `vi-vn` | US QWERTY | Vietnamese XKB, tone keys on the number row |
+| Simplified Chinese | `zh-cn-pinyin` | US QWERTY | Local Pinyin with candidates |
+| Traditional Chinese | `zh-tw-pinyin` | US QWERTY | Local Pinyin with Traditional output |
+| Traditional Chinese, Zhuyin | `zh-tw-zhuyin` | US QWERTY | Local Zhuyin with candidates |
+| Traditional Chinese, Cangjie | `zh-tw-cangjie` | US QWERTY | Local Cangjie table |
+| Traditional Chinese, Quick | `zh-tw-quick` | US QWERTY | Local Quick table |
+| Korean | `ko-kr`, `ko-cheonjiin` | US QWERTY, or 12-key 천지인 (`ko-cheonjiin` only) | Local two-set Hangul, or 천지인 strokes |
 | Japanese | `ja-romaji`, `ja-kana`, `ja-jis`, `ja-flick` | US, Japanese JIS, or flick 12-key (`ja-flick` only) | See [Japanese input](japanese.md) |
 
 Open Settings, select Layout, then Language, then Apply and save. Languages
@@ -91,10 +91,9 @@ type the current language switches to the most likely one for it: a favorite
 pair, another variant of the same language, the layout's own language, or US
 English. Theme selection is unchanged.
 
-Languages listed with International full-size also work on US full-size,
-except those with characters only on the extra key left of Z: Arabic, Danish,
-French (Canada), Hindi, Norwegian, Swedish and Thai, which Settings dims there.
-All of them work on International and UK full-size. AltGr is the right Alt
+Settings dims a language on any layout without a key it needs. Many listed with
+International need the extra key left of Z and are dimmed on US QWERTY; the rest,
+such as Czech or Finnish, work there too, without that key's characters. AltGr is the right Alt
 key; its legend reads AltGr whenever the language uses it.
 
 Accents on dead keys, such as the Czech caron or the Greek tonos, are typed before the letter,
@@ -113,7 +112,6 @@ cursor the way they point on screen, stepping over a letter together with its
 marks, as in Thai or Hindi. The headset's own Noto fonts draw the Arabic,
 Hebrew, Devanagari, Thai and Greek legends.
 
-Spanish regional variants beyond Spain, French beyond France and Canada,
 Chinese Wubi, Korean Hanja conversion, Vietnamese Telex and
 other Indic scripts are not included.
 
@@ -166,7 +164,9 @@ punctuation keys, and converts phrases; finish a syllable with a tone key, and S
 chooses the highlighted candidate. Cangjie takes up to five keys and Quick two. Each
 shows the keys as radicals, lists matching characters, longer codes after exact ones,
 and types one character at a time. Cangjie and Quick read the tables SteamOS installs
-in `/usr/share/ibus-table/tables`; without them those languages can't be selected.
+in `/usr/share/ibus-table/tables`; without them those languages stay listed, and choosing
+one reports the error. A reading that matches nothing stays to be corrected: other keys
+are refused, and the status line says so, until Backspace fixes it or Esc cancels it.
 
 For Chinese, type Pinyin without tone numbers. Use `v` for ü and an apostrophe
 for syllable separation where needed. The candidate row shows five entries at a
@@ -184,8 +184,8 @@ composition. Space and other ordinary keys commit the word before sending the
 key. Use the `한 / A` control to switch between Hangul and Latin typing. Chinese
 has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
 
-For 12-key Korean, choose the **Korean 12-key (천지인)** layout; it selects
-한국어 — 천지인. As with Japanese flick, it keeps Esc, the F keys and the number
+For 12-key Korean, choose the **Korean 12-key** layout; it selects
+한국어 천지인. As with Japanese flick, it keeps Esc, the F keys and the number
 row, with Tab, ←, ↑/↓ and Shift on the left and Space, → and a two-row Enter on
 the right. Its 3×4 grid is ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-.
 

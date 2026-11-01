@@ -11,7 +11,7 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 - **Setting:** a Swipe typing checkbox in the Languages and Layouts card, beside the Layout and Language dropdowns. It is saved as the optional global boolean `swipe_typing` and defaults to false. Apply and save activates it; Back discards it.
 - **Toolbar button:** with the setting on, the toolbar gains a switch of its own, saved as `swipe_switch`, which turns swiping on and off without changing the setting. See [configuration](configuration.md#swipe-typing) for its states.
 - **Dictation editor:** swiping also works in the editor while it can be typed in. Words join at the cursor, and an alternative replaces only that word.
-- **Unsupported languages:** the checkbox is disabled (drawn with the theme's disabled color, not clickable) whenever the language selected in the dropdown has no `swipe` support, or the swipe engine module or that language's word list is unavailable. Like Start with SteamOS, the saved choice is kept while disabled, but swipe is active only when the saved boolean is true and the active language supports it. Cycling to a favorite without swipe support turns swipe off for that language without changing the saved value.
+- **Unsupported languages:** the checkbox is disabled (drawn with the theme's disabled color, not clickable) whenever neither the language selected in the dropdown nor an additional one has `swipe` support, or the swipe engine module or their word lists are unavailable. Like Start with SteamOS, the saved choice is kept while disabled, but swipe is active only when the saved boolean is true and the active language supports it. Cycling to a favorite without swipe support turns swipe off for that language without changing the saved value.
 - **Language order:** English, German, Spanish and Japanese romaji; then Korean and Chinese; then the remaining XKB profiles; Russian last.
 - **Privacy:** no learning, no typing history, no logging of paths or decoded words. The development trace recorder only records prompted test phrases.
 
@@ -51,7 +51,7 @@ Sending on release is the interim behaviour while swipe is enabled, but it won't
 | Swipe engine module | ExecuTorch, XNNPACK and the model, loaded on demand with `dlopen` | Same pattern as the CJK engine adapters. Missing module disables swipe only. |
 | App integration | Deferred letter text, commit or preedit, candidate row, Settings notice | Rendering stays free of input delivery |
 
-The language profile gains an optional `swipe` object, for example `{"lexicon": "en-us"}`. A profile without it doesn't offer swipe. Swipe support for a language means: a word list, measured accuracy and on-device acceptance. Relabelled keys alone don't count.
+The language profile gains an optional `swipe` object, for example `{"lexicon": "en-us"}`, and `"replace"` respells a shared word list, as Swiss German turns ß into ss. A profile without it doesn't offer swipe. Swipe support for a language means: a word list, measured accuracy and on-device acceptance. Relabelled keys alone don't count.
 
 ### Data files
 
