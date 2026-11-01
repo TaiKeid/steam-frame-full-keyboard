@@ -319,6 +319,8 @@ while True:
         continue
     if op == "test":
         if scenario == "testexit":
+            with open(os.path.join(os.path.dirname(sys.argv[0]), "test-exits"), "ab") as log:
+                log.write(b"1")
             sys.exit(0)  # gone before answering
         if scenario == "slowtest":
             import time
@@ -2384,8 +2386,14 @@ void test_race_tests() {
     click(lost, "dictation-test");
     wait_until(lost, [&] { return field_label(lost, "Helper stopped"); });
     require(control_enabled(lost, "dictation-test"), "Test can run again after the helper exits");
+    require(fs::file_size(directory.path / "test-exits") == 1, "the first helper received Test");
     click(lost, "dictation-test");
-    require(field_label(lost, "Testing…"), "and starts a new helper");
+    // The retry can exit before click's tick, especially on the Frame. Check
+    // that it received Test rather than requiring a transient pending label.
+    wait_until(lost, [&] {
+        return fs::file_size(directory.path / "test-exits") == 2 &&
+               field_label(lost, "Helper stopped") && control_enabled(lost, "dictation-test");
+    });
 }
 
 // A shell's keyboard (docs/integration.md): standalone-only settings are
