@@ -823,6 +823,14 @@ class Helper(unittest.TestCase):
         helper.receive("paused")
         self.assertEqual([m["op"] for m in Process.seen].count("microphone"), 0)
 
+    def test_a_session_ending_during_capture_is_noticed_at_the_next_phrase(self):
+        helper = self.start(pipewire={"dump": pipewire_dump()}, mode="loop", game_check=0.5)
+        helper.send(op="capture", on=True)
+        self.assertEqual(helper.receive("microphone"), {"op": "microphone", "unfiltered": True})
+        helper.receive("phrase")
+        (helper.directory / "dump.json").write_text(json.dumps(pipewire_dump(filtered=False)))
+        self.assertEqual(helper.receive("microphone"), {"op": "microphone", "unfiltered": False})
+
     def test_without_a_game_the_graph_is_not_read_for_every_phrase(self):
         helper = self.start(pipewire={"dump": pipewire_dump(filtered=False)}, mode="loop")
         helper.send(op="capture", on=True)

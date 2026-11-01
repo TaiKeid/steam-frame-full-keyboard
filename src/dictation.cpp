@@ -367,6 +367,9 @@ void Dictation::tick(double now, bool keep_alive) {
             event.kind = Event::Kind::Paused;
         } else if (op == "microphone") {
             event.kind = Event::Kind::Microphone;
+            json_object* unfiltered = nullptr;
+            event.unfiltered = json_object_object_get_ex(message.get(), "unfiltered", &unfiltered) &&
+                               json_object_get_boolean(unfiltered);
         } else if (op == "capture") {
             event.kind = Event::Kind::Stopped;
             event.reason = reason_of(message.get());

@@ -1013,10 +1013,10 @@ class Helper:
 
     def notify(self, filtered):
         # The filters run during a play session; dictation records around
-        # them, so the session's sound can reach it. Said once per capture.
-        if filtered and not self.notified:
-            self.notified = True
-            self.send("microphone", unfiltered=True)
+        # them, so the session's sound can reach it. Said when that changes.
+        if filtered != self.notified:
+            self.notified = filtered
+            self.send("microphone", unfiltered=filtered)
 
     def stop_recorder(self):
         recorder, self.recorder = self.recorder, None
@@ -1061,9 +1061,9 @@ class Helper:
         if kind == "level":
             self.send_level(event[1])
         elif kind == "start":
-            if self.direct and not self.notified and time.monotonic() - self.checked > self.game_check:
-                # A session may have started since capture did. Each look runs
-                # pw-dump, so it is not repeated for every phrase.
+            if self.direct and time.monotonic() - self.checked > self.game_check:
+                # A session may have started or ended since capture did. Each
+                # look runs pw-dump, so it is not repeated for every phrase.
                 microphone = self.microphone()
                 self.notify(microphone is not None and microphone[2])
             self.current = self.next_id

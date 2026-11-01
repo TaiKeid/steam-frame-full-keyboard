@@ -329,6 +329,9 @@ while True:
             continue
         if scenario == "game":
             send(op="microphone", unfiltered=True)
+        if scenario == "gameover":
+            send(op="microphone", unfiltered=True)
+            send(op="microphone", unfiltered=False)
         phrase += 1
         send(op="level", value=200)
         send(op="phrase", id=phrase)
@@ -2189,6 +2192,21 @@ void microphone_tests() {
     press(app, "Dictation");
     settle_pause(app);
     require(app.view().status.empty(), "and it goes when listening stops");
+    {
+        options.dictation_arguments = {"--scenario", "gameover"};
+        Sink ended_sink;
+        App ended(options, ended_sink);
+        press(ended, "Dictation");
+        for (int i = 0; i < 60; ++i) {
+            ended.tick(monotonic_seconds());
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(ended.listening() && ended.view().status.empty(),
+                "and when the play session ends while listening");
+        press(ended, "Dictation");
+        settle_pause(ended);
+        options.dictation_arguments = {"--scenario", "game"};
+    }
     struct Case {
         const char* language;
         const char* layout;

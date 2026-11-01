@@ -5045,10 +5045,12 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         break;
     case Kind::Microphone:
         // Shown in the status line only while capturing, never blocking.
-        std::cout << (direct_ ? "Type as I speak" : "Dictation")
-                  << ": recording the microphone without SteamOS's voice filters.\n"
-                  << std::flush;
-        game_sound_ = true;
+        if (event.unfiltered) {
+            std::cout << (direct_ ? "Type as I speak" : "Dictation")
+                      << ": recording the microphone without SteamOS's voice filters.\n"
+                      << std::flush;
+        }
+        game_sound_ = event.unfiltered;
         dirty = true;
         break;
     case Kind::Test:

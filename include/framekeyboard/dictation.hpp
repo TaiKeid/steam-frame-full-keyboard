@@ -20,8 +20,8 @@ class Dictation {
         // Partial: the words so far of the phrase being spoken, with live words on.
         // Download: a model download's state in `text` (progress, quantizing,
         // ready or failed), its bytes and, on failure, the reason.
-        // Microphone: capture bypasses SteamOS's voice filters, which are
-        // running for a play session, so its sound may be picked up.
+        // Microphone: whether capture bypasses SteamOS's voice filters, which
+        // run during a play session, so that its sound may be picked up.
         enum class Kind {
             Level,
             Phrase,
@@ -42,6 +42,7 @@ class Dictation {
         bool ok{};
         std::string text;              // Recognized text; never logged.
         bool device{};                 // Text: recognized on the Frame by the fallback.
+        bool unfiltered{};             // Microphone: a play session's filters are running.
         std::uint64_t done{}, total{}; // Download progress in bytes.
         std::string reason;            // Always one of the protocol's fixed codes.
     };
