@@ -1665,7 +1665,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     VrHaptics haptics;
     KeySounds key_sounds;
     std::optional<SoundPreview> delayed_release;
-    double delayed_release_at = 0;
+    double delayed_release_at = 0, next_worn_check = 0;
+    bool worn = true;
     // Any pointer that types pops, including those no controller buzzes for.
     auto key_pop = [&](KeyFeedback kind) {
         if (app.pops(kind)) {
@@ -3424,7 +3425,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
         }
-        key_sounds.set_awake(lifecycle.visible() && app.haptic_sounds());
+        // A shown panel can outlast the wearer. A quarter second is soon enough
+        // for a stream, and the runtime isn't asked on every frame.
+        if (now >= next_worn_check) {
+            next_worn_check = now + .25;
+            worn = vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) !=
+                   vr::k_EDeviceActivityLevel_Standby;
+        }
+        key_sounds.set_awake(lifecycle.visible() && app.haptic_sounds() && worn);
         // With both, a preview plays like a key: press, then release a beat later.
         if (auto preview = app.take_sound_preview()) {
             if (preview->press) {

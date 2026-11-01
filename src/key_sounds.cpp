@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstddef>
@@ -13,6 +14,7 @@
 #include <random>
 #include <thread>
 #include <type_traits>
+#include <utility>
 
 #ifdef FRAMEKEYBOARD_PIPEWIRE
 #include <dlfcn.h>
@@ -90,6 +92,8 @@ constexpr int sound_rate = 48000;
 // Some graph latency is unavoidable; this much keeps a pop on the key without
 // forcing the whole graph into very short cycles.
 constexpr const char* sound_latency = "512/48000";
+// How soon a keyboard in use tries PipeWire again.
+constexpr auto connect_retry = std::chrono::seconds(5);
 
 struct PipeWire {
     decltype(&::pw_init) init{};
@@ -103,7 +107,6 @@ struct PipeWire {
     decltype(&::pw_thread_loop_destroy) thread_loop_destroy{};
     decltype(&::pw_stream_new_simple) stream_new_simple{};
     decltype(&::pw_stream_connect) stream_connect{};
-    decltype(&::pw_stream_set_active) stream_set_active{};
     decltype(&::pw_stream_dequeue_buffer) stream_dequeue_buffer{};
     decltype(&::pw_stream_queue_buffer) stream_queue_buffer{};
     decltype(&::pw_stream_destroy) stream_destroy{};
@@ -131,7 +134,6 @@ struct PipeWire {
         bind(thread_loop_destroy, "pw_thread_loop_destroy");
         bind(stream_new_simple, "pw_stream_new_simple");
         bind(stream_connect, "pw_stream_connect");
-        bind(stream_set_active, "pw_stream_set_active");
         bind(stream_dequeue_buffer, "pw_stream_dequeue_buffer");
         bind(stream_queue_buffer, "pw_stream_queue_buffer");
         bind(stream_destroy, "pw_stream_destroy");
@@ -165,45 +167,53 @@ struct KeySounds::Player {
             .store(packed, std::memory_order_relaxed);
     }
 
-    // Connecting and every stream change happen here, so waiting for PipeWire
-    // never holds up a VR frame.
+    // Everything PipeWire happens here, so waiting for it never holds up a VR
+    // frame. The connection and its threads last only while awake: a hidden
+    // keyboard costs nothing, and a restarted PipeWire is found on the next try.
     void run() {
         for (std::size_t effect = 0; effect < pops.size(); ++effect) {
             const std::string name(1, static_cast<char>('a' + effect));
             sounds[effect] = {key_sound(KeyFeedback::Press, sound_rate, name),
                               key_sound(KeyFeedback::Release, sound_rate, name)};
         }
-        if (!connect()) {
+        if (!pw.load()) {
             std::cerr << "Haptic sounds unavailable: PipeWire not found.\n";
             return;
         }
-        bool active = false;
+        pw.init(nullptr, nullptr);
+        bool reported = false;
         std::unique_lock lock(mutex);
         while (true) {
-            changed.wait(lock, [&] { return stopping || wanted != active; });
+            changed.wait(lock, [&] { return stopping || wanted; });
             if (stopping) {
                 break;
             }
-            active = wanted;
+            broken = false;
             lock.unlock();
-            if (!active) {
-                // Pops requested as the keyboard hid must not play when it returns.
-                press_requests.store(0, std::memory_order_relaxed);
-                release_requests.store(0, std::memory_order_relaxed);
-            }
-            pw.thread_loop_lock(loop);
-            pw.stream_set_active(stream, active);
-            pw.thread_loop_unlock(loop);
+            voices = {}; // No data thread runs here; a pop cut off by sleep ends.
+            const bool connected = connect();
             lock.lock();
+            if (connected) {
+                changed.wait(lock, [&] { return stopping || !wanted || broken; });
+            }
+            const bool failed = !connected || broken;
+            lock.unlock();
+            disconnect();
+            // Pops requested as the keyboard hid must not play when it returns.
+            press_requests.store(0, std::memory_order_relaxed);
+            release_requests.store(0, std::memory_order_relaxed);
+            lock.lock();
+            if (failed) {
+                if (!std::exchange(reported, true)) {
+                    std::cerr << "Haptic sounds lost PipeWire; trying again.\n";
+                }
+                changed.wait_for(lock, connect_retry, [&] { return stopping || !wanted; });
+            } else {
+                reported = false;
+            }
         }
-        lock.unlock();
-        disconnect();
     }
     bool connect() {
-        if (!pw.load()) {
-            return false;
-        }
-        pw.init(nullptr, nullptr);
         loop = pw.thread_loop_new("framekeyboard-sounds", nullptr);
         if (!loop) {
             return false;
@@ -211,9 +221,11 @@ struct KeySounds::Player {
         static const pw_stream_events events = [] {
             pw_stream_events result{};
             result.version = PW_VERSION_STREAM_EVENTS;
-            result.state_changed = [](void*, pw_stream_state, pw_stream_state state, const char* error) {
-                if (state == PW_STREAM_STATE_ERROR) {
-                    std::cerr << "Haptic sounds stopped: " << (error ? error : "stream error") << "\n";
+            // PipeWire going away reads as unconnected, a stream error as error.
+            result.state_changed = [](void* player, pw_stream_state, pw_stream_state state,
+                                      const char*) {
+                if (state == PW_STREAM_STATE_ERROR || state == PW_STREAM_STATE_UNCONNECTED) {
+                    static_cast<Player*>(player)->lost();
                 }
             };
             result.process = [](void* player) { static_cast<Player*>(player)->process(); };
@@ -226,7 +238,6 @@ struct KeySounds::Player {
                               PW_KEY_NODE_LATENCY, sound_latency, nullptr),
             &events, this);
         if (!stream || pw.thread_loop_start(loop) < 0) {
-            disconnect();
             return false;
         }
         std::uint8_t storage[256];
@@ -239,20 +250,24 @@ struct KeySounds::Player {
         const spa_pod* parameters[] = {
             spa_format_audio_raw_build(&builder, SPA_PARAM_EnumFormat, &format)};
         // RT_PROCESS: process() takes no lock and allocates nothing.
-        const auto flags =
-            static_cast<pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_INACTIVE |
-                                         PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS);
+        const auto flags = static_cast<pw_stream_flags>(
+            PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS);
         pw.thread_loop_lock(loop);
         const int connected =
             pw.stream_connect(stream, PW_DIRECTION_OUTPUT, PW_ID_ANY, flags, parameters, 1);
         pw.thread_loop_unlock(loop);
-        if (connected < 0) {
-            disconnect();
-            return false;
-        }
-        return true;
+        return connected >= 0;
     }
-    // The loop stops first, so no callback can run on what follows.
+    void lost() {
+        {
+            std::lock_guard lock(mutex);
+            broken = true;
+        }
+        changed.notify_all();
+    }
+    // The loop stops first, so no event arrives during what follows. Destroying
+    // the stream takes it off the data thread, which runs process(), and ends
+    // that thread with its context.
     void disconnect() {
         if (loop) {
             pw.thread_loop_stop(loop);
@@ -320,7 +335,7 @@ struct KeySounds::Player {
     std::atomic<unsigned> press_requests{}, release_requests{};
     std::mutex mutex;
     std::condition_variable changed;
-    bool wanted{}, stopping{};
+    bool wanted{}, stopping{}, broken{};
     std::thread worker; // Last, so everything above exists when it starts.
 };
 #else

@@ -62,6 +62,8 @@ pkg_check_modules(PIPEWIRE QUIET libpipewire-0.3)
 if(PIPEWIRE_FOUND)
     target_include_directories(keyboard_core SYSTEM PRIVATE ${PIPEWIRE_INCLUDE_DIRS})
     target_compile_definitions(keyboard_core PRIVATE FRAMEKEYBOARD_PIPEWIRE)
+else()
+    message(WARNING "PipeWire headers not found: haptic sounds will stay silent in this build.")
 endif()
 # Frame already supplies these engines. Minimal host builds can still run the
 # ordinary keyboard; unsupported composition profiles fail explicitly on Apply.
