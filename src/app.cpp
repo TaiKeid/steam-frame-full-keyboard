@@ -2096,6 +2096,10 @@ void App::reload() {
     rebuild_cycle_entries();
     update_settings_ui();
     settings_ui_.reset();
+    if (languages_) {
+        languages_->layout_order = layout_order();
+        order_languages();
+    }
     refresh_typing();
     host_settings_changed(before, "reload");
     status_ = profiles_.errors.empty() ? save_status_ : profiles_.errors.front();

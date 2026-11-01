@@ -609,6 +609,10 @@ class App {
             double scroll{}, target{};
         };
         std::string layout; // Whose languages show.
+        // Worked out once per layout: every pointer event builds a view, and
+        // checking 77 languages against a layout isn't cheap.
+        std::vector<std::string> layout_order, language_order;
+        std::map<std::string, bool> usable; // Language -> this layout can type it.
         // Language -> swipe support, looked up once as it reads the disk.
         // Empty while swiping is off, so the rows show no icon at all.
         std::map<std::string, bool> swipe;
@@ -639,7 +643,7 @@ class App {
     void close_languages();
     void leave_settings();
     std::vector<std::string> layout_order() const;
-    std::vector<std::string> language_order(const std::string& layout) const;
+    void order_languages();
     double languages_limit(LanguagesPopup::Which which) const;
     std::optional<bool> language_swipe(const std::string& language) const;
     PanelView::LanguagesView::Row language_row(const Selection& pair) const;

@@ -82,6 +82,8 @@ void App::open_languages() {
     settings_ui_.close_popup();
     languages_ = LanguagesPopup{};
     languages_->layout = pending_.layout;
+    languages_->layout_order = layout_order();
+    order_languages();
     if (pending_swipe_typing_ && (options_.swipe_encoder || swipe_engine_installed(options_.data_dir))) {
         for (const auto& [id, language] : profiles_.languages) {
             languages_->swipe[id] = swipe_known(id);
@@ -111,21 +113,21 @@ std::vector<std::string> App::layout_order() const {
     });
     return result;
 }
-std::vector<std::string> App::language_order(const std::string& layout) const {
-    std::vector<std::string> result;
+void App::order_languages() {
+    auto& state = *languages_;
+    state.language_order.clear();
+    state.usable.clear();
     for (const auto& [id, language] : profiles_.languages) {
-        result.push_back(id);
+        state.language_order.push_back(id);
+        state.usable[id] = fits(profiles_, {state.layout, id, pending_.theme});
     }
     // All are listed, with those this layout can type first.
-    std::map<std::string, bool> usable;
-    for (const auto& id : result) {
-        usable[id] = fits(profiles_, {layout, id, pending_.theme});
-    }
-    std::stable_sort(result.begin(), result.end(), [&](const auto& a, const auto& b) {
-        return usable[a] != usable[b] ? usable[a]
-                                      : profiles_.languages.at(a).name < profiles_.languages.at(b).name;
-    });
-    return result;
+    std::stable_sort(state.language_order.begin(), state.language_order.end(),
+                     [&](const auto& a, const auto& b) {
+                         return state.usable[a] != state.usable[b]
+                                    ? state.usable[a]
+                                    : profiles_.languages.at(a).name < profiles_.languages.at(b).name;
+                     });
 }
 double App::languages_limit(LanguagesPopup::Which which) const {
     using Which = LanguagesPopup::Which;
@@ -181,7 +183,7 @@ void App::append_languages(PanelView& v) const {
                                         Icon::Back});
 
     const auto& layouts_list = languages_layouts_bounds;
-    const auto layouts = layout_order();
+    const auto& layouts = state.layout_order;
     for (std::size_t i = 0; i < layouts.size(); ++i) {
         const Rect bounds{layouts_list.x,
                           layouts_list.y + static_cast<double>(i) * languages_row_height -
@@ -207,7 +209,7 @@ void App::append_languages(PanelView& v) const {
                            [&](const Selection& entry) { return same_pair(entry, pair); });
     };
     const auto& list = languages_list_bounds;
-    const auto languages = language_order(state.layout);
+    const auto& languages = state.language_order;
     for (std::size_t i = 0; i < languages.size(); ++i) {
         const double x = list.x + static_cast<double>(i % 2) * (column_width() + languages_list_gap);
         const double y =
@@ -223,7 +225,7 @@ void App::append_languages(PanelView& v) const {
         row.title = language.name;
         row.note = language.native_name;
         row.bounds = bounds;
-        row.enabled = fits(profiles_, pair);
+        row.enabled = state.usable.at(languages[i]);
         row.checked = added(pair);
         row.swipe = language_swipe(languages[i]);
         popup.languages.push_back(row);
@@ -315,13 +317,13 @@ void App::languages_press(unsigned pointer, double x, double y) {
     if (list.contains(x, y)) {
         const auto row = std::floor((y - list.y + state.languages.scroll) / languages_row_height);
         const bool second = x >= list.x + column_width() + languages_list_gap;
-        const auto languages = language_order(state.layout);
+        const auto& languages = state.language_order;
         const auto index = static_cast<std::size_t>(row) * 2 + (second ? 1 : 0);
         drag.source = Which::Languages;
         drag.scroll = state.languages.scroll;
         if (index < languages.size()) {
             drag.pair = {state.layout, languages[index], pending_.theme};
-            drag.liftable = fits(profiles_, drag.pair);
+            drag.liftable = state.usable.at(languages[index]);
         }
         state.drag = drag;
     } else if (additional_list_bounds.contains(x, y)) {
@@ -444,6 +446,7 @@ void App::languages_action(const ControlAction& command) {
     } else if (kind == ControlKind::LanguagesLayout && languages_) {
         languages_->layout = command.value;
         languages_->languages = {};
+        order_languages();
     } else if (kind == ControlKind::AddLanguage && languages_) {
         const Selection pair{languages_->layout, command.value, pending_.theme};
         auto pairs = additional_pairs();
