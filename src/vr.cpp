@@ -3433,6 +3433,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                    vr::k_EDeviceActivityLevel_Standby;
         }
         key_sounds.set_awake(lifecycle.visible() && app.haptic_sounds() && worn);
+        if (!app.haptic_sounds()) {
+            delayed_release.reset(); // Listening began during a preview.
+        }
         // With both, a preview plays like a key: press, then release a beat later.
         if (auto preview = app.take_sound_preview()) {
             if (preview->press) {

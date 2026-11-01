@@ -2738,6 +2738,7 @@ void away_tests() {
     const auto toolbar = sounds_button(app.view());
     require(!toolbar.enabled && !toolbar.warning && toolbar.icon == Icon::HapticSoundOff,
             "the toolbar button waits, crossed but not orange");
+    require(!app.haptic_sounds(), "and the sound stream closes, as nothing could play");
     open_settings(app);
     const auto under_settings = app.view();
     const auto effect = std::find_if(under_settings.controls.begin(), under_settings.controls.end(),
@@ -2747,11 +2748,11 @@ void away_tests() {
                  y = effect->bounds.y + effect->bounds.height / 2;
     app.down(0, x, y, 1);
     app.up(0, x, y);
-    require(app.listening() && !app.take_sound_preview(), "nor a preview");
+    require(app.listening() && !app.take_sound_preview() && !app.haptic_sounds(), "nor a preview");
     app.back();
     app.stop_listening(reason);
     require(!app.listening() && app.view().status == reason, "Type as I speak stops and says why");
-    require(app.pops(KeyFeedback::Release), "keys pop again once it stops");
+    require(app.pops(KeyFeedback::Release) && app.haptic_sounds(), "keys pop again once it stops");
     const auto after = sounds_button(app.view());
     require(after.enabled && !after.warning && after.icon == Icon::HapticSound,
             "and the button returns to normal");

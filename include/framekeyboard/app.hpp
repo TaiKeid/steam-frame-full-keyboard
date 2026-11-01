@@ -240,10 +240,11 @@ class App {
     bool dragging() const { return dragging_; }
     // The microphone is open for dictation or Type as I speak.
     bool listening() const { return capturing_; }
-    // The stream runs for keys that can pop, or for Settings to preview a choice.
+    // The stream runs for keys that can pop, or for Settings to preview a
+    // choice. Listening allows neither.
     bool haptic_sounds() const {
-        return (settings_.haptic_sounds != "off" && settings_.haptic_sounds_switch) ||
-               (settings_open_ && pending_haptic_sounds_ != "off");
+        return !capturing_ && ((settings_.haptic_sounds != "off" && settings_.haptic_sounds_switch) ||
+                               (settings_open_ && pending_haptic_sounds_ != "off"));
     }
     const std::string& haptic_effect() const { return settings_.haptic_effect; }
     int haptic_volume() const { return settings_.haptic_volume; }
