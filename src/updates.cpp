@@ -227,8 +227,8 @@ void Updates::fail(double now, const std::string& reason) {
         check_failed_ = true;
         return;
     }
-    if (reason == "not-newer-release") {
-        offer_.clear(); // The offered release was withdrawn.
+    if (reason == "not-newer-release" && !hosted_install_) {
+        offer_.clear(); // The offered release was withdrawn; a shell may have pinned another.
     }
     state_ = State::Error;
     reason_ = reason.empty() ? "failed" : reason;

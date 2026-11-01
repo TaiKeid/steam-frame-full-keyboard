@@ -114,7 +114,7 @@ std::string update_error_code(const std::string& reason) {
     }
     if (reason == "invalid-release" || reason == "download-failed" || reason == "version-mismatch" ||
         reason == "validation-failed" || reason == "wrong-platform" ||
-        reason == "not-installed-release") {
+        reason == "not-installed-release" || reason == "not-newer-release") {
         return "invalid_package";
     }
     return "failed";

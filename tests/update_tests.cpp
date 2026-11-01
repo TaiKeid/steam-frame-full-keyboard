@@ -232,6 +232,9 @@ while True:
         value={'state':'latest'} if mode in ('latest','slow-latest') else {'state':'available','version':'9.0.0'}
         peer.send(json.dumps(value).encode())
     elif command['op']=='install':
+        if mode=='pinned':
+            peer.send(b'{"state":"error","reason":"not-newer-release"}')
+            continue
         assert 'version' not in command # Always the newest release.
         if mode=='hosted-expire':
             assert command['protocol']==1
@@ -366,6 +369,19 @@ if mode=='marked':
             }
             require(std::filesystem::exists(directory / "helper-exited"),
                     "the helper exits once it has answered");
+        }
+        {
+            // A shell pinning the version it runs says nothing about the offer.
+            Updates updates("0.6.0", {"pinned"}, helper);
+            updates.click(10);
+            wait_label(updates, "Download and install update", 11);
+            require(updates.install(12, "0.6.0", 1), "the pin goes to the helper");
+            for (int i = 0; i < 200 && updates.state() != Updates::State::Error; ++i) {
+                updates.tick(12);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            require(updates.failure_code() == "not-newer-release" && updates.offered(),
+                    "a refused pin leaves the offer");
         }
         {
             // Pressing the button during a silent check gets its answer.
