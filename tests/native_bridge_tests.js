@@ -1139,6 +1139,22 @@ function notReadyFor(f, ms) {
     f.bridge.dispose();
 }
 {
+    // Handed back near the end of the window, and taken over only after it ends
+    // because Steam's callback comes late: still no button press.
+    const f = fixture(false, false, false, false, false, false, 3000);
+    f.manager.m_fnVROnTextEnteredOverride = null;
+    for (let at = 0; at < 2750; at += 250) { f.step(); f.advance(250); } // now 2750 ms
+    f.status({bIsOpen: true});
+    assert(!f.step().eligible, "nothing to take over while the callback is missing");
+    f.advance(150); f.step(); f.advance(150);
+    f.manager.m_fnVROnTextEnteredOverride = () => {};
+    const s = f.step(), next = f.step(s.request);
+    assert(s.eligible && next.active, "the late handed-back session is adopted");
+    assert(![...s.events, ...next.events].some(e => e.code === "button-summon"),
+        "and still not reported as a button summon");
+    f.bridge.dispose();
+}
+{
     const f = fixture(true, false, false, false, false, false, 3000);
     notReadyFor(f, 3250);
     assert(!f.step().eligible && f.nativeOpen(), "a session older than the handoff window stays native");

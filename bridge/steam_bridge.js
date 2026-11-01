@@ -79,6 +79,9 @@
     // for its own request; only that handoff adopts it, within a short window.
     const adoptUntil = Number.isFinite(adoptOpenMs) && adoptOpenMs > 0 ? now() + adoptOpenMs : 0;
     let ignoreOpen = native.open && !adoptUntil, rawDeadline = native.open ? adoptUntil : 0, restoringUntil = 0;
+    // That handed-back session is no button press, however long taking it over
+    // takes; it is marked when it opens, not when it is acquired.
+    let handedBack = native.open && !!adoptUntil;
     let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
@@ -356,7 +359,10 @@
             if (!restoringOwner && restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
             if (!native.open && !restoringUntil) ignoreOpen = false;
             const newOpen = native.open && (!previousOpen || native.key !== previousKey);
-            if (newOpen) rawDeadline = Math.max(time + REQUEST_MS, adoptUntil);
+            if (newOpen) {
+                rawDeadline = Math.max(time + REQUEST_MS, adoptUntil);
+                handedBack = time < adoptUntil;
+            } else if (!native.open) handedBack = false;
             previousOpen = native.open;
             previousKey = native.key;
             const frame = selectedFrame();
@@ -479,7 +485,8 @@
                     // A panel held open by Keep open treats this press as closing it.
                     // An update's handed-back session is no press: the successor
                     // already shows itself and would close both keyboards.
-                    if (button && time >= adoptUntil) record("button-summon");
+                    if (button && !handedBack) record("button-summon");
+                    handedBack = false;
                 }
                 // The incoming app renews the lease only after its first frame.
                 else if (!fresh() && time < adoptUntil) { /* Keep the handoff session adoptable. */ }
