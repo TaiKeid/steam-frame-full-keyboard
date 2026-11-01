@@ -243,6 +243,81 @@ void workload(App& app, Upload& upload, const char* name, double duration, doubl
     total.print("total");
     std::cout << std::flush;
 }
+// A screen other than the keys: `step` runs each frame and may change anything.
+template <class Step>
+void screen_workload(App& app, Upload& upload, const char* name, double duration, bool use_vr, Step step) {
+    app.paint(monotonic_seconds());
+    upload.submit(app.renderer);
+    Samples events, paint, transfer;
+    unsigned frames = 0, overruns = 0;
+    const double start = monotonic_seconds(), start_cpu = cpu_seconds();
+    while (monotonic_seconds() - start < duration) {
+        const auto frame_start = Clock::now();
+        const double now = monotonic_seconds();
+        events.measure([&] { step(now - start); });
+        if (app.tick(now) || app.dirty) {
+            paint.measure([&] { app.paint(now); });
+            if (use_vr) {
+                transfer.measure([&] { upload.submit(app.renderer); });
+            }
+        }
+        ++frames;
+        const auto deadline = frame_start + std::chrono::microseconds(16667);
+        overruns += Clock::now() > deadline;
+        std::this_thread::sleep_until(deadline);
+    }
+    const double cpu = cpu_seconds() - start_cpu, wall = monotonic_seconds() - start;
+    std::cout << "\nworkload=" << name << " wall_s=" << wall << " cpu_s=" << cpu
+              << " cpu_percent_one_core=" << 100 * cpu / wall << " frames=" << frames
+              << " redraws=" << paint.wall.size() << " frames_over_16_667ms=" << overruns << '\n';
+    events.print("events");
+    paint.print("paint");
+    transfer.print(upload.native_pixels() ? "native_upload" : "rgba_conversion_and_upload");
+    std::cout << std::flush;
+}
+Rect control_bounds(App& app, const std::string& id) {
+    const auto view = app.view();
+    for (const auto& control : view.controls) {
+        if (control.id == id) {
+            return control.bounds;
+        }
+    }
+    throw std::runtime_error("benchmark control not found: " + id);
+}
+void press_control(App& app, const std::string& id) {
+    const auto r = control_bounds(app, id);
+    const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+    app.move(0, x, y);
+    app.down(0, x, y, monotonic_seconds());
+    app.up(0, x, y);
+}
+// The screens the key workloads never reach, as a laser wobbling in the hand does.
+void screens(App& app, Upload& upload, bool use_vr) {
+    const auto wobble = [&](double x, double y) {
+        return [&app, x, y](double t) {
+            app.move(0, x + 6 * std::sin(t * 9), y + 4 * std::cos(t * 7));
+        };
+    };
+    app.show_settings();
+    screen_workload(app, upload, "settings_laser", 5, use_vr, wobble(800, 300));
+    press_control(app, "additional-languages");
+    screen_workload(app, upload, "languages_popup_laser", 5, use_vr, wobble(700, 300));
+    const auto row = [&] {
+        const auto view = app.view();
+        return view.languages->languages.front().bounds;
+    }();
+    const double from_x = row.x + row.width / 2, from_y = row.y + row.height / 2;
+    app.move(0, from_x, from_y);
+    app.down(0, from_x, from_y, monotonic_seconds());
+    screen_workload(app, upload, "languages_popup_drag", 5, use_vr, [&](double t) {
+        app.move(0, from_x + 300 + 280 * std::sin(t * 2), from_y + 150 + 100 * std::cos(t * 3));
+    });
+    app.cancel_pointer(0);
+    app.back();
+    app.back();
+    app.show_dictation();
+    screen_workload(app, upload, "dictation_laser", 5, use_vr, wobble(800, 200));
+}
 } // namespace
 int main(int argc, char** argv) {
     fs::path temporary;
@@ -267,7 +342,7 @@ int main(int argc, char** argv) {
         }
         temporary = directory;
         Options options;
-        options.mode = Mode::Render; // Same panel without the preview-only notice.
+        options.mode = Mode::RenderDictation; // No preview notice, and the editor opens.
         options.config_dir = temporary;
         NullSink sink;
         App app(options, sink);
@@ -288,6 +363,7 @@ int main(int argc, char** argv) {
         workload(app, upload, "one_key_per_second", 10, 1, false, use_vr, full_paint);
         workload(app, upload, "four_keys_per_second", 15, 4, false, use_vr, full_paint);
         workload(app, upload, "forced_every_frame", 5, 0, true, use_vr, full_paint);
+        screens(app, upload, use_vr);
         fs::remove_all(temporary);
         return 0;
     } catch (const std::exception& error) {
