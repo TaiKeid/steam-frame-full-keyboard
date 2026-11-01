@@ -2168,8 +2168,8 @@ void send_during_reveal_tests() {
     }
 }
 
-// The helper records around SteamOS's voice filters. They also run with no
-// game, so the status line stays quiet and only the log hears of it.
+// A play session runs SteamOS's voice filters and the helper records around
+// them: the status line says game sound may come through, without blocking.
 void microphone_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -2181,11 +2181,14 @@ void microphone_tests() {
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
     Sink sink;
     App app(options, sink);
+    const std::string notice = "Game sounds may be picked up during a play session.";
     press(app, "Dictation");
-    settle(app);
-    require(app.listening() && app.view().status.empty() && app.view().dictation &&
-                !app.view().dictation->notice_error,
-            "the filters being on shows nothing");
+    wait_until(app, [&] { return app.view().status == notice; });
+    require(app.view().dictation && !app.view().dictation->notice_error,
+            "while listening in a game, the status line says game sound may come through");
+    press(app, "Dictation");
+    settle_pause(app);
+    require(app.view().status.empty(), "and it goes when listening stops");
 }
 
 // A Test answers for the address it checked: editing the field meanwhile

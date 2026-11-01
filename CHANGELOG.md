@@ -10,7 +10,7 @@
 - Settings has a new **Additional languages** page in place of the Favorite switch and Manage. Pick a layout on the left, tap or drag languages into your list, drag to reorder, and drop outside to remove. Your main language stays in sync with the Layout and Language dropdowns. Leaving Settings asks whether to save changes made there.
 - While Swipe typing is on, Additional languages marks which languages can swipe and which can't.
 - Settings has a new **Typing** card, with **Close emoji picker after choosing** and **KDE Desktop Unicode** moved there from General.
-- Dictation no longer warns that game sounds may be picked up, which it also did with no game running.
+- The dictation warning about game sounds now shows only while SteamOS's voice filters are in use, not whenever they are set up.
 - Added **Haptic sounds** to the Typing card: a pop on key press, release or both, off by default, with six effects and four volume levels you can preview in Settings. They stay silent while the microphone is listening.
 - Swipe typing now works in the dictation editor too.
 - Added a swipe button to the toolbar while Swipe typing is on. It turns swiping on and off without changing the setting, and remembers its state. It's greyed out while the current language can't swipe, and disabled if none of your languages can, on a flick keyboard, or while the dictation editor can't be typed in.

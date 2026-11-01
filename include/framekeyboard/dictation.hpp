@@ -20,7 +20,8 @@ class Dictation {
         // Partial: the words so far of the phrase being spoken, with live words on.
         // Download: a model download's state in `text` (progress, quantizing,
         // ready or failed), its bytes and, on failure, the reason.
-        // Microphone: capture bypasses SteamOS's voice filters; logged only.
+        // Microphone: capture bypasses SteamOS's voice filters, which are
+        // running for a play session, so its sound may be picked up.
         enum class Kind {
             Level,
             Phrase,

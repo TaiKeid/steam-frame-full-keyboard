@@ -698,7 +698,7 @@ class Process:
 TWO_PHRASES = zeros(0.5) + speech(1.0) + zeros(1.0) + speech(1.0, seed=3) + zeros(1.0)
 
 
-def pipewire_dump(filtered=True, targets=1):
+def pipewire_dump(filtered=True, targets=1, running=True):
     """A pw-dump listing shaped like the Frame's: the microphone, SteamOS's
     noise-suppression filter aimed at it, the default loopback, and a speaker
     filter that must not count."""
@@ -723,6 +723,8 @@ def pipewire_dump(filtered=True, targets=1):
         {"id": 300, "type": "PipeWire:Interface:Link",
          "info": {"output-node-id": 73, "input-node-id": 65 if filtered else 70}},
     ]
+    if running:
+        next(o for o in dump if o["id"] == 66)["info"]["state"] = "running"
     if targets == 2:
         dump.append(node(74, **{"node.name": "alsa_input.mic2", "media.class": "Audio/Source",
                                 "alsa.card_name": "SM8250 LPASS", "device.profile.description": "Mic"}))
@@ -740,6 +742,8 @@ class Microphone(unittest.TestCase):
         self.assertEqual(d.filtered_microphone(pipewire_dump()),
                          ("alsa_input.mic", ["capture_FL", "capture_FR"], True))
         self.assertEqual(d.filtered_microphone(pipewire_dump(filtered=False))[2], False)
+        self.assertEqual(d.filtered_microphone(pipewire_dump(running=False))[2], False,
+                         "filters linked with nothing recording through them are not on")
 
     def test_nothing_is_bypassed_without_one_clear_target(self):
         self.assertIsNone(d.filtered_microphone(pipewire_dump(targets=2)))

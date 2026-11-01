@@ -969,6 +969,7 @@ class App {
     // hosted provider, or none without dictation.
     Icon recognition_place() const;
     bool capturing_{};
+    bool game_sound_{}; // This capture records around filters a play session runs.
     // A game is running and this capture hears its sound: the status line
     // says so while capturing. The helper reports it once per capture.
     double alive_until_{}; // The helper gets keep-alives until then.

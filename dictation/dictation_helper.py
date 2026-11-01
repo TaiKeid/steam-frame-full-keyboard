@@ -101,7 +101,7 @@ MANAGER_REMOTE = "pipewire-0-manager"
 DIRECT_NODE = "framekeyboard-dictation"
 LINK_WAIT = 1.0  # for the recorder's input port to appear
 STALL_TIMEOUT = 1.0  # a linked recorder that delivers nothing is replaced
-GAME_CHECK = 20.0  # how often a phrase start looks again for linked filters
+GAME_CHECK = 20.0  # how often a phrase start looks again for running filters
 
 
 class Failure(Exception):
@@ -129,7 +129,7 @@ def spa_rules(text):
 
 def filtered_microphone(dump):
     """In a pw-dump listing, the one device that smart source filters capture
-    from: (node name, output ports, whether a filter is linked to it now).
+    from: (node name, output ports, whether a filter is working on it now).
     None when no source filter targets exactly one device."""
     objects = [o for o in dump if isinstance(o, dict)] if isinstance(dump, list) else []
 
@@ -163,10 +163,14 @@ def filtered_microphone(dump):
         return None
     # The filters' own capture streams share their source's link group.
     by_id = {n.get("id"): props(n).get("node.link-group") for n in nodes}
-    filtered = any(o.get("type") == "PipeWire:Interface:Link" and isinstance(o.get("info"), dict) and
-                   o["info"].get("output-node-id") == target and
-                   by_id.get(o["info"].get("input-node-id")) in groups for o in objects)
-    return name, ports, filtered
+    linked = any(o.get("type") == "PipeWire:Interface:Link" and isinstance(o.get("info"), dict) and
+                 o["info"].get("output-node-id") == target and
+                 by_id.get(o["info"].get("input-node-id")) in groups for o in objects)
+    # They stay linked with nothing using them; they run only while something
+    # records through them, such as a game's voice chat or a streamed session.
+    running = any(by_id.get(n.get("id")) in groups and props(n).get("media.class") == "Audio/Source" and
+                  isinstance(n.get("info"), dict) and n["info"].get("state") == "running" for n in nodes)
+    return name, ports, linked and running
 
 
 def level_db(frame):
@@ -837,7 +841,7 @@ class Helper:
         self.capturing = False
         self.recorder = None
         self.direct = False  # the recorder is linked to the microphone itself
-        self.notified = False  # the keyboard heard that the filters are bypassed
+        self.notified = False  # the keyboard heard that game sound may come through
         self.checked = 0.0  # when the graph was last looked at
         self.game_check = GAME_CHECK
         self.last_audio = 0.0
@@ -1008,8 +1012,8 @@ class Helper:
             self.checked = self.last_audio = self.last_packet = time.monotonic()
 
     def notify(self, filtered):
-        # Audio the filters would have cancelled reaches dictation. Said once
-        # per capture, for the keyboard's log.
+        # The filters run during a play session; dictation records around
+        # them, so the session's sound can reach it. Said once per capture.
         if filtered and not self.notified:
             self.notified = True
             self.send("microphone", unfiltered=True)
@@ -1058,7 +1062,7 @@ class Helper:
             self.send_level(event[1])
         elif kind == "start":
             if self.direct and not self.notified and time.monotonic() - self.checked > self.game_check:
-                # The filters may have linked since capture started. Each look runs
+                # A session may have started since capture did. Each look runs
                 # pw-dump, so it is not repeated for every phrase.
                 microphone = self.microphone()
                 self.notify(microphone is not None and microphone[2])

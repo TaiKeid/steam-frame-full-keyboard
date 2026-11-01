@@ -861,9 +861,10 @@ PanelView App::build_view(bool picker) const {
         settings_ui_.append(v);
         append_languages(v);
     }
-    v.status = !status_.empty() ? status_
-               : sink_on()      ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
-                                                                              : host_.sink_client)
+    v.status = !status_.empty()            ? status_
+               : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
+               : sink_on() ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
+                                                                         : host_.sink_client)
                : !debug_status_.empty() ? debug_status_
                                         : startup_status_;
     // The context's Enter hint is a legend only; the key still sends Enter.
@@ -4305,6 +4306,7 @@ bool App::start_capture() {
     // that session, its spacing and context included.
     const bool new_session = !dictation_open_ && !direct_active();
     capturing_ = true;
+    game_sound_ = false;
     if (new_session) {
         // A new Type as I speak session: its own context and spacing, and
         // the field it types into.
@@ -4995,11 +4997,12 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         dirty = true;
         break;
     case Kind::Microphone:
-        // For the log only: these filters also run with no game, so a message
-        // about game sound would be a false alarm.
+        // Shown in the status line only while capturing, never blocking.
         std::cout << (direct_ ? "Type as I speak" : "Dictation")
                   << ": recording the microphone without SteamOS's voice filters.\n"
                   << std::flush;
+        game_sound_ = true;
+        dirty = true;
         break;
     case Kind::Test:
         // Only the Dictation card's Test asks. The line under the row label is
