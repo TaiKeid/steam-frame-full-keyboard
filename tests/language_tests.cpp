@@ -204,6 +204,14 @@ void table_engine() {
     require(table.text() == "明" && table.preedit() == "日月", "a corrected reading finds it");
     table.choose(0);
     require(!table.has_reading() && !table.empty() && table.text() == "明", "choosing ends the reading");
+    table.type('a');
+    require(table.preedit() == "明日" && table.text() == "明日",
+            "a choice not yet committed stays ahead of the next reading");
+    table.type('z');
+    require(table.text().empty() && table.preedit() == "明日重", "and waits while nothing matches");
+    table.backspace();
+    table.backspace();
+    require(table.text() == "明" && !table.has_reading(), "Backspace returns to it");
     table.cancel();
     require(table.empty() && table.text().empty(), "cancel clears it");
     table.type('1');

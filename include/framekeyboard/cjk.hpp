@@ -26,6 +26,8 @@ class CjkComposer {
     bool chinese() const;
     // Digits and punctuation are part of the reading (Zhuyin), not candidates.
     bool phonetic_keys() const;
+    // A quote separates syllables (Pinyin).
+    bool syllables() const;
     // 12-key input (천지인): what a key typed, replacing the last unit for a
     // repeated toggle tap, and that unit, which the toggle must still find.
     bool flick_input() const;
@@ -36,6 +38,6 @@ class CjkComposer {
   private:
     struct State;
     std::unique_ptr<State> state_;
-    bool phonetic_keys_{};
+    bool phonetic_keys_{}, syllables_{};
 };
 } // namespace framekeyboard

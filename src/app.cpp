@@ -24,6 +24,8 @@ double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 namespace {
+constexpr const char* no_reading_status =
+    "No character has this reading. Backspace corrects it, Esc cancels it.";
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -2398,7 +2400,8 @@ void App::commit_cjk() {
     }
     const auto text = cjk_->text();
     if (text.empty()) {
-        return; // A table reading that matches nothing stays to be corrected.
+        status_ = no_reading_status; // It stays to be corrected, and the key is refused.
+        return;
     }
     // In dictation mode the editor takes the text, even in a preview.
     if (!text.empty() && ((preview_input() && !dictation_open_) || text_output_->commit_text(text))) {
@@ -2447,6 +2450,9 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     }
     const auto& code = key.action;
     const bool composing = !cjk_->empty();
+    if (execute && status_ == no_reading_status) {
+        status_.clear();
+    }
     // → ends a 천지인 toggle, so the same consonant key can type its first jamo again.
     if (code == "ArrowRight" && flick_toggle_ && composing) {
         if (execute) {
@@ -2513,7 +2519,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         }
         return true;
     }
-    if (cjk_->chinese() && !cjk_->phonetic_keys() && code == "Quote" && composing &&
+    if (cjk_->syllables() && code == "Quote" && composing &&
         !mods.contains(key_code("ShiftLeft")) && !mods.contains(key_code("ShiftRight"))) {
         if (execute) {
             cjk_->type('\'');

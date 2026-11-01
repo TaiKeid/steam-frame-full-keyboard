@@ -89,7 +89,8 @@ bool CjkComposer::supported(const std::string& method) {
     }
 }
 CjkComposer::CjkComposer(const std::string& method)
-    : state_(std::make_unique<State>(method)), phonetic_keys_(method == "chinese-zhuyin") {
+    : state_(std::make_unique<State>(method)), phonetic_keys_(method == "chinese-zhuyin"),
+      syllables_(method.starts_with("chinese-pinyin-")) {
 }
 CjkComposer::~CjkComposer() = default;
 void CjkComposer::type(char key) {
@@ -136,6 +137,9 @@ bool CjkComposer::chinese() const {
 }
 bool CjkComposer::phonetic_keys() const {
     return phonetic_keys_;
+}
+bool CjkComposer::syllables() const {
+    return syllables_;
 }
 bool CjkComposer::flick_input() const {
     return static_cast<bool>(state_->cheonjiin);

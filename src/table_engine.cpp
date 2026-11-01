@@ -139,7 +139,6 @@ void TableEngine::type(char key) {
     if (key < 'a' || key > 'z' || keys_.size() >= max_keys_) {
         return;
     }
-    chosen_.clear();
     keys_ += key;
     look_up();
 }
@@ -167,8 +166,9 @@ void TableEngine::choose(int index) {
     if (index < 0 || index >= static_cast<int>(candidates_.size())) {
         return;
     }
-    // Candidates are whole characters, so a choice ends the reading.
-    chosen_ = candidates_[static_cast<std::size_t>(index)];
+    // Candidates are whole characters, so a choice ends the reading. It stays
+    // until committed, and one the target refused goes out with the next.
+    chosen_ += candidates_[static_cast<std::size_t>(index)];
     keys_.clear();
     candidates_.clear();
     selected_ = 0;
@@ -181,6 +181,9 @@ std::string TableEngine::preedit() const {
     return result;
 }
 std::string TableEngine::text() const {
-    return candidates_.empty() ? chosen_ : candidates_[static_cast<std::size_t>(selected_)];
+    if (keys_.empty()) {
+        return chosen_;
+    }
+    return candidates_.empty() ? std::string{} : chosen_ + candidates_[static_cast<std::size_t>(selected_)];
 }
 } // namespace framekeyboard
