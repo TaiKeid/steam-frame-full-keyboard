@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.1: The keyboard returns promptly after an update
 
 - Fixed: Full Keyboard returns as soon as an update restarts it, without the five-second wait. An unadoptable handed-back Steam keyboard closes so it cannot remain over Full Keyboard; typing waits for a safe target.
 
