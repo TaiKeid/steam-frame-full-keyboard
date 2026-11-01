@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Dictation's **Send** no longer presses Enter after the text. It leaves the text in the focused application, so you decide when to submit it. Pressing Enter on the normal keyboard submits it.
+- Fixed: Dictation's **Send** no longer presses Enter after the text. It leaves the text in the focused application, so you decide when to submit it. Pressing Enter on the normal keyboard submits it.
 
 ## 0.13.1: The keyboard comes back after an update
 
