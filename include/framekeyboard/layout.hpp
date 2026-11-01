@@ -44,6 +44,7 @@ enum class Icon {
     Recenter,
     Close,
     Copy,
+    Cut,
     Paste,
     SteamFrame,
     SteamOS,

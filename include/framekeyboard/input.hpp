@@ -131,6 +131,9 @@ class KeyboardState {
     bool tick(double now);
     bool pressed(const std::string& id) const;
     std::set<int> modifiers() const;
+    // Something modified by these modifiers ended a latch and keeps a held one
+    // from latching on release; down() does this for keys.
+    void use_modifiers();
     bool caps() const { return caps_; }
     bool num() const { return num_; }
     // A Shift held this long without another key locks: it applies to every

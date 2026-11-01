@@ -45,6 +45,49 @@ void DictationEditor::replace(std::size_t start, std::size_t end, const std::str
     }
 }
 
+std::pair<std::size_t, std::size_t> DictationEditor::selection() const {
+    if (!has_selection()) {
+        return {cursor_, cursor_};
+    }
+    return std::minmax(*anchor_, cursor_);
+}
+
+void DictationEditor::select_to(std::size_t offset) {
+    const auto anchor = anchor_.value_or(cursor_);
+    set_cursor(offset);
+    if (anchor != cursor_) {
+        anchor_ = anchor;
+    }
+}
+
+bool DictationEditor::erase_selection() {
+    if (!has_selection()) {
+        return false;
+    }
+    const auto [start, end] = selection();
+    replace(start, end, "");
+    cursor_ = start;
+    anchor_.reset();
+    return true;
+}
+
+bool DictationEditor::copy() {
+    if (!has_selection()) {
+        return false;
+    }
+    const auto [start, end] = selection();
+    copied_ = text_.substr(start, end - start);
+    return true;
+}
+
+bool DictationEditor::cut() {
+    return copy() && erase_selection();
+}
+
+bool DictationEditor::paste() {
+    return type(copied_);
+}
+
 bool DictationEditor::type(const std::string& input) {
     if (!g_utf8_validate(input.c_str(), static_cast<gssize>(input.size()), nullptr)) {
         return false;
@@ -56,10 +99,14 @@ bool DictationEditor::type(const std::string& input) {
             clean.append(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
         }
     }
+    if (clean.empty()) {
+        return false;
+    }
+    const bool erased = erase_selection(); // Its room is free for the new text.
     const auto room = hard_limit - std::min(hard_limit, length());
     clean = head(clean, std::min(room, code_points(clean)));
     if (clean.empty()) {
-        return false;
+        return erased;
     }
     replace(cursor_, cursor_, clean);
     cursor_ += clean.size();
@@ -67,6 +114,9 @@ bool DictationEditor::type(const std::string& input) {
 }
 
 bool DictationEditor::backspace() {
+    if (erase_selection()) {
+        return true;
+    }
     if (cursor_ == 0) {
         return false;
     }
@@ -78,6 +128,9 @@ bool DictationEditor::backspace() {
 }
 
 bool DictationEditor::erase_forward() {
+    if (erase_selection()) {
+        return true;
+    }
     if (cursor_ >= text_.size()) {
         return false;
     }
@@ -93,9 +146,11 @@ void DictationEditor::set_cursor(std::size_t offset) {
         --offset;
     }
     cursor_ = offset;
+    anchor_.reset();
 }
 
 void DictationEditor::left() {
+    anchor_.reset();
     if (cursor_ > 0) {
         cursor_ = static_cast<std::size_t>(
             g_utf8_find_prev_char(text_.c_str(), text_.c_str() + cursor_) - text_.c_str());
@@ -103,6 +158,7 @@ void DictationEditor::left() {
 }
 
 void DictationEditor::right() {
+    anchor_.reset();
     if (cursor_ < text_.size()) {
         cursor_ = static_cast<std::size_t>(g_utf8_next_char(text_.c_str() + cursor_) - text_.c_str());
     }
@@ -111,6 +167,7 @@ void DictationEditor::right() {
 void DictationEditor::clear() {
     text_.clear();
     cursor_ = 0;
+    anchor_.reset();
     phrases_.clear();
     uncertain_ = 0;
 }
@@ -118,6 +175,7 @@ void DictationEditor::clear() {
 void DictationEditor::erase_front(std::size_t bytes) {
     bytes = std::min(bytes, text_.size());
     replace(0, bytes, "");
+    anchor_.reset();
     cursor_ = cursor_ > bytes ? cursor_ - bytes : 0;
 }
 
@@ -132,9 +190,10 @@ bool DictationEditor::insert_phrase(const std::string& input, bool spaced) {
     gchar* stripped = g_strstrip(g_strdup(input.c_str()));
     std::string phrase(stripped);
     g_free(stripped);
-    // Text after the cursor, ignoring spaces, means the sentence continues.
+    // Text after the cursor, ignoring spaces, means the sentence continues. The
+    // phrase replaces a selection, so that text starts where the selection ends.
     bool follows = false;
-    for (const char* p = text_.c_str() + cursor_; *p; p = g_utf8_next_char(p)) {
+    for (const char* p = text_.c_str() + selection().second; *p; p = g_utf8_next_char(p)) {
         if (!is_space(g_utf8_get_char(p))) {
             follows = true;
             break;
@@ -150,6 +209,7 @@ bool DictationEditor::insert_phrase(const std::string& input, bool spaced) {
     if (phrase.empty()) {
         return false;
     }
+    erase_selection();
     if (spaced) {
         const gunichar first = g_utf8_get_char(phrase.c_str());
         if (cursor_ > 0) {
@@ -187,6 +247,7 @@ bool DictationEditor::undo_phrase() {
     }
     const auto phrase = phrases_.back();
     phrases_.pop_back();
+    anchor_.reset();
     replace(phrase.start, phrase.start + phrase.size, "");
     if (cursor_ >= phrase.start + phrase.size) {
         cursor_ -= phrase.size;
@@ -197,7 +258,7 @@ bool DictationEditor::undo_phrase() {
 }
 
 std::string DictationEditor::context(std::size_t limit) const {
-    const std::string before = text_.substr(0, cursor_);
+    const std::string before = text_.substr(0, selection().first);
     const auto count = code_points(before);
     if (count <= limit) {
         return before;

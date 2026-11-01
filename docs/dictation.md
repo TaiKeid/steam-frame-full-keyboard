@@ -50,6 +50,7 @@ The mic key is the third of the three equal side-column keys, below Copy and Pas
 - **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy and Paste side keys.
 - **Send** takes the place of the right-hand Alt to Ctrl keys. Layouts without them, such as flick, put it in Tab's place.
 - **Undo last phrase** takes the first freed side slot, directly above the mic key.
+- **Copy, Cut and Paste,** shown as icons, take the left Ctrl, Super and Alt keys' places. Layouts without them, such as flick, stack the three above a shorter Undo, between Convert's slot and the mic key.
 - Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
 - The status line, which the editor covers, moves into the toolbar row, wrapping onto a second line when long. Japanese and Korean input buttons narrow that space, so there a status too long for two lines stays on one and scrolls under the laser.
 - The toolbar stays. Listening continues under Settings, which waits only while Send runs. Applying a change to the language or recognition settings, Reload, the server test and downloading or deleting a model pause it. The language and haptic sounds buttons wait until no phrase is being captured, recognized or typed, and the swipe button waits while the editor can't be typed in. X, Pin, Recenter and Esc keep working.
@@ -96,8 +97,13 @@ Short conversational sentences are used rather than descriptions such as 以下�
 
 ### Editor
 
-- The editor holds plain text with line breaks. Tab characters are not supported. There is no text selection.
+- The editor holds plain text with line breaks. Tab characters are not supported.
 - **Cursor:** a laser click places it, using Pango's position lookup. The arrows, Home and End move it; Up and Down keep their column, and Home and End follow the wrapped line. Held keys repeat after 0.5 s, every 40 ms.
+- **Selection:** Shift with the arrows, Home or End selects from the cursor, and Shift with a laser click selects to that spot. Dragging on the text still scrolls.
+  - A tapped Shift covers one step; holding it for half a second locks it for several, and the next Shift press unlocks it.
+  - Typing, Backspace, Delete, Enter, Paste and a recognized phrase replace the selection. Left and Right without Shift end it at that side; any other move or a click ends it where the cursor lands.
+  - Send always sends the whole text, whatever is selected.
+- **Copy, Cut and Paste:** these keys use a buffer of the editor's own, kept in memory and never logged. They never touch the system clipboard, so Paste only inserts what was copied or cut in the editor, and that text does not reach other applications. Copy and Cut need a selection, Paste needs something copied, and all three wait while the editor is locked. The buffer lasts until the keyboard exits.
 - **Scrolling:** the thumbstick scrolls the editor a line a step while the laser points at it. With the dashboard open, the overlay requests SteamVR's scroll events; in passthrough, the stick is read directly, as for the emoji grid. Pressing on the text and dragging scrolls it like a touch screen; a press released where it began places the cursor. Scrolling works while listening too. The view follows the cursor as text is inserted.
 - **Counter:** a character counter in the toolbar row shows, for example, `412/900`, turning amber at 900. Characters are counted as Unicode code points, not bytes.
   - Dictation cannot start or continue at 900 characters or more.
@@ -106,7 +112,7 @@ Short conversational sentences are used rather than descriptions such as 以下�
 - **Undo last phrase:** removes the most recently inserted phrase. Repeated presses remove earlier phrases. A phrase whose text was edited since is no longer undoable; edits before it only move it.
 - **Composers:** Japanese and Chinese composers commit into the editor instead of the application, with the same keys as on the normal keyboard; the toolbar's composer buttons stay.
   - The reading being composed shows in the editor at the cursor, underlined as in a text field, with the segment being converted underlined more strongly.
-  - **Convert** moves beside the editor, into the side column's free slot next to Esc, as large as Undo, its label on two lines. It is shown while a reading is composed.
+  - **Convert** moves beside the editor, into the side column's free slot next to Esc, as large as the mic key, its label on two lines. It is shown while a reading is composed.
   - Candidates fill the band over the editor's foot while there are any to choose; the text above it stays in view.
   - Any key that edits the editor, the mic key, Send, Undo and a tap in the text commit the reading first. Esc cancels the reading before it acts on the editor. Closing the mode drops a reading not yet committed.
   - Before the mode opens, a reading in progress goes to the application, as before any other key.
@@ -388,7 +394,7 @@ The repository ships instructions only, no server code; they are in [speech serv
 | On-device engine (`framekeyboard-whisper`, `src/whisper_engine.cpp`) | whisper.cpp with the small model, run by the helper as a child process with a line protocol | Only for On device and the fallback. Low priority; unloads when idle. |
 | Helper client (`Dictation`, `src/dictation.cpp`) | Spawns the helper, sends `alive`, validates packets | Text must be valid UTF-8 of at most 8 KB; a reason outside the fixed list becomes `bad-reply`; a helper that exits or sends an oversized packet becomes `helper-exited`. |
 | Helper lifetime | Exits on socket EOF, `SIGTERM` or a stall, and stops `pw-record` first | The service keeps helpers alive across a handoff (`KillMode=process`), so the helper must notice the keyboard is gone on its own. `~Dictation` waits up to 1 s for it, then kills it; a killed helper's recorder dies on its next write to the closed pipe. |
-| `DictationEditor` (`src/dictation_editor.cpp`) | UTF-8 text with a byte cursor on character boundaries, line layout, limits in code points, phrase insertion and joining, phrase undo, context | Pure and host-testable. |
+| `DictationEditor` (`src/dictation_editor.cpp`) | UTF-8 text with a byte cursor on character boundaries, line layout, limits in code points, selection, the private copy buffer, phrase insertion and joining, phrase undo, context | Pure and host-testable. |
 | Dictation layout (`src/dictation_mode.cpp`) | The mode's keys, derived from the active layout as the emoji picker does | The mic key is a `dictation` action at the free side slot in every bundled layout. |
 | Send (`src/dictation_send.cpp`) | Cuts the editor text into pieces: commits, Shift+Enter breaks or single-line spaces, each with the editor bytes it covers | App sends one piece at a time through the output queue. |
 | App integration | Dictation mode, key routing to the editor, Esc rules, Send, Type as I speak, composer commits into the editor | In dictation mode every key goes to the editor before the composers or the output queue, and a letter can start a swipe while the editor can be typed in; keys still show as pressed and latch through `KeyboardState` as local keys. Typed text reaches the editor through `TextOutput`. Rendering stays free of input delivery. |

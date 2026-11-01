@@ -233,11 +233,21 @@ void layout_tests() {
                              "AltRight", "ContextMenu", "ControlRight", "Copy", "Paste", "Emoji"}) {
         require(!has(gone), "dictation mode drops keys that cannot edit text");
     }
-    for (const auto* kept :
-         {"Escape", "KeyA", "Backspace", "Enter", "ShiftLeft", "CapsLock", "Home", "PageUp", "ArrowUp",
-          "Numpad7", "Dictation", "Dictation-send", "Dictation-undo"}) {
+    for (const auto* kept : {"Escape", "KeyA", "Backspace", "Enter", "ShiftLeft", "CapsLock", "Home",
+                             "PageUp", "ArrowUp", "Numpad7", "Dictation", "Dictation-send",
+                             "Dictation-undo", "Dictation-copy", "Dictation-cut", "Dictation-paste"}) {
         require(has(kept), "dictation mode keeps editing keys and adds its own");
     }
+    auto bounds_in = [](const Layout& layout, const char* id) {
+        return std::find_if(layout.keys.begin(), layout.keys.end(),
+                            [&](const Key& key) { return key.id == id; })
+            ->bounds;
+    };
+    require(bounds_in(mode.layout, "Dictation-copy") == bounds_in(main, "ControlLeft") &&
+                bounds_in(mode.layout, "Dictation-cut") == bounds_in(main, "MetaLeft") &&
+                bounds_in(mode.layout, "Dictation-paste") == bounds_in(main, "AltLeft") &&
+                bounds_in(mode.layout, "Dictation-undo") == bounds_in(main, "Paste"),
+            "Copy, Cut and Paste take the left modifiers' slots; Undo stays in Paste's");
     const auto& zero = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
                                      [](const Key& key) { return key.id == "Numpad0"; });
     const auto& decimal = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
@@ -256,6 +266,20 @@ void layout_tests() {
                                          [](const Key& key) { return key.id == "Dictation-send"; });
     require(flick_send != flick_mode.layout.keys.end() && flick_send->bounds == Rect{120, 138, 150, 62},
             "without right-hand modifiers, Send takes Tab's slot");
+    for (const auto* id : {"ja-flick-12", "ko-12key"}) {
+        const auto& source = profiles.layouts.at(id);
+        const auto stacked = dictation_layout(source, source.width);
+        const auto copy = bounds_in(stacked.layout, "Dictation-copy");
+        const auto cut = bounds_in(stacked.layout, "Dictation-cut");
+        const auto paste = bounds_in(stacked.layout, "Dictation-paste");
+        const auto undo = bounds_in(stacked.layout, "Dictation-undo");
+        const auto slot = bounds_in(source, "Paste");
+        require(copy.x == slot.x && copy.width == slot.width && copy.y + copy.height < cut.y &&
+                    cut.y + cut.height < paste.y && paste.y + paste.height < undo.y &&
+                    undo.y + undo.height == slot.y + slot.height,
+                "without left modifiers, the keys stack above Undo, ending with Paste's slot");
+        require(copy.y >= 110, "the stack clears Convert, beside the editor");
+    }
 }
 
 // A stand-in helper: capture on starts a phrase, capture off ends it, and
@@ -862,6 +886,66 @@ void direction_tests() {
             app.paint(clock);
             app.renderer.write_png(fs::path(render) / "dictation-hebrew.png");
         }
+    }
+    {
+        // Ending a selection follows the screen too, as the arrows do.
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        for (const auto* id : {"KeyA", "KeyT", "KeyC"}) {
+            press(app, id);
+        }
+        auto select_toward_start = [&](int steps) {
+            for (int i = 0; i < steps; ++i) {
+                press(app, "ShiftLeft");
+                press(app, "ArrowRight");
+            }
+        };
+        select_toward_start(3);
+        require(app.view().dictation->selection_begin == 0 && app.view().dictation->selection_end == 6,
+                "Shift and Right select toward the start of Hebrew text");
+        press(app, "ArrowLeft");
+        press(app, "KeyV");
+        require(editor_text(app) == "שאבה", "Left ends the selection at its left edge, the text's end");
+        select_toward_start(4);
+        press(app, "ArrowRight");
+        press(app, "KeyB");
+        require(editor_text(app) == "נשאבה", "Right ends it at its right edge, the text's start");
+    }
+    {
+        // Mixed directions: digits run left to right inside a Hebrew line.
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        for (const auto* id : {"KeyC", "Space", "Digit1", "Digit2"}) {
+            press(app, id);
+        }
+        require(editor_text(app) == "ב 12", "Hebrew with digits");
+        const auto view = app.view();
+        // In this line a caret after the digits shows left of them, and one
+        // before them right of them, however the digits themselves read.
+        require(editor_selection_edge(view, 3, 5, -1) == 5 && editor_selection_edge(view, 3, 5, 1) == 3,
+                "the caret lands at that edge of the digits");
+        require(editor_selection_edge(view, 0, 2, -1) == 2 && editor_selection_edge(view, 0, 2, 1) == 0,
+                "and of the Hebrew beside them");
+        require(editor_selection_edge(view, 0, 5, -1) == 5 && editor_selection_edge(view, 0, 5, 1) == 0,
+                "a selection of both ends where the line does");
+    }
+    {
+        // Across lines, the direction of the text decides, not the columns.
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        for (const auto* id : {"KeyA", "KeyT", "Enter", "KeyC"}) {
+            press(app, id);
+        }
+        press(app, "ShiftLeft");
+        press(app, "ArrowUp");
+        require(app.view().dictation->selection_end == editor_text(app).size(),
+                "the selection reaches the end of the second line");
+        press(app, "ArrowLeft");
+        press(app, "KeyV");
+        require(editor_text(app) == "שא\nבה", "Left ends a right-to-left selection at the text's end");
     }
     write_config(directory.path, server, "th-th", "international-full");
     {
@@ -3014,6 +3098,80 @@ void send_tests() {
                 "the retry sends only the rest");
     }
 }
+
+void selection_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    Sink sink;
+    App app(options, sink);
+    open_editor(app);
+    type_text(app, "one two");
+    auto disabled = [&](const char* id) { return app.view().disabled_keys.contains(id); };
+    require(disabled("Dictation-copy") && disabled("Dictation-cut") && disabled("Dictation-paste"),
+            "the keys wait for a selection and a copy");
+
+    for (int i = 0; i < 3; ++i) {
+        press(app, "ShiftLeft");
+        press(app, "ArrowLeft");
+    }
+    auto selected = [&] {
+        const auto view = app.view();
+        return std::pair{view.dictation->selection_begin, view.dictation->selection_end};
+    };
+    require(selected() == std::pair<std::size_t, std::size_t>{4, 7},
+            "Shift and the arrows select, a step for each latched Shift");
+    require(!disabled("Dictation-copy") && !disabled("Dictation-cut") && disabled("Dictation-paste"),
+            "a selection enables Copy and Cut");
+    press(app, "Dictation-cut");
+    require(editor_text(app) == "one " && !disabled("Dictation-paste") && disabled("Dictation-cut"),
+            "Cut removes the selection and enables Paste");
+    press(app, "Dictation-paste");
+    require(editor_text(app) == "one two", "Paste puts it back at the cursor");
+
+    press(app, "ShiftLeft");
+    press(app, "ArrowLeft");
+    press(app, "ArrowLeft");
+    press(app, "KeyZ");
+    require(editor_text(app) == "one twzo", "Left without Shift ends a selection at its start");
+    {
+        Sink lines;
+        App other(options, lines);
+        open_editor(other);
+        type_text(other, "one\ntwo");
+        press(other, "ShiftLeft");
+        press(other, "ArrowUp");
+        press(other, "ArrowLeft");
+        press(other, "KeyZ");
+        require(editor_text(other) == "onez\ntwo", "across lines too, whatever the columns");
+        press(other, "ShiftLeft");
+        press(other, "ArrowDown");
+        press(other, "ArrowRight");
+        press(other, "KeyX");
+        require(editor_text(other).ends_with("x"), "and Right at its end");
+    }
+
+    press(app, "ShiftLeft");
+    const auto area = editor_text_area(app.view());
+    app.down(1, area.x + 1, area.y + 4, clock);
+    app.up(1, area.x + 1, area.y + 4);
+    require(selected() == std::pair<std::size_t, std::size_t>{0, 7},
+            "Shift and a click select from the cursor to there");
+    press(app, "KeyX");
+    require(editor_text(app) == "xo", "the click used up the Shift, and typing replaces the selection");
+
+    press(app, "ShiftLeft");
+    press(app, "ArrowLeft");
+    press(app, "Dictation-send");
+    settle(app);
+    require(sink.text == std::vector<std::string>{"xo"} && sink.keys.empty(),
+            "Send sends the whole text, whatever is selected");
+}
 } // namespace
 
 int main() {
@@ -3022,6 +3180,7 @@ int main() {
         layout_tests();
         mode_tests();
         send_tests();
+        selection_tests();
         scroll_tests();
         paste_tests();
         passthrough_tests();

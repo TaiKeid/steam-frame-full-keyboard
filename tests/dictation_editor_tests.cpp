@@ -38,6 +38,80 @@ void typing_and_cursor() {
     require(!editor.type("\t") && !editor.type("bad \xff"), "nothing usable changes nothing");
 }
 
+void selection() {
+    using Range = std::pair<std::size_t, std::size_t>;
+    DictationEditor editor;
+    editor.type("héllo world");
+    require(!editor.has_selection() && editor.selection() == Range{12, 12},
+            "nothing is selected at first");
+    editor.select_to(7);
+    require(editor.has_selection() && editor.selection() == Range{7, 12} && editor.cursor() == 7,
+            "the cursor is the selection's moving end");
+    editor.select_to(12);
+    require(!editor.has_selection(), "back at the anchor nothing is selected");
+    editor.type("!");
+    require(editor.text() == "héllo world!" && !editor.has_selection(),
+            "a closed selection leaves nothing behind");
+    editor.set_cursor(7);
+    editor.select_to(12);
+    require(editor.type("there") && editor.text() == "héllo there!" && editor.cursor() == 12 &&
+                !editor.has_selection(),
+            "typing replaces the selection");
+    editor.set_cursor(0);
+    editor.select_to(1);
+    require(editor.backspace() && editor.text() == "éllo there!" && editor.cursor() == 0,
+            "backspace removes only the selection");
+    editor.select_to(2);
+    require(editor.erase_forward() && editor.text() == "llo there!", "delete too");
+    editor.select_to(3);
+    editor.set_cursor(1);
+    require(!editor.has_selection(), "a plain move ends the selection");
+    editor.select_to(3);
+    require(!editor.type("\t") && editor.has_selection() && editor.text() == "llo there!",
+            "typing nothing usable keeps the selection");
+
+    editor.set_cursor(0);
+    require(!editor.copy() && !editor.cut() && !editor.can_paste() && !editor.paste(),
+            "nothing to copy, cut or paste yet");
+    editor.select_to(3);
+    require(editor.copy() && editor.can_paste() && editor.text() == "llo there!" &&
+                editor.has_selection(),
+            "copy keeps the text and the selection");
+    editor.set_cursor(editor.text().size());
+    require(editor.paste() && editor.text() == "llo there!llo", "paste inserts at the cursor");
+    editor.set_cursor(4);
+    editor.select_to(9);
+    require(editor.cut() && editor.text() == "llo !llo" && editor.cursor() == 4, "cut removes it");
+    editor.set_cursor(0);
+    editor.select_to(3);
+    require(editor.paste() && editor.text() == "there !llo", "paste replaces a selection");
+    editor.clear();
+    require(editor.paste() && editor.text() == "there", "the copied text outlives the editor's text");
+
+    editor.clear();
+    editor.type(std::string(DictationEditor::hard_limit, 'a'));
+    editor.set_cursor(0);
+    editor.select_to(3);
+    require(editor.type("bcd") && editor.length() == DictationEditor::hard_limit &&
+                editor.text().starts_with("bcda"),
+            "the selection's room is free for what replaces it");
+
+    editor.clear();
+    editor.type("Hello wrold today");
+    editor.set_cursor(6);
+    editor.select_to(11);
+    require(editor.context() == "Hello ", "the context ends where the selection starts");
+    require(editor.insert_phrase("world.", true) && editor.text() == "Hello world today",
+            "a phrase replaces the selection, and knows text follows it");
+    require(editor.undo_phrase() && editor.text() == "Hello  today", "and can be undone");
+    editor.set_cursor(0);
+    editor.select_to(5);
+    require(!editor.insert_phrase("  ", true) && editor.has_selection(),
+            "an empty phrase keeps the selection");
+    editor.erase_front(1);
+    require(!editor.has_selection(), "delivered text ends the selection");
+}
+
 void limits() {
     DictationEditor editor;
     editor.type(std::string(899, 'a'));
@@ -169,6 +243,7 @@ void context() {
 int main() {
     try {
         typing_and_cursor();
+        selection();
         limits();
         joining();
         undo();

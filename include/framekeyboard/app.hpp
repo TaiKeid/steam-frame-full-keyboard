@@ -825,6 +825,7 @@ class App {
         EditorCommand command{EditorCommand::None};
         std::string text; // When the held key types text instead.
         double next{};
+        bool extend{}; // Shift was on when it was pressed: a move extends the selection.
     };
     bool dictation_available() const;
     void open_dictation();
@@ -837,7 +838,7 @@ class App {
     void clear_editor_error();
     void dictation_key_up(const Key& key);
     EditorCommand editor_command(const Key& key, xkb_keysym_t symbol) const;
-    void run_editor_command(EditorCommand command);
+    void run_editor_command(EditorCommand command, bool extend);
     // Keeps the cursor's line inside the editor after an edit or a move.
     void follow_cursor();
     // Send (docs/dictation.md, Send). Pieces go to the output queue one at a

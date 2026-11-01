@@ -1178,6 +1178,89 @@ void swipes_in_the_editor() {
     app.tick(monotonic_seconds());
 }
 
+// A swiped word replaces a selection. Its space depends on the text it follows,
+// whichever way the selection was made.
+void swiping_over_a_selection() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::RenderDictation;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = std::make_shared<int>(0);
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    double now = 1;
+    auto tap = [&](const char* id) {
+        const auto [x, y] = key_point(app, id);
+        app.down(0, x, y, now);
+        app.up(0, x, y);
+        app.tick(now += .1);
+    };
+    auto select = [&](const char* arrow, int steps) {
+        for (int i = 0; i < steps; ++i) {
+            tap("ShiftLeft");
+            tap(arrow);
+        }
+    };
+    auto text = [&] { return app.view().dictation->text; };
+    auto swiped = [&] {
+        const auto before = text();
+        swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, now += 1);
+        settle(app, [&] { return text() != before; });
+    };
+    auto after = [&](const char* prefix, const char* rest) {
+        return text().find(std::string(prefix) + "hello" + rest) != std::string::npos ||
+               text().find(std::string(prefix) + "helo" + rest) != std::string::npos;
+    };
+
+    // The sample's cursor follows "application", between words.
+    app.show_dictation();
+    for (int i = 0; i < 11; ++i) {
+        tap("ArrowLeft");
+    }
+    select("ArrowRight", 11);
+    swiped();
+    require(after("focused ", " in one go"), "a forward selection takes one space from the text before");
+
+    const auto word = text().find("focused hello ") != std::string::npos ? "hello" : "helo";
+    const auto other = std::string(word) == "hello" ? "helo" : "hello";
+    const auto view = app.view();
+    const auto candidate =
+        std::find_if(view.controls.begin(), view.controls.end(), [&](const Control& c) {
+            return c.id.starts_with("swipe-candidate-") && c.label == other;
+        });
+    require(candidate != view.controls.end(), "its alternatives show");
+    click(app, candidate->id);
+    require(text().find(std::string("focused ") + other + " in one go") != std::string::npos,
+            "and an alternative replaces only the word");
+
+    app.show_dictation();
+    select("ArrowLeft", 11);
+    swiped();
+    require(after("focused ", " in one go"), "so does a backward selection");
+
+    app.show_dictation();
+    tap("Home");
+    select("ArrowRight", 9);
+    swiped();
+    require(after("", " turns speech") && (text().starts_with("hello") || text().starts_with("helo")),
+            "a forward selection of the first word leaves no space");
+}
+
 // The way a wearer gets there: the mic key opens the editor and listens, and a
 // second press stops, leaving the editor to type in.
 void swipes_after_listening() {
@@ -1599,6 +1682,7 @@ int main(int argc, char** argv) {
         languages_popup_marks();
         toolbar_toggle();
         swipes_in_the_editor();
+        swiping_over_a_selection();
         swipes_after_listening();
     swipes_wait_for_recognition();
     editor_in_preview();

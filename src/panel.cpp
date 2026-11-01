@@ -497,6 +497,15 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_line_to(cr, -10, 5);
         cairo_line_to(cr, -6, 5);
         break;
+    case Icon::Cut:
+        // Scissors, open and pointing up: two crossed blades over their loops.
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, -5.5, 7.5, 3.5, 0, 2 * pi);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 5.5, 7.5, 3.5, 0, 2 * pi);
+        line(-3.5, 4.5, 6, -10);
+        line(3.5, 4.5, -6, -10);
+        break;
     case Icon::Paste:
         cairo_move_to(cr, -5, -8);
         cairo_line_to(cr, -9, -8);
@@ -926,7 +935,10 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     }
     if (key.icon != Icon::None) {
         const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
-        const double size = super_icon                                          ? 22
+        // Dictation's Copy, Cut and Paste, and the stack on layouts that need
+        // one, are ordinary key height or less.
+        const bool short_key = key.action_kind == ActionKind::Dictation && key.bounds.height < 64;
+        const double size = super_icon || short_key                             ? 22
                             : key.icon == Icon::Backspace                       ? 18
                             : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
                                                                                 : 32;
@@ -1179,6 +1191,23 @@ std::size_t editor_move(const PanelView& view, std::size_t index, int direction)
         p = g_utf8_next_char(p);
     }
     return static_cast<std::size_t>(p - text.c_str());
+}
+std::size_t editor_selection_edge(const PanelView& view, std::size_t first, std::size_t last,
+                                  int direction) {
+    const auto start = editor_caret(view, first);
+    const auto end = editor_caret(view, last);
+    bool first_is_left = start.x <= end.x;
+    // Across lines the columns say nothing; the line's direction tells which
+    // way the text reads.
+    if (start.y != end.y) {
+        auto* layout = editor_layout(view);
+        int line = 0;
+        pango_layout_index_to_line_x(layout, static_cast<int>(first), false, &line, nullptr);
+        first_is_left =
+            pango_layout_get_line_readonly(layout, line)->resolved_dir != PANGO_DIRECTION_RTL;
+        g_object_unref(layout);
+    }
+    return (direction < 0) == first_is_left ? first : last;
 }
 std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size_t index) {
     auto* layout = editor_layout(view);
@@ -1478,8 +1507,8 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     // cursor moves expect it.
     auto* layout = editor_layout(view);
     const Color amber = t.warning;
-    // Underlines a byte range of the text on each of its line pieces.
-    auto underline = [&](std::size_t begin, std::size_t end, double thickness) {
+    // Fills what `mark` adds for each line piece of a byte range of the text.
+    auto mark_range = [&](std::size_t begin, std::size_t end, auto&& mark) {
         auto* iter = pango_layout_get_iter(layout);
         do {
             auto* line = pango_layout_iter_get_line_readonly(iter);
@@ -1493,18 +1522,35 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
             int *ranges = nullptr, count = 0;
             pango_layout_line_get_x_ranges(line, static_cast<int>(begin), static_cast<int>(end), &ranges,
                                            &count);
-            const int baseline = pango_layout_iter_get_baseline(iter);
             for (int i = 0; i < count; ++i) {
                 const double x0 = area.x + ranges[2 * i] / static_cast<double>(PANGO_SCALE);
                 const double x1 = area.x + ranges[2 * i + 1] / static_cast<double>(PANGO_SCALE);
-                cairo_rectangle(cr, x0, area.y - editor.scroll + baseline / PANGO_SCALE + 3, x1 - x0,
-                                thickness);
+                mark(iter, x0, x1 - x0);
             }
             g_free(ranges);
             cairo_fill(cr);
         } while (pango_layout_iter_next_line(iter));
         pango_layout_iter_free(iter);
     };
+    auto underline = [&](std::size_t begin, std::size_t end, double thickness) {
+        mark_range(begin, end, [&](PangoLayoutIter* iter, double x, double width) {
+            const int baseline = pango_layout_iter_get_baseline(iter);
+            cairo_rectangle(cr, x, area.y - editor.scroll + baseline / PANGO_SCALE + 3, width,
+                            thickness);
+        });
+    };
+    if (editor.selection_end > editor.selection_begin) {
+        // Behind the text, and from its own color, so it reads in every theme.
+        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .25);
+        mark_range(editor.selection_begin, editor.selection_end,
+                   [&](PangoLayoutIter* iter, double x, double width) {
+                       int top = 0, bottom = 0;
+                       pango_layout_iter_get_line_yrange(iter, &top, &bottom);
+                       cairo_rectangle(cr, x,
+                                       area.y - editor.scroll + top / static_cast<double>(PANGO_SCALE),
+                                       width, (bottom - top) / static_cast<double>(PANGO_SCALE));
+                   });
+    }
     if (editor.uncertain) {
         // Text that may already have arrived: an amber underline, quiet
         // enough to read through.

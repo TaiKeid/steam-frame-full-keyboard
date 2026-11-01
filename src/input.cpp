@@ -576,13 +576,7 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         press.repeat_code = code;
         press.repeat_at = now + .5;
     }
-    for (auto& [id, held] : presses_) {
-        (void)id;
-        if (held.modifier) {
-            held.used = true;
-        }
-    }
-    latched_.clear();
+    use_modifiers();
     // Store the release sequence first so an exception cannot strand an earlier down.
     presses_.emplace(pointer, press);
     for (int key_value : press.codes) {
@@ -708,6 +702,16 @@ bool KeyboardState::pressed(const std::string& id) const {
     return std::any_of(presses_.begin(), presses_.end(),
                        [&](const auto& item) { return item.second.id == id; });
 }
+void KeyboardState::use_modifiers() {
+    for (auto& [id, held] : presses_) {
+        (void)id;
+        if (held.modifier) {
+            held.used = true;
+        }
+    }
+    latched_.clear();
+}
+
 std::set<int> KeyboardState::modifiers() const {
     auto result = latched_;
     result.insert(locked_.begin(), locked_.end());

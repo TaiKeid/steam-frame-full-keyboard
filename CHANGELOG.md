@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Fixed: Dictation's **Send** no longer presses Enter after the text. It leaves the text in the focused application, so you decide when to submit it. Pressing Enter on the normal keyboard submits it.
+- Added text selection to the dictation editor: Shift with the arrows, Home or End, or Shift with a laser click. Type or dictate to replace the selection. Hold Shift for half a second to lock it while selecting several steps.
+- Added **Copy**, **Cut** and **Paste** keys to dictation mode. They work inside the editor only, with their own memory, so the system clipboard is never touched.
 
 ## 0.13.1: The keyboard comes back after an update
 

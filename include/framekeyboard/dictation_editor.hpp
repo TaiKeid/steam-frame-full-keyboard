@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace framekeyboard {
@@ -22,6 +24,20 @@ class DictationEditor {
     std::size_t length() const; // code points
     bool empty() const { return text_.empty(); }
     bool can_dictate() const { return length() < dictation_limit; }
+
+    // The selection runs between its anchor and the cursor, which stays its
+    // moving end. Typing, erasing and phrases replace it; moving the cursor
+    // without select_to() ends it.
+    bool has_selection() const { return anchor_ && *anchor_ != cursor_; }
+    std::pair<std::size_t, std::size_t> selection() const; // bytes; empty at the cursor if none
+    void select_to(std::size_t offset);                    // extends from the cursor as it stands
+    void clear_selection() { anchor_.reset(); }
+    // Copy, Cut and Paste use a buffer of the editor's own: the system clipboard
+    // is neither read nor written, and the buffer is never logged.
+    bool copy();
+    bool cut();
+    bool paste();
+    bool can_paste() const { return !copied_.empty(); }
 
     // Typed text at the cursor, cut at the hard limit. Tabs and other control
     // characters except line breaks are dropped. False when nothing changed.
@@ -59,9 +75,12 @@ class DictationEditor {
     // Replaces [start, end) with `insertion`, keeping phrase records in step:
     // a change inside a phrase makes it no longer undoable.
     void replace(std::size_t start, std::size_t end, const std::string& insertion);
+    bool erase_selection();
     std::string text_;
     std::size_t cursor_{};
-    std::size_t uncertain_{}; // bytes from the start
+    std::optional<std::size_t> anchor_; // the selection's fixed end
+    std::size_t uncertain_{};           // bytes from the start
     std::vector<Phrase> phrases_;
+    std::string copied_;
 };
 } // namespace framekeyboard

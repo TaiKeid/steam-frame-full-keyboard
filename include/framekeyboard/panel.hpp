@@ -169,6 +169,7 @@ struct DictationView {
     // A composer's reading, already in `text` at the cursor: underlined, its
     // converting segment more strongly. Byte ranges into `text`.
     std::size_t preedit_begin{}, preedit_end{}, active_begin{}, active_end{};
+    std::size_t selection_begin{}, selection_end{}; // Selected bytes of `text`.
     // The composer's candidates fill the band over the editor's foot; the
     // text area then ends above it. Convert sits beside the editor instead.
     bool candidates{};
@@ -320,6 +321,10 @@ std::size_t editor_index_at(const PanelView& view, double x, double y);
 // The cursor one character to the left (direction -1) or right (+1) on screen:
 // backwards in right-to-left text, and over a whole cluster with its marks.
 std::size_t editor_move(const PanelView& view, std::size_t index, int direction);
+// The end of the selection [first, last) whose caret shows at its left
+// (direction -1) or right (+1) edge: byte order reverses in right-to-left text.
+std::size_t editor_selection_edge(const PanelView& view, std::size_t first, std::size_t last,
+                                  int direction);
 // The visual line holding `index`, as byte offsets [start, end) without its break.
 std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size_t index);
 double editor_content_height(const PanelView& view);

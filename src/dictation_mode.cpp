@@ -6,6 +6,8 @@
 
 namespace framekeyboard {
 namespace {
+constexpr double stack_key_height = 37, stack_gap = 6;
+
 bool removed(const Key& key) {
     static const std::set<std::string> actions{
         "PrintScreen",  "ScrollLock", "Pause",     "Tab",     "Insert",   "ControlLeft",
@@ -82,8 +84,30 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
     if (send) {
         result.layout.keys.push_back(dictation_key("send", "Send", *send, Icon::None));
     }
-    if (paste) {
-        result.layout.keys.push_back(dictation_key("undo", "Undo", *paste, Icon::Undo));
+    // Copy, Cut and Paste act on the editor alone and take the left modifiers'
+    // slots. Layouts without them, such as flick, stack the three above Undo, in
+    // Paste's side slot and the freed space over it.
+    const auto control = bounds_of(main, {"ControlLeft"});
+    const auto meta = bounds_of(main, {"MetaLeft"});
+    const auto alt = bounds_of(main, {"AltLeft"});
+    if (control && meta && alt) {
+        result.layout.keys.push_back(dictation_key("copy", "Copy", *control, Icon::Copy));
+        result.layout.keys.push_back(dictation_key("cut", "Cut", *meta, Icon::Cut));
+        result.layout.keys.push_back(dictation_key("paste", "Paste", *alt, Icon::Paste));
+        if (paste) {
+            result.layout.keys.push_back(dictation_key("undo", "Undo", *paste, Icon::Undo));
+        }
+    } else if (paste) {
+        double y = paste->y + paste->height - 4 * stack_key_height - 3 * stack_gap;
+        auto stacked = [&](const char* action, const char* label, Icon icon) {
+            result.layout.keys.push_back(
+                dictation_key(action, label, {paste->x, y, paste->width, stack_key_height}, icon));
+            y += stack_key_height + stack_gap;
+        };
+        stacked("copy", "Copy", Icon::Copy);
+        stacked("cut", "Cut", Icon::Cut);
+        stacked("paste", "Paste", Icon::Paste);
+        stacked("undo", "Undo", Icon::Undo);
     }
     // The editor starts right of Esc, or right of the side column without one.
     double left = 0;

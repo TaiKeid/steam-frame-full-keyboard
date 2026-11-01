@@ -509,17 +509,18 @@ std::vector<Control> App::controls() const {
         const double top = editor.y + editor.height - dictation_notice_height + 5;
         const bool reading = composing_text();
         // Convert takes the side column's free slot instead, beside Esc and
-        // as large as Undo, its label on two lines.
+        // as large as the mic key, its label on two lines.
         std::optional<Rect> side;
         const auto& keys = dictation_layout_.layout.keys;
-        const auto undo = std::find_if(keys.begin(), keys.end(),
-                                       [](const Key& key) { return key.id == "Dictation-undo"; });
+        const auto mic = std::find_if(keys.begin(), keys.end(), [](const Key& key) {
+            return key.action_kind == ActionKind::Dictation && key.action == "mic";
+        });
         const auto esc = std::find_if(keys.begin(), keys.end(), [](const Key& key) {
             return key.action_kind == ActionKind::Key && key.action == "Escape";
         });
-        if (undo != keys.end() && esc != keys.end()) {
+        if (mic != keys.end() && esc != keys.end()) {
             side = panel_rect(geometry,
-                              {undo->bounds.x, esc->bounds.y, undo->bounds.width, undo->bounds.height});
+                              {mic->bounds.x, esc->bounds.y, mic->bounds.width, mic->bounds.height});
         }
         for (std::size_t i = ime_start; i < result.size();) {
             auto& control = result[i];
@@ -1063,6 +1064,14 @@ PanelView App::build_view(bool picker) const {
         if (sending_ || confirm_discard_ || !editor_.can_undo()) {
             v.disabled_keys.insert("Dictation-undo");
         }
+        const bool locked = sending_ || confirm_discard_ || capturing_ || send_wait_since_;
+        if (locked || !editor_.has_selection()) {
+            v.disabled_keys.insert("Dictation-copy");
+            v.disabled_keys.insert("Dictation-cut");
+        }
+        if (locked || !editor_.can_paste()) {
+            v.disabled_keys.insert("Dictation-paste");
+        }
     }
     if (settings_open_ && confirm_ == Confirm::ClearLanguages) {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, "Clear all additional languages?",
@@ -1500,7 +1509,14 @@ bool App::up(unsigned pointer, double x, double y) {
             discard_swipe();
             const auto v = geometry();
             const auto area = editor_text_area(v);
-            editor_.set_cursor(editor_index_at(v, drag.x - area.x, drag.y - area.y + drag.scroll));
+            const auto index = editor_index_at(v, drag.x - area.x, drag.y - area.y + drag.scroll);
+            const auto mods = keyboard_.modifiers();
+            if (mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"))) {
+                editor_.select_to(index);
+                keyboard_.use_modifiers();
+            } else {
+                editor_.set_cursor(index);
+            }
             editor_goal_x_.reset();
             follow_cursor();
             dirty = true;
@@ -1702,7 +1718,7 @@ bool App::tick(double now) {
             editor_repeat_.reset();
         } else {
             if (editor_repeat_->text.empty()) {
-                run_editor_command(editor_repeat_->command);
+                run_editor_command(editor_repeat_->command, editor_repeat_->extend);
             } else {
                 editor_.type(editor_repeat_->text);
                 follow_cursor();
@@ -3282,6 +3298,10 @@ void App::type_swipe_tap(const SwipeTrack& track) {
 }
 bool App::EditorOutput::fits(const std::string& text, std::size_t freed) const {
     const auto length = static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1));
+    // New text replaces a selection, so that room counts as free too.
+    const auto [start, end] = editor_.selection();
+    freed += static_cast<std::size_t>(
+        g_utf8_strlen(editor_.text().c_str() + start, static_cast<gssize>(end - start)));
     return editor_.length() + length <= DictationEditor::hard_limit + freed;
 }
 void App::text_refused() {
@@ -3381,9 +3401,10 @@ void App::apply_swipe(const SwipeService::Result& result) {
     }
     swipe_selected_ = 0;
     // The editor shows what the word follows, so the space need not be a guess.
-    const bool spaced =
-        dictation_open_ ? editor_.cursor() > 0 && !g_ascii_isspace(editor_.text()[editor_.cursor() - 1])
-                        : swipe_space_ && !hint_no_autospace();
+    // A selection goes, so the word follows what comes before it.
+    const auto start = editor_.selection().first;
+    const bool spaced = dictation_open_ ? start > 0 && !g_ascii_isspace(editor_.text()[start - 1])
+                                        : swipe_space_ && !hint_no_autospace();
     const auto text = (spaced ? " " : "") + swipe_candidates_.front();
     if (!preview_output() &&
         !((dictation_open_ || output_.admit(true)) && text_output_->commit_text(text))) {
@@ -4056,6 +4077,7 @@ void App::set_dictation_view(PanelView& view) const {
     }
     editor.scroll = editor_scroll_;
     editor.uncertain = editor_.uncertain();
+    std::tie(editor.selection_begin, editor.selection_end) = editor_.selection();
     // A composer's reading appears at the cursor, as in a text field, and its
     // candidates take the band over the editor's foot.
     std::string preedit;
@@ -4071,6 +4093,10 @@ void App::set_dictation_view(PanelView& view) const {
         editor.text.insert(at, preedit);
         if (editor.uncertain > at) {
             editor.uncertain += preedit.size();
+        }
+        if (editor.selection_begin == at) {
+            editor.selection_begin += preedit.size();
+            editor.selection_end += preedit.size();
         }
         editor.preedit_begin = at;
         editor.preedit_end = at + preedit.size();
@@ -4248,10 +4274,12 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     }
     if (const auto command = editor_command(key, symbol); command != EditorCommand::None) {
         keymap_->cancel_compose();
-        run_editor_command(command);
+        const bool extend =
+            modifiers.contains(key_code("ShiftLeft")) || modifiers.contains(key_code("ShiftRight"));
+        run_editor_command(command, extend);
         if (command != EditorCommand::PageUp && command != EditorCommand::PageDown &&
             command != EditorCommand::Newline) {
-            editor_repeat_ = EditorRepeat{pointer, command, {}, now + .5};
+            editor_repeat_ = EditorRepeat{pointer, command, {}, now + .5, extend};
         }
         return true;
     }
@@ -4320,6 +4348,13 @@ void App::dictation_key_up(const Key& key) {
         }
     } else if (key.action == "undo") {
         if (editor_.undo_phrase()) {
+            editor_goal_x_.reset();
+            follow_cursor();
+        }
+    } else if (key.action == "copy") {
+        editor_.copy();
+    } else if (key.action == "cut" || key.action == "paste") {
+        if (key.action == "cut" ? editor_.cut() : editor_.paste()) {
             editor_goal_x_.reset();
             follow_cursor();
         }
@@ -4961,11 +4996,10 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         finish_reveal();
         // The phrase and its joining spaces go in at the cursor in one piece,
         // so joining and Undo work as usual; the view reveals it word by word.
-        const auto start = editor_.cursor();
-        const auto size = editor_.text().size();
+        const auto start = editor_.selection().first;
         discard_swipe(); // Its alternatives count back from a cursor that moves.
         if (editor_.insert_phrase(hint_case(event.text), spaced)) {
-            reveal_ = Reveal{start, start + editor_.text().size() - size, start, now, spaced};
+            reveal_ = Reveal{start, editor_.cursor(), start, now, spaced};
             editor_goal_x_.reset();
             dirty = true;
         }
@@ -5366,6 +5400,7 @@ void App::start_send() {
     keymap_->cancel_compose();
     editor_repeat_.reset();
     editor_.mark_uncertain(0);
+    editor_.clear_selection();
     status_.clear();
     sending_ = std::move(send);
     dirty = true;
@@ -5625,7 +5660,7 @@ App::EditorCommand App::editor_command(const Key& key, xkb_keysym_t symbol) cons
     return EditorCommand::None;
 }
 
-void App::run_editor_command(EditorCommand command) {
+void App::run_editor_command(EditorCommand command, bool extend) {
     finish_reveal(); // a held key's repeat edits during a late phrase's reveal
     const auto view = geometry();
     const auto area = editor_text_area(view);
@@ -5633,6 +5668,15 @@ void App::run_editor_command(EditorCommand command) {
     if (command != EditorCommand::Up && command != EditorCommand::Down) {
         editor_goal_x_.reset();
     }
+    auto move_to = [&](std::size_t offset) {
+        extend ? editor_.select_to(offset) : editor_.set_cursor(offset);
+    };
+    // Without Shift, Left and Right end a selection at that edge of it on screen.
+    auto step = [&](int direction) {
+        const auto [first, last] = editor_.selection();
+        move_to(!extend && editor_.has_selection() ? editor_selection_edge(view, first, last, direction)
+                                                   : editor_move(view, editor_.cursor(), direction));
+    };
     switch (command) {
     case EditorCommand::Backspace:
         editor_.backspace();
@@ -5644,10 +5688,10 @@ void App::run_editor_command(EditorCommand command) {
         editor_.type("\n");
         break;
     case EditorCommand::Left:
-        editor_.set_cursor(editor_move(view, editor_.cursor(), -1));
+        step(-1);
         break;
     case EditorCommand::Right:
-        editor_.set_cursor(editor_move(view, editor_.cursor(), 1));
+        step(1);
         break;
     case EditorCommand::Up:
     case EditorCommand::Down: {
@@ -5655,18 +5699,18 @@ void App::run_editor_command(EditorCommand command) {
         const double x = editor_goal_x_.value_or(caret.x);
         editor_goal_x_ = x;
         if (command == EditorCommand::Up) {
-            editor_.set_cursor(caret.y < 1 ? 0 : editor_index_at(view, x, caret.y - caret.height / 2));
+            move_to(caret.y < 1 ? 0 : editor_index_at(view, x, caret.y - caret.height / 2));
         } else {
             const double y = caret.y + caret.height * 1.5;
-            editor_.set_cursor(y >= content ? editor_.text().size() : editor_index_at(view, x, y));
+            move_to(y >= content ? editor_.text().size() : editor_index_at(view, x, y));
         }
         break;
     }
     case EditorCommand::Home:
-        editor_.set_cursor(editor_line(view, editor_.cursor()).first);
+        move_to(editor_line(view, editor_.cursor()).first);
         break;
     case EditorCommand::End:
-        editor_.set_cursor(editor_line(view, editor_.cursor()).second);
+        move_to(editor_line(view, editor_.cursor()).second);
         break;
     case EditorCommand::PageUp:
     case EditorCommand::PageDown: {
