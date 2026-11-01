@@ -36,8 +36,7 @@ std::vector<SendPiece> paste_pieces(const std::string& text) {
         return {};
     }
     const auto last = text.find_last_not_of(" \n") + 1;
-    return {{SendPiece::Kind::Paste, text.substr(first, last - first), 0, last},
-            {SendPiece::Kind::Enter, {}, last, text.size()}};
+    return {{SendPiece::Kind::Paste, text.substr(first, last - first), 0, last}};
 }
 
 std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks) {
@@ -79,7 +78,6 @@ std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks) {
     }
     add_text(pieces, text, start, last);
     pieces.front().begin = 0; // it also covers the dropped spaces and breaks
-    pieces.push_back({SendPiece::Kind::Enter, {}, last, text.size()});
     return pieces;
 }
 } // namespace framekeyboard

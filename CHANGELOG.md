@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Dictation's **Send** no longer presses Enter after the text. It leaves the text in the focused application, so you decide when to submit it. Pressing Enter on the normal keyboard submits it.
+
 ## 0.13.1: The keyboard comes back after an update
 
 - After an update you start from Settings, Full Keyboard now shows itself again where it was. With **Replace native keyboard** on, it used to stay hidden until the next keyboard request, so it looked as if it had not restarted. If Steam's own keyboard was open, Full Keyboard takes it over first and then shows, so you don't see two keyboards at once.

@@ -123,21 +123,20 @@ Esc in dictation mode is local and never reaches the application.
 
 ### Send
 
-- **Send** types the editor text into the focused application, presses Enter, clears the editor and returns to the normal keyboard. It is disabled while the editor is empty.
+- **Send** types the editor text into the focused application, clears the editor and returns to the normal keyboard. It never presses Enter, so the text waits in the application until you submit it. It is disabled while the editor is empty.
 - **Enter** in the editor only adds a line break.
 - **Line breaks:**
   - Line breaks and spaces at the start and end are dropped.
   - Those between paragraphs are kept and sent as Shift+Enter, so chat applications insert a line break instead of sending early.
   - A Steam field that holds only one line, such as search, cannot take Shift+Enter. There each run of line breaks, with the spaces around it, becomes a single space, so `a\n\n\nb` is sent as `a b`. Multi-line Steam fields, such as the friends chat message box, keep the line breaks.
-  - Only the final Enter is a plain Enter.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the output queue. Each line break is a native key entry. Each piece goes out once the previous one is delivered, so a failure knows exactly what arrived.
   - Plain text to local applications goes one acknowledged character at a time. Whole commits are unusable there: Gamescope's temporary keymap leaks into the text, and words are lost or reordered even with the Frame idle.
   - The **Send** setting sets the pace: 20 ms between characters (the default, about 19 s for 900 characters), 10 ms, faster but more likely to swap characters, or 30 or 40 ms, slower but steadier when the Frame is busy. Each character also waits for the previous one to be acknowledged, about one frame. Under heavy load, 20 ms can occasionally swap neighbouring characters. Other typing keeps 20 ms.
-  - **Paste,** the fourth choice of the **Send** setting: Send writes the text to the clipboard, line breaks included, presses Ctrl+V, and waits until the application takes the text before the final Enter.
+  - **Paste,** the fourth choice of the **Send** setting: Send writes the text to the clipboard, line breaks included, presses Ctrl+V, and waits until the application takes the text.
     - The keyboard owns the clipboard on every X display, since Steam uses `:0` and the applications it starts use `:1`, and Gamescope does not copy one to the other. It answers requests for its own text and never asks for anyone else's. The text stays there until something else is copied or the keyboard exits.
-    - Gamescope fetches a new clipboard at once, so Send waits 150 ms before Ctrl+V; Enter follows 100 ms after the application's request.
-    - If no application asks for the text within 2 s, the text stays in the editor and Enter is not pressed. An interruption after Ctrl+V marks the whole text as possibly arrived.
+    - Gamescope fetches a new clipboard at once, so Send waits 150 ms before Ctrl+V; it finishes 100 ms after the application's request, so the text is inserted before later keys.
+    - If no application asks for the text within 2 s, the text stays in the editor. An interruption after Ctrl+V marks the whole text as possibly arrived.
     - Steam's own fields reached through native keyboard replacement keep the direct path, which already inserts text at once; the clipboard cannot reach them.
     - Applications that paste with another shortcut, such as terminals, do not take it.
   - Sending waits until no key is held, so a held modifier cannot turn letters into shortcuts.
@@ -145,7 +144,6 @@ Esc in dictation mode is local and never reaches the application.
 - **Failure:** if delivery fails or is interrupted (Esc, hiding the panel, losing the target, or no answer for 5 s), the unsent remainder stays in the editor and the mode stays open. Send continues from there.
   - Text the target acknowledged leaves the editor.
   - A commit that timed out may have arrived anyway, so the editor underlines the text that may have arrived in amber: the one character that timed out when text went one character at a time, or the whole commit otherwise. Editing the marked text removes the mark.
-  - The final Enter is tracked on its own, so a retry never sends the message twice. If only the Enter fails, the editor is empty and Send presses just Enter.
 - **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be cancelled with Esc, and ends with a notice when one phrase takes longer than recognition may (35 s on the device, 15 s with a server, 45 s with the fallback); each phrase recognized restarts it.
 - **Target:** Send types into whatever has keyboard focus at that moment. Switching windows mid-dictation is the user's choice.
 
@@ -161,7 +159,7 @@ The **Type as I speak** switch on the Dictation card skips the editor. The mic k
 - On device, Type as I speak types each phrase when it is recognized, about 2 s after it ends.
 - No character limit and no counter; the output queue paces delivery.
 - **Order:** each phrase goes into the output queue after keys already queued, cut into commits of at most 32 characters, the most the local text path takes at once. While the queue is full, a composer reading is in progress, or a failure waits for its retry, recognized phrases wait in order. More than about 1000 characters waiting pause listening, with a status; what was said still types.
-- **Delivery:** phrases follow the **Send** setting. Typed, they go out a character at a time at the chosen pace. With **Paste**, each phrase replaces the clipboard and is pasted with Ctrl+V like Send's text, without Enter; the next phrase waits until the application has taken it. Steam's own fields keep their direct path. If the clipboard is unavailable or Ctrl+V cannot be pressed, the session types instead; if the application does not take a pasted phrase within 2 s, listening pauses, since it may still arrive.
+- **Delivery:** phrases follow the **Send** setting. Typed, they go out a character at a time at the chosen pace. With **Paste**, each phrase replaces the clipboard and is pasted with Ctrl+V like Send's text; the next phrase waits until the application has taken it. Steam's own fields keep their direct path. If the clipboard is unavailable or Ctrl+V cannot be pressed, the session types instead; if the application does not take a pasted phrase within 2 s, listening pauses, since it may still arrive.
 - **Uncertain delivery:** if a phrase fails partway, listening pauses and the status line asks for Enter. Enter retries only the characters that had not arrived, then the waiting phrases follow. Esc drops them instead, with the waiting phrases. A phrase the target refuses outright waits at the front, and Enter, which is then not sent, tries it again.
 - Undo last phrase is not offered, because the cursor in the target may have moved.
 - Esc while capturing, or while phrases are still to be typed, stops capture, drops what is not yet typed, and is not sent. Otherwise Esc is the normal key.
@@ -392,7 +390,7 @@ The repository ships instructions only, no server code; they are in [speech serv
 | Helper lifetime | Exits on socket EOF, `SIGTERM` or a stall, and stops `pw-record` first | The service keeps helpers alive across a handoff (`KillMode=process`), so the helper must notice the keyboard is gone on its own. `~Dictation` waits up to 1 s for it, then kills it; a killed helper's recorder dies on its next write to the closed pipe. |
 | `DictationEditor` (`src/dictation_editor.cpp`) | UTF-8 text with a byte cursor on character boundaries, line layout, limits in code points, phrase insertion and joining, phrase undo, context | Pure and host-testable. |
 | Dictation layout (`src/dictation_mode.cpp`) | The mode's keys, derived from the active layout as the emoji picker does | The mic key is a `dictation` action at the free side slot in every bundled layout. |
-| Send (`src/dictation_send.cpp`) | Cuts the editor text into pieces: commits, Shift+Enter breaks or single-line spaces, and the final Enter, each with the editor bytes it covers | App sends one piece at a time through the output queue. |
+| Send (`src/dictation_send.cpp`) | Cuts the editor text into pieces: commits, Shift+Enter breaks or single-line spaces, each with the editor bytes it covers | App sends one piece at a time through the output queue. |
 | App integration | Dictation mode, key routing to the editor, Esc rules, Send, Type as I speak, composer commits into the editor | In dictation mode every key goes to the editor before the composers or the output queue, and a letter can start a swipe while the editor can be typed in; keys still show as pressed and latch through `KeyboardState` as local keys. Typed text reaches the editor through `TextOutput`. Rendering stays free of input delivery. |
 | Panel | Editor drawing, greyed text, overlays, counter, mic bars, ring, Settings text fields, address popup | The bars and ring redraw at 30 fps and only the mic key's region, which a partial texture upload copies to the GPU. |
 | VR | Passthrough while capturing, stick scrolling in both modes, the dashboard and Steam keyboard request reported to App each frame | |

@@ -12,19 +12,16 @@ void require(bool value, const char* message) {
         throw std::runtime_error(message);
     }
 }
-// One letter per piece: T text, S space, B break, E Enter.
+// One letter per piece: T text, S space, B break.
 std::string shape(const std::vector<SendPiece>& pieces) {
     std::string result;
     for (const auto& piece : pieces) {
-        result += piece.kind == Kind::Text    ? 'T'
-                  : piece.kind == Kind::Space ? 'S'
-                  : piece.kind == Kind::Break ? 'B'
-                                              : 'E';
+        result += piece.kind == Kind::Text ? 'T' : piece.kind == Kind::Space ? 'S' : 'B';
     }
     return result;
 }
-// The pieces cover the text in order, without gaps or overlaps, and text
-// pieces are their source bytes.
+// The pieces cover the text up to its last character in order, without gaps
+// or overlaps, and text pieces are their source bytes.
 void require_cover(const std::string& text, const std::vector<SendPiece>& pieces) {
     std::size_t at = 0;
     for (const auto& piece : pieces) {
@@ -35,14 +32,14 @@ void require_cover(const std::string& text, const std::vector<SendPiece>& pieces
         }
         at = piece.end;
     }
-    require(at == text.size(), "the pieces cover the whole text");
+    require(at == text.find_last_not_of(" \n") + 1, "the pieces end with the last character");
 }
 
 void plain() {
     require(send_pieces("", true).empty() && send_pieces(" \n \n", true).empty(),
             "nothing to send without text");
     const auto pieces = send_pieces("Hello there.", true);
-    require(shape(pieces) == "TE" && pieces[0].text == "Hello there.", "one commit and Enter");
+    require(shape(pieces) == "T" && pieces[0].text == "Hello there.", "one commit, no Enter");
     require_cover("Hello there.", pieces);
 }
 
@@ -52,7 +49,7 @@ void chunks() {
         text += "é"; // two bytes each: chunks count code points
     }
     const auto pieces = send_pieces(text, true);
-    require(shape(pieces) == "TTE" && pieces[0].text.size() == 64 && pieces[1].text.size() == 16,
+    require(shape(pieces) == "TT" && pieces[0].text.size() == 64 && pieces[1].text.size() == 16,
             "commits hold at most 32 code points");
     require_cover(text, pieces);
 }
@@ -60,21 +57,20 @@ void chunks() {
 void line_breaks() {
     const std::string text = "\n\n  One\ntwo  \n\nthree \n\n";
     const auto pieces = send_pieces(text, true);
-    require(shape(pieces) == "TBTBBTE", "each inner line break is Shift+Enter");
+    require(shape(pieces) == "TBTBBT", "each inner line break is Shift+Enter");
     require(pieces[0].text == "One" && pieces[0].begin == 0, "leading breaks and spaces are dropped");
     require(pieces[2].text == "two  " && pieces[5].text == "three", "trailing spaces and breaks too");
-    require(pieces.back().begin == text.find("three") + 5, "the final Enter covers the dropped end");
     require_cover(text, pieces);
 
     const auto spaced = send_pieces("a \n b", true);
-    require(shape(spaced) == "TBTE" && spaced[0].text == "a " && spaced[2].text == " b",
+    require(shape(spaced) == "TBT" && spaced[0].text == "a " && spaced[2].text == " b",
             "spaces next to a break stay where the target takes line breaks");
 }
 
 void single_line() {
     const std::string text = "a\n\n\nb  \n c d";
     const auto pieces = send_pieces(text, false);
-    require(shape(pieces) == "TSTSTE", "a run of breaks becomes one space");
+    require(shape(pieces) == "TSTST", "a run of breaks becomes one space");
     require(pieces[1].text == " " && pieces[1].begin == 1 && pieces[1].end == 4,
             "the space covers the whole run");
     require(pieces[2].text == "b" && pieces[3].end == text.find('c'),
@@ -86,10 +82,10 @@ void paste() {
     const std::string text = " \nOne\n\ntwo \n";
     const auto pieces = send_pieces(text, true);
     const auto pasted = paste_pieces(text);
-    require(pasted.size() == 2 && pasted[0].kind == Kind::Paste && pasted[0].text == "One\n\ntwo" &&
-                pasted[0].begin == 0 && pasted[1].kind == Kind::Enter && pasted[1].end == text.size(),
-            "a paste is the trimmed text in one piece, then Enter");
-    require(pieces.back().begin == pasted[1].begin, "both end where the trimmed text ends");
+    require(pasted.size() == 1 && pasted[0].kind == Kind::Paste && pasted[0].text == "One\n\ntwo" &&
+                pasted[0].begin == 0,
+            "a paste is the trimmed text in one piece");
+    require(pieces.back().end == pasted[0].end, "both end where the trimmed text ends");
     require(paste_pieces(" \n").empty(), "nothing to paste without text");
 }
 void commits() {

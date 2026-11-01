@@ -853,7 +853,7 @@ class App {
         std::size_t total{}, done{};           // Code points, for the counter.
         // A paste: 0 not begun, 1 taking the clipboard, 2 letting Gamescope
         // fetch it, 3 Ctrl+V sent, waiting for the application's request,
-        // 4 a short wait for it to insert the text before Enter.
+        // 4 a short wait for it to insert the text.
         int paste_stage{};
         std::uint64_t paste_write{}, paste_served{};
         double paste_at{};
@@ -1032,9 +1032,6 @@ class App {
     bool notice_error_{};
     bool confirm_discard_{};
     std::optional<double> send_wait_since_; // Send waits for pending phrases.
-    // Everything but the final Enter arrived; Send with an empty editor
-    // presses only Enter, so the text is never sent twice.
-    bool enter_pending_{};
     bool dictation_open_{};
     DictationEditor editor_;
     EditorOutput editor_output_{editor_};

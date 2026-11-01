@@ -3974,7 +3974,6 @@ void App::close_dictation() {
     confirm_discard_ = false;
     notice_.clear();
     notice_error_ = false;
-    enter_pending_ = false;
     dictation_open_ = false;
     text_output_ = options_.text_output ? options_.text_output : &output_;
     // Held editor keys must not turn into presses on the keyboard's keys. The
@@ -5331,8 +5330,6 @@ std::size_t counted(const SendPiece& piece) {
     case SendPiece::Kind::Text:
     case SendPiece::Kind::Paste:
         return static_cast<std::size_t>(g_utf8_strlen(piece.text.c_str(), -1));
-    case SendPiece::Kind::Enter:
-        return 0;
     default:
         return 1;
     }
@@ -5341,8 +5338,8 @@ std::size_t counted(const SendPiece& piece) {
 
 bool App::can_send() const {
     return !sending_ && !send_wait_since_ && !confirm_discard_ && !target_missing() &&
-           (editor_.text().find_first_not_of(" \n") != std::string::npos ||
-            (enter_pending_ && editor_.empty()) || capturing_ || phrases_pending());
+           (editor_.text().find_first_not_of(" \n") != std::string::npos || capturing_ ||
+            phrases_pending());
 }
 
 void App::start_send() {
@@ -5354,14 +5351,14 @@ void App::start_send() {
     // the tick its text arrived.
     finish_reveal();
     Sending send;
-    if (editor_.text().find_first_not_of(" \n") == std::string::npos) {
-        // Only the final Enter is left; the editor holds nothing to send.
-        send.pieces = {{SendPiece::Kind::Enter, {}, 0, editor_.text().size()}};
-    } else if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on()) {
+    if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on()) {
         // Steam's own fields take text directly; the clipboard cannot reach them.
         send.pieces = paste_pieces(editor_.text());
     } else {
         send.pieces = send_pieces(editor_.text(), !output_.single_line_target());
+    }
+    if (send.pieces.empty()) {
+        return; // Send may wait for phrases that leave the editor blank.
     }
     for (const auto& piece : send.pieces) {
         send.total += counted(piece);
@@ -5407,9 +5404,6 @@ bool App::tick_send(double now) {
             break;
         case SendPiece::Kind::Break:
             accepted = output_.tap({KEY_LEFTSHIFT, KEY_ENTER});
-            break;
-        case SendPiece::Kind::Enter:
-            accepted = output_.tap({KEY_ENTER});
             break;
         case SendPiece::Kind::Paste:
             break; // tick_paste
@@ -5541,7 +5535,7 @@ bool App::tick_paste(double now) {
         return false;
     default:
         // The application has the text; give it a moment to insert it
-        // before Enter, which would otherwise overtake it.
+        // before the mode closes and later keys can overtake it.
         if (now - s.paste_at < .1 || output_.text_pending()) {
             return false;
         }
@@ -5569,18 +5563,11 @@ void App::stop_send(bool attempted) {
     output_.cancel();
     output_.set_character_gap(GamescopeText::default_character_gap);
     output_.take_status();
-    if (piece.kind == SendPiece::Kind::Enter) {
-        editor_.erase_front(editor_.text().size());
-        enter_pending_ = true;
-        status_ = "The text was sent, but Enter was not confirmed. Send presses Enter again.";
-    } else {
-        editor_.erase_front(keep - s.sent);
-        editor_.mark_uncertain(uncertain - keep);
-        status_ =
-            uncertain > keep
-                ? "Sending stopped. The rest stays here; the marked start may already have arrived."
-                : "Sending stopped. The rest stays here; Send continues.";
-    }
+    editor_.erase_front(keep - s.sent);
+    editor_.mark_uncertain(uncertain - keep);
+    status_ = uncertain > keep
+                  ? "Sending stopped. The rest stays here; the marked start may already have arrived."
+                  : "Sending stopped. The rest stays here; Send continues.";
     follow_cursor();
     dirty = true;
 }

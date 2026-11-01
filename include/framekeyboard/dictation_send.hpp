@@ -7,13 +7,13 @@
 namespace framekeyboard {
 // One delivery of Send (docs/dictation.md, Send), in the order sent. Each
 // piece covers the editor bytes [begin, end); once it is delivered, those
-// bytes leave the editor. The pieces together cover the whole text.
+// bytes leave the editor. The pieces cover the text up to its last character;
+// spaces and line breaks after it are never sent and go when Send finishes.
 struct SendPiece {
     enum class Kind {
         Text,  // `text`, at most 32 code points, the same as its source bytes
         Space, // a single-line field's stand-in for a run of line breaks
         Break, // Shift+Enter for one line break
-        Enter, // the final plain Enter, covering any trailing line breaks
         Paste, // `text` through the clipboard and Ctrl+V, line breaks and all
     };
     Kind kind{};
@@ -26,7 +26,7 @@ struct SendPiece {
 // run of them with the spaces around it becomes one space. Empty when there
 // is no text.
 std::vector<SendPiece> send_pieces(const std::string& text, bool line_breaks);
-// The same text pasted in one piece, then the final Enter.
+// The same text pasted in one piece.
 std::vector<SendPiece> paste_pieces(const std::string& text);
 // Valid UTF-8 text cut into commits of at most 32 code points, the most the
 // local text path takes at once (Gamescope's temporary Unicode keymap).

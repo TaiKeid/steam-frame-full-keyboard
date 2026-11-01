@@ -40,14 +40,11 @@ struct TemporaryDirectory {
 struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
     std::vector<std::string> text;
-    bool single_line{}, fail_enter{};
+    bool single_line{};
     int commits_before_failure{-1}; // -1 never fails
     std::size_t acknowledged{};     // characters of a failed commit that arrived
     void send(int code, int value) override { keys.emplace_back(code, value); }
     Delivery deliver_key(int code, int value) override {
-        if (fail_enter && code == KEY_ENTER && value == 1) {
-            return Delivery::Failure;
-        }
         send(code, value);
         return Delivery::Success;
     }
@@ -1335,10 +1332,8 @@ void paste_tests() {
         settle(app);
         require(clipboard.written == std::vector<std::string>{"hi\n\nthere"},
                 "paste writes the trimmed text, line breaks and all, to the clipboard");
-        const Keys expected{{KEY_LEFTCTRL, 1}, {KEY_V, 1},     {KEY_V, 0},
-                            {KEY_LEFTCTRL, 0}, {KEY_ENTER, 1}, {KEY_ENTER, 0}};
-        require(sink.keys == expected && sink.text.empty(),
-                "Ctrl+V, then Enter once the application took the text; nothing typed");
+        const Keys expected{{KEY_LEFTCTRL, 1}, {KEY_V, 1}, {KEY_V, 0}, {KEY_LEFTCTRL, 0}};
+        require(sink.keys == expected && sink.text.empty(), "Ctrl+V and no Enter; nothing typed");
         require(!app.dictation_open(), "a pasted text returns to the normal keyboard");
     }
     {
@@ -1354,10 +1349,8 @@ void paste_tests() {
         for (int i = 0; i < 200; ++i) {
             app.tick(clock += .02);
         }
-        require(app.dictation_open() && editor_text(app) == "kept" &&
-                    std::none_of(sink.keys.begin(), sink.keys.end(),
-                                 [](const auto& key) { return key.first == KEY_ENTER; }),
-                "a paste nobody takes keeps the text and never presses Enter");
+        require(app.dictation_open() && editor_text(app) == "kept",
+                "a paste nobody takes keeps the text");
     }
     {
         Sink sink;
@@ -2953,8 +2946,7 @@ void send_tests() {
         const Keys shift_enter{{KEY_LEFTSHIFT, 1}, {KEY_ENTER, 1}, {KEY_ENTER, 0}, {KEY_LEFTSHIFT, 0}};
         Keys expected = shift_enter;
         expected.insert(expected.end(), shift_enter.begin(), shift_enter.end());
-        expected.insert(expected.end(), {{KEY_ENTER, 1}, {KEY_ENTER, 0}});
-        require(sink.keys == expected, "inner breaks are Shift+Enter; only the last Enter is plain");
+        require(sink.keys == expected, "inner breaks are Shift+Enter; Send presses no plain Enter");
         require(!app.dictation_open(), "a sent text returns to the normal keyboard");
         require(!sink.gaps.empty() && sink.gaps.front() == .02 && sink.gaps.back() == .02,
                 "Send sets its own pace, 20 ms by default, and restores the usual one");
@@ -2969,8 +2961,7 @@ void send_tests() {
         type_text(app, "a\n\nb");
         press(app, "Dictation-send");
         settle(app);
-        require(sink.text == std::vector<std::string>{"a", " ", "b"} &&
-                    sink.keys == Keys{{KEY_ENTER, 1}, {KEY_ENTER, 0}},
+        require(sink.text == std::vector<std::string>{"a", " ", "b"} && sink.keys.empty(),
                 "a single-line field gets one space for the breaks");
     }
     {
@@ -3021,27 +3012,6 @@ void send_tests() {
         settle(app);
         require(!app.dictation_open() && sink.text.back() == std::string(5, 'c'),
                 "the retry sends only the rest");
-    }
-    {
-        // Enter fails after all text arrived: a retry presses only Enter.
-        Sink sink;
-        sink.fail_enter = true;
-        App app(options, sink);
-        open_editor(app);
-        type_text(app, "done");
-        press(app, "Dictation-send");
-        settle(app);
-        require(app.dictation_open() && editor_text(app).empty() && sink.text.size() == 1,
-                "the text left the editor; the mode stays");
-        require(!app.view().disabled_keys.contains("Dictation-send"),
-                "Send stays available for the Enter");
-        sink.fail_enter = false;
-        sink.keys.clear();
-        press(app, "Dictation-send");
-        settle(app);
-        require(sink.text.size() == 1 && sink.keys == Keys{{KEY_ENTER, 1}, {KEY_ENTER, 0}} &&
-                    !app.dictation_open(),
-                "the retry presses Enter without the text");
     }
 }
 } // namespace
