@@ -257,11 +257,11 @@ void App::append_languages(PanelView& v) const {
 
     // A lifted row leaves its place, and the rest open where it would land.
     const bool lifted = state.drag && state.drag->lifted;
-    const auto gap =
-        state.drag && state.drag->lifted ? state.drag->insert : std::optional<std::size_t>{};
+    const auto gap = lifted ? state.drag->insert : std::optional<std::size_t>{};
+    const bool leaves = lifted && (state.drag->source == Which::Additional || gap);
     std::size_t slot = 0;
     for (std::size_t i = 0; i < pairs.size(); ++i) {
-        if (lifted && same_pair(pairs[i], state.drag->pair)) {
+        if (leaves && same_pair(pairs[i], state.drag->pair)) {
             continue;
         }
         if (gap == slot) {

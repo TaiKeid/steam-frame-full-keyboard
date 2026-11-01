@@ -26,6 +26,7 @@ double monotonic_seconds() {
 namespace {
 constexpr const char* no_reading_status =
     "No character has this reading. Backspace corrects it, Esc cancels it.";
+constexpr const char* editor_full_notice = "The editor is full. Send or shorten the text to type more.";
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -1649,6 +1650,10 @@ void App::cancel(bool discard_composition) {
     dirty = true;
 }
 bool App::tick(double now) {
+    if (status_ == no_reading_status && (!cjk_ || cjk_->empty())) {
+        status_.clear(); // The toolbar's Cancel or a hide ended the reading.
+        dirty = true;
+    }
     if (updates_) {
         if (updates_->tick(now)) {
             // A new async label must not turn an already-held press into installation.
@@ -2432,8 +2437,9 @@ void App::commit_failed() {
         return;
     }
     if (dictation_open_) {
-        notice_ = "The editor is full. Send or shorten the text to type more.";
+        notice_ = editor_full_notice;
         notice_error_ = true;
+        status_ = editor_full_notice; // A reading's candidates cover the notice.
     } else {
         status_ = "Text was not sent. Release other keys and check the target/input connection.";
     }
@@ -3277,7 +3283,7 @@ bool App::EditorOutput::fits(const std::string& text, std::size_t freed) const {
 }
 void App::text_refused() {
     if (dictation_open_) {
-        notice_ = "The editor is full. Send or shorten the text to type more.";
+        notice_ = editor_full_notice;
         notice_error_ = true;
     } else if (!refuse_without_target(monotonic_seconds())) {
         status_ = "Text was not sent. Release other keys and check the target/input connection.";
@@ -4273,6 +4279,9 @@ void App::clear_editor_error() {
         notice_.clear();
         notice_error_ = false;
     }
+    if (status_ == editor_full_notice) {
+        status_.clear();
+    }
 }
 
 void App::dictation_key_up(const Key& key) {
@@ -4797,6 +4806,7 @@ void App::tick_direct_paste(double now) {
             }
             return;
         }
+        discard_swipe(); // A word that landed since the phrase was written.
         p.stage = 3;
         p.at = now;
         return;
