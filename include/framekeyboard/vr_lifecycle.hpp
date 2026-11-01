@@ -56,6 +56,7 @@ class VrLifecycle {
         bool replacement_enabled{};
         NativeReplacement::State native;
         bool routed_remote{}, watchdog_stalled{}, relaunch{};
+        bool reveal{}; // Show a hidden panel where it is, as after an update.
         bool dictation_hold{};                 // App::dictation_holds_panel()
         bool keep_open{};                      // App::keep_open()
         NativeReplacement::ButtonPress button; // NativeReplacement::take_button_press()

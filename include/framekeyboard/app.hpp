@@ -47,6 +47,8 @@ struct Options {
     double duration{};
     bool start_enabled{false};
     bool autostart{};
+    // Started by the update helper, after an update the user started.
+    bool update_launch{};
     // Launched by a shell with `--hosted FD` (docs/integration.md): the
     // inherited control connection, the process's number on it, and the
     // failure code of an update that rolled back to this process.
@@ -193,7 +195,12 @@ class App {
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard && !hosted(); }
     bool start_with_steamos() const { return replace_native_keyboard() && settings_.start_with_steamos; }
     // A hosted keyboard starts hidden too: only its shell shows it.
-    bool background_start() const { return hosted() || options_.autostart; }
+    // An update with replacement on starts hidden too, and then shows itself
+    // (reveal_after_update): never while Steam's handed-back keyboard is up.
+    bool background_start() const { return hosted() || options_.autostart || reveal_after_update(); }
+    bool reveal_after_update() const {
+        return !hosted() && options_.update_launch && settings_.replace_native_keyboard;
+    }
     bool replacement_ready() const;
     // Fixed diagnostic text for why replacement_ready() is false.
     const char* replacement_block() const;

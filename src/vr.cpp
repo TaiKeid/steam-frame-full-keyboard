@@ -20,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <sstream>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
@@ -1682,6 +1683,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     KeyHaptics feedback;
     std::optional<vr::TrackedDeviceIndex_t> last_pressed; // Controller of the last laser press.
     bool was_listening = false;
+    bool reveal_pending = app.reveal_after_update();
+    const double reveal_deadline = monotonic_seconds() + 5;
+    // Diagnostics: what SteamVR makes of a panel we believe is up.
+    std::string overlay_report;
+    double next_overlay_check = 0;
     double last_suspended = suspended_seconds(), next_presence_check = 0;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
@@ -1962,6 +1968,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 },
             .hide_overlay =
                 [&] {
+                    std::cout << "Full Keyboard overlay hidden.\n" << std::flush;
                     app.panel_hidden();
                     resizers.hide();
                     if (cut_exit) {
@@ -2750,11 +2757,28 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             json_object_object_add(fields.get(), "source", json_object_new_string("launcher"));
             shell->event("launch", std::move(fields));
         }
+        // After an update the user started, taking over Steam's handed-back
+        // keyboard shows ours. With none to take over, it shows itself once the
+        // bridge reports no keyboard open, or after a while without a bridge.
+        bool reveal = false;
+        if (reveal_pending) {
+            if (lifecycle.visible()) {
+                reveal_pending = false;
+                std::cout << "Update: shown by taking over Steam's keyboard.\n" << std::flush;
+            } else if ((native.available && !native.open) || now >= reveal_deadline) {
+                reveal = true;
+                reveal_pending = false;
+                std::cout << (native.available ? "Update: shown, with no Steam keyboard to take over.\n"
+                                               : "Update: shown, without the bridge.\n")
+                          << std::flush;
+            }
+        }
         lifecycle.begin_frame({.replacement_enabled = replace,
                                .native = native,
                                .routed_remote = replacement.remote(),
                                .watchdog_stalled = replacement_stalled.exchange(false),
                                .relaunch = instance_request == VrInstance::Request::Recenter,
+                               .reveal = reveal,
                                .dictation_hold = app.dictation_holds_panel(),
                                .keep_open = app.keep_open(),
                                .button = replacement.take_button_press(),
@@ -3601,6 +3625,42 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
                 lifecycle.present(placement.ready(), presentable(), compositor_visible, now);
+            }
+        }
+        // Checked once a second and logged when it changes, so a panel that is
+        // up for us but unseen in the headset leaves a trace.
+        if (now >= next_overlay_check) {
+            next_overlay_check = now + 1;
+            std::string report;
+            if (lifecycle.visible()) {
+                float alpha = 0;
+                vr_overlay()->GetOverlayAlpha(panel.handle(), &alpha);
+                vr::TrackedDevicePose_t head{};
+                vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &head, 1);
+                double distance = -1;
+                if (head.bPoseIsValid && displayed.ready()) {
+                    const auto t = displayed.transform();
+                    const auto& m = head.mDeviceToAbsoluteTracking.m;
+                    // Half metres, so an ordinary head movement does not log.
+                    distance = std::round(2 * std::hypot(t[0][3] - m[0][3], t[1][3] - m[1][3],
+                                                         t[2][3] - m[2][3])) / 2;
+                }
+                std::ostringstream text;
+                text << "shown by SteamVR " << (vr_overlay()->IsOverlayVisible(panel.handle()) ? "yes" : "no")
+                     << ", alpha " << std::round(alpha * 10) / 10 << ", dashboard "
+                     << (vr_overlay()->IsDashboardVisible() ? "open" : "closed") << ", ";
+                if (distance < 0) {
+                    text << "no placement";
+                } else {
+                    text << distance << " m away";
+                }
+                report = text.str();
+            }
+            if (report != overlay_report) {
+                overlay_report = report;
+                if (!report.empty()) {
+                    std::cout << "Overlay: " << report << ".\n" << std::flush;
+                }
             }
         }
         if (anchor && shell_shown) {

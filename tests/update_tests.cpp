@@ -77,13 +77,16 @@ void update_presentation() {
                     Options options;
                     options.mode = Mode::Vr;
                     options.config_dir = config;
+                    options.update_launch = startup.update_launch();
                     NullSink sink;
                     auto no_write = [](const Settings&) {};
                     App app(options, sink, no_write, nullptr, no_write);
                     ReplacementPresentation panel(app.background_start());
                     panel.update(preferences.replace_native_keyboard, {.available = true});
-                    require(startup.update_launch() && panel.show(),
-                            "an update the user started shows the keyboard again, managed or not");
+                    require(startup.update_launch() && panel.show() == !preferences.replace_native_keyboard &&
+                                app.reveal_after_update() == preferences.replace_native_keyboard,
+                            "with replacement the successor starts hidden, to show itself once "
+                            "Steam's handed-back keyboard is taken over or found absent");
                     require(app.start_with_steamos() ==
                                 (preferences.replace_native_keyboard && preferences.start_with_steamos),
                             "an explicit update starts without changing boot preferences");

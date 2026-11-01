@@ -863,6 +863,26 @@ void sleep_recovery_does_not_resurrect_old_input() {
             "explicit relaunch remains a recovery path when the bridge is unavailable");
 }
 
+// After an update with replacement on, the panel starts hidden and is then
+// revealed where it is: no request, no recentring, no bridge retry.
+void an_update_reveals_the_hidden_panel() {
+    Headset h;
+    h.status({.available = true});
+    h.display();
+    require(!h.compositor, "an update launch with replacement starts hidden");
+    h.lifecycle->begin_frame({.replacement_enabled = true,
+                              .native = {.available = true},
+                              .reveal = true,
+                              .keep_open = h.app->keep_open(),
+                              .button = {},
+                              .now = h.now});
+    h.display();
+    require(h.compositor && h.retries == 0, "revealing shows it without retrying the bridge");
+    h.status({.available = true});
+    h.display();
+    require(h.compositor, "and it stays up with no request");
+}
+
 void cancellation_respects_device_ownership() {
     Headset h;
     h.request();
@@ -923,6 +943,7 @@ int main() {
         late_work_cannot_cross_targets();
         a_closed_dashboard_delivers_nothing();
         a_pinned_window_request_opens_passthrough();
+        an_update_reveals_the_hidden_panel();
         keep_open_holds_the_panel_after_its_request();
         a_hidden_focused_window_is_flagged();
         the_dashboard_with_the_keys_types_nothing();

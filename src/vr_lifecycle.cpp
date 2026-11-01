@@ -38,6 +38,10 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     if (frame.watchdog_stalled) {
         presentation_.fallback();
     }
+    if (frame.reveal) {
+        show_pending_ = true;
+        presentation_.summon();
+    }
     if (frame.relaunch) {
         effects_.retry_bridge(frame.now);
         effects_.stop_drag();

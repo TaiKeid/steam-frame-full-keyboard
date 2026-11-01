@@ -183,7 +183,8 @@ int main(int argc, char** argv) {
                 unsetenv("FRAMEKEYBOARD_LAST_UPDATE");
             }
         }
-        const bool start_hidden = options.autostart;
+        options.update_launch = options.mode == fk::Mode::Vr && startup.update_launch();
+        const bool start_hidden = options.autostart || options.update_launch;
         const int deliberate_exit = fk::deliberate_exit_status(options.autostart);
         if (options.autostart) {
             if (options.mode != fk::Mode::Vr) {
