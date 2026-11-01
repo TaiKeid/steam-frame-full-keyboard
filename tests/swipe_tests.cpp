@@ -1205,6 +1205,77 @@ void swipes_after_listening() {
     require(!app.view().dictation->text.empty(), "a swipe types once listening has stopped");
 }
 
+// Listening has paused, and a phrase is still being recognized.
+void swipes_wait_for_recognition() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    std::ofstream(directory.path / "helper.py") << R"PY(
+import json, socket, time
+peer = socket.socket(fileno=3)
+def send(**m):
+    peer.send(json.dumps(m).encode())
+while True:
+    data = peer.recv(65536)
+    if not data:
+        break
+    message = json.loads(data)
+    if message["op"] == "capture" and message["on"]:
+        send(op="phrase", id=1)
+    elif message["op"] == "capture":
+        send(op="ready", id=1)
+        send(op="paused")
+    elif message["op"] == "prompt":
+        time.sleep(.4)
+        send(op="text", id=1, text="Hello there.")
+)PY";
+    Settings settings;
+    settings.swipe_typing = true;
+    settings.hide_numpad = true;
+    settings.dictation = "server";
+    settings.dictation_server = "127.0.0.1";
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.dictation_helper = directory.path / "helper.py";
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    auto press_mic = [&] {
+        const auto view = app.view();
+        const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
+                                      [](const Key& item) { return item.id == "Dictation"; });
+        require(key != view.layout->keys.end(), "the mic key shows");
+        const auto r = panel_rect(view, key->bounds);
+        app.move(0, r.x + r.width / 2, r.y + r.height / 2);
+        app.down(0, r.x + r.width / 2, r.y + r.height / 2, 1);
+        app.up(0, r.x + r.width / 2, r.y + r.height / 2);
+    };
+    press_mic();
+    press_mic();
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] {
+        const auto view = app.view();
+        return view.dictation->text.find("Hello there.") != std::string::npos;
+    });
+    require(*calls == 0,
+            "a swipe waits for the phrase, so its alternatives can't replace the phrase's end");
+    require(app.view().dictation->text.find("Hello there.") != std::string::npos,
+            "the phrase arrives whole");
+}
+
 void toolbar_toggle() {
     TemporaryDirectory directory;
     Options options;
@@ -1435,6 +1506,7 @@ int main(int argc, char** argv) {
         toolbar_toggle();
         swipes_in_the_editor();
         swipes_after_listening();
+    swipes_wait_for_recognition();
         service_reuse();
         leave_while_decoding();
         suggestions_clear_the_toolbar();

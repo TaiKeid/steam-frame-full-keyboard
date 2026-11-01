@@ -4096,7 +4096,8 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     if (swipe_track_) {
         return false; // Only one pointer types while another is swiping.
     }
-    const bool can_type = !sending_ && !reveal_ && !confirm_discard_ && !capturing_ && !send_wait_since_;
+    const bool can_type = !sending_ && !reveal_ && !confirm_discard_ && !capturing_ &&
+                          !send_wait_since_ && !phrases_pending();
     if (const auto held = keyboard_.modifiers(); can_type && swipes(key, held)) {
         clear_editor_error();
         return swipe_down(pointer, key, x, y, now, held);
@@ -4667,6 +4668,7 @@ void App::flush_direct(double now) {
                output_.enabled() && !keyboard_.active() && !output_.text_pending() &&
                !output_.retry_available()) {
         // Written, never read: the keyboard owns the clipboard with this text.
+        discard_swipe(); // The phrase lands after the word they would replace.
         direct_paste_ = DirectPaste{std::move(direct_waiting_.front())};
         direct_waiting_.pop_front();
         direct_paste_->write = clipboard()->write(direct_paste_->text);
@@ -4683,6 +4685,7 @@ void App::flush_direct(double now) {
             output_.set_character_gap(settings_.dictation_send_gap / 1000.0);
             direct_gap_ = true;
         }
+        discard_swipe();
         if (!output_.commit_text(commit)) {
             std::cout << "Type as I speak: the target refused a phrase.\n" << std::flush;
             direct_blocked_ = true;
@@ -4923,6 +4926,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         // so joining and Undo work as usual; the view reveals it word by word.
         const auto start = editor_.cursor();
         const auto size = editor_.text().size();
+        discard_swipe(); // Its alternatives count back from a cursor that moves.
         if (editor_.insert_phrase(hint_case(event.text), spaced)) {
             reveal_ = Reveal{start, start + editor_.text().size() - size, start, now, spaced};
             editor_goal_x_.reset();
