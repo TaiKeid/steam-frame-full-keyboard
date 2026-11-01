@@ -47,7 +47,7 @@ def failure_reason(error):
         code = str(error)
         if code in {"not-installed-release", "installation-changed", "wrong-platform",
                     "version-mismatch", "startup-failed", "service-handoff-failed",
-                    "install-busy", "download-timeout", "incompatible"}:
+                    "install-busy", "download-timeout", "incompatible", "not-newer-release"}:
             return code
         if code in {"checksum-mismatch", "inconsistent-checksum", "missing-or-duplicate-checksum"}:
             return "checksum-failed"

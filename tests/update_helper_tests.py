@@ -742,6 +742,7 @@ class Protocol(unittest.TestCase):
             (u.UpdateError("install-busy"), "install-busy"),
             (u.UpdateError("not-installed-release"), "not-installed-release"),
             (u.UpdateError("version-mismatch"), "version-mismatch"),
+            (u.UpdateError("not-newer-release"), "not-newer-release"),
             (u.UpdateError(private), "invalid-release"),
             (subprocess.CalledProcessError(1, private), "validation-failed"),
         ]

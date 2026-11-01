@@ -57,6 +57,7 @@ std::string failure_message(const std::string& code) {
         {"service-handoff-failed", "The keyboard service could not take over the update."},
         {"validation-failed", "The update package could not run its validation."},
         {"invalid-release", "The release package or metadata is invalid."},
+        {"not-newer-release", "That update is no longer available."},
         {"disk-full", "Not enough disk space to install the update."},
         {"permission-denied", "The installation is not writable."},
         {"files-unavailable", "Update files could not be read or written."},
