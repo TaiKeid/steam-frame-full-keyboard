@@ -231,6 +231,7 @@ struct PanelView {
     // time its icon shakes, fading from the alert colour.
     double swipe_shake_since{-1};
     std::set<std::string> hovered_keys, hovered_controls;
+    bool status_hovered{}; // A laser is on the dictation status line.
     // Case coordinates of the swipe in progress, drawn above the keys.
     std::vector<std::pair<double, double>> swipe_trail;
     // Keys drawn dimmed, which ignore the laser.
@@ -336,6 +337,8 @@ bool compact_toolbar(const PanelView& view);
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 // Panel area of the flick preview, which may extend past the case.
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
+// Where dictation mode's status line sits in the toolbar row.
+Rect dictation_status_bounds(const PanelView& view);
 // Background Semi-transparent: the case's opacity, half on a dark theme;
 // a light theme's pale case reads far brighter, so it keeps only 15%.
 double semi_transparent_case_opacity(const Theme& theme);
@@ -391,6 +394,10 @@ class PanelRenderer {
     // name was last painted at, for scrolling a long name.
     std::string marquee_;
     double marquee_since_{}, marquee_shown_{-1};
+    // A status too long for its gap scrolls under the laser. Once the laser
+    // leaves, the pass under way ends here and the text returns to its start.
+    bool status_scrolling_{};
+    std::optional<double> status_scroll_end_;
     cairo_surface_t* surface_{};
     // The swipe trail as an opaque layer, composited at 60% by every pass.
     // Cairo strokes slightly differently under a clip, and re-stroking a

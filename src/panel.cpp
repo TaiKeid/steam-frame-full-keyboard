@@ -743,9 +743,13 @@ double icon_shake_fade(double since, double now) {
 struct MarqueeStep {
     double offset{}, wait{};
 };
+constexpr double marquee_wait = .8, marquee_speed = 45, marquee_rest = 1.2;
+double marquee_cycle(double overflow) {
+    return marquee_wait + overflow / marquee_speed + marquee_rest;
+}
 MarqueeStep marquee_step(double overflow, double elapsed) {
-    constexpr double wait = .8, speed = 45, rest = 1.2;
-    const double travel = overflow / speed, cycle = wait + travel + rest;
+    constexpr double wait = marquee_wait, speed = marquee_speed;
+    const double travel = overflow / speed, cycle = marquee_cycle(overflow);
     const double t = std::fmod(elapsed, cycle);
     if (t < wait) {
         return {0, wait - t};
@@ -1212,6 +1216,26 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
     }
     return {};
 }
+// The editor covers the status line, so it moves up into the toolbar row,
+// between the left buttons and the next control or the counter.
+Rect dictation_status_line(const PanelView& view) {
+    const auto body = panel_case_bounds(view);
+    double left = body.x + 18, right = body.x + body.width - 18;
+    for (const auto& control : view.controls) {
+        if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 640) {
+            left = std::max(left, control.bounds.x + control.bounds.width);
+        }
+    }
+    for (const auto& control : view.controls) {
+        if (control.bounds.y < 56 && control.bounds.x >= left) {
+            right = std::min(right, control.bounds.x);
+        }
+    }
+    if (const auto counter = dictation_counter_bounds(view)) {
+        right = std::min(right, counter->x);
+    }
+    return {left + 12, 12, right - left - 24, 42};
+}
 // Settings surfaces, in the keyboard's language: raised panels and keycaps
 // instead of outlines. Every colour derives from the theme.
 // A soft shadow under a raised shape: a few widening, fading rings.
@@ -1573,6 +1597,9 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     }
 }
 } // namespace
+Rect dictation_status_bounds(const PanelView& view) {
+    return dictation_status_line(view);
+}
 std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t limit) {
     const auto body = panel_case_bounds(view);
     if (!clear_case(view) || !view.laser_through_gaps || held || limit < 2) {
@@ -1609,6 +1636,9 @@ std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t 
     }
     if (view.dictation) {
         add(view.dictation->bounds);
+        if (!view.status.empty()) {
+            add(dictation_status_line(view)); // Pointing at it scrolls it.
+        }
     }
     auto unite = [](const Rect& a, const Rect& b) {
         const double left = std::min(a.x, b.x), top = std::min(a.y, b.y);
@@ -1699,6 +1729,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // A hovered dropdown choice whose name does not fit scrolls. A new one
     // starts from the beginning.
     std::optional<Rect> marquee_text;
+    bool marquee_status = false;
     double marquee_shift = 0;
     std::optional<double> marquee_due;
     {
@@ -1708,11 +1739,34 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 choice = &control;
             }
         }
-        const std::string hovered = choice ? choice->id : "";
+        // Japanese and Korean input buttons narrow the toolbar's gap: a dictation
+        // status too long for two lines of it sits on one, and scrolls under the
+        // laser. Moving by itself it would distract.
+        std::optional<Rect> status_line;
+        double status_overflow = 0;
+        const bool input_buttons =
+            view.language->id.starts_with("ja-") || view.language->id.starts_with("ko-");
+        if (!choice && input_buttons && view.dictation && !view.settings && !view.status.empty()) {
+            const auto line = dictation_status_line(view);
+            auto* measure = cairo_create(surface_);
+            grey_text(measure);
+            const double width = text_width(measure, view.status, 15, view.language->font);
+            cairo_destroy(measure);
+            if (width > 1.8 * line.width) {
+                status_line = line;
+                status_overflow = width - (line.width - 8);
+            }
+        }
+        const std::string hovered = choice ? choice->id : status_line ? "status: " + view.status : "";
+        if (status_line) {
+            marquee_status = true;
+        }
         if (hovered != marquee_) {
             marquee_ = hovered;
             marquee_since_ = now;
             marquee_shown_ = -1;
+            status_scrolling_ = false;
+            status_scroll_end_.reset();
         }
         if (choice && view.settings) {
             const auto& r = choice->bounds;
@@ -1727,6 +1781,32 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 marquee_text = text;
                 marquee_shift = step.offset;
                 marquee_due = now + step.wait;
+            }
+        }
+        if (status_line) {
+            marquee_text = status_line;
+            if (view.status_hovered) {
+                status_scroll_end_.reset();
+                if (!status_scrolling_) {
+                    status_scrolling_ = true;
+                    marquee_since_ = now;
+                }
+            } else if (status_scrolling_ && !status_scroll_end_) {
+                const double cycle = marquee_cycle(status_overflow);
+                status_scroll_end_ =
+                    marquee_since_ + (std::floor((now - marquee_since_) / cycle) + 1) * cycle;
+            }
+            if (status_scroll_end_ && now >= *status_scroll_end_) {
+                status_scrolling_ = false;
+                status_scroll_end_.reset();
+            }
+            if (status_scrolling_) {
+                const auto step = marquee_step(status_overflow, now - marquee_since_);
+                marquee_shift = step.offset;
+                marquee_due = now + step.wait;
+                if (status_scroll_end_) {
+                    marquee_due = std::min(*marquee_due, *status_scroll_end_);
+                }
             }
         }
     }
@@ -1866,9 +1946,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     if (marquee_due) {
         next_change_ = animating_ ? std::min(next_change_, *marquee_due) : *marquee_due;
         animating_ = true;
-        if (!full && marquee_shift != marquee_shown_) {
-            damage.push_back(pixel_bounds(*marquee_text));
-        }
+    }
+    // Outside the check above: a status returning to its start is due no more.
+    if (!full && marquee_text && marquee_shift != marquee_shown_) {
+        damage.push_back(pixel_bounds(*marquee_text));
     }
     // A clip edge through a key can drop parts of its legend glyphs. Damage
     // a changed area together with every key it touches, each whole, as
@@ -2585,27 +2666,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
         if (!view.status.empty() && view.dictation && !view.settings) {
-            // The editor covers the status line, so it moves up into the
-            // toolbar row, between the left buttons and the next control or
-            // the counter, wrapping onto a second line when long.
-            double left = body.x + 18, right = body.x + body.width - 18;
-            for (const auto& control : view.controls) {
-                if (control.bounds.y < 56 && control.bounds.x + control.bounds.width <= body.x + 640) {
-                    left = std::max(left, control.bounds.x + control.bounds.width);
-                }
-            }
-            for (const auto& control : view.controls) {
-                if (control.bounds.y < 56 && control.bounds.x >= left) {
-                    right = std::min(right, control.bounds.x);
-                }
-            }
-            if (const auto counter = dictation_counter_bounds(view)) {
-                right = std::min(right, counter->x);
-            }
-            const Rect line{left + 12, 12, right - left - 24, 42};
+            const auto line = dictation_status_line(view);
             case_plate(cr, view, line, view.status, 15, PANGO_ALIGN_LEFT);
-            label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
-                  true);
+            if (marquee_status) {
+                scrolled_label(cr, view.status, line, 15, view.language->font, t.legend, marquee_shift);
+            } else {
+                label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
+                      true);
+            }
         } else if (!view.status.empty()) {
             // A compact toolbar's second row takes the left of the status line.
             const double inset = compact_toolbar(view) ? 88 : 18;

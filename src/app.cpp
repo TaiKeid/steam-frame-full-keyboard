@@ -837,6 +837,18 @@ PanelView App::geometry() const {
     }
     return v;
 }
+std::string App::game_sound_message() const {
+    // These languages' input buttons leave the toolbar little room, and a
+    // user typing in them may not read English comfortably.
+    const auto& language = settings_.active.language;
+    if (language.starts_with("ja-")) {
+        return "プレイ中はゲームの音が入ることがあります。";
+    }
+    if (language.starts_with("ko-")) {
+        return "플레이 중에는 게임 소리가 입력될 수 있습니다.";
+    }
+    return "Game sounds may be picked up during a play session.";
+}
 PanelView App::build_view(bool picker) const {
     PanelView v;
     v.layout = &profiles_.layouts.at(settings_.active.layout);
@@ -862,7 +874,7 @@ PanelView App::build_view(bool picker) const {
         append_languages(v);
     }
     v.status = !status_.empty()            ? status_
-               : capturing_ && game_sound_ ? "Game sounds may be picked up during a play session."
+               : capturing_ && game_sound_ ? game_sound_message()
                : sink_on() ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
                                                                          : host_.sink_client)
                : !debug_status_.empty() ? debug_status_
@@ -1092,6 +1104,7 @@ PanelView App::build_view(bool picker) const {
     }
     for (const auto& [pointer, target] : hovered_) {
         (void)pointer;
+        v.status_hovered |= target.kind == HoverTarget::Kind::Status;
         if (target.kind == HoverTarget::Kind::Key) {
             v.hovered_keys.insert(target.id);
         } else if (target.kind == HoverTarget::Kind::Control) {
@@ -1204,6 +1217,10 @@ bool App::move(unsigned pointer, double x, double y) {
         if (const auto* key = renderer.hit_key(v, x, y)) {
             target = {HoverTarget::Kind::Key, key->id};
         }
+    }
+    if (target.kind == HoverTarget::Kind::None && v.dictation && !v.status.empty() &&
+        dictation_status_bounds(v).contains(x, y)) {
+        target = {HoverTarget::Kind::Status, {}};
     }
     if (hovered_[pointer] != target) {
         hovered_[pointer] = target;

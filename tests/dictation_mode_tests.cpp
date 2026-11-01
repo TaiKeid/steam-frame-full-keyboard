@@ -2189,6 +2189,62 @@ void microphone_tests() {
     press(app, "Dictation");
     settle_pause(app);
     require(app.view().status.empty(), "and it goes when listening stops");
+    struct Case {
+        const char* language;
+        const char* layout;
+        const char* text;
+    };
+    for (const auto& [language, layout, text] :
+         std::array<Case, 3>{{{"ja-flick", "ja-flick-12", "ゲームの音"},
+                              {"ja-romaji", "ja-jis-full", "ゲームの音"},
+                              {"ko-cheonjiin", "ko-12key", "게임 소리"}}}) {
+        write_config(directory.path,
+                     R"(,"hide_numpad":true,"dictation":"server","dictation_server":"127.0.0.1",)"
+                     R"("haptic_sounds":"both","swipe_typing":true,"replace_native_keyboard":true,)"
+                     R"("favorites":[{"id":"a","name":"a","layout":"en-us-full",)"
+                     R"("language":"en-us"}])",
+                     language, layout);
+        Sink local_sink;
+        App local(options, local_sink);
+        press(local, "Dictation");
+        wait_until(local, [&] { return !local.view().status.empty(); });
+        require(local.view().status.find(text) != std::string::npos,
+                "Japanese and Korean users read it in their language");
+        // Too long for its gap on this toolbar: still until the laser points at it.
+        const auto line = dictation_status_bounds(local.view());
+        auto strip = [&](double now) {
+            local.paint(now);
+            const auto pixels = local.renderer.rgba();
+            std::vector<unsigned char> result;
+            for (int y = static_cast<int>(line.y); y < static_cast<int>(line.y + line.height); ++y) {
+                const auto start =
+                    static_cast<std::size_t>((y + popup_margin) * panel_width + line.x) * 4;
+                result.insert(result.end(), pixels.begin() + static_cast<std::ptrdiff_t>(start),
+                              pixels.begin() + static_cast<std::ptrdiff_t>(
+                                                   start + static_cast<std::size_t>(line.width) * 4));
+            }
+            return result;
+        };
+        const double base = clock + 100;
+        const auto at_rest = strip(base);
+        require(strip(base + 3) == at_rest, "the status stays still by itself");
+        const double cx = line.x + line.width / 2, cy = line.y + line.height / 2;
+        local.move(0, cx, cy);
+        require(local.view().status_hovered, "the laser on it counts");
+        strip(base + 3.1);
+        require(strip(base + 5.5) != at_rest, "it scrolls under the laser");
+        const auto [kx, ky] = key_center(local, "Dictation");
+        local.move(0, kx, ky);
+        require(!local.view().status_hovered, "the laser left it");
+        require(strip(base + 5.6) != at_rest, "the pass under way goes on");
+        strip(base + 60);
+        require(strip(base + 61) == at_rest && strip(base + 70) == at_rest,
+                "then it returns to its start and stays");
+        if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+            local.paint(clock);
+            local.renderer.write_png(fs::path(render) / (std::string("notice-") + language + ".png"));
+        }
+    }
 }
 
 // A Test answers for the address it checked: editing the field meanwhile

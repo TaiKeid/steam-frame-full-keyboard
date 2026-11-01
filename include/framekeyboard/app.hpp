@@ -364,6 +364,7 @@ class App {
 
   private:
     std::vector<Control> controls() const;
+    std::string game_sound_message() const;
     void preview_sound();
     PanelView build_view(bool picker) const;
     // Hidden by the setting, unless a number hint shows it for the context.
@@ -678,7 +679,7 @@ class App {
     bool text_transport_ready_{}; // The text connection, whatever the profile.
     bool typing_ready_{};
     struct HoverTarget {
-        enum class Kind { None, Key, Control } kind{Kind::None};
+        enum class Kind { None, Key, Control, Status } kind{Kind::None};
         std::string id;
         bool operator==(const HoverTarget&) const = default;
     };
