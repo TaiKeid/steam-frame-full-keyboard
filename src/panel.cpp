@@ -1846,8 +1846,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
         previous_->view.dictation.has_value() != view.dictation.has_value() ||
         previous_->view.dictation_available != view.dictation_available;
+    // A row carried across the languages popup moves alone, and repaints alone.
+    const bool only_lifted_moved = [&] {
+        const auto* before = previous_ ? &previous_->view.languages : nullptr;
+        if (!before || !*before || !view.languages || !(*before)->lifted || !view.languages->lifted ||
+            (*before)->lifted == view.languages->lifted) {
+            return false;
+        }
+        auto carried = **before;
+        carried.lifted = view.languages->lifted;
+        return carried == *view.languages;
+    }();
     // Settings repaints whole, except when nothing in it changed but a
-    // scrolling choice name: then only that name's box, once it moved a pixel.
+    // scrolling choice name, then only that name's box once it moved a pixel,
+    // or that carried row.
     const bool settings_still =
         previous_ && view.settings && previous_->view.settings &&
         previous_->view.controls == view.controls && previous_->view.cards == view.cards &&
@@ -1855,7 +1867,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.status == view.status &&
         previous_->view.hovered_controls == view.hovered_controls &&
         previous_->view.address == view.address && previous_->view.confirm == view.confirm &&
-        previous_->view.languages == view.languages;
+        (only_lifted_moved || previous_->view.languages == view.languages);
     bool full = force_full || scene_changed || (view.settings && !settings_still);
     std::vector<Rect> damage;
     animating_ = false;
@@ -2101,6 +2113,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
             }
         }
+    }
+    if (!full && only_lifted_moved) {
+        damage_area(pixel_bounds(previous_->view.languages->lifted->bounds, tone_shadow + 1));
+        damage_area(pixel_bounds(view.languages->lifted->bounds, tone_shadow + 1));
     }
     // The editor and its counter repaint only their own areas.
     if (!full && previous_->view.dictation != view.dictation) {

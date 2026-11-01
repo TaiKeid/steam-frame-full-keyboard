@@ -638,6 +638,57 @@ void latin_legends(const Layout& layout, const Theme& theme, const Language& lan
         throw std::runtime_error(language.id + ": Latin legends still show the method's symbols");
     }
 }
+// A row carried across the languages popup repaints alone and leaves nothing behind.
+void carried_row() {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at("graphite");
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.settings = true;
+    PanelView::LanguagesView popup;
+    popup.panel = languages_popup_bounds;
+    popup.well = languages_well_bounds;
+    popup.layouts_list = languages_layouts_bounds;
+    popup.languages_list = languages_list_bounds;
+    popup.additional_list = additional_list_bounds;
+    PanelView::LanguagesView::Row row;
+    row.title = "German";
+    row.note = "Deutsch";
+    row.bounds = {1130, 190, 424, 56};
+    popup.additional = {row};
+    popup.main = row;
+    popup.main.bounds = languages_main_bounds;
+    row.bounds = {420, 280, 312, 52};
+    popup.lifted = row;
+    view.languages = popup;
+    Comparison compare;
+    compare.frame(view, "popup with a carried row");
+    for (int i = 0; i < 16; ++i) {
+        auto& lifted = *view.languages->lifted;
+        lifted.bounds.x += 37;
+        lifted.bounds.y += i % 2 ? -23 : 31;
+        lifted.removing = i > 10;
+        compare.frame(view, "carried row");
+        double area = 0;
+        for (const auto& r : compare.incremental.damage()) {
+            area += r.width * r.height;
+        }
+        if (area == 0 || area > panel_width * panel_height / 4) {
+            throw std::runtime_error("a carried row repaints the popup");
+        }
+    }
+    view.languages->lifted.reset();
+    compare.frame(view, "row dropped");
+}
 // A status the toolbar's gap can't hold scrolls under the laser, whatever the
 // language, and one with no room at all stays out of the way.
 void status_line() {
@@ -685,6 +736,7 @@ int main() {
     try {
         handle_states();
         status_line();
+        carried_row();
         const auto profiles = load_profiles({}, {});
         for (const auto& [id, language] : profiles.languages) {
             const auto layout = id == "ko-cheonjiin"                           ? "ko-12key"
