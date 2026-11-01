@@ -271,6 +271,68 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         cairo_line_to(cr, x2, y2);
     };
     switch (icon) {
+    case Icon::Volume25:
+    case Icon::Volume50:
+    case Icon::Volume75:
+    case Icon::Volume100: {
+        // A solid speaker, then one more sound wave for each step up.
+        cairo_set_line_width(cr, 1);
+        cairo_move_to(cr, -9.9, -3.2);
+        cairo_line_to(cr, -5, -3.2);
+        cairo_line_to(cr, .8, -7.8);
+        cairo_line_to(cr, .8, 7.8);
+        cairo_line_to(cr, -5, 3.2);
+        cairo_line_to(cr, -9.9, 3.2);
+        cairo_close_path(cr);
+        cairo_fill_preserve(cr);
+        cairo_stroke(cr);
+        cairo_set_line_width(cr, 1.4);
+        // A symmetric curve from (x, -y) to (x, y), passing through (far, 0).
+        auto wave = [&](double x, double y, double far) {
+            const double bulge = x + 4. / 3 * (far - x);
+            cairo_move_to(cr, x, -y);
+            cairo_curve_to(cr, bulge, -y / 3, bulge, y / 3, x, y);
+            cairo_stroke(cr);
+        };
+        if (icon != Icon::Volume25) {
+            wave(3.1, 3.4, 4.2);
+        }
+        if (icon == Icon::Volume75 || icon == Icon::Volume100) {
+            wave(5.4, 5.5, 7.2);
+        }
+        if (icon == Icon::Volume100) {
+            wave(7.4, 7.5, 10.1);
+        }
+        break;
+    }
+    case Icon::PopHigh:
+    case Icon::PopHighClick:
+    case Icon::PopMiddle:
+    case Icon::PopMiddleClick:
+    case Icon::PopLow:
+    case Icon::PopLowClick: {
+        // A note on three lines: the higher it sits, the higher the pitch. A
+        // ring around it is the click.
+        const double y = icon == Icon::PopHigh || icon == Icon::PopHighClick       ? -6.5
+                         : icon == Icon::PopMiddle || icon == Icon::PopMiddleClick ? 0
+                                                                                   : 6.5;
+        cairo_set_source_rgba(cr, color.r, color.g, color.b, .38);
+        cairo_set_line_width(cr, 1.5);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT);
+        for (const double line_y : {-6.5, 0., 6.5}) {
+            line(-10, line_y, 10, line_y);
+        }
+        cairo_stroke(cr);
+        source(cr, color);
+        cairo_arc(cr, 0, y, 3, 0, 2 * pi);
+        cairo_fill(cr);
+        if (icon == Icon::PopHighClick || icon == Icon::PopMiddleClick || icon == Icon::PopLowClick) {
+            cairo_set_line_width(cr, 1.6);
+            cairo_arc(cr, 0, y, 5.6, 0, 2 * pi);
+            cairo_stroke(cr);
+        }
+        break;
+    }
     case Icon::SteamFrame:
         // Trace the reference's 194px mark: 47.5px bars, a 128px
         // quarter-circle and small rounded exterior corners. Inner corners
@@ -2348,6 +2410,34 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     }
                     label(cr, control.label, {r.x + 18, r.y, r.width - 36, r.height}, 21,
                           view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                    break;
+                }
+                case ControlStyle::Segment: {
+                    // Each segment paints its slice of the shared well, so it
+                    // can repaint alone within its own bounds.
+                    // A hard clip: soft edges would show as seams between them.
+                    cairo_save(cr);
+                    cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
+                    cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+                    cairo_clip(cr);
+                    cairo_set_antialias(cr, CAIRO_ANTIALIAS_DEFAULT);
+                    draw_well(cr, t,
+                              {r.x - control.action.index * r.width, r.y, r.width * control.segments,
+                               r.height});
+                    cairo_restore(cr);
+                    const Rect thumb{r.x + 4, r.y + 4, r.width - 8, r.height - 8};
+                    if (control.selected && control.enabled) {
+                        fill_latched(cr, t, thumb, t.radius);
+                    } else if (hovered) {
+                        rounded(cr, thumb, t.radius);
+                        source(cr, t.hover);
+                        cairo_fill(cr);
+                    }
+                    if (control.icon != Icon::None) {
+                        draw_icon(cr, control.icon, r, legend, 30);
+                    } else {
+                        label(cr, control.label, r, 21, view.language->font, legend);
+                    }
                     break;
                 }
                 case ControlStyle::Dropdown: {

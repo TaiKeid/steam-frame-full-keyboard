@@ -23,6 +23,16 @@ struct ScrollRoom {
 
 enum class Icon {
     None,
+    Volume25,
+    Volume50,
+    Volume75,
+    Volume100,
+    PopHigh,
+    PopHighClick,
+    PopMiddle,
+    PopMiddleClick,
+    PopLow,
+    PopLowClick,
     Settings,
     Back,
     Reload,

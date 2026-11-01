@@ -174,6 +174,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
+    pending_haptic_sounds_ = settings_.haptic_sounds;
+    pending_haptic_effect_ = settings_.haptic_effect;
+    pending_haptic_volume_ = settings_.haptic_volume;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
@@ -656,6 +659,35 @@ void App::update_settings_ui() {
                         {"invisible", "Invisible"},
                         {"disabled", "Disabled"}}));
     background_surface.width = 250; // "Semi-transparent" and the label, both whole
+    auto haptic_sounds = field(
+        ControlKind::ChooseHapticSounds,
+        dropdown(
+            "haptic-sounds", "Haptic sounds", pending_haptic_sounds_,
+            {{"off", "Off"}, {"press", "Press"}, {"release", "Release"}, {"both", "Press & release"}}));
+    haptic_sounds.width = 232; // Lines up with the Haptic effect and volume rows.
+    auto segmented = [&](ControlKind kind, std::string id, std::string label, std::string value,
+                         std::vector<SettingChoice> options) {
+        auto row = field(kind, SettingField{std::move(id), std::move(label), std::move(value),
+                                            ControlStyle::Segment});
+        row.choices = std::move(options);
+        row.width = 232; // The label stays whole.
+        return row;
+    };
+    // Stored by letter; only key_sounds.cpp knows what each sounds like.
+    auto haptic_effect = segmented(ControlKind::ChooseHapticEffect, "haptic-effect", "Haptic effect",
+                                   pending_haptic_effect_,
+                                   {{"a", "A", true, Icon::PopHigh},
+                                    {"b", "B", true, Icon::PopHighClick},
+                                    {"c", "C", true, Icon::PopMiddle},
+                                    {"d", "D", true, Icon::PopMiddleClick},
+                                    {"e", "E", true, Icon::PopLow},
+                                    {"f", "F", true, Icon::PopLowClick}});
+    auto haptic_volume = segmented(ControlKind::ChooseHapticVolume, "haptic-volume", "Haptic volume",
+                                   std::to_string(pending_haptic_volume_),
+                                   {{"25", "25%", true, Icon::Volume25},
+                                    {"50", "50%", true, Icon::Volume50},
+                                    {"75", "75%", true, Icon::Volume75},
+                                    {"100", "100%", true, Icon::Volume100}});
     // SteamOS's Desktop cannot take emoji and other non-ASCII text from
     // Gamescope; it is typed as Unicode entry or pasted (docs/architecture.md).
     auto desktop_unicode = field(ControlKind::ChooseDesktopUnicode,
@@ -677,6 +709,25 @@ void App::update_settings_ui() {
         "", ControlStyle::Note};
     focus_tooltip_note.plain = true;
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
+    std::vector<SettingField> general_fields{
+        field(ControlKind::ChooseTheme,
+              dropdown("theme", "Theme", pending_.theme, choices(profiles_.themes))),
+        background_surface, haptic_sounds};
+    if (pending_haptic_sounds_ != "off") {
+        general_fields.push_back(haptic_effect);
+        general_fields.push_back(haptic_volume);
+    }
+    general_fields.insert(
+        general_fields.end(),
+        {field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
+         field(ControlKind::UseDragToMove,
+               checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
+         field(ControlKind::AutoLeveling,
+               checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_)),
+         field(ControlKind::EmojiCloseOnSelect,
+               checkbox("emoji-close-on-select", "Close emoji picker after choosing",
+                        pending_emoji_close_on_select_)),
+         desktop_unicode, desktop_unicode_note});
     // The popup edits the same main language as the two dropdowns.
     const auto additional = additional_pairs().size();
     auto languages =
@@ -697,20 +748,7 @@ void App::update_settings_ui() {
            field(ControlKind::SwipeTyping,
                  checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
                           "Powered by FUTO Swipe"))}},
-         {"general",
-          "General",
-          {field(ControlKind::ChooseTheme,
-                 dropdown("theme", "Theme", pending_.theme, choices(profiles_.themes))),
-           background_surface,
-           field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
-           field(ControlKind::UseDragToMove,
-                 checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
-           field(ControlKind::AutoLeveling,
-                 checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_)),
-           field(ControlKind::EmojiCloseOnSelect,
-                 checkbox("emoji-close-on-select", "Close emoji picker after choosing",
-                          pending_emoji_close_on_select_)),
-           desktop_unicode, desktop_unicode_note}},
+         {"general", "General", general_fields},
          {"dictation", "Dictation", dictation_fields},
          {"integration",
           "Integration",
@@ -738,6 +776,15 @@ void App::update_settings_ui() {
         const double limit = languages_limit(LanguagesPopup::Which::Additional);
         languages_->additional.scroll = std::min(languages_->additional.scroll, limit);
         languages_->additional.target = std::min(languages_->additional.target, limit);
+    }
+}
+// Plays what the keys would, by the choices still pending in Settings. Like a
+// key, it stays silent while the microphone is listening.
+void App::preview_sound() {
+    const auto& sounds = pending_haptic_sounds_;
+    if (!capturing_ && sounds != "off") {
+        sound_preview_ = SoundPreview{sounds != "release", sounds != "press", pending_haptic_effect_,
+                                      pending_haptic_volume_};
     }
 }
 PanelView App::geometry() const {
@@ -1722,6 +1769,9 @@ void App::show_settings() {
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
+    pending_haptic_sounds_ = settings_.haptic_sounds;
+    pending_haptic_effect_ = settings_.haptic_effect;
+    pending_haptic_volume_ = settings_.haptic_volume;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
@@ -1953,6 +2003,9 @@ void App::reload() {
         settings_.num_lock = updated_settings.num_lock;
         settings_.hide_numpad = updated_settings.hide_numpad;
         settings_.background_surface = updated_settings.background_surface;
+        settings_.haptic_sounds = updated_settings.haptic_sounds;
+        settings_.haptic_effect = updated_settings.haptic_effect;
+        settings_.haptic_volume = updated_settings.haptic_volume;
         settings_.use_drag_to_move = updated_settings.use_drag_to_move;
         settings_.auto_leveling = updated_settings.auto_leveling;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
@@ -1979,6 +2032,9 @@ void App::reload() {
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
+    pending_haptic_sounds_ = settings_.haptic_sounds;
+    pending_haptic_effect_ = settings_.haptic_effect;
+    pending_haptic_volume_ = settings_.haptic_volume;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
@@ -2454,6 +2510,9 @@ void App::apply_settings() {
     settings_.favorites = pending_favorites_;
     settings_.hide_numpad = pending_hide_numpad_;
     settings_.background_surface = pending_background_surface_;
+    settings_.haptic_sounds = pending_haptic_sounds_;
+    settings_.haptic_effect = pending_haptic_effect_;
+    settings_.haptic_volume = pending_haptic_volume_;
     settings_.use_drag_to_move = pending_use_drag_to_move_;
     settings_.auto_leveling = pending_auto_leveling_;
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
@@ -2709,6 +2768,20 @@ void App::action(const ControlAction& command) {
         pending_background_surface_ = command.value;
         settings_ui_.close_popup();
         update_settings_ui();
+    } else if (kind == ControlKind::ChooseHapticSounds) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_haptic_sounds_ = command.value;
+        settings_ui_.close_popup();
+        update_settings_ui();
+    } else if (kind == ControlKind::ChooseHapticEffect) {
+        pending_haptic_effect_ = command.value;
+        preview_sound();
+        update_settings_ui();
+    } else if (kind == ControlKind::ChooseHapticVolume) {
+        pending_haptic_volume_ = std::stoi(command.value);
+        preview_sound();
+        update_settings_ui();
     } else if (kind == ControlKind::UseDragToMove) {
         pending_use_drag_to_move_ = !pending_use_drag_to_move_;
         update_settings_ui();
@@ -2951,7 +3024,7 @@ bool App::swipe_supported(const std::string& language_id) const {
 bool App::swipe_known(const std::string& language) const {
     const auto known = swipe_support_.find(language);
     return known != swipe_support_.end() ? known->second
-                                         : swipe_support_[language] = swipe_supported(language);
+                                         : (swipe_support_[language] = swipe_supported(language));
 }
 void App::prepare_swipe() {
     swipe_track_.reset();

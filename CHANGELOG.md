@@ -9,6 +9,7 @@
 - Added **French (Belgium)** and **Dutch (Belgium)**, and keyboard options for existing languages: QWERTY for French, German, Czech, Slovak, Hungarian and Croatian, QWERTZ for Polish and F for Turkish.
 - Settings has a new **Additional languages** page in place of the Favorite switch and Manage. Pick a layout on the left, tap or drag languages into your list, drag to reorder, and drop outside to remove. Your main language stays in sync with the Layout and Language dropdowns. Leaving Settings asks whether to save changes made there.
 - While Swipe typing is on, Additional languages marks which languages can swipe and which can't.
+- Added **Haptic sounds** to General: a pop on key press, release or both, off by default, with six effects and four volume levels you can preview in Settings. They stay silent while the microphone is listening.
 - Added a swipe button to the toolbar that turns Swipe typing on and off. It's dimmed while the current language can't swipe, and hidden if none of your languages can.
 - Layouts and languages now have clear names, such as **US QWERTY** and **Japanese, Romaji** with **日本語 ローマ字**. The toolbar's language button shows a short native name instead of a code like JA-JP.
 - When closing the dashboard during dictation turns on **Stay open over apps**, a message now explains why the keyboard stayed in view. It shows for 5 seconds, in the dictation editor or, with Type as I speak, on the status line. If Stay open over apps was already on, nothing changes and no message appears.

@@ -184,7 +184,26 @@ void SettingsUi::append(PanelView& view) const {
                     view.field_labels.push_back({field.note, note, clip, true, field.enabled, 16});
                 }
             }
-            if (intersects(bounds, clip)) {
+            if (intersects(bounds, clip) && field.style == ControlStyle::Segment) {
+                const double width = bounds.width / static_cast<double>(field.choices.size());
+                for (std::size_t k = 0; k < field.choices.size(); ++k) {
+                    const auto& choice = field.choices[k];
+                    view.controls.push_back(
+                        {field.id + ":" + choice.id,
+                         choice.name,
+                         {bounds.x + static_cast<double>(k) * width, bounds.y, width, bounds.height},
+                         choice.id == field.value,
+                         choice.icon,
+                         field.style,
+                         clip,
+                         field.enabled});
+                    auto& segment = view.controls.back();
+                    segment.action = field.action;
+                    segment.action.index = static_cast<int>(k);
+                    segment.action.value = choice.id;
+                    segment.segments = static_cast<int>(field.choices.size());
+                }
+            } else if (intersects(bounds, clip)) {
                 const auto selected =
                     std::find_if(field.choices.begin(), field.choices.end(),
                                  [&](const SettingChoice& choice) { return choice.id == field.value; });

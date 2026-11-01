@@ -94,6 +94,12 @@ struct Settings {
     // taking the laser) or "disabled" (clear, the laser passes through its
     // gaps). Keys keep their theme.
     std::string background_surface{"visible"};
+    // Pops on keyboard keys: "off", "press", "release" or "both".
+    std::string haptic_sounds{"off"};
+    // Which pop, "a" to "f", and its volume: 25, 50, 75 or 100 percent of
+    // full loudness (key_sounds.hpp).
+    std::string haptic_effect{"e"};
+    int haptic_volume{75};
     bool use_drag_to_move{};
     bool auto_leveling{true};
     bool replace_native_keyboard{};
@@ -141,6 +147,9 @@ struct Settings {
 // Whether a server address or URL is one the dictation helper accepts.
 bool valid_dictation_server(const std::string& server);
 bool valid_background_surface(const std::string& surface);
+bool valid_haptic_sounds(const std::string& sounds);
+bool valid_haptic_effect(const std::string& effect);
+bool valid_haptic_volume(int volume);
 // The on-device models (docs/dictation.md, On-device recognition): whether a
 // name is one, the file it is used from, and its download size in MB.
 bool valid_device_model(const std::string& model);

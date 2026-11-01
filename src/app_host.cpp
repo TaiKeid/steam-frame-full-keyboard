@@ -305,6 +305,11 @@ JsonPtr App::host_settings() const {
     flag("desktop_unicode_paste", settings_.desktop_unicode_paste);
     json_object_object_add(object.get(), "background_surface",
                            json_object_new_string(settings_.background_surface.c_str()));
+    json_object_object_add(object.get(), "haptic_sounds",
+                           json_object_new_string(settings_.haptic_sounds.c_str()));
+    json_object_object_add(object.get(), "haptic_effect",
+                           json_object_new_string(settings_.haptic_effect.c_str()));
+    json_object_object_add(object.get(), "haptic_volume", json_object_new_int(settings_.haptic_volume));
     json_object_object_add(object.get(), "dictation",
                            json_object_new_string(settings_.dictation.c_str()));
     json_object_object_add(object.get(), "dictation_server",
@@ -338,6 +343,21 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
         } else if (key == "background_surface") {
             if (!json_object_is_type(check_value, json_type_string) ||
                 !valid_background_surface(json_object_get_string(check_value))) {
+                return {"invalid_setting", key};
+            }
+        } else if (key == "haptic_sounds") {
+            if (!json_object_is_type(check_value, json_type_string) ||
+                !valid_haptic_sounds(json_object_get_string(check_value))) {
+                return {"invalid_setting", key};
+            }
+        } else if (key == "haptic_effect") {
+            if (!json_object_is_type(check_value, json_type_string) ||
+                !valid_haptic_effect(json_object_get_string(check_value))) {
+                return {"invalid_setting", key};
+            }
+        } else if (key == "haptic_volume") {
+            if (!json_object_is_type(check_value, json_type_int) ||
+                !valid_haptic_volume(json_object_get_int(check_value))) {
                 return {"invalid_setting", key};
             }
         } else if (key == "dictation") {
@@ -395,6 +415,12 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
             settings_.dictation_fallback = pending_dictation_fallback_ = on;
         } else if (key == "background_surface") {
             settings_.background_surface = pending_background_surface_ = json_object_get_string(value);
+        } else if (key == "haptic_sounds") {
+            settings_.haptic_sounds = pending_haptic_sounds_ = json_object_get_string(value);
+        } else if (key == "haptic_effect") {
+            settings_.haptic_effect = pending_haptic_effect_ = json_object_get_string(value);
+        } else if (key == "haptic_volume") {
+            settings_.haptic_volume = pending_haptic_volume_ = json_object_get_int(value);
         } else if (key == "dictation") {
             settings_.dictation = pending_dictation_ = json_object_get_string(value);
         } else if (key == "dictation_server") {
@@ -737,6 +763,9 @@ void App::host_settings_changed(const Settings& before, const char* source) {
     compare("num_lock", before.num_lock != settings_.num_lock);
     compare("hide_numpad", before.hide_numpad != settings_.hide_numpad);
     compare("background_surface", before.background_surface != settings_.background_surface);
+    compare("haptic_sounds", before.haptic_sounds != settings_.haptic_sounds);
+    compare("haptic_effect", before.haptic_effect != settings_.haptic_effect);
+    compare("haptic_volume", before.haptic_volume != settings_.haptic_volume);
     compare("use_drag_to_move", before.use_drag_to_move != settings_.use_drag_to_move);
     compare("auto_leveling", before.auto_leveling != settings_.auto_leveling);
     compare("pinned", before.pinned != settings_.pinned);

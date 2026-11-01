@@ -7,6 +7,7 @@
 #include "dictation_mode.hpp"
 #include "dictation_send.hpp"
 #include "emoji_glyphs.hpp"
+#include "feedback.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
 #include "output.hpp"
@@ -69,6 +70,12 @@ struct Options {
     Clipboard* clipboard{};
 };
 
+// What a Haptic effect or Haptic volume click plays, by the pending choices.
+struct SoundPreview {
+    bool press{}, release{};
+    std::string effect;
+    int volume{};
+};
 class App {
   public:
     App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences = {},
@@ -233,6 +240,20 @@ class App {
     bool dragging() const { return dragging_; }
     // The microphone is open for dictation or Type as I speak.
     bool listening() const { return capturing_; }
+    // Pending counts: Settings previews a choice before Apply.
+    bool haptic_sounds() const {
+        return settings_.haptic_sounds != "off" || pending_haptic_sounds_ != "off";
+    }
+    const std::string& haptic_effect() const { return settings_.haptic_effect; }
+    int haptic_volume() const { return settings_.haptic_volume; }
+    std::optional<SoundPreview> take_sound_preview() { return std::exchange(sound_preview_, {}); }
+    // Whether this press or release pops. Silent while the microphone is
+    // listening: the speakers sit close enough for it to hear them.
+    bool pops(KeyFeedback kind) const {
+        const auto& sounds = settings_.haptic_sounds;
+        return !capturing_ && kind != KeyFeedback::Hover &&
+               (sounds == "both" || sounds == (kind == KeyFeedback::Press ? "press" : "release"));
+    }
     // Hiding the VR context releases keys before closing the input gate.
     void set_interaction_active(bool active);
     void report_status(const std::string& message);
@@ -342,6 +363,7 @@ class App {
 
   private:
     std::vector<Control> controls() const;
+    void preview_sound();
     PanelView build_view(bool picker) const;
     // Hidden by the setting, unless a number hint shows it for the context.
     bool numpad_hidden() const { return settings_.hide_numpad && !host_.numpad_shown; }
@@ -510,6 +532,10 @@ class App {
     std::vector<Favorite> pending_favorites_;
     bool pending_hide_numpad_{};
     std::string pending_background_surface_{"visible"};
+    std::string pending_haptic_sounds_{"off"};
+    std::string pending_haptic_effect_{"e"};
+    int pending_haptic_volume_{75};
+    std::optional<SoundPreview> sound_preview_;
     bool pending_use_drag_to_move_{};
     bool pending_auto_leveling_{true};
     bool pending_replace_native_keyboard_{};

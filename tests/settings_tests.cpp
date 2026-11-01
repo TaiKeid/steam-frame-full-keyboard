@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/key_sounds.hpp"
 #include "framekeyboard/startup.hpp"
 
 #include <algorithm>
@@ -56,8 +57,20 @@ void click(App& app, const std::string& id, unsigned pointer = 0) {
             app.tick(now += .05);
         }
     }
-    const auto c = control(app.view(), id);
-    const double x = c.bounds.x + c.bounds.width / 2, y = c.bounds.y + c.bounds.height / 2;
+    auto c = control(app.view(), id);
+    auto center_x = [](const Control& item) { return item.bounds.x + item.bounds.width / 2; };
+    auto center_y = [](const Control& item) { return item.bounds.y + item.bounds.height / 2; };
+    if (app.view().settings && !c.hit(center_x(c), center_y(c))) {
+        // A card's lower rows sit below its fold until it scrolls.
+        app.move(pointer, c.bounds.x, 300);
+        app.scroll(pointer, 0, 20);
+        static double now = 200;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+        c = control(app.view(), id);
+    }
+    const double x = center_x(c), y = center_y(c);
     require(c.hit(x, y), "test clicks a visible control");
     app.down(pointer, x, y, 1);
     app.up(pointer, x, y);
@@ -1182,6 +1195,138 @@ void background_surface_setting() {
         reading.renderer.write_png("/tmp/framekeyboard-transparent-reading.png");
     }
 }
+void haptic_sounds_setting() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(saved(app).haptic_sounds == "off" && !app.haptic_sounds() && !app.pops(KeyFeedback::Press) &&
+                !app.pops(KeyFeedback::Release),
+            "haptic sounds start off");
+    app.show_settings();
+    require(control(app.view(), "haptic-sounds").label == "Off" &&
+                control(app.view(), "haptic-sounds").bounds.y >
+                    control(app.view(), "background-surface").bounds.y &&
+                control(app.view(), "haptic-sounds").bounds.y <
+                    control(app.view(), "hide-numpad").bounds.y,
+            "the dropdown sits in General, below Background");
+    select(app, "haptic-sounds", "press");
+    require(saved(app).haptic_sounds == "off" && !app.pops(KeyFeedback::Press),
+            "the choice stays pending until Apply");
+    click(app, "apply");
+    require(saved(app).haptic_sounds == "press" && app.haptic_sounds() && app.pops(KeyFeedback::Press) &&
+                !app.pops(KeyFeedback::Release),
+            "Press pops on press only");
+    app.show_settings();
+    select(app, "haptic-sounds", "release");
+    click(app, "apply");
+    require(!app.pops(KeyFeedback::Press) && app.pops(KeyFeedback::Release),
+            "Release pops on release only");
+    app.show_settings();
+    select(app, "haptic-sounds", "both");
+    click(app, "apply");
+    require(app.pops(KeyFeedback::Press) && app.pops(KeyFeedback::Release) &&
+                !app.pops(KeyFeedback::Hover),
+            "Both pops on press and release, and hovering never pops");
+    {
+        TemporaryDirectory edited;
+        std::ofstream(edited.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+               R"("theme":"graphite"},"hide_numpad":true,"haptic_sounds":"loud"})";
+        std::vector<std::string> errors;
+        const auto loaded = load_settings(edited.path, errors);
+        require(loaded.haptic_sounds == "off" && loaded.hide_numpad && errors.size() == 1,
+                "an unknown value is reported and the rest still loads");
+    }
+    // The effect and volume rows show only with sounds on, and each click previews.
+    app.show_settings();
+    require(has(app.view(), "haptic-effect:a") && has(app.view(), "haptic-volume:100") &&
+                control(app.view(), "haptic-effect:e").selected &&
+                control(app.view(), "haptic-volume:75").selected && !app.take_sound_preview(),
+            "E and 75% start selected, and opening Settings plays nothing");
+    click(app, "haptic-effect:c");
+    auto preview = app.take_sound_preview();
+    require(preview && preview->press && preview->release && preview->effect == "c" &&
+                preview->volume == 75 && control(app.view(), "haptic-effect:c").selected &&
+                saved(app).haptic_effect == "e" && app.haptic_effect() == "e",
+            "Switching effect previews it with Both, and stays pending until Apply");
+    click(app, "haptic-effect:c");
+    require(app.take_sound_preview().has_value(), "Clicking the selected effect previews it again");
+    click(app, "haptic-volume:75");
+    app.take_sound_preview();
+    app.paint(5);
+    app.renderer.write_png("/tmp/framekeyboard-haptic-settings.png");
+    click(app, "haptic-volume:25");
+    preview = app.take_sound_preview();
+    require(preview && preview->effect == "c" && preview->volume == 25,
+            "Volume previews the pending effect");
+    select(app, "haptic-sounds", "release");
+    require(!app.take_sound_preview(), "the mode dropdown itself plays nothing");
+    click(app, "haptic-volume:75");
+    preview = app.take_sound_preview();
+    require(preview && !preview->press && preview->release, "Release previews release only");
+    select(app, "haptic-sounds", "press");
+    click(app, "haptic-volume:50");
+    preview = app.take_sound_preview();
+    require(preview && preview->press && !preview->release, "Press previews press only");
+    click(app, "apply");
+    require(saved(app).haptic_effect == "c" && saved(app).haptic_volume == 50 &&
+                app.haptic_effect() == "c" && app.haptic_volume() == 50,
+            "Apply saves the effect and volume");
+    app.show_settings();
+    select(app, "haptic-sounds", "off");
+    require(!has(app.view(), "haptic-effect:a") && !has(app.view(), "haptic-volume:100"),
+            "both rows hide with sounds off");
+    app.back();
+    require(app.haptic_sounds(), "Back restores the saved choice");
+    {
+        TemporaryDirectory edited;
+        std::ofstream(edited.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+               R"("theme":"graphite"},"haptic_effect":"z","haptic_volume":60})";
+        std::vector<std::string> errors;
+        const auto loaded = load_settings(edited.path, errors);
+        require(loaded.haptic_effect == "e" && loaded.haptic_volume == 75 && errors.size() == 2,
+                "bad values are reported and fall back");
+    }
+    // The pops themselves: short, level with each other, and release higher.
+    const int rate = 48000;
+    auto crossings = [](const std::vector<float>& samples) {
+        int count = 0;
+        for (std::size_t i = 1; i < samples.size(); ++i) {
+            count += (samples[i - 1] < 0) != (samples[i] < 0);
+        }
+        return count;
+    };
+    for (const std::string effect : {"a", "b", "c", "d", "e", "f"}) {
+        const auto press = key_sound(KeyFeedback::Press, rate, effect);
+        const auto release = key_sound(KeyFeedback::Release, rate, effect);
+        for (const auto* sound : {&press, &release}) {
+            float peak = 0;
+            for (const float sample : *sound) {
+                peak = std::max(peak, std::abs(sample));
+            }
+            require(sound->size() <= static_cast<std::size_t>(rate / 10) && peak > .27f && peak < .29f,
+                    "every pop is short and peaks alike");
+            require(std::abs(sound->back()) < .001f, "a pop ends at silence, so its end can't click");
+        }
+        require(crossings(release) > crossings(press), "release pops higher than press");
+    }
+    require(key_sound(KeyFeedback::Press, rate, "a") != key_sound(KeyFeedback::Press, rate, "b") &&
+                key_sound(KeyFeedback::Press, rate, "b") != key_sound(KeyFeedback::Press, rate, "c"),
+            "effects differ");
+    require(key_sound(KeyFeedback::Hover, rate, "a").empty(), "hovering has no sound");
+    for (const auto& [plain, clicked] : {std::pair{"a", "b"}, {"c", "d"}, {"e", "f"}}) {
+        require(std::abs(key_sound(KeyFeedback::Press, rate, plain).front()) < .01f &&
+                    std::abs(key_sound(KeyFeedback::Press, rate, clicked).front()) > .01f,
+                "effects come in pairs, plain and then with a click");
+    }
+    require(sound_gain(100) == 1 && std::abs(sound_gain(75) - .62f) < .01f &&
+                std::abs(sound_gain(50) - .315f) < .01f && std::abs(sound_gain(25) - .1f) < .01f,
+            "volume steps follow loudness, about 10 dB for each halving");
+}
 void app_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -2273,6 +2418,7 @@ int main() {
         launch_startup();
         numpad_settings();
         background_surface_setting();
+        haptic_sounds_setting();
         app_settings();
         dictation_settings();
         desktop_unicode_setting();

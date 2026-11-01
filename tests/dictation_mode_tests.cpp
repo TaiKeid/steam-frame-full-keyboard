@@ -2428,8 +2428,13 @@ void hosted_tests() {
     require(app.host_settings_set(surface.get(), 6) ==
                 std::pair<std::string, std::string>{"invalid_setting", "background_surface"},
             "a background surface outside visible, invisible and disabled is refused");
+    auto sounds = json_ptr(json_tokener_parse(R"({"haptic_sounds":"loud"})"));
+    require(app.host_settings_set(sounds.get(), 6) ==
+                std::pair<std::string, std::string>{"invalid_setting", "haptic_sounds"},
+            "a sound choice outside off, press, release and both is refused");
     auto good = json_ptr(json_tokener_parse(
-        R"({"auto_leveling":false,"dictation_send_gap":40,"background_surface":"disabled"})"));
+        R"({"auto_leveling":false,"dictation_send_gap":40,"background_surface":"disabled",)"
+        R"("haptic_sounds":"press"})"));
     require(app.host_settings_set(good.get(), 7).first.empty(), "valid settings apply");
     app.flush_settings();
     app.tick(clock += .1);
@@ -2454,7 +2459,8 @@ void hosted_tests() {
     std::vector<std::string> errors;
     auto saved = load_settings(directory.path, errors);
     require(!saved.auto_leveling && saved.dictation_send_gap == 40 &&
-                saved.background_surface == "disabled" && saved.replace_native_keyboard,
+                saved.background_surface == "disabled" && saved.haptic_sounds == "press" &&
+                saved.replace_native_keyboard,
             "the change persists; the standalone flags stay as they were");
 
     // The shell's theme lasts for the process and is never saved.
@@ -2633,14 +2639,28 @@ void away_tests() {
                     !app.view().dictation->notice_error,
                 "in the editor, listening stops and the notice says why");
     }
-    write_config(directory.path,
-                 R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_direct":true)");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                                 R"("dictation_direct":true,"haptic_sounds":"both")");
     Sink sink;
     App app(options, sink);
+    require(app.pops(KeyFeedback::Press), "keys pop before listening");
     press(app, "Dictation");
     require(app.listening() && !app.dictation_open(), "Type as I speak listens on the keyboard");
+    require(!app.pops(KeyFeedback::Press) && !app.pops(KeyFeedback::Release),
+            "the microphone never hears a pop");
+    app.show_settings();
+    const auto effect = std::find_if(app.view().controls.begin(), app.view().controls.end(),
+                                     [](const Control& item) { return item.id == "haptic-effect:b"; });
+    require(effect != app.view().controls.end(), "listening continues under Settings");
+    const double x = effect->bounds.x + effect->bounds.width / 2,
+                 y = effect->bounds.y + effect->bounds.height / 2;
+    app.down(0, x, y, 1);
+    app.up(0, x, y);
+    require(app.listening() && !app.take_sound_preview(), "nor a preview");
+    app.back();
     app.stop_listening(reason);
     require(!app.listening() && app.view().status == reason, "Type as I speak stops and says why");
+    require(app.pops(KeyFeedback::Release), "keys pop again once it stops");
     require(sink.text.empty() && sink.keys.empty(), "stopping types nothing");
 }
 

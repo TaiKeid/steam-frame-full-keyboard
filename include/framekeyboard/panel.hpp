@@ -20,7 +20,18 @@ constexpr double case_plate_alpha = .88;
 
 // TextField shows a value that opens its own editor, such as a server address.
 // Note: a Settings row without a control, its text across the card.
-enum class ControlStyle { Button, Dropdown, Checkbox, MenuItem, Scrollbar, MoveHandle, TextField, Note };
+// Segment: one choice of a row that shows all its choices side by side.
+enum class ControlStyle {
+    Button,
+    Dropdown,
+    Checkbox,
+    MenuItem,
+    Scrollbar,
+    MoveHandle,
+    TextField,
+    Note,
+    Segment
+};
 enum class ControlKind {
     None,
     SinkOff, // ends the shell's text sink (docs/integration.md, Privacy)
@@ -43,6 +54,9 @@ enum class ControlKind {
     ChooseTheme,
     HideNumpad,
     ChooseBackgroundSurface,
+    ChooseHapticSounds,
+    ChooseHapticEffect,
+    ChooseHapticVolume,
     UseDragToMove,
     AutoLeveling,
     ReplaceNativeKeyboard,
@@ -116,6 +130,7 @@ struct Control {
     bool warning{}; // a toolbar icon drawn in the theme's alert colour
     bool badge{};   // a notification dot on the button's top right corner
     bool dimmed{};  // a toolbar icon drawn quietly, though it still responds
+    int segments{}; // a Segment: how many share its track; action.index is its place
     bool hit(double x, double y) const {
         return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }

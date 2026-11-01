@@ -551,6 +551,15 @@ bool valid_background_surface(const std::string& surface) {
     return surface == "visible" || surface == "semi-transparent" || surface == "invisible" ||
            surface == "disabled";
 }
+bool valid_haptic_sounds(const std::string& sounds) {
+    return sounds == "off" || sounds == "press" || sounds == "release" || sounds == "both";
+}
+bool valid_haptic_effect(const std::string& effect) {
+    return effect.size() == 1 && effect[0] >= 'a' && effect[0] <= 'f';
+}
+bool valid_haptic_volume(int volume) {
+    return volume == 25 || volume == 50 || volume == 75 || volume == 100;
+}
 bool valid_dictation_server(const std::string& server) {
     // The helper's own check (dictation_helper.py, Target) is the authority;
     // this one only keeps a typo from reaching it.
@@ -739,6 +748,32 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             settings.background_surface = "visible";
         }
         try {
+            settings.haptic_sounds = text(document.get(), "haptic_sounds", "off", true);
+            if (!valid_haptic_sounds(settings.haptic_sounds)) {
+                throw std::runtime_error("bad value");
+            }
+        } catch (const std::exception&) {
+            errors.push_back("config.json: haptic_sounds must be \"off\", \"press\", "
+                             "\"release\" or \"both\"; they are off");
+            settings.haptic_sounds = "off";
+        }
+        try {
+            settings.haptic_effect = text(document.get(), "haptic_effect", "e", true);
+            if (!valid_haptic_effect(settings.haptic_effect)) {
+                throw std::runtime_error("bad value");
+            }
+        } catch (const std::exception&) {
+            errors.push_back("config.json: haptic_effect must be \"a\" to \"f\"; it is \"e\"");
+            settings.haptic_effect = "e";
+        }
+        if (auto* volume = field(document.get(), "haptic_volume", json_type_int, true)) {
+            settings.haptic_volume = json_object_get_int(volume);
+            if (!valid_haptic_volume(settings.haptic_volume)) {
+                errors.push_back("config.json: haptic_volume must be 25, 50, 75 or 100; it is 75");
+                settings.haptic_volume = 75;
+            }
+        }
+        try {
             // Like the dictation fields, a bad value fails on its own.
             if (auto* gap = field(document.get(), "dictation_send_gap_ms", json_type_int, true)) {
                 const auto value = json_object_get_int(gap);
@@ -874,6 +909,12 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->hide_numpad));
         json_object_object_add(document.get(), "background_surface",
                                json_object_new_string(settings->background_surface.c_str()));
+        json_object_object_add(document.get(), "haptic_sounds",
+                               json_object_new_string(settings->haptic_sounds.c_str()));
+        json_object_object_add(document.get(), "haptic_effect",
+                               json_object_new_string(settings->haptic_effect.c_str()));
+        json_object_object_add(document.get(), "haptic_volume",
+                               json_object_new_int(settings->haptic_volume));
         json_object_object_add(document.get(), "use_drag_to_move",
                                json_object_new_boolean(settings->use_drag_to_move));
         json_object_object_add(document.get(), "auto_leveling",

@@ -3,6 +3,7 @@
 #include "framekeyboard/focus_visibility.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/held_keys.hpp"
+#include "framekeyboard/key_sounds.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
@@ -1662,6 +1663,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
     });
     VrHaptics haptics;
+    KeySounds key_sounds;
+    std::optional<SoundPreview> delayed_release;
+    double delayed_release_at = 0;
+    // Any pointer that types pops, including those no controller buzzes for.
+    auto key_pop = [&](KeyFeedback kind) {
+        if (app.pops(kind)) {
+            key_sounds.play(kind, app.haptic_effect(), app.haptic_volume());
+        }
+    };
     auto manifest = fs::canonical("/proc/self/exe").parent_path().parent_path() /
                     "share/framekeyboard/vr/actions.json";
     if (!fs::is_regular_file(manifest)) {
@@ -2192,10 +2202,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         } else if (phase == "down") {
             app.move(pointer, x, y);
             if (app.down(pointer, x, y, now)) {
+                key_pop(KeyFeedback::Press);
                 forwarded_haptic(hand, pointer, KeyFeedback::Press);
             }
         } else if (phase == "up") {
             if (app.up(pointer, x, y)) {
+                key_pop(KeyFeedback::Release);
                 forwarded_haptic(hand, pointer, KeyFeedback::Release);
             }
         }
@@ -2930,6 +2942,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             });
             if (app.pinned() || !grabbing) {
                 const bool key_pressed = app.down(pointer, x, y, now);
+                if (key_pressed) {
+                    key_pop(KeyFeedback::Press);
+                }
                 if (key_pressed && controller) {
                     feedback.press(pointer, device);
                 }
@@ -2961,6 +2976,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 stop_drag(true);
                 app.move(pointer, x, y);
             } else if (!drag.active() && app.up(pointer, x, y)) {
+                key_pop(KeyFeedback::Release);
                 feedback.release(pointer);
             }
         };
@@ -3407,6 +3423,23 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     break;
                 }
             }
+        }
+        key_sounds.set_awake(lifecycle.visible() && app.haptic_sounds());
+        // With both, a preview plays like a key: press, then release a beat later.
+        if (auto preview = app.take_sound_preview()) {
+            if (preview->press) {
+                key_sounds.play(KeyFeedback::Press, preview->effect, preview->volume);
+            }
+            if (preview->release && !preview->press) {
+                key_sounds.play(KeyFeedback::Release, preview->effect, preview->volume);
+            } else if (preview->release) {
+                delayed_release = std::move(preview);
+                delayed_release_at = now + .14;
+            }
+        }
+        if (delayed_release && now >= delayed_release_at) {
+            key_sounds.play(KeyFeedback::Release, delayed_release->effect, delayed_release->volume);
+            delayed_release.reset();
         }
         for (const auto& [device, kind] : feedback.take(now)) {
             if (!drag.active() && lifecycle.visible()) {

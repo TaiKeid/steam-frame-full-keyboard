@@ -44,7 +44,7 @@ These are linked or used as the Frame provides them, never bundled:
 - Cairo, Pango and HarfBuzz;
 - json-c, xkbcommon and the Wayland client;
 - Python 3, 3.12 on the Frame (the dictation and update helpers);
-- PipeWire and WirePlumber (`pw-record`, `pw-dump`, `pw-link`);
+- PipeWire and WirePlumber (`pw-record`, `pw-dump`, `pw-link`, and `libpipewire-0.3.so.0` for Haptic sounds);
 - the system fonts.
 
 After a SteamOS update:
