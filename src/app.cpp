@@ -1047,6 +1047,7 @@ PanelView App::build_view(bool picker) const {
     }
     v.dictation_levels = mic_levels_;
     v.dictation_level_since = mic_level_since_;
+    v.latin_legends = !v.composing && v.language->input_method.starts_with("chinese-");
     if (dictation_open_) {
         // The mode has its own keys, with the composers' labels and flick
         // preview. The reading shows in the editor.

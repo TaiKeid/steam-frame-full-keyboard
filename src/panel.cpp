@@ -979,11 +979,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
               t.font_size, view.language->font, t.legend, true);
         return;
     }
-    // A Chinese method's symbols apply only while it composes; its Latin mode
-    // types the keymap's letters, so the keys show those.
-    const bool latin = !view.composing && view.language->input_method.starts_with("chinese-");
-    auto text =
-        view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num(), !latin);
+    const bool overrides = !view.latin_legends;
+    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num(),
+                                    overrides);
     if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
         text = custom->second;
     }
@@ -999,14 +997,16 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
                text.size() < 5) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary =
+            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num(), overrides);
         if (secondary == text) {
             secondary.clear();
         }
     } else if (!key.secondary_label.empty()) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary =
+            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num(), overrides);
         if (secondary == text) {
             secondary.clear();
         }
@@ -1826,7 +1826,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
-        previous_->view.composing != view.composing || previous_->view.hide_numpad != view.hide_numpad ||
+        previous_->view.composing != view.composing ||
+        previous_->view.latin_legends != view.latin_legends ||
+        previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.case_opacity != view.case_opacity ||
         // No pixel changes, but the VR loop sets the laser mask with each paint.
         previous_->view.laser_through_gaps != view.laser_through_gaps ||
