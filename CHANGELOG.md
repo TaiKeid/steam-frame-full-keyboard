@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0: Text selection in dictation and a Cut key
 
 - Fixed: Dictation's **Send** no longer presses Enter after the text. It leaves the text in the focused application, so you decide when to submit it. Pressing Enter on the normal keyboard submits it.
 - Added a **Cut** key between Copy and Paste on the keyboard. It sends Ctrl+X, and the three keys share the space the two had.
