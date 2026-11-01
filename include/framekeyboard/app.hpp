@@ -47,7 +47,6 @@ struct Options {
     double duration{};
     bool start_enabled{false};
     bool autostart{};
-    bool background_update{};
     // Launched by a shell with `--hosted FD` (docs/integration.md): the
     // inherited control connection, the process's number on it, and the
     // failure code of an update that rolled back to this process.
@@ -194,10 +193,7 @@ class App {
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard && !hosted(); }
     bool start_with_steamos() const { return replace_native_keyboard() && settings_.start_with_steamos; }
     // A hosted keyboard starts hidden too: only its shell shows it.
-    bool background_start() const {
-        return hosted() || options_.autostart ||
-               (options_.background_update && settings_.replace_native_keyboard);
-    }
+    bool background_start() const { return hosted() || options_.autostart; }
     bool replacement_ready() const;
     // Fixed diagnostic text for why replacement_ready() is false.
     const char* replacement_block() const;

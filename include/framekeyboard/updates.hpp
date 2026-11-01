@@ -81,13 +81,12 @@ class UpdateStartup {
   public:
     UpdateStartup();
     ~UpdateStartup();
-    // Update/rollback is explicit; hidden presentation does not recheck boot opt-in.
-    bool background_start() const { return background_; }
-    // Started by the update helper, before or after service adoption.
+    // Started by the update helper, before or after service adoption. The user
+    // started the update, so the keyboard shows again; only a shell's hides.
     bool update_launch() const { return update_launch_; }
 
   private:
-    bool background_{}, update_launch_{};
+    bool update_launch_{};
 };
 void update_startup_ready(double now);
 // A hosted update successor tells its shell `ready` only once the helper has

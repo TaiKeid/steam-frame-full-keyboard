@@ -77,15 +77,13 @@ void update_presentation() {
                     Options options;
                     options.mode = Mode::Vr;
                     options.config_dir = config;
-                    options.background_update = startup.background_start();
                     NullSink sink;
                     auto no_write = [](const Settings&) {};
                     App app(options, sink, no_write, nullptr, no_write);
                     ReplacementPresentation panel(app.background_start());
                     panel.update(preferences.replace_native_keyboard, {.available = true});
-                    require(
-                        panel.show() == !(managed && preferences.replace_native_keyboard),
-                        "managed replacement waits for a request; manual/nonreplacement updates open");
+                    require(startup.update_launch() && panel.show(),
+                            "an update the user started shows the keyboard again, managed or not");
                     require(app.start_with_steamos() ==
                                 (preferences.replace_native_keyboard && preferences.start_with_steamos),
                             "an explicit update starts without changing boot preferences");
@@ -94,7 +92,7 @@ void update_presentation() {
                     }
                     char byte{};
                     require(recv(sockets[0], &byte, 1, MSG_DONTWAIT) == 1 && byte == '1',
-                            "a hidden successor confirms healthy startup with boot disabled too");
+                            "the successor confirms healthy startup with boot disabled too");
                     panel.update(preferences.replace_native_keyboard, {.request = 2,
                                                                        .open = true,
                                                                        .eligible = true,
@@ -111,12 +109,12 @@ void update_presentation() {
     for (const char* descriptor : {"", "invalid", "999999"}) {
         setenv("FRAMEKEYBOARD_UPDATE_READY_FD", descriptor, 1);
         UpdateStartup startup;
-        require(!startup.background_start(), "a normal service-marked manual launch still opens");
+        require(!startup.update_launch(), "a bad descriptor is no update launch");
     }
     unsetenv("FRAMEKEYBOARD_UPDATE_READY_FD");
     {
         UpdateStartup startup;
-        require(!startup.background_start(), "service environment alone cannot hide a manual launch");
+        require(!startup.update_launch(), "service environment alone is no update launch");
     }
     had_service ? setenv("FRAMEKEYBOARD_SERVICE", service.c_str(), 1)
                 : unsetenv("FRAMEKEYBOARD_SERVICE");
