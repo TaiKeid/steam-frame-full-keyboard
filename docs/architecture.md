@@ -36,6 +36,13 @@ dispatching resumed pointer events. Standby and the first wake frame block
 delivery, so stale queued presses cannot restart a pre-sleep hold. Normal fresh
 input resumes on the following frame; local dictation drafts remain available.
 
+The native overlay mouse gate follows logical visibility and pointer ownership
+separately from the typing target. Main and corner overlays use input method
+None while hidden, sleep-blocked, scene-driven or forwarded. Sleep and wake
+quarantine force that state into SteamVR, even if a local cache already says it
+was applied. Mouse input is restored only after fresh presentation. Each handle
+caches only successful SDK updates; steady-state frames make no redundant calls.
+
 The image is retained between paints. Hover/press/release updates clear and redraw only damaged key regions, including overlapping neighboring ink in the original drawing order. Cairo recording surfaces measure ink bounds when the visual model changes; the bounds cover the entire press travel and include text outside the face rectangle. Profile snapshots compare values rather than pointer addresses so Reload cannot reuse stale geometry. Modifier/lock legends, composition/candidates, settings, status, and profile changes use full redraws. Pixel-comparison tests run the same interaction sequence against an always-full renderer.
 
 `PanelTexture` prefers Cairo's native premultiplied BGRA bytes on little-endian systems, using `VK_FORMAT_B8G8R8A8_UNORM` and `VROverlayFlags_IsPremultiplied`. It checks Vulkan format support and OpenVR flag acceptance, and falls back to straight RGBA conversion if setup or submission fails. Rejected native textures stay alive until VR shutdown. Uploads are partial: the renderer reports the whole-pixel rectangles each paint changed (`PanelRenderer::damage()`), and `OverlayTexture` copies only those, plus whatever changed while the other of its two images was current, so neither image goes stale. A full repaint, more than 24 areas or more than half the image goes whole. The rendering test checks that every changed pixel lies inside the reported damage. The visible 60 Hz pose loop and 80 ms Graphite animation duration are unchanged.

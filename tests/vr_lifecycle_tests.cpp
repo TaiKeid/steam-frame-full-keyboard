@@ -955,6 +955,61 @@ void physical_sleep_cancels_input_before_resume() {
             "a late pre-sleep text result cannot be replayed after wake");
 }
 
+void native_overlay_mouse_ownership_follows_sleep() {
+    using Policy = NativePointerInputPolicy;
+    require(Policy::wants_mouse(true, false, false, false),
+            "a visible native dashboard keyboard can receive runtime mouse input");
+    for (const auto blocked : {false, true}) {
+        require(!Policy::wants_mouse(false, blocked, false, false),
+                "a logically hidden/fading keyboard cannot retain runtime mouse ownership");
+        require(!Policy::wants_mouse(true, blocked, true, false),
+                "scene pointers own input without SteamVR mouse capture");
+        require(!Policy::wants_mouse(true, blocked, false, true),
+                "forwarded pointers own input without SteamVR mouse capture");
+    }
+    require(!Policy::wants_mouse(true, true, false, false),
+            "standby and wake quarantine disable the runtime gate, not only App delivery");
+
+    Policy panel;
+    std::vector<bool> applied;
+    auto runtime = [&](bool enabled) {
+        applied.push_back(enabled);
+        return true;
+    };
+    require(panel.apply(false, runtime), "initially disabled overlay is configured explicitly");
+    require(panel.apply(false, runtime) && applied == std::vector<bool>{false},
+            "stationary hidden frames make no repeated runtime calls");
+    require(panel.apply(true, runtime), "native visibility enables the runtime mouse gate");
+    require(panel.apply(false, runtime, true), "standby forcibly drops native ownership");
+    require(panel.apply(false, runtime, true), "wake quarantine reapplies None despite the local cache");
+    require(panel.apply(false, runtime), "blocked frames keep the gate closed");
+    require(applied == std::vector<bool>({false, true, false, false}),
+            "sleep and wake do not accidentally reopen runtime mouse input");
+    require(panel.apply(true, runtime) && applied.back(),
+            "only fresh native mode after quarantine restores mouse input");
+
+    bool fail = true;
+    auto transient = [&](bool enabled) {
+        applied.push_back(enabled);
+        return !fail;
+    };
+    const auto before = applied.size();
+    require(!panel.apply(false, transient), "a refused runtime update is observable");
+    fail = false;
+    require(panel.apply(false, transient) && applied.size() == before + 2,
+            "the same requested state retries after failure instead of trusting a false cache");
+    panel.reset();
+    require(panel.apply(false, runtime) && applied.size() == before + 3,
+            "a newly created overlay handle cannot inherit another handle's cached state");
+    fail = true;
+    require(!panel.apply(false, transient, true),
+            "a forced wake reconciliation may fail even for the previously cached state");
+    fail = false;
+    const auto failed_wake = applied.size();
+    require(panel.apply(false, transient) && applied.size() == failed_wake + 1,
+            "failed forced updates invalidate the old cache so ordinary frames retry");
+}
+
 // After an update with replacement on, the panel starts hidden and is then
 // revealed where it is: no request, no recentring, no bridge retry.
 void an_update_reveals_the_hidden_panel() {
@@ -1099,6 +1154,7 @@ int main() {
         pending_shows_survive_runtime_obstacles();
         sleep_recovery_does_not_resurrect_old_input();
         physical_sleep_cancels_input_before_resume();
+        native_overlay_mouse_ownership_follows_sleep();
         cancellation_respects_device_ownership();
         watchdog_fallback_is_request_scoped();
         std::cout << "VR lifecycle requirements passed.\n";

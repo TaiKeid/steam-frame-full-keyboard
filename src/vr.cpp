@@ -1272,15 +1272,15 @@ class CornerResizers {
         corner.drain = corner.visible;
         return false;
     }
-    // As for the keyboard, passthrough takes no SteamVR laser input.
-    void set_scene_input(bool scene) {
-        for (const auto& corner : corners_) {
+    bool set_native_input(bool enabled, bool force = false) {
+        preferred_native_input_ = enabled;
+        bool ready = true;
+        for (auto& corner : corners_) {
             if (corner.handle) {
-                vr_overlay()->SetOverlayInputMethod(corner.handle, scene
-                                                                       ? vr::VROverlayInputMethod_None
-                                                                       : vr::VROverlayInputMethod_Mouse);
+                ready = set_native_input(corner, enabled && corner.visible, force) && ready;
             }
         }
+        return ready;
     }
     // Eases toward `target` opacity. A faded-out resizer is hidden, so it never
     // takes the laser; its image is redrawn only when shown at a new radius.
@@ -1324,6 +1324,7 @@ class CornerResizers {
             overlay->ShowOverlay(corner.handle);
             corner.visible = true;
         }
+        set_native_input(corner, preferred_native_input_);
     }
     bool visible(std::size_t side) const { return corners_[side].visible; }
     bool contains_mouse(std::size_t side, double x, double y) const {
@@ -1370,12 +1371,27 @@ class CornerResizers {
         std::optional<ResizerShape> shape;
         ResizerMask mask;
         ResizerFade fade;
+        NativePointerInputPolicy native_input;
     };
+    bool set_native_input(Corner& corner, bool enabled, bool force = false) {
+        return corner.native_input.apply(
+            enabled,
+            [&](bool mouse) {
+                return vr_overlay()->SetOverlayInputMethod(corner.handle,
+                                                           mouse ? vr::VROverlayInputMethod_Mouse
+                                                                 : vr::VROverlayInputMethod_None) ==
+                       vr::VROverlayError_None;
+            },
+            force);
+    }
     void hide(Corner& corner) {
         if (corner.visible) {
             vr_overlay()->HideOverlay(corner.handle);
             corner.visible = false;
             corner.drain = true;
+        }
+        if (corner.handle) {
+            set_native_input(corner, false);
         }
     }
     void create(std::size_t side) {
@@ -1388,9 +1404,9 @@ class CornerResizers {
             std::cout << "Corner resizer unavailable.\n" << std::flush;
             return;
         }
+        corner.native_input.reset();
         bool ok = overlay->SetOverlaySortOrder(corner.handle, 1) == vr::VROverlayError_None &&
-                  overlay->SetOverlayInputMethod(corner.handle, vr::VROverlayInputMethod_Mouse) ==
-                      vr::VROverlayError_None;
+                  set_native_input(corner, false);
         for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
             ok = ok && overlay->SetOverlayFlag(corner.handle, flag, true) == vr::VROverlayError_None;
         }
@@ -1433,6 +1449,7 @@ class CornerResizers {
         corner.mask = ok ? std::move(area) : ResizerMask{};
         return ok;
     }
+    bool preferred_native_input_{};
     std::array<Corner, 2> corners_{};
 };
 class VrPanel {
@@ -1472,8 +1489,9 @@ class VrPanel {
               "CreateOverlay");
         check(overlay->SetOverlayWidthInMeters(handle_, static_cast<float>(PanelPlacement{}.width())),
               "SetOverlayWidthInMeters");
-        check(overlay->SetOverlayInputMethod(handle_, vr::VROverlayInputMethod_Mouse),
-              "SetOverlayInputMethod");
+        if (!set_native_input(false)) {
+            throw std::runtime_error("Could not disable keyboard pointer input.");
+        }
         vr::HmdVector2_t scale{{panel_width, texture_height}};
         check(overlay->SetOverlayMouseScale(handle_, &scale), "SetOverlayMouseScale");
         // Scroll events are switched on only where something scrolls; see accept_scroll().
@@ -1631,13 +1649,15 @@ class VrPanel {
             std::cout << "Keyboard scroll mode not changed.\n" << std::flush;
         }
     }
-    // Outside the dashboard in passthrough the overlay takes no SteamVR laser
-    // input at all, so it can never claim the scene's controllers; the
-    // passthrough pointer drives it instead.
-    void set_scene_input(bool scene) {
-        check(vr_overlay()->SetOverlayInputMethod(handle_, scene ? vr::VROverlayInputMethod_None
-                                                                 : vr::VROverlayInputMethod_Mouse),
-              "SetOverlayInputMethod");
+    bool set_native_input(bool enabled, bool force = false) {
+        return native_input_.apply(
+            enabled,
+            [&](bool mouse) {
+                return vr_overlay()->SetOverlayInputMethod(
+                           handle_, mouse ? vr::VROverlayInputMethod_Mouse
+                                          : vr::VROverlayInputMethod_None) == vr::VROverlayError_None;
+            },
+            force);
     }
 
   private:
@@ -1647,6 +1667,7 @@ class VrPanel {
     PanelTexture texture_;
     std::optional<bool> reported_native_;
     std::optional<bool> scroll_;
+    NativePointerInputPolicy native_input_;
     bool mask_held_{};
     std::vector<Rect> mask_areas_;
     std::optional<Rect> mask_gapped_case_;
@@ -1658,6 +1679,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     VrPanel panel;
     panel.connect();
     CornerResizers resizers;
+    bool native_input_failed = false;
+    auto set_native_input = [&](bool enabled, bool force = false) {
+        const bool panel_ready = panel.set_native_input(enabled, force);
+        const bool corners_ready = resizers.set_native_input(enabled, force);
+        if (!panel_ready || !corners_ready) {
+            if (!std::exchange(native_input_failed, true)) {
+                std::cerr << "Native pointer input could not be updated; retrying.\n";
+            }
+        } else {
+            native_input_failed = false;
+        }
+    };
     std::atomic<double> replacement_progress{monotonic_seconds()};
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false};
     replacement.prepare_watchdog();
@@ -2016,6 +2049,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             .cancel_input = [&] { app.cancel(); },
             .clear_pointers =
                 [&] {
+                    set_native_input(false);
                     reset_sound_activity();
                     hovered_devices.fill(false);
                     pointer_devices.clear();
@@ -2074,6 +2108,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // shell the dashboard gate does not apply: the shell decides.
     auto presentable = [&] { return hosted || app.passthrough() || vr_overlay()->IsDashboardVisible(); };
     lifecycle.set_hosted(hosted);
+    auto update_native_input = [&](bool allow_enable = false) {
+        const bool wanted = NativePointerInputPolicy::wants_mouse(
+            lifecycle.visible(), headset_input.blocked(), scene_input, app.forwarded());
+        if (!wanted || allow_enable) {
+            set_native_input(wanted);
+        }
+    };
     auto update_key_sounds = [&](double now) {
         const bool awake = sound_activity.update(now, lifecycle.visible(), app.haptic_sounds(),
                                                  worn && !headset_input.blocked());
@@ -2235,6 +2276,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     };
     auto suspend_headset_input = [&] {
         lifecycle.suspend_input();
+        // Runtime mouse capture is separate from App's held-key state. Reapply
+        // None on wake even if the last successful local state was already off.
+        set_native_input(false, true);
         end_forwarded();
         last_pressed.reset();
         was_listening = app.listening();
@@ -2635,6 +2679,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             shell_haptics = haptics_owner == "shell";
             // Every switch releases keys and clears pointers.
             stop_drag();
+            set_native_input(false);
             clear_sound_pointers(now);
             end_forwarded();
             hovered_devices.fill(false);
@@ -2998,12 +3043,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             scene_gap.fill(std::nullopt);
             scene_idle.fill(std::nullopt);
             cursors.hide();
-            panel.set_scene_input(scene);
-            resizers.set_scene_input(scene);
             scene_input = scene;
             std::cout << (scene ? "Passthrough pointer active.\n" : "Dashboard laser active.\n")
                       << std::flush;
         }
+        // Disable after this frame's dashboard/scene/forwarded mode is known.
+        // Only fresh presentation below may re-enable the SDK mouse path.
+        update_native_input();
         // Hidden panels cannot be grabbed. Do not query both render models in
         // standby; require a released grip sample again when the panel returns.
         if (!lifecycle.visible()) {
@@ -3843,6 +3889,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // Another UI can hide an overlay without destroying its owner process.
                 const bool compositor_visible = vr_overlay()->IsOverlayVisible(panel.handle());
                 lifecycle.present(placement.ready(), presentable(), compositor_visible, now);
+                detect_headset_suspend();
+                update_native_input(true);
             }
         }
         if (anchor && shell_shown) {

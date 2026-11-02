@@ -52,6 +52,31 @@ class HeadsetInputGuard {
     bool worn_, blocked_, resumed_{};
 };
 
+// App-side cancellation must be mirrored by the runtime overlay's mouse gate.
+// Each overlay handle owns a cache; a failed runtime update is never remembered
+// as applied, and wake can explicitly reapply None after runtime recovery.
+class NativePointerInputPolicy {
+  public:
+    static bool wants_mouse(bool visible, bool blocked, bool scene, bool forwarded) {
+        return visible && !blocked && !scene && !forwarded;
+    }
+    template <class Setter> bool apply(bool enabled, const Setter& setter, bool force = false) {
+        if (!force && applied_ && *applied_ == enabled) {
+            return true;
+        }
+        if (!setter(enabled)) {
+            applied_.reset();
+            return false;
+        }
+        applied_ = enabled;
+        return true;
+    }
+    void reset() { applied_.reset(); }
+
+  private:
+    std::optional<bool> applied_;
+};
+
 // A keyboard button under a window pinned in the world asks for a keyboard
 // while the dashboard is closed; our panel can only appear there in
 // passthrough. Turn it on once per such request, so turning it off again
