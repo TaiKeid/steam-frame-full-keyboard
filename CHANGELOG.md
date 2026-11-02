@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- With **KDE Desktop Unicode** set to paste, a clipboard that never finishes being set no longer holds back every later key. The paste gives up after two seconds, as one nobody takes already did.
 - A single invalid optional value in `config.json`, such as a mistyped haptic effect, no longer stops every save ("Could not read saved preferences") or Start with SteamOS. That value falls back as before and is written back corrected; only an unreadable file still blocks saving. The dictation server field also no longer accepts more characters than `config.json` can load.
 - With **Use Drag to Move** on, the keyboard reads the controllers' grip only while a laser is on the keyboard or a grab is under way, instead of on every frame.
 - The native-keyboard recovery helper no longer wakes 40 times a second indefinitely if Steam never reports the keyboard it reopened. After two seconds it keeps watching at its idle pace.

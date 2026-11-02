@@ -596,6 +596,22 @@ void desktop_entry() {
     }
     server.pump();
     require(server.keys.empty() && !sink->output_blocked(), "cancelled before Ctrl+V: no keys");
+    // A display that never answers leaves the clipboard unset: the paste gives
+    // up after the same wait, rather than holding every later key back.
+    clipboard.owned.reset();
+    require(!sink->commit_text("😀"), "a paste starts");
+    for (int i = 0; i < 10; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    require(sink->output_blocked(), "it waits while the clipboard is being set");
+    now += EiSink::paste_wait;
+    sink->pump();
+    require(!sink->commit_text("😀") && !sink->text_pending() && !sink->output_blocked() &&
+                sink->delivered_characters() == 0,
+            "a clipboard that never answers fails the paste and holds nothing back");
+    server.pump();
+    require(server.keys.empty(), "and no Ctrl+V was sent");
     sink->set_desktop_paste(nullptr);
 
     // Outside the Desktop, CJK stays one Gamescope commit.

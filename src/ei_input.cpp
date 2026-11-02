@@ -293,7 +293,14 @@ void EiSink::advance_entry() {
     if (entry.write && entry.next == entry.paste_at) {
         const auto owned = desktop_paste_ ? desktop_paste_->result(*entry.write) : false;
         if (!owned) {
-            return; // the clipboard is still being set
+            // The clipboard is still being set. An X display that accepts the
+            // connection but never answers must not hold every key back.
+            if (!entry.clipboard_since) {
+                entry.clipboard_since = clock_();
+            } else if (clock_() - *entry.clipboard_since >= paste_wait) {
+                entry.failed = true; // nothing pasted, so nothing to finish
+            }
+            return;
         }
         if (!*owned) {
             entry.failed = true; // nothing pasted, so nothing to finish

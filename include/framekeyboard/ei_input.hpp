@@ -69,6 +69,7 @@ class EiSink : public KeySink {
         std::size_t paste_at{};             // key index of Ctrl+V's first event
         std::uint64_t served{};
         double deadline{};
+        std::optional<double> clipboard_since; // When Ctrl+V first waited for the clipboard.
         bool taken{};
     };
     bool desktop_target();
