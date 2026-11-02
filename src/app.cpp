@@ -1631,6 +1631,12 @@ void App::cancel_pointer(unsigned pointer) {
     dirty = true;
 }
 void App::cancel(bool discard_composition) {
+    end_input(discard_composition, true);
+}
+void App::release_input(bool discard_composition) {
+    end_input(discard_composition, false);
+}
+void App::end_input(bool discard_composition, bool cancel_delivery) {
     settings_ui_.cancel();
     if (languages_) {
         languages_->drag.reset();
@@ -1660,7 +1666,11 @@ void App::cancel(bool discard_composition) {
             cjk_->cancel();
         }
     }
-    keyboard_.cancel_all();
+    if (cancel_delivery) {
+        keyboard_.cancel_all();
+    } else {
+        keyboard_.release_all();
+    }
     pressed_controls_.clear();
     hovered_.clear();
     dirty = true;
@@ -1826,7 +1836,7 @@ void App::set_dragging(bool dragging, bool resizing) {
     }
     // Moving the panel leaves the target's focus alone, so an unfinished
     // reading stays, as when the laser leaves the panel.
-    cancel(false);
+    release_input(false);
     dragging_ = dragging;
     resizing_ = dragging && resizing;
     status_.clear();
@@ -1837,7 +1847,7 @@ void App::report_status(const std::string& message) {
 }
 void App::show_settings() {
     close_emoji(); // Settings returns to the keyboard, not the picker.
-    cancel();
+    release_input();
     address_.reset();
     confirm_ = Confirm::None;
     languages_.reset();
@@ -1892,7 +1902,7 @@ void App::back() {
     dirty = true;
 }
 void App::leave_settings() {
-    cancel();
+    release_input();
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
@@ -1902,7 +1912,7 @@ void App::summon() {
     dismiss_requested_ = false;
     // Release held keys before moving; keep the input connection unchanged.
     close_emoji();
-    cancel();
+    release_input();
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
@@ -1916,7 +1926,7 @@ void App::activate(Selection selection) {
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
     close_emoji();
-    cancel();
+    release_input();
     japanese_latin_ = false;
     cjk_latin_ = false;
     cjk_ = std::move(cjk);
@@ -2730,7 +2740,7 @@ void App::action(const ControlAction& command) {
             quit_keyboard();
         }
     } else if (kind == ControlKind::Pin) {
-        cancel(false); // like a move: the reading stays
+        release_input(false); // like a move: the reading stays
         const auto before = settings_;
         settings_.pinned = !settings_.pinned;
         status_.clear();
@@ -2776,7 +2786,7 @@ void App::action(const ControlAction& command) {
             show_settings();
         }
     } else if (kind == ControlKind::Recenter) {
-        cancel(false); // like a move: the reading stays
+        release_input(false); // like a move: the reading stays
         recenter_ = true;
     } else if (kind == ControlKind::Apply) {
         // Only a change to the settings that need the model asks: with On
@@ -2899,7 +2909,7 @@ void App::action(const ControlAction& command) {
         dirty = true;
     } else if (kind == ControlKind::SwipeToggle) {
         // Saved at once, like Pin; the Settings option stays as it is.
-        cancel(false);
+        release_input(false);
         const auto before = settings_;
         settings_.swipe_switch = !settings_.swipe_switch;
         prepare_swipe();
@@ -3582,7 +3592,7 @@ void App::set_passthrough(bool on) {
     if (passthrough() == was) {
         return;
     }
-    cancel(false);
+    release_input(false);
     status_.clear();
     dirty = true;
 }
@@ -3759,7 +3769,7 @@ void App::open_emoji() {
         return;
     }
     // Release every held key and latched modifier, and cancel a pending accent.
-    cancel();
+    release_input();
     const auto main = geometry();
     emoji_width_ = visible_layout_width(main);
     emoji_layout_ = emoji_layout(*main.layout, emoji_width_);
@@ -3788,7 +3798,7 @@ void App::close_emoji() {
         return;
     }
     emoji_open_ = false;
-    cancel(); // Space, Backspace and the arrows may be held.
+    release_input(); // Space, Backspace and the arrows may be held.
     save_emoji();
     // Stop drawing for a closed picker and free its images, up to 8 MB.
     // Reopening draws the first screen again in milliseconds. The worker and
@@ -3984,7 +3994,7 @@ void App::open_dictation() {
     finish_swipe(true);
     discard_swipe();
     swipe_space_ = false;
-    cancel();
+    release_input();
     dictation_open_ = true;
     dictation_layout_key_.clear();
     refresh_dictation_layout();
@@ -4017,7 +4027,7 @@ void App::close_dictation() {
     text_output_ = options_.text_output ? options_.text_output : &output_;
     // Held editor keys must not turn into presses on the keyboard's keys. The
     // text stays in memory until the mode opens again.
-    cancel();
+    release_input();
     dirty = true;
 }
 

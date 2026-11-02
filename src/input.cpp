@@ -646,10 +646,24 @@ void KeyboardState::cancel_pointer(unsigned pointer) {
     }
 }
 void KeyboardState::cancel_all() {
-    if (output_) {
-        output_->cancel();
-    }
+    end_all(true);
+}
+void KeyboardState::release_all() {
+    end_all(false);
+}
+void KeyboardState::end_all(bool cancel_delivery) {
     std::exception_ptr failure;
+    if (output_) {
+        try {
+            if (cancel_delivery) {
+                output_->cancel();
+            } else {
+                output_->release_holds();
+            }
+        } catch (...) {
+            failure = std::current_exception();
+        }
+    }
     // Release non-modifiers first; try every release even if one backend call fails.
     for (bool modifiers_only : {false, true}) {
         for (const auto& [code, count] : references_) {

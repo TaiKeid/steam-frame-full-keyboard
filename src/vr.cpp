@@ -3046,9 +3046,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             hosted ? !dashboard_visible && !app.forwarded() : app.passthrough() && !dashboard_visible;
         if (scene != scene_input) {
             // SteamVR's laser and the passthrough pointer never share a press:
-            // release everything held, keeping unfinished composition.
+            // release everything held, keeping unfinished composition and
+            // text already accepted for the same target.
             stop_drag();
-            app.cancel(false);
+            app.release_input(false);
             clear_sound_pointers(now);
             hovered_devices.fill(false);
             pointer_devices.clear();

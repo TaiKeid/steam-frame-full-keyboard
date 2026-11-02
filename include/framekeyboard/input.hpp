@@ -129,7 +129,11 @@ class KeyboardState {
         return press != presses_.end() && press->second.repeat_code != 0;
     }
     void cancel_pointer(unsigned pointer);
+    // Both end every press, latch and lock. cancel_all() also abandons output
+    // accepted but not yet delivered; release_all() lets it finish, for a
+    // change of pointer or view that keeps the target.
     void cancel_all();
+    void release_all();
     bool tick(double now);
     bool pressed(const std::string& id) const;
     std::set<int> modifiers() const;
@@ -160,6 +164,7 @@ class KeyboardState {
     };
     void acquire(int code);
     void release(int code);
+    void end_all(bool cancel_delivery);
     KeySink& sink_;
     OutputController* output_{};
     std::map<unsigned, Press> presses_;

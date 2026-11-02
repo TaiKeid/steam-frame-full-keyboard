@@ -97,6 +97,13 @@ Gamescope temporary keymap's 100 ms reset occur between chunks without blocking
 the VR loop. Ordinary short-only typing keeps its existing timing. Settling ticks
 do not request redundant redraws. Accepted queued keys receive the normal pressed
 visual and haptic.
+Two ways end input. `App::cancel()` also abandons queued and in-flight output,
+for a target that is gone: hiding, a target or route change, transport loss,
+sleep and shutdown. `App::release_input()` keeps it, for a change that keeps
+the target: dashboard/passthrough or forwarded pointer switches, moving and
+resizing, Pin, Recenter, Settings, the emoji picker, dictation's editor, the
+swipe switch and profile changes. It releases every hold as if each pointer
+let go, so accepted text and taps still arrive in order.
 Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.

@@ -264,7 +264,7 @@ void App::set_locks(bool move, bool resize) {
 
 void App::set_forwarded(bool on) {
     if (on != host_.forwarded) {
-        cancel(false); // every pointer switch releases keys
+        release_input(false); // every pointer switch releases keys
     }
     host_.forwarded = on;
     dirty = true;

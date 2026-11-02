@@ -298,6 +298,32 @@ void OutputController::drop_holds() {
         std::rethrow_exception(error);
     }
 }
+void OutputController::release_holds() {
+    std::exception_ptr error;
+    auto attempt = [&](auto&& release) {
+        try {
+            release();
+        } catch (...) {
+            error = error ? error : std::current_exception();
+        }
+    };
+    // Attempt every release even if one fails. Queued repeats of these holds
+    // are dropped when drained, since their owners are no longer held.
+    while (!active_.empty()) {
+        const auto pointer = active_.begin()->first;
+        attempt([&] { release(pointer); });
+        active_.erase(pointer);
+    }
+    while (!direct_.empty()) {
+        const auto held = direct_.begin()->second;
+        direct_.erase(direct_.begin());
+        held->held = false;
+        attempt([&] { release_codes(*held); });
+    }
+    if (error) {
+        std::rethrow_exception(error);
+    }
+}
 void OutputController::cancel() {
     queue_.clear();
     retry_.clear();

@@ -473,6 +473,30 @@ void long_composition_cancellation() {
                 "the new target receives no old suffix or old retry");
     }
 }
+// A change that keeps the target ends holds, not delivery: a held key comes up
+// at once, and a composition accepted behind it still arrives in full.
+void release_keeps_accepted_output() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    output.native_press(1, {KEY_A}, KEY_A, 1);
+    require(output.commit_text(repeated("日", 33)), "a long composition is accepted behind a held key");
+    require(sink.events == std::vector<std::string>{"30:1"}, "text waits while the key is held");
+    output.release_holds();
+    require(sink.events == std::vector<std::string>{"30:1", "30:0"}, "the hold ends at once");
+    output.tick(1);
+    require(sink.events.back() == repeated("日", 32), "the accepted composition still starts");
+    sink.done = true;
+    output.tick(2);
+    output.tick(2.2);
+    require(sink.events.back() == "日", "and its last chunk follows");
+    sink.done = true;
+    output.tick(3);
+    output.tick(3.1);
+    require(!output.text_pending() && !output.retry_available() && output.failures() == 0 &&
+                sink.events.size() == 4,
+            "the composition completes without a repeat of the released key");
+}
 void out_of_tick_composition_clock() {
     struct Immediate : KeySink {
         std::vector<std::string> events;
@@ -581,6 +605,7 @@ int main() {
         long_composition_retry();
         synchronous_composition_refusal();
         long_composition_cancellation();
+        release_keeps_accepted_output();
         out_of_tick_composition_clock();
         cancellation();
         std::cout << "Ordered output, retries, cancellation, bounds and held-key cleanup passed.\n";

@@ -697,6 +697,33 @@ void late_work_cannot_cross_targets() {
             "the successor remains usable for fresh input");
 }
 
+// Moving the panel, switching between the dashboard laser and the passthrough
+// pointer, opening Settings or recentering keeps the target. Text already accepted for it,
+// such as a Type as I speak phrase still being typed, must still arrive.
+void same_target_changes_keep_accepted_text() {
+    Headset h;
+    h.request(30);
+    h.display();
+    h.receiver.slow_text = true;
+    h.click(1, "KeyA");
+    h.click(2, "Backspace");
+    h.click(3, "KeyB");
+    require(h.receiver.pending && h.receiver.downs.empty(),
+            "fixture has text in flight with editing queued behind it");
+    h.app->set_dragging(true);
+    h.app->set_dragging(false);
+    h.app->release_input(false); // the VR loop's dashboard/passthrough pointer switch
+    h.app->show_settings();
+    h.app->summon(); // a relaunch to recenter, which also leaves Settings
+    h.receiver.slow_text = false;
+    h.tick();
+    h.tick();
+    require(h.receiver.text == std::vector<std::pair<int, std::string>>{{30, "a"}, {30, "b"}} &&
+                h.receiver.downs == std::vector<std::pair<int, int>>{{30, KEY_BACKSPACE}},
+            "accepted text and keys still reach the same target in order");
+    require(h.receiver.released(), "nothing stays held after the changes");
+}
+
 void a_closed_dashboard_delivers_nothing() {
     Headset h;
     h.request();
@@ -1189,6 +1216,7 @@ int main() {
     try {
         targets_keep_their_own_keys();
         late_work_cannot_cross_targets();
+        same_target_changes_keep_accepted_text();
         a_closed_dashboard_delivers_nothing();
         a_pinned_window_request_opens_passthrough();
         an_update_reveals_the_hidden_panel();

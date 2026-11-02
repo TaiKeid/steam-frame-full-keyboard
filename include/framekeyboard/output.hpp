@@ -39,6 +39,10 @@ class OutputController : public KeySink, public TextOutput {
     bool text_press(unsigned pointer, const std::string& text, double now) override;
     void release(unsigned pointer);
     void release_modifier(int code);
+    // Ends every hold as if each pointer let go, for a change that keeps the
+    // target: held keys come up now, and accepted text and taps still finish
+    // in order. cancel() also abandons them, for a target that is gone.
+    void release_holds();
     void cancel();
     bool tick(double now);
     bool retry();

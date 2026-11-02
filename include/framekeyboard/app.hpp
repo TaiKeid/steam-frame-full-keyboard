@@ -125,6 +125,9 @@ class App {
                (reading_repeat_ && reading_repeat_->pointer == pointer);
     }
     void cancel(bool discard_composition = true);
+    // As cancel(), for a change of pointer, view or placement that keeps the
+    // target: presses end, but text and keys already accepted still arrive.
+    void release_input(bool discard_composition = true);
     // Sleep ends active delivery and capture, but keeps editor/configuration
     // drafts. No Send or queued key may continue merely because input resumes.
     void suspend_input();
@@ -832,6 +835,7 @@ class App {
     };
     bool dictation_available() const;
     bool editor_editable() const;
+    void end_input(bool discard_composition, bool cancel_delivery);
     void open_dictation();
     void close_dictation();
     // Rebuilds the mode's keys when the layout or the hidden numpad changed.
