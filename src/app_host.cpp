@@ -665,7 +665,9 @@ std::pair<std::string, JsonPtr> App::host_dictation_request(const std::string& o
         if (settings_.dictation_server.empty()) {
             return {"unavailable", std::move(none)};
         }
-        if (testing_server_ ||
+        // A helper still cleaning up cannot take a test yet; answering ok then
+        // would leave the shell waiting for a result that never comes.
+        if (testing_server_ || (dictation_ && !dictation_->ready_to_start()) ||
             (settings_open_ && pending_dictation_server_ != settings_.dictation_server)) {
             return {"busy", std::move(none)};
         }

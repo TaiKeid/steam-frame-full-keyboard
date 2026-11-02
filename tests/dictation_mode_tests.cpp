@@ -2466,6 +2466,9 @@ void test_race_tests() {
     require(fs::file_size(directory.path / "test-exits") == 1 &&
                 !control_enabled(lost, "dictation-test"),
             "a disabled Test does not attempt a restart");
+    require(lost.host_dictation_request("dictation.test_server", nullptr).first == "busy" &&
+                fs::file_size(directory.path / "test-exits") == 1,
+            "a shell's Test meanwhile is answered busy, not accepted and left unanswered");
     std::ofstream(directory.path / "test-exit-release") << "1";
     wait_until(lost, [&] { return control_enabled(lost, "dictation-test"); });
     require(!fs::exists(fs::path("/proc") / std::to_string(exited_pid)),
