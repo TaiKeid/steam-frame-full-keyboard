@@ -317,7 +317,7 @@ The keyboard knows only the server address. Each phrase is one plain HTTP reques
 
 There are no provider presets in Settings. A hosted provider is set up in `config.json`:
 
-- **`dictation_url`:** a full base URL such as `https://api.groq.com/openai/v1`. It takes the place of `dictation_server`, and the keyboard appends `/audio/transcriptions`. Only `http` and `https` are accepted.
+- **`dictation_url`:** a full base URL such as `https://api.groq.com/openai/v1`. It takes the place of `dictation_server`, and the keyboard appends `/audio/transcriptions`. Only `http` and `https` are accepted. While it is set, the Dictation card's **Test** checks this URL rather than the Server address field.
 - **`dictation_model`:** the provider's model name, for example `whisper-large-v3-turbo` on Groq.
 - **Key file:** `~/.config/framekeyboard/dictation-key`, readable only by the user, holding the API key on one line.
   - The user fills it in Desktop Mode, by pasting into a text editor, or over SSH. Full Keyboard never reads the clipboard.

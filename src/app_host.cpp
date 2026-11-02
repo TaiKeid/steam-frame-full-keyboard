@@ -663,7 +663,7 @@ std::pair<std::string, JsonPtr> App::host_dictation_request(const std::string& o
         return {std::string{}, std::move(none)};
     }
     if (op == "dictation.test_server") {
-        if (settings_.dictation_server.empty()) {
+        if (settings_.dictation_server.empty() && settings_.dictation_url.empty()) {
             return {"unavailable", std::move(none)};
         }
         // A helper still cleaning up cannot take a test yet; answering ok then

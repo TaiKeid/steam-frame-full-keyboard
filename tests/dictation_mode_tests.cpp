@@ -325,6 +325,8 @@ while True:
         send(op="paused")
         continue
     if op == "test":
+        with open(os.path.join(os.path.dirname(sys.argv[0]), "tests"), "a") as log:
+            log.write(json.dumps(message) + "\n")
         if scenario == "testexit":
             exits = os.path.join(os.path.dirname(sys.argv[0]), "test-exits")
             with open(exits, "ab") as log:
@@ -3521,6 +3523,33 @@ void reload_tests() {
     require(app.view().dictation->where == Icon::Cloud, "after Reload the edited URL is used");
 }
 
+// A hosted URL from config.json is where phrases go, so the card's Test
+// checks it rather than the Server field.
+void url_test_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                                 R"("dictation_url":"https://speech.example/v1")");
+    use_fake_helper(options, directory.path, "silent");
+    Sink sink;
+    App app(options, sink);
+    open_settings(app);
+    click(app, "dictation-test");
+    wait_until(app, [&] { return field_label(app, "Reachable"); });
+    std::ifstream log(directory.path / "tests");
+    std::string line, last;
+    while (std::getline(log, line)) {
+        last = line;
+    }
+    require(last.find(R"("url": "https://speech.example/v1")") != std::string::npos &&
+                last.find(R"("server")") == std::string::npos,
+            "Test checks the configured URL, not the Server field");
+}
+
 void selection_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -3605,6 +3634,7 @@ int main() {
         send_tests();
         suspend_input_tests();
         reload_tests();
+        url_test_tests();
         selection_tests();
         scroll_tests();
         paste_tests();

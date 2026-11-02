@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- With a hosted speech service set as `dictation_url` in `config.json`, the Dictation card's **Test** now checks that service, which is where phrases go, rather than the Server address field.
 - The uninstaller also removes downloaded speech models when `XDG_DATA_HOME` points somewhere other than `~/.local/share`.
 - When native replacement stops working, Settings keeps showing the real reason, such as incompatible Steam interfaces, instead of a generic "connection was lost" after a key that was held in a Steam field is released.
 - **Reload config** now updates an open dictation editor's keys after a layout file was edited, and its size after a theme's padding changed. It also takes hand-edited `dictation_url`, `dictation_model` and `dictation_recent_servers` values from `config.json`.

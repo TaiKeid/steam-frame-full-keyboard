@@ -838,6 +838,7 @@ class App {
     };
     bool dictation_available() const;
     bool editor_editable() const;
+    std::string test_address() const;
     void end_input(bool discard_composition, bool cancel_delivery);
     void open_dictation();
     void close_dictation();

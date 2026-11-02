@@ -613,11 +613,10 @@ void App::update_settings_ui() {
                            ControlStyle::TextField});
     auto test = field(ControlKind::DictationTest,
                       SettingField{"dictation-test", "Connection", "Test", ControlStyle::Button});
-    test.note = dictation_test_.empty()
-                    ? (pending_dictation_server_.empty() ? "No server set" : "Not tested")
-                    : dictation_test_;
-    test.enabled = !pending_dictation_server_.empty() && !testing_server_ &&
-                   (!dictation_ || dictation_->ready_to_start());
+    test.note = dictation_test_.empty() ? (test_address().empty() ? "No server set" : "Not tested")
+                                        : dictation_test_;
+    test.enabled =
+        !test_address().empty() && !testing_server_ && (!dictation_ || dictation_->ready_to_start());
     // On device (docs/dictation.md, On-device recognition): the model's row,
     // its development format and the warning for weaker languages.
     std::vector<SettingField> dictation_fields{
@@ -5176,7 +5175,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
                 recent.resize(std::min<std::size_t>(recent.size(), 5));
                 save();
             }
-            if (tested != pending_dictation_server_) {
+            if (tested != test_address()) {
                 // The address changed while it ran: the new one is still untested.
                 update_settings_ui();
                 dirty = true;
@@ -5319,21 +5318,26 @@ void App::delete_model(const std::string& model) {
     dirty = true;
 }
 
+// What Test checks: a hosted URL from config.json, where phrases then go, or
+// else the Server field as edited, before Apply.
+std::string App::test_address() const {
+    return settings_.dictation_url.empty() ? pending_dictation_server_ : settings_.dictation_url;
+}
+
 void App::test_dictation_server() {
-    if (pending_dictation_server_.empty() || testing_server_ ||
-        (dictation_ && !dictation_->ready_to_start())) {
+    const auto address = test_address();
+    if (address.empty() || testing_server_ || (dictation_ && !dictation_->ready_to_start())) {
         return;
     }
     pause_capture();
     dictation();
-    // The pending address, before Apply. Phrases still waiting keep the
-    // target they were spoken for.
+    // Phrases still waiting keep the target they were spoken for.
     Dictation::Target target;
-    target.server = pending_dictation_server_;
+    (settings_.dictation_url.empty() ? target.server : target.url) = address;
     target.model = settings_.dictation_model;
     target.language = profiles_.languages.at(settings_.active.language).dictation_language;
     if (dictation_->test(target)) {
-        testing_server_ = pending_dictation_server_;
+        testing_server_ = address;
         dictation_test_ = "Testing…";
     } else {
         dictation_test_ = "Helper stopped";
