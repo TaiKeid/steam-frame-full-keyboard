@@ -166,9 +166,20 @@ void PreviewRenderer::run(Request request) {
         std::filesystem::remove_all(config, ignored);
         std::filesystem::create_directories(config);
         std::filesystem::permissions(config, std::filesystem::perms::owner_all);
+        // Built as JSON, not pasted together: the shell supplies these names.
+        auto document = json_ptr(json_object_new_object());
+        auto* active = json_object_new_object();
+        for (const auto& [key, value] : {std::pair{"layout", &request.layout},
+                                         {"language", &request.language},
+                                         {"theme", &request.theme}}) {
+            json_object_object_add(
+                active, key, json_object_new_string_len(value->data(), static_cast<int>(value->size())));
+        }
+        json_object_object_add(document.get(), "schema_version", json_object_new_int(1));
+        json_object_object_add(document.get(), "active", active);
+        json_object_object_add(document.get(), "dictation", json_object_new_string("off"));
         std::ofstream(config / "config.json")
-            << R"({"schema_version":1,"active":{"layout":")" << request.layout << R"(","language":")"
-            << request.language << R"(","theme":")" << request.theme << R"("},"dictation":"off"})";
+            << json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PLAIN);
         if (!request.theme_json.empty()) {
             // The shell's theme as a user theme of this throwaway configuration.
             auto theme = json_ptr(json_tokener_parse(request.theme_json.c_str()));
