@@ -6,6 +6,7 @@
 #include <map>
 #include <stdexcept>
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
+#include "ram_directory.hpp"
 #include <PyZy/InputContext.h>
 #include <PyZy/Variant.h>
 #endif
@@ -65,10 +66,19 @@ struct PinyinObserver : PyZy::InputContext::Observer {
 };
 struct PinyinLibrary {
     PinyinLibrary() {
-        // PyZy's public API has no privacy switch. A non-directory forces its
-        // SQLite in-memory fallback and prevents user DB writes.
-        // We also never call commit/selectCandidate, which invoke learning.
-        PyZy::InputContext::init("/dev/null", "/dev/null");
+        // PyZy leaks a failed SQLite handle before its memory fallback. Give
+        // initialization a valid private RAM directory instead. It clones the
+        // startup schema into memory and closes the file before returning.
+        RamDirectory startup;
+        try {
+            PyZy::InputContext::init(startup.path().string(), "/dev/null");
+            // Remove startup metadata before exposing any typing context. We
+            // never call native commit/selectCandidate, which invoke learning.
+            startup.remove();
+        } catch (...) {
+            PyZy::InputContext::finalize();
+            throw; // The scratch guard cleans up after native handles close.
+        }
     }
     ~PinyinLibrary() { PyZy::InputContext::finalize(); }
 };

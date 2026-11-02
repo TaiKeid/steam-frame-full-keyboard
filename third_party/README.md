@@ -63,9 +63,13 @@ Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-la
 Korean composition links the installed libhangul public C API, under LGPL-2.1-or-later.
 Neither library nor dictionary is redistributed. PyZy engine interaction was checked
 against https://github.com/pyzy/pyzy commit `6d9c3cdff364e0da75e1c26222240f26370ebf73` and the installed
-Frame headers. No commit/selectCandidate learning APIs are called. The user-cache
-path is `/dev/null`, forcing the library's in-memory fallback and preventing history
-writes. Candidate selection reads conversion/rest text and rebuilds the remaining
+Frame headers. No commit/selectCandidate learning APIs are called. Initialization
+uses private, verified TMPFS/RAMFS storage for a metadata-only startup user database,
+then removes it before creating a context. The active user database remains in memory;
+special-phrase configuration still uses `/dev/null`. There is no persistent
+storage fallback. This avoids a failed-open error-handle leak in the pinned
+PyZy fallback path while preserving on-demand dictionary teardown and disabled
+learning. Candidate selection reads conversion/rest text and rebuilds the remaining
 reading. libhangul API reference: https://libhangul.github.io/libhangul-doc/git/group__hangulic.html.
 
 ## Emoji data

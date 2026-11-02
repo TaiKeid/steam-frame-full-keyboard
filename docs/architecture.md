@@ -272,9 +272,15 @@ support or dictionaries leaves the prior profile usable.
 
 PyZy's learning methods are not called. Candidate selection reads its conversion
 and remaining phonetic text, saves local undo state, and rebuilds the remaining
-reading. Its user-cache/config paths are non-directories, so the library cannot
-read or persist personal history. Korean Backspace rebuilds from the bounded key
-sequence, preserving jamo-level undo across resyllabification. Neither engine
+reading. Initialization uses a private, owner-only directory on a verified Linux
+TMPFS/RAMFS filesystem. PyZy clones its metadata-only startup user database into
+an in-memory database and closes the startup file; the adapter removes the
+directory before creating any typing context. The special-phrase configuration path remains a
+non-directory, and native learning APIs are not called, so personal history is
+neither read nor persisted. No persistent filesystem fallback is allowed. This
+avoids the installed library's failed-open SQLite-handle leak without retaining
+its dictionary after the last context is destroyed. Korean Backspace rebuilds
+from the bounded key sequence, preserving jamo-level undo across resyllabification. Neither engine
 changes the system IBus selection. See [language setup](languages.md).
 
 ## Independent Unicode character output

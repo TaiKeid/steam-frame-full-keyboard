@@ -232,8 +232,10 @@ Both are loaded only when their language is selected. Missing libraries disable
 that composition profile, not the whole keyboard.
 No IBus daemon configuration, system language setting, clipboard access, network
 service, or persistent typing history is used. PyZy's conversion/selection
-learning APIs are deliberately avoided, and its user database has no writable
-path. A build without an engine rejects its profile on Apply while retaining the
+learning APIs are deliberately avoided. Its startup database uses private
+RAM-backed storage that is removed before typing; the active user database is
+in memory. If private memory-backed storage is unavailable, the profile reports
+an error rather than using persistent storage. A build without an engine rejects its profile on Apply while retaining the
 previous profile. A saved unsupported composition profile falls back to English
 at launch with an error message.
 
