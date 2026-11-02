@@ -25,13 +25,23 @@ void require(bool value, const char* message) {
     }
 }
 
+struct Compositor;
+Compositor* compositor{};
 struct Compositor {
     wl_display* display = wl_display_create();
     wl_resource* device{};
     wl_resource* selection{}; // the client's current source
     std::vector<std::string> types;
     int offers_destroyed{}, received{};
-    ~Compositor() { wl_display_destroy(display); }
+    ~Compositor() {
+        // Resource destruction calls back into this fixture. Keep its pointer
+        // valid until both the remaining clients and the display are gone.
+        wl_display_destroy_clients(display);
+        wl_display_destroy(display);
+        if (compositor == this) {
+            compositor = nullptr;
+        }
+    }
     void pump() {
         wl_event_loop_dispatch(wl_display_get_event_loop(display), 5);
         wl_display_flush_clients(display);
@@ -44,7 +54,6 @@ struct Compositor {
         return done();
     }
 };
-Compositor* compositor{};
 
 void destroy(wl_client*, wl_resource* resource) {
     wl_resource_destroy(resource);
@@ -167,7 +176,6 @@ void nested_desktop() {
     require(server.received == 0, "the clipboard is never read");
 
     clipboard.reset();
-    compositor = nullptr;
     std::filesystem::remove_all(runtime);
 }
 } // namespace

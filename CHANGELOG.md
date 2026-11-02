@@ -10,6 +10,7 @@
 
 ### Development
 
+- Fixed leaked server-client resources in the isolated clipboard test fixture, including cleanup during exception unwinding.
 - Added isolated regression coverage for dictation editing, helper cleanup and cancellation, sound playback and idle suspension, and Cangjie/Quick text recovery, pacing and cancellation.
 - Fixed ARM64 linking and a C-linkage declaration in the sound test library.
 
