@@ -274,6 +274,43 @@ class Lifecycle(unittest.TestCase):
             worker.join(2)
         self.assertTrue(client.disposed and client.closed)
 
+    def test_a_parent_that_stops_reading_keeps_its_helper_and_results(self):
+        # The keyboard's socket is nonblocking, as in production, and each state
+        # repeats a full event window. A main loop stalled in a long runtime call
+        # stops reading for seconds; the helper must neither fill the socket
+        # with states nor lose the result of the key it was asked to send.
+        events = [dict(id=1000 + i, request=500 + i, code="release-dismissed") for i in range(32)]
+        class EventCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4):
+                if ".bridge.step(" in expression:
+                    return dict(version=1, request=2, open=True, eligible=True, active=False,
+                                idle=True, events=events)
+                return super().evaluate(expression, timeout)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_NONBLOCK)
+        client = EventCDP()
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None))
+        worker.start()
+        try:
+            parent.send(json.dumps(dict(op="key", request=2, id=9, text="fixture", value=1)).encode())
+            time.sleep(5)  # well past the old failure at about 3.7 s of 75 ms polls
+            self.assertTrue(worker.is_alive(), "a parent that is not reading does not end the helper")
+            self.assertLessEqual(bridge.queued_bytes(child), 2 * bridge.ParentChannel.STATE_QUEUE_LIMIT,
+                                 "states stop once a few wait unread")
+            received = []
+            parent.setblocking(True)
+            parent.settimeout(1)
+            while not any(m.get("op") == "key-result" for m in received) or len(received) < 40:
+                received.append(json.loads(parent.recv(32768)))
+            self.assertIn(dict(op="key-result", id=9, ok=True), received,
+                          "the result waits for the parent instead of being dropped")
+            self.assertTrue(all(m["op"] in ("state", "key-result") for m in received))
+            self.assertEqual(received[-1]["op"], "state", "states continue once it reads again")
+        finally:
+            parent.close()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(client.disposed and client.closed)
+
     def test_three_consecutive_poll_timeouts_end_helper(self):
         class SlowCDP(FakeCDP):
             def evaluate(self, expression, timeout=.4):

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed native keyboard replacement dropping out for a few seconds when the keyboard was briefly busy, for example after waking. Its Steam bridge helper stopped when the keyboard did not read its replies for about two to twelve seconds; it now waits, keeping the results of keys already sent.
 - Fixed a dictated phrase getting stuck when the dictation server **Test** was pressed while that phrase was ending, which held back every later phrase until Esc.
 - Fixed dictation's Send continuing into a different field. When Steam's field closed or another field took over between two pieces of a Send, or the keyboard hid and returned, the rest could go to the new target. Send now stops and keeps the rest in the editor, and a Send still waiting for phrases is dropped when the field changes.
 - Fixed text being cut off when the keyboard changed view or pointer while it was still typing. Closing the dashboard during Type as I speak, moving or pinning the panel, opening Settings or the emoji picker, or switching language no longer drops the rest of a phrase, a swiped word, a long composition or a dictation Send piece. Held keys are still released at once.

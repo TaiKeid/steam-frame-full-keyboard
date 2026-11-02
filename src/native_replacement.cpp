@@ -404,17 +404,26 @@ void NativeReplacement::poll(double now) {
                         continue;
                     }
                     auto* id = json_object_object_get(event, "id");
+                    if (!id || json_object_get_type(id) != json_type_int ||
+                        json_object_get_int64(id) <= 0 ||
+                        json_object_get_uint64(id) <= event_sequence_) {
+                        continue;
+                    }
+                    // The bridge numbers events consecutively but keeps only its
+                    // latest 32. A gap means some rotated out unread, such as a
+                    // button press while this end stalled; record that it happened.
+                    const auto sequence = json_object_get_uint64(id);
+                    if (event_sequence_ && sequence > event_sequence_ + 1) {
+                        diagnostic("events-lost", now);
+                    }
+                    event_sequence_ = sequence;
                     auto* request = json_object_object_get(event, "request");
                     const auto* code =
                         session_code(json_object_get_string(json_object_object_get(event, "code")));
-                    if (!code || !id || json_object_get_type(id) != json_type_int ||
-                        json_object_get_int64(id) <= 0 ||
-                        json_object_get_uint64(id) <= event_sequence_ || !request ||
-                        json_object_get_type(request) != json_type_int ||
+                    if (!code || !request || json_object_get_type(request) != json_type_int ||
                         json_object_get_int64(request) <= 0) {
                         continue;
                     }
-                    event_sequence_ = json_object_get_uint64(id);
                     diagnostic(code, now, json_object_get_uint64(request));
                     if (std::string_view(code) == "button-toggle") {
                         button_.toggle = json_object_get_uint64(request);

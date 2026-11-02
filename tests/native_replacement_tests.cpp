@@ -492,6 +492,41 @@ void sanitized_diagnostics() {
     replacement.update(false, false, 0, false, 104);
     close(peer);
 }
+// The bridge keeps only its latest 32 events. Events that rotated out while the
+// keyboard was not reading leave a gap in their numbers, which is logged.
+void lost_bridge_events_are_logged() {
+    std::ostringstream output;
+    struct Capture {
+        std::streambuf* previous;
+        explicit Capture(std::ostream& out) : previous(std::cout.rdbuf(out.rdbuf())) {}
+        ~Capture() { std::cout.rdbuf(previous); }
+    } capture(output);
+    Local local;
+    int peer = -1;
+    NativeReplacement replacement(local, -1, [&] {
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                "lost-event fixture socketpair");
+        peer = pair[1];
+        return pair[0];
+    });
+    replacement.update(true, false, 0, false, 200);
+    auto state = [&](double now, const std::string& events) {
+        put(peer, R"({"op":"state","version":1,"events":)" + events + "}");
+        replacement.poll(now);
+    };
+    state(200,
+          R"([{"id":1,"request":2,"code":"begin"},{"id":2,"request":2,"code":"PRIVATE_SENTINEL"}])");
+    state(200.1, R"([{"id":3,"request":2,"code":"acknowledged"}])");
+    require(output.str().find("events-lost") == std::string::npos,
+            "consecutive events, unknown codes included, are no gap");
+    state(200.2, R"([{"id":40,"request":3,"code":"begin"}])");
+    require(output.str().find("[native-replacement] events-lost\n") != std::string::npos &&
+                output.str().find("[native-replacement] begin request=3") != std::string::npos,
+            "a gap is logged and the events after it are still handled");
+    replacement.update(false, false, 0, false, 201);
+    close(peer);
+}
 void named_key_repeats() {
     Local local;
     int pair[2];
@@ -1399,6 +1434,7 @@ int main(int argc, char** argv) {
         helper_retry_backoff();
         installation_budget();
         sanitized_diagnostics();
+        lost_bridge_events_are_logged();
         named_key_repeats();
         paragraph_breaks();
         app_commit();

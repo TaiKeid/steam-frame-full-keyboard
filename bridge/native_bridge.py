@@ -2,6 +2,7 @@
 """App-scoped CDP transport. Only localhost Steam is contacted; no listeners or files are created."""
 import base64
 from collections import deque
+import fcntl
 import hashlib
 import ipaddress
 import json
@@ -14,6 +15,7 @@ import socket
 import struct
 import subprocess
 import sys
+import termios
 import time
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
@@ -285,20 +287,92 @@ class CDP:
         raise TimeoutError()
 
 
-def send(parent, value):
+def encode(value):
     data = json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode()
-    if len(data) > MAX_PACKET or parent.send(data) != len(data):
+    if len(data) > MAX_PACKET:
+        raise ValueError("oversize-reply")
+    return data
+
+
+def queued_bytes(parent):
+    """Bytes this end has sent that the parent has not read yet."""
+    try:
+        return struct.unpack("i", fcntl.ioctl(parent.fileno(), termios.TIOCOUTQ, b"\0" * 4))[0]
+    except OSError:
+        return 0
+
+
+class ParentChannel:
+    """Replies to the keyboard without ever blocking on it.
+
+    Results answer a request and must arrive, so they wait in a bounded outbox
+    until the socket takes them. Status is idempotent: a new one follows every
+    poll, so one is skipped rather than queued while results wait or the
+    parent is not reading. A parent stalled in a long runtime call then finds a
+    few recent states, never a full socket that refuses its results."""
+    STATE_QUEUE_LIMIT = 16384
+    OUTBOX_LIMIT = 256
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.outbox = deque()
+
+    def send_result(self, value):
+        if len(self.outbox) >= self.OUTBOX_LIMIT:
+            raise ValueError("parent-backpressure")
+        self.outbox.append(encode(value))
+        self.flush()
+
+    def flush(self):
+        while self.outbox:
+            try:
+                sent = self.parent.send(self.outbox[0], socket.MSG_DONTWAIT)
+            except BlockingIOError:
+                return
+            if sent != len(self.outbox[0]):
+                raise ValueError("parent-backpressure")
+            self.outbox.popleft()
+
+    def send_state(self, value):
+        self.flush()
+        if self.outbox or queued_bytes(self.parent) >= self.STATE_QUEUE_LIMIT:
+            return
+        data = encode(value)
+        try:
+            sent = self.parent.send(data, socket.MSG_DONTWAIT)
+        except BlockingIOError:
+            return
+        if sent != len(data):
+            raise ValueError("parent-backpressure")
+
+    def waiting(self):
+        return bool(self.outbox)
+
+
+def send(parent, value):
+    data = encode(value)
+    if parent.send(data) != len(data):
         raise ValueError("parent-backpressure")
 
 
-def report_unavailable(parent, reason):
+def report_unavailable(parent, reason, channel=None):
     # Closing a seqpacket peer with unread frames discards its final reply with
     # ECONNRESET. Refuse new writes and drain the bounded queue before reporting.
     parent.shutdown(socket.SHUT_RD)
     for _ in range(1024):
         if not parent.recv(MAX_PACKET + 1, socket.MSG_DONTWAIT):
             break
-    send(parent, {"op": "unavailable", "reason": reason})
+    # Results still waiting go first. A parent that is not reading gets EOF
+    # instead; waiting longer would only delay the cleanup that restores native.
+    channel = channel or ParentChannel(parent)
+    deadline = time.monotonic() + 0.2
+    channel.outbox.append(encode({"op": "unavailable", "reason": reason}))
+    while channel.waiting():
+        channel.flush()
+        remaining = deadline - time.monotonic()
+        if not channel.waiting() or remaining <= 0:
+            break
+        select.select([], [parent], [], remaining)
 
 
 class WatchdogProgress:
@@ -411,6 +485,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
     reference = f"globalThis.{GLOBAL}"
     failure_reason = "debugger-unavailable"
     restore_native = True
+    channel = ParentChannel(parent)
     try:
         client = client_factory()
         try:
@@ -461,8 +536,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
-            readable, _, _ = select.select([parent], [], [],
+            readable, _, _ = select.select([parent], [parent] if channel.waiting() else [], [],
                                            0 if pending else max(0, next_poll - time.monotonic()))
+            channel.flush()
             # Drain releases before dispatching more work. CDP can be slower than
             # repeat generation; initial clicks stay ordered, repeats do not pile up.
             received = 0
@@ -518,7 +594,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         if cancelled_repeat:
                             # No deletion after release, but the parent still
                             # needs completion for the repeat it submitted.
-                            send(parent, {"op": "key-result", "id": key_id, "ok": True})
+                            channel.send_result({"op": "key-result", "id": key_id, "ok": True})
                 elif operation == "dismiss":
                     if type(message.get("request")) is not int:
                         raise ValueError("invalid-dismissal")
@@ -568,7 +644,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 except TimeoutError:
                     ok = False  # Unknown delivery fails this request closed.
                 if operation != "dismiss":
-                    send(parent, {"op": f"{operation}-result", "id": message["id"], "ok": ok is True})
+                    channel.send_result({"op": f"{operation}-result", "id": message["id"],
+                                         "ok": ok is True})
                 if ok is not True:
                     fallback_request = message["request"]
             watchdog.poll()
@@ -616,7 +693,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     next_poll = time.monotonic() + ACTIVE_POLL
                     continue
                 fallback_request = None
-                send(parent, {"op": "state", **result})
+                channel.send_state({"op": "state", **result})
                 next_poll = time.monotonic() + poll_interval(result, standby)
     except (Exception, SystemExit) as error:
         # Errors are fixed status codes. Never echo CDP expressions, input packets or field values.
@@ -624,7 +701,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             reason = error.reason if isinstance(error, BridgeUnavailable) else failure_reason
             if isinstance(error, TimeoutError) and failure_reason == "steam-incompatible":
                 reason = "install-timeout"
-            report_unavailable(parent, reason)
+            report_unavailable(parent, reason, channel)
         except Exception:
             pass
     finally:
