@@ -1223,6 +1223,19 @@ void resizer_tests() {
     near(motion.alpha(20.18), 1, "the entrance takes 0.18 s");
     near(motion.offset(20.18), 0, "and ends in place");
     require(!motion.animating(20.2) && !motion.leaving(), "a shown panel is still");
+    require(motion.take_settled(20.2) && !motion.take_settled(20.3),
+            "a finished entrance is settled once, so its final opacity is written");
+    fk::PanelMotion slow;
+    slow.show(40);
+    require(!slow.take_settled(40.1), "an entrance in progress is not settled");
+    fk::PanelMotion late;
+    late.show(50);
+    require(!late.animating(50.5) && late.take_settled(50.5),
+            "a first frame after the whole entrance still settles it");
+    near(late.alpha(50.5), 1, "fully opaque, not left at the show frame's 0");
+    near(late.offset(50.5), 0, "and in place");
+    late.hide(51);
+    require(!late.take_settled(51.5), "an exit never settles as an entrance");
     motion.show(21);
     near(motion.alpha(21), 1, "showing a shown panel changes nothing");
     motion.hide(22);

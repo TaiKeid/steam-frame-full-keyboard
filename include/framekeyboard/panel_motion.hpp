@@ -28,6 +28,15 @@ class PanelMotion {
                          : -exit_sink * ease_in(progress(now));
     }
     bool animating(double now) const { return started_ && progress(now) < 1; }
+    // An entrance has just finished: true once, so its final opacity and place
+    // are written even when no frame fell inside it, as after a long frame.
+    bool take_settled(double now) {
+        if (!started_ || !entering_ || settled_ || progress(now) < 1) {
+            return false;
+        }
+        settled_ = true;
+        return true;
+    }
     // An exit has finished; the overlay can be hidden.
     bool gone(double now) const { return started_ && !entering_ && progress(now) >= 1; }
     bool leaving() const { return started_ && !entering_; }
@@ -42,6 +51,7 @@ class PanelMotion {
         entering_ = entering;
         const double from = entering ? inverse_ease_out(shown) : inverse_ease_in(1 - shown);
         started_ = now - from * duration();
+        settled_ = false;
     }
     double duration() const { return entering_ ? enter_seconds : exit_seconds; }
     double progress(double now) const {
@@ -54,6 +64,6 @@ class PanelMotion {
     static double inverse_ease_in(double v) { return std::cbrt(std::clamp(v, 0.0, 1.0)); }
 
     std::optional<double> started_;
-    bool entering_{true};
+    bool entering_{true}, settled_{};
 };
 } // namespace framekeyboard

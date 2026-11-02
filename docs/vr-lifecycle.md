@@ -27,7 +27,9 @@ or callbacks.
    or expired request. Background startup stays hidden until requested.
 6. The panel fades in over 0.18 s while rising 2 cm into place, and fades out
    over 0.12 s while settling 1 cm. Only the overlay's opacity and position
-   change, so no frame is repainted. Hiding ends input at once; the fading panel
+   change, so no frame is repainted. The entrance starts once the first image
+   is submitted, and its end is written even if no frame fell inside it, so a
+   slow first frame cannot leave the panel transparent. Hiding ends input at once; the fading panel
    takes none. Native fallback, the stall watchdog and shutdown hide it at once,
    so it never lingers over Steam's own keyboard.
 7. Focus or tracking-space loss cancels input and movement. Losing one pointer

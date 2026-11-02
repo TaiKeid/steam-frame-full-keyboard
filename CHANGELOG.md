@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed the keyboard sometimes staying invisible or see-through after it appeared. If the frame that showed it, or the next one, took longer than the 0.18 s fade-in, the fade never finished; the keyboard took input while you could not see it. It now always ends fully visible.
 - Fixed native keyboard replacement dropping out for a few seconds when the keyboard was briefly busy, for example after waking. Its Steam bridge helper stopped when the keyboard did not read its replies for about two to twelve seconds; it now waits, keeping the results of keys already sent.
 - Fixed a dictated phrase getting stuck when the dictation server **Test** was pressed while that phrase was ending, which held back every later phrase until Esc.
 - Fixed dictation's Send continuing into a different field. When Steam's field closed or another field took over between two pieces of a Send, or the keyboard hid and returned, the rest could go to the new target. Send now stops and keeps the rest in the editor, and a Send still waiting for phrases is dropped when the field changes.

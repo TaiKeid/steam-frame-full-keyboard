@@ -2089,10 +2089,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 [&](double now) {
                     app.paint(now);
                     panel.submit(app.renderer, app.view());
-                    motion.show(now);
-                    vr_overlay()->SetOverlayAlpha(panel.handle(), static_cast<float>(motion.alpha(now)));
+                    // The entrance starts once the first image is up, not when
+                    // this frame began; a slow first paint must not use it up.
+                    const double shown = monotonic_seconds();
+                    motion.show(shown);
+                    vr_overlay()->SetOverlayAlpha(panel.handle(),
+                                                  static_cast<float>(motion.alpha(shown)));
                     if (displayed.ready()) {
-                        panel.place(displayed, motion.offset(now));
+                        panel.place(displayed, motion.offset(shown));
                     }
                     check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
                     std::cout << "Full Keyboard overlay visible.\n" << std::flush;
@@ -4061,7 +4065,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (motion.gone(now)) {
             end_exit();
-        } else if (motion.animating(now)) {
+        } else if (motion.animating(now) || motion.take_settled(now)) {
+            // Settling writes the entrance's end even when no frame fell inside it.
             vr_overlay()->SetOverlayAlpha(panel.handle(), static_cast<float>(motion.alpha(now)));
             if (displayed.ready()) {
                 panel.place(displayed, motion.offset(now));
