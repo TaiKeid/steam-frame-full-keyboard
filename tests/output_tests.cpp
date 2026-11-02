@@ -15,6 +15,7 @@ struct Transport : KeySink {
     std::vector<std::string> events;
     bool pending{}, done{}, success{true}, slow_keys{}, native_pending{}, native_done{};
     bool native_success{true}, barrier{};
+    bool refuse{};           // Rejects new text before submitting it, as an unready transport does.
     std::size_t delivered{}; // Characters of a failed commit already acknowledged.
     std::string text;
     void send(int code, int value) override {
@@ -45,6 +46,9 @@ struct Transport : KeySink {
             }
             pending = false;
             return success;
+        }
+        if (refuse) {
+            return false; // `delivered` keeps describing the previous commit.
         }
         events.push_back(value);
         text = value;
@@ -158,6 +162,47 @@ void partial_retry() {
     output.tick(5);
     require(output.retry_text() == "again",
             "a failure with nothing acknowledged retries the whole text");
+}
+// A per-character commit leaves its acknowledged count behind after success.
+// A later text refused before submission delivered nothing of its own, so that
+// count must not trim it, nor read past a shorter text's end.
+void stale_delivery_count() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    require(output.admit(true) && output.commit_text("abcdefghij"), "first word queued");
+    sink.delivered = 9; // What a successful ten-character commit leaves.
+    sink.done = true;
+    output.tick(2);
+    require(!output.text_pending() && output.completed() == 1, "first word delivered");
+    sink.refuse = true;
+    require(!output.commit_text("xyz"),
+            "a synchronous refusal stays with the composer instead of a trimmed retry");
+    require(!output.retry_available() && output.failures() == 1,
+            "the refused text was neither trimmed nor handed to the retry");
+
+    Transport queued;
+    OutputController behind(queued);
+    behind.set_enabled(true);
+    require(behind.admit(true) && behind.commit_text("first"), "pending word queued");
+    require(behind.admit(true) && behind.commit_text("0123456789"), "next word waits behind it");
+    queued.delivered = 4;
+    queued.done = true;
+    queued.refuse = true;
+    behind.tick(2);
+    require(behind.retry_text() == "0123456789",
+            "queued text refused before submission is retried whole");
+
+    Transport overcount;
+    OutputController bounded(overcount);
+    bounded.set_enabled(true);
+    require(bounded.admit(true) && bounded.commit_text("abc"), "short word queued");
+    overcount.delivered = 50; // A count beyond the text's three characters.
+    overcount.done = true;
+    overcount.success = false;
+    bounded.tick(2);
+    require(!bounded.retry_available() && bounded.failures() == 1,
+            "a count beyond the text ends at the text instead of reading past it");
 }
 // A replacement that timed out may still have been applied. Retrying it would
 // delete again, reaching text before the word ("Xhello" -> "Xhi" -> "hi").
@@ -522,6 +567,7 @@ int main() {
         ordering();
         failure_and_retry();
         partial_retry();
+        stale_delivery_count();
         ambiguous_replacement();
         held_keys();
         release_and_capacity();

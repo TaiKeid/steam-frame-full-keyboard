@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed text being shortened or dropped when the input connection refused it right after a longer word was typed. Text refused before it is sent is now kept whole, either for an Enter retry or in the composition it came from.
 - Fixed app selection sometimes leaving typing blocked because a cached dashboard focus sample discarded the newer click. Focus queries crossing sleep are discarded, and missing controller readings no longer count as app clicks. If focus is lost after waking, click inside the window you want to type into to restore it.
 - The keyboard now releases SteamVR mouse input while hidden, asleep or using scene/forwarded pointers. Dashboard mouse input returns only after fresh presentation, rather than retaining runtime interaction while app-side input is blocked.
 - Fixed held keys and queued input surviving headset standby or system sleep. Sleep cancels input and sending before wake events are handled, while keeping unsent dictation text in the editor.

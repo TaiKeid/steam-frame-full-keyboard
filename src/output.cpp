@@ -323,9 +323,11 @@ void OutputController::fail(std::size_t delivered) {
             saved->text = entry->text;
             saved->paced = entry->paced;
             if (entry == queue_.front() && delivered) {
-                // Retyping the acknowledged characters would duplicate them.
-                const char* rest =
-                    g_utf8_offset_to_pointer(entry->text.c_str(), static_cast<glong>(delivered));
+                // Retyping the acknowledged characters would duplicate them. A
+                // count beyond the text must not walk past its end.
+                const auto length = static_cast<std::size_t>(g_utf8_strlen(entry->text.c_str(), -1));
+                const char* rest = g_utf8_offset_to_pointer(
+                    entry->text.c_str(), static_cast<glong>(std::min(delivered, length)));
                 saved->text.erase(0, static_cast<std::size_t>(rest - entry->text.c_str()));
             }
             if (!saved->text.empty()) {
@@ -395,10 +397,13 @@ void OutputController::drain(bool fresh_tick) {
             if (!(entry->delete_before ? target_.replace_text(entry->delete_before, entry->text)
                                        : target_.commit_text(entry->text))) {
                 if (target_.text_pending()) {
+                    entry->submitted = true;
                     return;
                 }
                 note_text_time(entry->paced, fresh_tick);
-                fail(target_.delivered_characters());
+                // A refusal before submission delivered nothing; the target may
+                // still report the count of an earlier, finished commit.
+                fail(entry->submitted ? target_.delivered_characters() : 0);
                 return;
             }
             note_text_time(entry->paced, fresh_tick);

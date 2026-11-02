@@ -90,6 +90,9 @@ class OutputController : public KeySink, public TextOutput {
         std::size_t next{};
         int repeat_code{};
         bool held{}, started{}, waiting{}, repeat{}, paced{};
+        // The target took this text and is delivering it. Only then is its
+        // delivered-character count about this entry rather than an earlier one.
+        bool submitted{};
         double repeat_at{};
         std::weak_ptr<Entry> owner;
     };
