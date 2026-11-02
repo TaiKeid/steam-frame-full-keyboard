@@ -907,7 +907,9 @@ class Helper:
             if (self.live_asked and self.live_prompt is None and message["id"] == self.current and
                     not self.queue):
                 self.live_prompt = message["text"][-MAX_PROMPT:]
-            elif head and head.id == message["id"] and head.prompt is None and self.inflight is None:
+            # A head in flight already has its prompt; one waiting behind a
+            # test or a partial keeps an answer that arrives meanwhile.
+            elif head and head.id == message["id"] and head.prompt is None:
                 head.prompt = message["text"][-MAX_PROMPT:]
         elif op == "cancel":
             self.drop_all()

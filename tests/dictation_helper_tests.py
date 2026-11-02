@@ -1084,6 +1084,26 @@ class Helper(unittest.TestCase):
         self.assertEqual(len(other.requests), 1, "only the test went to the tested address")
         self.assertEqual(len(self.server.requests), 2, "both phrases went to the configured server")
 
+    def test_a_prompt_answered_during_a_test_still_recognizes_its_phrase(self):
+        # The keyboard's Test pauses capture and tests at once: the phrase it
+        # ends asks for its prompt while the test is already in flight.
+        other = FakeServer()
+        self.addCleanup(other.close)
+        other.delay = 0.5
+        helper = self.start(speech(1.0), mode="loop")
+        helper.send(op="capture", on=True)
+        helper.receive("phrase")
+        time.sleep(0.3)
+        helper.send(op="capture", on=False)
+        helper.send(op="test", server=f"127.0.0.1:{other.port}", language="en")
+        ready = helper.receive("ready")
+        helper.send(op="prompt", id=ready["id"], text="")
+        self.assertEqual(helper.receive("test"), {"op": "test", "ok": True})
+        self.assertEqual(helper.receive("text")["text"], "hello",
+                         "the phrase's prompt is kept and it is recognized after the test")
+        self.assertEqual(len(other.requests), 1, "only the test went to the tested address")
+        self.assertEqual(len(self.server.requests), 1, "the phrase went to the configured server")
+
     def test_server_failure_stops_capture(self):
         self.server.reply = lambda path, f: (429, b"")
         helper = self.start()
