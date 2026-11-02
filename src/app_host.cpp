@@ -568,6 +568,7 @@ std::pair<std::string, std::string> App::host_theme_set(const std::string& json)
     host_.theme = theme;
     host_.theme_json = json;
     profiles_.themes[shell_theme_id] = std::move(theme);
+    dictation_layout_for_.reset(); // A new shell theme keeps the same ID.
     // Shown at once and for this process only; save() writes the theme it replaced.
     settings_.active.theme = shell_theme_id;
     if (!settings_open_) {

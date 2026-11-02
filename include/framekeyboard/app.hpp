@@ -1048,7 +1048,13 @@ class App {
     DictationEditor editor_;
     EditorOutput editor_output_{editor_};
     DictationLayout dictation_layout_;
-    std::string dictation_layout_key_; // Layout ID and numpad state it was built for.
+    // What dictation_layout_ was built from: its geometry also follows the
+    // theme. Compared field by field, so the per-frame check builds no string.
+    struct DictationLayoutFor {
+        std::string layout, theme;
+        bool numpad_hidden{};
+    };
+    std::optional<DictationLayoutFor> dictation_layout_for_; // Reset whenever profiles change.
     double editor_scroll_{};
     std::optional<double> editor_goal_x_;           // Column kept across Up and Down.
     std::optional<unsigned> dictation_key_pointer_; // Mic, Send and Undo act on release.

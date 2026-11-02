@@ -2082,6 +2082,7 @@ void App::reload() {
     cancel();
     cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
+    dictation_layout_for_.reset(); // An edited layout or theme keeps its ID.
     keymap_ = std::move(keymap);
     std::vector<std::string> config_errors;
     const auto updated_settings = load_settings(options_.config_dir, config_errors);
@@ -2114,6 +2115,9 @@ void App::reload() {
         settings_.dictation_direct = updated_settings.dictation_direct;
         settings_.dictation = updated_settings.dictation;
         settings_.dictation_server = updated_settings.dictation_server;
+        settings_.dictation_url = updated_settings.dictation_url;
+        settings_.dictation_model = updated_settings.dictation_model;
+        settings_.dictation_recent_servers = updated_settings.dictation_recent_servers;
         settings_.dictation_server_by_shell = updated_settings.dictation_server_by_shell;
         settings_.dictation_fallback = updated_settings.dictation_fallback;
         settings_.dictation_device_model = updated_settings.dictation_device_model;
@@ -4009,7 +4013,7 @@ void App::open_dictation() {
     swipe_space_ = false;
     release_input();
     dictation_open_ = true;
-    dictation_layout_key_.clear();
+    dictation_layout_for_.reset();
     refresh_dictation_layout();
     text_output_ = &editor_output_;
     editor_goal_x_.reset();
@@ -4074,8 +4078,10 @@ void App::show_dictation() {
 }
 
 void App::refresh_dictation_layout() {
-    const auto key = settings_.active.layout + (numpad_hidden() ? "/numpad-hidden" : "");
-    if (key == dictation_layout_key_) {
+    const bool hidden = numpad_hidden();
+    if (dictation_layout_for_ && dictation_layout_for_->layout == settings_.active.layout &&
+        dictation_layout_for_->theme == settings_.active.theme &&
+        dictation_layout_for_->numpad_hidden == hidden) {
         return;
     }
     PanelView main;
@@ -4101,7 +4107,7 @@ void App::refresh_dictation_layout() {
             editor.width -= over / scale;
         }
     }
-    dictation_layout_key_ = key;
+    dictation_layout_for_ = DictationLayoutFor{settings_.active.layout, settings_.active.theme, hidden};
     dirty = true;
 }
 

@@ -1,3 +1,4 @@
+#include "bundled_profiles.hpp"
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/dictation_mode.hpp"
@@ -3475,6 +3476,51 @@ void suspend_input_tests() {
     }
 }
 
+// Reload replaces edited layout and theme files that keep their IDs. The open
+// editor's keys must follow them, not keep copies of the old layout.
+void reload_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    const auto bundled =
+        std::find_if(std::begin(bundled::profiles), std::end(bundled::profiles),
+                     [](const bundled::Resource& resource) {
+                         return resource.kind == "layouts" &&
+                                resource.json.find(R"("id": "en-us-full")") != std::string_view::npos;
+                     });
+    require(bundled != std::end(bundled::profiles), "the bundled layout to edit");
+    std::string json(bundled->json);
+    const std::string escape = R"("id": "Escape", "label": "Esc")";
+    require(json.find(escape) != std::string::npos, "the layout names its Escape key Esc");
+    fs::create_directories(directory.path / "layouts");
+    std::ofstream(directory.path / "layouts/en-us-full.json") << json;
+    Sink sink;
+    App app(options, sink);
+    open_editor(app);
+    const auto label = [&] { return find(app.view(), "Escape")->label; };
+    require(app.dictation_open() && label() == "Esc", "the editor's Escape key comes from the file");
+    json.replace(json.find(escape), escape.size(), R"("id": "Escape", "label": "Quit")");
+    std::ofstream(directory.path / "layouts/en-us-full.json") << json;
+    app.reload();
+    app.tick(clock += .02);
+    require(app.dictation_open() && label() == "Quit",
+            "after Reload the open editor's keys follow the edited layout");
+    // Reload also takes the config-only dictation URL edited by hand: the
+    // editor's place icon turns from the user's computer to a hosted service.
+    require(app.view().dictation->where == Icon::Computer, "a self-hosted server first");
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                 R"("dictation_url":"https://speech.example/v1","dictation_model":"whisper-1")");
+    app.reload();
+    app.tick(clock += .02);
+    require(app.view().dictation->where == Icon::Cloud, "after Reload the edited URL is used");
+}
+
 void selection_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -3558,6 +3604,7 @@ int main() {
         modal_repeat_tests();
         send_tests();
         suspend_input_tests();
+        reload_tests();
         selection_tests();
         scroll_tests();
         paste_tests();
