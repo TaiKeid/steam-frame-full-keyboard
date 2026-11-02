@@ -299,7 +299,7 @@ directory before creating any typing context. The special-phrase configuration p
 non-directory, and native learning APIs are not called, so personal history is
 neither read nor persisted. No persistent filesystem fallback is allowed. This
 avoids the installed library's failed-open SQLite-handle leak without retaining
-its dictionary after the last context is destroyed. Korean Backspace rebuilds
+its dictionary after the last context is destroyed. Shell previews build their own engine on a worker thread, so one process-wide lock serializes every engine creation, call and destruction across the module map, the cached Pinyin library and PyZy's shared database. Korean Backspace rebuilds
 from the bounded key sequence, preserving jamo-level undo across resyllabification. Neither engine
 changes the system IBus selection. See [language setup](languages.md).
 

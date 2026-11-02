@@ -6,10 +6,19 @@
 #include <dlfcn.h>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <stdexcept>
 
 namespace framekeyboard {
 namespace {
+// A shell preview builds its own App, and engine, on a worker thread. Engines
+// share process-wide state: the module map below, the cached Pinyin library and
+// PyZy's single database and init/finalize. So every engine creation, call and
+// destruction, on any thread, holds this one lock.
+std::mutex& engine_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
 struct Module {
     void* handle{};
     CreateCjkEngine create{};
@@ -76,6 +85,7 @@ struct CjkComposer::State {
     }
 };
 bool CjkComposer::supported(const std::string& method) {
+    std::lock_guard lock(engine_mutex());
     if (method == "korean-cheonjiin") {
         return true;
     }
@@ -89,50 +99,68 @@ bool CjkComposer::supported(const std::string& method) {
     }
 }
 CjkComposer::CjkComposer(const std::string& method)
-    : state_(std::make_unique<State>(method)), phonetic_keys_(method == "chinese-zhuyin"),
-      syllables_(method.starts_with("chinese-pinyin-")) {
+    : state_([&] {
+          std::lock_guard lock(engine_mutex());
+          return std::make_unique<State>(method);
+      }()),
+      phonetic_keys_(method == "chinese-zhuyin"), syllables_(method.starts_with("chinese-pinyin-")) {
 }
-CjkComposer::~CjkComposer() = default;
+CjkComposer::~CjkComposer() {
+    std::lock_guard lock(engine_mutex());
+    state_.reset();
+}
 void CjkComposer::type(char key) {
+    std::lock_guard lock(engine_mutex());
     if (state_->engine) {
         state_->engine->type(key);
     }
 }
 void CjkComposer::backspace() {
+    std::lock_guard lock(engine_mutex());
     state_->cheonjiin ? state_->cheonjiin->backspace() : state_->engine->backspace();
 }
 void CjkComposer::cancel() {
+    std::lock_guard lock(engine_mutex());
     state_->cheonjiin ? state_->cheonjiin->cancel() : state_->engine->cancel();
 }
 void CjkComposer::cycle(int direction) {
+    std::lock_guard lock(engine_mutex());
     if (state_->engine) {
         state_->engine->cycle(direction);
     }
 }
 void CjkComposer::choose(int index) {
+    std::lock_guard lock(engine_mutex());
     if (state_->engine) {
         state_->engine->choose(index);
     }
 }
 std::string CjkComposer::preedit() const {
+    std::lock_guard lock(engine_mutex());
     return state_->cheonjiin ? state_->cheonjiin->text() : state_->engine->preedit();
 }
 std::string CjkComposer::text() const {
+    std::lock_guard lock(engine_mutex());
     return state_->cheonjiin ? state_->cheonjiin->text() : state_->engine->text();
 }
 std::vector<std::string> CjkComposer::candidates() const {
+    std::lock_guard lock(engine_mutex());
     return state_->engine ? state_->engine->candidates() : std::vector<std::string>{};
 }
 int CjkComposer::selected() const {
+    std::lock_guard lock(engine_mutex());
     return state_->engine ? state_->engine->selected() : 0;
 }
 bool CjkComposer::empty() const {
+    std::lock_guard lock(engine_mutex());
     return state_->cheonjiin ? state_->cheonjiin->empty() : state_->engine->empty();
 }
 bool CjkComposer::has_reading() const {
+    std::lock_guard lock(engine_mutex());
     return state_->cheonjiin ? !state_->cheonjiin->empty() : state_->engine->has_reading();
 }
 bool CjkComposer::chinese() const {
+    std::lock_guard lock(engine_mutex());
     return state_->engine && state_->engine->chinese();
 }
 bool CjkComposer::phonetic_keys() const {
@@ -145,12 +173,14 @@ bool CjkComposer::flick_input() const {
     return static_cast<bool>(state_->cheonjiin);
 }
 void CjkComposer::flick(const std::string& text, bool replace) {
+    std::lock_guard lock(engine_mutex());
     if (!state_->cheonjiin || text.empty()) {
         return; // Empty: a direction this key does not use.
     }
     replace ? state_->cheonjiin->replace(text) : state_->cheonjiin->add(text);
 }
 std::string CjkComposer::last_flick() const {
+    std::lock_guard lock(engine_mutex());
     return state_->cheonjiin ? state_->cheonjiin->last() : std::string{};
 }
 } // namespace framekeyboard

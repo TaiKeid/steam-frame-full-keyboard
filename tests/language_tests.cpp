@@ -6,7 +6,9 @@
 #include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -552,6 +554,34 @@ void input_gate_recovery() {
     app.tick(4);
     require(app.view().preedit == preedit, "text loss retains composition for retry");
 }
+// A shell preview builds its engine on a worker thread while the keyboard
+// types with its own. Both share module and engine state; creating, typing
+// and destroying them at once, including the last Pinyin engine ending as the
+// other thread makes a new one, must neither race nor crash.
+void concurrent_engines(const std::string& method, const std::string& keys) {
+    std::exception_ptr failure;
+    std::mutex failure_mutex;
+    auto work = [&] {
+        try {
+            for (int i = 0; i < 20; ++i) {
+                CjkComposer composer(method);
+                type(composer, keys);
+                require(!composer.empty() && !composer.preedit().empty(), "each thread composes");
+                (void)composer.candidates();
+                composer.cancel();
+            }
+        } catch (...) {
+            std::lock_guard lock(failure_mutex);
+            failure = failure ? failure : std::current_exception();
+        }
+    };
+    std::thread preview(work);
+    work();
+    preview.join();
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
+}
 void engines(const std::string& group = "") {
     if (group != "--chinese") {
         if (CjkComposer::supported("korean-2set")) {
@@ -852,6 +882,7 @@ int main(int argc, char** argv) {
                 return std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED") ? 1 : 77;
             }
             engines(group);
+            concurrent_engines(method, group == "--korean" ? "gksrmf" : "nihao");
             app_composition(profiles, group);
             if (group == "--chinese") {
                 app_traditional();
