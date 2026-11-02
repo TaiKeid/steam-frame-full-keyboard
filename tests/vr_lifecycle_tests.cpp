@@ -626,6 +626,24 @@ void the_dashboard_with_the_keys_types_nothing() {
     h.click(2, "KeyA");
     require(h.receiver.text == std::vector<std::pair<int, std::string>>{{80, "a"}},
             "typing reaches the app again once it has the keys");
+
+    // Without replacement there is no Focus mode button to shake: the status
+    // says what to do, and the click it asks for clears it again.
+    Headset plain(false, false);
+    plain.status({});
+    plain.display();
+    plain.app->set_dashboard_focus(true);
+    plain.press(1, "KeyA");
+    plain.app->up(1, plain.point("KeyA").first, plain.point("KeyA").second);
+    require(plain.receiver.text.empty() && plain.receiver.downs.empty(),
+            "nothing reaches the app without replacement either");
+    require(plain.app->view().status == "Click the window you want to type into first.",
+            "without the Focus mode button the refusal explains itself");
+    plain.app->set_dashboard_focus(false);
+    require(plain.app->view().status.empty(), "the hint ends once the window has the keys");
+    plain.click(2, "KeyA");
+    require(plain.receiver.text == std::vector<std::pair<int, std::string>>{{0, "a"}},
+            "and typing reaches it");
 }
 
 void stale_focus_samples_cannot_erase_app_clicks() {

@@ -721,8 +721,10 @@ class App {
     double focus_shake_since_{-1};
     double swipe_shake_since_{-1};
     // Typing refused for want of a target (target_missing): the Focus mode
-    // button's icon shakes instead of a status message. False with a target.
+    // button's icon shakes instead of a status message, or, where that button
+    // is absent, the status says to click the window. False with a target.
     bool refuse_without_target(double now);
+    bool focus_mode_button() const { return resident_replacement() && !hosted(); }
     // No target to type into: a held panel without a field, or the dashboard has the keys.
     bool target_missing() const { return field_needed_ || dashboard_focus_; }
     std::string debug_status_, hidden_window_;

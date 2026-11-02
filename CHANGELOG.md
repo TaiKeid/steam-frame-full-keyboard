@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keys that cannot type because Steam's dashboard has the keyboard focus now say so when Replace native keyboard is off: the status line asks you to click the window you want to type into. With replacement on, the Focus mode icon still shakes instead.
 - Fixed a possible crash when an integrated shell asked for a Chinese or Korean preview while the keyboard was composing or changing language. Previews and typing no longer use the input engines at the same time.
 - Fixed Full Keyboard sometimes not returning after an update when its first connection to Steam failed, for example under startup load. The retry now takes over Steam's handed-back keyboard too, instead of leaving it open over Full Keyboard.
 - Fixed the keyboard sometimes staying invisible or see-through after it appeared. If the frame that showed it, or the next one, took longer than the 0.18 s fade-in, the fade never finished; the keyboard took input while you could not see it. It now always ends fully visible.

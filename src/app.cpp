@@ -27,6 +27,9 @@ namespace {
 constexpr const char* no_reading_status =
     "No character has this reading. Backspace corrects it, Esc cancels it.";
 constexpr const char* editor_full_notice = "The editor is full. Send or shorten the text to type more.";
+// Refused while Steam's dashboard has the keys and no Focus mode button can
+// shake to say so, as with replacement off.
+constexpr const char* dashboard_keys_status = "Click the window you want to type into first.";
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -362,7 +365,7 @@ std::vector<Control> App::controls() const {
              button(3, 0, 1), false, passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
     }
     // Without replacement no request closes the panel, so the button would do nothing.
-    const bool keep_button = resident_replacement() && !hosted();
+    const bool keep_button = focus_mode_button();
     if (keep_button) {
         add({ControlKind::KeepOpen},
             {"keep-open", settings_.keep_open ? "Leave focus mode" : "Focus mode", button(4, 1, 1),
@@ -3613,13 +3616,17 @@ bool App::refuse_without_target(double now) {
         return false;
     }
     focus_shake_since_ = now;
-    status_.clear();
+    // The shake is the answer where its button shows; without it, say what to do.
+    status_ = !focus_mode_button() && dashboard_focus_ ? dashboard_keys_status : "";
     dirty = true;
     return true;
 }
 void App::set_dashboard_focus(bool focused) {
     if (focused != dashboard_focus_) {
         dashboard_focus_ = focused;
+        if (!focused && status_ == dashboard_keys_status) {
+            status_.clear(); // The click it asked for happened.
+        }
         dirty = true;
         refresh_typing();
     }
