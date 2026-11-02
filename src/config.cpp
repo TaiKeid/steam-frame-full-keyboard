@@ -657,7 +657,9 @@ bool valid_dictation_url(const std::string& url) {
            url.find_first_of("?# ") == std::string::npos &&
            std::all_of(url.begin(), url.end(), [](unsigned char c) { return c > 32 && c < 127; });
 }
-Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors) {
+Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors,
+                       std::vector<std::string>* field_errors) {
+    auto& field_problems = field_errors ? *field_errors : errors;
     Settings settings;
     const auto path = user_dir / "config.json";
     if (!fs::exists(path)) {
@@ -744,7 +746,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 throw std::runtime_error("dictation_url must be an http or https URL");
             }
         } catch (const std::exception& error) {
-            errors.push_back("config.json: " + std::string(error.what()) + "; dictation is off");
+            field_problems.push_back("config.json: " + std::string(error.what()) + "; dictation is off");
             settings.dictation = "off";
             settings.dictation_server.clear();
             settings.dictation_url.clear();
@@ -759,9 +761,10 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 throw std::runtime_error("bad value");
             }
         } catch (const std::exception&) {
-            errors.push_back("config.json: background_surface must be \"visible\", "
-                             "\"semi-transparent\", \"invisible\" or \"disabled\"; the background "
-                             "is visible");
+            field_problems.push_back(
+                "config.json: background_surface must be \"visible\", "
+                "\"semi-transparent\", \"invisible\" or \"disabled\"; the background "
+                "is visible");
             settings.background_surface = "visible";
         }
         try {
@@ -770,8 +773,8 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 throw std::runtime_error("bad value");
             }
         } catch (const std::exception&) {
-            errors.push_back("config.json: haptic_sounds must be \"off\", \"press\", "
-                             "\"release\" or \"both\"; they are off");
+            field_problems.push_back("config.json: haptic_sounds must be \"off\", \"press\", "
+                                     "\"release\" or \"both\"; they are off");
             settings.haptic_sounds = "off";
         }
         try {
@@ -780,7 +783,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 throw std::runtime_error("bad value");
             }
         } catch (const std::exception&) {
-            errors.push_back("config.json: haptic_effect must be \"a\" to \"f\"; it is \"e\"");
+            field_problems.push_back("config.json: haptic_effect must be \"a\" to \"f\"; it is \"e\"");
             settings.haptic_effect = "e";
         }
         try {
@@ -791,7 +794,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 }
             }
         } catch (const std::exception&) {
-            errors.push_back("config.json: haptic_volume must be 25, 50, 75 or 100; it is 75");
+            field_problems.push_back("config.json: haptic_volume must be 25, 50, 75 or 100; it is 75");
             settings.haptic_volume = 75;
         }
         try {
@@ -823,7 +826,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                 }
             }
         } catch (const std::exception&) {
-            errors.push_back(
+            field_problems.push_back(
                 "config.json: dictation_send_gap_ms must be 10, 20, 30 or 40, and dictation_send_paste "
                 "and dictation_direct booleans; Send types at 20 ms into the editor");
             settings.dictation_send_gap = 20;

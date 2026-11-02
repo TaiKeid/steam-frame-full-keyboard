@@ -105,8 +105,10 @@ int deliberate_exit_status(bool autostart) {
 void save_preferences_with_startup(const Settings& settings, const fs::path& executable,
                                    const fs::path& config_dir, fs::path unit_directory,
                                    std::function<void()> reload) {
-    std::vector<std::string> errors;
-    const auto previous = load_settings(config_dir, errors);
+    // A bad optional field already fell back on its own; only an unreadable file
+    // blocks saving, which would otherwise discard what it could not read.
+    std::vector<std::string> errors, field_errors;
+    const auto previous = load_settings(config_dir, errors, &field_errors);
     if (!errors.empty()) {
         throw std::runtime_error("Could not read saved preferences: " + errors.front());
     }

@@ -5258,7 +5258,7 @@ void App::address_key(const std::string& key) {
         entry.cursor = entry.cursor > 0 ? entry.cursor - 1 : 0;
     } else if (key == "right") {
         entry.cursor = std::min(entry.cursor + 1, entry.text.size());
-    } else if (key.size() == 1 && entry.text.size() < 261) {
+    } else if (key.size() == 1 && entry.text.size() < 256) { // config.json's text limit
         // Only the popup's own characters ever arrive: lowercase letters,
         // digits and . - : [ ].
         entry.text.insert(entry.cursor++, key);

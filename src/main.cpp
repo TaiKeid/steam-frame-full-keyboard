@@ -190,10 +190,11 @@ int main(int argc, char** argv) {
             if (options.mode != fk::Mode::Vr) {
                 throw std::runtime_error("--autostart requires --vr");
             }
-            std::vector<std::string> errors;
-            const auto settings = fk::load_settings(options.config_dir, errors);
+            std::vector<std::string> errors, field_errors;
+            const auto settings = fk::load_settings(options.config_dir, errors, &field_errors);
             // Check both persisted preferences before opening input, VR or helpers.
-            // A stale unit cannot start replacement after the user disables it.
+            // A stale unit cannot start replacement after the user disables it. A
+            // bad optional field elsewhere falls back on its own and blocks nothing.
             if (!errors.empty() || !settings.replace_native_keyboard || !settings.start_with_steamos) {
                 std::cout << "SteamOS keyboard startup is disabled.\n";
                 return deliberate_exit;

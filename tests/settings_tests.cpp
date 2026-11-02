@@ -677,6 +677,37 @@ void deferred_reload_errors() {
                 "failed Reload keeps the old model and is not retried every frame");
     }
 }
+// One bad optional field falls back on its own when loaded. It must not stop
+// every later save, or SteamOS startup; an unreadable file still does.
+void preferences_with_a_bad_optional_field() {
+    TemporaryDirectory directory;
+    const auto config = directory.path / "config";
+    const auto units = directory.path / "units";
+    const auto binary = directory.path / "install/releases/test/bin/framekeyboard";
+    fs::create_directories(config);
+    std::ofstream(config / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+           R"("theme":"graphite"},"haptic_effect":"z"})";
+    std::vector<std::string> errors, field_errors;
+    auto settings = load_settings(config, errors, &field_errors);
+    require(errors.empty() && field_errors.size() == 1 && settings.haptic_effect == "e",
+            "a bad optional field is a field error that falls back");
+    settings.pinned = true;
+    save_preferences_with_startup(settings, binary, config, units, [] {});
+    errors.clear();
+    field_errors.clear();
+    const auto saved = load_settings(config, errors, &field_errors);
+    require(errors.empty() && field_errors.empty() && saved.pinned && saved.haptic_effect == "e",
+            "a save goes ahead and writes the field's fallback");
+    std::ofstream(config / "config.json") << "{not json";
+    bool refused = false;
+    try {
+        save_preferences_with_startup(settings, binary, config, units, [] {});
+    } catch (const std::runtime_error& error) {
+        refused = std::string(error.what()).starts_with("Could not read saved preferences");
+    }
+    require(refused, "an unreadable file still blocks the save that would replace it");
+}
 void preferences_with_broken_startup() {
     TemporaryDirectory directory;
     const auto config = directory.path / "config";
@@ -2499,6 +2530,7 @@ int main() {
         background_preferences();
         deferred_reload();
         deferred_reload_errors();
+        preferences_with_a_bad_optional_field();
         preferences_with_broken_startup();
         reload_startup();
         launch_startup();

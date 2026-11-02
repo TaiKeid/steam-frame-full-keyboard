@@ -174,7 +174,11 @@ fs::path default_config_dir();
 // Defaults are embedded. Reload may retain a previous valid user override on errors.
 Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir,
                        const Profiles* previous = nullptr);
-Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors);
+// A problem confined to one optional field, which then falls back on its own,
+// goes to `field_errors` when given; `errors` then means the file itself could
+// not be read. Without `field_errors`, every problem goes to `errors`.
+Settings load_settings(const fs::path& user_dir, std::vector<std::string>& errors,
+                       std::vector<std::string>* field_errors = nullptr);
 void save_selection(const fs::path& user_dir, const Selection& selection);
 void save_settings(const fs::path& user_dir, const Settings& settings);
 void validate_selection(const Profiles& profiles, const Selection& selection);
