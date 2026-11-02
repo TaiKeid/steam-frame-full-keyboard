@@ -3078,9 +3078,20 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!lifecycle.visible()) {
             grip_input.reset();
         }
-        const auto grips = !headset_input.blocked() && lifecycle.visible() && app.use_drag_to_move()
-                               ? grip_input.poll()
-                               : std::array<GrabSample, 2>{};
+        // A grab starts only from a hand whose laser is on the panel, and a grip
+        // drag follows its own hand. Otherwise reading both controllers' render
+        // models each frame finds nothing to do; a reset latch then needs a
+        // released sample again, so a grip held while pointing in starts nothing.
+        const bool grip_wanted =
+            (drag.active() && drag.source() == MoveSource::Grip) ||
+            std::any_of(hovered_devices.begin(), hovered_devices.end(), [](bool on) { return on; });
+        if (!grip_wanted) {
+            grip_input.reset();
+        }
+        const auto grips =
+            grip_wanted && !headset_input.blocked() && lifecycle.visible() && app.use_drag_to_move()
+                ? grip_input.poll()
+                : std::array<GrabSample, 2>{};
         detect_headset_suspend();
         if (!app.use_drag_to_move()) {
             grip_input.reset();
