@@ -3,8 +3,7 @@
 ## Unreleased
 
 - Fixed held editing keys continuing to change dictation text behind the **Discard text?** question. Choosing **Keep** no longer resumes a key held across the question; release and press it again to continue editing.
-- Key sounds now stop audio processing after queued clicks finish playing. A visible keyboard no longer continuously streams silence while idle.
-- Fixed periodic sound-worker wakeups when an audio output route is unavailable. Playback failure recovery now uses an event instead of polling.
+- Key sounds now warm the audio stream when a pointer enters the keyboard and keep it continuous while either pointer remains there, avoiding repeated stream restarts between clicks. The stream closes two seconds after the last pointer leaves, and immediately when the keyboard hides, the headset is removed or sounds are off or muted. Opening the keyboard alone does not start audio. Settings previews also respect mute.
 - Canceling on-device dictation now stops an engine that is still loading its model, so a canceled startup cannot hold up later recognition requests or server tests.
 - The dictation server **Test** button now waits for the previous helper to finish cleanup before allowing another test, avoiding a refused retry immediately after helper failure.
 - Fixed retained Cangjie and Quick text becoming impossible to send after repeated refused commits. Longer compositions are sent in paced pieces, and a failed submission retains only its unacknowledged remainder for an explicit Enter retry. Retained text is bounded at 1,024 Unicode code points; a full buffer refuses more input without discarding existing text. Backspace with no active reading removes one retained code point instead of clearing the whole composition.
@@ -16,7 +15,7 @@
 
 - Added reproducible host ASan/UBSan presets for C and C++, with unsuppressed leak checks by default and an explicitly selected Fontconfig filter for secondary diagnostic runs.
 - Fixed leaked server-client resources in the isolated clipboard test fixture, including cleanup during exception unwinding.
-- Added isolated regression coverage for dictation editing, helper cleanup and cancellation, sound playback and idle suspension, and Cangjie/Quick text recovery, pacing and cancellation.
+- Added isolated regression coverage for dictation editing, helper cleanup and cancellation, pointer-controlled sound playback and shutdown, and Cangjie/Quick text recovery, pacing and cancellation.
 - Fixed ARM64 linking and a C-linkage declaration in the sound test library.
 
 ## 0.14.1: The keyboard returns promptly after an update

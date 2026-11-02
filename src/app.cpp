@@ -808,10 +808,10 @@ void App::update_settings_ui() {
     }
 }
 // Plays what the keys would, by the choices still pending in Settings. Like a
-// key, it stays silent while the microphone is listening.
+// key, it stays silent while muted or the microphone is listening.
 void App::preview_sound() {
     const auto& sounds = pending_haptic_sounds_;
-    if (!capturing_ && sounds != "off") {
+    if (!capturing_ && settings_.haptic_sounds_switch && sounds != "off") {
         sound_preview_ = SoundPreview{sounds != "release", sounds != "press", pending_haptic_effect_,
                                       pending_haptic_volume_};
     }

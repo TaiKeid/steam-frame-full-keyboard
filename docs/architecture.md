@@ -249,7 +249,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Shell integration | `src/shell_protocol.cpp` (connection, session, lease), `src/shell_sink.cpp` (text sink between the output queue and the backend), `src/app_host.cpp` (App's side: contexts, hints, settings, themes, dictation), `src/shell_host.cpp` (matrices, update handover, preview renders); dispatch in `src/vr.cpp`. See [shell integration](integration.md) |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |
 | Grip model and haptic state | `src/grip.cpp`, `include/framekeyboard/feedback.hpp`, `include/framekeyboard/vr_haptics.hpp` |
-| Haptic sounds | `src/key_sounds.cpp`: synthesizes the pops and plays them through PipeWire, loaded at run time. Its connection lasts only while the panel shows, the headset is worn and the microphone isn't listening |
+| Haptic sounds | `src/key_sounds.cpp` plays synthesized pops through PipeWire. `KeySoundActivity` keeps the stream warm while a pointer is over the visible keyboard and closes it two seconds after the last departure. Hide, headset removal, mute and listening close it immediately |
 | OpenVR lifecycle and event loop | `src/vr.cpp` |
 | Tests and opt-in receiver probes | `tests/` |
 

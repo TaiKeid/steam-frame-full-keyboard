@@ -19,11 +19,8 @@ void require(bool valid, const char* message) {
 }
 struct Fake {
     decltype(&framekeyboard_test_sound_snapshot) read_snapshot;
-    decltype(&framekeyboard_test_sound_hold_drain) hold_drain;
-    decltype(&framekeyboard_test_sound_fail_active) fail_active;
-    decltype(&framekeyboard_test_sound_fail_flush) fail_flush;
     decltype(&framekeyboard_test_sound_pause_processing) pause_processing;
-    decltype(&framekeyboard_test_sound_interrupt_signal) interrupt_signal;
+    decltype(&framekeyboard_test_sound_fail_connect) fail_connect;
     decltype(&framekeyboard_test_sound_samples) samples;
     Fake() {
         // Validate the substitute before constructing a player. A bad test
@@ -32,25 +29,24 @@ struct Fake {
         require(library, "the private sound substitute loads");
         read_snapshot = reinterpret_cast<decltype(read_snapshot)>(
             dlsym(library, "framekeyboard_test_sound_snapshot"));
-        hold_drain = reinterpret_cast<decltype(hold_drain)>(
-            dlsym(library, "framekeyboard_test_sound_hold_drain"));
-        fail_active = reinterpret_cast<decltype(fail_active)>(
-            dlsym(library, "framekeyboard_test_sound_fail_active"));
-        fail_flush = reinterpret_cast<decltype(fail_flush)>(
-            dlsym(library, "framekeyboard_test_sound_fail_flush"));
         pause_processing = reinterpret_cast<decltype(pause_processing)>(
             dlsym(library, "framekeyboard_test_sound_pause_processing"));
-        interrupt_signal = reinterpret_cast<decltype(interrupt_signal)>(
-            dlsym(library, "framekeyboard_test_sound_interrupt_signal"));
+        fail_connect = reinterpret_cast<decltype(fail_connect)>(
+            dlsym(library, "framekeyboard_test_sound_fail_connect"));
         samples =
             reinterpret_cast<decltype(samples)>(dlsym(library, "framekeyboard_test_sound_samples"));
-        require(read_snapshot && hold_drain && fail_active && fail_flush && pause_processing &&
-                    interrupt_signal && samples,
+        require(read_snapshot && pause_processing && fail_connect && samples,
                 "only the private sound substitute may run");
     }
     SoundPlayerSnapshot snapshot() const {
         SoundPlayerSnapshot result;
         read_snapshot(&result);
+        return result;
+    }
+    std::vector<float> recording() const {
+        // Playback may append meanwhile; this obtains a stable earlier prefix.
+        std::vector<float> result(samples(nullptr, 0));
+        samples(result.data(), result.size());
         return result;
     }
 };
@@ -61,164 +57,124 @@ template <class Done> void wait_for(Done done, const char* message, std::chrono:
     }
     require(done(), message);
 }
-void quiet(Fake& fake) {
-    const auto before = fake.snapshot().callbacks;
-    std::this_thread::sleep_for(50ms);
-    require(fake.snapshot().callbacks == before, "an inactive stream requests no silent buffers");
+void quiet_but_warm(Fake& fake) {
+    const auto before = fake.snapshot();
+    wait_for([&] { return fake.snapshot().callbacks >= before.callbacks + 3; },
+             "a warm stream keeps making progress between sounds");
+    const auto after = fake.snapshot();
+    require(after.callbacks > before.callbacks && after.queued_frames > before.queued_frames,
+            "a warm stream continues processing between sounds");
+    require(after.audible_frames == before.audible_frames,
+            "the warm stream supplies silence while no sound is pending");
+    require(after.disconnections == before.disconnections,
+            "idle sound gaps do not close the warm output");
 }
 void complete_sound(Fake& fake, std::size_t offset, KeyFeedback kind) {
     const auto expected = key_sound(kind, 48000, "e");
-    std::vector<float> actual(fake.samples(nullptr, 0));
-    fake.samples(actual.data(), actual.size());
-    require(actual.size() >= offset + expected.size(), "all 60 ms of sound were queued");
-    require(std::equal(expected.begin(), expected.end(), actual.begin() + offset),
-            "a sound includes its complete waveform and tail");
-}
-void playback_and_idle(Fake& fake) {
-    {
-        KeySounds player;
-        player.set_awake(true);
-        wait_for([&] { return fake.snapshot().connections == 1; }, "the player connects");
-        require(fake.snapshot().inactive_connections == 1 && fake.snapshot().realtime_connections == 1,
-                "the stream starts inactive and retains real-time processing");
-        quiet(fake);
-
-        player.play(KeyFeedback::Press, "e", 100);
-        wait_for([&] { return fake.snapshot().deactivations == 1; }, "the first sound drains");
-        auto first = fake.snapshot();
-        require(first.drains_completed == 1 && first.queued_frames == first.played_frames,
-                "deactivation follows playback of every queued frame");
-        complete_sound(fake, 0, KeyFeedback::Press);
-        quiet(fake);
-
-        const auto second_at = first.queued_frames;
-        player.play(KeyFeedback::Release, "e", 100);
-        wait_for([&] { return fake.snapshot().deactivations == 2; }, "a later request reactivates");
-        complete_sound(fake, second_at, KeyFeedback::Release);
-        quiet(fake);
-
-        fake.hold_drain(true);
-        const auto third_at = fake.snapshot().queued_frames;
-        player.play(KeyFeedback::Press, "e", 100);
-        wait_for([&] { return fake.snapshot().drains_requested == 3; }, "the third sound is draining");
-        const auto waiting_at = fake.snapshot();
-        player.play(KeyFeedback::Release, "e", 100);
-        std::this_thread::sleep_for(20ms);
-        require(fake.snapshot().activations == waiting_at.activations,
-                "a new sound waits for the old drain rather than resuming it");
-        fake.hold_drain(false);
-        wait_for([&] { return fake.snapshot().deactivations == 4; }, "the waiting sound also plays");
-        complete_sound(fake, third_at, KeyFeedback::Press);
-        complete_sound(fake, waiting_at.queued_frames, KeyFeedback::Release);
-        require(fake.snapshot().resumed_during_drain == 0, "a pending drain is never resumed");
-
-        fake.hold_drain(true);
-        player.play(KeyFeedback::Press, "e", 100);
-        wait_for([&] { return fake.snapshot().drains_requested == 5; }, "a drain can be hidden");
-        player.play(KeyFeedback::Release, "e", 100);
-        player.set_awake(false);
-        wait_for([&] { return fake.snapshot().disconnections == 1; }, "hide disconnects while draining");
-        fake.hold_drain(false);
-        player.set_awake(true);
-        wait_for([&] { return fake.snapshot().connections == 2; }, "show reconnects");
-        quiet(fake); // The release queued before hide must not replay.
-        player.play(KeyFeedback::Press, "e", 100);
-        wait_for([&] { return fake.snapshot().deactivations == 5; }, "typing after show still works");
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    bool found = false;
+    while (!found && std::chrono::steady_clock::now() < deadline) {
+        const auto actual = fake.recording();
+        if (offset <= actual.size()) {
+            found = std::search(actual.begin() + static_cast<std::ptrdiff_t>(offset), actual.end(),
+                                expected.begin(), expected.end()) != actual.end();
+        }
+        if (!found) {
+            std::this_thread::sleep_for(1ms);
+        }
     }
-    require(fake.snapshot().disconnections == 2, "shutdown disconnects an inactive player");
+    require(found, "the warm stream queues the complete waveform and tail");
 }
-void shutdown_during_drain(Fake& fake) {
+void playback_and_sleep(Fake& fake) {
+    KeySounds player;
+    player.set_awake(false);
+    require(fake.snapshot().connections == 0, "sleeping initially does not create a stream");
+    player.set_awake(true);
+    wait_for([&] { return fake.snapshot().connections == 1; }, "the warm output connects");
+    require(fake.snapshot().active_connections == 1 && fake.snapshot().realtime_connections == 1,
+            "the stream starts active with real-time processing");
+    quiet_but_warm(fake);
+
+    for (const auto kind :
+         {KeyFeedback::Press, KeyFeedback::Release, KeyFeedback::Press, KeyFeedback::Release}) {
+        const auto offset = static_cast<std::size_t>(fake.snapshot().queued_frames);
+        player.play(kind, "e", 100);
+        complete_sound(fake, offset, kind);
+        quiet_but_warm(fake);
+    }
+    require(fake.snapshot().connections == 1, "separate sounds retain the same warm connection");
+
+    // Queue a request that the data thread cannot consume, then sleep.
+    fake.pause_processing(true);
+    player.play(KeyFeedback::Release, "e", 100);
+    player.set_awake(false);
+    wait_for([&] { return fake.snapshot().disconnections == 1; }, "sleep disconnects the output");
+    const auto sleeping = fake.snapshot();
+    fake.pause_processing(false);
+    player.play(KeyFeedback::Press, "e", 100);
+    std::this_thread::sleep_for(35ms);
+    require(fake.snapshot().callbacks == sleeping.callbacks &&
+                fake.snapshot().connections == sleeping.connections,
+            "sleeping neither processes nor connects for a sound request");
+
+    player.set_awake(true);
+    wait_for([&] { return fake.snapshot().connections == 2; }, "warming reconnects after sleep");
+    quiet_but_warm(fake);
+    require(fake.snapshot().audible_frames == sleeping.audible_frames,
+            "a request queued before sleep does not replay when warming again");
+    const auto offset = static_cast<std::size_t>(fake.snapshot().queued_frames);
+    player.play(KeyFeedback::Press, "e", 100);
+    complete_sound(fake, offset, KeyFeedback::Press);
+}
+void shutdown_while_playing(Fake& fake) {
     const auto before = fake.snapshot();
+    std::chrono::steady_clock::time_point shutdown_started;
     {
         KeySounds player;
-        fake.hold_drain(true);
         player.set_awake(true);
+        wait_for([&] { return fake.snapshot().connections > before.connections; },
+                 "shutdown fixture connects");
         player.play(KeyFeedback::Press, "e", 100);
-        wait_for([&] { return fake.snapshot().drains_requested > before.drains_requested; },
-                 "the final player is draining");
+        wait_for([&] { return fake.snapshot().audible_frames > before.audible_frames; },
+                 "shutdown fixture starts a pop");
+        shutdown_started = std::chrono::steady_clock::now();
     }
     require(fake.snapshot().disconnections == before.disconnections + 1,
-            "shutdown does not wait for drain completion");
-    fake.hold_drain(false);
+            "shutdown destroys a playing stream");
+    require(std::chrono::steady_clock::now() - shutdown_started < 2s,
+            "shutdown does not wait for audio to drain");
 }
-void unavailable_route_sleeps(Fake& fake) {
+void failed_connection_recovery(Fake& fake) {
     const auto before = fake.snapshot();
     KeySounds player;
-    fake.pause_processing(true);
-    player.set_awake(true);
-    player.play(KeyFeedback::Press, "e", 100);
-    wait_for([&] { return fake.snapshot().activations > before.activations; },
-             "a sound activates while its output route is unavailable");
-    // One extra loop lock can finish the initial request-generation handoff.
-    // Repeated locks would be the old polling loop, even with processing paused.
-    const auto paused = fake.snapshot();
-    std::this_thread::sleep_for(350ms);
-    require(fake.snapshot().callbacks == paused.callbacks, "an unavailable route does not process");
-    require(fake.snapshot().loop_locks <= paused.loop_locks + 1,
-            "the active worker sleeps without polling an unavailable route");
-    fake.pause_processing(false);
-    wait_for([&] { return fake.snapshot().deactivations > before.deactivations; },
-             "the pending sound plays and drains after its route returns");
-}
-void control_failure_recovery(Fake& fake, bool activating) {
-    const auto before = fake.snapshot();
-    KeySounds player;
-    fake.fail_active(activating);
+    fake.fail_connect();
     player.set_awake(true);
     player.play(KeyFeedback::Press, "e", 100);
     wait_for([&] { return fake.snapshot().disconnections > before.disconnections; },
-             "a failed activation or deactivation disconnects");
-    require(fake.snapshot().control_failures == before.control_failures + 1,
-            "the injected stream control failure was consumed");
+             "a failed connection is destroyed");
+    require(fake.snapshot().connect_failures == before.connect_failures + 1,
+            "the connection failure was injected");
     wait_for([&] { return fake.snapshot().connections == before.connections + 2; },
-             "a failed connection retries", 7s);
-    quiet(fake); // Failed requests must not play after reconnect.
-    const auto drained = fake.snapshot().drains_completed;
+             "a failed warm connection retries", 7s);
+    quiet_but_warm(fake);
+    require(fake.snapshot().audible_frames == before.audible_frames,
+            "failed requests do not replay after retry");
+    const auto offset = static_cast<std::size_t>(fake.snapshot().queued_frames);
     player.play(KeyFeedback::Press, "e", 100);
-    wait_for([&] { return fake.snapshot().drains_completed > drained; },
-             "new sound requests work after a stream control failure");
-}
-void flush_failure_recovery(Fake& fake) {
-    const auto before = fake.snapshot();
-    KeySounds player;
-    fake.fail_flush();
-    fake.interrupt_signal();
-    player.set_awake(true);
-    player.play(KeyFeedback::Press, "e", 100);
-    wait_for([&] { return fake.snapshot().flush_failures > before.flush_failures; },
-             "the drain flush fails");
-    const auto queued = fake.snapshot().queued_frames;
-    wait_for([&] { return fake.snapshot().disconnections > before.disconnections; },
-             "a failed drain disconnects without RT locking");
-    require(fake.snapshot().queued_frames == queued,
-            "a failed drain stops supplying silent buffers while recovery waits");
-    require(fake.snapshot().events_signaled == before.events_signaled + 1,
-            "a failed drain wakes the normal loop through its preallocated event");
-    require(fake.snapshot().signal_interruptions == before.signal_interruptions + 1,
-            "an interrupted event notification is retried");
-    wait_for([&] { return fake.snapshot().connections == before.connections + 2; },
-             "a failed drain retries", 7s);
-    quiet(fake);
-    const auto drained = fake.snapshot().drains_completed;
-    player.play(KeyFeedback::Press, "e", 100);
-    wait_for([&] { return fake.snapshot().drains_completed > drained; },
-             "new sounds work after a failed drain");
+    complete_sound(fake, offset, KeyFeedback::Press);
 }
 } // namespace
 int main() {
     try {
         Fake fake;
-        playback_and_idle(fake);
-        shutdown_during_drain(fake);
-        unavailable_route_sleeps(fake);
-        control_failure_recovery(fake, true);
-        control_failure_recovery(fake, false);
-        flush_failure_recovery(fake);
-        require(fake.snapshot().events_created == fake.snapshot().events_destroyed,
-                "every connection destroys its failure event after stream teardown");
+        playback_and_sleep(fake);
+        shutdown_while_playing(fake);
+        failed_connection_recovery(fake);
+        require(fake.snapshot().connections == fake.snapshot().disconnections,
+                "every connection attempt has been destroyed");
     } catch (const std::exception& error) {
         std::cerr << "sound player test failed: " << error.what() << '\n';
         return 1;
     }
-    std::cout << "sound player tests passed\n";
+    std::cout << "warm sound player tests passed\n";
 }

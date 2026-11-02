@@ -1326,6 +1326,22 @@ class CornerResizers {
         }
     }
     bool visible(std::size_t side) const { return corners_[side].visible; }
+    bool contains_mouse(std::size_t side, double x, double y) const {
+        const auto& corner = corners_[side];
+        if (!corner.visible || !corner.shape) {
+            return false;
+        }
+        y = corner.shape->pixels() - y; // OpenVR's mouse coordinates start at the bottom.
+        for (const auto& rectangle : corner.mask.rectangles) {
+            if (x >= rectangle[0] && y >= rectangle[1] && x <= rectangle[0] + rectangle[2] &&
+                y <= rectangle[1] + rectangle[3]) {
+                return true;
+            }
+        }
+        return std::any_of(
+            corner.mask.circles.begin(), corner.mask.circles.end(),
+            [&](const auto& circle) { return std::hypot(x - circle[0], y - circle[1]) <= circle[2]; });
+    }
     // On screen and opaque enough to be seen: only then may the passthrough
     // pointer press it. A failed overlay or image never counts.
     bool shown(std::size_t side) const {
@@ -1352,6 +1368,7 @@ class CornerResizers {
         Transform placed{};
         // The radius the current image was drawn for; none before the first draw.
         std::optional<ResizerShape> shape;
+        ResizerMask mask;
         ResizerFade fade;
     };
     void hide(Corner& corner) {
@@ -1391,7 +1408,7 @@ class CornerResizers {
         vr::HmdVector2_t scale{{static_cast<float>(size), static_cast<float>(size)}};
         // At most 2 rectangles and about 8 circles, within OpenVR's 32 primitives.
         std::vector<vr::VROverlayIntersectionMaskPrimitive_t> mask;
-        const auto area = resizer_mask(corner_of(side), shape);
+        auto area = resizer_mask(corner_of(side), shape);
         for (const auto& r : area.rectangles) {
             auto& primitive = mask.emplace_back();
             primitive.m_nPrimitiveType = vr::OverlayIntersectionPrimitiveType_Rectangle;
@@ -1413,6 +1430,7 @@ class CornerResizers {
                                                 static_cast<std::uint32_t>(mask.size())) ==
                 vr::VROverlayError_None;
         corner.shape = ok ? std::optional{shape} : std::nullopt;
+        corner.mask = ok ? std::move(area) : ResizerMask{};
         return ok;
     }
     std::array<Corner, 2> corners_{};
@@ -1664,14 +1682,57 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     });
     VrHaptics haptics;
     KeySounds key_sounds;
+    KeySoundActivity sound_activity;
     std::optional<SoundPreview> delayed_release;
     double delayed_release_at = 0, next_worn_check = 0;
     bool worn = true;
-    // Any pointer that types pops, including those no controller buzzes for.
-    auto key_pop = [&](KeyFeedback kind) {
-        if (app.pops(kind)) {
-            key_sounds.play(kind, app.haptic_effect(), app.haptic_volume());
+    // FocusLeave identifies a device, but not its cursor. Separate surfaces
+    // preserve a hand crossing between the main panel and a corner overlay.
+    constexpr std::uint64_t sound_main = 1, sound_resize_left = 2, sound_resize_right = 3,
+                            sound_scene = 4, sound_forwarded = 5;
+    auto sound_pointer_id = [](std::uint64_t surface, std::uint64_t pointer) {
+        return (surface << 32) | pointer;
+    };
+    std::map<std::uint64_t, vr::TrackedDeviceIndex_t> sound_devices;
+    auto sound_pointer = [&](std::uint64_t token, vr::TrackedDeviceIndex_t device, bool inside,
+                             double now) {
+        sound_activity.pointer(token, inside, now);
+        if (inside) {
+            sound_devices.insert_or_assign(token, device);
+        } else {
+            sound_devices.erase(token);
         }
+    };
+    auto forget_sound_device = [&](vr::TrackedDeviceIndex_t device, double now) {
+        for (auto it = sound_devices.begin(); it != sound_devices.end();) {
+            if (it->second == device) {
+                sound_activity.pointer(it->first, false, now);
+                it = sound_devices.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+    auto forget_sound_surface = [&](std::uint64_t surface, double now) {
+        for (auto it = sound_devices.begin(); it != sound_devices.end();) {
+            if ((it->first >> 32) == surface) {
+                sound_activity.pointer(it->first, false, now);
+                it = sound_devices.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+    auto reset_sound_activity = [&] {
+        sound_activity.reset();
+        sound_devices.clear();
+        key_sounds.set_awake(false);
+        delayed_release.reset();
+    };
+    auto clear_sound_pointers = [&](double now) {
+        sound_activity.clear_pointers(now);
+        sound_devices.clear();
+        delayed_release.reset();
     };
     auto manifest = fs::canonical("/proc/self/exe").parent_path().parent_path() /
                     "share/framekeyboard/vr/actions.json";
@@ -1953,6 +2014,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             .cancel_input = [&] { app.cancel(); },
             .clear_pointers =
                 [&] {
+                    reset_sound_activity();
                     hovered_devices.fill(false);
                     pointer_devices.clear();
                     grip_input.reset();
@@ -2001,6 +2063,30 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // shell the dashboard gate does not apply: the shell decides.
     auto presentable = [&] { return hosted || app.passthrough() || vr_overlay()->IsDashboardVisible(); };
     lifecycle.set_hosted(hosted);
+    auto update_key_sounds = [&](double now) {
+        if (now >= next_worn_check) {
+            next_worn_check = now + .25;
+            worn = vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) !=
+                   vr::k_EDeviceActivityLevel_Standby;
+        }
+        const bool awake = sound_activity.update(now, lifecycle.visible(), app.haptic_sounds(), worn);
+        if (!lifecycle.visible() || !worn) {
+            sound_devices.clear();
+        }
+        key_sounds.set_awake(awake);
+        if (!awake) {
+            delayed_release.reset();
+        }
+        return awake;
+    };
+    // Update before delivery too: a down/up can be the first pointer event of
+    // this frame, or can mute sounds/start capture in App.
+    auto key_pop = [&](KeyFeedback kind, double now) {
+        if (update_key_sounds(now) && app.pops(kind)) {
+            key_sounds.play(kind, app.haptic_effect(), app.haptic_volume());
+        }
+    };
+    double next_sound_tracking_check = 0;
     // Near the visible dashboard the panel lines up with the dashboard itself,
     // which is often slightly rolled; elsewhere, with the dashboard closed, and
     // after being shown without it, it lines up with the room facing the viewer.
@@ -2137,6 +2223,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             app.cancel_pointer(forwarded_pointer(hand)); // a cancel never releases into a press
             feedback.cancel_pointer(forwarded_pointer(hand));
             forwarded_inside[hand] = false;
+            sound_activity.pointer(sound_pointer_id(sound_forwarded, hand), false, monotonic_seconds());
         }
     };
     // The texture areas that take a pointer: the case, an open menu and the
@@ -2174,6 +2261,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             app.cancel_pointer(pointer);
             feedback.cancel_pointer(pointer);
             forwarded_inside[hand] = false;
+            sound_activity.pointer(sound_pointer_id(sound_forwarded, hand), false, now);
             return;
         }
         if (phase == "scroll") {
@@ -2187,6 +2275,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const bool inside =
             std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
         if (!inside) {
+            sound_activity.pointer(sound_pointer_id(sound_forwarded, hand), false, now);
             if (std::exchange(forwarded_inside[hand], false)) {
                 // Leaving the accepted areas cancels the press, as focus leave does.
                 app.cancel_pointer(pointer);
@@ -2195,6 +2284,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             return;
         }
         forwarded_inside[hand] = true;
+        sound_activity.pointer(sound_pointer_id(sound_forwarded, hand), true, now);
+        update_key_sounds(now);
         if (phase == "move") {
             // Moves during a press are kept for swipe, up to 8 per hand a frame.
             if (app.pointer_pressed(pointer) && ++forwarded_moves[hand] > 8) {
@@ -2206,12 +2297,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         } else if (phase == "down") {
             app.move(pointer, x, y);
             if (app.down(pointer, x, y, now)) {
-                key_pop(KeyFeedback::Press);
+                key_pop(KeyFeedback::Press, now);
                 forwarded_haptic(hand, pointer, KeyFeedback::Press);
             }
         } else if (phase == "up") {
             if (app.up(pointer, x, y)) {
-                key_pop(KeyFeedback::Release);
+                key_pop(KeyFeedback::Release, now);
                 forwarded_haptic(hand, pointer, KeyFeedback::Release);
             }
         }
@@ -2517,6 +2608,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             shell_haptics = haptics_owner == "shell";
             // Every switch releases keys and clears pointers.
             stop_drag();
+            clear_sound_pointers(now);
             end_forwarded();
             hovered_devices.fill(false);
             pointer_devices.clear();
@@ -2854,6 +2946,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // release everything held, keeping unfinished composition.
             stop_drag();
             app.cancel(false);
+            clear_sound_pointers(now);
             hovered_devices.fill(false);
             pointer_devices.clear();
             scene_pointer.reset();
@@ -2888,6 +2981,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             if (event.eventType == vr::VREvent_SeatedZeroPoseReset ||
                 event.eventType == vr::VREvent_ChaperoneUniverseHasChanged) {
+                clear_sound_pointers(now);
                 lifecycle.focus_lost();
                 recenter_pending = true;
                 saved.reset();
@@ -2895,6 +2989,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 dashboard_anchor = {};
             }
             if (event.eventType == vr::VREvent_InputFocusChanged) {
+                clear_sound_pointers(now);
                 lifecycle.focus_lost();
             }
             if (LaserRays::invalidates(event.eventType)) {
@@ -2902,6 +2997,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 sticks.forget();
             }
             if (event.eventType == vr::VREvent_TrackedDeviceDeactivated) {
+                forget_sound_device(event.trackedDeviceIndex, now);
                 lifecycle.device_lost(event.trackedDeviceIndex,
                                       drag.active() ? std::optional{drag.device()} : std::nullopt);
             }
@@ -2953,7 +3049,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (app.pinned() || !grabbing) {
                 const bool key_pressed = app.down(pointer, x, y, now);
                 if (key_pressed) {
-                    key_pop(KeyFeedback::Press);
+                    key_pop(KeyFeedback::Press, now);
                 }
                 if (key_pressed && controller) {
                     feedback.press(pointer, device);
@@ -2986,7 +3082,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 stop_drag(true);
                 app.move(pointer, x, y);
             } else if (!drag.active() && app.up(pointer, x, y)) {
-                key_pop(KeyFeedback::Release);
+                key_pop(KeyFeedback::Release, now);
                 feedback.release(pointer);
             }
         };
@@ -2999,7 +3095,18 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     continue;
                 }
                 const auto device = event.trackedDeviceIndex;
+                const auto surface = side == 0 ? sound_resize_left : sound_resize_right;
+                const auto sound_device =
+                    device < vr::k_unMaxTrackedDeviceCount ? device : vr::k_unTrackedDeviceIndexInvalid;
+                const auto token = sound_pointer_id(surface, sound_device);
                 if (event.eventType == vr::VREvent_FocusLeave) {
+                    if (device < vr::k_unMaxTrackedDeviceCount) {
+                        sound_pointer(sound_pointer_id(surface, vr::k_unTrackedDeviceIndexInvalid),
+                                      vr::k_unTrackedDeviceIndexInvalid, false, now);
+                        sound_pointer(token, device, false, now);
+                    } else {
+                        forget_sound_surface(surface, now);
+                    }
                     // Without a trigger to watch (the head cursor), a release
                     // away from our overlays would never arrive: leaving the
                     // resizer ends the resize, keeping the size reached.
@@ -3008,6 +3115,28 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         stop_drag(true);
                     }
                     continue;
+                }
+                if (event.eventType == vr::VREvent_FocusEnter) {
+                    if (device < vr::k_unMaxTrackedDeviceCount) {
+                        sound_pointer(sound_pointer_id(surface, vr::k_unTrackedDeviceIndexInvalid),
+                                      vr::k_unTrackedDeviceIndexInvalid, false, now);
+                        sound_pointer(token, device, true, now);
+                        update_key_sounds(now);
+                    }
+                } else if (event.eventType == vr::VREvent_MouseMove ||
+                           event.eventType == vr::VREvent_MouseButtonDown ||
+                           event.eventType == vr::VREvent_MouseButtonUp) {
+                    if (device < vr::k_unMaxTrackedDeviceCount) {
+                        sound_pointer(sound_pointer_id(surface, vr::k_unTrackedDeviceIndexInvalid),
+                                      vr::k_unTrackedDeviceIndexInvalid, false, now);
+                    }
+                    sound_pointer(token, sound_device,
+                                  resizers.contains_mouse(side, event.data.mouse.x, event.data.mouse.y),
+                                  now);
+                    update_key_sounds(now);
+                } else if (event.eventType == vr::VREvent_OverlayHidden ||
+                           event.eventType == vr::VREvent_Modal_Cancel) {
+                    forget_sound_surface(surface, now);
                 }
                 const bool left_button = (event.eventType == vr::VREvent_MouseButtonDown ||
                                           event.eventType == vr::VREvent_MouseButtonUp) &&
@@ -3050,6 +3179,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             const double x = event.data.mouse.x, y = texture_height - event.data.mouse.y - popup_margin;
             const auto pointer = event.data.mouse.cursorIndex;
             const auto device = event.trackedDeviceIndex;
+            const auto sound_device =
+                device < vr::k_unMaxTrackedDeviceCount ? device : vr::k_unTrackedDeviceIndexInvalid;
+            const auto sound_token = sound_pointer_id(sound_main, sound_device);
             const bool controller =
                 device < vr::k_unMaxTrackedDeviceCount &&
                 vr_system()->GetTrackedDeviceClass(device) == vr::TrackedDeviceClass_Controller;
@@ -3061,20 +3193,42 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 gap_watches.erase(device); // Back on the keyboard.
             }
             switch (event.eventType) {
-            case vr::VREvent_MouseMove:
-                pointer_move(pointer, device, x, y, controller);
-                break;
-            case vr::VREvent_MouseButtonDown:
-                if (event.data.mouse.button == vr::VRMouseButton_Left) {
-                    pointer_down(pointer, device, x, y, controller, tracked_pointer);
+            case vr::VREvent_FocusEnter:
+                if (device < vr::k_unMaxTrackedDeviceCount) {
+                    sound_pointer(sound_pointer_id(sound_main, vr::k_unTrackedDeviceIndexInvalid),
+                                  vr::k_unTrackedDeviceIndexInvalid, false, now);
+                    sound_pointer(sound_token, device, true, now);
+                    update_key_sounds(now);
                 }
                 break;
-            case vr::VREvent_MouseButtonUp:
-                if (event.data.mouse.button == vr::VRMouseButton_Left) {
+            case vr::VREvent_MouseMove:
+            case vr::VREvent_MouseButtonDown:
+            case vr::VREvent_MouseButtonUp: {
+                // The submitted mask already includes case, toolbar, Settings,
+                // popup, flick preview and handle geometry. Reuse it instead
+                // of building another full view for every mouse movement.
+                const auto& areas = panel.mask_areas();
+                const bool inside =
+                    std::any_of(areas.begin(), areas.end(),
+                                [&](const Rect& area) { return area.contains(x, y); }) ||
+                    (panel.mask_gapped_case() && panel.mask_gapped_case()->contains(x, y));
+                if (device < vr::k_unMaxTrackedDeviceCount) {
+                    sound_pointer(sound_pointer_id(sound_main, vr::k_unTrackedDeviceIndexInvalid),
+                                  vr::k_unTrackedDeviceIndexInvalid, false, now);
+                }
+                sound_pointer(sound_token, sound_device, inside, now);
+                update_key_sounds(now);
+                if (event.eventType == vr::VREvent_MouseMove) {
+                    pointer_move(pointer, device, x, y, controller);
+                } else if (event.data.mouse.button == vr::VRMouseButton_Left &&
+                           event.eventType == vr::VREvent_MouseButtonDown) {
+                    pointer_down(pointer, device, x, y, controller, tracked_pointer);
+                } else if (event.data.mouse.button == vr::VRMouseButton_Left) {
                     pointer_up(pointer, device, x, y);
                     released_at[device] = now;
                 }
                 break;
+            }
             case vr::VREvent_ScrollDiscrete:
                 if (!drag.active()) {
                     const double dx = -event.data.scroll.xdelta, dy = -event.data.scroll.ydelta;
@@ -3094,6 +3248,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 break;
             case vr::VREvent_FocusLeave:
+                if (device < vr::k_unMaxTrackedDeviceCount) {
+                    sound_pointer(sound_pointer_id(sound_main, vr::k_unTrackedDeviceIndexInvalid),
+                                  vr::k_unTrackedDeviceIndexInvalid, false, now);
+                    sound_pointer(sound_token, device, false, now);
+                } else {
+                    forget_sound_surface(sound_main, now);
+                }
                 if (event.trackedDeviceIndex < hovered_devices.size()) {
                     hovered_devices[event.trackedDeviceIndex] = false;
                 } else {
@@ -3130,6 +3291,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 break;
             case vr::VREvent_OverlayHidden:
             case vr::VREvent_Modal_Cancel:
+                reset_sound_activity();
                 hovered_devices.fill(false);
                 lifecycle.focus_lost();
                 break;
@@ -3211,6 +3373,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     }
                 }
             }
+            for (std::size_t hand = 0; hand < samples.size(); ++hand) {
+                sound_pointer(sound_pointer_id(sound_scene, hand), samples[hand].device,
+                              !samples[hand].lost && samples[hand].ray &&
+                                  (inside[hand] || gap[hand] || on_resizer[hand]),
+                              now);
+            }
+            update_key_sounds(now);
             // A ray off the keyboard that meets a floating window's overlay
             // brings SteamVR's laser to click it (WindowLaser).
             bool on_window = false;
@@ -3398,6 +3567,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         for (const auto device : lost_devices) {
+            forget_sound_device(device, now);
             lifecycle.device_lost(device, std::nullopt);
         }
         if (drag.active() && !app.allows_movement(*drag.source())) {
@@ -3434,19 +3604,30 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
         }
-        // A shown panel can outlast the wearer. A quarter second is soon enough
-        // for a stream, and the runtime isn't asked on every frame.
-        if (now >= next_worn_check) {
-            next_worn_check = now + .25;
-            worn = vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) !=
-                   vr::k_EDeviceActivityLevel_Standby;
+        // A stationary native hover may lose tracking without FocusLeave.
+        // Query poses once at 4 Hz only while sounds have tracked hover owners;
+        // scene pointers already supplied their current poses above.
+        if (lifecycle.visible() && worn && sound_activity.has_pointers() && !scene_input &&
+            !app.forwarded() && app.haptic_sounds() && !sound_devices.empty() &&
+            now >= next_sound_tracking_check) {
+            next_sound_tracking_check = now + .25;
+            vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
+            vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses,
+                                                         vr::k_unMaxTrackedDeviceCount);
+            for (auto it = sound_devices.begin(); it != sound_devices.end();) {
+                const auto device = it->second;
+                if (device < vr::k_unMaxTrackedDeviceCount &&
+                    (!poses[device].bPoseIsValid || !poses[device].bDeviceIsConnected)) {
+                    sound_activity.pointer(it->first, false, now);
+                    it = sound_devices.erase(it);
+                } else {
+                    ++it;
+                }
+            }
         }
-        key_sounds.set_awake(lifecycle.visible() && app.haptic_sounds() && worn);
-        if (!app.haptic_sounds()) {
-            delayed_release.reset(); // Listening began during a preview.
-        }
+        const bool sounds_awake = update_key_sounds(now);
         // With both, a preview plays like a key: press, then release a beat later.
-        if (auto preview = app.take_sound_preview()) {
+        if (auto preview = app.take_sound_preview(); preview && sounds_awake) {
             if (preview->press) {
                 key_sounds.play(KeyFeedback::Press, preview->effect, preview->volume);
             }
@@ -3699,6 +3880,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
                 resizers.update(side, resizer_transform(displayed.transform(), corner(side)), shape,
                                 target[side], now, resizing && side == resize_side);
+            }
+        }
+        for (std::size_t side = 0; side < 2; ++side) {
+            if (!resizers.visible(side)) {
+                forget_sound_surface(side == 0 ? sound_resize_left : sound_resize_right, now);
             }
         }
         // Repeat and text commits share the same gate as pointer presses.

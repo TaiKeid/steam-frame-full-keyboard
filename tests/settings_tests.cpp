@@ -1281,6 +1281,7 @@ void haptic_sounds_setting() {
     select(app, "haptic-sounds", "off");
     require(!has(app.view(), "haptic-effect:a") && !has(app.view(), "haptic-volume:100"),
             "both rows hide with sounds off");
+    require(!app.haptic_sounds(), "the pending Off choice also closes audio while in Settings");
     app.back();
     require(app.haptic_sounds(), "Back restores the saved choice");
     // The toolbar button: gone with sounds off, otherwise a switch of its own.
@@ -1306,9 +1307,9 @@ void haptic_sounds_setting() {
                 saved(app).haptic_sounds == "both",
             "it mutes the keys, saved on its own, and leaves the setting alone");
     app.show_settings();
-    require(app.haptic_sounds(), "Settings can still preview while muted");
+    require(!app.haptic_sounds(), "Settings cannot open audio while the toolbar is muted");
     click(app, "haptic-effect:a");
-    require(app.take_sound_preview().has_value(), "and does");
+    require(!app.take_sound_preview(), "muted Settings choices do not queue a later preview");
     app.back();
     click(app, "sounds-toggle");
     app.flush_settings();
