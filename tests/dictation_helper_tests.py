@@ -316,6 +316,46 @@ class Requests(unittest.TestCase):
         self.assertEqual(self.recognize(d.Target(server="10.255.255.1:8031")), ("error", "unreachable"))
         self.assertLess(time.monotonic() - started, 2.0)
 
+    def test_only_a_refused_connection_is_retried(self):
+        # A refusal is retried once at once. A connect that timed out already
+        # took CONNECT_TIMEOUT, so trying again would double the wait.
+        for error, attempts in ((ConnectionRefusedError(), 2), (socket.timeout(), 1)):
+            with mock.patch.object(d.http.client.HTTPConnection, "connect", side_effect=error) as connect:
+                self.assertEqual(self.recognize(), ("error", "unreachable"))
+            self.assertEqual(connect.call_count, attempts, type(error).__name__)
+
+    def test_the_fallback_skips_a_server_that_just_failed(self):
+        # With the fallback, a server that is down is asked once, then skipped
+        # for SERVER_RETRY, and asked again after that; a success clears it.
+        replies = []
+        class Device:
+            def recognize(self, model, language, prompt, pcm, connection):
+                return "text", "on device"
+        target = d.Target(server="127.0.0.1:9", language="en", device="/models/fixture.bin",
+                          fallback=True, engine=Device())
+        previous, d.SERVER_RETRY = d.SERVER_RETRY, 0.3
+        self.addCleanup(setattr, d, "SERVER_RETRY", previous)
+        def server(*args):
+            replies.append(1)
+            return replies_left.pop(0)
+        replies_left = [("error", "unreachable"), ("error", "timeout"), ("text", "server")]
+        with mock.patch.object(d, "recognize_server", side_effect=server):
+            for _ in range(3):
+                self.assertEqual(self.recognize(target), ("device-text", "on device"))
+            self.assertEqual(len(replies), 1, "phrases after the failure go straight to the device")
+            self.assertTrue(d.server_down(target), "and live words pause meanwhile")
+            time.sleep(0.35)
+            self.assertFalse(d.server_down(target))
+            self.assertEqual(self.recognize(target), ("device-text", "on device"))
+            self.assertEqual(len(replies), 2, "after the wait the next phrase asks the server again")
+            time.sleep(0.35)
+            self.assertEqual(self.recognize(target), ("text", "server"))
+            self.assertFalse(d.server_down(target), "a server that answers is used again at once")
+        without = d.Target(server="127.0.0.1:9", language="en")
+        with mock.patch.object(d, "recognize_server", return_value=("error", "unreachable")):
+            self.recognize(without)
+        self.assertFalse(d.server_down(without), "without the fallback nothing is skipped")
+
     def test_https_sends_the_key_and_verifies_the_certificate(self):
         with tempfile.TemporaryDirectory() as directory:
             ca = make_ca(directory)

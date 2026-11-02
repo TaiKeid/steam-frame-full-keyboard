@@ -61,6 +61,10 @@ REQUEST_TIMEOUT = 10.0
 # A server that is off, asleep or behind a dropping firewall never refuses;
 # give up on connecting sooner than on an answer, so the fallback starts.
 CONNECT_TIMEOUT = 3.0
+# After the server could not be reached or timed out, phrases with the
+# fallback go straight to the device for this long, and live words pause,
+# instead of waiting out the server again for each one.
+SERVER_RETRY = 30.0
 ALIVE_TIMEOUT = 2.0
 MAX_QUEUED = 8
 MAX_QUEUED_FRAMES = 120 * FRAMES_PER_SECOND
@@ -299,6 +303,9 @@ class Target:
             raise Failure("not-configured")
         self.device, self.engine = device, engine
         self.fallback = bool(fallback and device)
+        # Monotonic time until which the fallback skips the server (server_down).
+        # Written by the worker only; the helper thread reads it for live words.
+        self.down_until = 0.0
         self.paths = []
         if device and not server and not url:
             self.https, self.host, self.port = False, None, 0
@@ -423,10 +430,12 @@ def post(target, path, body, headers, connection, ca_file):
         except ssl.SSLError:
             client.close()
             raise Failure("unreachable")
-        except OSError:
+        except OSError as error:
             client.close()
-            # Nothing was sent yet, so one retry cannot type a phrase twice.
-            if attempt or connection.aborted:
+            # Nothing was sent yet, so one retry cannot type a phrase twice. A
+            # refusal is quick to retry; a host that never answered has already
+            # taken the whole connect timeout, and a retry would double it.
+            if attempt or connection.aborted or isinstance(error, (socket.timeout, TimeoutError)):
                 raise Failure("unreachable")
             time.sleep(0.2)
             continue
@@ -769,6 +778,11 @@ class Download(threading.Thread):
                     os.unlink(leftover)
 
 
+def server_down(target):
+    """Whether the fallback is skipping a server that just could not answer."""
+    return target.fallback and time.monotonic() < target.down_until
+
+
 def recognize(target, key, pcm, prompt, connection, ca_file, fallback=True):
     """Runs on the worker thread. Returns ("text", text), ("device-text", text)
     when the fallback recognized it on the Frame, ("dropped", reason) or
@@ -776,7 +790,14 @@ def recognize(target, key, pcm, prompt, connection, ca_file, fallback=True):
     if target.device and not target.paths:
         kind, value = target.engine.recognize(target.device, target.language, prompt, pcm, connection)
         return finish(kind, value, target, pcm)
-    result = recognize_server(target, key, pcm, prompt, connection, ca_file)
+    if fallback and server_down(target):
+        result = ("error", "unreachable")  # Not asked again until SERVER_RETRY has passed.
+    else:
+        result = recognize_server(target, key, pcm, prompt, connection, ca_file)
+        if result[0] != "error":
+            target.down_until = 0.0
+        elif result[1] in ("unreachable", "timeout") and not connection.aborted:
+            target.down_until = time.monotonic() + SERVER_RETRY
     if (fallback and target.fallback and result[0] == "error" and result[1] in ("unreachable", "timeout")
             and not connection.aborted):
         kind, value = target.engine.recognize(target.device, target.language, prompt, pcm, connection)
@@ -1140,6 +1161,8 @@ class Helper:
         phrase = self.detector.phrase
         if not self.live or not self.capturing or self.current is None or phrase is None:
             return
+        if self.target and server_down(self.target):
+            return  # Live words need the server; the phrase itself goes to the device.
         frames = len(phrase) // FRAME_BYTES
         if frames < LIVE_FIRST_FRAMES or frames - self.live_frames < LIVE_EVERY_FRAMES:
             return
