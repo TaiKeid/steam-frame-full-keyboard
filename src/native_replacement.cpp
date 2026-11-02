@@ -299,7 +299,6 @@ bool NativeReplacement::start(double now) {
         nullptr};
     const int error = posix_spawnp(&child_, python, &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
-    adopt_until_ = 0;
     close(pair[1]);
     close(health);
     if (error) {
@@ -381,6 +380,7 @@ void NativeReplacement::poll(double now) {
         if (op == "state" && json_object_get_int(field("version")) == 1) {
             if (!state_.available) {
                 diagnostic("available", now);
+                adopt_until_ = 0; // The handoff is installed; later restarts never adopt.
             }
             state_ = {json_object_get_uint64(field("request")),
                       json_object_get_boolean(field("open")) != 0,

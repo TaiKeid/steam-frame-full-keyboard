@@ -42,9 +42,12 @@ class NativeReplacement : public KeySink {
     // A prepared update hands the open request back to Steam, as Quit does,
     // so the successor's first helper can adopt it (adopt_update_handoff).
     void shutdown_for_update();
-    // The first helper after an in-app update adopts a native keyboard that the
-    // outgoing version's cleanup left open. It must start before `until`
-    // (monotonic seconds); later starts and restarts never adopt.
+    // Helpers started after an in-app update adopt a native keyboard that the
+    // outgoing version's cleanup left open, until one becomes available or
+    // `until` (monotonic seconds) passes: a first start that fails, such as an
+    // install timeout under startup load, leaves the adoption to its retry.
+    // Steam reports no session identity, so the retry adopts the keyboard open
+    // then. Restarts after the first available helper never adopt.
     void adopt_update_handoff(double until) { adopt_until_ = until; }
     void retry_now(double now);
     bool take_unsupported_control();

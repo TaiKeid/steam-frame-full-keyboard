@@ -1425,6 +1425,29 @@ int main(int argc, char** argv) {
             std::cout << "Only the first helper start after an update adopts native.\n";
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--helper-adopt-retry-fixture") {
+            // A first helper that fails before it is available, as an install
+            // timeout under startup load does, leaves the adoption to its retry.
+            NullSink local;
+            NativeReplacement replacement(local);
+            require(replacement.prepare_watchdog(), "private health pipe available");
+            replacement.adopt_update_handoff(monotonic_seconds() + 30);
+            const auto start = monotonic_seconds();
+            bool available = false;
+            while (!available && monotonic_seconds() - start < 6) {
+                const double now = monotonic_seconds();
+                replacement.poll(now);
+                replacement.watchdog_tick(now);
+                replacement.retry_now(now); // no 5 s backoff between attempts here
+                replacement.update(true, false, 0, false, now);
+                available = replacement.state().available;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            require(available, "the retried helper became available");
+            replacement.update(false, false, 0, false, monotonic_seconds());
+            std::cout << "A failed first helper leaves the adoption to its retry.\n";
+            return 0;
+        }
         require(argc == 1, "unknown test option");
         update_shutdown();
         hidden_session_wakeup();

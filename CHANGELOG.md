@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed Full Keyboard sometimes not returning after an update when its first connection to Steam failed, for example under startup load. The retry now takes over Steam's handed-back keyboard too, instead of leaving it open over Full Keyboard.
 - Fixed the keyboard sometimes staying invisible or see-through after it appeared. If the frame that showed it, or the next one, took longer than the 0.18 s fade-in, the fade never finished; the keyboard took input while you could not see it. It now always ends fully visible.
 - Fixed native keyboard replacement dropping out for a few seconds when the keyboard was briefly busy, for example after waking. Its Steam bridge helper stopped when the keyboard did not read its replies for about two to twelve seconds; it now waits, keeping the results of keys already sent.
 - Fixed a dictated phrase getting stuck when the dictation server **Test** was pressed while that phrase was ending, which held back every later phrase until Esc.

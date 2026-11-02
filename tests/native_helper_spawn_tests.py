@@ -21,6 +21,10 @@ assert sys.flags.isolated == 1
 assert sys.argv[1:5] == ["--fd", "3", "--health-fd", "4"] and sys.argv[5:] in ([], ["--adopt-open"])
 with Path(__file__).with_name("adopt.log").open("a") as log:
     log.write(json.dumps(sys.argv[5:] == ["--adopt-open"]) + "\\n")
+failing = Path(__file__).with_name("fail-once")
+if failing.exists():
+    failing.unlink()
+    raise SystemExit(0)  # ends before it is available, as a failed install does
 parent=socket.socket(fileno=3)
 deadline=time.monotonic()+2
 health=frame=replied=False
@@ -67,6 +71,18 @@ parent.close();os.close(4)
     assert result.returncode == 0, result.stdout + result.stderr
     assert [json.loads(line) for line in (root / "bridge/adopt.log").read_text().splitlines()] == \
         [True, False, False]
+    print(result.stdout.strip().splitlines()[-1])
+
+    # A first start that fails before it is available keeps the adoption for
+    # its retry, so the keyboard still returns over Steam's handed-back one.
+    (root / "bridge/adopt.log").unlink()
+    (root / "bridge/fail-once").touch()
+    result = subprocess.run([str(binary), "--helper-adopt-retry-fixture"], capture_output=True, text=True,
+                            timeout=15, env={**os.environ, "PYTHONPATH": str(root / "bridge")})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (root / "bridge/fail-once").exists()
+    assert [json.loads(line) for line in (root / "bridge/adopt.log").read_text().splitlines()] == \
+        [True, True]
     print(result.stdout.strip().splitlines()[-1])
 
     # Use the real recovery loop and real C++ spawn/health/instance ownership.
