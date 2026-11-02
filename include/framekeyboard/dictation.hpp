@@ -66,8 +66,11 @@ class Dictation {
 
     bool running() const { return fd_ >= 0; }
     // An open helper can accept work; a lost helper must finish cleanup before
-    // another can start. tick() reaps it without blocking the VR thread.
+    // another can start. tick() reaps it without blocking the VR thread, and
+    // kills its group if it is still there kill_after seconds later: the
+    // helper's own cleanup is bounded well within that.
     bool ready_to_start() const { return fd_ >= 0 || child_ < 0; }
+    static constexpr double kill_after = 10;
     // Starts the helper when needed. False when it cannot be started or reached.
     bool configure(const Target& target);
     bool capture(bool on);
@@ -104,6 +107,7 @@ class Dictation {
     std::vector<std::string> arguments_;
     std::deque<Event> events_;
     double alive_at_{};
+    std::optional<double> lost_since_; // When tick() first saw the helper gone but not exited.
     int fd_{-1};
     int child_{-1};
     unsigned cancels_{}; // Sent and not yet confirmed by `cancelled`.

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A dictation helper that stops answering and then never exits is ended after 10 seconds, so dictation and the server **Test** work again without restarting Full Keyboard.
 - Shell integration: `dictation.test_server` now answers `busy` while the previous dictation helper is still shutting down, instead of accepting the request and never reporting a result.
 - Fixed dictation saying "the headset was asleep" when the headset had only been taken off. It says "the headset was taken off" again, as documented.
 - With Replace native keyboard on and the keyboard hidden, Full Keyboard wakes up less often: its stall watchdog ticks four times a second instead of twenty while there is no panel to watch, and the Steam bridge only reports an unchanged idle state four times a second.

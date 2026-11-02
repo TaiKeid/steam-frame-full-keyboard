@@ -2480,6 +2480,26 @@ void test_race_tests() {
         return fs::file_size(directory.path / "test-exits") == 2 &&
                field_label(lost, "Helper stopped") && control_enabled(lost, "dictation-test");
     });
+
+    // A helper that never finishes its cleanup is killed after a grace period,
+    // so dictation and Test are not blocked until the keyboard restarts.
+    fs::remove(directory.path / "test-exits");
+    fs::remove(directory.path / "test-exit-release");
+    App stuck(options, sink);
+    open_settings(stuck);
+    click(stuck, "dictation-test");
+    wait_until(stuck, [&] { return field_label(stuck, "Helper stopped"); });
+    int stuck_pid{};
+    std::ifstream(directory.path / "test-exit-pid") >> stuck_pid;
+    require(stuck_pid > 0 && fs::exists(fs::path("/proc") / std::to_string(stuck_pid)) &&
+                !control_enabled(stuck, "dictation-test"),
+            "the helper ignores its stop and stays");
+    stuck.tick(clock += .1);
+    require(fs::exists(fs::path("/proc") / std::to_string(stuck_pid)), "it is given time first");
+    stuck.tick(clock += Dictation::kill_after);
+    wait_until(stuck, [&] { return control_enabled(stuck, "dictation-test"); });
+    require(!fs::exists(fs::path("/proc") / std::to_string(stuck_pid)),
+            "after the grace period it is killed and reaped, and Test returns");
 }
 
 // A shell's keyboard (docs/integration.md): standalone-only settings are

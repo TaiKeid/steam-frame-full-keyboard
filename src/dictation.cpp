@@ -419,6 +419,15 @@ void Dictation::tick(double now, bool keep_alive) {
     if (fd_ >= 0 && child_ < 0) {
         lost(); // the helper exited while its socket still looked open
     }
+    if (fd_ >= 0 || child_ < 0) {
+        lost_since_.reset();
+    } else if (!lost_since_) {
+        lost_since_ = now;
+    } else if (now - *lost_since_ >= kill_after) {
+        // Stopped but still there: without this, no helper could start until
+        // the keyboard restarts. The group goes too, as in wait_stopped().
+        kill(-child_, SIGKILL);
+    }
 }
 
 std::optional<Dictation::Event> Dictation::next() {
