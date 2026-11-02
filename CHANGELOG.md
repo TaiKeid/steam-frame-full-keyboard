@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Fixed held editing keys continuing to change dictation text behind the **Discard text?** question. Choosing **Keep** no longer resumes a key held across the question; release and press it again to continue editing.
+- Key sounds now stop audio processing after queued clicks finish playing. A visible keyboard no longer continuously streams silence while idle.
+- Canceling on-device dictation now stops an engine that is still loading its model, so a canceled startup cannot hold up later recognition requests or server tests.
+- The dictation server **Test** button now waits for the previous helper to finish cleanup before allowing another test, avoiding a refused retry immediately after helper failure.
+- Fixed retained Cangjie and Quick text becoming impossible to send after repeated refused commits. Longer compositions are sent in paced pieces, and a failed submission retains only its unacknowledged remainder for an explicit Enter retry. Retained text is bounded at 1,024 Unicode code points; a full buffer refuses more input without discarding existing text. Backspace with no active reading removes one retained code point instead of clearing the whole composition.
+
+### Development
+
+- Added isolated regression coverage for dictation editing, helper cleanup and cancellation, sound playback and idle suspension, and Cangjie/Quick text recovery, pacing and cancellation.
+- Fixed ARM64 linking and a C-linkage declaration in the sound test library.
+
 ## 0.14.1: The keyboard returns promptly after an update
 
 - Fixed: Full Keyboard returns as soon as an update restarts it, without the five-second wait. An unadoptable handed-back Steam keyboard closes so it cannot remain over Full Keyboard; typing waits for a safe target.
