@@ -2,6 +2,7 @@
 
 #include <array>
 #include <dlfcn.h>
+#include <glib.h>
 #include <stdexcept>
 
 namespace framekeyboard {
@@ -139,6 +140,9 @@ void TableEngine::type(char key) {
     if (key < 'a' || key > 'z' || keys_.size() >= max_keys_) {
         return;
     }
+    if (static_cast<std::size_t>(g_utf8_strlen(chosen_.c_str(), -1)) >= retained_limit) {
+        throw std::runtime_error("Composition is full. Use Backspace to shorten it before continuing.");
+    }
     keys_ += key;
     look_up();
 }
@@ -146,8 +150,9 @@ void TableEngine::backspace() {
     if (!keys_.empty()) {
         keys_.pop_back();
         look_up();
-    } else {
-        chosen_.clear();
+    } else if (const char* previous =
+                   g_utf8_find_prev_char(chosen_.c_str(), chosen_.c_str() + chosen_.size())) {
+        chosen_.erase(static_cast<std::size_t>(previous - chosen_.c_str()));
     }
 }
 void TableEngine::cancel() {
@@ -166,9 +171,18 @@ void TableEngine::choose(int index) {
     if (index < 0 || index >= static_cast<int>(candidates_.size())) {
         return;
     }
-    // Candidates are whole characters, so a choice ends the reading. It stays
-    // until committed, and one the target refused goes out with the next.
-    chosen_ += candidates_[static_cast<std::size_t>(index)];
+    const auto& candidate = candidates_[static_cast<std::size_t>(index)];
+    if (!g_utf8_validate(candidate.c_str(), static_cast<gssize>(candidate.size()), nullptr)) {
+        throw std::runtime_error("The input table contains invalid text.");
+    }
+    const auto chosen = static_cast<std::size_t>(g_utf8_strlen(chosen_.c_str(), -1));
+    const auto added = static_cast<std::size_t>(g_utf8_strlen(candidate.c_str(), -1));
+    if (added > retained_limit - chosen) {
+        throw std::runtime_error("Composition is full. Use Backspace to shorten it before continuing.");
+    }
+    // A choice ends the reading. Accepted characters or phrases stay until
+    // committed, and text the target refused goes out with the next choice.
+    chosen_ += candidate;
     keys_.clear();
     candidates_.clear();
     selected_ = 0;

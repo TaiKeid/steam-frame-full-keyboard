@@ -10,7 +10,10 @@ namespace framekeyboard {
 namespace {
 constexpr auto waiting_status =
     "Waiting for compositor text delivery. Try the key again when it completes.";
-}
+// Gamescope resets its temporary keymap after 100 ms idle. Count from the
+// previous result, with some headroom, rather than queueing a burst of maps.
+constexpr double composition_gap = .12;
+} // namespace
 OutputController::~OutputController() {
     try {
         cancel();
@@ -93,7 +96,7 @@ void OutputController::native_press(unsigned pointer, const std::vector<int>& co
 bool OutputController::sendable(const std::string& text) {
     return text.find('\0') == std::string::npos &&
            g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr) &&
-           g_utf8_strlen(text.c_str(), -1) <= 32;
+           static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1)) <= commit_limit;
 }
 bool OutputController::taps_then_text(int code, std::size_t count, const std::string& text) {
     if (!enabled_ || failed_ || text.empty() || !sendable(text) ||
@@ -161,6 +164,39 @@ bool OutputController::commit_text(const std::string& text) {
     if (queue_.empty() && target_.output_blocked()) {
         status(waiting_status);
         return false;
+    }
+    if (text.size() > max_commit_codepoints * 4 || text.find('\0') != std::string::npos ||
+        !g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr)) {
+        status("Text not queued. Check the target and input queue.");
+        return false;
+    }
+    const auto count = static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1));
+    if (count > commit_limit) {
+        const auto chunks = (count + commit_limit - 1) / commit_limit;
+        if (count > max_commit_codepoints || !can_queue(chunks)) {
+            status("Text not queued. Check the target and input queue.");
+            return false;
+        }
+        // Build the complete queue before changing ownership or draining it.
+        // A partial admission followed by failure would leave the composer
+        // unable to know which prefix may already have been delivered.
+        auto pending = queue_;
+        const char* start = text.c_str();
+        for (std::size_t left = count; left > 0;) {
+            const auto size = std::min(commit_limit, left);
+            const char* end = g_utf8_offset_to_pointer(start, static_cast<glong>(size));
+            auto entry = std::make_shared<Entry>();
+            entry->text.assign(start, end);
+            entry->paced = true;
+            pending.push_back(std::move(entry));
+            start = end;
+            left -= size;
+        }
+        queue_.swap(pending);
+        drain();
+        // Even an immediate first-chunk refusal belongs to the retry queue:
+        // the entire batch was admitted, so the composer must release it.
+        return true;
     }
     const bool idle = queue_.empty();
     const bool accepted = enqueue_text(text);
@@ -285,6 +321,7 @@ void OutputController::fail(std::size_t delivered) {
         if (!boundary && (!entry->repeat || entry == queue_.front())) {
             auto saved = std::make_shared<Entry>();
             saved->text = entry->text;
+            saved->paced = entry->paced;
             if (entry == queue_.front() && delivered) {
                 // Retyping the acknowledged characters would duplicate them.
                 const char* rest =
@@ -306,7 +343,28 @@ void OutputController::fail(std::size_t delivered) {
                             "Queued actions and later text were discarded."
                           : "Text not sent. Check the target, then press Enter to retry.");
 }
-void OutputController::drain() {
+bool OutputController::settling() const {
+    if (queue_.empty() || queue_.front()->started) {
+        return false;
+    }
+    return paced_time_pending_ || now_ < text_ready_at_ ||
+           (queue_.front()->paced &&
+            (text_time_pending_ || (last_text_at_ >= 0 && now_ < last_text_at_ + composition_gap)));
+}
+void OutputController::note_text_time(bool paced, bool fresh_tick) {
+    if (fresh_tick) {
+        last_text_at_ = now_;
+        if (paced) {
+            text_ready_at_ = now_ + composition_gap;
+        }
+    } else {
+        // Toolbar commits and synchronous results can happen long after the
+        // last tick. A cached clock must not backdate their settling period.
+        text_time_pending_ = true;
+        paced_time_pending_ |= paced;
+    }
+}
+void OutputController::drain(bool fresh_tick) {
     if (!enabled_ || failed_) {
         return;
     }
@@ -319,6 +377,9 @@ void OutputController::drain() {
                 continue;
             }
         }
+        if (settling()) {
+            return;
+        }
         if (!entry->started && target_.output_blocked()) {
             return;
         }
@@ -327,15 +388,20 @@ void OutputController::drain() {
             if (!delivered_.empty()) {
                 return;
             }
-            entry->started = true;
+            if (!entry->started) {
+                note_text_time(entry->paced, fresh_tick);
+                entry->started = true;
+            }
             if (!(entry->delete_before ? target_.replace_text(entry->delete_before, entry->text)
                                        : target_.commit_text(entry->text))) {
                 if (target_.text_pending()) {
                     return;
                 }
+                note_text_time(entry->paced, fresh_tick);
                 fail(target_.delivered_characters());
                 return;
             }
+            note_text_time(entry->paced, fresh_tick);
         } else {
             while (entry->next < entry->codes.size()) {
                 const int code = entry->codes[entry->next];
@@ -380,7 +446,16 @@ void OutputController::drain() {
 }
 bool OutputController::tick(double now) {
     now_ = now;
-    drain();
+    // Anchor out-of-tick submissions/results to an observed frame, including
+    // after cancel: only timestamps survive, never old text or target state.
+    if (std::exchange(text_time_pending_, false)) {
+        last_text_at_ = now;
+    }
+    if (std::exchange(paced_time_pending_, false)) {
+        text_ready_at_ = now + composition_gap;
+    }
+    const auto completed = completed_;
+    drain(true);
     if (queue_.empty() && !failed_ && enabled_) {
         if (status_ == waiting_status && !target_.output_blocked()) {
             status("");
@@ -416,11 +491,13 @@ bool OutputController::tick(double now) {
             }
             held->repeat_at = now + .04;
             if (!queue_.empty()) {
-                drain();
+                drain(true);
                 break;
             }
         }
     }
-    return status_changed_ || !queue_.empty();
+    // Waiting for a chunk's settling deadline does not change anything the UI
+    // can draw. Keep normal pending-delivery behavior and report real progress.
+    return status_changed_ || (!queue_.empty() && (!settling() || completed_ != completed));
 }
 } // namespace framekeyboard

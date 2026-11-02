@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <stdexcept>
@@ -171,7 +172,8 @@ void table_engine() {
                         "c.execute('create table phrases(id integer primary key,tabkeys text,"
                         "phrase text,freq integer,user_freq integer)')\n"
                         "c.executemany('insert into phrases(tabkeys,phrase,freq,user_freq) "
-                        "values(?,?,?,0)',[('a','日',10),('a','曰',5),('ab','明',90),('b','月',1)]"
+                        "values(?,?,?,0)',[('a','日',10),('a','曰',5),('ab','明',90),('b','月',1),"
+                        "('e','𠮷',1),('f','明日',1)]"
                         "+[('c',str(i),1) for i in range(60)]+[('c'+chr(97+i%26)+chr(97+i//26),"
                         "'x',1) for i in range(120)]+[('d'+chr(97+i%26)+chr(97+i//26),'y',1) "
                         "for i in range(120)])\n"
@@ -222,6 +224,56 @@ void table_engine() {
     table.cancel();
     table.type('d');
     require(table.candidates().size() == 50, "a prefix alone stops at enough to page through");
+    table.cancel();
+    for (const char ch : std::string("abe")) {
+        table.type(ch);
+        table.choose(0);
+    }
+    require(table.text() == "日月𠮷", "retained choices include four-byte Unicode characters");
+    table.backspace();
+    require(table.text() == "日月", "Backspace removes one complete retained code point");
+    table.backspace();
+    require(table.text() == "日", "earlier retained choices survive another Backspace");
+    table.backspace();
+    require(table.empty(), "Backspace can remove the final retained choice");
+
+    constexpr std::size_t retained_limit = 1024;
+    for (std::size_t i = 0; i < retained_limit - 1; ++i) {
+        table.type('a');
+        table.choose(0);
+    }
+    table.type('f');
+    const auto before = table.preedit();
+    const auto candidates = table.candidates();
+    bool refused = false;
+    try {
+        table.choose(0); // This two-character choice would overflow the bound.
+    } catch (const std::runtime_error&) {
+        refused = true;
+    }
+    require(refused && table.preedit() == before && table.candidates() == candidates &&
+                table.has_reading(),
+            "overflow refuses the choice without losing its reading or accepted text");
+    table.backspace(); // Remove only the unchosen reading.
+    table.type('a');
+    table.choose(0);
+    require(static_cast<std::size_t>(g_utf8_strlen(table.text().c_str(), -1)) == retained_limit,
+            "the last fitting retained character is accepted");
+    const auto full = table.text();
+    refused = false;
+    try {
+        table.type('a');
+    } catch (const std::runtime_error&) {
+        refused = true;
+    }
+    require(refused && !table.has_reading() && table.text() == full,
+            "a full retained buffer stays ready for an explicit commit");
+    table.backspace();
+    table.type('b');
+    table.choose(0);
+    require(g_utf8_validate(table.text().c_str(), -1, nullptr) && table.text().ends_with("月") &&
+                static_cast<std::size_t>(g_utf8_strlen(table.text().c_str(), -1)) == retained_limit,
+            "shortening full text frees room without corrupting UTF-8");
     table.cancel();
     require(!TableEngine::available(path.string() + ".missing"), "a missing table is unavailable");
 }

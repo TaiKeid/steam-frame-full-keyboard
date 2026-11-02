@@ -25,6 +25,8 @@ class OutputController : public KeySink, public TextOutput {
     explicit OutputController(KeySink& target) : target_(target) {}
     ~OutputController() override;
     static constexpr std::size_t capacity = 32;
+    static constexpr std::size_t commit_limit = 32;
+    static constexpr std::size_t max_commit_codepoints = capacity * commit_limit;
     bool admit(bool produces_output, double now);
     // Counts delivery failures, so callers can tell that text they assumed
     // was in the target may not be (a failed or timed-out request).
@@ -56,6 +58,8 @@ class OutputController : public KeySink, public TextOutput {
     bool take_input_reset() override { return target_.take_input_reset(); }
     bool can_resume() const override { return target_.can_resume(); }
     bool text_available() override { return target_.text_available(); }
+    // A longer composition is admitted as one bounded batch, then delivered
+    // in paced commits. True transfers all retry ownership to this queue.
     bool commit_text(const std::string& text) override;
     bool replaces_text() override { return target_.replaces_text(); }
     bool replace_text(std::size_t delete_before, const std::string& text) override;
@@ -85,13 +89,15 @@ class OutputController : public KeySink, public TextOutput {
         std::set<int> released_modifiers;
         std::size_t next{};
         int repeat_code{};
-        bool held{}, started{}, waiting{}, repeat{};
+        bool held{}, started{}, waiting{}, repeat{}, paced{};
         double repeat_at{};
         std::weak_ptr<Entry> owner;
     };
     bool enqueue_text(const std::string& text, std::shared_ptr<Entry> entry = {});
     static bool sendable(const std::string& text);
-    void drain();
+    bool settling() const;
+    void note_text_time(bool paced, bool fresh_tick);
+    void drain(bool fresh_tick = false);
     // `delivered` characters at the start of the front text entry are known
     // to have reached the target; the retry keeps only the rest.
     void fail(std::size_t delivered = 0);
@@ -104,6 +110,10 @@ class OutputController : public KeySink, public TextOutput {
     std::map<int, std::shared_ptr<Entry>> direct_;
     std::map<int, unsigned> delivered_;
     double now_{};
+    // A paced composition must let the compositor's temporary keymap settle
+    // between chunks. Keep this debt across cancellation and explicit retries.
+    double last_text_at_{-1}, text_ready_at_{-1};
+    bool text_time_pending_{}, paced_time_pending_{};
     bool enabled_{}, failed_{};
     std::uint64_t failures_{}, completed_{};
     std::string status_;

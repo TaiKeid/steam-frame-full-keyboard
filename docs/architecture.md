@@ -74,7 +74,16 @@ references, text retry buffer and repeat scheduling. `KeyboardState` retains
 pointer captures, visual state and sticky modifier interpretation. Each accepted
 native press snapshots its chord; Unicode presses snapshot the composed text.
 Up to 32 output entries can wait for delivery, with at most 32 Unicode characters
-per text entry. Accepted queued keys receive the normal pressed visual and haptic.
+per text entry. A longer composition, up to 1,024 code points, is admitted as a
+whole batch or refused without changing the queue. Once admitted, the output
+controller owns every unsent chunk and any failure retry; the composer clears
+its copy. Chunks wait at least 120 ms after the prior text completes, including
+text before the batch. The final chunk leaves the same settling interval before
+later queued input. Native releases bypass that interval. This lets the pinned
+Gamescope temporary keymap's 100 ms reset occur between chunks without blocking
+the VR loop. Ordinary short-only typing keeps its existing timing. Settling ticks
+do not request redundant redraws. Accepted queued keys receive the normal pressed
+visual and haptic.
 Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.
@@ -100,7 +109,12 @@ holds. The failed text and consecutive queued text before the first native actio
 remain for one explicit Enter retry, in transport-sized chunks. Native actions and
 text after that boundary are discarded with a status, so a discarded Tab or Enter
 cannot join text intended for separate fields. A synchronous preedit rejection
-leaves the original editor responsible for its unchanged preedit.
+leaves the original editor responsible for its unchanged preedit for a single
+short commit. An admitted long batch instead retains its failed suffix in the
+output controller, even if the first chunk is rejected synchronously. Failure
+retries keep their pacing. Cancellation still discards queued and retry text on
+hide, transport interruption or an observed target/context change; no old batch
+is replayed into a later context.
 
 App types all text through one `TextOutput`: text key presses, Japanese, flick
 and Chinese/Korean commits, swipe taps, swiped words, alternatives and emoji.
@@ -175,7 +189,7 @@ When an app tab such as Brave is active, Steam's hidden main dashboard overlay r
 
 `EiSink` derives the Japanese text socket only from the documented `gamescope-N-ei` naming convention, preserving its directory and compositor number. Nonstandard key sockets require an explicit `--text-socket`; there is no fallback to gamescope-0 or the default Wayland display.
 
-`GamescopeText` uses the pinned, generated version-1 input-method protocol. It feature-checks the manager/seat and handles unavailable connections. Discovery and commits progress through nonblocking flush/dispatch. Each handshake stage and commit has a one-second deadline. A commit timeout reports failure without killing the connection. Its ordering barrier remains until the late callback arrives, including after cancellation; native releases still pass. No timed-out text is automatically resubmitted. The protocol cannot establish whether the target received text before a timeout, so an explicit retry can duplicate text. A per-character commit counts the characters Gamescope acknowledged (`GamescopeText::acknowledged()`, reported as `KeySink::delivered_characters()`). Its retry keeps only the rest, starting with the character that timed out, so at most that one character can be typed twice. `EiSink` retries failed connections after 1, 2, 4 seconds up to 30 seconds, resets the delay on readiness, refuses text while native keys are held, and does not read target fields or clipboard data. Text and physical output share explicit launch gating. Commits are limited to 32 Unicode characters to stay below the compositor's temporary keymap capacity; local reading is limited to roughly 30 characters.
+`GamescopeText` uses the pinned, generated version-1 input-method protocol. It feature-checks the manager/seat and handles unavailable connections. Discovery and commits progress through nonblocking flush/dispatch. Each handshake stage and commit has a one-second deadline. A commit timeout reports failure without killing the connection. Its ordering barrier remains until the late callback arrives, including after cancellation; native releases still pass. No timed-out text is automatically resubmitted. The protocol cannot establish whether the target received text before a timeout, so an explicit retry can duplicate text. A per-character commit counts the characters Gamescope acknowledged (`GamescopeText::acknowledged()`, reported as `KeySink::delivered_characters()`). Its retry keeps only the rest, starting with the character that timed out, so at most that one character can be typed twice. `EiSink` retries failed connections after 1, 2, 4 seconds up to 30 seconds, resets the delay on readiness, refuses text while native keys are held, and does not read target fields or clipboard data. Text and physical output share explicit launch gating. Transport commits are limited to 32 Unicode characters to stay below the compositor's temporary keymap capacity. The output controller splits longer retained Cangjie/Quick composition into paced chunks; the other local reading engines remain limited to roughly 30 characters.
 
 Gamescope types a single character on its ordinary keymap when one key level produces it with at most Shift, Control or Alt (`try_type_keysym` in Gamescope's `ime.cpp`). Any longer string goes through a fresh temporary keymap that Gamescope resets 100 ms later. Its keys are pressed back to back with identical timestamps. With SteamOS's IBus behind XIM, a busy X11 client such as Brave could apply those keymap changes late, turning letters into digits (`word235`), or reorder the keys. So `EiSink::on_keymap()` decides when a multi-character text is typed one character at a time:
 - **With a target keymap:** every character must be on its current group under that same rule.

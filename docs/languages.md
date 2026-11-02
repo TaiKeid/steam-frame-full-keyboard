@@ -168,6 +168,15 @@ in `/usr/share/ibus-table/tables`; without them those languages stay listed, and
 one reports the error. A reading that matches nothing stays to be corrected: other keys
 are refused, and the status line says so, until Backspace fixes it or Esc cancels it.
 
+If Cangjie or Quick cannot send a choice, the accepted characters stay in the
+local composition, up to 1,024 Unicode code points. After delivery is available,
+Enter or Commit submits that text in smaller pieces. A full composition refuses
+more input without discarding existing text. Backspace removes one reading key,
+or one retained Unicode code point when there is no reading. If submission has
+already started and a piece fails, the status asks for Enter to retry only the
+unsent remainder. Hiding or changing the typing context cancels queued output;
+text that was already submitted is never replayed automatically.
+
 For Chinese, type Pinyin without tone numbers. Use `v` for ü and an apostrophe
 for syllable separation where needed. The candidate row shows five entries at a
 time. Arrow Up/Down or the candidate-row arrows change the highlighted entry.
@@ -210,10 +219,12 @@ the right. Its 3×4 grid is ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ �
 천지인 composes inside Full Keyboard and needs no libhangul. Leaving the
 12-key layout switches to two-set Korean, which does.
 
-Both modes keep a bounded preedit. Commit before the 30-input-character limit.
-Shortcuts and navigation that leave composition commit first; if delivery fails,
-the preedit stays visible and the forwarding action is blocked. Hiding, changing
-profiles, and closing discard unfinished preedit, as with Japanese; moving,
+Pinyin, Zhuyin and Korean keep a bounded preedit. Commit before the
+30-input-character limit; Cangjie and Quick use the retained-text bound above.
+Shortcuts and navigation that leave composition commit first; if output refuses
+the composition before admission, the preedit stays visible and the forwarding
+action is blocked. An admitted long batch uses the output retry behavior above.
+Hiding, changing profiles, and closing discard unfinished preedit, as with Japanese; moving,
 resizing, pinning and recentring the panel keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms, and stops once it is empty; the press stays local, so it never goes on to delete the target's text. Other composition keys do not repeat.
 
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.

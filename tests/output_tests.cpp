@@ -280,6 +280,219 @@ void composition_ownership() {
     require(output.retry_text() == "apreedit" && sink.events == std::vector<std::string>{"a"},
             "failed prefix and accepted preedit are retained once, without another transport send");
 }
+std::string repeated(const std::string& character, std::size_t count) {
+    std::string result;
+    while (count-- > 0) {
+        result += character;
+    }
+    return result;
+}
+void long_composition() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    const auto first = repeated("日", 32);
+    require(output.commit_text(first + "月"), "a 33-character composition transfers ownership");
+    require(sink.events == std::vector<std::string>{first}, "only the first transport chunk starts");
+    sink.done = true;
+    output.take_status();
+    require(output.tick(1), "acknowledging a chunk reports progress");
+    require(!output.tick(1.119), "an unchanged settling wait does not request UI redraws");
+    require(sink.events.size() == 1, "the next chunk waits beyond the temporary keymap reset");
+    require(output.tick(1.121), "starting the next chunk reports progress");
+    require(sink.events == std::vector<std::string>{first, "月"},
+            "UTF-8 chunks split on character boundaries");
+    sink.done = true;
+    output.tick(2);
+    require(!output.text_pending(), "both chunks complete");
+    character(output, 0, "next", 2.01);
+    require(sink.events.size() == 2, "following input cannot immediately replace the last chunk's map");
+    output.tick(2.121);
+    require(sink.events.back() == "next", "following input resumes after the paced chunk");
+}
+void long_composition_capacity() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    for (unsigned i = 0; i < OutputController::capacity - 1; ++i) {
+        character(output, i, "x");
+    }
+    require(output.can_queue(1) && !output.can_queue(2), "one queue entry remains");
+    require(!output.commit_text(repeated("日", 33)), "a two-chunk batch is refused as a whole");
+    require(output.can_queue(1) && sink.events == std::vector<std::string>{"x"},
+            "refusal queues and delivers no prefix of the composition");
+    output.cancel();
+    require(!output.commit_text(repeated("日", 1025)) && sink.events.size() == 1,
+            "a composition beyond the bounded queue contract is refused");
+    require(output.commit_text(repeated("日", 1024)) && !output.can_queue(1),
+            "the maximum composition occupies exactly 32 bounded entries");
+}
+void long_composition_after_pending_text() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    character(output, 0, "prior");
+    const auto text = repeated("日", 33);
+    require(output.commit_text(text), "a long composition queues behind prior text");
+    sink.done = true;
+    output.tick(2);
+    require(sink.events == std::vector<std::string>{"prior"},
+            "even the first batch chunk waits after prior text's acknowledgement");
+    output.tick(2.121);
+    require(sink.events == std::vector<std::string>{"prior", repeated("日", 32)},
+            "the first chunk follows the earlier request and its settling gap");
+}
+void long_composition_retry() {
+    Transport sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    const auto first = repeated("日", 32), second = repeated("月", 32);
+    require(output.commit_text(first + second + "水火"), "all chunks are accepted together");
+    sink.done = true;
+    output.tick(1);
+    output.tick(1.121);
+    sink.done = true;
+    sink.success = false;
+    sink.delivered = 5;
+    output.tick(2);
+    require(output.retry_text() == repeated("月", 27) + "水火",
+            "retry owns only the unacknowledged suffix and later chunks");
+    output.tick(50);
+    require(sink.events == std::vector<std::string>{first, second}, "a batch never retries itself");
+    sink.success = true;
+    sink.delivered = 0;
+    require(output.retry(), "Enter can retry the suffix");
+    sink.done = true;
+    output.tick(51);
+    require(sink.events == std::vector<std::string>{first, second, repeated("月", 27)},
+            "the completed first chunk and acknowledged second prefix are not replayed");
+    output.tick(51.119);
+    require(sink.events.size() == 3, "retry keeps its inter-chunk pace");
+    output.tick(51.121);
+    require(sink.events.back() == "水火", "the final suffix follows after the settling gap");
+    sink.done = true;
+    output.tick(52);
+    require(!output.text_pending() && !output.retry_available(), "retry finishes with one text owner");
+}
+void synchronous_composition_refusal() {
+    struct Refusal : KeySink {
+        unsigned calls{};
+        void send(int, int) override {}
+        bool commit_text(const std::string&) override {
+            ++calls;
+            return false;
+        }
+    };
+    {
+        Refusal sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(!output.commit_text(repeated("日", 32)) && !output.retry_available(),
+                "a short synchronous refusal leaves ownership with its composer");
+    }
+    Refusal sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    const auto long_text = repeated("日", 33);
+    require(output.commit_text(long_text) && output.retry_text() == long_text,
+            "a synchronously refused long batch transfers ownership to the single retry buffer");
+    output.tick(0); // Observe the out-of-tick refusal before measuring its settling period.
+    require(output.retry() && sink.calls == 1, "an immediate retry queues without bypassing pacing");
+    output.tick(.119);
+    require(sink.calls == 1, "an explicit retry still waits for the prior failed submission");
+    output.tick(.121);
+    require(sink.calls == 2 && output.retry_text() == long_text,
+            "another refusal retains the entire batch once");
+}
+void long_composition_cancellation() {
+    for (bool disable : {false, true}) {
+        Transport sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text(repeated("日", 33)), "a composition starts");
+        if (disable) {
+            output.set_enabled(false);
+        } else {
+            output.cancel();
+        }
+        output.set_enabled(true);
+        character(output, 0, "new", .01);
+        require(sink.events == std::vector<std::string>{repeated("日", 32)},
+                "new input still honors the canceled chunk's temporary-map settling time");
+        output.tick(.121);
+        require(sink.events.size() == 1,
+                "the first fresh tick anchors canceled submission timing rather than expiring it");
+        output.tick(.242);
+        require(sink.events == std::vector<std::string>{repeated("日", 32), "new"} &&
+                    !output.retry_available(),
+                "the new target receives no old suffix or old retry");
+    }
+}
+void out_of_tick_composition_clock() {
+    struct Immediate : KeySink {
+        std::vector<std::string> events;
+        void send(int code, int value) override {
+            events.push_back(std::to_string(code) + ":" + std::to_string(value));
+        }
+        bool commit_text(const std::string& value) override {
+            events.push_back(value);
+            return true;
+        }
+    };
+    const auto first = repeated("日", 32), text = first + "月";
+    {
+        Immediate sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        output.tick(0);
+        require(output.commit_text(text), "a synchronous batch starts outside tick");
+        require(sink.events == std::vector<std::string>{first}, "only its first chunk starts");
+        output.tick(10); // Its real submission may have been just before this new frame.
+        require(sink.events == std::vector<std::string>{first},
+                "a stale prior clock cannot expire a new synchronous chunk's settling gap");
+        output.tick(10.119);
+        require(sink.events.size() == 1, "the gap starts at a fresh clock observation");
+        output.tick(10.121);
+        require(sink.events == std::vector<std::string>{first, "月"},
+                "the second chunk follows the anchored settling deadline");
+    }
+    {
+        Immediate sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        output.tick(0);
+        require(output.commit_text("prior"), "ordinary text completes outside tick");
+        require(output.admit(false, 10), "a later IME press supplies a newer admission timestamp");
+        require(output.commit_text(text), "the composition queues after the ordinary text");
+        require(sink.events == std::vector<std::string>{"prior"},
+                "a later admission clock cannot backdate an earlier unanchored completion");
+        output.tick(20);
+        output.tick(20.119);
+        require(sink.events == std::vector<std::string>{"prior"},
+                "the first paced chunk waits after the fresh observation");
+        output.tick(20.121);
+        require(sink.events == std::vector<std::string>{"prior", first},
+                "the long composition starts after that anchored gap");
+    }
+    {
+        Immediate sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        output.tick(0);
+        require(output.commit_text(text), "a batch starts before a context cancellation");
+        output.cancel();
+        output.native_press(0, {KEY_C}, KEY_C, 10);
+        output.release(0);
+        require(sink.events == std::vector<std::string>{first},
+                "cancellation keeps unanchored map timing without keeping old text");
+        output.tick(20);
+        output.tick(20.119);
+        require(sink.events.size() == 1, "new target input waits for the old map's anchored gap");
+        output.tick(20.121);
+        require(sink.events == std::vector<std::string>{first, "46:1", "46:0"},
+                "only fresh target input follows the gap, balanced and without the old suffix");
+    }
+}
 void cancellation() {
     for (bool disable : {false, true}) {
         Transport sink;
@@ -316,6 +529,13 @@ int main() {
         native_acknowledgement();
         delayed_admission_clock();
         composition_ownership();
+        long_composition();
+        long_composition_capacity();
+        long_composition_after_pending_text();
+        long_composition_retry();
+        synchronous_composition_refusal();
+        long_composition_cancellation();
+        out_of_tick_composition_clock();
         cancellation();
         std::cout << "Ordered output, retries, cancellation, bounds and held-key cleanup passed.\n";
     } catch (const std::exception& error) {

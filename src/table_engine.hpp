@@ -16,6 +16,9 @@ std::optional<InputTable> table_for(const std::string& method);
 
 class TableEngine final : public CjkEngine {
   public:
+    // Accepted choices remain local while output is unavailable. Keep that
+    // backlog bounded independently of the transport's smaller commit size.
+    static constexpr std::size_t retained_limit = 1024;
     TableEngine(const std::filesystem::path& table, std::size_t max_keys);
     ~TableEngine() override;
     // The table opens, holds characters, and SQLite is present.
