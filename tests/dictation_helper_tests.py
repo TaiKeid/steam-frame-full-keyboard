@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import wave
 
 HELPER = Path(sys.argv.pop(1)).resolve()
@@ -494,7 +495,7 @@ except BrokenPipeError:
 
 
 FAKE_ENGINE = r'''
-import json, os, sys
+import json, os, sys, time
 # Stands in for framekeyboard-whisper: counts its starts, answers each request
 # with how many samples it got.
 args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
@@ -503,6 +504,12 @@ with open(os.environ["FK_ENGINE_LOG"], "a") as log:
 if not os.path.isfile(args["--model"]):
     print(json.dumps({"error": "model"}), flush=True)
     sys.exit(1)
+startup = os.environ.get("FK_ENGINE_STARTUP")
+if startup:
+    with open(startup, "w") as marker:
+        marker.write(str(os.getpid()))
+    while os.path.exists(startup):
+        time.sleep(0.01)
 print(json.dumps({"ready": True}), flush=True)
 while True:
     line = sys.stdin.buffer.readline()
@@ -581,6 +588,64 @@ class Device(unittest.TestCase):
         connection = d.Connection()
         connection.abort()
         self.assertEqual(e.recognize(str(model), "en", "", PCM, connection), ("error", "cancelled"))
+
+    def test_an_aborted_cold_request_never_starts_the_engine(self):
+        engine, model, log = fake_engine(self)
+        e = d.Engine(str(engine))
+        self.addCleanup(e.close)
+        connection = d.Connection()
+        connection.abort()
+        self.assertEqual(e.recognize(str(model), "en", "", PCM, connection), ("error", "cancelled"))
+        self.assertIsNone(e.process)
+        self.assertFalse(log.exists(), "a cancelled request must not load a model")
+
+    def test_cancel_during_cold_start_reaps_the_engine_and_allows_a_fresh_request(self):
+        engine, model, _ = fake_engine(self)
+        e = d.Engine(str(engine))
+        self.addCleanup(e.close)
+        connection = d.Connection()
+        startup = engine.parent / "starting"
+        results = []
+        worker = threading.Thread(target=lambda: results.append(
+            e.recognize(str(model), "en", "", PCM, connection)))
+        with mock.patch.dict(os.environ, {"FK_ENGINE_STARTUP": str(startup)}):
+            worker.start()
+            try:
+                deadline = time.monotonic() + 3
+                while not startup.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(startup.exists(), "the fake engine reached model startup")
+                process = e.process
+                self.assertIsNotNone(process)
+                connection.abort()
+                worker.join(1)
+                self.assertFalse(worker.is_alive(), "Cancel interrupts the model readiness wait")
+                self.assertEqual(results, [("error", "cancelled")])
+                self.assertIsNotNone(process.poll(), "the cancelled engine was reaped")
+                self.assertIsNone(e.process)
+            finally:
+                # A failing regression must not leave its worker or child behind.
+                startup.unlink(missing_ok=True)
+                if worker.is_alive() and e.process:
+                    e.process.kill()
+                worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(e.recognize(str(model), "en", "", PCM, d.Connection())[0], "text")
+
+    def test_cancel_between_spawn_and_attachment_does_not_leave_a_child(self):
+        class CancelAtAttach(d.Connection):
+            def attach_process(self, process):
+                self.spawned = process
+                self.abort()
+                super().attach_process(process)
+
+        engine, model, _ = fake_engine(self)
+        e = d.Engine(str(engine))
+        self.addCleanup(e.close)
+        connection = CancelAtAttach()
+        self.assertEqual(e.recognize(str(model), "en", "", PCM, connection), ("error", "cancelled"))
+        self.assertIsNotNone(connection.spawned.poll(), "the spawn/attach race reaps its child")
+        self.assertIsNone(e.process)
 
 
 class Process:

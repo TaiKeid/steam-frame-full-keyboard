@@ -499,15 +499,21 @@ class Engine:
 
     def recognize(self, model, language, prompt, pcm, connection):
         with self.lock:
+            if connection.aborted:
+                return "error", "cancelled"
             if not os.path.isfile(model):
                 return "error", "model-missing"
             if self.process and (self.process.poll() is not None or self.model != model):
                 self._stop()
-            if self.process is None and not self._start(model):
-                return "error", "device-failed"
             try:
-                connection.attach_process(self.process)
+                if self.process is None:
+                    if not self._start(model, connection):
+                        return "error", "cancelled" if connection.aborted else "device-failed"
+                else:
+                    connection.attach_process(self.process)
             except Failure as failure:
+                # Cancellation may race Popen before the request owns its child.
+                self._stop()
                 return "error", str(failure)
             header = json.dumps({"samples": len(pcm) // 2, "language": language or "",
                                  "prompt": prompt or ""}, ensure_ascii=False).encode() + b"\n"
@@ -552,7 +558,9 @@ class Engine:
         with self.lock:
             self._stop()
 
-    def _start(self, model):
+    def _start(self, model, connection):
+        if connection.aborted:
+            raise Failure("cancelled")
         if not self.path or not os.path.isfile(self.path):
             return False
         try:
@@ -562,6 +570,9 @@ class Engine:
         except OSError:
             return False
         self.model, self.buffer = model, b""
+        # Cancel owns the process throughout model loading, not only recognition.
+        # Killing it closes stdout and wakes the readiness wait immediately.
+        connection.attach_process(self.process)
         line = self._line(DEVICE_START_TIMEOUT)
         with contextlib.suppress(ValueError, TypeError):
             if line and json.loads(line).get("ready") is True:
