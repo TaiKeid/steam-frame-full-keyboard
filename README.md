@@ -4,9 +4,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 **Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
-![Full Keyboard swipe typing, Japanese input, dictation, emoji and Settings on Steam Frame](docs/images/full-keyboard-demo.webp)
-
-*Swipe typing, Japanese input, dictation, the emoji picker and Settings, recorded on Steam Frame.*
+![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
 ## What it does
 
@@ -25,6 +23,10 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
 - An experimental integration protocol that lets alternative Steam Frame shells host the keyboard: launching, placing, styling and updating it. See [shell integration](docs/integration.md).
 - English, Spanish, Simplified and Traditional Chinese, Japanese, German, French, Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian, Lithuanian, Bulgarian, Catalan, Serbian, Persian, Filipino, Icelandic, Georgian, Armenian, Kazakh, Azerbaijani, Macedonian and Albanian, each on its standard national layout, with regional and alternative keyboards for many of them. Chinese has Simplified and Traditional Pinyin, and Traditional also has Zhuyin, Cangjie and Quick; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
+
+![Full Keyboard swipe typing, Japanese input, dictation, emoji and Settings on Steam Frame](docs/images/full-keyboard-demo.webp)
+
+*Swipe typing, Japanese input, dictation, the emoji picker and Settings, recorded on Steam Frame with an earlier version of Full Keyboard.*
 
 ## Where it works
 
