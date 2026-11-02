@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -105,6 +106,9 @@ struct PipeWire {
     decltype(&::pw_thread_loop_lock) thread_loop_lock{};
     decltype(&::pw_thread_loop_unlock) thread_loop_unlock{};
     decltype(&::pw_thread_loop_destroy) thread_loop_destroy{};
+    decltype(&::pw_loop_add_event) loop_add_event{};
+    decltype(&::pw_loop_signal_event) loop_signal_event{};
+    decltype(&::pw_loop_destroy_source) loop_destroy_source{};
     decltype(&::pw_stream_new_simple) stream_new_simple{};
     decltype(&::pw_stream_connect) stream_connect{};
     decltype(&::pw_stream_set_active) stream_set_active{};
@@ -134,6 +138,9 @@ struct PipeWire {
         bind(thread_loop_lock, "pw_thread_loop_lock");
         bind(thread_loop_unlock, "pw_thread_loop_unlock");
         bind(thread_loop_destroy, "pw_thread_loop_destroy");
+        bind(loop_add_event, "pw_loop_add_event");
+        bind(loop_signal_event, "pw_loop_signal_event");
+        bind(loop_destroy_source, "pw_loop_destroy_source");
         bind(stream_new_simple, "pw_stream_new_simple");
         bind(stream_connect, "pw_stream_connect");
         bind(stream_set_active, "pw_stream_set_active");
@@ -202,7 +209,6 @@ struct KeySounds::Player {
             lock.unlock();
             voices = {}; // No data thread runs here; a pop cut off by sleep ends.
             draining.store(false, std::memory_order_relaxed);
-            processing_failed.store(false, std::memory_order_relaxed);
             active = false;
             const bool connected = connect();
             lock.lock();
@@ -216,23 +222,16 @@ struct KeySounds::Player {
                     failed = pw.stream_set_active(stream, true) < 0;
                     active = !failed;
                 }
-                const bool stream_active = active;
                 pw.thread_loop_unlock(loop);
                 lock.lock();
                 broken |= failed;
                 auto wake = [&] {
-                    return stopping || !wanted || broken || request_generation != generation ||
-                           processing_failed.load(std::memory_order_acquire);
+                    return stopping || !wanted || broken || request_generation != generation;
                 };
-                if (stream_active) {
-                    // The RT callback cannot take mutex to report a flush
-                    // failure. Check it only during active playback/drain;
-                    // an inactive stream sleeps without a periodic timer.
-                    changed.wait_for(lock, std::chrono::milliseconds(100), wake);
-                } else {
-                    changed.wait(lock, wake);
-                }
-                broken |= processing_failed.load(std::memory_order_acquire);
+                // An active stream can be paused indefinitely without a route.
+                // RT failures wake the normal loop through a preallocated event;
+                // neither playback nor an unavailable sink needs a polling timer.
+                changed.wait(lock, wake);
                 generation = request_generation;
             }
             const bool failed = !connected || broken;
@@ -258,6 +257,12 @@ struct KeySounds::Player {
     bool connect() {
         loop = pw.thread_loop_new("framekeyboard-sounds", nullptr);
         if (!loop) {
+            return false;
+        }
+        failure_event = pw.loop_add_event(
+            pw.thread_loop_get_loop(loop),
+            [](void* player, std::uint64_t) { static_cast<Player*>(player)->lost(); }, this);
+        if (!failure_event) {
             return false;
         }
         static const pw_stream_events events = [] {
@@ -337,6 +342,11 @@ struct KeySounds::Player {
         if (stream) {
             pw.stream_destroy(stream);
         }
+        // stream_destroy has stopped the RT thread before its event is removed.
+        if (failure_event) {
+            pw.loop_destroy_source(pw.thread_loop_get_loop(loop), failure_event);
+            failure_event = nullptr;
+        }
         if (loop) {
             pw.thread_loop_destroy(loop);
         }
@@ -383,9 +393,13 @@ struct KeySounds::Player {
             // drained callback so the final buffer's tail is not discarded.
             draining.store(true, std::memory_order_release);
             if (pw.stream_flush(stream, true) < 0) {
-                // Stop supplying data. The active worker's bounded check
-                // tears this connection down without locking on the RT thread.
-                processing_failed.store(true, std::memory_order_release);
+                // Signaling a preallocated loop event is RT safe. Its normal
+                // callback reports the failure without locking this data thread.
+                int result;
+                do {
+                    result = pw.loop_signal_event(pw.thread_loop_get_loop(loop), failure_event);
+                } while (result == -EINTR);
+                // EAGAIN on the nonblocking event means it is already signaled.
             }
         }
     }
@@ -406,11 +420,11 @@ struct KeySounds::Player {
     PipeWire pw;
     pw_thread_loop* loop{};
     pw_stream* stream{};
+    spa_source* failure_event{};
     std::array<std::array<std::vector<float>, 2>, pops.size()> sounds; // Press, then release.
     std::array<Voice, 4> voices{};                                     // Data thread only.
     std::atomic<unsigned> press_requests{}, release_requests{};
     std::atomic<bool> draining{};
-    std::atomic<bool> processing_failed{};
     bool active{}; // Worker under the PipeWire loop lock, or its normal callbacks.
     std::mutex mutex;
     std::condition_variable changed;

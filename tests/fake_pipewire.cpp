@@ -7,17 +7,34 @@
 #include <cerrno>
 #include <chrono>
 #include <mutex>
+// These helpers are inline in headers and exported by libpipewire as well.
+// Rename the inline copies so this substitute can export its own versions.
+#define pw_loop_add_event framekeyboard_unused_loop_add_event
+#define pw_loop_signal_event framekeyboard_unused_loop_signal_event
+#define pw_loop_destroy_source framekeyboard_unused_loop_destroy_source
 #include <pipewire/pipewire.h>
+#undef pw_loop_add_event
+#undef pw_loop_signal_event
+#undef pw_loop_destroy_source
 #include <thread>
+#include <utility>
 #include <vector>
 
 struct pw_stream;
+struct FakeEvent;
 struct pw_thread_loop {
     std::recursive_mutex mutex;
     std::mutex data_mutex;
     std::thread control, realtime;
     std::atomic<bool> running{};
     pw_stream* stream{}; // Set before starting, cleared after both threads stop.
+    FakeEvent* event{};
+};
+struct FakeEvent {
+    spa_source source{};
+    spa_source_event_func_t callback{};
+    void* data{};
+    std::atomic<bool> pending{};
 };
 struct pw_stream {
     pw_thread_loop* loop{};
@@ -38,6 +55,8 @@ std::vector<float> samples;
 std::atomic<bool> hold_drain{};
 std::atomic<int> fail_active{-1};
 std::atomic<bool> fail_flush{};
+std::atomic<bool> pause_processing{};
+std::atomic<bool> interrupt_signal{};
 std::uint64_t pending_frames{};
 } // namespace
 
@@ -54,6 +73,12 @@ void framekeyboard_test_sound_fail_active(bool activating) {
 }
 void framekeyboard_test_sound_fail_flush() {
     fail_flush = true;
+}
+void framekeyboard_test_sound_pause_processing(bool paused) {
+    pause_processing = paused;
+}
+void framekeyboard_test_sound_interrupt_signal() {
+    interrupt_signal = true;
 }
 std::size_t framekeyboard_test_sound_samples(float* destination, std::size_t capacity) {
     std::lock_guard lock(observations);
@@ -78,6 +103,9 @@ int pw_thread_loop_start(pw_thread_loop* loop) {
         while (loop->running) {
             {
                 std::lock_guard lock(loop->mutex);
+                if (loop->event && loop->event->pending.exchange(false)) {
+                    loop->event->callback(loop->event->data, 1);
+                }
                 auto* stream = loop->stream;
                 if (stream->draining.load() && !hold_drain.load()) {
                     // Every queued sample is played before drained is emitted.
@@ -99,7 +127,7 @@ int pw_thread_loop_start(pw_thread_loop* loop) {
             {
                 std::lock_guard data(loop->data_mutex);
                 auto* stream = loop->stream;
-                if (stream->active.load() && !stream->draining.load()) {
+                if (stream->active.load() && !stream->draining.load() && !pause_processing.load()) {
                     {
                         std::lock_guard record(observations);
                         ++snapshot.callbacks;
@@ -123,12 +151,47 @@ void pw_thread_loop_stop(pw_thread_loop* loop) {
 }
 void pw_thread_loop_lock(pw_thread_loop* loop) {
     loop->mutex.lock();
+    std::lock_guard record(observations);
+    ++snapshot.loop_locks;
 }
 void pw_thread_loop_unlock(pw_thread_loop* loop) {
     loop->mutex.unlock();
 }
 void pw_thread_loop_destroy(pw_thread_loop* loop) {
     delete loop;
+}
+spa_source* pw_loop_add_event(pw_loop* loop, spa_source_event_func_t callback, void* data) {
+    auto* thread_loop = reinterpret_cast<pw_thread_loop*>(loop);
+    auto* event = new FakeEvent;
+    event->callback = callback;
+    event->data = data;
+    thread_loop->event = event;
+    std::lock_guard record(observations);
+    ++snapshot.events_created;
+    return &event->source;
+}
+int pw_loop_signal_event(pw_loop* loop, spa_source* source) {
+    auto* thread_loop = reinterpret_cast<pw_thread_loop*>(loop);
+    if (!thread_loop->event || &thread_loop->event->source != source) {
+        return -EINVAL;
+    }
+    if (interrupt_signal.exchange(false)) {
+        std::lock_guard record(observations);
+        ++snapshot.signal_interruptions;
+        return -EINTR;
+    }
+    thread_loop->event->pending = true;
+    std::lock_guard record(observations);
+    ++snapshot.events_signaled;
+    return 0;
+}
+void pw_loop_destroy_source(pw_loop* loop, spa_source* source) {
+    auto* thread_loop = reinterpret_cast<pw_thread_loop*>(loop);
+    if (thread_loop->event && &thread_loop->event->source == source) {
+        delete std::exchange(thread_loop->event, nullptr);
+        std::lock_guard record(observations);
+        ++snapshot.events_destroyed;
+    }
 }
 pw_stream* pw_stream_new_simple(pw_loop* loop, const char*, pw_properties*,
                                 const pw_stream_events* events, void* listener) {

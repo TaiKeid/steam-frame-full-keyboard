@@ -4,6 +4,7 @@
 
 - Fixed held editing keys continuing to change dictation text behind the **Discard text?** question. Choosing **Keep** no longer resumes a key held across the question; release and press it again to continue editing.
 - Key sounds now stop audio processing after queued clicks finish playing. A visible keyboard no longer continuously streams silence while idle.
+- Fixed periodic sound-worker wakeups when an audio output route is unavailable. Playback failure recovery now uses an event instead of polling.
 - Canceling on-device dictation now stops an engine that is still loading its model, so a canceled startup cannot hold up later recognition requests or server tests.
 - The dictation server **Test** button now waits for the previous helper to finish cleanup before allowing another test, avoiding a refused retry immediately after helper failure.
 - Fixed retained Cangjie and Quick text becoming impossible to send after repeated refused commits. Longer compositions are sent in paced pieces, and a failed submission retains only its unacknowledged remainder for an explicit Enter retry. Retained text is bounded at 1,024 Unicode code points; a full buffer refuses more input without discarding existing text. Backspace with no active reading removes one retained code point instead of clearing the whole composition.

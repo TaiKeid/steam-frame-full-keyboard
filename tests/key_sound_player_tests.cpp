@@ -22,6 +22,8 @@ struct Fake {
     decltype(&framekeyboard_test_sound_hold_drain) hold_drain;
     decltype(&framekeyboard_test_sound_fail_active) fail_active;
     decltype(&framekeyboard_test_sound_fail_flush) fail_flush;
+    decltype(&framekeyboard_test_sound_pause_processing) pause_processing;
+    decltype(&framekeyboard_test_sound_interrupt_signal) interrupt_signal;
     decltype(&framekeyboard_test_sound_samples) samples;
     Fake() {
         // Validate the substitute before constructing a player. A bad test
@@ -36,9 +38,14 @@ struct Fake {
             dlsym(library, "framekeyboard_test_sound_fail_active"));
         fail_flush = reinterpret_cast<decltype(fail_flush)>(
             dlsym(library, "framekeyboard_test_sound_fail_flush"));
+        pause_processing = reinterpret_cast<decltype(pause_processing)>(
+            dlsym(library, "framekeyboard_test_sound_pause_processing"));
+        interrupt_signal = reinterpret_cast<decltype(interrupt_signal)>(
+            dlsym(library, "framekeyboard_test_sound_interrupt_signal"));
         samples =
             reinterpret_cast<decltype(samples)>(dlsym(library, "framekeyboard_test_sound_samples"));
-        require(read_snapshot && hold_drain && fail_active && fail_flush && samples,
+        require(read_snapshot && hold_drain && fail_active && fail_flush && pause_processing &&
+                    interrupt_signal && samples,
                 "only the private sound substitute may run");
     }
     SoundPlayerSnapshot snapshot() const {
@@ -134,6 +141,25 @@ void shutdown_during_drain(Fake& fake) {
             "shutdown does not wait for drain completion");
     fake.hold_drain(false);
 }
+void unavailable_route_sleeps(Fake& fake) {
+    const auto before = fake.snapshot();
+    KeySounds player;
+    fake.pause_processing(true);
+    player.set_awake(true);
+    player.play(KeyFeedback::Press, "e", 100);
+    wait_for([&] { return fake.snapshot().activations > before.activations; },
+             "a sound activates while its output route is unavailable");
+    // One extra loop lock can finish the initial request-generation handoff.
+    // Repeated locks would be the old polling loop, even with processing paused.
+    const auto paused = fake.snapshot();
+    std::this_thread::sleep_for(350ms);
+    require(fake.snapshot().callbacks == paused.callbacks, "an unavailable route does not process");
+    require(fake.snapshot().loop_locks <= paused.loop_locks + 1,
+            "the active worker sleeps without polling an unavailable route");
+    fake.pause_processing(false);
+    wait_for([&] { return fake.snapshot().deactivations > before.deactivations; },
+             "the pending sound plays and drains after its route returns");
+}
 void control_failure_recovery(Fake& fake, bool activating) {
     const auto before = fake.snapshot();
     KeySounds player;
@@ -156,6 +182,7 @@ void flush_failure_recovery(Fake& fake) {
     const auto before = fake.snapshot();
     KeySounds player;
     fake.fail_flush();
+    fake.interrupt_signal();
     player.set_awake(true);
     player.play(KeyFeedback::Press, "e", 100);
     wait_for([&] { return fake.snapshot().flush_failures > before.flush_failures; },
@@ -165,6 +192,10 @@ void flush_failure_recovery(Fake& fake) {
              "a failed drain disconnects without RT locking");
     require(fake.snapshot().queued_frames == queued,
             "a failed drain stops supplying silent buffers while recovery waits");
+    require(fake.snapshot().events_signaled == before.events_signaled + 1,
+            "a failed drain wakes the normal loop through its preallocated event");
+    require(fake.snapshot().signal_interruptions == before.signal_interruptions + 1,
+            "an interrupted event notification is retried");
     wait_for([&] { return fake.snapshot().connections == before.connections + 2; },
              "a failed drain retries", 7s);
     quiet(fake);
@@ -179,9 +210,12 @@ int main() {
         Fake fake;
         playback_and_idle(fake);
         shutdown_during_drain(fake);
+        unavailable_route_sleeps(fake);
         control_failure_recovery(fake, true);
         control_failure_recovery(fake, false);
         flush_failure_recovery(fake);
+        require(fake.snapshot().events_created == fake.snapshot().events_destroyed,
+                "every connection destroys its failure event after stream teardown");
     } catch (const std::exception& error) {
         std::cerr << "sound player test failed: " << error.what() << '\n';
         return 1;
