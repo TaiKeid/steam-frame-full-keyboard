@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
     bool quitting = false;
     vr::VROverlayHandle_t target = vr::k_ulOverlayHandleInvalid;
     std::uint64_t progress = 0;
-    double deadline = 0;
+    double deadline = 0, restored_at = 0;
     auto events = [&] {
         vr::VREvent_t event{};
         while (vr::VRSystem()->PollNextEvent(&event, sizeof(event))) {
@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
         if (result == vr::VROverlayError_None) {
             restored = true;
             saw_open = false;
+            restored_at = now();
         }
     };
     while (!quitting && (connected || armed || restored)) {
@@ -84,7 +85,9 @@ int main(int argc, char** argv) {
             restore();
         }
         pollfd item{connected ? fd : -1, POLLIN, 0};
-        const int ready = poll(&item, 1, framekeyboard::native_guard_poll_ms(armed, restored));
+        const int ready =
+            poll(&item, 1,
+                 framekeyboard::native_guard_poll_ms(armed, restored, saw_open, now() - restored_at));
         if (ready <= 0) {
             continue;
         }

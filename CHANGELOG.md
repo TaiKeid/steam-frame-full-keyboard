@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The native-keyboard recovery helper no longer wakes 40 times a second indefinitely if Steam never reports the keyboard it reopened. After two seconds it keeps watching at its idle pace.
 - With a hosted speech service set as `dictation_url` in `config.json`, the Dictation card's **Test** now checks that service, which is where phrases go, rather than the Server address field.
 - The uninstaller also removes downloaded speech models when `XDG_DATA_HOME` points somewhere other than `~/.local/share`.
 - When native replacement stops working, Settings keeps showing the real reason, such as incompatible Steam interfaces, instead of a generic "connection was lost" after a key that was held in a Steam field is released.
