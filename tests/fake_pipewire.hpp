@@ -13,7 +13,7 @@ struct SoundPlayerSnapshot {
 };
 
 extern "C" {
-SoundPlayerSnapshot framekeyboard_test_sound_snapshot();
+void framekeyboard_test_sound_snapshot(SoundPlayerSnapshot* result);
 void framekeyboard_test_sound_hold_drain(bool hold);
 void framekeyboard_test_sound_fail_active(bool activating);
 void framekeyboard_test_sound_fail_flush();

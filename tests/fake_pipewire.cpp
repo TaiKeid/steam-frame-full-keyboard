@@ -42,9 +42,9 @@ std::uint64_t pending_frames{};
 } // namespace
 
 extern "C" {
-SoundPlayerSnapshot framekeyboard_test_sound_snapshot() {
+void framekeyboard_test_sound_snapshot(SoundPlayerSnapshot* result) {
     std::lock_guard lock(observations);
-    return snapshot;
+    *result = snapshot;
 }
 void framekeyboard_test_sound_hold_drain(bool hold) {
     hold_drain = hold;

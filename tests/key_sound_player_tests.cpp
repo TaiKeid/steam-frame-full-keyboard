@@ -18,7 +18,7 @@ void require(bool valid, const char* message) {
     }
 }
 struct Fake {
-    decltype(&framekeyboard_test_sound_snapshot) snapshot;
+    decltype(&framekeyboard_test_sound_snapshot) read_snapshot;
     decltype(&framekeyboard_test_sound_hold_drain) hold_drain;
     decltype(&framekeyboard_test_sound_fail_active) fail_active;
     decltype(&framekeyboard_test_sound_fail_flush) fail_flush;
@@ -28,8 +28,8 @@ struct Fake {
         // environment must exit rather than connect to the real audio server.
         void* library = dlopen("libpipewire-0.3.so.0", RTLD_NOW | RTLD_LOCAL);
         require(library, "the private sound substitute loads");
-        snapshot =
-            reinterpret_cast<decltype(snapshot)>(dlsym(library, "framekeyboard_test_sound_snapshot"));
+        read_snapshot = reinterpret_cast<decltype(read_snapshot)>(
+            dlsym(library, "framekeyboard_test_sound_snapshot"));
         hold_drain = reinterpret_cast<decltype(hold_drain)>(
             dlsym(library, "framekeyboard_test_sound_hold_drain"));
         fail_active = reinterpret_cast<decltype(fail_active)>(
@@ -38,8 +38,13 @@ struct Fake {
             dlsym(library, "framekeyboard_test_sound_fail_flush"));
         samples =
             reinterpret_cast<decltype(samples)>(dlsym(library, "framekeyboard_test_sound_samples"));
-        require(snapshot && hold_drain && fail_active && fail_flush && samples,
+        require(read_snapshot && hold_drain && fail_active && fail_flush && samples,
                 "only the private sound substitute may run");
+    }
+    SoundPlayerSnapshot snapshot() const {
+        SoundPlayerSnapshot result;
+        read_snapshot(&result);
+        return result;
     }
 };
 template <class Done> void wait_for(Done done, const char* message, std::chrono::seconds timeout = 2s) {
