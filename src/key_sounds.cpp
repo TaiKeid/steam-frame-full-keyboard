@@ -107,6 +107,8 @@ struct PipeWire {
     decltype(&::pw_thread_loop_destroy) thread_loop_destroy{};
     decltype(&::pw_stream_new_simple) stream_new_simple{};
     decltype(&::pw_stream_connect) stream_connect{};
+    decltype(&::pw_stream_set_active) stream_set_active{};
+    decltype(&::pw_stream_flush) stream_flush{};
     decltype(&::pw_stream_dequeue_buffer) stream_dequeue_buffer{};
     decltype(&::pw_stream_queue_buffer) stream_queue_buffer{};
     decltype(&::pw_stream_destroy) stream_destroy{};
@@ -134,6 +136,8 @@ struct PipeWire {
         bind(thread_loop_destroy, "pw_thread_loop_destroy");
         bind(stream_new_simple, "pw_stream_new_simple");
         bind(stream_connect, "pw_stream_connect");
+        bind(stream_set_active, "pw_stream_set_active");
+        bind(stream_flush, "pw_stream_flush");
         bind(stream_dequeue_buffer, "pw_stream_dequeue_buffer");
         bind(stream_queue_buffer, "pw_stream_queue_buffer");
         bind(stream_destroy, "pw_stream_destroy");
@@ -163,13 +167,18 @@ struct KeySounds::Player {
     void request(KeyFeedback kind, const std::string& effect, int volume) {
         const auto packed = static_cast<unsigned>(effect_index(effect) << 8 | 1u << 16) |
                             static_cast<unsigned>(std::clamp(volume, 0, 100));
-        (kind == KeyFeedback::Press ? press_requests : release_requests)
-            .store(packed, std::memory_order_relaxed);
+        {
+            std::lock_guard lock(mutex);
+            (kind == KeyFeedback::Press ? press_requests : release_requests)
+                .store(packed, std::memory_order_relaxed);
+            ++request_generation;
+        }
+        changed.notify_all();
     }
 
-    // Everything PipeWire happens here, so waiting for it never holds up a VR
-    // frame. The connection and its threads last only while awake: a hidden
-    // keyboard costs nothing, and a restarted PipeWire is found on the next try.
+    // Connection setup and activation happen here, so waiting for PipeWire
+    // never holds up a VR frame. The connection lasts only while awake;
+    // a hidden keyboard disconnects, and failed connections are retried.
     void run() {
         for (std::size_t effect = 0; effect < pops.size(); ++effect) {
             const std::string name(1, static_cast<char>('a' + effect));
@@ -189,12 +198,42 @@ struct KeySounds::Player {
                 break;
             }
             broken = false;
+            auto generation = request_generation;
             lock.unlock();
             voices = {}; // No data thread runs here; a pop cut off by sleep ends.
+            draining.store(false, std::memory_order_relaxed);
+            processing_failed.store(false, std::memory_order_relaxed);
+            active = false;
             const bool connected = connect();
             lock.lock();
-            if (connected) {
-                changed.wait(lock, [&] { return stopping || !wanted || broken; });
+            while (connected && !stopping && wanted && !broken) {
+                // PipeWire callbacks may acquire mutex. Never keep it while
+                // taking the PipeWire loop lock, or a state callback can deadlock.
+                lock.unlock();
+                pw.thread_loop_lock(loop);
+                bool failed = false;
+                if (!active && !draining.load(std::memory_order_acquire) && pending()) {
+                    failed = pw.stream_set_active(stream, true) < 0;
+                    active = !failed;
+                }
+                const bool stream_active = active;
+                pw.thread_loop_unlock(loop);
+                lock.lock();
+                broken |= failed;
+                auto wake = [&] {
+                    return stopping || !wanted || broken || request_generation != generation ||
+                           processing_failed.load(std::memory_order_acquire);
+                };
+                if (stream_active) {
+                    // The RT callback cannot take mutex to report a flush
+                    // failure. Check it only during active playback/drain;
+                    // an inactive stream sleeps without a periodic timer.
+                    changed.wait_for(lock, std::chrono::milliseconds(100), wake);
+                } else {
+                    changed.wait(lock, wake);
+                }
+                broken |= processing_failed.load(std::memory_order_acquire);
+                generation = request_generation;
             }
             const bool failed = !connected || broken;
             lock.unlock();
@@ -232,6 +271,7 @@ struct KeySounds::Player {
                 }
             };
             result.process = [](void* player) { static_cast<Player*>(player)->process(); };
+            result.drained = [](void* player) { static_cast<Player*>(player)->drained(); };
             return result;
         }();
         stream = pw.stream_new_simple(
@@ -253,8 +293,9 @@ struct KeySounds::Player {
         const spa_pod* parameters[] = {
             spa_format_audio_raw_build(&builder, SPA_PARAM_EnumFormat, &format)};
         // RT_PROCESS: process() takes no lock and allocates nothing.
-        const auto flags = static_cast<pw_stream_flags>(
-            PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_RT_PROCESS);
+        const auto flags =
+            static_cast<pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS |
+                                         PW_STREAM_FLAG_RT_PROCESS | PW_STREAM_FLAG_INACTIVE);
         pw.thread_loop_lock(loop);
         const int connected =
             pw.stream_connect(stream, PW_DIRECTION_OUTPUT, PW_ID_ANY, flags, parameters, 1);
@@ -265,6 +306,24 @@ struct KeySounds::Player {
         {
             std::lock_guard lock(mutex);
             broken = true;
+        }
+        changed.notify_all();
+    }
+    bool pending() const {
+        return press_requests.load(std::memory_order_relaxed) ||
+               release_requests.load(std::memory_order_relaxed);
+    }
+    // Normal PipeWire loop callback, after the last queued sample played. A
+    // request received during the drain waits here, rather than resuming an
+    // unfinished drain and letting its late callback cut off a new sound.
+    void drained() {
+        const bool failed = pw.stream_set_active(stream, false) < 0;
+        active = false;
+        draining.store(false, std::memory_order_release);
+        {
+            std::lock_guard lock(mutex);
+            broken |= failed;
+            ++request_generation;
         }
         changed.notify_all();
     }
@@ -286,6 +345,9 @@ struct KeySounds::Player {
     }
     // On PipeWire's data thread. Requests landing within one cycle play once.
     void process() {
+        if (draining.load(std::memory_order_relaxed)) {
+            return;
+        }
         pw_buffer* buffer = pw.stream_dequeue_buffer(stream);
         if (!buffer) {
             return;
@@ -315,6 +377,17 @@ struct KeySounds::Player {
             data.chunk->size = static_cast<std::uint32_t>(frames * sizeof(float));
         }
         pw.stream_queue_buffer(stream, buffer);
+        if (!pending() &&
+            std::none_of(voices.begin(), voices.end(), [](const Voice& voice) { return voice.sound; })) {
+            // flush(..., true) is RT safe. Deactivation waits for its normal
+            // drained callback so the final buffer's tail is not discarded.
+            draining.store(true, std::memory_order_release);
+            if (pw.stream_flush(stream, true) < 0) {
+                // Stop supplying data. The active worker's bounded check
+                // tears this connection down without locking on the RT thread.
+                processing_failed.store(true, std::memory_order_release);
+            }
+        }
     }
     void start(unsigned request, std::size_t which) {
         auto voice = std::find_if(voices.begin(), voices.end(),
@@ -336,10 +409,14 @@ struct KeySounds::Player {
     std::array<std::array<std::vector<float>, 2>, pops.size()> sounds; // Press, then release.
     std::array<Voice, 4> voices{};                                     // Data thread only.
     std::atomic<unsigned> press_requests{}, release_requests{};
+    std::atomic<bool> draining{};
+    std::atomic<bool> processing_failed{};
+    bool active{}; // Worker under the PipeWire loop lock, or its normal callbacks.
     std::mutex mutex;
     std::condition_variable changed;
     bool wanted{}, stopping{}, broken{};
-    std::thread worker; // Last, so everything above exists when it starts.
+    std::uint64_t request_generation{}; // Mutex-protected worker wakeups, including drain completion.
+    std::thread worker;                 // Last, so everything above exists when it starts.
 };
 #else
 struct KeySounds::Player {

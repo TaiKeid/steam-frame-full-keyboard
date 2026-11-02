@@ -20,9 +20,9 @@ class KeySounds {
   public:
     KeySounds();
     ~KeySounds();
-    // The output stream exists only while awake. A sleeping speaker would
-    // swallow the first pop, so it stays open while the keyboard can be typed
-    // on, and goes when nobody can: the panel hidden or the headset off.
+    // The connection exists only while awake. Its stream activates for a pop
+    // and deactivates after queued audio drains, without streaming idle silence.
+    // Hiding the panel or removing the headset also destroys the connection.
     void set_awake(bool awake);
     void play(KeyFeedback kind, const std::string& effect, int volume);
 
