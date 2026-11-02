@@ -1851,10 +1851,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
             const auto angle = click.watch.angle();
-            if (!click.rest) {
+            if (!angle) {
+                click.rest.reset(); // Missing input is not a deliberate app click.
+            } else if (!click.rest) {
                 click.rest = GapTrigger::enter(angle, false); // Waits for the trigger to rest.
             } else if (!click.rest->rests(angle)) {
-                dashboard_focus.click(now);
+                // A focus query can start after this frame's cached `now` but
+                // before the click is observed. Timestamp the observation itself.
+                dashboard_focus.click(monotonic_seconds());
                 click.rest.reset();
             }
         }
@@ -2276,6 +2280,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     };
     auto suspend_headset_input = [&] {
         lifecycle.suspend_input();
+        dashboard_focus.suspend();
+        if (focus_probe) {
+            focus_probe->set_active(false);
+        }
         // Runtime mouse capture is separate from App's held-key state. Reapply
         // None on wake even if the last successful local state was already off.
         set_native_input(false, true);
@@ -2961,7 +2969,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const bool on_panel =
             std::any_of(hovered_devices.begin(), hovered_devices.end(), [](bool on) { return on; });
         const bool in_dashboard = !hosted && lifecycle.visible() && dashboard_visible && !scene_input;
-        if (!in_dashboard) {
+        const bool sample_focus = in_dashboard && !headset_input.blocked();
+        bool focus_known = false;
+        if (!sample_focus) {
             if (focus_probe) {
                 focus_probe->set_active(false);
             }
@@ -2973,21 +2983,25 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             focus_probe->set_active(true);
         }
-        if (in_dashboard) {
+        if (sample_focus) {
             watch_clicks(now);
             // Only the dashboard's own page window: hovering its bottom bar
             // gives the bar and its popups ("X Close") the keys for a moment,
             // with no choice made. Steam names that window "SteamVR".
-            const auto keys = focus_probe->window();
-            dashboard_focus.update(true, keys.steam && keys.title == "SteamVR", focus_probe->app().id,
-                                   now);
-        } else {
+            const auto focus = focus_probe->sample();
+            focus_known = focus.started > 0 && focus.window.id > 1 && focus.app.id > 1;
+            if (focus_known) {
+                dashboard_focus.update(true, focus.window.steam && focus.window.title == "SteamVR",
+                                       focus.app.id, now, focus.started);
+            }
+        } else if (!in_dashboard) {
             dashboard_focus.reset();
             click_watches = {};
         }
         // A Steam field's own route still types; anything else would reach the
         // app Gamescope falls back to, not the dashboard the user is in.
-        const bool dashboard_block = dashboard_focus.focused() && !replacement.remote();
+        const bool dashboard_block =
+            in_dashboard && (!focus_known || dashboard_focus.focused()) && !replacement.remote();
         app.set_dashboard_focus(dashboard_block);
         // The Keep open cue: typing goes to Gamescope's focused window, held
         // without a field or into a local app's field, and it is out of sight.

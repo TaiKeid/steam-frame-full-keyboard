@@ -585,29 +585,29 @@ void a_hidden_focused_window_is_flagged() {
 void the_dashboard_with_the_keys_types_nothing() {
     constexpr std::uint32_t kate = 0x4400007, brave = 0x4600001;
     DashboardFocus d;
-    d.update(true, false, kate, 1);
+    d.update(true, false, kate, 1, 1);
     require(!d.focused(), "an app with Gamescope's keys is typed into");
-    d.update(true, true, kate, 2);
+    d.update(true, true, kate, 2, 2);
     require(d.focused(), "a click on the dashboard gives a Steam window the keys");
-    d.update(true, false, kate, 3);
+    d.update(true, false, kate, 3, 3);
     require(d.focused(), "using our keyboard moves the keys on to the app: not the user's choice");
     d.click(4);
-    d.update(true, true, kate, 4.1);
-    d.update(true, false, kate, 4.5);
+    d.update(true, true, kate, 4.1, 4.1);
+    d.update(true, false, kate, 4.5, 4.5);
     require(d.focused(), "a click elsewhere in the dashboard keeps it; the fallback after it too");
     d.click(5);
-    d.update(true, false, kate, 5.1);
+    d.update(true, false, kate, 5.1, 5.1);
     require(d.focused(), "a click waits for Gamescope to move the keys");
-    d.update(true, false, kate, 5.1 + DashboardFocus::settle);
+    d.update(true, false, kate, 5.1 + DashboardFocus::settle, 5.1 + DashboardFocus::settle);
     require(!d.focused(), "a click that leaves an app with the keys chose that app");
     d.click(6);
-    d.update(true, false, kate, 7);
+    d.update(true, false, kate, 7, 7);
     require(!d.focused(), "a click without the dashboard changes nothing");
-    d.update(true, true, kate, 8);
-    d.update(true, false, brave, 8.5);
+    d.update(true, true, kate, 8, 8);
+    d.update(true, false, brave, 8.5, 8.5);
     require(!d.focused(), "another app taking focus, such as one just launched, has the keys");
-    d.update(true, true, brave, 9);
-    d.update(false, true, brave, 10);
+    d.update(true, true, brave, 9, 9);
+    d.update(false, true, brave, 10, 10);
     require(!d.focused(), "a closed dashboard has no keys");
 
     // A local app's field stays open while the dashboard is chosen: its keys
@@ -626,6 +626,53 @@ void the_dashboard_with_the_keys_types_nothing() {
     h.click(2, "KeyA");
     require(h.receiver.text == std::vector<std::pair<int, std::string>>{{80, "a"}},
             "typing reaches the app again once it has the keys");
+}
+
+void stale_focus_samples_cannot_erase_app_clicks() {
+    constexpr std::uint32_t kate = 0x4400007, brave = 0x4600001;
+    DashboardFocus d;
+    d.update(true, true, kate, 10, 10);
+    d.click(10.05);
+    // This query started before the click, even if its reply arrives later.
+    d.update(true, true, kate, 10.1, 10);
+    d.update(true, true, kate, 10.2, 10);
+    require(d.focused(), "the app click still waits for focus to settle");
+    d.update(true, false, kate, 10.4, 10.3);
+    require(!d.focused(), "a pre-click dashboard sample cannot erase the later app click");
+
+    d.update(true, true, kate, 20, 20);
+    d.click(20.05);
+    d.update(true, true, kate, 20.2, 20.1);
+    d.update(true, false, kate, 20.5, 20.4);
+    require(d.focused(), "fresh dashboard evidence cancels a click before app fallback");
+
+    d.click(21);
+    d.update(true, false, kate, 21.5, 20.9);
+    require(d.focused(), "a pre-click app sample cannot authorize typing after a stall");
+    d.update(true, false, 0, 21.6, 0);
+    require(d.focused(), "an invalidated probe sample cannot clear the dashboard block");
+    d.update(true, false, 0, 21.7, 21.7);
+    require(d.focused(), "an unknown app is not a newly selected app or a settled click");
+    d.update(true, false, kate, 21.8, 21.8);
+    require(!d.focused(), "fresh known app focus completes the deliberate click");
+
+    d.update(true, true, kate, 30, 30);
+    d.click(30.05);
+    d.suspend();
+    d.update(true, false, kate, 31, 31);
+    require(d.focused(), "sleep discards old click intent while retaining dashboard protection");
+    d.click(31.1);
+    d.update(true, false, kate, 31.2, 31.2);
+    require(d.focused(), "the new wake click still observes the settling period");
+    d.update(true, false, kate, 31.5, 31.4);
+    require(!d.focused(), "a new deliberate click into the same app recovers after wake");
+
+    d.update(true, true, kate, 40, 40);
+    d.update(true, false, 0, 41, 41);
+    d.update(true, false, kate, 42, 42);
+    require(d.focused(), "unknown app IDs cannot turn fallback into an app selection");
+    d.update(true, false, brave, 43, 43);
+    require(!d.focused(), "a known different app can still take focus without a sampled click");
 }
 
 void late_work_cannot_cross_targets() {
@@ -1149,6 +1196,7 @@ int main() {
         keep_open_holds_the_panel_after_its_request();
         a_hidden_focused_window_is_flagged();
         the_dashboard_with_the_keys_types_nothing();
+        stale_focus_samples_cannot_erase_app_clicks();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

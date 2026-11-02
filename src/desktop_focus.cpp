@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <thread>
@@ -217,7 +218,8 @@ struct KeyboardFocusProbe::State {
     mutable std::mutex mutex;
     // Signalled on resume and shutdown, so a paused worker sleeps without a timer.
     std::condition_variable wake;
-    KeyboardFocusProbe::Window window, app;
+    KeyboardFocusProbe::Sample sample;
+    std::uint64_t epoch{}; // Under mutex; invalidates queries crossing pause/resume.
 };
 namespace {
 bool has_property(xcb_connection_t* connection, xcb_window_t window, xcb_atom_t property) {
@@ -277,11 +279,27 @@ void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
                               : xcb_setup_roots_iterator(xcb_get_setup(connection)).data->root;
         // Two round trips a poll; a window is described again only when it changes.
         KeyboardFocusProbe::Window window, app;
+        std::optional<std::uint64_t> epoch;
         while (!state->stop && !xcb_connection_has_error(connection)) {
             if (paused(*state)) {
                 window = app = {}; // Described again once active.
                 continue;
             }
+            std::uint64_t query_epoch;
+            {
+                std::lock_guard lock(state->mutex);
+                if (!state->active || state->stop) {
+                    continue;
+                }
+                query_epoch = state->epoch;
+            }
+            if (epoch != query_epoch) {
+                window = app = {};
+                epoch = query_epoch;
+            }
+            const double started =
+                std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+                    .count();
             auto* focus =
                 xcb_get_input_focus_reply(connection, xcb_get_input_focus(connection), nullptr);
             const auto app_window = cardinals(connection, root, focused_app);
@@ -292,18 +310,21 @@ void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
             if (focus && focus->focus != window.id) {
                 window = describe(connection, focus->focus, name, target);
             }
+            const bool valid = focus && !xcb_connection_has_error(connection);
             std::free(focus);
             {
                 std::lock_guard lock(state->mutex);
-                state->window = window;
-                state->app = app;
+                if (state->active && state->epoch == query_epoch) {
+                    state->sample = valid ? KeyboardFocusProbe::Sample{window, app, started}
+                                          : KeyboardFocusProbe::Sample{};
+                }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(poll_milliseconds));
         }
         xcb_disconnect(connection);
         {
             std::lock_guard lock(state->mutex);
-            state->window = state->app = {};
+            state->sample = {};
         }
         std::unique_lock lock(state->mutex);
         state->wake.wait_for(lock, std::chrono::milliseconds(retry_milliseconds),
@@ -327,18 +348,21 @@ void KeyboardFocusProbe::set_active(bool active) {
     }
     std::lock_guard lock(state_->mutex);
     state_->active = active;
-    if (!active) {
-        state_->window = state_->app = {};
-    }
+    ++state_->epoch;
+    state_->sample = {};
     state_->wake.notify_all();
+}
+KeyboardFocusProbe::Sample KeyboardFocusProbe::sample() const {
+    std::lock_guard lock(state_->mutex);
+    return state_->sample;
 }
 KeyboardFocusProbe::Window KeyboardFocusProbe::window() const {
     std::lock_guard lock(state_->mutex);
-    return state_->window;
+    return state_->sample.window;
 }
 KeyboardFocusProbe::Window KeyboardFocusProbe::app() const {
     std::lock_guard lock(state_->mutex);
-    return state_->app;
+    return state_->sample.app;
 }
 bool DesktopFocus::nested_compositor(std::uint32_t pid) {
     std::ifstream file("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);

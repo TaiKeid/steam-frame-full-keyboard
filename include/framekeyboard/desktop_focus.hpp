@@ -59,10 +59,18 @@ class KeyboardFocusProbe {
         std::string title;
         bool steam{}; // A Steam window drawn into a VR overlay, such as the dashboard.
     };
+    struct Sample {
+        Window window, app;
+        // CLOCK_MONOTONIC seconds before the focus query, not when its reply
+        // was published. A delayed pre-click query is still pre-click evidence.
+        double started{};
+    };
     // Paused, it makes no X calls and reports nothing. One probe lives as
     // long as the VR loop and is paused while not needed, never recreated:
     // a worker stuck in an X call that never returns stays one thread.
     void set_active(bool active);
+    // Coherent keyboard/app focus and freshness; started 0 means unknown.
+    Sample sample() const;
     // Never blocks: the last window read, id 0 until known.
     Window window() const;
     // Never blocks: Gamescope's focused app window (GAMESCOPE_FOCUSED_WINDOW),

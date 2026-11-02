@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed app selection sometimes leaving typing blocked because a cached dashboard focus sample discarded the newer click. Focus queries crossing sleep are discarded, and missing controller readings no longer count as app clicks. If focus is lost after waking, click inside the window you want to type into to restore it.
 - The keyboard now releases SteamVR mouse input while hidden, asleep or using scene/forwarded pointers. Dashboard mouse input returns only after fresh presentation, rather than retaining runtime interaction while app-side input is blocked.
 - Fixed held keys and queued input surviving headset standby or system sleep. Sleep cancels input and sending before wake events are handled, while keeping unsent dictation text in the editor.
 - Fixed held editing keys continuing to change dictation text behind the **Discard text?** question. Choosing **Keep** no longer resumes a key held across the question; release and press it again to continue editing.

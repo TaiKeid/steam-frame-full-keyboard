@@ -93,21 +93,28 @@ class DashboardFocus {
     static constexpr double settle = .3; // for a click to move Gamescope's focus
     // `steam`: the keyboard focus is a Steam window; `app`: Gamescope's
     // focused app window (GAMESCOPE_FOCUSED_WINDOW), 0 when unknown.
-    void update(bool dashboard_visible, bool steam, std::uint32_t app, double now) {
+    void update(bool dashboard_visible, bool steam, std::uint32_t app, double now, double sampled_at) {
         if (!dashboard_visible) {
             *this = {};
             return;
         }
+        if (sampled_at <= 0) {
+            return; // Unknown focus is not evidence that another app was chosen.
+        }
         if (steam) {
             focused_ = true;
-            clicked_.reset();
-        } else if (app != app_ && app_) {
+            if (!clicked_ || sampled_at > *clicked_) {
+                clicked_.reset();
+            }
+        } else if (app && app != app_ && app_) {
             focused_ = false; // Another app took focus, such as one just launched.
-        } else if (clicked_ && now - *clicked_ >= settle) {
+        } else if (app && clicked_ && sampled_at > *clicked_ && now - *clicked_ >= settle) {
             focused_ = false; // The click landed on an app window.
             clicked_.reset();
         }
-        app_ = app;
+        if (app) {
+            app_ = app;
+        }
     }
     // A trigger pull while the laser was off our keyboard.
     void click(double now) {
@@ -116,6 +123,9 @@ class DashboardFocus {
         }
     }
     void reset() { *this = {}; }
+    // Keep the dashboard's ownership decision, but not a pre-sleep click's
+    // permission to clear it after wake.
+    void suspend() { clicked_.reset(); }
     bool focused() const { return focused_; }
 
   private:

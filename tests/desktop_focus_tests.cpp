@@ -5,10 +5,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
@@ -230,6 +232,256 @@ struct AnsweringServer {
         }
     }
 };
+// A scoped fake for KeyboardFocusProbe. Each GetInputFocus reply waits for an
+// explicit permit, so pause/resume races do not depend on scheduler sleeps.
+class ProbeServer {
+  public:
+    explicit ProbeServer(int listener) : listener_(listener), worker_([this] { serve(); }) {}
+    ~ProbeServer() {
+        {
+            std::lock_guard lock(mutex_);
+            stopping_ = true;
+        }
+        changed_.notify_all();
+        shutdown(listener_, SHUT_RDWR);
+        {
+            std::lock_guard lock(client_mutex_);
+            if (client_ >= 0) {
+                shutdown(client_, SHUT_RDWR);
+            }
+        }
+        worker_.join();
+        close(listener_);
+    }
+    bool wait_for_query(unsigned count) {
+        std::unique_lock lock(mutex_);
+        return changed_.wait_for(lock, 3s, [&] { return queries_ >= count || stopping_; }) &&
+               queries_ >= count;
+    }
+    void permit(unsigned count) {
+        std::lock_guard lock(mutex_);
+        permitted_ = count;
+        changed_.notify_all();
+    }
+
+  private:
+    static constexpr std::uint32_t root = AnsweringServer::root;
+    static constexpr std::uint32_t name_atom = 302, target_atom = 303, focus_atom = 304;
+    static std::uint32_t word(const std::vector<std::uint8_t>& data, std::size_t offset) {
+        return std::uint32_t{data[offset]} | std::uint32_t{data[offset + 1]} << 8 |
+               std::uint32_t{data[offset + 2]} << 16 | std::uint32_t{data[offset + 3]} << 24;
+    }
+    static bool read_exact(int fd, std::uint8_t* data, std::size_t size) {
+        for (std::size_t done = 0; done < size;) {
+            const auto count = read(fd, data + done, size - done);
+            if (count <= 0) {
+                return false;
+            }
+            done += static_cast<std::size_t>(count);
+        }
+        return true;
+    }
+    static bool send_all(int fd, const std::vector<std::uint8_t>& data) {
+        for (std::size_t done = 0; done < data.size();) {
+            const auto count = send(fd, data.data() + done, data.size() - done, MSG_NOSIGNAL);
+            if (count <= 0) {
+                return false;
+            }
+            done += static_cast<std::size_t>(count);
+        }
+        return true;
+    }
+    static std::vector<std::uint8_t> setup_reply() {
+        // xcb_setup_t followed by one xcb_screen_t, no formats or depths.
+        std::vector<std::uint8_t> reply(80);
+        auto put = [&](std::size_t at, std::uint32_t value, unsigned bytes) {
+            for (unsigned i = 0; i < bytes; ++i) {
+                reply[at + i] = static_cast<std::uint8_t>(value >> (i * 8));
+            }
+        };
+        reply[0] = 1;
+        put(2, 11, 2);
+        put(6, 18, 2);
+        put(12, 0x200000, 4);
+        put(16, 0x1fffff, 4);
+        put(26, 0xffff, 2);
+        reply[28] = 1;
+        reply[32] = reply[33] = 32;
+        reply[34] = 8;
+        reply[35] = 255;
+        put(40, root, 4);
+        put(44, 0x20, 4);
+        put(48, 0xffffff, 4);
+        put(60, 1920, 2);
+        put(62, 1080, 2);
+        put(64, 500, 2);
+        put(66, 300, 2);
+        put(68, 1, 2);
+        put(70, 1, 2);
+        put(72, 0x21, 4);
+        reply[78] = 24;
+        return reply;
+    }
+    void answer(int fd) {
+        std::uint8_t setup[12];
+        if (!read_exact(fd, setup, sizeof setup) || setup[0] != 'l') {
+            return;
+        }
+        const auto padded = [](std::size_t n) { return (n + 3) / 4 * 4; };
+        std::vector<std::uint8_t> auth(padded(setup[6] | setup[7] << 8) +
+                                       padded(setup[8] | setup[9] << 8));
+        if (!read_exact(fd, auth.data(), auth.size()) || !send_all(fd, setup_reply())) {
+            return;
+        }
+        std::uint16_t sequence = 0;
+        unsigned query = 0;
+        while (!stopping_) {
+            std::uint8_t head[4];
+            if (!read_exact(fd, head, sizeof head)) {
+                return;
+            }
+            const auto length = static_cast<std::size_t>(head[2] | head[3] << 8) * 4;
+            if (length < 4 || length > 1024) {
+                return;
+            }
+            std::vector<std::uint8_t> body(length - 4);
+            if (!read_exact(fd, body.data(), body.size())) {
+                return;
+            }
+            std::vector<std::uint8_t> reply{1, 0};
+            AnsweringServer::put16(reply, ++sequence);
+            AnsweringServer::put32(reply, 0);
+            if (head[0] == 16 && body.size() >= 4) { // InternAtom
+                const std::string name(body.begin() + 4, body.end());
+                const auto atom = name.starts_with("_NET_WM_NAME")               ? name_atom
+                                  : name.starts_with("GAMESCOPE_FOCUSED_WINDOW") ? focus_atom
+                                                                                 : target_atom;
+                AnsweringServer::put32(reply, atom);
+                reply.resize(32);
+            } else if (head[0] == 43) { // GetInputFocus
+                std::unique_lock lock(mutex_);
+                query = ++queries_;
+                changed_.notify_all();
+                changed_.wait(lock, [&] { return stopping_ || permitted_ >= query; });
+                if (stopping_) {
+                    return;
+                }
+                AnsweringServer::put32(reply, query * 10);
+                reply.resize(32);
+            } else if (head[0] == 20 && body.size() >= 8) { // GetProperty
+                const auto window = word(body, 0), property = word(body, 4);
+                std::vector<std::uint8_t> value;
+                std::uint32_t type = 0, items = 0;
+                if (window == root && property == focus_atom) {
+                    reply[1] = 32;
+                    type = 6;
+                    items = 1;
+                    AnsweringServer::put32(value, 100 + query * 10);
+                } else if (property == name_atom) {
+                    reply[1] = 8;
+                    type = 31;
+                    const auto title =
+                        std::string(window >= 100 ? "app-" : "window-") + std::to_string(query);
+                    value.assign(title.begin(), title.end());
+                    items = static_cast<std::uint32_t>(value.size());
+                } else if (property == target_atom && window >= 100) {
+                    reply[1] = 32;
+                    type = 6;
+                    items = 1;
+                    AnsweringServer::put32(value, 1);
+                }
+                const auto words = static_cast<std::uint32_t>((value.size() + 3) / 4);
+                for (unsigned i = 0; i < 4; ++i) {
+                    reply[4 + i] = static_cast<std::uint8_t>(words >> (i * 8));
+                }
+                AnsweringServer::put32(reply, type);
+                AnsweringServer::put32(reply, 0);
+                AnsweringServer::put32(reply, items);
+                reply.resize(32);
+                reply.insert(reply.end(), value.begin(), value.end());
+                reply.resize(32 + words * 4);
+            } else if (head[0] == 15) { // QueryTree
+                AnsweringServer::put32(reply, root);
+                AnsweringServer::put32(reply, root);
+                reply.resize(32);
+            } else {
+                continue;
+            }
+            if (!send_all(fd, reply)) {
+                return;
+            }
+        }
+    }
+    void serve() {
+        const int fd = accept(listener_, nullptr, nullptr);
+        if (fd < 0) {
+            return;
+        }
+        {
+            std::lock_guard lock(client_mutex_);
+            client_ = fd;
+        }
+        if (!stopping_) {
+            answer(fd);
+        }
+        std::lock_guard lock(client_mutex_);
+        close(fd);
+        client_ = -1;
+    }
+    int listener_, client_{-1};
+    std::atomic<bool> stopping_{};
+    std::mutex mutex_, client_mutex_;
+    std::condition_variable changed_;
+    unsigned queries_{}, permitted_{};
+    std::thread worker_;
+};
+void probe_epoch_tests(int number) {
+    int listener;
+    while ((listener = abstract_listener(number)) < 0) {
+        ++number;
+    }
+    ProbeServer server(listener);
+    KeyboardFocusProbe probe(":" + std::to_string(number));
+    require(server.wait_for_query(1), "the probe starts its first focus query");
+    server.permit(1);
+    auto wait_for_sample = [&](std::uint32_t window) {
+        const auto deadline = std::chrono::steady_clock::now() + 3s;
+        while (probe.sample().window.id != window && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(1ms);
+        }
+        return probe.sample();
+    };
+    const auto initial = wait_for_sample(10);
+    require(initial.started > 0 && initial.window.id == 10 && initial.window.title == "window-1" &&
+                initial.app.id == 110 && initial.app.title == "app-1" && initial.app.steam &&
+                !initial.window.steam,
+            "the first sample coherently describes both windows and its query start");
+    require(server.wait_for_query(2), "the next pre-pause query is deliberately in flight");
+    probe.set_active(false);
+    auto empty = probe.sample();
+    require(empty.started == 0 && empty.window.id == 0 && empty.app.id == 0 && probe.window().id == 0 &&
+                probe.app().id == 0,
+            "pausing immediately invalidates the complete sample and legacy accessors");
+    const auto resumed_at =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    probe.set_active(true);
+    server.permit(2); // Its reply belongs to the old epoch, despite arriving after resume.
+    require(server.wait_for_query(3), "the old reply is consumed before the next fresh query");
+    empty = probe.sample();
+    require(empty.started == 0 && empty.window.id == 0 && empty.app.id == 0,
+            "a pre-pause query cannot republish a sample after pause and resume");
+    server.permit(3);
+    const auto fresh = wait_for_sample(30);
+    require(fresh.started >= resumed_at && fresh.window.id == 30 && fresh.window.title == "window-3" &&
+                fresh.app.id == 130 && fresh.app.title == "app-3" && fresh.app.steam &&
+                !fresh.window.steam,
+            "the next fresh query publishes a new coherent sample with a post-resume start");
+    require(probe.window().id == fresh.window.id && probe.app().id == fresh.app.id,
+            "legacy accessors continue to expose the published sample");
+    probe.set_active(false);
+    require(probe.sample().started == 0 && probe.sample().window.id == 0 && probe.sample().app.id == 0,
+            "pausing a fresh sample invalidates it again");
+}
 template <class Call> std::chrono::steady_clock::duration timed(Call call) {
     const auto start = std::chrono::steady_clock::now();
     call();
@@ -293,6 +545,7 @@ int main() {
         }
         require(!answering.first_watched,
                 "the window that lost focus is no longer watched for its title");
+        probe_epoch_tests(answering_number + 1);
     } catch (const std::exception& error) {
         std::cerr << "desktop focus test failed: " << error.what() << '\n';
         return 1;
