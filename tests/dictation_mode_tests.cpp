@@ -574,6 +574,54 @@ bool control_enabled(App& app, const std::string& id) {
     return false;
 }
 
+void modal_repeat_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    for (const auto* key : {"Backspace", "KeyX", "ArrowLeft"}) {
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "abcd");
+        const auto [x, y] = key_center(app, key);
+        require(app.down(0, x, y, clock) && app.holds_repeat(0), "an editing key starts repeating");
+        const auto text = editor_text(app);
+        const auto cursor = app.view().dictation->cursor;
+        press(app, "Escape", 1);
+        require(app.view().dictation->notice == "Discard text?", "the second hand opens the question");
+        require(!app.holds_repeat(0), "opening the modal ends the first hand's repeat");
+        app.tick(clock += .6);
+        require(editor_text(app) == text && app.view().dictation->cursor == cursor,
+                "neither text nor cursor changes behind the question");
+        const auto controls = app.view().controls;
+        const auto keep = std::find_if(controls.begin(), controls.end(), [](const Control& control) {
+            return control.id == "dictation-keep";
+        });
+        require(keep != controls.end(), "Keep is offered");
+        const auto& r = keep->bounds;
+        app.down(1, r.x + r.width / 2, r.y + r.height / 2, clock);
+        app.up(1, r.x + r.width / 2, r.y + r.height / 2);
+        app.tick(clock += .6);
+        require(editor_text(app) == text && app.view().dictation->cursor == cursor,
+                "Keep does not restart a key still held across the question");
+        app.up(0, x, y);
+        require(app.down(0, x, y, clock), "a fresh editing press works after Keep");
+        const auto fresh_text = editor_text(app);
+        const auto fresh_cursor = app.view().dictation->cursor;
+        app.tick(clock += .6);
+        require(editor_text(app) != fresh_text || app.view().dictation->cursor != fresh_cursor,
+                "a fresh held key repeats normally");
+        app.up(0, x, y);
+        require(sink.text.empty() && sink.keys.empty(), "editing stays local");
+    }
+}
+
 void live_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -3196,6 +3244,7 @@ int main() {
         settings_tests();
         layout_tests();
         mode_tests();
+        modal_repeat_tests();
         send_tests();
         selection_tests();
         scroll_tests();

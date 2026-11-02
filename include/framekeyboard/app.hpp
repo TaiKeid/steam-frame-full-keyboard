@@ -828,6 +828,7 @@ class App {
         bool extend{}; // Shift was on when it was pressed: a move extends the selection.
     };
     bool dictation_available() const;
+    bool editor_editable() const;
     void open_dictation();
     void close_dictation();
     // Rebuilds the mode's keys when the layout or the hidden numpad changed.

@@ -1502,8 +1502,7 @@ bool App::up(unsigned pointer, double x, double y) {
         const auto drag = *std::exchange(editor_drag_, std::nullopt);
         // A tap places the cursor, unless the editor is locked: listening,
         // sending, asking or showing a phrase.
-        if (!drag.scrolling && dictation_open_ && !capturing_ && !sending_ && !confirm_discard_ &&
-            !reveal_ && !send_wait_since_) {
+        if (!drag.scrolling && editor_editable()) {
             commit_composition(); // A reading stays where it was typed.
             finish_swipe(true);   // So does a word, and its alternatives end here.
             discard_swipe();
@@ -1713,10 +1712,10 @@ bool App::tick(double now) {
     }
     tick_direct(now);
     tick_passthrough_message(now);
-    if (editor_repeat_ && now >= editor_repeat_->next) {
-        if (!dictation_open_ || !keyboard_.pointer_pressed(editor_repeat_->pointer)) {
+    if (editor_repeat_) {
+        if (!editor_editable() || !keyboard_.pointer_pressed(editor_repeat_->pointer)) {
             editor_repeat_.reset();
-        } else {
+        } else if (now >= editor_repeat_->next) {
             if (editor_repeat_->text.empty()) {
                 run_editor_command(editor_repeat_->command, editor_repeat_->extend);
             } else {
@@ -4136,6 +4135,11 @@ void App::set_dictation_view(PanelView& view) const {
     view.dictation = std::move(editor);
 }
 
+bool App::editor_editable() const {
+    return dictation_open_ && !sending_ && !reveal_ && !confirm_discard_ && !capturing_ &&
+           !send_wait_since_;
+}
+
 bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, double now) {
     if (keyboard_.pointer_pressed(pointer)) {
         return false;
@@ -4157,8 +4161,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     if (swipe_track_) {
         return false; // Only one pointer types while another is swiping.
     }
-    const bool can_type = !sending_ && !reveal_ && !confirm_discard_ && !capturing_ &&
-                          !send_wait_since_ && !phrases_pending();
+    const bool can_type = editor_editable() && !phrases_pending();
     if (const auto held = keyboard_.modifiers(); can_type && swipes(key, held)) {
         clear_editor_error();
         return swipe_down(pointer, key, x, y, now, held);
@@ -4208,7 +4211,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         return true;
     }
     // While listening the editor is read-only, and keys only show as pressed.
-    const bool editable = !capturing_ && !send_wait_since_;
+    const bool editable = editor_editable();
     if (key.action_kind == ActionKind::Flick) {
         if (!editable) {
             return keyboard_.down(pointer, key, now, true, 0);
@@ -4262,6 +4265,8 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         } else if (editor_.empty()) {
             close_dictation();
         } else {
+            // A held key must not edit behind the question or resume on Keep.
+            editor_repeat_.reset();
             confirm_discard_ = true;
         }
         return true;
