@@ -108,4 +108,27 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     require(result.returncode == 1 and "symbolic link" in result.stderr, "a symlinked install must be refused")
     require(moved.exists() and (home / ".local/bin/framekeyboard").exists(), "a refused run removes nothing")
 
-print("Uninstaller: confirmation, stopping a running app, removal, foreign files, purge and refusal passed.")
+with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
+    # The app keeps downloaded speech models under XDG_DATA_HOME when it is set.
+    # Run the real (non-test) path, with HOME and every XDG directory inside
+    # this temporary tree, so nothing outside it can be touched.
+    home, runtime = Path(directory) / "home", Path(directory) / "runtime"
+    install(home, runtime)
+    data = Path(directory) / "data"
+    models = data / "framekeyboard/models"
+    models.mkdir(parents=True)
+    (models / "ggml-small.bin").write_bytes(b"model")
+    (data / "other-app").mkdir()
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("XDG_", "FRAMEKEYBOARD_"))}
+    environment.update(HOME=str(home), XDG_DATA_HOME=str(data), XDG_CONFIG_HOME=str(home / ".config"),
+                       FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime), FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL="0")
+    result = subprocess.run(["bash", str(script), "--yes"], env=environment, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=60)
+    require(result.returncode == 0, "uninstall failed: " + result.stderr)
+    require(str(models) in result.stdout, "the models are listed with what is removed")
+    require(not (data / "framekeyboard").exists(), "models under XDG_DATA_HOME are removed too")
+    require((data / "other-app").exists(), "other programs' data stays")
+    require(not (home / ".local/share/framekeyboard").exists(), "the installation is removed")
+
+print("Uninstaller: confirmation, stopping a running app, removal, foreign files, purge, refusal "
+      "and models under XDG_DATA_HOME passed.")
