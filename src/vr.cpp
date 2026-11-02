@@ -1700,7 +1700,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // Declared before the thread so it outlives the thread's final wait.
     WatchdogSchedule watchdog_schedule;
     std::jthread replacement_watchdog([&](std::stop_token stop) {
-        while (watchdog_schedule.wait(stop, std::chrono::milliseconds(50))) {
+        // While no shown panel is watched, only the helper's health heartbeat
+        // runs, which it needs within 3 s; a quarter second is plenty there.
+        while (watchdog_schedule.wait(
+            stop, std::chrono::milliseconds(replacement_watched.load() ? 50 : 250))) {
             replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
                 vr_overlay()->HideOverlay(panel.handle());

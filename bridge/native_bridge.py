@@ -312,10 +312,15 @@ class ParentChannel:
     few recent states, never a full socket that refuses its results."""
     STATE_QUEUE_LIMIT = 16384
     OUTBOX_LIMIT = 256
+    # An unchanged idle state only shows that the helper is alive. Like the
+    # standby cadence, this leaves a slow 0.4 s poll inside the parent's 0.8 s
+    # freshness limit; any change, and every non-idle state, goes out at once.
+    IDLE_HEARTBEAT = 0.25
 
     def __init__(self, parent):
         self.parent = parent
         self.outbox = deque()
+        self.last_state, self.last_state_at = None, 0.0
 
     def send_result(self, value):
         if len(self.outbox) >= self.OUTBOX_LIMIT:
@@ -338,12 +343,17 @@ class ParentChannel:
         if self.outbox or queued_bytes(self.parent) >= self.STATE_QUEUE_LIMIT:
             return
         data = encode(value)
+        now = time.monotonic()
+        if value.get("idle") is True and data == self.last_state and \
+                now - self.last_state_at < self.IDLE_HEARTBEAT:
+            return
         try:
             sent = self.parent.send(data, socket.MSG_DONTWAIT)
         except BlockingIOError:
             return
         if sent != len(data):
             raise ValueError("parent-backpressure")
+        self.last_state, self.last_state_at = data, now
 
     def waiting(self):
         return bool(self.outbox)

@@ -299,8 +299,11 @@ class Lifecycle(unittest.TestCase):
             received = []
             parent.setblocking(True)
             parent.settimeout(1)
-            while not any(m.get("op") == "key-result" for m in received) or len(received) < 40:
+            result_at = None
+            while result_at is None or len(received) < result_at + 4:
                 received.append(json.loads(parent.recv(32768)))
+                if result_at is None and received[-1].get("op") == "key-result":
+                    result_at = len(received)
             self.assertIn(dict(op="key-result", id=9, ok=True), received,
                           "the result waits for the parent instead of being dropped")
             self.assertTrue(all(m["op"] in ("state", "key-result") for m in received))
@@ -310,6 +313,40 @@ class Lifecycle(unittest.TestCase):
             worker.join(2)
         self.assertFalse(worker.is_alive())
         self.assertTrue(client.disposed and client.closed)
+
+    def test_unchanged_idle_states_are_a_quarter_second_heartbeat(self):
+        # Hidden and idle, the bridge polls Steam several times a second but
+        # nothing changes: the keyboard needs only a heartbeat, not every poll.
+        # A change goes out at once.
+        state = dict(version=1, request=2, open=False, eligible=False, active=False, idle=True)
+        class IdleCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4):
+                if ".bridge.step(" in expression:
+                    return dict(state)
+                return super().evaluate(expression, timeout)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        worker = threading.Thread(target=bridge.run, args=(child, IdleCDP, None, lambda: None))
+        worker.start()
+        try:
+            self.receive(parent, "state")
+            started, count = time.monotonic(), 0
+            while time.monotonic() - started < 1.0:
+                self.receive(parent, "state")
+                count += 1
+            self.assertLessEqual(count, 6, "about four heartbeats a second, not one per 75 ms poll")
+            self.assertGreaterEqual(count, 2, "the heartbeat keeps the keyboard's freshness limit")
+            state["request"] = 3
+            changed = time.monotonic()
+            while self.receive(parent, "state")["request"] != 3:
+                pass
+            self.assertLess(time.monotonic() - changed, 0.2, "a changed state is not held back")
+            parent.send(b'{"op":"stop"}')
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+        finally:
+            parent.close()
+            worker.join(2)
 
     def test_three_consecutive_poll_timeouts_end_helper(self):
         class SlowCDP(FakeCDP):
