@@ -78,6 +78,7 @@ struct Headset {
     int next_target{}, presentations{}, dismissals{}, retries{};
     NativeReplacement::ButtonPress button; // reported with the next status
     bool dictation_hold{};                 // a dictation editor with text, which X discards
+    bool input_blocked{};
     double now{1};
 
     explicit Headset(bool background = true, bool replacement = true) {
@@ -121,7 +122,8 @@ struct Headset {
                         remote = to_steam;
                         receiver.target = next_target;
                     },
-                .set_interaction = [&](bool active) { app->set_interaction_active(active); },
+                .set_interaction =
+                    [&](bool active) { app->set_interaction_active(active && !input_blocked); },
                 .show_overlay =
                     [&](double) {
                         if (fail_show) {
@@ -149,6 +151,7 @@ struct Headset {
                             }
                         }
                     },
+                .sleep_input = [&] { app->suspend_input(); },
             });
     }
     // As in the VR loop: the panel may appear with the dashboard open, or in passthrough.
@@ -871,6 +874,87 @@ void sleep_recovery_does_not_resurrect_old_input() {
             "explicit relaunch remains a recovery path when the bridge is unavailable");
 }
 
+void physical_sleep_cancels_input_before_resume() {
+    // The runtime can retain valid tracking throughout a real system suspend.
+    // No tracking-loss or native-request-change event is needed for this reset.
+    HeadsetInputGuard guard(10);
+    require(!guard.update(10, true) && !guard.blocked(), "normal frames accept input");
+    require(guard.update(10, false) && guard.blocked(), "standby entry cancels and blocks input");
+    require(!guard.update(10, false) && guard.blocked(),
+            "standby stays blocked without repeated resets");
+    require(guard.update(10, true) && guard.blocked(), "first wake frame discards old pointer events");
+    require(!guard.update(10, true) && !guard.blocked(), "fresh input can resume on the next frame");
+    require(guard.update(40, true) && guard.resumed() && guard.blocked(),
+            "a suspend-clock jump resets input even if no standby frame was observed");
+    require(!guard.update(40, true) && !guard.blocked(), "a consumed suspend jump cannot repeat");
+    require(guard.detect_suspend(50) && guard.blocked(),
+            "suspend inside an iteration blocks its remaining input and repeats");
+    require(!guard.detect_suspend(50) && guard.blocked(),
+            "a later check cannot reopen the same resumed iteration");
+    require(!guard.update(50, true) && !guard.blocked(),
+            "only the next fresh frame can reopen the input gate");
+
+    for (const bool native_chord : {false, true}) {
+        Headset h;
+        h.request();
+        h.display();
+        if (native_chord) {
+            require(h.press(1, "ControlLeft"), "hold the native modifier before sleep");
+        }
+        require(h.press(2, "KeyE"), "hold the reported letter before physical sleep");
+        if (native_chord) {
+            require(!h.receiver.released(), "the fixture actually delivered a held native chord");
+        } else {
+            require(!h.receiver.text.empty(), "the fixture actually delivered the held letter");
+        }
+        h.drag_owner = 7;
+        HeadsetInputGuard sleep(0);
+        require(sleep.update(30, true), "a missed standby transition still detects real suspend");
+        h.input_blocked = sleep.blocked();
+        h.lifecycle->suspend_input();
+        require(h.receiver.released() && !h.receiver.pending && h.pointers.empty() && !h.drag_owner,
+                "physical sleep releases all owned keys, pending text and pointer captures");
+        const auto delivered = h.receiver.text.size();
+        const auto downs = h.receiver.downs.size();
+        h.receiver.target = 99; // SteamOS's sleep UI or the newly focused app.
+        h.request();
+        h.display(); // Presentation cannot reopen the blocked output gate.
+        h.now += 10;
+        h.tick();
+        require(h.receiver.text.size() == delivered && h.receiver.downs.size() == downs,
+                "a visible panel cannot resume the old key while its input is blocked");
+        require(!sleep.update(30, true), "wake cancellation is consumed once");
+        h.input_blocked = sleep.blocked();
+        h.request();
+        h.display();
+        h.tick();
+        require(h.receiver.text.size() == delivered && h.receiver.released(),
+                "restoring fresh input does not restart the pre-sleep hold");
+        h.click(3, "KeyA");
+        require(h.receiver.text.size() == delivered + 1 && h.receiver.text.back().second == "a",
+                "a deliberate new press works normally after wake");
+        require(h.receiver.text.back().first == 99,
+                "only fresh deliberate input reaches the newly focused receiver");
+    }
+
+    Headset late;
+    late.request();
+    late.display();
+    late.receiver.slow_text = true;
+    late.click(1, "KeyE");
+    require(late.receiver.pending, "fixture has an unacknowledged letter before sleep");
+    late.lifecycle->suspend_input();
+    require(!late.receiver.pending, "sleep cancels the old transport request");
+    late.receiver.reply = true;
+    late.receiver.slow_text = false;
+    late.request();
+    late.display();
+    late.now += 10;
+    late.tick();
+    require(late.receiver.text.empty() && late.receiver.released(),
+            "a late pre-sleep text result cannot be replayed after wake");
+}
+
 // After an update with replacement on, the panel starts hidden and is then
 // revealed where it is: no request, no recentring, no bridge retry.
 void an_update_reveals_the_hidden_panel() {
@@ -1014,6 +1098,7 @@ int main() {
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();
         sleep_recovery_does_not_resurrect_old_input();
+        physical_sleep_cancels_input_before_resume();
         cancellation_respects_device_ownership();
         watchdog_fallback_is_request_scoped();
         std::cout << "VR lifecycle requirements passed.\n";

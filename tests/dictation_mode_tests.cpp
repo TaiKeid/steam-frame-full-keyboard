@@ -43,6 +43,7 @@ struct Sink : KeySink {
     bool single_line{};
     int commits_before_failure{-1}; // -1 never fails
     std::size_t acknowledged{};     // characters of a failed commit that arrived
+    std::size_t commit_attempts{};
     void send(int code, int value) override { keys.emplace_back(code, value); }
     Delivery deliver_key(int code, int value) override {
         send(code, value);
@@ -50,6 +51,7 @@ struct Sink : KeySink {
     }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
+        ++commit_attempts;
         // Like the local text path, which holds at most 32 characters at once.
         if (busy || g_utf8_strlen(value.c_str(), -1) > 32) {
             return false;
@@ -388,6 +390,11 @@ while True:
         prompts.write(message["text"].encode() + b"\0")
         if scenario == "noanswer":
             continue  # recognition that takes its time
+        if scenario == "sleepwait":
+            import time
+            release = os.path.join(os.path.dirname(sys.argv[0]), "release-sleep-phrase")
+            while not os.path.exists(release):
+                time.sleep(0.01)
         if scenario == "slowdirect" and message["id"] == 2:
             import time
             time.sleep(0.3)  # still being recognized when listening resumes
@@ -3180,6 +3187,212 @@ void send_tests() {
     }
 }
 
+void suspend_input_tests() {
+    auto options_for = [](const fs::path& directory, const std::string& extra = "",
+                          const char* scenario = "silent") {
+        Options options;
+        options.config_dir = directory;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        write_config(directory, R"(,"dictation":"server","dictation_server":"127.0.0.1")" + extra);
+        use_fake_helper(options, directory, scenario);
+        return options;
+    };
+    auto resume_quietly = [](App& app, Sink& sink) {
+        const auto text = sink.text;
+        const auto keys = sink.keys;
+        app.set_interaction_active(false);
+        app.tick(clock += .1);
+        app.set_interaction_active(true);
+        settle(app);
+        require(sink.text == text && sink.keys == keys,
+                "resuming interaction cannot restart a suspended output producer");
+    };
+    {
+        // Exercise real output ownership, including modifier release order.
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path);
+        Sink sink;
+        App app(options, sink);
+        const auto [sx, sy] = key_center(app, "ShiftLeft");
+        const auto [lx, ly] = key_center(app, "ArrowLeft");
+        app.down(0, sx, sy, clock);
+        app.down(1, lx, ly, clock);
+        require(std::find(sink.keys.begin(), sink.keys.end(), std::pair{KEY_LEFT, 1}) != sink.keys.end(),
+                "the target owns the navigation key before sleep");
+        app.suspend_input();
+        require(sink.keys.size() >= 2 && sink.keys[sink.keys.size() - 2] == std::pair{KEY_LEFT, 0} &&
+                    sink.keys.back() == std::pair{KEY_LEFTSHIFT, 0},
+                "sleep releases the actual key before its modifier");
+        require(!app.pointer_pressed(0) && !app.pointer_pressed(1), "sleep forgets both UI holds");
+        resume_quietly(app, sink);
+        const auto released = sink.keys;
+        app.up(1, lx, ly);
+        app.up(0, sx, sy);
+        require(sink.keys == released, "late pre-sleep releases have no output to act on");
+        press(app, "ArrowLeft");
+        require(sink.keys.size() == released.size() + 2 && sink.keys.back() == std::pair{KEY_LEFT, 0},
+                "a fresh post-sleep press still works without a stale modifier");
+    }
+    {
+        // A synchronous first piece has finished, but the next is not queued.
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path);
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, std::string(40, 'a'));
+        press(app, "Dictation-send");
+        require(sink.text == std::vector<std::string>{std::string(32, 'a')} &&
+                    editor_text(app) == std::string(8, 'a') && app.view().dictation->sending,
+                "Send is between pieces before sleep");
+        app.suspend_input();
+        require(!app.view().dictation->sending && editor_text(app) == std::string(8, 'a'),
+                "sleep retains only the unsent editor remainder");
+        resume_quietly(app, sink);
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() && sink.text.back() == std::string(8, 'a'),
+                "only a deliberate Send continues the remainder");
+    }
+    {
+        // The target has not answered an attempted piece. Keep it uncertain.
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path);
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, std::string(40, 'b'));
+        sink.busy = true;
+        press(app, "Dictation-send");
+        require(app.view().dictation->sending && sink.commit_attempts > 0 && sink.text.empty(),
+                "a Send piece is pending at the target before sleep");
+        app.suspend_input();
+        require(!app.view().dictation->sending && editor_text(app) == std::string(40, 'b') &&
+                    app.view().dictation->uncertain > 0,
+                "sleep preserves an unconfirmed piece and marks its uncertainty");
+        sink.busy = false;
+        resume_quietly(app, sink);
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() &&
+                    sink.text == std::vector<std::string>{std::string(32, 'b'), std::string(8, 'b')},
+                "a deliberate retry sends the retained editor text once");
+    }
+    {
+        // A prior failure has already established an acknowledged prefix.
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path);
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, std::string(40, 'c'));
+        sink.commits_before_failure = 1;
+        sink.acknowledged = 3;
+        press(app, "Dictation-send");
+        settle(app);
+        require(editor_text(app) == std::string(5, 'c') && app.view().dictation->uncertain == 1,
+                "a failed piece retains only the unacknowledged suffix");
+        app.suspend_input();
+        require(editor_text(app) == std::string(5, 'c') && app.view().dictation->uncertain == 1,
+                "sleep does not discard known acknowledgement progress");
+        sink.commits_before_failure = -1;
+        resume_quietly(app, sink);
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() && sink.text.back() == std::string(5, 'c'),
+                "resending after sleep never retypes the acknowledged prefix");
+    }
+    {
+        // Paste is waiting for clipboard preparation, before any Ctrl+V.
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path, R"(,"dictation_send_paste":true)");
+        Sink sink;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "safe paste");
+        press(app, "Dictation-send");
+        require(clipboard.written == std::vector<std::string>{"safe paste"} && sink.keys.empty(),
+                "Paste has prepared its text without pressing the shortcut");
+        app.suspend_input();
+        require(editor_text(app) == "safe paste" && !app.view().dictation->sending,
+                "sleep keeps the text of a paste not yet delivered");
+        resume_quietly(app, sink);
+        require(clipboard.written.size() == 1, "resume cannot prepare another automatic paste");
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() && sink.keys.size() == 4,
+                "only the next deliberate Send presses Ctrl+V");
+    }
+    {
+        // A late recognition answer must update the editor, never auto-Send.
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path, "", "sleepwait");
+        Sink sink;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation-send");
+        wait_until(app, [&] {
+            return prompts_sent(directory.path).size() == 1 && !app.listening() &&
+                   app.view().dictation_recognizing &&
+                   app.view().disabled_keys.contains("Dictation-send");
+        });
+        app.suspend_input();
+        std::ofstream(directory.path / "release-sleep-phrase") << "ready";
+        wait_until(app, [&] {
+            return app.dictation_open() && editor_text(app) == "Hello there." &&
+                   !app.view().dictation->revealing;
+        });
+        require(!app.view().dictation->sending && sink.text.empty(),
+                "a late phrase stays in the editor after sleep cancels Send-wait");
+        resume_quietly(app, sink);
+        press(app, "Dictation-send");
+        settle(app);
+        require(!app.dictation_open() && sink.text == std::vector<std::string>{"Hello there."},
+                "a fresh Send can deliver the preserved late phrase");
+    }
+    {
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path, R"(,"dictation_direct":true)", "direct");
+        Sink sink;
+        sink.busy = true;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.commit_attempts > 0; });
+        require(app.listening() && sink.text.empty(), "direct speech is queued behind a busy target");
+        app.suspend_input();
+        require(!app.listening(), "sleep stops direct capture as well as its delivery queue");
+        sink.busy = false;
+        resume_quietly(app, sink);
+        press(app, "KeyE");
+        require(sink.text == std::vector<std::string>{"e"},
+                "no old direct phrase returns; a fresh ordinary key works");
+    }
+    {
+        TemporaryDirectory directory;
+        auto options = options_for(directory.path);
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "draft");
+        const auto [x, y] = key_center(app, "Backspace");
+        app.down(1, x, y, clock);
+        const auto draft = editor_text(app);
+        app.suspend_input();
+        resume_quietly(app, sink);
+        require(editor_text(app) == draft, "sleep stops editor repeat without erasing its draft");
+        press(app, "Dictation");
+        require(app.listening(), "the editor can start a new capture deliberately");
+        app.suspend_input();
+        require(!app.listening() && editor_text(app) == draft,
+                "sleep stops listening while preserving existing editor text");
+    }
+}
+
 void selection_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -3262,6 +3475,7 @@ int main() {
         mode_tests();
         modal_repeat_tests();
         send_tests();
+        suspend_input_tests();
         selection_tests();
         scroll_tests();
         paste_tests();

@@ -14,6 +14,42 @@ struct VrLifecycleEffects {
     std::function<void(double)> show_overlay, retry_bridge;
     std::function<void()> summon, dismiss_request;
     std::function<void(std::uint32_t)> cancel_device;
+    // Sleep additionally stops input producers, while keeping local drafts.
+    std::function<void()> sleep_input;
+};
+
+// CLOCK_BOOTTIME advances during system suspend; CLOCK_MONOTONIC does not.
+// Standby also needs an input gate when the system itself keeps running.
+class HeadsetInputGuard {
+  public:
+    explicit HeadsetInputGuard(double initial_suspended, bool initial_worn = true)
+        : suspended_(initial_suspended), worn_(initial_worn), blocked_(!initial_worn) {}
+    // True requests cancellation before dispatching this frame's old events.
+    bool update(double suspended, bool worn) {
+        resumed_ = suspended > suspended_ + 1;
+        const bool transition = worn != worn_;
+        suspended_ = suspended;
+        worn_ = worn;
+        blocked_ = !worn || resumed_ || transition;
+        return resumed_ || transition;
+    }
+    // A suspend can interrupt an iteration after its initial check. Late
+    // checks only escalate the gate, never reopen it within the same frame.
+    bool detect_suspend(double suspended) {
+        const bool gap = suspended > suspended_ + 1;
+        suspended_ = suspended;
+        if (gap) {
+            resumed_ = true;
+            blocked_ = true;
+        }
+        return gap;
+    }
+    bool blocked() const { return blocked_; }
+    bool resumed() const { return resumed_; }
+
+  private:
+    double suspended_;
+    bool worn_, blocked_, resumed_{};
 };
 
 // A keyboard button under a window pinned in the world asks for a keyboard
@@ -68,6 +104,9 @@ class VrLifecycle {
     void dismiss();
     void fallback();
     void focus_lost();
+    // Release before disabling delivery, then forget pointer/capture history.
+    // Presentation/session ownership stays intact for normal wake recovery.
+    void suspend_input();
     void device_lost(std::uint32_t device, std::optional<std::uint32_t> drag_owner);
     void pointer_left(std::uint32_t device, bool dragging);
     void request_recenter();

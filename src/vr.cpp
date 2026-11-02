@@ -1685,7 +1685,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     KeySoundActivity sound_activity;
     std::optional<SoundPreview> delayed_release;
     double delayed_release_at = 0, next_worn_check = 0;
-    bool worn = true;
+    bool worn = vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) !=
+                vr::k_EDeviceActivityLevel_Standby;
+    double last_suspended = suspended_seconds();
+    HeadsetInputGuard headset_input(last_suspended, worn);
     // FocusLeave identifies a device, but not its cursor. Separate surfaces
     // preserve a hand crossing between the main panel and a corner overlay.
     constexpr std::uint64_t sound_main = 1, sound_resize_left = 2, sound_resize_right = 3,
@@ -1745,7 +1748,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool was_listening = false;
     bool reveal_pending = app.reveal_after_update();
     bool reveal_requested = false;
-    double last_suspended = suspended_seconds(), next_presence_check = 0;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
         app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
@@ -2017,12 +2019,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     reset_sound_activity();
                     hovered_devices.fill(false);
                     pointer_devices.clear();
+                    key_holds = {};
+                    gap_watches.clear();
+                    released_at.clear();
+                    click_watches = {};
                     grip_input.reset();
                     scene_pointer.reset();
                     scene_inside.fill(false);
                     scene_gap.fill(std::nullopt);
                     scene_idle.fill(std::nullopt);
+                    scene_released.fill(-1);
+                    scene_last = {};
                     cursors.hide();
+                    resizers.hide();
                 },
             .hide_overlay =
                 [&] {
@@ -2036,7 +2045,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     }
                 },
             .route_input = [&](bool remote) { replacement.route(remote); },
-            .set_interaction = [&](bool active) { app.set_interaction_active(active); },
+            .set_interaction =
+                [&](bool active) { app.set_interaction_active(active && !headset_input.blocked()); },
             .show_overlay =
                 [&](double now) {
                     app.paint(now);
@@ -2057,6 +2067,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 },
             .dismiss_request = [&] { replacement.dismiss_request(); },
             .cancel_device = [&](std::uint32_t device) { cancel_device(device); },
+            .sleep_input = [&] { app.suspend_input(); },
         });
     auto hide_panel = [&] { lifecycle.hide(); };
     // Passthrough keeps the panel open while the dashboard is closed. Under a
@@ -2064,13 +2075,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     auto presentable = [&] { return hosted || app.passthrough() || vr_overlay()->IsDashboardVisible(); };
     lifecycle.set_hosted(hosted);
     auto update_key_sounds = [&](double now) {
-        if (now >= next_worn_check) {
-            next_worn_check = now + .25;
-            worn = vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) !=
-                   vr::k_EDeviceActivityLevel_Standby;
-        }
-        const bool awake = sound_activity.update(now, lifecycle.visible(), app.haptic_sounds(), worn);
-        if (!lifecycle.visible() || !worn) {
+        const bool awake = sound_activity.update(now, lifecycle.visible(), app.haptic_sounds(),
+                                                 worn && !headset_input.blocked());
+        if (!lifecycle.visible() || !worn || headset_input.blocked()) {
             sound_devices.clear();
         }
         key_sounds.set_awake(awake);
@@ -2226,6 +2233,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             sound_activity.pointer(sound_pointer_id(sound_forwarded, hand), false, monotonic_seconds());
         }
     };
+    auto suspend_headset_input = [&] {
+        lifecycle.suspend_input();
+        end_forwarded();
+        last_pressed.reset();
+        was_listening = app.listening();
+    };
+    auto detect_headset_suspend = [&] {
+        // A runtime call can be interrupted by sleep after this frame began.
+        // Escalate the gate without consuming the frame's wake quarantine.
+        if (headset_input.detect_suspend(suspended_seconds())) {
+            suspend_headset_input();
+        }
+    };
     // The texture areas that take a pointer: the case, an open menu and the
     // flick preview, which can reach past the case.
     auto pointer_areas = [&](const PanelView& view) {
@@ -2239,6 +2259,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         return areas;
     };
     auto forward = [&](json_object* body, double now) {
+        detect_headset_suspend();
         json_object* value = nullptr;
         const std::string hand_name = json_object_object_get_ex(body, "hand", &value) &&
                                               json_object_is_type(value, json_type_string)
@@ -2248,7 +2269,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                           json_object_is_type(value, json_type_string)
                                       ? json_object_get_string(value)
                                       : "";
-        if ((hand_name != "left" && hand_name != "right") || !app.forwarded() || !lifecycle.visible()) {
+        if ((hand_name != "left" && hand_name != "right") || !app.forwarded() || !lifecycle.visible() ||
+            headset_input.blocked()) {
             return;
         }
         const std::size_t hand = hand_name == "left" ? 0 : 1;
@@ -2274,6 +2296,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const auto areas = pointer_areas(app.input_view());
         const bool inside =
             std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
+        detect_headset_suspend();
+        if (headset_input.blocked()) {
+            return;
+        }
         if (!inside) {
             sound_activity.pointer(sound_pointer_id(sound_forwarded, hand), false, now);
             if (std::exchange(forwarded_inside[hand], false)) {
@@ -2426,6 +2452,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.activate_update();
     };
     auto handle_request = [&](ShellRequest& request, double now) {
+        detect_headset_suspend();
         json_object* body = request.body.get();
         const auto id = request.id.value_or(-1);
         auto get = [&](const char* key) -> json_object* {
@@ -2680,6 +2707,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         } else if (op == "profiles.list") {
             ok(app.host_profiles());
         } else if (op.starts_with("dictation.")) {
+            if (op == "dictation.start" && headset_input.blocked()) {
+                fail("unavailable", "Dictation needs an active headset.");
+                return;
+            }
             auto [code, fields] = app.host_dictation_request(op, body);
             if (!code.empty()) {
                 fail(code, code == "composing" ? "Dictation would commit unfinished input."
@@ -2773,6 +2804,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const auto frame_started = std::chrono::steady_clock::now();
         const double now = monotonic_seconds();
         laser_rays.begin_frame(now);
+        // Sleep can consume the release event. End every held/captured action
+        // before reading forwarded or native input from this frame. Boot time
+        // advances during suspend; monotonic time (and our polling timer) does not.
+        const double suspended = suspended_seconds();
+        if (now >= next_worn_check || suspended > last_suspended + 1) {
+            next_worn_check = now + .25;
+            worn = vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) !=
+                   vr::k_EDeviceActivityLevel_Standby;
+        }
+        last_suspended = suspended;
+        if (headset_input.update(suspended, worn)) {
+            suspend_headset_input();
+        }
         if (duration > 0 && now - start >= duration) {
             break;
         }
@@ -2965,8 +3009,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!lifecycle.visible()) {
             grip_input.reset();
         }
-        const auto grips = lifecycle.visible() && app.use_drag_to_move() ? grip_input.poll()
-                                                                         : std::array<GrabSample, 2>{};
+        const auto grips = !headset_input.blocked() && lifecycle.visible() && app.use_drag_to_move()
+                               ? grip_input.poll()
+                               : std::array<GrabSample, 2>{};
+        detect_headset_suspend();
         if (!app.use_drag_to_move()) {
             grip_input.reset();
         }
@@ -3005,6 +3051,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // SteamVR laser events and the passthrough pointer share these handlers.
         auto pointer_move = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y,
                                 bool controller) {
+            detect_headset_suspend();
+            if (headset_input.blocked()) {
+                return;
+            }
             if (device < hovered_devices.size()) {
                 hovered_devices[device] = panel_case_bounds(app.geometry()).contains(x, y);
             }
@@ -3016,6 +3066,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         };
         auto pointer_down = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y,
                                 bool controller, bool tracked_pointer) {
+            detect_headset_suspend();
+            if (headset_input.blocked()) {
+                return;
+            }
             if (drag.active()) {
                 return;
             }
@@ -3061,6 +3115,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         };
         // Either corner scales the keyboard about its center.
         auto start_resize = [&](std::size_t side, vr::TrackedDeviceIndex_t device, unsigned pointer) {
+            detect_headset_suspend();
+            if (headset_input.blocked()) {
+                return;
+            }
             if (drag.active() || !displayed.ready() || !app.allows_movement(MoveSource::Resize)) {
                 return;
             }
@@ -3078,6 +3136,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::cout << "Keyboard resize started.\n" << std::flush;
         };
         auto pointer_up = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y) {
+            detect_headset_suspend();
+            if (headset_input.blocked()) {
+                return;
+            }
             if (drag.owns_pointer(device, pointer)) {
                 stop_drag(true);
                 app.move(pointer, x, y);
@@ -3090,8 +3152,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // the keyboard in the same frame must start the capture before it ends.
         for (std::size_t side = 0; side < 2; ++side) {
             while (resizers.poll(side, event)) {
-                if (!lifecycle.visible() || scene_input || !dashboard_visible || done ||
-                    app.quitting() || app.forwarded()) {
+                detect_headset_suspend();
+                if (headset_input.blocked() || !lifecycle.visible() || scene_input ||
+                    !dashboard_visible || done || app.quitting() || app.forwarded()) {
                     continue;
                 }
                 const auto device = event.trackedDeviceIndex;
@@ -3155,6 +3218,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         while (vr_overlay()->PollNextOverlayEvent(panel.handle(), &event, sizeof(event))) {
+            detect_headset_suspend();
             // Recheck before every pointer event, not just once per batch. A
             // closing dashboard must not deliver queued clicks to a local app.
             if (!presentable()) {
@@ -3171,8 +3235,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // Laser events queued before the dashboard closed belong to the
             // old pointer; the passthrough pointer owns input until it reopens.
             // A forwarding shell owns every pointer; SteamVR's laser is off.
-            if (!lifecycle.visible() || scene_input || !vr_overlay()->IsDashboardVisible() ||
-                app.forwarded()) {
+            if (headset_input.blocked() || !lifecycle.visible() || scene_input ||
+                !vr_overlay()->IsDashboardVisible() || app.forwarded()) {
                 continue;
             }
             // OpenVR reports bottom-left coordinates; Cairo uses top-left.
@@ -3323,7 +3387,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
         }
-        if (scene_input && lifecycle.visible() && !done && !app.quitting()) {
+        if (!headset_input.blocked() && scene_input && lifecycle.visible() && !done && !app.quitting()) {
             const auto view = app.input_view();
             // The same areas as the intersection mask, built from the full view
             // (the input view has no emoji grid): transparent margins never take
@@ -3333,8 +3397,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 return std::any_of(areas.begin(), areas.end(),
                                    [&](const Rect& r) { return r.contains(x, y); });
             };
-            const auto samples =
+            auto samples =
                 scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
+            detect_headset_suspend();
+            if (headset_input.blocked()) {
+                samples = {};
+            }
             for (const auto& sample : samples) {
                 if (sample.ray && !sample.lost) {
                     laser_rays.share(sample.device, *sample.ray);
@@ -3541,7 +3609,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 dismiss_panel();
             }
         }
-        if (!(scene_input && lifecycle.visible()) || done || app.quitting()) {
+        if (headset_input.blocked() || !(scene_input && lifecycle.visible()) || done || app.quitting()) {
             window_laser.off(); // Passthrough only; the dashboard has its own laser.
         }
         if (done || app.quitting()) {
@@ -3589,8 +3657,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (!held) {
                 stop_drag(true);
             }
-        } else if (!drag.active() && lifecycle.visible() && placement.ready() &&
-                   app.allows_movement(MoveSource::Grip)) {
+        } else if (!headset_input.blocked() && !drag.active() && lifecycle.visible() &&
+                   placement.ready() && app.allows_movement(MoveSource::Grip)) {
             for (const auto& grip : grips) {
                 if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
                     hovered_devices[grip.device] && drag.start(grip, displayed, now, MoveSource::Grip)) {
@@ -3607,8 +3675,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // A stationary native hover may lose tracking without FocusLeave.
         // Query poses once at 4 Hz only while sounds have tracked hover owners;
         // scene pointers already supplied their current poses above.
-        if (lifecycle.visible() && worn && sound_activity.has_pointers() && !scene_input &&
-            !app.forwarded() && app.haptic_sounds() && !sound_devices.empty() &&
+        if (!headset_input.blocked() && lifecycle.visible() && worn && sound_activity.has_pointers() &&
+            !scene_input && !app.forwarded() && app.haptic_sounds() && !sound_devices.empty() &&
             now >= next_sound_tracking_check) {
             next_sound_tracking_check = now + .25;
             vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
@@ -3648,26 +3716,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 haptics.send(device, kind);
             }
         }
-        // Listening never outlives the wearer (docs/dictation.md, Dashboard,
-        // passthrough and focus). The headset enters standby seconds after it
-        // is taken off. A system sleep shows as boot time, which counts
-        // suspend, running ahead of the monotonic clock, which does not.
-        const double suspended = suspended_seconds();
-        if (app.listening() && suspended > last_suspended + 1) {
-            app.stop_listening("Listening stopped: the headset was asleep.");
-        }
-        last_suspended = suspended;
-        if (app.listening() && now >= next_presence_check) {
-            next_presence_check = now + .25;
-            if (vr_system()->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd) ==
-                vr::k_EDeviceActivityLevel_Standby) {
-                app.stop_listening("Listening stopped: the headset was taken off.");
-            }
-        }
         // Felt in the hand that last pressed, which started listening.
         if (const bool listening = app.listening(); listening != was_listening) {
             was_listening = listening;
-            if (last_pressed) {
+            if (last_pressed && !headset_input.blocked()) {
                 RuntimeWait runtime_wait;
                 haptics.play(*last_pressed, listening_pulses(listening));
             }
@@ -3827,7 +3879,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         // Corner resizers fade in wherever any laser comes near: either hand's,
         // and the head cursor while it is the dashboard's pointer. Pinning hides them.
-        if (!lifecycle.visible() || !displayed.ready()) {
+        if (headset_input.blocked() || !lifecycle.visible() || !displayed.ready()) {
             resizers.hide();
         } else {
             // Case geometry only; the full view, with its controls and popup, is
@@ -3891,6 +3943,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!presentable()) {
             hide_panel();
         }
+        detect_headset_suspend();
         const bool repaint = app.tick(now);
         // Ask for SteamVR's ticking scroll steps only while some laser is over
         // something its stick would actually scroll: not at an end it leans toward.

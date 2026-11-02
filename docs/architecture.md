@@ -30,6 +30,12 @@ stay outside the coordinator. [Lifecycle requirements](vr-lifecycle.md) define
 private-receiver acceptance scenarios, including actual App holds, queued text
 and two-controller ownership. Host tests do not establish physical VR behavior.
 
+`HeadsetInputGuard` detects headset standby and system suspend from the difference
+between boot and monotonic clocks. It cancels held input and producers before
+dispatching resumed pointer events. Standby and the first wake frame block
+delivery, so stale queued presses cannot restart a pre-sleep hold. Normal fresh
+input resumes on the following frame; local dictation drafts remain available.
+
 The image is retained between paints. Hover/press/release updates clear and redraw only damaged key regions, including overlapping neighboring ink in the original drawing order. Cairo recording surfaces measure ink bounds when the visual model changes; the bounds cover the entire press travel and include text outside the face rectangle. Profile snapshots compare values rather than pointer addresses so Reload cannot reuse stale geometry. Modifier/lock legends, composition/candidates, settings, status, and profile changes use full redraws. Pixel-comparison tests run the same interaction sequence against an always-full renderer.
 
 `PanelTexture` prefers Cairo's native premultiplied BGRA bytes on little-endian systems, using `VK_FORMAT_B8G8R8A8_UNORM` and `VROverlayFlags_IsPremultiplied`. It checks Vulkan format support and OpenVR flag acceptance, and falls back to straight RGBA conversion if setup or submission fails. Rejected native textures stay alive until VR shutdown. Uploads are partial: the renderer reports the whole-pixel rectangles each paint changed (`PanelRenderer::damage()`), and `OverlayTexture` copies only those, plus whatever changed while the other of its two images was current, so neither image goes stale. A full repaint, more than 24 areas or more than half the image goes whole. The rendering test checks that every changed pixel lies inside the reported damage. The visible 60 Hz pose loop and 80 ms Graphite animation duration are unchanged.

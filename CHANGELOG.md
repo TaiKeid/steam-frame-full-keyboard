@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed held keys and queued input surviving headset standby or system sleep. Sleep cancels input and sending before wake events are handled, while keeping unsent dictation text in the editor.
 - Fixed held editing keys continuing to change dictation text behind the **Discard text?** question. Choosing **Keep** no longer resumes a key held across the question; release and press it again to continue editing.
 - Key sounds now warm the audio stream when a pointer enters the keyboard and keep it continuous while either pointer remains there, avoiding repeated stream restarts between clicks. The stream closes two seconds after the last pointer leaves, and immediately when the keyboard hides, the headset is removed or sounds are off or muted. Opening the keyboard alone does not start audio. Settings previews also respect mute.
 - Canceling on-device dictation now stops an engine that is still loading its model, so a canceled startup cannot hold up later recognition requests or server tests.

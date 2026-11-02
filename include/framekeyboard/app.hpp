@@ -125,6 +125,9 @@ class App {
                (reading_repeat_ && reading_repeat_->pointer == pointer);
     }
     void cancel(bool discard_composition = true);
+    // Sleep ends active delivery and capture, but keeps editor/configuration
+    // drafts. No Send or queued key may continue merely because input resumes.
+    void suspend_input();
     bool tick(double now);
     // Whether the image changed and needs uploading.
     bool paint(double now);

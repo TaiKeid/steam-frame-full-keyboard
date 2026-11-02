@@ -1665,6 +1665,22 @@ void App::cancel(bool discard_composition) {
     hovered_.clear();
     dirty = true;
 }
+void App::suspend_input() {
+    // stop_send needs the existing retry suffix before cancel clears it. An
+    // unacknowledged in-flight piece stays here marked uncertain, as on Esc.
+    if (sending_) {
+        stop_send(sending_->in_flight);
+    }
+    send_wait_since_.reset();
+    if (direct_) {
+        stop_direct("Listening stopped: the headset was asleep.");
+    } else {
+        stop_listening("Listening stopped: the headset was asleep.");
+    }
+    // Release actual backend holds and queued actions. The editor and settings
+    // drafts remain available; the VR gate retains its existing preedit policy.
+    cancel(false);
+}
 bool App::tick(double now) {
     if (status_ == no_reading_status && (!cjk_ || cjk_->empty())) {
         status_.clear(); // The toolbar's Cancel or a hide ended the reading.

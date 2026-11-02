@@ -113,6 +113,16 @@ void VrLifecycle::focus_lost() {
     effects_.stop_drag();
     effects_.cancel_input();
 }
+void VrLifecycle::suspend_input() {
+    effects_.stop_drag();
+    if (effects_.sleep_input) {
+        effects_.sleep_input();
+    } else {
+        effects_.cancel_input();
+    }
+    effects_.clear_pointers();
+    effects_.set_interaction(false);
+}
 void VrLifecycle::device_lost(std::uint32_t device, std::optional<std::uint32_t> drag_owner) {
     effects_.cancel_device(device);
     if (drag_owner == device) {
