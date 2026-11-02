@@ -7,6 +7,7 @@
 - Canceling on-device dictation now stops an engine that is still loading its model, so a canceled startup cannot hold up later recognition requests or server tests.
 - The dictation server **Test** button now waits for the previous helper to finish cleanup before allowing another test, avoiding a refused retry immediately after helper failure.
 - Fixed retained Cangjie and Quick text becoming impossible to send after repeated refused commits. Longer compositions are sent in paced pieces, and a failed submission retains only its unacknowledged remainder for an explicit Enter retry. Retained text is bounded at 1,024 Unicode code points; a full buffer refuses more input without discarding existing text. Backspace with no active reading removes one retained code point instead of clearing the whole composition.
+- Fixed swipe encoder cleanup if allocating its adapter fails after the model has loaded. The encoder is now destroyed before its module is unloaded on that failure path.
 
 ### Development
 

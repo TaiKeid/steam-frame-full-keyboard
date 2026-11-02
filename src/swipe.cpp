@@ -470,8 +470,8 @@ struct SwipeModule {
 };
 class ModuleEncoder final : public SwipeEncoder {
   public:
-    ModuleEncoder(std::shared_ptr<SwipeModule> module, SwipeEncoder* encoder)
-        : module_(std::move(module)), encoder_(encoder) {}
+    ModuleEncoder(std::shared_ptr<SwipeModule> module, std::unique_ptr<SwipeEncoder> encoder)
+        : module_(std::move(module)), encoder_(std::move(encoder)) {}
     std::vector<float> encode(const float* features, const float* keys, const unsigned char* mask,
                               int& steps) override {
         return encoder_->encode(features, keys, mask, steps);
@@ -488,11 +488,13 @@ std::unique_ptr<SwipeEncoder> load_swipe_encoder(const fs::path& model) {
         throw std::runtime_error("Swipe model unavailable");
     }
     auto module = std::make_shared<SwipeModule>();
-    auto* encoder = module->create(model.c_str());
+    // Own the engine before allocating its wrapper. If that allocation fails,
+    // destroy the engine while the local module still owns its code.
+    std::unique_ptr<SwipeEncoder> encoder(module->create(model.c_str()));
     if (!encoder) {
         throw std::runtime_error("Swipe model could not be loaded");
     }
-    return std::make_unique<ModuleEncoder>(std::move(module), encoder);
+    return std::make_unique<ModuleEncoder>(std::move(module), std::move(encoder));
 }
 
 SwipeService::SwipeService(SwipeEncoderFactory factory)

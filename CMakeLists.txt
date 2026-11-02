@@ -318,6 +318,27 @@ if(BUILD_TESTING)
     add_test(NAME swipe-model COMMAND swipe-tests --model)
     add_test(NAME swipe-chinese COMMAND swipe-tests --chinese)
     set_tests_properties(swipe-model swipe-chinese PROPERTIES SKIP_RETURN_CODE 77)
+    # A private module exercises encoder/wrapper ownership without loading a
+    # model. Keep both targets apart from development and installed engines.
+    add_library(fake_swipe_encoder MODULE tests/fake_swipe_encoder.cpp)
+    target_include_directories(fake_swipe_encoder PRIVATE include)
+    target_compile_options(fake_swipe_encoder PRIVATE -Wall -Wextra -Wpedantic)
+    if(CMAKE_CROSSCOMPILING)
+        target_link_options(fake_swipe_encoder PRIVATE -fuse-ld=lld)
+    endif()
+    set_target_properties(fake_swipe_encoder PROPERTIES PREFIX "" OUTPUT_NAME framekeyboard-swipe
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-swipe-memory/engines")
+    add_executable(swipe-ownership-tests tests/swipe_ownership_tests.cpp)
+    target_link_libraries(swipe-ownership-tests PRIVATE keyboard_core)
+    target_compile_options(swipe-ownership-tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_options(swipe-ownership-tests PRIVATE
+        "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_arm_allocation_failure"
+        "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_encoder_destroyed"
+        "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_module_unloaded")
+    set_target_properties(swipe-ownership-tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-swipe-memory")
+    add_dependencies(swipe-ownership-tests fake_swipe_encoder)
+    add_test(NAME swipe-ownership COMMAND swipe-ownership-tests)
     add_executable(settings-tests tests/settings_tests.cpp)
     target_link_libraries(settings-tests PRIVATE keyboard_core)
     target_compile_options(settings-tests PRIVATE -Wall -Wextra -Wpedantic)
