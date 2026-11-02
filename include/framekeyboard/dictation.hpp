@@ -65,6 +65,9 @@ class Dictation {
     Dictation& operator=(const Dictation&) = delete;
 
     bool running() const { return fd_ >= 0; }
+    // An open helper can accept work; a lost helper must finish cleanup before
+    // another can start. tick() reaps it without blocking the VR thread.
+    bool ready_to_start() const { return fd_ >= 0 || child_ < 0; }
     // Starts the helper when needed. False when it cannot be started or reached.
     bool configure(const Target& target);
     bool capture(bool on);

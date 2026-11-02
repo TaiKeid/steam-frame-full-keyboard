@@ -613,7 +613,8 @@ void App::update_settings_ui() {
     test.note = dictation_test_.empty()
                     ? (pending_dictation_server_.empty() ? "No server set" : "Not tested")
                     : dictation_test_;
-    test.enabled = !pending_dictation_server_.empty() && !testing_server_;
+    test.enabled = !pending_dictation_server_.empty() && !testing_server_ &&
+                   (!dictation_ || dictation_->ready_to_start());
     // On device (docs/dictation.md, On-device recognition): the model's row,
     // its development format and the warning for weaker languages.
     std::vector<SettingField> dictation_fields{
@@ -5268,7 +5269,8 @@ void App::delete_model(const std::string& model) {
 }
 
 void App::test_dictation_server() {
-    if (pending_dictation_server_.empty() || testing_server_) {
+    if (pending_dictation_server_.empty() || testing_server_ ||
+        (dictation_ && !dictation_->ready_to_start())) {
         return;
     }
     pause_capture();
@@ -5300,9 +5302,16 @@ bool App::tick_dictation(double now) {
     if (capturing_ || phrases_pending() || awaiting_pause_ || send_wait_since_ || testing_server_) {
         alive_until_ = now + 5;
     }
+    const bool helper_ready = dictation_->ready_to_start();
     dictation_->tick(now, now < alive_until_);
     while (const auto event = dictation_->next()) {
         dictation_event(*event, now);
+    }
+    if (helper_ready != dictation_->ready_to_start()) {
+        // EOF reports the failure at once, but Test waits until the old child
+        // has actually exited. Re-enable it when normal ticks reap that child.
+        update_settings_ui();
+        dirty = true;
     }
     // The next level starts sliding in once the previous one has arrived.
     if (capturing_ && mic_levels_.size() == 6 && !mic_incoming_.empty() &&

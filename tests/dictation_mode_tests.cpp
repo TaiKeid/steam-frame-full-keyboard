@@ -319,10 +319,19 @@ while True:
         continue
     if op == "test":
         if scenario == "testexit":
-            with open(os.path.join(os.path.dirname(sys.argv[0]), "test-exits"), "ab") as log:
+            exits = os.path.join(os.path.dirname(sys.argv[0]), "test-exits")
+            with open(exits, "ab") as log:
                 log.write(b"1")
             with open(os.path.join(os.path.dirname(sys.argv[0]), "test-exit-pid"), "w") as log:
                 log.write(str(os.getpid()))
+            if os.path.getsize(exits) == 1:
+                import signal, time
+                # EOF is visible while process cleanup is still in progress.
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                peer.close()
+                release = os.path.join(os.path.dirname(sys.argv[0]), "test-exit-release")
+                while not os.path.exists(release):
+                    time.sleep(0.01)
             sys.exit(0)  # gone before answering
         if scenario == "slowtest":
             import time
@@ -2429,20 +2438,27 @@ void test_race_tests() {
                 std::vector<std::string>{"127.0.0.1"},
             "only the address that answered is remembered");
 
-    // The helper exits before it answers: Test reports it and works again.
+    // EOF can precede process exit: Test reports it, but cannot retry until
+    // normal ticks finish cleanup. The first fixture waits for our release.
     use_fake_helper(options, directory.path, "testexit");
     App lost(options, sink);
     open_settings(lost);
     click(lost, "dictation-test");
     wait_until(lost, [&] { return field_label(lost, "Helper stopped"); });
-    require(control_enabled(lost, "dictation-test"), "Test can run again after the helper exits");
+    require(!control_enabled(lost, "dictation-test"), "Test waits for helper cleanup after EOF");
     require(fs::file_size(directory.path / "test-exits") == 1, "the first helper received Test");
-    // EOF can precede process exit. Let normal ticks reap the fixture before
-    // testing a new helper, as distinct from retrying during async cleanup.
     int exited_pid{};
     std::ifstream(directory.path / "test-exit-pid") >> exited_pid;
-    require(exited_pid > 0, "the fixture recorded its process");
-    wait_until(lost, [&] { return !fs::exists(fs::path("/proc") / std::to_string(exited_pid)); });
+    require(exited_pid > 0 && fs::exists(fs::path("/proc") / std::to_string(exited_pid)),
+            "the EOF fixture is still cleaning up");
+    click(lost, "dictation-test");
+    require(fs::file_size(directory.path / "test-exits") == 1 &&
+                !control_enabled(lost, "dictation-test"),
+            "a disabled Test does not attempt a restart");
+    std::ofstream(directory.path / "test-exit-release") << "1";
+    wait_until(lost, [&] { return control_enabled(lost, "dictation-test"); });
+    require(!fs::exists(fs::path("/proc") / std::to_string(exited_pid)),
+            "Test becomes available after the old helper is reaped");
     click(lost, "dictation-test");
     // The retry can exit before click's tick, especially on the Frame. Check
     // that it received Test rather than requiring a transient pending label.
