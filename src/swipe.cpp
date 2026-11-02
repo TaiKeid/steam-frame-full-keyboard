@@ -455,7 +455,11 @@ struct SwipeModule {
     void* handle{};
     CreateSwipeEncoder create{};
     SwipeModule() {
-        handle = dlopen(module_path().c_str(), RTLD_NOW | RTLD_LOCAL);
+        // The pinned backend initializes process-global CPU metadata at load
+        // time, but its deinitializers do not release that storage. Reuse one
+        // mapped image instead of orphaning those globals on each reload.
+        // ModuleEncoder still destroys every encoder and model instance.
+        handle = dlopen(module_path().c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
         if (!handle) {
             throw std::runtime_error("Swipe engine unavailable");
         }

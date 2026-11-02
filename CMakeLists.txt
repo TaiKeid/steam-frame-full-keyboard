@@ -334,6 +334,7 @@ if(BUILD_TESTING)
     target_link_options(swipe-ownership-tests PRIVATE
         "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_arm_allocation_failure"
         "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_encoder_destroyed"
+        "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_module_initialized"
         "-Wl,--export-dynamic-symbol=framekeyboard_test_swipe_module_unloaded")
     set_target_properties(swipe-ownership-tests PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-swipe-memory")

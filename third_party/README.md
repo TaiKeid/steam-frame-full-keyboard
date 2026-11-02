@@ -44,6 +44,13 @@ backend, statically linked into the optional `framekeyboard-swipe` module.
 not vendored. `executorch/` holds the licenses of ExecuTorch, XNNPACK, cpuinfo,
 pthreadpool, FP16, FXdiv (BSD/MIT), flatbuffers and KleidiAI (Apache-2.0).
 
+The pinned backend initializes process-global CPU metadata when the module
+loads. Its cpuinfo and XNNPACK deinitializers do not release that storage, so
+the adapter is mapped for the process lifetime with `RTLD_NODELETE`. Repeated
+encoder creation reuses those globals; each encoder and model instance is still
+destroyed normally. This lifetime policy avoids orphaning backend allocations
+when the module would otherwise unload, without a leak-report suppression.
+
 Word lists in `../swipe/lexicons/` are derived from CC BY lists (Leipzig Corpora
 Collection, partly via HeliBoard) blended with CC BY-SA 4.0 subtitle frequencies
 (FrequencyWords, from OpenSubtitles 2018), so those lists are CC BY-SA 4.0; the

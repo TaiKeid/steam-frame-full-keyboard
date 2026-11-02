@@ -1,6 +1,5 @@
 #include "framekeyboard/swipe.hpp"
 
-#include <array>
 #include <cstdlib>
 #include <dlfcn.h>
 #include <filesystem>
@@ -9,32 +8,56 @@
 #include <stdexcept>
 
 namespace {
-enum class Event { EncoderDestroyed, ModuleUnloaded };
-std::array<Event, 4> events;
-std::size_t event_count{};
+struct Counts {
+    unsigned initialized{}, unloaded{}, created{}, destroyed{};
+    bool unloaded_with_encoder{};
+} counts;
 bool inject{}, fail_next{};
 void require(bool valid, const char* message) {
     if (!valid) {
         throw std::runtime_error(message);
     }
 }
-void record(Event event) {
-    if (event_count < events.size()) {
-        events[event_count++] = event;
-    }
+std::filesystem::path fixture_path() {
+    return std::filesystem::canonical("/proc/self/exe").parent_path() / "engines" /
+           "framekeyboard-swipe.so";
 }
 void verify_fixture() {
-    const auto path = std::filesystem::canonical("/proc/self/exe").parent_path() / "engines" /
-                      "framekeyboard-swipe.so";
-    void* library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    void* library = dlopen(fixture_path().c_str(), RTLD_NOW | RTLD_LOCAL);
     require(library, "load the private ownership fixture before creating any encoder");
     auto marker = reinterpret_cast<int (*)()>(dlsym(library, "framekeyboard_test_swipe_fixture_v1"));
     const bool fixture = marker && marker() == 1;
     dlclose(library); // No extra reference may keep the actual test module loaded.
     require(fixture, "only the private module may run; no real model is loaded");
+    require(counts.initialized == 1 && counts.unloaded == 1,
+            "preflight really unloads and cannot pin the module for production");
+    counts = {};
 }
-void ownership(bool failure) {
-    event_count = 0;
+void verify_generation(unsigned calls) {
+    // Observing an already mapped module must not promote its lifetime or
+    // keep an extra reference that would conceal a production-loader failure.
+    void* library = dlopen(fixture_path().c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD);
+    require(library, "the production loader retained its process-global module");
+    auto created =
+        reinterpret_cast<unsigned (*)()>(dlsym(library, "framekeyboard_test_swipe_creation_calls"));
+    const bool expected = created && created() == calls;
+    dlclose(library);
+    require(expected && counts.initialized == 1 && counts.unloaded == 0 && !counts.unloaded_with_encoder,
+            "factory calls share one mapped global generation");
+}
+void failed_creation() {
+    bool refused = false;
+    try {
+        auto encoder = framekeyboard::load_swipe_encoder("private-failed-creation");
+    } catch (const std::runtime_error&) {
+        refused = true;
+    }
+    require(refused && counts.created == 0 && counts.destroyed == 0,
+            "failed model creation retains no encoder instance");
+    verify_generation(1);
+}
+void ownership(bool failure, unsigned calls) {
+    const auto before = counts.created;
     inject = failure;
     fail_next = false;
     bool caught = false;
@@ -45,20 +68,25 @@ void ownership(bool failure) {
         caught = true;
     }
     require(caught == failure, "only the requested wrapper allocation fails");
-    require(event_count == 2 && events[0] == Event::EncoderDestroyed &&
-                events[1] == Event::ModuleUnloaded,
-            "normal and exceptional cleanup destroy the encoder before unloading its module");
+    require(counts.created == before + 1 && counts.destroyed == counts.created,
+            "normal and exceptional cleanup destroy each encoder instance");
+    verify_generation(calls);
 }
 } // namespace
 
 extern "C" void framekeyboard_test_swipe_arm_allocation_failure() {
+    ++counts.created;
     fail_next = inject;
 }
 extern "C" void framekeyboard_test_swipe_encoder_destroyed() {
-    record(Event::EncoderDestroyed);
+    ++counts.destroyed;
 }
 extern "C" void framekeyboard_test_swipe_module_unloaded() {
-    record(Event::ModuleUnloaded);
+    ++counts.unloaded;
+    counts.unloaded_with_encoder |= counts.created != counts.destroyed;
+}
+extern "C" void framekeyboard_test_swipe_module_initialized() {
+    ++counts.initialized;
 }
 
 // Fail precisely once, after the fake engine has been returned. The fixture's
@@ -83,8 +111,10 @@ void operator delete(void* memory, std::size_t) noexcept {
 int main() {
     try {
         verify_fixture();
-        ownership(false);
-        ownership(true);
+        failed_creation();
+        ownership(false, 2);
+        ownership(true, 3);
+        ownership(false, 4);
     } catch (const std::exception& error) {
         std::cerr << "swipe ownership test failed: " << error.what() << '\n';
         return 1;
