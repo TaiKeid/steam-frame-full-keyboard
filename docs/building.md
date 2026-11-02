@@ -117,6 +117,59 @@ ssh "$FRAME_HOST" '/tmp/keyboard-tests && /tmp/placement-instance-tests && FRAME
 
 Optional probes are excluded from CTest. `uinput-smoke-test` exclusively grabs its own device before emitting events. `ei-target-probe` and `japanese-target-probe` require focus in their own disposable Xwayland receiver. `vr-panel-probe` requires a specific input-disabled instance before posting UI events. `stick-component-probe` checks model calculations; `haptics-probe` physically vibrates controllers. Read each probe's source and usage before running it. Do not run input probes against the user's active typing session.
 
+### Host memory-safety checks
+
+The `sanitized` preset uses a separate Debug build in `build/sanitized`. It
+enables AddressSanitizer and UndefinedBehaviorSanitizer for C and C++ sources,
+executables, shared libraries and modules built by this project. Start with a
+fresh configuration when replacing an older manually configured sanitizer build:
+
+```sh
+cmake --fresh --preset sanitized
+cmake --build --preset sanitized -j 4
+ctest --preset sanitized --output-log /absolute/path/to/sanitizers-raw.log
+```
+
+This runs every available CTest group, including `rendering`, with leak detection
+enabled and no LeakSanitizer suppression. The test preset clears inherited
+`LSAN_OPTIONS` so an earlier shell setting cannot silently filter the raw run.
+Private socket and loopback fixtures still need those operations allowed by the
+execution sandbox. Keep the full log, exit status and skipped groups; a denied
+fixture operation is not a production memory finding.
+
+Font-using tests may report allocations retained by Fontconfig at process exit.
+The fixed allocation total in a minimal drawing probe supports a cache
+explanation for that probe, but does not establish that every application report
+is a cache. Investigate application growth with unsuppressed measurements across
+increasing workload counts after warm-up. Resident memory alone is insufficient:
+allocator caching can keep freed pages resident.
+
+An opt-in secondary run filters Fontconfig allocation stacks using the checked-in
+[`tests/lsan-fontconfig.supp`](../tests/lsan-fontconfig.supp):
+
+```sh
+ctest --preset sanitized-fontconfig-filtered \
+  --output-log /absolute/path/to/sanitizers-fontconfig-filtered.log
+```
+
+Keep this log separate from the raw run. The filter can hide application-caused
+leaks allocated inside Fontconfig; a filtered pass is not a zero-leak result. No
+font-library teardown is added just to silence these reports.
+
+The configure preset inherits `FRAMEKEYBOARD_EXECUTORCH_HOST` and
+`FRAMEKEYBOARD_WHISPER_HOST` from the ordinary host setup. Set them before fresh
+configuration to include the optional swipe and on-device recognition adapters.
+The adapters are instrumented, but prebuilt inference libraries and system
+libraries remain uninstrumented unless rebuilt separately with compatible
+sanitizer flags. The vendored libei C sources and generated protocol C sources
+are instrumented by this preset. Record missing engines and their skipped tests
+rather than treating them as covered. Python and shell logic is not instrumented,
+although their tests can exercise instrumented native child programs.
+
+These host checks do not exercise the real headset runtime, controllers or audio
+devices, or measure device battery use. Keep ARM64 builds and device acceptance
+separate from this host configuration.
+
 ### Measure rendering
 
 `render-benchmark` uses the production renderer with bundled English/Graphite profiles, a temporary config directory, and a `NullSink`. It cannot type into applications. It runs for about 35 seconds after warmup, measuring idle, one and four key presses per second, and forced redraws at a target 60 Hz. Each synthetic press lasts 100 ms; the normal 80 ms press/release animations determine redraw counts. It does not change the installed app or its settings.

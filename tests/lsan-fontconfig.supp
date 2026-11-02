@@ -1,0 +1,9 @@
+# Opt-in diagnostic filter for allocations whose stack contains Fontconfig.
+# The default sanitized test preset does not use this file.
+# A minimal Cairo/Pango probe retained a fixed allocation total after either
+# one draw or 2,000 draws, but that does not explain all application reports.
+# This filter can also hide application-caused leaks allocated by Fontconfig.
+# Keep unsuppressed logs and use raw repeated-workload measurements when
+# investigating font ownership or growth. Do not treat a filtered pass as
+# evidence that every font allocation is a harmless cache.
+leak:libfontconfig.so

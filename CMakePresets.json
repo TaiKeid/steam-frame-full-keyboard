@@ -12,6 +12,20 @@
                          "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_HOST}"}
     },
     {
+      "name": "sanitized",
+      "displayName": "Host ASan and UBSan build",
+      "inherits": "host",
+      "binaryDir": "${sourceDir}/build/sanitized",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+    {
       "name": "frame-arm64",
       "displayName": "Steam Frame ARM64 cross-build",
       "generator": "Ninja",
@@ -24,6 +38,29 @@
   ],
   "buildPresets": [
     {"name": "host", "configurePreset": "host"},
+    {"name": "sanitized", "configurePreset": "sanitized"},
     {"name": "frame-arm64", "configurePreset": "frame-arm64"}
+  ],
+  "testPresets": [
+    {
+      "name": "sanitized",
+      "displayName": "Host sanitizers, unsuppressed",
+      "configurePreset": "sanitized",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
+        "LSAN_OPTIONS": null
+      },
+      "output": {"outputOnFailure": true},
+      "execution": {"noTestsAction": "error"}
+    },
+    {
+      "name": "sanitized-fontconfig-filtered",
+      "displayName": "Host sanitizers, Fontconfig allocations filtered",
+      "inherits": "sanitized",
+      "environment": {
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/tests/lsan-fontconfig.supp:print_suppressions=1"
+      }
+    }
   ]
 }
