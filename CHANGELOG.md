@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed dictation's Send continuing into a different field. When Steam's field closed or another field took over between two pieces of a Send, or the keyboard hid and returned, the rest could go to the new target. Send now stops and keeps the rest in the editor, and a Send still waiting for phrases is dropped when the field changes.
 - Fixed text being cut off when the keyboard changed view or pointer while it was still typing. Closing the dashboard during Type as I speak, moving or pinning the panel, opening Settings or the emoji picker, or switching language no longer drops the rest of a phrase, a swiped word, a long composition or a dictation Send piece. Held keys are still released at once.
 - Fixed text being shortened or dropped when the input connection refused it right after a longer word was typed. Text refused before it is sent is now kept whole, either for an Enter retry or in the composition it came from.
 - Fixed app selection sometimes leaving typing blocked because a cached dashboard focus sample discarded the newer click. Focus queries crossing sleep are discarded, and missing controller readings no longer count as app clicks. If focus is lost after waking, click inside the window you want to type into to restore it.

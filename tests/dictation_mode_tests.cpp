@@ -3169,6 +3169,31 @@ void send_tests() {
                 "Send continues with the rest");
     }
     {
+        // Between pieces the target can change, or the panel hide and return.
+        // The rest was meant for the old target, so Send stops with it kept.
+        for (const bool hide : {false, true}) {
+            Sink sink;
+            App app(options, sink);
+            app.set_native_request(5);
+            open_editor(app);
+            type_text(app, std::string(40, 'a'));
+            press(app, "Dictation-send");
+            require(sink.text.size() == 1 && app.view().dictation->sending,
+                    "the first piece is sent and the second waits for the next tick");
+            if (hide) {
+                app.set_interaction_active(false);
+                app.tick(clock += .02);
+                app.set_interaction_active(true);
+            } else {
+                app.set_native_request(6);
+            }
+            settle(app);
+            require(sink.text.size() == 1 && app.dictation_open() && !app.view().dictation->sending &&
+                        editor_text(app) == std::string(8, 'a'),
+                    "nothing more reaches the new target; the rest stays in the editor");
+        }
+    }
+    {
         // A commit sent one character at a time fails after three of them.
         Sink sink;
         App app(options, sink);

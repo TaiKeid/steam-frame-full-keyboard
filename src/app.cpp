@@ -4565,6 +4565,12 @@ void App::set_native_request(std::uint64_t request) {
         output_.cancel();
         stop_direct("Dictation stopped: the text field changed.");
     }
+    // So was the editor's Send, between pieces too, and a Send still waiting
+    // for phrases; the rest stays in the editor for the user to send again.
+    if (sending_) {
+        stop_send(sending_->in_flight);
+    }
+    send_wait_since_.reset();
 }
 
 void App::stop_direct(std::string status) {
@@ -5465,6 +5471,12 @@ bool App::tick_send(double now) {
         // must arrive first. Every editor key is ignored meanwhile, so this ends.
         if (keyboard_.active() || output_.text_pending()) {
             return false;
+        }
+        // Hidden or without a target between pieces: stop, as a cancel does
+        // mid-piece, rather than retry into whatever takes input next.
+        if (!output_.enabled()) {
+            stop_send(false);
+            return true;
         }
         if (s.next == 0 && output_.retry_available()) {
             output_.cancel(); // text the main keyboard failed to send stays unsent
