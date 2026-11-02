@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- When native replacement stops working, Settings keeps showing the real reason, such as incompatible Steam interfaces, instead of a generic "connection was lost" after a key that was held in a Steam field is released.
 - **Reload config** now updates an open dictation editor's keys after a layout file was edited, and its size after a theme's padding changed. It also takes hand-edited `dictation_url`, `dictation_model` and `dictation_recent_servers` values from `config.json`.
 - A dictation helper that stops answering and then never exits is ended after 10 seconds, so dictation and the server **Test** work again without restarting Full Keyboard.
 - Shell integration: `dictation.test_server` now answers `busy` while the previous dictation helper is still shutting down, instead of accepting the request and never reporting a result.

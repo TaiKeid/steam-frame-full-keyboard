@@ -525,8 +525,9 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
                        ",\"standby\":" + (standby ? "true" : "false") +
                        ",\"fallbackRequest\":" + std::to_string(state_.request) +
                        ",\"fallback\":" + (use_fallback ? "true}" : "false}");
-    // Dropped heartbeats never extend a lease. A dropped explicit fallback closes IPC.
-    if (!packet(frame) && use_fallback) {
+    // Dropped heartbeats never extend a lease. A dropped explicit fallback closes
+    // IPC; with no helper connected there is nothing to close or to report.
+    if (fd_ >= 0 && !packet(frame) && use_fallback) {
         failure_ = Failure::ConnectionLost;
         schedule_retry(now);
         stop();
@@ -559,7 +560,9 @@ void NativeReplacement::send(int code, int value) {
         const auto release = "{\"op\":\"key-up\",\"request\":" + std::to_string(held->second.request) +
                              ",\"id\":" + std::to_string(held->second.id) + "}";
         remote_keys_.erase(held);
-        if (!packet(release)) {
+        // With no helper the release has nowhere to go and nothing can repeat
+        // the key, so the failure that ended the helper stays the reason.
+        if (fd_ >= 0 && !packet(release)) {
             // A lost release must not leave queued repeats in a live helper.
             force_fallback_ = reset_ = true;
             failure_ = Failure::ConnectionLost;

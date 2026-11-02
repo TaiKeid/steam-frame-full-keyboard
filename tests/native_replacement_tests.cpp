@@ -527,6 +527,28 @@ void lost_bridge_events_are_logged() {
     replacement.update(false, false, 0, false, 201);
     close(peer);
 }
+// A key held in a Steam field when the helper fails: releasing it afterwards
+// has no helper to reach, and must not replace the reason the helper gave.
+void failure_reason_survives_a_late_release() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "release socketpair");
+    NativeReplacement replacement(local, pair[0]);
+    activate(pair[1], replacement);
+    replacement.update(true, false, 0, false, 10.05); // enabled while the helper is connected
+    take(pair[1]);                                    // its frame
+    replacement.send(KEY_BACKSPACE, 1);
+    take(pair[1]); // the key, held in the Steam field
+    put(pair[1], R"({"op":"unavailable","reason":"steam-incompatible"})");
+    replacement.poll(10.2);
+    const std::string reason = replacement.unavailable_reason();
+    require(reason == "Steam keyboard interfaces are incompatible.", "the helper's reason is shown");
+    replacement.send(KEY_BACKSPACE, 0);
+    replacement.update(true, false, 0, true, 10.3);
+    require(replacement.unavailable_reason() == reason,
+            "a release or fallback with no helper keeps the helper's own reason");
+    close(pair[1]);
+}
 void named_key_repeats() {
     Local local;
     int pair[2];
@@ -1457,6 +1479,7 @@ int main(int argc, char** argv) {
         helper_retry_backoff();
         installation_budget();
         sanitized_diagnostics();
+        failure_reason_survives_a_late_release();
         lost_bridge_events_are_logged();
         named_key_repeats();
         paragraph_breaks();
