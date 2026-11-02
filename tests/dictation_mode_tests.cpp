@@ -57,6 +57,10 @@ struct Sink : KeySink {
             return false;
         }
         if (commits_before_failure == 0) {
+            // A commit that delivered some characters had been submitted, as
+            // a per-character commit is: the failure comes with a later call.
+            // One that delivered none is refused before submission.
+            failing = acknowledged > 0 && !failing;
             return false;
         }
         if (commits_before_failure > 0) {
@@ -67,8 +71,8 @@ struct Sink : KeySink {
     }
     std::size_t delivered_characters() const override { return acknowledged; }
     // A busy target holds the text being delivered, so later entries queue.
-    bool busy{};
-    bool text_pending() const override { return busy; }
+    bool busy{}, failing{};
+    bool text_pending() const override { return busy || failing; }
     bool single_line_target() const override { return single_line; }
     bool steam_field{};
     bool steam_field_target() const override { return steam_field; }
