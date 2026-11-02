@@ -3724,9 +3724,13 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
         return settings_ui_.scrolls_at(x, y) ? std::optional{ScrollRoom{true, true}} : std::nullopt;
     }
     if (dictation_open_) {
+        // Asked every frame for each pointer: build the view and the limit once.
         const auto v = geometry();
-        if (v.dictation && v.dictation->bounds.contains(x, y) && editor_scroll_limit() > 0) {
-            return ScrollRoom{editor_scroll_ > 0, editor_scroll_ < editor_scroll_limit()};
+        if (v.dictation && v.dictation->bounds.contains(x, y)) {
+            const double limit = std::max(0.0, editor_content_height(v) - editor_text_area(v).height);
+            if (limit > 0) {
+                return ScrollRoom{editor_scroll_ > 0, editor_scroll_ < limit};
+            }
         }
         return {};
     }

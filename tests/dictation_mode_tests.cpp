@@ -3169,6 +3169,28 @@ void send_tests() {
                 "Send continues with the rest");
     }
     {
+        // The laser over a long text finds room to scroll it, asked every
+        // frame; once the text is short again it finds none. The measured
+        // height follows the text even though it is kept between frames.
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        for (int i = 0; i < 12; ++i) {
+            type_text(app, "line\n");
+        }
+        const auto bounds = app.view().dictation->bounds;
+        app.move(0, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        const auto room = app.scroll_room(0);
+        require(room && room->back && !room->forward && app.scroll_room(0) == room,
+                "a text taller than the editor, scrolled to its cursor, scrolls back");
+        for (int i = 0; i < 60; ++i) {
+            press(app, "Backspace");
+        }
+        app.move(0, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        require(editor_text(app).empty() && !app.scroll_room(0),
+                "an emptied editor has nothing to scroll");
+    }
+    {
         // Between pieces the target can change, or the panel hide and return.
         // The rest was meant for the old target, so Send stops with it kept.
         for (const bool hide : {false, true}) {

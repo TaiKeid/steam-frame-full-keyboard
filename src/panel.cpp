@@ -1226,10 +1226,24 @@ std::pair<std::size_t, std::size_t> editor_line(const PanelView& view, std::size
     return {start, end};
 }
 double editor_content_height(const PanelView& view) {
+    // App asks for this every frame while a laser is on the editor, and laying
+    // out the whole text is the costly part. Keep each thread's last answer
+    // until the text, its width or its font changes.
+    struct Measured {
+        std::string font, text;
+        double width{-1}, height{};
+    };
+    thread_local Measured last;
+    const double area_width = editor_text_area(view).width;
+    const auto& text = view.dictation->text;
+    if (area_width == last.width && text == last.text && view.language->font == last.font) {
+        return last.height;
+    }
     auto* layout = editor_layout(view);
     int width = 0, height = 0;
     pango_layout_get_pixel_size(layout, &width, &height);
     g_object_unref(layout);
+    last = {view.language->font, text, area_width, static_cast<double>(height)};
     return height;
 }
 bool compact_toolbar(const PanelView& view) {

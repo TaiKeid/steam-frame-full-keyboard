@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Pointing at the dictation editor uses less CPU. The keyboard checked whether the editor could scroll by laying out its whole text twice per pointer on every frame; it now measures the text only when it changes.
 - Dictation's **Fall back to on device** now switches quickly when your speech server is off or asleep. Each phrase used to wait over six seconds for the server first, so a minute of speech could fill the queue and stop dictation; now the server is skipped for 30 seconds after it fails to answer, and live words pause meanwhile.
 - Keys that cannot type because Steam's dashboard has the keyboard focus now say so when Replace native keyboard is off: the status line asks you to click the window you want to type into. With replacement on, the Focus mode icon still shakes instead.
 - Fixed a possible crash when an integrated shell asked for a Chinese or Korean preview while the keyboard was composing or changing language. Previews and typing no longer use the input engines at the same time.
