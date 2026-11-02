@@ -130,7 +130,8 @@ class App {
     void release_input(bool discard_composition = true);
     // Sleep ends active delivery and capture, but keeps editor/configuration
     // drafts. No Send or queued key may continue merely because input resumes.
-    void suspend_input();
+    // `asleep`: the system slept; otherwise the headset was taken off.
+    void suspend_input(bool asleep = true);
     bool tick(double now);
     // Whether the image changed and needs uploading.
     bool paint(double now);

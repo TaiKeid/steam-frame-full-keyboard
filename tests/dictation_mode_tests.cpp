@@ -3441,6 +3441,14 @@ void suspend_input_tests() {
         app.suspend_input();
         require(!app.listening() && editor_text(app) == draft,
                 "sleep stops listening while preserving existing editor text");
+        require(app.view().dictation->notice == "Listening stopped: the headset was asleep.",
+                "a system sleep says so");
+        press(app, "Dictation");
+        require(app.listening(), "listening starts again after the sleep");
+        app.suspend_input(false);
+        require(!app.listening() &&
+                    app.view().dictation->notice == "Listening stopped: the headset was taken off.",
+                "taking the headset off says that, not that it slept");
     }
 }
 

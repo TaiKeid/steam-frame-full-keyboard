@@ -2112,7 +2112,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 },
             .dismiss_request = [&] { replacement.dismiss_request(); },
             .cancel_device = [&](std::uint32_t device) { cancel_device(device); },
-            .sleep_input = [&] { app.suspend_input(); },
+            // A system resume was a sleep; a worn-state change, the headset coming off.
+            .sleep_input = [&] { app.suspend_input(headset_input.resumed()); },
         });
     auto hide_panel = [&] { lifecycle.hide(); };
     // Passthrough keeps the panel open while the dashboard is closed. Under a

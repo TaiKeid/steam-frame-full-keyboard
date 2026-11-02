@@ -1678,7 +1678,9 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     hovered_.clear();
     dirty = true;
 }
-void App::suspend_input() {
+void App::suspend_input(bool asleep) {
+    const std::string reason = asleep ? "Listening stopped: the headset was asleep."
+                                      : "Listening stopped: the headset was taken off.";
     // stop_send needs the existing retry suffix before cancel clears it. An
     // unacknowledged in-flight piece stays here marked uncertain, as on Esc.
     if (sending_) {
@@ -1686,9 +1688,9 @@ void App::suspend_input() {
     }
     send_wait_since_.reset();
     if (direct_) {
-        stop_direct("Listening stopped: the headset was asleep.");
+        stop_direct(reason);
     } else {
-        stop_listening("Listening stopped: the headset was asleep.");
+        stop_listening(reason);
     }
     // Release actual backend holds and queued actions. The editor and settings
     // drafts remain available; the VR gate retains its existing preedit policy.
