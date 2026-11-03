@@ -533,6 +533,8 @@ class App {
     // conversion returns to the reading, and with neither the phrase just
     // committed comes back as a reading.
     void undo_japanese(double now);
+    // Another pointer than this one holds ↶, which acts on release.
+    bool undo_held(unsigned pointer) const;
     void reopen_phrase();
     void finish_reopen();
     void expire_reopen(double now);

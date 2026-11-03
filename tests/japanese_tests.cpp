@@ -901,6 +901,20 @@ void slow_reopen() {
         require(app.view().preedit == (delayed ? "あ" : "あか"), "the reading comes back first");
         clear_reading(app);
     }
+    // Anything but a key, such as Settings, still ends the chance instead:
+    // opening it gives up input, which would leave the phrase deleted.
+    flick(app, "a", 24);
+    click_key(app, "Enter");
+    sink.keys.clear();
+    {
+        const auto [ux, uy] = key_centre(app, "Flick-undo");
+        app.down(0, ux, uy, 24.1);
+        control(app, "settings");
+        require(app.view().settings && std::none_of(sink.keys.begin(), sink.keys.end(),
+                                                    [](const auto& key) { return key.first == 14; }),
+                "Settings pressed during ↶ ends its chance, deleting nothing");
+        app.up(0, ux, uy);
+    }
 }
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.

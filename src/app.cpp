@@ -1280,14 +1280,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     move(pointer, x, y);
     const auto v = input_view();
     const auto* hit = renderer.hit_key(v, x, y);
-    // A ↶ the other hand still holds acts first, in press order, as
-    // press_key() does for any held flick; keys then wait for its reading.
-    if (flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot &&
-        japanese()) {
-        finish_flick();
-    }
-    // Any press but ↶ ends the chance to bring the last phrase back.
-    if (!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) {
+    // Any press but ↶ ends the chance to bring the last phrase back, except
+    // a key pressed while the other hand holds ↶: ↶ was pressed first, and
+    // press_key() lets it act before the key.
+    if ((!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) &&
+        !(hit && undo_held(pointer))) {
         reopen_.reset();
     }
     // While ↶'s Backspaces are on their way, candidates wait too (keys wait
@@ -1366,6 +1363,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 // A key pressed on the keyboard, or one of the Japanese band's arrows.
 bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now,
                     const PanelView& v) {
+    if (undo_held(pointer)) {
+        finish_flick(); // In press order, as for any held flick below.
+    }
     // While ↶'s Backspaces are on their way, every key waits, the band's
     // arrows too: the reading comes back first, where it was.
     finish_reopen();
@@ -3405,6 +3405,9 @@ void App::type_now(const std::string& text) {
     commit_japanese();
     reopen_.reset(); // Not a phrase to reopen.
     status_.clear();
+}
+bool App::undo_held(unsigned pointer) const {
+    return flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot;
 }
 void App::undo_japanese(double now) {
     if (composition_.converting()) {
