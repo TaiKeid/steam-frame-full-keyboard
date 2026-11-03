@@ -782,6 +782,10 @@ void slow_reopen() {
         fs::path path;
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{directory};
+    // A dictation server shows the mic key; nothing connects to it here.
+    std::ofstream(fs::path(directory) / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"ja-flick-12","language":"ja-flick",)"
+        << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"})";
     Options options;
     options.config_dir = directory;
     options.mode = Mode::Vr;
@@ -862,6 +866,41 @@ void slow_reopen() {
     flick(app, "undo", 21.2); // Before Space repeats, which would come after the phrase.
     require(app.view().preedit == "あ", "↶ reopens with the other hand holding a key");
     require(!app.pointer_pressed(1), "↶ lets the held key go first");
+    clear_reading(app);
+    // The mic acts on release, which goes with its press: letting go of it
+    // after ↶ must not commit the reading that came back.
+    for (bool delayed : {false, true}) {
+        const auto [x, y] = key_centre(app, "Dictation");
+        require(app.down(1, x, y, 22), "the other hand holds the mic");
+        flick(app, "a", 22.1);
+        click_key(app, "Enter");
+        sink.hold = delayed;
+        flick(app, "undo", 22.2);
+        sink.hold = false;
+        app.tick(22.3);
+        app.up(1, x, y);
+        require(app.view().preedit == "あ" && !app.dictation_open(),
+                "letting go of the mic after ↶ keeps the reading");
+        clear_reading(app);
+    }
+    // A key pressed while ↶ is still held lets ↶ act first, as it was
+    // pressed first, and then waits for the reading like any other key.
+    for (bool delayed : {false, true}) {
+        flick(app, "a", 23);
+        click_key(app, "Enter");
+        sink.hold = delayed;
+        const auto [ux, uy] = key_centre(app, "Flick-undo");
+        const auto [kx, ky] = key_centre(app, "Flick-ka");
+        app.down(0, ux, uy, 23.1);
+        require(app.down(1, kx, ky, 23.2) != delayed,
+                "a key pressed during ↶ types after its reading, or waits for it");
+        app.up(1, kx, ky);
+        app.up(0, ux, uy);
+        sink.hold = false;
+        app.tick(23.3);
+        require(app.view().preedit == (delayed ? "あ" : "あか"), "the reading comes back first");
+        clear_reading(app);
+    }
 }
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.

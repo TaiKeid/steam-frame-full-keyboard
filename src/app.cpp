@@ -1280,6 +1280,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     move(pointer, x, y);
     const auto v = input_view();
     const auto* hit = renderer.hit_key(v, x, y);
+    // A ↶ the other hand still holds acts first, in press order, as
+    // press_key() does for any held flick; keys then wait for its reading.
+    if (flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot &&
+        japanese()) {
+        finish_flick();
+    }
     // Any press but ↶ ends the chance to bring the last phrase back.
     if (!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) {
         reopen_.reset();
@@ -3459,6 +3465,10 @@ void App::reopen_phrase() {
     // between the Backspaces and the reading. Accepted output still finishes,
     // and a locked Shift stays locked for the reopened conversion.
     keyboard_.release_presses();
+    // The mic and emoji keys act on release; that goes with their press, or
+    // letting go of the mic later would commit the reading coming back.
+    emoji_key_pointer_.reset();
+    dictation_key_pointer_.reset();
     reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
     for (std::size_t i = 0; i < count; ++i) {
         output_.tap({KEY_BACKSPACE}); // One entry each.
