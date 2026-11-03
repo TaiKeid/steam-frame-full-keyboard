@@ -235,6 +235,13 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
                           column->x < key.bounds.x + key.bounds.width && key.bounds.y < 44;
                });
     }();
+    // Then the column also narrows, and the grid moves up beside it: a
+    // compact layout gains emoji columns.
+    const auto emoji = std::find_if(main.keys.begin(), main.keys.end(),
+                                    [](const Key& key) { return key.action_kind == ActionKind::Emoji; });
+    const bool compact =
+        column && top_free && emoji != main.keys.end() && emoji->bounds.x >= column->x + column->width;
+    constexpr double compact_width = 54.4, compact_gap = 12;
     double side = 0;
     for (const auto& key : main.keys) {
         if (key.action_kind == ActionKind::Emoji || key.action_kind == ActionKind::Shortcut) {
@@ -244,15 +251,18 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
             if (key.action_kind == ActionKind::Emoji) {
                 copy.icon = Icon::Back;
                 copy.label = "Back";
-                if (column && top_free && key.bounds.x >= column->x + column->width) {
+                if (compact) {
                     copy.bounds = {column->x, 0, column->width, 44 * k};
                 }
+            }
+            if (compact) {
+                copy.bounds.width = compact_width;
             }
             side = std::max(side, copy.bounds.x + copy.bounds.width);
             result.layout.keys.push_back(std::move(copy));
         }
     }
-    const double left = side > 0 ? side + 41 : 0;
+    const double left = side > 0 ? side + (compact ? compact_gap : 41) : 0;
     const double grid_right = std::max(left + 120, right - 174 - 20);
     result.tabs = {left, 0, grid_right - left, 44 * k};
     result.grid = {left, 66 * k, grid_right - left, (344 - 66) * k};
