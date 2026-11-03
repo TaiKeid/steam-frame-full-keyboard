@@ -857,8 +857,11 @@ def recognize_server(target, key, pcm, prompt, connection, ca_file):
 
 
 class Phrase:
-    def __init__(self, ident, pcm):
+    # A phrase goes where it was recorded for: a capture restarted with
+    # another server or model must not retarget audio still waiting its turn.
+    def __init__(self, ident, pcm, target, key):
         self.id, self.pcm, self.prompt, self.ready_sent = ident, pcm, None, False
+        self.target, self.key = target, key
 
 
 class Helper:
@@ -1131,7 +1134,7 @@ class Helper:
         if len(self.queue) >= MAX_QUEUED or queued > MAX_QUEUED_FRAMES:
             self.fail("backlog-full")
             return
-        phrase = Phrase(ident, pcm)
+        phrase = Phrase(ident, pcm, self.target, self.key)
         if prompt is not None:
             # Live words asked for this phrase's prompt before its first
             # partial; the final request uses the same one.
@@ -1154,7 +1157,7 @@ class Helper:
         connection = Connection()
         self.inflight = ("phrase", head, connection)
         self.started = time.monotonic()
-        self.jobs.put((self.target, self.key, head.pcm, head.prompt, connection, True))
+        self.jobs.put((head.target, head.key, head.pcm, head.prompt, connection, True))
 
     def pump_live(self):
         """Recognizes the phrase being spoken so far, once nothing else waits."""
@@ -1274,7 +1277,7 @@ class Helper:
     def request_limit(self):
         """How long the request in flight may take: the device is slower than a
         server, and a fallback runs after the server gave up."""
-        target = self.target
+        target = self.inflight[1].target if self.inflight and self.inflight[0] == "phrase" else self.target
         if self.inflight and self.inflight[0] != "test" and target and target.device:
             return DEVICE_TIMEOUT if not target.paths else REQUEST_TIMEOUT * 2 + DEVICE_TIMEOUT
         return REQUEST_TIMEOUT

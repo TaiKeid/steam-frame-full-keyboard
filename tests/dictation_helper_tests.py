@@ -3,6 +3,7 @@
 No microphone, network or real speech server is used; servers listen on
 127.0.0.1 only and every file lives in a temporary directory.
 """
+import collections
 import contextlib
 import hashlib
 import http.server
@@ -12,6 +13,7 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import random
 import shutil
 import socket
@@ -163,6 +165,27 @@ class Targets(unittest.TestCase):
             path.chmod(0o644)
             self.assertIsNone(d.read_key(str(path)))
             self.assertIsNone(d.read_key(str(Path(directory) / "missing")))
+
+
+class Ownership(unittest.TestCase):
+    def test_a_queued_phrase_keeps_the_target_it_was_recorded_for(self):
+        # Reload or Apply can restart capture with another server or model
+        # while earlier phrases still wait their turn; they stay with theirs.
+        helper = d.Helper.__new__(d.Helper)
+        helper.engine, helper.key_file = None, "/nonexistent-key"
+        helper.queue, helper.jobs, helper.inflight = collections.deque(), queue.Queue(), None
+        helper.current, helper.live_prompt, helper.live_asked = 1, "", True
+        helper.configure({"server": "old.invalid:8031", "language": "en"})
+        old = helper.target
+        audio = b"\0\0" * 4000
+        helper.end_phrase(audio)
+        helper.configure({"url": "http://new.invalid/v1", "model": "new-model", "language": "en"})
+        helper.queue[0].prompt = ""
+        helper.pump()
+        target, key, pcm, prompt, connection, fallback = helper.jobs.get_nowait()
+        self.assertEqual(pcm, audio)
+        self.assertIs(target, old, "the phrase goes to the server it was recorded for")
+        self.assertEqual(helper.request_limit(), d.REQUEST_TIMEOUT, "and is timed as a request to it")
 
 
 class FakeServer:
