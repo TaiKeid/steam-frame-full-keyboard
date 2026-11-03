@@ -134,6 +134,9 @@ class KeyboardState {
     // change of pointer or view that keeps the target.
     void cancel_all();
     void release_all();
+    // Ends every press as cancel_pointer() does, and any other output hold,
+    // keeping latches and locks: the keys come up, not the modifier state.
+    void release_presses();
     bool tick(double now);
     bool pressed(const std::string& id) const;
     std::set<int> modifiers() const;

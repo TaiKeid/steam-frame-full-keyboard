@@ -246,6 +246,15 @@ void state_tests(const fk::Layout& layout) {
     state.down(0, shift, 96);
     state.tick(97);
     state.up(0);
+    // Ending the presses for ↶ lets held keys up but keeps the lock, even
+    // through a Shift press that would have unlocked it.
+    state.down(0, key(layout, "ArrowLeft"), 97.1);
+    state.down(1, shift, 97.2);
+    sink.events.clear();
+    state.release_presses();
+    require(state.locked(KEY_LEFTSHIFT) && !state.active() &&
+                sink.events == Events{{KEY_LEFT, 0}, {KEY_LEFTSHIFT, 0}},
+            "ending the presses keeps Shift locked and lets the keys up");
     state.cancel_all();
     require(!state.locked(KEY_LEFTSHIFT), "hiding the keyboard ends the lock");
     state.down(0, key(layout, "ControlLeft"), 98);

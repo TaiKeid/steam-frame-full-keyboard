@@ -3456,8 +3456,9 @@ void App::reopen_phrase() {
         return;
     }
     // Keys still held, by either hand, come up first: a repeat must not land
-    // between the Backspaces and the reading. Accepted output still finishes.
-    keyboard_.release_all();
+    // between the Backspaces and the reading. Accepted output still finishes,
+    // and a locked Shift stays locked for the reopened conversion.
+    keyboard_.release_presses();
     reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
     for (std::size_t i = 0; i < count; ++i) {
         output_.tap({KEY_BACKSPACE}); // One entry each.

@@ -645,6 +645,21 @@ void KeyboardState::cancel_pointer(unsigned pointer) {
         up(pointer);
     }
 }
+void KeyboardState::release_presses() {
+    std::vector<unsigned> pointers;
+    for (const auto& [pointer, press] : presses_) {
+        (void)press;
+        pointers.push_back(pointer);
+    }
+    for (const auto pointer : pointers) {
+        // A Shift pressed to unlock was interrupted too, so the lock stays.
+        presses_.at(pointer).unlocks = false;
+        cancel_pointer(pointer);
+    }
+    if (output_) {
+        output_->release_holds();
+    }
+}
 void KeyboardState::cancel_all() {
     end_all(true);
 }
