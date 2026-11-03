@@ -1277,10 +1277,16 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
+    const auto* hit = renderer.hit_key(v, x, y);
     // Any press but ↶ ends the chance to bring the last phrase back.
-    if (const auto* hit = renderer.hit_key(v, x, y);
-        !hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) {
+    if (!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) {
         reopen_.reset();
+    }
+    // While ↶'s Backspaces are on their way, keys and candidates wait: the
+    // reading comes back first, in the mode it left.
+    finish_reopen();
+    if (reopening_ && (hit || candidates_.contains(x, y))) {
+        return false;
     }
     if (settings_open_ && languages_ && !address_ && confirm_ == Confirm::None) {
         languages_press(pointer, x, y);
@@ -1706,7 +1712,11 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     emoji_.cancel();
     candidates_.cancel();
     reopen_.reset();
-    reopening_.reset();
+    // Backspaces still being delivered come back as the reading, unless the
+    // composition or the delivery itself is given up.
+    if (discard_composition || cancel_delivery) {
+        reopening_.reset();
+    }
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
     editor_repeat_.reset();
@@ -1854,6 +1864,7 @@ bool App::tick(double now) {
     finish_swipe(false);
     dirty |= keyboard_.tick(now); // a held Shift locks
     dirty |= output_.tick(now);
+    finish_reopen(); // Its last Backspace may have just been delivered.
     dirty |= tick_dictation(now);
     if (settings_open_) {
         dirty |= settings_ui_.tick(now);
@@ -2872,6 +2883,9 @@ void App::action(const ControlAction& command) {
         }
         follow_cursor(); // In dictation mode the reading sits at the cursor.
         return;
+    }
+    if (kind == ControlKind::ImeToggle && reopening_) {
+        return; // A reading is coming back; switch once it has.
     }
     if (kind == ControlKind::ImeToggle) {
         // The reading is typed first.

@@ -758,6 +758,51 @@ void candidate_band() {
         app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
     }
 }
+// ↶'s Backspaces can take a while to be acknowledged, as through a shell:
+// nothing typed meanwhile may overtake the reading coming back, and a
+// recentre or pin keeps it coming.
+void slow_reopen() {
+    struct SlowSink : Sink {
+        bool hold = false;
+        Delivery deliver_key(int code, int value) override {
+            if (hold && code == 14 && value == 1) {
+                return Delivery::Waiting;
+            }
+            return Sink::deliver_key(code, value);
+        }
+    };
+    char directory[] = "/tmp/framekeyboard-reopen-XXXXXX";
+    require(mkdtemp(directory), "temporary reopen profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    SlowSink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    flick(app, "a", 1);
+    click_key(app, "Enter");
+    sink.hold = true;
+    flick(app, "undo", 2);
+    require(app.view().preedit.empty(), "the reading waits for its Backspace");
+    {
+        const auto [x, y] = key_centre(app, "Flick-ka");
+        require(!app.down(0, x, y, 2.5), "keys wait for the reading too");
+        app.up(0, x, y);
+    }
+    control(app, "recenter");
+    sink.hold = false;
+    app.tick(3);
+    require(app.view().preedit == "あ", "a recentre keeps the reading coming");
+    flick(app, "ka", 3.5);
+    require(app.view().preedit == "あか", "typing goes on after it");
+}
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.
 void reading_cursor() {
@@ -895,6 +940,7 @@ int main() {
         progressive_conversion();
         candidate_band();
         reading_cursor();
+        slow_reopen();
         romaji_legends();
         flick_input();
         text_output_capture();
