@@ -486,6 +486,30 @@ struct FakeConverter : JapaneseConverter {
 JapaneseComposer::Factory fake_converter(int* conversions) {
     return [conversions] { return std::make_unique<FakeConverter>(conversions); };
 }
+// Symbol segments as Anthy returns them: half-width ！ first, a closing 」 as 』.
+void symbols_as_typed() {
+    struct SymbolConverter : JapaneseConverter {
+        std::vector<Segment> convert(const std::string&) override {
+            return {{"「", {"「", "『"}},
+                    {"えっ", {"謁", "えっ"}},
+                    {"」", {"』", "」", "】"}},
+                    {"！", {"!", "！"}},
+                    {"…", {"‥"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return convert(""); }
+    };
+    JapaneseComposer composer([] { return std::make_unique<SymbolConverter>(); });
+    composer.kana("「えっ」！…");
+    composer.prepare_live();
+    require(composer.live().front() == "「謁」！…", "the whole phrase keeps the symbols as typed");
+    composer.convert();
+    composer.segment(1);
+    composer.segment(1);
+    composer.cycle(1);
+    require(composer.candidates() == std::vector<std::string>{"」", "』", "】"} &&
+                composer.commit_text() == "「謁』！…",
+            "the other brackets follow the typed one");
+}
 void progressive_conversion() {
     int conversions = 0;
     JapaneseComposer composer(fake_converter(&conversions));
@@ -1214,6 +1238,7 @@ void text_output_capture() {
 }
 int main() {
     try {
+        symbols_as_typed();
         progressive_conversion();
         candidate_band();
         reading_cursor();
@@ -1314,6 +1339,14 @@ int main() {
                     "a mark that changes nothing keeps the conversion");
             composer.unconvert();
             require(composer.preedit() == "にほん", "unconvert");
+            composer.cancel();
+            for (const auto& [reading, phrase] : std::vector<std::pair<std::string, std::string>>{
+                     {"ちょっとまって！", "ちょっと待って！"}, {"「こんにちは」", "「今日は」"}}) {
+                composer.cancel();
+                composer.kana(reading);
+                composer.convert();
+                require(composer.commit_text() == phrase, "Anthy's symbols stay as typed");
+            }
             dlclose(anthy);
         } else {
             require(!std::getenv("FRAMEKEYBOARD_TEST_ANTHY_REQUIRED"), "Anthy required for this run");

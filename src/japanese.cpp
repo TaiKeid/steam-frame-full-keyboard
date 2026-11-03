@@ -193,6 +193,15 @@ std::string in_script(const std::string& reading, bool katakana) {
     }
     return result;
 }
+// Punctuation and symbols alone, such as ！, 」 or …, with no kana.
+bool symbols_only(const std::string& reading) {
+    for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
+        if (!g_unichar_ispunct(g_utf8_get_char(p))) {
+            return false;
+        }
+    }
+    return !reading.empty();
+}
 } // namespace
 JapaneseComposer::JapaneseComposer(Factory factory) : factory_(std::move(factory)) {
 }
@@ -211,6 +220,17 @@ JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) con
             throw std::runtime_error("No conversion candidates");
         }
         Segment segment{std::move(from.reading), std::move(from.candidates)};
+        // Anthy offers ！ and ？ half-width first, and 」 as 』; a phone keeps
+        // symbols as typed and offers the others after them.
+        if (symbols_only(segment.reading)) {
+            auto& candidates = segment.candidates;
+            const auto typed = std::find(candidates.begin(), candidates.end(), segment.reading);
+            if (typed == candidates.end()) {
+                candidates.insert(candidates.begin(), segment.reading);
+            } else {
+                std::rotate(candidates.begin(), typed, typed + 1);
+            }
+        }
         // The segment's reading in both scripts, after Anthy's own candidates.
         for (const auto& script :
              {in_script(segment.reading, false), in_script(segment.reading, true)}) {
