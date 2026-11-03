@@ -992,6 +992,58 @@ void slow_reopen() {
         app.up(0, ux, uy);
     }
 }
+// Each flick page keeps the toolbar where it is, with the mic key shown:
+// only the keys change.
+void flick_pages_keep_toolbar() {
+    char directory[] = "/tmp/framekeyboard-flick-pages-XXXXXX";
+    require(mkdtemp(directory), "temporary flick pages profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::ofstream(fs::path(directory) / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"ja-flick-12","language":"ja-flick",)"
+        << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"})";
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    Sink sink;
+    App app(options, sink);
+    struct Page {
+        Rect settings, close;
+        double keys_right{}, key_height{};
+    };
+    auto page = [&] {
+        const auto view = app.view();
+        Page result;
+        for (const auto& control : view.controls) {
+            if (control.id == "settings") {
+                result.settings = control.bounds;
+            } else if (control.id == "close") {
+                result.close = control.bounds;
+            }
+        }
+        for (const auto& key : view.layout->keys) {
+            const auto shown = panel_rect(view, key.bounds);
+            result.keys_right = std::max(result.keys_right, shown.x + shown.width);
+            if (key.id == "Backspace") {
+                result.key_height = shown.height;
+            }
+        }
+        return result;
+    };
+    const auto kana = page();
+    require(kana.close.width > 0 && kana.key_height > 0, "the kana page has a toolbar and keys");
+    flick(app, "mode", 1);
+    const auto english = page();
+    require(english.settings == kana.settings && english.close == kana.close,
+            "the English page keeps the toolbar's buttons and X in place");
+    require(std::abs(english.keys_right - kana.keys_right) < .5,
+            "the English page's keys reach the same right edge");
+}
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.
 void reading_cursor() {
@@ -1130,6 +1182,7 @@ int main() {
         candidate_band();
         reading_cursor();
         slow_reopen();
+        flick_pages_keep_toolbar();
         romaji_legends();
         flick_input();
         text_output_capture();

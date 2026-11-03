@@ -238,10 +238,17 @@ std::vector<Control> App::controls() const {
     geometry.settings = settings_open_;
     geometry.ime_band = ime_band_shown();
     geometry.ime_arrows = band_arrows();
+    // The mic key shows as in geometry(): a hidden one could narrow the case
+    // the toolbar is laid out in, but not the one drawn.
+    geometry.dictation_available = dictation_available();
+    if (download_) {
+        geometry.dictation_download = model_download_share();
+    }
     if (dictation_open_) {
         // Its keys set the case, as in geometry(): a layout without
         // function keys grows taller there, and its case narrower.
         geometry.layout = &dictation_layout_.layout;
+        geometry.dictation.emplace();
     }
     if (emoji_open_) {
         geometry.layout = &emoji_layout_.layout; // Taller over the Japanese band.
@@ -4525,6 +4532,7 @@ void App::refresh_dictation_layout() {
     main.theme = &profiles_.themes.at(settings_.active.theme);
     main.language = &profiles_.languages.at(settings_.active.language);
     main.hide_numpad = numpad_hidden();
+    main.dictation_available = true; // The mode shows the mic key.
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main));
     // Placed as the mode shows it: a layout without a function-key row grows
     // taller for the editor.
