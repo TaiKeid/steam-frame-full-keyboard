@@ -1121,15 +1121,23 @@ constexpr double editor_padding_x = 14, editor_padding_y = 7;
 // One Pango layout of the editor text, built the same way for painting and
 // for App's cursor movement, so both agree on every line break.
 PangoLayout* editor_layout(const PanelView& view) {
-    // Measuring needs a context but no pixels; one tiny surface serves every call
-    // on the VR thread.
-    static cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
-    static cairo_t* context = [] {
-        auto* created = cairo_create(surface);
-        grey_text(created);
-        return created;
-    }();
-    auto* layout = pango_cairo_create_layout(context);
+    // Measuring needs a context but no pixels: one tiny surface per thread.
+    // Shell previews lay out the editor on a worker thread while the VR
+    // thread does, and a Cairo context must not be shared between them.
+    struct Measuring {
+        cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+        cairo_t* context = [this] {
+            auto* created = cairo_create(surface);
+            grey_text(created);
+            return created;
+        }();
+        ~Measuring() {
+            cairo_destroy(context);
+            cairo_surface_destroy(surface);
+        }
+    };
+    thread_local Measuring measuring;
+    auto* layout = pango_cairo_create_layout(measuring.context);
     auto* font = pango_font_description_new();
     pango_font_description_set_family(font, view.language->font.c_str());
     pango_font_description_set_absolute_size(font, editor_font_size * PANGO_SCALE);
