@@ -290,6 +290,14 @@ void layout_tests() {
                 flick_escape->bounds.y == function_row_room &&
                 flick_mode.editor.y + flick_mode.editor.height <= flick_escape->bounds.y,
             "Esc goes in the side column's top slot, below the editor");
+    {
+        // The English page's editor lines up with the kana page's.
+        const auto& page = profiles.layouts.at("ja-flick-qwerty");
+        const auto english = dictation_layout(page, page.width);
+        require(english.editor.x == flick_mode.editor.x &&
+                    english.editor.width == flick_mode.editor.width,
+                "the flick layout's English page keeps the editor where the kana page has it");
+    }
     for (const auto* id : {"ja-flick-12", "ko-12key"}) {
         const auto& source = profiles.layouts.at(id);
         const auto stacked = dictation_layout(source, source.width);

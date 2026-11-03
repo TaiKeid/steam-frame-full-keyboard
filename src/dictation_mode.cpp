@@ -160,9 +160,10 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
     // side column without one.
     double left = 0;
     for (const auto& key : main.keys) {
+        // Keys the mode removes, such as the emoji key, leave no edge behind.
         if ((function_row && key.action_kind == ActionKind::Key && key.action == "Escape") ||
-            (key.action_kind != ActionKind::Key && key.action_kind != ActionKind::Flick &&
-             key.bounds.y < 44)) {
+            (!removed(key) && key.action_kind != ActionKind::Key &&
+             key.action_kind != ActionKind::Flick && key.bounds.y < 44)) {
             left = std::max(left, key.bounds.x + key.bounds.width);
         }
     }
