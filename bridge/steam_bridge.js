@@ -25,8 +25,11 @@
     const popup = root.g_PopupManager?.GetPopupForVROverlayKey?.("valve.steam.gamepadui.keyboard");
     const win = popup?.m_popup || popup?.window;
     const windowApi = win?.SteamClient?.Window;
-    const windows = root.SteamUIStore?.WindowStore?.SteamUIWindows;
-    const managers = Array.isArray(windows) ? windows.map(w => w.VirtualKeyboardManager).filter(Boolean) : [];
+    const steamManagers = () => {
+        const windows = root.SteamUIStore?.WindowStore?.SteamUIWindows;
+        return Array.isArray(windows) ? windows.map(w => w?.VirtualKeyboardManager).filter(Boolean) : [];
+    };
+    const managers = steamManagers();
     if (!store?.m_VRKeyboardState || !win?.document || !windowApi || !managers.length ||
         typeof windowApi.ShowWindow !== "function" || typeof windowApi.BringToFront !== "function")
         throw Error("steam-hooks-unavailable");
@@ -42,7 +45,11 @@
         return {open: s.m_bIsOpen, key: s.m_sOpenForOverlayKey,
             dispatch: s.m_bDispatchEventsToSteamVR, flags: s.m_eVRKeyboardFlags};
     }
-    const hooks = [], owners = [];
+    // Window-level hooks; each owner keeps its own, and each provider API is
+    // hooked once for all the owners that share it.
+    const hooks = [], owners = [], apis = new Map();
+    // Windows opened after installation whose hooks failed: they stay native.
+    const refused = new WeakSet();
     const keyboardApi = root.SteamClient?.OpenVR?.Keyboard;
     const externalHide = keyboardApi?.Hide;
     // Frame-local windows: Gamescope app windows, and games Steam runs locally,
@@ -58,13 +65,13 @@
         return {id: f.frameID, visible: f.isVisible === true,
             keys: Array.from(f.steamUIVROverlayKeysInPages || []).filter(key => ownSteam(key))};
     }
-    function hook(object, key, wrap) {
+    function hook(object, key, wrap, undo = hooks) {
         const descriptor = Object.getOwnPropertyDescriptor(object, key), original = object[key];
         if (typeof original !== "function" || descriptor && !descriptor.configurable && !descriptor.writable)
             throw Error("steam-hook-readonly");
         const replacement = wrap(original);
         Object.defineProperty(object, key, {configurable: true, writable: true, value: replacement});
-        hooks.push(() => {
+        undo.push(() => {
             if (object[key] !== replacement) return;
             if (descriptor) Object.defineProperty(object, key, descriptor);
             else delete object[key];
@@ -365,6 +372,7 @@
             lastClock = time;
             if (win.closed || root.g_PopupManager.GetPopupForVROverlayKey("valve.steam.gamepadui.keyboard") !== popup)
                 throw Error("steam-popup-changed");
+            rescan();
             native = nativeStatus();
             if (!native.open || native.key !== closingKey) closingUntil = 0;
             checkRestore();
@@ -569,85 +577,139 @@
             // bridge can take it over and close native again.
             if (!restoringOwner) unsubscribe();
             else if (!subscription) checkRestore(true);
-            for (const undo of hooks.reverse()) undo();
+            for (const owner of owners) undoAll(owner.hooks);
+            for (const shared of apis.values()) undoAll(shared.hooks);
+            undoAll(hooks);
         }
     }
-    try {
-        const hookedApis = new Map();
-        for (const manager of managers) {
-            const api = manager.m_ownerWindow?.SteamClient?.OpenVR?.Keyboard;
-            const key = manager.m_Instance?.GetVROverlayKey?.();
-            if (!ownSteam(key) || typeof api?.Show !== "function" || typeof api?.Hide !== "function" ||
-                typeof manager.SetVRKeyboardOpenForThisInstance !== "function") continue;
-            const originals = hookedApis.get(api) || {show: api.Show, hide: api.Hide};
-            const owner = {manager, api, key, document: editingDocument(manager), focusRefs: new WeakMap(), ...originals};
-            const d = owner.document;
-            if (d && typeof d.addEventListener === "function" && typeof d.removeEventListener === "function" &&
-                typeof manager.SetVirtualKeyboardActiveRef === "function") {
-                // Steam's shared-context predicate can consult the wrong document.
-                // Associate a ref only when Steam selects it synchronously inside
-                // this owner's actual DOM focus/click event. Never infer it from polling.
-                const focused = event => { owner.focusEvent = event; };
-                d.addEventListener("focus", focused, true);
-                d.addEventListener("click", focused, true);
-                hooks.push(() => {
-                    d.removeEventListener("focus", focused, true);
-                    d.removeEventListener("click", focused, true);
-                    owner.focusEvent = null;
-                });
-                hook(manager, "SetVirtualKeyboardActiveRef", original => function(ref, ...args) {
-                    const event = owner.focusEvent, e = event?.target;
-                    if (event?.eventPhase && e === d.activeElement && editableIn(e, d) &&
-                        ref && typeof ref === "object") owner.focusRefs.set(ref, e);
-                    return original.call(this, ref, ...args);
-                });
-            }
-            if (typeof manager.SetVirtualKeyboardShownInternal === "function") {
-                owner.fieldHook = true;
-                hook(manager, "SetVirtualKeyboardShownInternal", original => function(open, ...args) {
-                    supersedeUpdatePresentation();
-                    if (open && targetOf(this))
-                        owner.fieldIntent = {target: targetOf(this), until: now() + REQUEST_MS};
-                    else if (!open) owner.fieldIntent = null;
-                    return original.call(this, open, ...args);
-                });
-            }
-            owner.setOpen = hook(manager, "SetVRKeyboardOpenForThisInstance", original => function(open) {
-                if (!open && logical?.owner.manager === this) {
-                    // Consume exactly the close reaction caused by this request's
-                    // Hide. Keep acquisition pending if status arrives first.
-                    if (closingNative && expectedClose?.owner === owner &&
-                        expectedClose.request === request && !nativeStatus().open) {
-                        expectedClose = null;
-                        inspect();
-                        return;
-                    }
-                    // Steam has independently closed its field. Never restore it.
-                    releaseLogical(false, false, "steam-closed");
-                }
-                return original.call(this, open);
-            });
-            owner.keyDown = hook(manager, "HandleVirtualKeyDown", original => function(...args) {
-                if (logical?.owner.manager === this && fresh()) return;
-                return original.apply(this, args);
-            });
-            owners.push(owner);
-            if (!hookedApis.has(api)) {
-                hookedApis.set(api, originals);
-                hook(api, "Show", original => function(...args) {
-                    // The first provider Show may itself be the delayed update
-                    // hand-back. Only later Shows supersede that observed handoff;
-                    // an explicit field request already invalidates it above.
-                    if (updateCloseSeen || now() >= adoptUntil) supersedeUpdatePresentation();
-                    return original.apply(this, args);
-                });
-                hook(api, "Hide", original => function(...args) {
-                    supersedeUpdatePresentation();
-                    if (logical?.owner.api === this) releaseLogical(false);
-                    return original.apply(this, args);
-                });
-            }
+    function undoAll(undo) {
+        for (const step of undo.reverse()) step();
+        undo.length = 0;
+    }
+    // Hooks one Steam window's keyboard manager, if it is one of ours. Steam
+    // also creates windows after installation, such as a game's overlay when
+    // the game starts; inspect() adopts those and drops closed ones.
+    function adopt(manager) {
+        const api = manager.m_ownerWindow?.SteamClient?.OpenVR?.Keyboard;
+        const key = manager.m_Instance?.GetVROverlayKey?.();
+        if (!ownSteam(key) || typeof api?.Show !== "function" || typeof api?.Hide !== "function" ||
+            typeof manager.SetVRKeyboardOpenForThisInstance !== "function") return;
+        // Owners sharing a provider call its original Show and Hide, never
+        // another owner's hook.
+        let shared = apis.get(api);
+        const first = !shared;
+        if (first) shared = {show: api.Show, hide: api.Hide, users: 0, hooks: []};
+        const owner = {manager, api, key, document: editingDocument(manager), focusRefs: new WeakMap(),
+            show: shared.show, hide: shared.hide, hooks: []};
+        try {
+            hookOwner(owner);
+            if (first) hookProvider(api, shared.hooks);
+        } catch (error) {
+            undoAll(owner.hooks);
+            if (first) undoAll(shared.hooks);
+            throw error;
         }
+        if (first) apis.set(api, shared);
+        ++shared.users;
+        owners.push(owner);
+    }
+    // A closed window: end what its owner holds, then remove its hooks, and
+    // its provider's once no other owner uses it.
+    function drop(owner) {
+        if (logical?.owner === owner) releaseLogical(false, false, "owner-hidden");
+        if (restoringOwner === owner) finishRestore(false);
+        if (expectedClose?.owner === owner) expectedClose = null;
+        undoAll(owner.hooks);
+        owners.splice(owners.indexOf(owner), 1);
+        const shared = apis.get(owner.api);
+        if (shared && --shared.users === 0) {
+            undoAll(shared.hooks);
+            apis.delete(owner.api);
+        }
+    }
+    // Each overlay key must keep exactly one owner, so a window Steam closed
+    // goes before one it opened under the same key is adopted.
+    function rescan() {
+        const live = steamManagers();
+        for (const owner of owners.slice())
+            if (!live.includes(owner.manager) || owner.manager.m_ownerWindow?.closed) drop(owner);
+        for (const manager of live) {
+            if (manager.m_ownerWindow?.closed || refused.has(manager) || owners.some(o => o.manager === manager))
+                continue;
+            // Installation refuses unhookable windows outright. A later one is
+            // left to Steam, with its partial hooks undone, rather than ending
+            // replacement for every other window.
+            try { adopt(manager); } catch (_) { refused.add(manager); }
+        }
+    }
+    function hookOwner(owner) {
+        const {manager} = owner, d = owner.document;
+        if (d && typeof d.addEventListener === "function" && typeof d.removeEventListener === "function" &&
+            typeof manager.SetVirtualKeyboardActiveRef === "function") {
+            // Steam's shared-context predicate can consult the wrong document.
+            // Associate a ref only when Steam selects it synchronously inside
+            // this owner's actual DOM focus/click event. Never infer it from polling.
+            const focused = event => { owner.focusEvent = event; };
+            d.addEventListener("focus", focused, true);
+            d.addEventListener("click", focused, true);
+            owner.hooks.push(() => {
+                d.removeEventListener("focus", focused, true);
+                d.removeEventListener("click", focused, true);
+                owner.focusEvent = null;
+            });
+            hook(manager, "SetVirtualKeyboardActiveRef", original => function(ref, ...args) {
+                const event = owner.focusEvent, e = event?.target;
+                if (event?.eventPhase && e === d.activeElement && editableIn(e, d) &&
+                    ref && typeof ref === "object") owner.focusRefs.set(ref, e);
+                return original.call(this, ref, ...args);
+            }, owner.hooks);
+        }
+        if (typeof manager.SetVirtualKeyboardShownInternal === "function") {
+            owner.fieldHook = true;
+            hook(manager, "SetVirtualKeyboardShownInternal", original => function(open, ...args) {
+                supersedeUpdatePresentation();
+                if (open && targetOf(this))
+                    owner.fieldIntent = {target: targetOf(this), until: now() + REQUEST_MS};
+                else if (!open) owner.fieldIntent = null;
+                return original.call(this, open, ...args);
+            }, owner.hooks);
+        }
+        owner.setOpen = hook(manager, "SetVRKeyboardOpenForThisInstance", original => function(open) {
+            if (!open && logical?.owner.manager === this) {
+                // Consume exactly the close reaction caused by this request's
+                // Hide. Keep acquisition pending if status arrives first.
+                if (closingNative && expectedClose?.owner === owner &&
+                    expectedClose.request === request && !nativeStatus().open) {
+                    expectedClose = null;
+                    inspect();
+                    return;
+                }
+                // Steam has independently closed its field. Never restore it.
+                releaseLogical(false, false, "steam-closed");
+            }
+            return original.call(this, open);
+        }, owner.hooks);
+        owner.keyDown = hook(manager, "HandleVirtualKeyDown", original => function(...args) {
+            if (logical?.owner.manager === this && fresh()) return;
+            return original.apply(this, args);
+        }, owner.hooks);
+    }
+    function hookProvider(api, undo) {
+        hook(api, "Show", original => function(...args) {
+            // The first provider Show may itself be the delayed update
+            // hand-back. Only later Shows supersede that observed handoff;
+            // an explicit field request already invalidates it above.
+            if (updateCloseSeen || now() >= adoptUntil) supersedeUpdatePresentation();
+            return original.apply(this, args);
+        }, undo);
+        hook(api, "Hide", original => function(...args) {
+            supersedeUpdatePresentation();
+            if (logical?.owner.api === this) releaseLogical(false);
+            return original.apply(this, args);
+        }, undo);
+    }
+    try {
+        for (const manager of managers) adopt(manager);
         if (!owners.length) throw Error("steam-target-restoration-unavailable");
         for (const name of ["ShowWindow", "BringToFront"]) hook(windowApi, name, original => function(...args) {
             try { inspect(); if (blocking()) { interceptedShow = true; return; } }

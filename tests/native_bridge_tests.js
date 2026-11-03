@@ -76,8 +76,11 @@ function editingFixture(manager) {
             return e;
         }};
 }
+// lateWindow: "shared" or "own" adds no second window at install; addWindow()
+// opens one later, as Steam does for a game's overlay, sharing the main
+// window's keyboard provider or with its own.
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
-    discoveryProbe = false, adoptOpenMs = 0) {
+    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -141,6 +144,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         RegisterForStatus(fn) { observer = fn; return {unregister() { observer = null; }}; }
     };
     manager.m_ownerWindow = {SteamClient: {OpenVR: {Keyboard: keyboard}}};
+    const oldManager = {...manager};
     const dom = withDom ? editingFixture(manager) : null;
     if (dom) {
         manager.m_ownerWindow.document = dom.doc;
@@ -181,6 +185,29 @@ function fixture(open = false, production = false, external = false, sharedApi =
     const other = sharedApi ? {...manager, m_Instance: {GetVROverlayKey() { return otherKey; }},
         m_ActiveElementProps: {onTextEntered(value) { deliveries.push(value); }}} : null;
     if (other) root.SteamUIStore.WindowStore.SteamUIWindows.push({VirtualKeyboardManager: other});
+    const lateKey = "valve.steam.gamepadui.appoverlay.1.1";
+    let late = null;
+    function addWindow() {
+        const provider = lateWindow === "own" ? {
+            Show() { calls.push("native-show"); update({bIsOpen: true, sOverlayKey: lateKey}); },
+            Hide() { calls.push("native-hide"); if (!deferHide) update({bIsOpen: false}); }} : keyboard;
+        const added = {...oldManager, logicalOpen: false, m_Instance: {GetVROverlayKey() { return lateKey; }},
+            m_ActiveElementProps: {onTextEntered(value) { deliveries.push(value); }},
+            m_ownerWindow: {closed: false, SteamClient: {OpenVR: {Keyboard: provider}}}};
+        late = {window: {VirtualKeyboardManager: added}, manager: added, provider,
+            originals: {open: added.SetVRKeyboardOpenForThisInstance, key: added.HandleVirtualKeyDown,
+                show: provider.Show, hide: provider.Hide}};
+        root.SteamUIStore.WindowStore.SteamUIWindows.push(late.window);
+        reactions.push({manager: added, key: lateKey, previous: false});
+        return late;
+    }
+    function closeWindow() {
+        const windows = root.SteamUIStore.WindowStore.SteamUIWindows;
+        windows.splice(windows.indexOf(late.window), 1);
+        reactions.splice(reactions.findIndex(r => r.manager === late.manager), 1);
+        late.manager.m_ownerWindow.closed = true;
+        return late;
+    }
     for (const owner of [manager, other].filter(Boolean)) {
         const key = owner.m_Instance.GetVROverlayKey();
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
@@ -235,7 +262,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
         deferClose(value) { deferClose = value; },
         flushCloses() { while (pendingCloses.length) pendingCloses.shift()(); tick?.(); },
         alive() { return tick !== null; },
-        observing() { return !!observer; }, inspections() { return inspectionCalls; }};
+        observing() { return !!observer; }, inspections() { return inspectionCalls; },
+        addWindow, closeWindow};
 }
 {
     const f = fixture(false, true, false, false, false, true);
@@ -749,6 +777,64 @@ for (const deferred of [false, true]) {
     f.advance(601);
     assert(!f.alive() && !f.observing() && f.keyboard.Hide === f.oldHide,
         "the expired hook removes itself without a surviving helper");
+}
+// Steam opens windows after installation too, such as a game's overlay when
+// the game starts, and closes them when it ends. The bridge adopts each one
+// and drops it once closed, so a window reopened under the same key has
+// exactly one owner again.
+for (const provider of ["shared", "own"]) {
+    const f = fixture(false, false, false, false, false, false, 0, provider);
+    const key = "valve.steam.gamepadui.appoverlay.1.1";
+    f.step(); f.status({bIsOpen: true, sOverlayKey: key});
+    let s = f.step();
+    assert(!s.eligible && f.nativeOpen(), "a window the bridge has not seen stays native");
+    f.status({bIsOpen: false}); f.step();
+    const first = f.addWindow();
+    f.step(); f.status({bIsOpen: true, sOverlayKey: key});
+    s = f.step();
+    assert(s.eligible && f.step(s.request).active && !f.nativeOpen(), "a window opened later is adopted");
+    assert(f.bridge.send(s.request, "late window fixture") && f.deliveries.at(-1) === "late window fixture",
+        "its field receives the text");
+    f.closeWindow();
+    s = f.step();
+    assert(!s.active && !f.nativeOpen() && !first.manager.logicalOpen,
+        "closing the window ends its session without reopening Steam's keyboard");
+    assert(first.manager.SetVRKeyboardOpenForThisInstance === first.originals.open &&
+        first.manager.HandleVirtualKeyDown === first.originals.key, "a closed window's hooks are removed");
+    if (provider === "own")
+        assert(first.provider.Show === first.originals.show && first.provider.Hide === first.originals.hide,
+            "and its own provider's");
+    else assert(f.keyboard.Hide !== f.oldHide, "a provider the main window shares stays hooked");
+    const again = f.addWindow();
+    f.step(); f.status({bIsOpen: true, sOverlayKey: key});
+    s = f.step();
+    assert(s.eligible && f.step(s.request).active && !f.nativeOpen(),
+        "a window reopened under the same key has one owner again");
+    assert(f.bridge.dismiss(s.request) && !f.step().open);
+    f.status({sOverlayKey: MAIN});
+    assert(owned(f), "the main window still summons");
+    f.bridge.dispose();
+    // A shared provider was already hooked when the window opened; the main
+    // window's original stands for it.
+    assert(again.manager.SetVRKeyboardOpenForThisInstance === again.originals.open &&
+        (provider === "shared" || again.provider.Hide === again.originals.hide) && f.keyboard.Hide === f.oldHide,
+        "disposal removes adopted windows' hooks too");
+}
+// A window opened later that cannot be hooked stays native, without its
+// partial hooks, and the other windows keep their replacement.
+{
+    const f = fixture(false, false, false, false, false, false, 0, "own");
+    const w = f.addWindow();
+    Object.defineProperty(w.manager, "HandleVirtualKeyDown",
+        {value: w.originals.key, writable: false, configurable: false});
+    f.step(); f.status({bIsOpen: true, sOverlayKey: "valve.steam.gamepadui.appoverlay.1.1"});
+    const s = f.step();
+    assert(f.alive() && !s.eligible && f.nativeOpen(), "an unhookable late window stays native");
+    assert(w.manager.SetVRKeyboardOpenForThisInstance === w.originals.open && w.provider.Hide === w.originals.hide,
+        "without the hooks applied before the failure");
+    f.status({bIsOpen: false, sOverlayKey: MAIN}); f.step();
+    assert(owned(f), "the main window keeps its replacement");
+    f.bridge.dispose();
 }
 for (const production of [false, true]) {
     const f = fixture(false, production, false, true);

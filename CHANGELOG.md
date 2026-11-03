@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- With **Replace native keyboard** on, fields in a game's Steam overlay now get Full Keyboard. Steam opens that overlay when the game starts, usually after Full Keyboard is already running, and Full Keyboard only knew the Steam windows that existed when it connected, so those fields got Steam's keyboard. It now picks up Steam windows as they open and lets go of them when they close, including a game's overlay opened again after the game restarts.
 - The emoji picker uses less memory and draws faster. It no longer keeps a hidden second copy of every emoji it has shown, which reached about 15 MB after scrolling through all of them, and it draws new emoji about twice as fast. Closing it keeps Recent and Favorites ready for the next opening and frees the rest.
 - Turning **Swipe typing** off in Settings now also frees the swipe model, about 3.4 MB, and turning it on loads it again. The toolbar's swipe switch still keeps the model loaded, so switching back is instant.
 - With the headset taken off while the keyboard is showing, Full Keyboard idles at four updates a second, and its Steam bridge polls slowly, instead of running at full speed for nobody. Both return to normal as soon as the headset is worn again.
