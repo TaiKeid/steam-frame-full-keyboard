@@ -37,7 +37,7 @@ The flick layout is four rows, as on a phone, laid out like Gboard's 12-key keyb
 - ゛゜小 cycles the previous kana through its small, voiced and semi-voiced forms (つ っ づ, は ば ぱ); flick left for ゛, up for 小 and right for ゜. や flicks to 「 and 」, わ to を, ん and ー, and 、。 to 。, ？, ！ and ….
 - 「あA1」 switches between kana, English and digits; its lit character shows which is on. A tap moves on to the next mode; a flick picks one: left for kana, up for English, right for digits. Switching types any reading first.
 - **English** shows the layout's English page: a QWERTY keyboard with Esc, Tab, Shift, ⌫, ↵ and the arrows, in the same case as the kana page, so nothing moves or resizes. Its letters type at once. Swipe typing is not available on it.
-- **Digits** turns the grid into a number pad, 1–9 with ( 0 . on the bottom row. A tap types the digit and a flick its symbols, as on a phone's number mode: 2 flicks to ¥ $ €, 5 to + × ÷, 0 to 〜 …, and so on, as each key's hints show.
+- **Digits** turns the grid into a number pad, 1–9 with ( 0 . on the bottom row. A tap types the digit and a flick its symbols, as on a phone's number mode: 2 flicks to ¥ $ €, 5 to + × ÷, 0 to 〜 …, and so on, as each key's hints show. The down flicks, and the free sides of ( 0 ., hold the ASCII symbols the English page has no keys for: @ & _ ~ ; ' " ` { } ! ?.
 - In dictation mode the kana page gets Esc in the side column's top slot and Send in 😊's place.
 
 Flick and toggle typing happen on release; other keys still act on press. A copy of the flick layout without the 「あA1」 key keeps the toolbar's あ / A button, which switches between kana and English.

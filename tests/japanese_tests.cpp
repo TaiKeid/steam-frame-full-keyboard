@@ -335,6 +335,10 @@ void flick_input() {
     require(sink.text.size() == typed + 5 && sink.text[typed + 3] == "2" && sink.text.back() == "¥" &&
                 preedit().empty(),
             "digits type at once, without cycling, and flicks type their symbols");
+    flick(app, "a", 55.6, 0, 60);
+    flick(app, "sa", 55.8, 0, 60);
+    require(sink.text[sink.text.size() - 2] == "@" && sink.text.back() == "_",
+            "the down flicks give the symbols the English page has no keys for");
     flick(app, "mode", 56, 0, -60);
     require(app.view().flick_latin, "flicking 「あA1」 up picks English");
     flick(app, "mode", 56.2, 60, 0);
