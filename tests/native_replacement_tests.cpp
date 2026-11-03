@@ -200,17 +200,22 @@ void transport() {
                 "local shortcuts remain supported, with release preserved across a route change");
         require(!replacement.commit_text("unsent"), "begin next commit");
         take(pair[1]);
-        activate(pair[1], replacement, 10.5);
-        replacement.poll(10.9);
+        activate(pair[1], replacement, 10.9);
+        // Sent at 10.2. The helper may still be waiting on a stalled Steam at
+        // 0.8 s, so the text is unanswered, not failed, until a second has passed.
+        replacement.poll(11.1);
+        require(!replacement.commit_text("unsent") && replacement.text_pending(),
+                "a text answered within a second is still awaited");
+        replacement.poll(11.3);
         require(!replacement.commit_text("unsent") && !replacement.text_pending(),
                 "timeout consumes failure without success");
-        replacement.update(true, true, 2, false, 10.9);
+        replacement.update(true, true, 2, false, 11.3);
         require(take(pair[1]).find("\"fallback\":true") != std::string::npos,
                 "timeout requests native restoration");
-        replacement.update(true, true, 2, false, 11, true, true);
+        replacement.update(true, true, 2, false, 11.4, true, true);
         require(take(pair[1]).find("\"standby\":true") != std::string::npos,
                 "the bridge hears of standby");
-        replacement.update(true, true, 2, false, 11.1, true);
+        replacement.update(true, true, 2, false, 11.5, true);
         require(take(pair[1]).find("\"standby\":false") != std::string::npos,
                 "and of waking, in every frame");
     }

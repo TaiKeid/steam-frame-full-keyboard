@@ -19,6 +19,8 @@ SPECS = (
     ("Steam lease", JS, r"\bLEASE_MS\s*=\s*" + NUMBER, 1, .001),
     ("request acknowledgement", JS, r"\bREQUEST_MS\s*=\s*" + NUMBER, 1, .001),
     ("CDP call", PY, r"def evaluate\(self,\s*expression,\s*timeout\s*=\s*" + NUMBER, 1, 1),
+    ("delivery call", PY, r"\bDELIVERY_TIMEOUT\s*=\s*" + NUMBER, 1, 1),
+    ("wait heartbeat", PY, r"\bWAIT_HEARTBEAT\s*=\s*" + NUMBER, 1, 1),
     ("bridge install", PY, r"\bINSTALL_TIMEOUT\s*=\s*" + NUMBER, 1, 1),
     ("active poll", PY, r"\bACTIVE_POLL\s*=\s*" + NUMBER, 1, 1),
     ("idle poll", PY, r"\bIDLE_POLL\s*=\s*" + NUMBER, 1, 1),
@@ -60,9 +62,15 @@ def check_ordering(sources):
     for earlier in ("bridge receipt freshness", "bridge frame freshness", "guard frame freshness",
                     "overlay hide", "request acknowledgement"):
         before(earlier, "Steam lease")
+    # A delivery is confirmed or failed by the helper before the Steam lease
+    # ends; the parent's own wait is only a backstop for a lost answer. While a
+    # call waits on Steam, heartbeats keep the helper within the parent's limit.
+    before("CDP call", "delivery call")
+    before("delivery call", "Steam lease")
     for delivery in ("text confirmation", "key confirmation"):
-        before("CDP call", delivery)
-        before(delivery, "helper reply freshness")
+        before("delivery call", delivery)
+    before("CDP call", "helper reply freshness")
+    before("wait heartbeat", "helper reply freshness")
     before("helper reply freshness", "Steam lease")
     before("bridge install", "helper startup budget")
     before("active poll", "idle poll")
@@ -92,12 +100,26 @@ class TimingOrdering(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "Steam lease < native guard"):
             check_ordering(sources)
 
-    def test_delivery_outliving_helper_is_rejected(self):
+    def test_confirmation_shorter_than_the_delivery_is_rejected(self):
         sources = dict(self.sources)
-        reply = extract_values(sources)["helper reply freshness"][0]
+        delivery = extract_values(sources)["delivery call"][0]
         sources[CPP] = re.sub(r"(now\s*-\s*pending_since_\s*>\s*)" + NUMBER,
-                              lambda match: match[1] + str(reply), sources[CPP], flags=re.MULTILINE)
-        with self.assertRaisesRegex(AssertionError, "text confirmation < helper reply freshness"):
+                              lambda match: match[1] + str(delivery), sources[CPP], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "delivery call < text confirmation"):
+            check_ordering(sources)
+
+    def test_delivery_outliving_the_lease_is_rejected(self):
+        sources = dict(self.sources)
+        sources[PY] = re.sub(r"(DELIVERY_TIMEOUT\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "0.95", sources[PY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "delivery call < Steam lease"):
+            check_ordering(sources)
+
+    def test_heartbeat_slower_than_the_freshness_limit_is_rejected(self):
+        sources = dict(self.sources)
+        sources[PY] = re.sub(r"(WAIT_HEARTBEAT\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "0.9", sources[PY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "wait heartbeat < helper reply freshness"):
             check_ordering(sources)
 
     def test_missing_and_ambiguous_anchors_are_rejected(self):

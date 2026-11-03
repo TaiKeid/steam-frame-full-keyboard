@@ -26,7 +26,7 @@ class FakeCDP:
         self.sent = []
         self.restored = False
 
-    def evaluate(self, expression, timeout=.4):
+    def evaluate(self, expression, timeout=.4, waiting=None):
         if "const bridge =" in expression:
             self.installed = True
             return True
@@ -90,7 +90,7 @@ class ExternalCDP(FakeCDP):
         self.external = False
         self.fallback = False
 
-    def evaluate(self, expression, timeout=.4):
+    def evaluate(self, expression, timeout=.4, waiting=None):
         if ".bridge.prepareExternal(" in expression:
             assert self.guard.armed, "native may close only after independent recovery is armed"
             self.external = True
@@ -149,7 +149,7 @@ class Lifecycle(unittest.TestCase):
     def test_waking_from_standby_interrupts_a_slow_poll_wait(self):
         polled = threading.Event()
         class IdleCDP(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if '.bridge.step(' in expression:
                     polled.set()
                     return dict(version=1, request=2, idle=True)
@@ -188,7 +188,7 @@ class Lifecycle(unittest.TestCase):
         states = [dict(idle=True), dict(idle=False, open=True),
                   dict(idle=False, externalRestore={"request": 2}), dict(idle=True)]
         class ChangingCDP(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if '.bridge.step(' in expression:
                     return dict(version=1, request=2, **states.pop(0)) if states else dict(version=1)
                 return super().evaluate(expression, timeout)
@@ -217,7 +217,7 @@ class Lifecycle(unittest.TestCase):
     def test_explicit_fallback_interrupts_an_idle_poll_wait(self):
         fallback_seen = threading.Event()
         class IdleCDP(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if '.bridge.step(' in expression:
                     if '"fallback": true' in expression:
                         fallback_seen.set()
@@ -243,7 +243,7 @@ class Lifecycle(unittest.TestCase):
     def test_slow_step_and_send_do_not_end_helper(self):
         class SlowCDP(FakeCDP):
             step_calls = 0
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if ".bridge.step(" in expression:
                     self.step_calls += 1
                     if self.step_calls == 1:
@@ -281,7 +281,7 @@ class Lifecycle(unittest.TestCase):
         # with states nor lose the result of the key it was asked to send.
         events = [dict(id=1000 + i, request=500 + i, code="release-dismissed") for i in range(32)]
         class EventCDP(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if ".bridge.step(" in expression:
                     return dict(version=1, request=2, open=True, eligible=True, active=False,
                                 idle=True, events=events)
@@ -320,7 +320,7 @@ class Lifecycle(unittest.TestCase):
         # A change goes out at once.
         state = dict(version=1, request=2, open=False, eligible=False, active=False, idle=True)
         class IdleCDP(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if ".bridge.step(" in expression:
                     return dict(state)
                 return super().evaluate(expression, timeout)
@@ -348,9 +348,66 @@ class Lifecycle(unittest.TestCase):
             parent.close()
             worker.join(2)
 
+    def test_a_delivery_through_a_half_second_steam_stall_succeeds(self):
+        # Steam's UI stalls about half a second while it filters search
+        # results. A piece typed into such a stall, here one just longer than
+        # the 0.7 s parent-freshness limit, is confirmed late but in time: the
+        # parent keeps hearing from the helper, nothing falls back, and the
+        # parent frames that queued meanwhile still count as fresh.
+        steps = []
+        class StallingCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4, waiting=None):
+                if ".bridge.step(" in expression:
+                    steps.append(json.loads(expression.split(".bridge.step(", 1)[1].rsplit(")", 1)[0]))
+                    return dict(version=1, request=2, open=True, eligible=True, active=True)
+                if ".bridge.send(" in expression:
+                    self.assertLessEqual(.75, timeout)
+                    stalled = time.monotonic() + .75
+                    while time.monotonic() < stalled:
+                        time.sleep(min(bridge.WAIT_HEARTBEAT, stalled - time.monotonic()))
+                        waiting()
+                return super().evaluate(expression, timeout)
+            assertLessEqual = unittest.TestCase.assertLessEqual
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        client = StallingCDP()
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None))
+        worker.start()
+        try:
+            progress = 0
+            def frame():
+                nonlocal progress
+                progress += 1
+                parent.send(json.dumps(dict(op="frame", progress=progress, ready=True, ack=2,
+                                            sent=time.monotonic())).encode())
+            frame()
+            self.receive(parent, "state")
+            parent.send(json.dumps(dict(op="text", request=2, id=7, text="fixture")).encode())
+            sent, last, gap, result = time.monotonic(), time.monotonic(), 0.0, None
+            while result is None and time.monotonic() - sent < 2:
+                frame()
+                message = json.loads(parent.recv(32768))
+                gap, last = max(gap, time.monotonic() - last), time.monotonic()
+                if message.get("op") == "text-result":
+                    result = message
+            self.assertEqual(result, dict(op="text-result", id=7, ok=True), "the stalled delivery is confirmed")
+            self.assertLess(gap, .5, "the parent hears from the helper throughout the stall")
+            frame()
+            self.receive(parent, "state")
+            after = [step for step in steps if step["progress"] >= 2]
+            self.assertTrue(after and all(step["ready"] for step in after),
+                            "frames that queued during the stall are still fresh")
+            self.assertFalse(any(step["fallback"] for step in steps), "nothing falls back")
+            parent.send(b'{"op":"stop"}')
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+        finally:
+            parent.close()
+            worker.join(2)
+
     def test_three_consecutive_poll_timeouts_end_helper(self):
         class SlowCDP(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if ".bridge.step(" in expression:
                     raise TimeoutError()
                 return super().evaluate(expression, timeout)
@@ -370,7 +427,7 @@ class Lifecycle(unittest.TestCase):
 
     def test_install_timeout_has_a_fixed_phase_specific_reason(self):
         class SlowInstall(FakeCDP):
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if "const bridge =" in expression:
                     raise TimeoutError("private field text must never be reported")
                 return super().evaluate(expression, timeout)
@@ -450,6 +507,39 @@ class Lifecycle(unittest.TestCase):
                     peer.close()
                     worker.join(2)
 
+    def test_cdp_wakes_its_caller_while_a_reply_is_slow(self):
+        local, peer = socket.socketpair()
+        peer.settimeout(2)
+        client = bridge.CDP.__new__(bridge.CDP)
+        client.socket, client.pending, client.sequence = local, b"", 0
+        client.network_checked = time.monotonic()
+        errors = []
+        def server():
+            # Answer the first command only after a half-second stall; leave
+            # the second unanswered.
+            try:
+                peer.recv(4096)
+                time.sleep(.55)
+                payload = json.dumps(dict(id=1, result=dict(result=dict(value=True)))).encode()
+                peer.sendall(bytes([0x81, len(payload)]) + payload)
+            except Exception as error:
+                errors.append(error)
+        worker = threading.Thread(target=server)
+        worker.start()
+        wakes = []
+        try:
+            self.assertTrue(client.evaluate("fixture", timeout=bridge.DELIVERY_TIMEOUT,
+                                            waiting=lambda: wakes.append(time.monotonic())))
+            self.assertGreaterEqual(len(wakes), 2, "the caller is woken while Steam is slow")
+            with self.assertRaises(TimeoutError):
+                client.evaluate("unanswered", timeout=.3, waiting=lambda: None)
+            worker.join(2)
+            self.assertEqual(errors, [])
+        finally:
+            client.close()
+            peer.close()
+            worker.join(2)
+
     def test_slow_install_gets_its_own_budget_and_stop_never_renews_it(self):
         for stop_early in (False, True):
             with self.subTest(stop_early=stop_early):
@@ -459,7 +549,7 @@ class Lifecycle(unittest.TestCase):
                         self.started = threading.Event()
                         self.calls = []
 
-                    def evaluate(self, expression, timeout=.4):
+                    def evaluate(self, expression, timeout=.4, waiting=None):
                         self.calls.append((expression, timeout))
                         if "const bridge =" in expression:
                             self.started.set()
@@ -931,7 +1021,7 @@ class Lifecycle(unittest.TestCase):
                         self.resume = threading.Event()
                         self.deliveries = []
 
-                    def evaluate(self, expression, timeout=.4):
+                    def evaluate(self, expression, timeout=.4, waiting=None):
                         if ".bridge.send(" in expression:
                             arguments = expression.split(".bridge.send(", 1)[1].rsplit(") === true", 1)[0]
                             request, text, key = json.loads("[" + arguments + "]")
@@ -1001,7 +1091,7 @@ class Lifecycle(unittest.TestCase):
         class RefusedCDP(ExternalCDP):
             refused = False
 
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if ".bridge.prepareExternal(" in expression:
                     self.assert_refused = expression.endswith(",false)")
                     assert self.assert_refused and not guard.armed
@@ -1079,7 +1169,7 @@ class Lifecycle(unittest.TestCase):
                         self.pause = False
                         self.waiting, self.resume = threading.Event(), threading.Event()
 
-                    def evaluate(self, expression, timeout=.4):
+                    def evaluate(self, expression, timeout=.4, waiting=None):
                         if self.pause and '.bridge.step(' in expression:
                             self.waiting.set()
                             assert self.resume.wait(2), 'fixture poll was not released'
@@ -1139,7 +1229,7 @@ class Lifecycle(unittest.TestCase):
                     guard.reject.add('cancel')
 
                 class FailingCDP(ExternalCDP):
-                    def evaluate(self, expression, timeout=.4):
+                    def evaluate(self, expression, timeout=.4, waiting=None):
                         if failure == 'steam-disconnected' and '.bridge.dispose(false)' in expression:
                             raise ConnectionError('fixture cleanup failure')
                         return super().evaluate(expression, timeout)
@@ -1197,7 +1287,7 @@ class Lifecycle(unittest.TestCase):
             generation = 2
             resummon = threading.Event()
 
-            def evaluate(self, expression, timeout=.4):
+            def evaluate(self, expression, timeout=.4, waiting=None):
                 if self.resummon.is_set() and ".bridge.step(" in expression:
                     self.resummon.clear()
                     self.external = False

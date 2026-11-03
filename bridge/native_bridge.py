@@ -30,6 +30,13 @@ IDLE_POLL = 0.075
 # A poll can take 0.4 s, so this keeps replies inside the parent's 0.8 s
 # freshness limit and renewals inside the 0.9 s Steam lease.
 STANDBY_POLL = 0.25
+# Steam's UI can stall for about half a second while it filters search
+# results, and a typed piece is often sent into that stall. Its confirmation
+# may take that long, but must still come before the 0.9 s Steam lease ends.
+DELIVERY_TIMEOUT = 0.8
+# While a call waits on Steam, the parent hears from the helper this often,
+# so a slow Steam is not mistaken for a dead helper.
+WAIT_HEARTBEAT = 0.2
 
 
 def poll_interval(state, standby=False):
@@ -260,7 +267,7 @@ class CDP:
             self.close()
             raise ConnectionError("debugger-write-failed") from error
 
-    def evaluate(self, expression, timeout=0.4):
+    def evaluate(self, expression, timeout=0.4, waiting=None):
         if time.monotonic() - self.network_checked >= 1:
             require_loopback_debugger()
             self.network_checked = time.monotonic()
@@ -270,7 +277,16 @@ class CDP:
         deadline = time.monotonic() + timeout
         self.frame(1, json.dumps(command, ensure_ascii=True).encode(), deadline)
         while time.monotonic() < deadline:
-            opcode, payload = self.receive_frame(deadline)
+            # Wake every WAIT_HEARTBEAT for the caller; a partial reply stays
+            # buffered across these short reads.
+            try:
+                opcode, payload = self.receive_frame(
+                    min(deadline, time.monotonic() + WAIT_HEARTBEAT) if waiting else deadline)
+            except TimeoutError:
+                if waiting and time.monotonic() < deadline:
+                    waiting()
+                    continue
+                raise
             if opcode == 9:
                 self.frame(10, payload, deadline)
                 continue
@@ -357,6 +373,20 @@ class ParentChannel:
 
     def waiting(self):
         return bool(self.outbox)
+
+    def heartbeat(self):
+        """While a call waits on a slow Steam: the last state again, so the
+        parent sees a live helper, and any results still queued."""
+        self.flush()
+        if self.last_state is None or self.outbox or queued_bytes(self.parent) >= self.STATE_QUEUE_LIMIT:
+            return
+        try:
+            sent = self.parent.send(self.last_state, socket.MSG_DONTWAIT)
+        except BlockingIOError:
+            return
+        if sent != len(self.last_state):
+            raise ValueError("parent-backpressure")
+        self.last_state_at = time.monotonic()
 
 
 def send(parent, value):
@@ -531,10 +561,10 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         stopping = False
         consecutive_timeouts = 0
 
-        def evaluate(expression):
+        def evaluate(expression, timeout=0.4):
             nonlocal consecutive_timeouts
             try:
-                result = client.evaluate(expression)
+                result = client.evaluate(expression, timeout, waiting=channel.heartbeat)
             except TimeoutError:
                 consecutive_timeouts += 1
                 if consecutive_timeouts >= 3:
@@ -637,12 +667,17 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 readable, _, _ = select.select([parent], [], [], 0)
             if stopping:
                 break
+            # Judge the parent by the frames just read, before any wait on
+            # Steam: frames that queued during one are not a stalled parent.
+            if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:
+                frame["ready"] = False
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
                 try:
                     if operation == "dismiss":
-                        ok = evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true")
+                        ok = evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true",
+                                      DELIVERY_TIMEOUT)
                         next_poll = 0
                     else:
                         if operation == "key" and message["value"] == 2:
@@ -650,7 +685,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         # The JS side checks the target and lease again at delivery.
                         ok = evaluate(f"{reference}?.bridge.send({message['request']},"
                                       f"{json.dumps(message['text'], ensure_ascii=True)},"
-                                      f"{str(operation == 'key').lower()}) === true")
+                                      f"{str(operation == 'key').lower()}) === true", DELIVERY_TIMEOUT)
                 except TimeoutError:
                     ok = False  # Unknown delivery fails this request closed.
                 if operation != "dismiss":
@@ -664,8 +699,6 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     parent_pid, watch_main_loop, frame_sent, watchdog.sent, watchdog.slow_until,
                     watchdog.runtime_until):
                 break
-            if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:
-                frame["ready"] = False
             if time.monotonic() >= next_poll:
                 poll_frame = {**frame, "fallback": fallback_request is not None,
                               "fallbackRequest": fallback_request}
