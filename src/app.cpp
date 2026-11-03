@@ -1702,6 +1702,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     emoji_.cancel();
     candidates_.cancel();
     reopen_.reset();
+    reopening_.reset();
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
     editor_repeat_.reset();
@@ -2556,6 +2557,7 @@ void App::commit_cjk() {
 }
 void App::tick_japanese(double now) {
     dirty |= candidates_.tick(now).redraw;
+    finish_reopen();
     if (!japanese()) {
         sync_candidates(); // A profile change leaves none.
         return;
@@ -3415,16 +3417,37 @@ void App::reopen_phrase() {
     const auto phrase = *reopen_;
     reopen_.reset();
     // Anything queued since, such as a paste or dictated phrases, came after
-    // the phrase, so Backspace would delete that instead.
+    // the phrase, so Backspace would delete that instead. The phrase itself
+    // must have arrived: one still on its way, or kept for a retry, would
+    // come back on top of the reading.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
-    if (output_.queued() != phrase.queued || count == 0 || !output_.can_queue(count)) {
+    if (output_.queued() != phrase.queued || output_.text_pending() || output_.retry_available() ||
+        count == 0 || !output_.can_queue(count)) {
         return;
     }
+    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
     for (std::size_t i = 0; i < count; ++i) {
         output_.tap({KEY_BACKSPACE}); // One entry each.
     }
-    composition_.kana(phrase.reading);
     update_output_status();
+    finish_reopen();
+}
+void App::finish_reopen() {
+    // The reading returns once every Backspace has arrived. A failure leaves
+    // the phrase where it was, typed, rather than in the field and the
+    // reading both; so does a cancel, which empties the queue first.
+    if (!reopening_) {
+        return;
+    }
+    if (output_.failures() != reopening_->failures) {
+        reopening_.reset();
+    } else if (output_.completed() >= reopening_->completed) {
+        composition_.kana(reopening_->reading);
+        reopening_.reset();
+        dirty = true;
+    } else if (!output_.text_pending()) {
+        reopening_.reset();
+    }
 }
 void App::flick_type(const std::string& text) {
     if (text.empty()) {

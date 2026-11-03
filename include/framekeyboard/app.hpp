@@ -534,6 +534,7 @@ class App {
     // committed comes back as a reading.
     void undo_japanese(double now);
     void reopen_phrase();
+    void finish_reopen();
     // Japanese candidates (docs/japanese.md): the converting segment's, or
     // live ones for the reading, in the band or over the dictation editor's foot.
     std::optional<Rect> candidate_area() const;
@@ -733,6 +734,13 @@ class App {
         std::uint64_t queued{}; // The output queue's count right after the commit.
     };
     std::optional<Reopen> reopen_;
+    // ↶'s Backspaces on their way: the reading comes back once the queue has
+    // delivered this many entries in all, with no failure since.
+    struct Reopening {
+        std::string reading;
+        std::uint64_t completed{}, failures{};
+    };
+    std::optional<Reopening> reopening_;
     bool text_ready_{};
     bool text_transport_ready_{}; // The text connection, whatever the profile.
     bool typing_ready_{};
