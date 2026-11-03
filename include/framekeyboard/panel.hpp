@@ -94,9 +94,8 @@ enum class ControlKind {
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,
-    // The Japanese band's ↑ and ↓, pressed as the arrow keys.
-    ImeUp,
-    ImeDown,
+    // The Japanese band's ∨, which opens the candidate list over the keys (∧ closes it).
+    CandidateList,
     CjkToggle,
     CjkCommit,
     CjkCancel,
@@ -214,9 +213,9 @@ struct PanelView {
     // scrolling beside it, and a hint while there is no reading. The
     // converting segment is a byte range of `preedit`.
     bool ime_band{};
-    // The flick layout's band ends its candidate row with ↑ and ↓, which its
-    // kana and digit pages have no keys for.
-    bool ime_arrows{};
+    // The flick layout's band ends its candidate row with ∨, which opens the
+    // whole list over the keys, as a phone's does.
+    bool ime_more{};
     // The Japanese flick mode: English shows the QWERTY page, digits turn the
     // grid into a number pad; the 「あA1」 key marks which mode is on.
     bool flick_latin{}, flick_digits{};
@@ -355,9 +354,12 @@ std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 // The Japanese band and its parts: the reading, and the candidates beside it.
 struct ImeBand {
     Rect band, reading, candidates;
-    std::optional<Rect> up, down; // With ime_arrows.
+    std::optional<Rect> more; // With ime_more.
 };
 ImeBand ime_band(const PanelView& view);
+// Where the open candidate list goes on: under the candidate row, across the
+// band's width, down to the foot of the keys it covers.
+Rect candidate_list_area(const PanelView& view);
 // The layout height at which a view without the Japanese band would give
 // its keys the scale `view` gives them with it; the layout's own height for
 // a view without the band. The emoji picker opens at it, in the same case.

@@ -237,7 +237,7 @@ std::vector<Control> App::controls() const {
     geometry.hide_numpad = numpad_hidden();
     geometry.settings = settings_open_;
     geometry.ime_band = ime_band_shown();
-    geometry.ime_arrows = band_arrows();
+    geometry.ime_more = band_more();
     // The mic key shows as in geometry(): a hidden one could narrow the case
     // the toolbar is laid out in, but not the one drawn.
     geometry.dictation_available = dictation_available();
@@ -523,12 +523,13 @@ std::vector<Control> App::controls() const {
             }
         }
     }
-    // The band's arrows come in panel coordinates already: after the
-    // composition controls' scaling.
-    if (geometry.ime_arrows && !settings_open_) {
+    // The band's ∨ comes in panel coordinates already: after the composition
+    // controls' scaling. It shows with candidates to open.
+    if (geometry.ime_more && !settings_open_ && candidates_.shown()) {
         const auto band = ime_band(geometry);
-        add({ControlKind::ImeUp}, {"ime-up", "Up", *band.up, false, Icon::ArrowUp});
-        add({ControlKind::ImeDown}, {"ime-down", "Down", *band.down, false, Icon::ArrowDown});
+        add({ControlKind::CandidateList},
+            {"ime-more", candidate_list_ ? "Close candidates" : "More candidates", *band.more, false,
+             candidate_list_ ? Icon::ChevronUp : Icon::ChevronDown});
     }
     // Swipe suggestions scale the same way, but never start before the end of
     // the first toolbar row or reach the close button; many share the room.
@@ -825,7 +826,7 @@ PanelView App::geometry() const {
     v.settings = settings_open_;
     v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
     v.ime_band = ime_band_shown();
-    v.ime_arrows = band_arrows();
+    v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
     if (emoji_open_) {
@@ -929,7 +930,7 @@ PanelView App::build_view(bool picker) const {
     }
     v.composing = japanese() && !japanese_latin_;
     v.ime_band = ime_band_shown();
-    v.ime_arrows = band_arrows();
+    v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
     if (v.ime_band) {
@@ -1292,13 +1293,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     const auto v = input_view();
     const auto* hit = renderer.hit_key(v, x, y);
     // Any press but ↶ ends the chance to bring the last phrase back, except
-    // a key, or the band's ↑ and ↓, pressed while the other hand holds ↶:
-    // ↶ was pressed first, and press_key() lets it act before them.
-    const auto hovered = hovered_[pointer];
-    const bool band_arrow = hovered.kind == HoverTarget::Kind::Control &&
-                            (hovered.id == "ime-up" || hovered.id == "ime-down");
+    // a key pressed while the other hand holds ↶: ↶ was pressed first, and
+    // press_key() lets it act before the key.
     if ((!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) &&
-        !((hit || band_arrow) && undo_held(pointer))) {
+        !(hit && undo_held(pointer))) {
         reopen_.reset();
     }
     // While ↶'s Backspaces are on their way, candidates wait too (keys wait
@@ -1327,15 +1325,6 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         const auto control =
             std::find_if(v.controls.rbegin(), v.controls.rend(),
                          [&](const Control& item) { return item.id == hovered_[pointer].id; });
-        if (control != v.controls.rend() && (control->action.kind == ControlKind::ImeUp ||
-                                             control->action.kind == ControlKind::ImeDown)) {
-            // Pressed as the arrow keys: candidates while converting, the
-            // field's cursor otherwise, repeating while held.
-            static const Key up{"ime-up", "↑", "", {}, ActionKind::Key, "ArrowUp"},
-                down{"ime-down", "↓", "", {}, ActionKind::Key, "ArrowDown"};
-            return press_key(pointer, control->action.kind == ControlKind::ImeUp ? &up : &down, x, y,
-                             now, v);
-        }
         if (control != v.controls.rend()) {
             pressed_controls_[pointer] = {control->id, control->action};
             if (control->id.starts_with("address-")) {
@@ -1374,7 +1363,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     return false;
 }
 
-// A key pressed on the keyboard, or one of the Japanese band's arrows.
+// A key pressed on the keyboard.
 bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now,
                     const PanelView& v) {
     if (undo_held(pointer)) {
@@ -1928,6 +1917,8 @@ void App::set_interaction_active(bool active) {
         close_emoji();
     }
     cancel(!hosted());
+    candidate_list_ = false; // Reopens over the keys, as it does on its main layout.
+    sync_candidates();
     interaction_active_ = active;
     if (active) {
         refresh_typing();
@@ -2654,6 +2645,9 @@ void App::sync_candidates() {
         texts = composition_.live();
         stale = !composition_.live_current();
     }
+    if (texts.empty() || !band_more() || dictation_open_) {
+        candidate_list_ = false;
+    }
     if (texts.empty()) {
         if (candidates_.shown()) {
             candidates_.clear();
@@ -2663,8 +2657,13 @@ void App::sync_candidates() {
     }
     const auto before = candidates_.view();
     const auto& font = profiles_.languages.at(settings_.active.language).font;
-    candidates_.set(*area, std::move(texts), selected, stale,
-                    [&](const std::string& text) { return candidate_text_width(text, font); });
+    std::optional<Rect> list;
+    if (candidate_list_) {
+        list = candidate_list_area(geometry());
+    }
+    candidates_.set(
+        *area, std::move(texts), selected, stale,
+        [&](const std::string& text) { return candidate_text_width(text, font); }, list);
     dirty |= candidates_.view() != before;
 }
 void App::pick_candidate(int index) {
@@ -2679,7 +2678,8 @@ void App::pick_candidate(int index) {
     } catch (const std::exception& error) {
         status_ = error.what();
     }
-    follow_cursor(); // In dictation mode the reading sits at the cursor.
+    candidate_list_ = false; // A choice closes the list, as on a phone.
+    follow_cursor();         // In dictation mode the reading sits at the cursor.
     sync_candidates();
     dirty = true;
 }
@@ -2917,6 +2917,12 @@ void App::action(const ControlAction& command) {
                        kind == ControlKind::LanguageCycle)) {
         // A reading is coming back; switch once it has. Settings and another
         // language give up input, which would leave the phrase deleted.
+        return;
+    }
+    if (kind == ControlKind::CandidateList) {
+        candidate_list_ = !candidate_list_ && candidates_.shown();
+        sync_candidates();
+        dirty = true;
         return;
     }
     if (kind == ControlKind::ImeToggle) {
@@ -3235,13 +3241,9 @@ const std::map<std::string, FlickKey>& App::flick_keys() const {
     const auto& language = profiles_.languages.at(settings_.active.language);
     return flick_mode() == FlickMode::Digits ? language.flick_digits : language.flick;
 }
-bool App::band_arrows() const {
-    const auto& keys = shown_layout().keys;
+bool App::band_more() const {
     return ime_band_shown() &&
-           profiles_.languages.at(settings_.active.language).input_method == "japanese-flick" &&
-           std::none_of(keys.begin(), keys.end(), [](const Key& key) {
-               return key.action_kind == ActionKind::Key && key.action == "ArrowUp";
-           });
+           profiles_.languages.at(settings_.active.language).input_method == "japanese-flick";
 }
 const Layout& App::shown_layout() const {
     const auto& layout = profiles_.layouts.at(settings_.active.layout);

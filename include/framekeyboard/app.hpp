@@ -522,7 +522,7 @@ class App {
     const std::map<std::string, FlickKey>& flick_keys() const;
     // The active layout, or its English page in English mode.
     const Layout& shown_layout() const;
-    bool band_arrows() const;
+    bool band_more() const;
     // The layout has the 「あA1」 key, which replaces the toolbar's A / あ.
     bool has_mode_key() const;
     // Types any reading first; a failed commit keeps the mode.
@@ -814,6 +814,9 @@ class App {
     };
     std::optional<FlickToggle> flick_toggle_;
     CandidateStrip candidates_;
+    // The band's ∨ opened the candidates over the keys; closes with ∧, a
+    // choice, or once there are no candidates.
+    bool candidate_list_{};
     // Live candidates wait for a pause: the reading last seen, and when it
     // will have paused long enough. Infinite once tried for that reading.
     std::string live_typed_;

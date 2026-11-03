@@ -688,8 +688,8 @@ void candidate_band() {
                 app.view().preedit.empty(),
             "choosing in the last segment commits the phrase");
 
-    // Flick arrows resize the converting segment; the band's ↑ and ↓ step
-    // through its candidates, and ↶ returns to the reading.
+    // Flick arrows resize the converting segment; 次候補 steps through its
+    // candidates, and ↶ returns to the reading.
     flick(app, "na", 12, -60, 0);
     flick(app, "ha", 12.2);
     flick(app, "na", 12.4);
@@ -703,38 +703,27 @@ void candidate_band() {
     click_key(app, "ArrowLeft");
     require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "← shortens it, splitting the rest again");
     {
-        // The arrows end the candidate row, beside its chips, not over them.
+        // ∨ ends the candidate row, beside its chips, not over them.
         const auto view = app.view();
         const auto band = ime_band(view);
-        for (const auto* id : {"ime-up", "ime-down"}) {
-            const auto arrow = std::find_if(view.controls.begin(), view.controls.end(),
-                                            [&](const Control& c) { return c.id == id; });
-            require(arrow != view.controls.end() &&
-                        arrow->bounds.x >= band.candidates.x + band.candidates.width &&
-                        arrow->bounds.x + arrow->bounds.width <= band.band.x + band.band.width,
-                    "the band's arrows sit right of the candidate row");
-        }
+        const auto more = std::find_if(view.controls.begin(), view.controls.end(),
+                                       [&](const Control& c) { return c.id == "ime-more"; });
+        require(more != view.controls.end() &&
+                    more->bounds.x >= band.candidates.x + band.candidates.width &&
+                    more->bounds.x + more->bounds.width <= band.band.x + band.band.width,
+                "the band's ∨ sits right of the candidate row");
     }
-    control(app, "ime-down");
-    require(app.view().preedit == "に〈はな〉〈こ〉", "the band's ↓ moves to the next candidate");
-    control(app, "ime-up");
-    require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "and ↑ back");
+    click_key(app, "Space");
+    require(app.view().preedit == "に〈はな〉〈こ〉", "次候補 moves to the next candidate");
+    click_key(app, "Space");
+    click_key(app, "Space");
+    require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "and wraps back to the first");
     flick(app, "undo", 12.8);
     require(app.view().preedit == "にはなこ" && !app.view().candidates->stale,
             "↶ returns to the reading");
     for (int i = 0; i < 4; ++i) {
         click_key(app, "Backspace");
     }
-
-    // Before conversion the band's ↓ commits the reading and moves the
-    // field's cursor down, as Tab or Home would.
-    flick(app, "na", 12.9);
-    sink.keys.clear();
-    const auto before = sink.text.size();
-    control(app, "ime-down");
-    require(sink.text.size() == before + 1 && sink.text.back() == "な" && app.view().preedit.empty() &&
-                sink.keys == std::vector<std::pair<int, int>>{{108, 1}, {108, 0}},
-            "↓ before conversion commits the reading, then presses ↓");
 
     // A drag along the strip scrolls it without picking anything.
     for (int i = 0; i < 24; ++i) {
@@ -786,6 +775,112 @@ void candidate_band() {
         app.paint(31.2);
         app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
     }
+}
+// The band's ∨ opens the whole list over the keys, as a phone's does: the row
+// keeps the chips that fit, the rest wrap below it and scroll up and down,
+// and ∧, a choice or hiding closes it again.
+void candidate_list() {
+    struct ManyConverter : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            Segment segment{reading, {}};
+            for (int i = 0; i < 200; ++i) {
+                segment.candidates.push_back("候補" + std::to_string(i));
+            }
+            return {segment};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    char directory[] = "/tmp/framekeyboard-list-XXXXXX";
+    require(mkdtemp(directory), "temporary list profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = [] { return std::make_unique<ManyConverter>(); };
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    const auto [kx, ky] = key_centre(app, "Flick-ka");
+    require(!has_control(app, "ime-more"), "no ∨ without candidates");
+    flick(app, "ka", 1);
+    app.tick(1.1);
+    app.tick(1.3);
+    require(has_control(app, "ime-more") && !app.view().candidates->list, "∨ comes with candidates");
+    const auto row = app.view().candidates->chips;
+    control(app, "ime-more");
+    auto view = app.view();
+    require(view.candidates && view.candidates->list && !app.renderer.hit_key(view, kx, ky),
+            "∨ opens the list over the keys");
+    const auto list = *view.candidates->list;
+    const auto area = view.candidates->area;
+    std::vector<CandidateStripView::Chip> listed;
+    for (const auto& chip : view.candidates->chips) {
+        if (chip.listed) {
+            listed.push_back(chip);
+            require(chip.bounds.x >= list.x && chip.bounds.x + chip.bounds.width <= list.x + list.width,
+                    "listed chips wrap within the list");
+        } else {
+            require(chip.bounds.x + chip.bounds.width <= area.x + area.width,
+                    "the row keeps only the chips that fit");
+        }
+    }
+    require(!listed.empty() && listed.front().bounds.x == list.x &&
+                listed.front().bounds.y > row.front().bounds.y + row.front().bounds.height &&
+                view.candidates->chips.front().text == "候補0",
+            "the rest go on under the row, from the start of the list");
+    // A press between two lines, over what was a key, types nothing.
+    const double gap = listed.front().bounds.y + listed.front().bounds.height + 4;
+    app.down(0, kx, gap, 2);
+    app.up(0, kx, gap);
+    require(app.view().preedit == "か" && sink.text.empty() && app.view().candidates->list,
+            "the covered keys take no press");
+    // A drag scrolls the list up and down; the row stays.
+    const auto& from = listed.front().bounds;
+    const double x = from.x + from.width / 2, y = from.y + from.height / 2;
+    app.down(7, x, y, 3);
+    app.move(7, x, y - 60);
+    app.move(7, x, y - 120);
+    app.up(7, x, y - 120);
+    app.tick(3.1);
+    view = app.view();
+    const auto first = std::find_if(view.candidates->chips.begin(), view.candidates->chips.end(),
+                                    [&](const auto& chip) { return chip.text == listed.front().text; });
+    require(sink.text.empty() && view.candidates->chips.front().bounds == row.front().bounds &&
+                (first == view.candidates->chips.end() || first->bounds.y < from.y),
+            "a drag scrolls the list, not the row, and picks nothing");
+    control(app, "ime-more");
+    view = app.view();
+    require(!view.candidates->list && app.renderer.hit_key(view, kx, ky), "∧ closes it");
+    // A choice in the list commits it and closes the list.
+    control(app, "ime-more");
+    view = app.view();
+    std::string pick;
+    for (const auto& chip : view.candidates->chips) {
+        if (chip.listed && pick.empty()) {
+            pick = chip.text;
+        }
+    }
+    require(click_candidate(app, pick, 4) && sink.text == std::vector<std::string>{pick} &&
+                !app.view().candidates && !has_control(app, "ime-more"),
+            "a choice in the list commits it");
+    flick(app, "ka", 5);
+    app.tick(5.1);
+    app.tick(5.3);
+    require(app.view().candidates && !app.view().candidates->list, "the next reading starts closed");
+    control(app, "ime-more");
+    app.set_interaction_active(false);
+    app.tick(5.8); // Hidden, as the VR loop keeps ticking.
+    app.set_interaction_active(true);
+    flick(app, "ka", 6);
+    app.tick(6.1);
+    app.tick(6.3);
+    require(app.view().candidates && !app.view().candidates->list, "hiding closes it");
 }
 void clear_reading(App& app) {
     for (int i = 0; i < 40 && !app.view().preedit.empty(); ++i) {
@@ -843,11 +938,6 @@ void slow_reopen() {
         require(!app.down(0, x, y, 2.5), "keys wait for the reading too");
         app.up(0, x, y);
     }
-    sink.keys.clear();
-    control(app, "ime-down");
-    require(std::none_of(sink.keys.begin(), sink.keys.end(),
-                         [](const auto& key) { return key.first == 108; }),
-            "the band's arrows wait for the reading as keys do");
     control(app, "recenter");
     sink.hold = false;
     app.tick(3);
@@ -986,20 +1076,6 @@ void slow_reopen() {
     require(app.view().preedit == "あ" && !sink.text.empty() && sink.text.back() == "あ" &&
                 app.view().status.find("still being typed") == std::string::npos,
             "a tap once the phrase is in brings it back");
-    clear_reading(app);
-    // The band's ↑ and ↓ let a held ↶ act first, as keys do.
-    flick(app, "a", 32);
-    click_key(app, "Enter");
-    sink.hold = true;
-    {
-        const auto [ux, uy] = key_centre(app, "Flick-undo");
-        app.down(0, ux, uy, 32.1);
-        control(app, "ime-down");
-        app.up(0, ux, uy);
-    }
-    sink.hold = false;
-    app.tick(32.2);
-    require(app.view().preedit == "あ", "a held ↶ goes before the band's ↓");
     clear_reading(app);
     // Anything but a key, such as Settings, still ends the chance instead:
     // opening it gives up input, which would leave the phrase deleted.
@@ -1241,6 +1317,7 @@ int main() {
         symbols_as_typed();
         progressive_conversion();
         candidate_band();
+        candidate_list();
         reading_cursor();
         slow_reopen();
         flick_pages_keep_toolbar();

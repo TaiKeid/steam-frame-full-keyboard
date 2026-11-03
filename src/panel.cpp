@@ -48,6 +48,14 @@ double visible_layout_width(const PanelView& view) {
     return removed && right > 0 ? right : view.layout->width;
 }
 namespace {
+bool list_open(const PanelView& view) {
+    return view.candidates && view.candidates->list;
+}
+// Hidden keys, and while the candidate list is open, all of them: it covers
+// the keys, which are then neither drawn nor pressed but keep their place.
+bool covered_key(const PanelView& view, const Key& key) {
+    return list_open(view) || hidden_key(view, key);
+}
 // How far the flick preview's caps and the skin tone menu raise their soft
 // shadows; repaints cover them.
 constexpr double flick_shadow = 8, tone_shadow = 12;
@@ -507,12 +515,11 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-3, -3, -9, 3);
         cairo_line_to(cr, -3, 9);
         break;
-    case Icon::ArrowUp:
-    case Icon::ArrowDown: {
-        const double tip = icon == Icon::ArrowUp ? -9 : 9;
-        line(0, -tip, 0, tip);
-        line(-7, tip - (tip < 0 ? -7 : 7), 0, tip);
-        cairo_line_to(cr, 7, tip - (tip < 0 ? -7 : 7));
+    case Icon::ChevronDown:
+    case Icon::ChevronUp: {
+        const double tip = icon == Icon::ChevronUp ? -4.5 : 4.5;
+        line(-9, -tip, 0, tip);
+        cairo_line_to(cr, 9, -tip);
         break;
     }
     case Icon::Recenter:
@@ -1196,14 +1203,12 @@ ImeBand ime_band(const PanelView& view) {
         ImeBand result{{reading.x, reading.y, reading.width, 2 * ime_band_height + ime_band_gap},
                        reading,
                        candidates,
-                       {},
                        {}};
-        if (view.ime_arrows) {
+        if (view.ime_more) {
             constexpr double width = 64, gap = 8;
             auto& row = result.candidates;
-            row.width -= 2 * (width + gap);
-            result.up = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
-            result.down = Rect{result.up->x + width + gap, row.y + 3, width, row.height - 6};
+            row.width -= width + gap;
+            result.more = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
         }
         return result;
     }
@@ -1212,8 +1217,14 @@ ImeBand ime_band(const PanelView& view) {
     return {band,
             {band.x, band.y, reading, band.height},
             {band.x + reading + 12, band.y, std::max(0.0, band.width - reading - 12), band.height},
-            {},
             {}};
+}
+Rect candidate_list_area(const PanelView& view) {
+    const auto band = ime_band(view);
+    const auto p = placement(view);
+    const double top = band.candidates.y + band.candidates.height;
+    const double bottom = p.y + view.layout->height * p.scale;
+    return {band.band.x, top, band.band.width, std::max(0.0, bottom - top)};
 }
 double candidate_text_width(const std::string& text, const std::string& family) {
     // Measuring needs a context but no pixels: one tiny surface per thread.
@@ -1638,18 +1649,27 @@ Rect emoji_well(const Rect& grid) {
 // stale ones dimmed, as a disabled button is.
 void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripView& strip) {
     const auto& t = *view.theme;
-    cairo_save(cr);
-    const auto clip = pixel_bounds(strip.area);
-    cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
-    cairo_clip(cr);
-    for (const auto& chip : strip.chips) {
-        draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
-        const auto legend = strip.stale     ? disabled_legend(t)
-                            : chip.selected ? t.latched_legend
-                                            : t.legend;
-        label(cr, chip.text, chip.bounds, candidate_font_size, view.language->font, legend, true);
+    // The row's chips within the row, an open list's within the list.
+    for (const bool listed : {false, true}) {
+        if (listed && !strip.list) {
+            break;
+        }
+        cairo_save(cr);
+        const auto clip = pixel_bounds(listed ? *strip.list : strip.area);
+        cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
+        cairo_clip(cr);
+        for (const auto& chip : strip.chips) {
+            if (chip.listed != listed) {
+                continue;
+            }
+            draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
+            const auto legend = strip.stale     ? disabled_legend(t)
+                                : chip.selected ? t.latched_legend
+                                                : t.legend;
+            label(cr, chip.text, chip.bounds, candidate_font_size, view.language->font, legend, true);
+        }
+        cairo_restore(cr);
     }
-    cairo_restore(cr);
 }
 // What the composing line says before anything is typed.
 std::string composition_hint(const PanelView& view) {
@@ -1917,7 +1937,7 @@ std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t 
         }
     };
     for (const auto& key : view.layout->keys) {
-        if (!hidden_key(view, key)) {
+        if (!covered_key(view, key)) {
             add(panel_rect(view, key.bounds));
         }
     }
@@ -1936,6 +1956,9 @@ std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t 
     }
     if (view.candidates) {
         add(view.candidates->area);
+        if (view.candidates->list) {
+            add(*view.candidates->list); // Its gaps too: the keys under them are covered.
+        }
     }
     if (view.dictation) {
         add(view.dictation->bounds);
@@ -2018,7 +2041,7 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
     x = (x - p.x) / p.scale;
     y = (y - p.y) / p.scale;
     for (const auto& key : view.layout->keys) {
-        if (!hidden_key(view, key) && key.bounds.contains(x, y)) {
+        if (key.bounds.contains(x, y) && !covered_key(view, key)) {
             return &key;
         }
     }
@@ -2147,7 +2170,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.disabled_keys != view.disabled_keys ||
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
         previous_->view.dictation.has_value() != view.dictation.has_value() ||
-        previous_->view.dictation_available != view.dictation_available;
+        previous_->view.dictation_available != view.dictation_available ||
+        list_open(previous_->view) != list_open(view);
     // A row carried over the popup's lists moves alone, and repaints alone.
     const bool only_lifted_moved = [&] {
         const auto* before = previous_ ? &previous_->view.languages : nullptr;
@@ -2205,7 +2229,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         move_handle_ = {};
     }
     for (const auto& key : view.layout->keys) {
-        if (hidden_key(view, key)) {
+        if (covered_key(view, key)) {
             continue;
         }
         auto& animation = animations_[key.id];
@@ -2356,6 +2380,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
          previous_->view.preedit_cursor != view.preedit_cursor ||
          previous_->view.candidates != view.candidates)) {
         damage_area(pixel_bounds(ime_band(view).band, 6));
+        if (list_open(view)) {
+            damage_area(pixel_bounds(*view.candidates->list, 6));
+        }
     }
     if (!full && (previous_->view.focus_tooltip != view.focus_tooltip ||
                   (!view.focus_tooltip.empty() && previous_->view.controls != view.controls))) {
@@ -2491,7 +2518,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (!view.settings) {
             const auto p = placement(view);
             for (const auto& key : view.layout->keys) {
-                if (hidden_key(view, key)) {
+                if (covered_key(view, key)) {
                     continue;
                 }
                 auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
@@ -2613,7 +2640,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_translate(cr, p.x, p.y);
             cairo_scale(cr, p.scale, p.scale);
             for (const auto& key : view.layout->keys) {
-                if (hidden_key(view, key)) {
+                if (covered_key(view, key)) {
                     continue;
                 }
                 const auto& bounds = key_bounds_.at(key.id);

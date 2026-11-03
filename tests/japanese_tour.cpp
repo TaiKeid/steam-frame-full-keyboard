@@ -226,6 +226,29 @@ int main(int argc, char** argv) {
             flicks(*app, nihongo);
             shot(*app, name);
         }
+        // かい has many candidates; ∨ opens them all over the keys.
+        const std::vector<std::pair<std::string, int>> kai{{"ka", 0}, {"a", 1}};
+        for (const auto& [theme, extra, name] :
+             std::vector<std::tuple<std::string, std::string, std::string>>{
+                 {"graphite", "", "22-candidate-list"},
+                 {"porcelain", "", "24-candidate-list-light"},
+                 {"graphite", R"(,"background_surface":"invisible")",
+                  "25-candidate-list-see-through"}}) {
+            auto app = keyboard(root / name, extra, Mode::Vr, sink, theme);
+            flicks(*app, kai);
+            tick(*app, .3);
+            control(*app, "ime-more");
+            shot(*app, name);
+            if (theme == "graphite" && extra.empty()) {
+                // Converting: 次候補 steps to a candidate under the row.
+                control(*app, "ime-more");
+                for (int i = 0; i < 18; ++i) {
+                    press(*app, "Space");
+                }
+                control(*app, "ime-more");
+                shot(*app, "23-candidate-list-converting");
+            }
+        }
         {
             auto app = keyboard(root / "c", "", Mode::Vr, sink, "graphite", "en-us-full", "ja-romaji");
             for (const char key : std::string("nihongowo")) {

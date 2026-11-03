@@ -76,11 +76,12 @@ enum class Icon {
     // The Japanese flick ↶ (Gboard's 逆トグル／戻す), which acts on the reading,
     // apart from the dictation editor's Undo.
     TurnBack,
-    // Space and Enter on the flick layouts (␣, ↵), and the Japanese band's ↑ and ↓.
+    // Space and Enter on the flick layouts (␣, ↵), and the Japanese band's ∨
+    // and ∧, which open and close the candidate list.
     Space,
     Enter,
-    ArrowUp,
-    ArrowDown,
+    ChevronDown,
+    ChevronUp,
     Headset,
     Computer,
     Cloud,
