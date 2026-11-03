@@ -3294,8 +3294,13 @@ void App::finish_flick() {
     const auto text = flick_text(track, &cycles);
     try {
         if (track.slot == flick_mode_slot && japanese()) {
-            // A tap moves on to the next mode; a flick picks one.
-            const auto next = static_cast<FlickMode>((static_cast<int>(flick_mode()) + 1) % 3);
+            // A tap moves on to the next mode; a flick picks one. A profile
+            // without digits cycles kana and English only.
+            const bool digits = !profiles_.languages.at(settings_.active.language).flick_digits.empty();
+            const auto mode = flick_mode();
+            const auto next = mode == FlickMode::Kana              ? FlickMode::Latin
+                              : mode == FlickMode::Latin && digits ? FlickMode::Digits
+                                                                   : FlickMode::Kana;
             switch (track.direction) {
             case FlickDirection::Tap:
                 set_flick_mode(next);
@@ -3307,7 +3312,9 @@ void App::finish_flick() {
                 set_flick_mode(FlickMode::Latin);
                 break;
             case FlickDirection::Right:
-                set_flick_mode(FlickMode::Digits);
+                if (digits) {
+                    set_flick_mode(FlickMode::Digits);
+                }
                 break;
             case FlickDirection::Down:
                 break;
