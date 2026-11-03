@@ -217,8 +217,8 @@ struct PanelView {
     // The flick layout's band ends its candidate row with ↑ and ↓, which its
     // kana and digit pages have no keys for.
     bool ime_arrows{};
-    // Flick keys show the language's English letters or digits (Japanese
-    // English and digit modes); the 「あA1」 key marks which mode is on.
+    // The Japanese flick mode: English shows the QWERTY page, digits turn the
+    // grid into a number pad; the 「あA1」 key marks which mode is on.
     bool flick_latin{}, flick_digits{};
     std::size_t preedit_active_begin{}, preedit_active_end{};
     std::optional<CandidateStripView> candidates;

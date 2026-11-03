@@ -540,7 +540,7 @@ class App {
     // A Japanese language's band shows over the main keyboard.
     bool ime_band_shown() const { return japanese() && !emoji_open_ && !dictation_open_; }
     void sync_candidates();
-    // Live candidates after a pause, and an English letter's toggle time.
+    // Live candidates after a pause in typing.
     void tick_japanese(double now);
     void pick_candidate(int index);
     bool flick_down(unsigned pointer, const Key& key, double x, double y, double now);

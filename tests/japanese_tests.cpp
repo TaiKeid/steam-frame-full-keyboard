@@ -625,8 +625,9 @@ void candidate_band() {
     flick(app, "ma", 11);
     app.tick(11.01);
     require(app.view().candidates && app.view().candidates->stale, "typing on leaves a stale list");
-    require(!click_candidate(app, "〈には〉", 11.02) || app.view().preedit == "にはなこま",
-            "a stale chip picks nothing");
+    require(click_candidate(app, "〈には〉", 11.02) && app.view().preedit == "にはなこま" &&
+                app.view().candidates->stale,
+            "a stale chip is shown but picks nothing");
     click_key(app, "Backspace");
     app.tick(11.1);
     require(!app.view().candidates->stale, "the list is current again for its reading");
@@ -975,7 +976,9 @@ int main() {
         const auto sent_before_hide = sink.text.size();
         app.set_interaction_active(false);
         require(app.view().preedit.empty(), "dashboard close discards Japanese preedit");
+        click_key(app, "Enter", 0, true, false); // Not taken while hidden.
         app.set_interaction_active(true);
+        click_key(app, "Enter");
         require(sink.text.size() == sent_before_hide, "no hidden or stale Japanese commit");
         for (const auto* forwarding_key : {"Tab", "Delete", "Home", "End", "Paste"}) {
             click_key(app, "KeyA");

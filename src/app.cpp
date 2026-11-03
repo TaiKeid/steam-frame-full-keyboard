@@ -920,8 +920,7 @@ PanelView App::build_view(bool picker) const {
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
     if (v.ime_band) {
-        // The band underlines the converting segment; an English letter
-        // still cycling shows there too.
+        // The band underlines the converting segment.
         v.preedit = composition_.preedit();
         std::tie(v.preedit_active_begin, v.preedit_active_end) = composition_.active_range();
         if (candidates_.shown()) {
@@ -944,8 +943,8 @@ PanelView App::build_view(bool picker) const {
         }
     }
     if (!v.language->flick.empty()) {
-        // Flick keys show their tap kana or jamo even in Latin mode, where a
-        // press returns to composition, unless English mode has its own letters.
+        // Flick keys show their tap kana or jamo, or digits in digit mode. A
+        // kana grid shown in Latin mode composes again when pressed.
         const bool japanese_flick = v.language->input_method == "japanese-flick";
         const auto& table = flick_keys();
         for (const auto& key : v.layout->keys) {
@@ -2861,7 +2860,7 @@ void App::action(const ControlAction& command) {
         return;
     }
     if (kind == ControlKind::ImeToggle) {
-        // The reading, or an English letter still cycling, is typed first.
+        // The reading is typed first.
         commit_japanese();
         if (composition_.empty()) {
             japanese_latin_ = !japanese_latin_;
