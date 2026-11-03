@@ -210,10 +210,19 @@ Anthy::Api& loaded() {
     }
     return *state.api;
 }
+// The VR thread never waits for a restart on the worker: a conversion asked
+// for meanwhile says so, and learning lets the phrase go.
+std::unique_lock<std::mutex> unless_restarting() {
+    std::unique_lock lock(anthy().calls, std::try_to_lock);
+    if (!lock) {
+        throw std::runtime_error("Japanese conversion is restarting. Try again in a moment.");
+    }
+    return lock;
+}
 class AnthyConverter final : public JapaneseConverter {
   public:
     AnthyConverter() {
-        std::lock_guard lock(anthy().calls);
+        const auto lock = unless_restarting();
         loaded();
         context();
         anthy().converters.insert(this);
@@ -224,14 +233,14 @@ class AnthyConverter final : public JapaneseConverter {
         anthy().converters.erase(this);
     }
     std::vector<Segment> convert(const std::string& reading) override {
-        std::lock_guard lock(anthy().calls);
+        const auto lock = unless_restarting();
         if (loaded().set(context(), reading.c_str()) != 0) {
             throw std::runtime_error("Japanese conversion failed");
         }
         return segments();
     }
     std::vector<Segment> resize(int index, int delta) override {
-        std::lock_guard lock(anthy().calls);
+        const auto lock = unless_restarting();
         auto& api = loaded();
         AnthyStat stat{};
         // A restart took the last conversion with it: nothing to resize.
@@ -243,8 +252,8 @@ class AnthyConverter final : public JapaneseConverter {
         return segments();
     }
     void learn(const std::vector<std::string>& chosen) override {
-        std::lock_guard lock(anthy().calls);
-        if (!learning() || !context_) {
+        std::unique_lock lock(anthy().calls, std::try_to_lock);
+        if (!lock || !learning() || !context_) {
             return;
         }
         auto& api = *anthy().api;
@@ -267,9 +276,9 @@ class AnthyConverter final : public JapaneseConverter {
         }
     }
     std::vector<std::string> predict(const std::string& reading) override {
-        std::lock_guard lock(anthy().calls);
+        std::unique_lock lock(anthy().calls, std::try_to_lock);
         std::vector<std::string> result;
-        if (!learning()) {
+        if (!lock || !learning()) {
             return result;
         }
         auto& api = *anthy().api;
@@ -288,8 +297,8 @@ class AnthyConverter final : public JapaneseConverter {
         return result;
     }
     void learn_prediction(const std::string& reading, const std::string& text) override {
-        std::lock_guard lock(anthy().calls);
-        if (!learning()) {
+        std::unique_lock lock(anthy().calls, std::try_to_lock);
+        if (!lock || !learning()) {
             return;
         }
         auto& api = *anthy().api;

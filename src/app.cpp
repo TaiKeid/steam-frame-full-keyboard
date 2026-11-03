@@ -777,9 +777,9 @@ void App::update_settings_ui() {
             field(ControlKind::ClearLearning,
                   SettingField{"clear-learning", "", "Clear learned words", ControlStyle::Button});
         clear.width = 412;
-        // Nothing to clear, or clearing already: it can't be pressed.
-        clear.enabled = learned_ && !clearing_learning_;
-        clear.busy = clearing_learning_;
+        // Nothing to clear, or Anthy restarting: it can't be pressed.
+        clear.enabled = learned_ && !restarting_anthy() && !clear_queued_;
+        clear.busy = clearing_learning_ || clear_queued_;
         learning_fields.push_back(clear);
     }
     auto language_fields = std::vector<SettingField>{
@@ -2323,7 +2323,10 @@ void App::apply_learning() {
 }
 void App::restart_learning(bool clear) {
     if (restarting_anthy()) {
-        return; // the Clear button can't be pressed meanwhile
+        // A clear confirmed as another restart began goes once it is done.
+        clear_queued_ |= clear;
+        update_settings_ui();
+        return;
     }
     clearing_learning_ = clear;
     anthy_restart_ = std::async(std::launch::async, [clear] { restart_anthy(clear); });
@@ -2338,6 +2341,10 @@ void App::tick_learning() {
     anthy_restart_.get();
     if (std::exchange(clearing_learning_, false)) {
         report_status("Learned words cleared.");
+    }
+    if (std::exchange(clear_queued_, false)) {
+        restart_learning(true);
+        return;
     }
     learned_ = anthy_learned();
     apply_learning(); // learning changed while it restarted
