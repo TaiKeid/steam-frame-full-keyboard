@@ -1656,9 +1656,12 @@ std::string composition_hint(const PanelView& view) {
     const auto& method = view.language->input_method;
     if (view.ime_band && !view.composing) {
         // The flick layout switches with its 「あA1」 key, others with A / あ.
-        const bool flick = method == "japanese-flick";
-        return std::string(view.flick_digits ? "数字入力" : "英字入力") +
-               (flick ? " · あA1: かな入力に戻る" : " · A / あ: かな入力に戻る");
+        // A tap on 「あA1」 goes English → digits → kana; a left flick picks kana.
+        if (method != "japanese-flick") {
+            return "英字入力 · A / あ: かな入力に戻る";
+        }
+        return view.flick_digits ? "数字入力 · あA1: かな入力に戻る"
+                                 : "英字入力 · あA1を左にフリック: かな入力に戻る";
     }
     return method == "korean-2set"        ? "Type → Space/Enter: commit · Esc: cancel"
            : method == "korean-cheonjiin" ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
