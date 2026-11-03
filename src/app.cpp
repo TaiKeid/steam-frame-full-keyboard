@@ -241,6 +241,10 @@ std::vector<Control> App::controls() const {
         // function keys grows taller there, and its case narrower.
         geometry.layout = &dictation_layout_.layout;
     }
+    if (emoji_open_) {
+        geometry.layout = &emoji_layout_.layout; // Taller over the Japanese band.
+        geometry.emoji.emplace().width = emoji_width_;
+    }
     const auto body = panel_case_bounds(geometry);
     auto append_move_handle = [&] {
         if (!settings_.pinned && !settings_.use_drag_to_move && !locked_move() && !forwarded()) {
@@ -4133,7 +4137,9 @@ void App::open_emoji() {
     release_input();
     const auto main = geometry();
     emoji_width_ = visible_layout_width(main);
-    emoji_layout_ = emoji_layout(*main.layout, emoji_width_);
+    // Over the Japanese band it opens in the same case, at the same scale,
+    // taking the band's room for its grid.
+    emoji_layout_ = emoji_layout(*main.layout, emoji_width_, unbanded_layout_height(main));
     emoji_open_ = true;
     const auto picker = geometry();
     emoji_.set_geometry(panel_rect(picker, emoji_layout_.tabs), panel_rect(picker, emoji_layout_.grid));

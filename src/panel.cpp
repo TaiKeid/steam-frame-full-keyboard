@@ -1165,10 +1165,11 @@ Rect panel_case_bounds(const PanelView& view) {
     // Custom geometry can leave only a few pixels after hiding its numpad.
     // Reserve the fixed main toolbar, and room for the scaled IME toolbar when
     // present. This same case is used by painting, controls and the VR mask.
-    // The Chinese and Korean toolbars' buttons need a wide case; the Japanese
-    // band has only A / あ there and fits the keys.
-    const bool ime = view.language && view.language->input_method != "xkb";
-    const double minimum = ime && !view.ime_band ? 1300 : 630;
+    // The Chinese and Korean toolbars' buttons need a wide case. Japanese has
+    // at most A / あ there and fits the keys, also in its emoji picker.
+    const bool wide_toolbar = view.language && view.language->input_method != "xkb" &&
+                              !view.language->input_method.starts_with("japanese-");
+    const double minimum = wide_toolbar ? 1300 : 630;
     // A layout narrower than the panel at this scale (flick) also narrows the
     // case, except in Settings, whose controls and cards span the full panel.
     const double slack =
@@ -1177,6 +1178,14 @@ Rect panel_case_bounds(const PanelView& view) {
         std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
                               (slack > 1 ? slack : 0));
     return {(panel_width - width) / 2, 0, width, panel_height};
+}
+double unbanded_layout_height(const PanelView& view) {
+    if (!view.ime_band) {
+        return view.layout->height;
+    }
+    const double room =
+        panel_height - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
+    return std::max(view.layout->height, room / placement(view).scale);
 }
 ImeBand ime_band(const PanelView& view) {
     const auto body = panel_case_bounds(view);

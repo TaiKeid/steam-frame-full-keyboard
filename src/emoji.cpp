@@ -200,27 +200,55 @@ void remember_emoji(EmojiPreferences& preferences, const std::string& base) {
     }
 }
 
-EmojiLayout emoji_layout(const Layout& main, double visible_width) {
+EmojiLayout emoji_layout(const Layout& main, double visible_width, double height) {
     // Designed on the bundled 416-unit-high layouts: the tab row on the
     // function-key row, the grid over the four middle rows, and the space bar
-    // on the bottom row. Taller or shorter layouts scale vertically.
-    const double k = main.height / 416;
+    // on the bottom row. Taller or shorter layouts scale vertically, and so
+    // do the keys taken from the keyboard when the picker is taller.
+    if (height <= 0) {
+        height = main.height;
+    }
+    const double k = height / 416, stretch = height / main.height;
     const double right = std::clamp(visible_width, 0.0, main.width);
     EmojiLayout result;
     result.layout.id = main.id + "-emoji";
     result.layout.name = main.name;
     result.layout.language = main.language;
     result.layout.width = main.width;
-    result.layout.height = main.height;
+    result.layout.height = height;
+    // The side column: Copy, Cut and Paste. An emoji key outside it (the
+    // flick layout's) comes back as Back in the column's top slot when that
+    // is free, so the grid can start beside the column.
+    std::optional<Rect> column;
+    for (const auto& key : main.keys) {
+        if (key.action_kind == ActionKind::Shortcut) {
+            column = column ? Rect{std::min(column->x, key.bounds.x), 0,
+                                   std::max(column->x + column->width, key.bounds.x + key.bounds.width) -
+                                       std::min(column->x, key.bounds.x),
+                                   0}
+                            : Rect{key.bounds.x, 0, key.bounds.width, 0};
+        }
+    }
+    const auto top_free = [&] {
+        return column && std::none_of(main.keys.begin(), main.keys.end(), [&](const Key& key) {
+                   return key.bounds.x < column->x + column->width &&
+                          column->x < key.bounds.x + key.bounds.width && key.bounds.y < 44;
+               });
+    }();
     double side = 0;
     for (const auto& key : main.keys) {
         if (key.action_kind == ActionKind::Emoji || key.action_kind == ActionKind::Shortcut) {
             auto copy = key;
+            copy.bounds.y *= stretch;
+            copy.bounds.height *= stretch;
             if (key.action_kind == ActionKind::Emoji) {
                 copy.icon = Icon::Back;
                 copy.label = "Back";
+                if (column && top_free && key.bounds.x >= column->x + column->width) {
+                    copy.bounds = {column->x, 0, column->width, 44 * k};
+                }
             }
-            side = std::max(side, key.bounds.x + key.bounds.width);
+            side = std::max(side, copy.bounds.x + copy.bounds.width);
             result.layout.keys.push_back(std::move(copy));
         }
     }
@@ -254,8 +282,11 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width) {
     });
     const double grid_width = grid_right - left;
     if (space != main.keys.end() && space->bounds.x >= left &&
-        space->bounds.x + space->bounds.width <= grid_right && space->bounds.y >= 344 * k) {
-        add("Space", space->bounds, "");
+        space->bounds.x + space->bounds.width <= grid_right && space->bounds.y * stretch >= 344 * k) {
+        auto bounds = space->bounds;
+        bounds.y *= stretch;
+        bounds.height *= stretch;
+        add("Space", bounds, "");
     } else {
         const double width = std::min(371.5, grid_width);
         add("Space", {left + (grid_width - width) / 2, 354 * k, width, 62 * k}, "");

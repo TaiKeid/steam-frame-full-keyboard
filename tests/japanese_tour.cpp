@@ -180,6 +180,11 @@ int main(int argc, char** argv) {
                 tick(*app);
             }
             press(*app, "Emoji");
+            // Wait for the emoji font to be checked and the view drawn.
+            for (int i = 0; i < 400 && !app->emoji_settled(); ++i) {
+                app->tick(monotonic_seconds());
+                usleep(20000);
+            }
             shot(*app, "10-emoji");
             press(*app, "Emoji");
         }

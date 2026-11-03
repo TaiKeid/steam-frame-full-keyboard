@@ -70,7 +70,9 @@ struct EmojiLayout {
     Layout layout;
     Rect tabs, grid; // Layout coordinates.
 };
-EmojiLayout emoji_layout(const Layout& main, double visible_width);
+// `height` is the picker layout's own, 0 for the keyboard's: over the
+// Japanese band it takes the band's room too, at the keys' scale.
+EmojiLayout emoji_layout(const Layout& main, double visible_width, double height = 0);
 
 // What the panel draws for the picker, in panel coordinates.
 struct EmojiPickerView {

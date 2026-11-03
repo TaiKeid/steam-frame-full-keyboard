@@ -358,6 +358,10 @@ struct ImeBand {
     std::optional<Rect> up, down; // With ime_arrows.
 };
 ImeBand ime_band(const PanelView& view);
+// The layout height at which a view without the Japanese band would give
+// its keys the scale `view` gives them with it; the layout's own height for
+// a view without the band. The emoji picker opens at it, in the same case.
+double unbanded_layout_height(const PanelView& view);
 // A candidate's label width, as the band draws it.
 double candidate_text_width(const std::string& text, const std::string& family);
 // Panel area of the flick preview, which may extend past the case.
