@@ -327,8 +327,11 @@ void flick_input() {
     require(app.view().composing, "flicking it left returns to kana");
     flick(app, "na", 57);
     require(preedit() == "な", "kana mode composes again");
-    flick(app, "mode", 57.2, 0, -60);
-    require(sink.text.back() == "な" && app.view().flick_latin, "switching modes commits the reading");
+    flick(app, "mode", 57.2, 60, 0);
+    require(sink.text.back() == "な" && app.view().flick_digits, "switching modes commits the reading");
+    sink.keys.clear();
+    flick(app, "undo", 57.3);
+    require(preedit().empty() && sink.keys.empty(), "a reading committed to switch does not reopen");
     flick(app, "mode", 57.4, -60, 0);
 
     // ↶, as on Gboard: the last kana steps back through its key's taps, and

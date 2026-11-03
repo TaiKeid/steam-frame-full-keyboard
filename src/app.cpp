@@ -2306,6 +2306,7 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
             if (composition_.empty()) {
                 japanese_latin_ = !japanese_latin_;
                 japanese_digits_ = false;
+                reopen_.reset();
             }
         }
         return true;
@@ -2862,6 +2863,7 @@ void App::action(const ControlAction& command) {
         if (composition_.empty()) {
             japanese_latin_ = !japanese_latin_;
             japanese_digits_ = false;
+            reopen_.reset(); // Committed to switch, as with 「あA1」.
         }
         follow_cursor();
         return;
@@ -3203,6 +3205,7 @@ void App::set_flick_mode(FlickMode mode) {
     japanese_latin_ = mode != FlickMode::Kana;
     japanese_digits_ = mode == FlickMode::Digits;
     flick_toggle_.reset();
+    reopen_.reset(); // Committed to switch, not as a phrase ↶ should bring back.
     // A Shift latched or locked on the English page must not stay on a page
     // without one, where it would select with the arrows or reach Enter.
     keyboard_.release_all();
