@@ -5,6 +5,7 @@
 // FRAMEKEYBOARD_ANTHY_DICTIONARY, as for the simulator) candidates are real.
 #include "simulator/platform.hpp"
 #include "simulator/simulator.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -133,6 +134,15 @@ int main(int argc, char** argv) {
             shot(simulator, "05-reopened-slow-field");
             flick(simulator, "Space");
             shot(simulator, "05b-converting-after-text"); // docs/images/simulator.png
+            flick(simulator, "Enter");
+            flick(simulator, "Emoji");
+            // The emoji font is checked and drawn on a worker, in real time.
+            for (int i = 0; i < 400 && !simulator.app().emoji_settled(); ++i) {
+                clock_now = std::max(clock_now, monotonic_seconds());
+                simulator.tick(clock_now);
+                usleep(20000);
+            }
+            shot(simulator, "05c-emoji");
             simulator.shutdown();
         }
         {

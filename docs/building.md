@@ -50,6 +50,8 @@ CTest reports unavailable `korean-input` and `chinese-input` suites as **Skipped
 
 The preview uses the same renderer, key state, and settings as VR but never injects OS input. `scripts/preview.sh` serves the older HTML layout study, not the application.
 
+The [desktop simulator](simulator.md) types into a text field of its own, for trying the keyboard without a Steam Frame. `cmake --preset simulator` builds only it, without SteamVR or Vulkan (`-DFRAMEKEYBOARD_VR=OFF`).
+
 ## ARM64 sysroot
 
 The repository includes `cmake/steam-frame-aarch64.cmake`. It uses host Clang/LLD and target headers, GCC C++ runtime files, and libraries copied from a matching Frame system. A sysroot is not included in Git or the release archive. Recheck compatibility after Frame updates.

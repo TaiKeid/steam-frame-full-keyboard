@@ -265,6 +265,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Clipboard writer | `src/clipboard.cpp`: owns the X clipboard on every display and sets a nested Wayland desktop's clipboard through data-control, for paste Send, on its own thread; never reads either |
 | Dictation helper and its client | `dictation/dictation_helper.py`, `src/dictation.cpp`, `include/framekeyboard/dictation.hpp`; protocol in [dictation](dictation.md#helper-protocol) |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
+| Desktop simulator | `src/simulator/`: `App` typing into a text field of its own in an SDL window; see [simulator](simulator.md) |
 | Instance IPC | `src/instance.cpp` |
 | Shell integration | `src/shell_protocol.cpp` (connection, session, lease), `src/shell_sink.cpp` (text sink between the output queue and the backend), `src/app_host.cpp` (App's side: contexts, hints, settings, themes, dictation), `src/shell_host.cpp` (matrices, update handover, preview renders); dispatch in `src/vr.cpp`. See [shell integration](integration.md) |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |
