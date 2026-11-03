@@ -2822,12 +2822,15 @@ void App::apply_settings() {
 }
 void App::action(const ControlAction& command) {
     const auto kind = command.kind;
-    if (output_.text_pending() &&
-        ((kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate) ||
-         kind == ControlKind::ImeToggle)) {
-        // A / あ commits a reading first, which waits like any commit.
-        if (kind != ControlKind::CjkCancel &&
-            (kind != ControlKind::ImeToggle || !composition_.empty())) {
+    if (output_.text_pending() && kind == ControlKind::ImeToggle) {
+        // A / あ commits a reading first, which waits like any commit. Text
+        // already on its way still finishes.
+        if (!composition_.empty()) {
+            return;
+        }
+    } else if (output_.text_pending() &&
+               (kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate)) {
+        if (kind != ControlKind::CjkCancel) {
             return;
         }
         output_.cancel_text();
