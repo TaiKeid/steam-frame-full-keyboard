@@ -734,17 +734,16 @@ class App {
     // else is pressed, the laser leaves or the keyboard hides.
     struct Reopen {
         std::string text, reading;
-        std::uint64_t queued{}; // The output queue's count right after the commit.
+        // The output's counts right after the commit: any change means
+        // something was sent since, or the phrase may have been dropped.
+        std::uint64_t queued{}, failures{}, cancels{};
     };
     std::optional<Reopen> reopen_;
     // ↶'s Backspaces on their way: the reading comes back once the queue has
-    // delivered `completed` entries in all, with no failure since. While the
-    // phrase itself is still arriving, `backspaces` wait to be queued after
-    // it, as long as nothing else was (`queued` unchanged).
+    // delivered this many entries in all, with no failure since.
     struct Reopening {
         std::string reading;
-        std::size_t backspaces{};
-        std::uint64_t queued{}, completed{}, failures{};
+        std::uint64_t completed{}, failures{};
         // The last tick that saw an entry delivered, and the count then; -1
         // before the first tick.
         double since{-1};

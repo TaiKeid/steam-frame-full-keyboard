@@ -941,22 +941,36 @@ void slow_reopen() {
                 app.view().status.find("stopped answering") == std::string::npos,
             "a slow field that still answers keeps the wait going");
     clear_reading(app);
-    // ↶ tapped while the phrase is still being typed waits for it to
-    // arrive, and then brings it back.
+    // ↶ tapped while the phrase is still being typed says so, and keeps
+    // the chance for a tap once it is in.
     sink.hold_text = true;
     flick(app, "a", 31);
     click_key(app, "Enter");
+    sink.keys.clear();
     flick(app, "undo", 31.1);
-    {
-        const auto [x, y] = key_centre(app, "Flick-ka");
-        require(!app.down(0, x, y, 31.2), "keys wait for a phrase still being typed");
-        app.up(0, x, y);
-    }
+    require(app.view().preedit.empty() && sink.keys.empty() &&
+                app.view().status.find("still being typed") != std::string::npos,
+            "↶ during typing sends nothing and says why");
     sink.hold_text = false;
     app.tick(31.3);
-    app.tick(31.4);
-    require(app.view().preedit == "あ" && !sink.text.empty() && sink.text.back() == "あ",
-            "↶ during typing brings the phrase back once typed");
+    flick(app, "undo", 31.4);
+    require(app.view().preedit == "あ" && !sink.text.empty() && sink.text.back() == "あ" &&
+                app.view().status.find("still being typed") == std::string::npos,
+            "a tap once the phrase is in brings it back");
+    clear_reading(app);
+    // The band's ↑ and ↓ let a held ↶ act first, as keys do.
+    flick(app, "a", 32);
+    click_key(app, "Enter");
+    sink.hold = true;
+    {
+        const auto [ux, uy] = key_centre(app, "Flick-undo");
+        app.down(0, ux, uy, 32.1);
+        control(app, "ime-down");
+        app.up(0, ux, uy);
+    }
+    sink.hold = false;
+    app.tick(32.2);
+    require(app.view().preedit == "あ", "a held ↶ goes before the band's ↓");
     clear_reading(app);
     // Anything but a key, such as Settings, still ends the chance instead:
     // opening it gives up input, which would leave the phrase deleted.

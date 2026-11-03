@@ -1281,10 +1281,13 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     const auto v = input_view();
     const auto* hit = renderer.hit_key(v, x, y);
     // Any press but ↶ ends the chance to bring the last phrase back, except
-    // a key pressed while the other hand holds ↶: ↶ was pressed first, and
-    // press_key() lets it act before the key.
+    // a key, or the band's ↑ and ↓, pressed while the other hand holds ↶:
+    // ↶ was pressed first, and press_key() lets it act before them.
+    const auto hovered = hovered_[pointer];
+    const bool band_arrow = hovered.kind == HoverTarget::Kind::Control &&
+                            (hovered.id == "ime-up" || hovered.id == "ime-down");
     if ((!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) &&
-        !(hit && undo_held(pointer))) {
+        !((hit || band_arrow) && undo_held(pointer))) {
         reopen_.reset();
     }
     // While ↶'s Backspaces are on their way, candidates wait too (keys wait
@@ -2322,7 +2325,7 @@ void App::commit_japanese() {
         status_.clear();
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (!japanese_latin_ && !dictation_open_) {
-            reopen_ = Reopen{text, reading, output_.queued()};
+            reopen_ = Reopen{text, reading, output_.queued(), output_.failures(), output_.cancels()};
         }
     } else {
         commit_failed();
@@ -3409,6 +3412,10 @@ void App::type_now(const std::string& text) {
     reopen_.reset(); // Not a phrase to reopen.
     status_.clear();
 }
+namespace {
+constexpr const char* reopen_typing_status =
+    "The phrase is still being typed. Tap ↶ again once it is in.";
+}
 bool App::undo_held(unsigned pointer) const {
     return flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot;
 }
@@ -3455,15 +3462,26 @@ void App::reopen_phrase() {
         reopen_.reset();
         return;
     }
+    if (output_.text_pending() && output_.queued() == reopen_->queued) {
+        // The phrase is still on its way, and Backspaces after it could not
+        // tell where it lands. The chance stays for a tap once it is in.
+        status_ = reopen_typing_status;
+        dirty = true;
+        return;
+    }
+    if (status_ == reopen_typing_status) {
+        status_.clear();
+    }
     const auto phrase = *reopen_;
     reopen_.reset();
     // Anything queued since, such as a paste or dictated phrases, came after
-    // the phrase, so Backspace would delete that instead. A phrase kept for
-    // a retry would come back on top of the reading.
+    // the phrase, so Backspace would delete that instead. A phrase that
+    // failed, is kept for a retry or was cancelled may not be in the field.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
     // Phrases Type as I speak still has to type came after it too.
-    if (output_.queued() != phrase.queued || output_.retry_available() || !direct_waiting_.empty() ||
-        direct_paste_ || count == 0) {
+    if (output_.queued() != phrase.queued || output_.failures() != phrase.failures ||
+        output_.cancels() != phrase.cancels || output_.text_pending() || output_.retry_available() ||
+        !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
         return;
     }
     // Keys still held, by either hand, come up first: a repeat must not land
@@ -3474,9 +3492,11 @@ void App::reopen_phrase() {
     // letting go of the mic later would commit the reading coming back.
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
-    // A phrase still on its way is waited for like the Backspaces, which
-    // follow it once it has arrived (finish_reopen()).
-    reopening_ = Reopening{phrase.reading, count, phrase.queued, 0, output_.failures()};
+    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
+    for (std::size_t i = 0; i < count; ++i) {
+        output_.tap({KEY_BACKSPACE}); // One entry each.
+    }
+    update_output_status();
     finish_reopen();
 }
 void App::expire_reopen(double now) {
@@ -3491,14 +3511,9 @@ void App::expire_reopen(double now) {
         reopening_->since = now;
         reopening_->progress = output_.completed();
     } else if (now - reopening_->since > reopen_patience) {
-        if (reopening_->backspaces) {
-            // The phrase is still arriving: it stays queued, and so it is typed.
-            status_ = "↶ stopped waiting for the phrase to be typed.";
-        } else {
-            output_.cancel(); // Only the Backspaces: every hold ended before them.
-            status_ = "The field stopped answering ↶. Check what is left of the phrase.";
-        }
+        output_.cancel(); // Only the Backspaces: every hold ended when they were queued.
         reopening_.reset();
+        status_ = "The field stopped answering ↶. Check what is left of the phrase.";
         dirty = true;
     }
 }
@@ -3508,26 +3523,6 @@ void App::finish_reopen() {
     // reading both; so does a cancel, which empties the queue first.
     if (!reopening_) {
         return;
-    }
-    if (output_.failures() != reopening_->failures) {
-        reopening_.reset();
-        return;
-    }
-    if (reopening_->backspaces) {
-        // The phrase has to have arrived first, and nothing been queued since.
-        if (output_.text_pending()) {
-            return;
-        }
-        const auto count = std::exchange(reopening_->backspaces, 0);
-        if (output_.queued() != reopening_->queued || !output_.can_queue(count)) {
-            reopening_.reset();
-            return;
-        }
-        reopening_->completed = output_.completed() + count;
-        for (std::size_t i = 0; i < count; ++i) {
-            output_.tap({KEY_BACKSPACE}); // One entry each.
-        }
-        update_output_status();
     }
     if (output_.failures() != reopening_->failures) {
         reopening_.reset();

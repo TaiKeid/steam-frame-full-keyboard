@@ -330,6 +330,7 @@ void OutputController::release_holds() {
     }
 }
 void OutputController::cancel() {
+    ++cancels_;
     queue_.clear();
     retry_.clear();
     failed_ = false;
