@@ -29,15 +29,6 @@ constexpr int favorite_columns = 3;
 // it, up to this many pixels a second at the very edge.
 constexpr double edge_scroll_speed = 600;
 constexpr int tone_choices = 6; // Default, then light to dark.
-// Gliding after a laser drag: the release speed over the last 0.1 s, if at
-// least min_glide pixels a second, decays with this time constant until it
-// is slower than settled_speed. Its first second covers about 0.3 s of speed.
-constexpr double glide_window = .1, min_glide = 300, settled_speed = 30, glide_decay = .35,
-                 max_glide = 6000;
-// A glide that runs past an end overshoots on a critically damped spring and
-// settles back on the end, like iOS lists. Entering at most bounce_speed, it
-// overshoots at most bounce_speed / (bounce_rate * e), about 65 pixels.
-constexpr double bounce_rate = 11, bounce_speed = 2000;
 
 bool valid_text(std::string_view text) {
     return !text.empty() && text.size() <= 64 && text.find('\0') == std::string_view::npos &&
@@ -643,7 +634,7 @@ EmojiPicker::Event EmojiPicker::down(unsigned pointer, double x, double y, doubl
         return event;
     }
     // A press on a gliding grid catches it, like a finger on a phone list.
-    const bool caught = glide_ && target.target != Target::Tab;
+    const bool caught = glide_.active() && target.target != Target::Tab;
     stop_glide();
     Press press;
     press.pointer = pointer;
@@ -655,7 +646,7 @@ EmojiPicker::Event EmojiPicker::down(unsigned pointer, double x, double y, doubl
     press.hit = target;
     press.caught = caught;
     press_ = std::move(press);
-    press_->samples.emplace_back(now, scroll_);
+    glide_.track(now, scroll_);
     event.redraw = true;
     return event;
 }
@@ -704,9 +695,7 @@ EmojiPicker::Event EmojiPicker::move(unsigned pointer, double x, double y, doubl
             if (press.hit.target != Target::Tab) {
                 const double old = scroll_;
                 scroll_ = std::clamp(press.scroll - (x - press.x), 0.0, scroll_limit());
-                std::erase_if(press.samples,
-                              [&](const auto& sample) { return sample.first < now - glide_window; });
-                press.samples.emplace_back(now, scroll_);
+                glide_.track(now, scroll_);
                 if (scroll_ != old) {
                     scrolled();
                     event.redraw = true;
@@ -777,16 +766,7 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y, double 
             tones_.reset();
         }
     } else if (press.dragging && press.hit.target != Target::Tab) {
-        // Keep the speed of the last tenth of a second; a pause before
-        // releasing leaves nothing to glide.
-        std::erase_if(press_->samples,
-                      [&](const auto& sample) { return sample.first < now - glide_window; });
-        press_->samples.emplace_back(now, scroll_);
-        const auto& [first_at, first] = press_->samples.front();
-        const double velocity = now - first_at > .01 ? (scroll_ - first) / (now - first_at) : 0;
-        if (std::abs(velocity) >= min_glide) {
-            glide_ = Glide{std::clamp(velocity, -max_glide, max_glide), now};
-        }
+        glide_.release(now, scroll_);
     } else if (!press.dragging && !press.caught && target == press.hit) {
         if (target.target == Target::Cell) {
             const auto& item = items_[target.index];
@@ -809,53 +789,9 @@ EmojiPicker::Event EmojiPicker::up(unsigned pointer, double x, double y, double 
 }
 EmojiPicker::Event EmojiPicker::tick(double now) {
     Event event;
-    // The release is timed when its event arrives, after the VR loop read the
-    // frame's time, so a tick can come no later than the release: skip it.
-    if (glide_ && now > glide_->at) {
-        const double seconds = std::min(now - glide_->at, .1);
-        const double old = scroll_, limit = scroll_limit();
-        glide_->at = now;
-        // Exact steps of x'' = -w²x - 2wx' from the end the grid ran past.
-        auto spring = [&](double t) {
-            const double w = bounce_rate, e = std::exp(-w * t);
-            const double x = scroll_ - glide_->end, v = glide_->velocity;
-            scroll_ = glide_->end + (x + (v + w * x) * t) * e;
-            glide_->velocity = (v - w * (v + w * x) * t) * e;
-            if (std::abs(scroll_ - glide_->end) < .5 && std::abs(glide_->velocity) < settled_speed) {
-                scroll_ = glide_->end;
-                glide_.reset(); // Settled on the end.
-            }
-        };
-        if (glide_->bounce) {
-            spring(seconds);
-        } else {
-            // The exact distance under exponential decay, independent of frame rate.
-            const double v = glide_->velocity, decay = std::exp(-seconds / glide_decay);
-            const double next = scroll_ + v * glide_decay * (1 - decay);
-            if (next < 0 || next > limit) {
-                // Spring from the moment the glide reaches the end, at the
-                // capped speed, so a fast fling or a late frame overshoots no
-                // more than a slow one: solve x + v·τ(1 − e^(−t/τ)) = end.
-                const double end = next < 0 ? 0 : limit;
-                const double reached = std::clamp((end - scroll_) / (v * glide_decay), 0.0, 1 - 1e-9);
-                const double at = -glide_decay * std::log(1 - reached);
-                scroll_ = end;
-                glide_->bounce = true;
-                glide_->end = end;
-                glide_->velocity = std::clamp(v * (1 - reached), -bounce_speed, bounce_speed);
-                spring(std::max(0.0, seconds - at));
-            } else {
-                scroll_ = next;
-                glide_->velocity *= decay;
-                if (std::abs(glide_->velocity) < settled_speed) {
-                    glide_.reset(); // Slowed to a stop.
-                }
-            }
-        }
-        if (scroll_ != old) {
-            scrolled();
-            event.redraw = true;
-        }
+    if (glide_.step(now, scroll_, scroll_limit())) {
+        scrolled();
+        event.redraw = true;
     }
     if (press_ && !press_->popup && !press_->lifted && !press_->dragging && !press_->caught &&
         press_->hit.target == Target::Cell && now - press_->at >= hold_seconds) {
@@ -953,7 +889,7 @@ void EmojiPicker::cancel() {
     positions_.clear();
 }
 void EmojiPicker::stop_glide() {
-    glide_.reset();
+    glide_.stop();
     // A grid caught past an end goes straight back to it.
     scroll_ = std::clamp(scroll_, 0.0, scroll_limit());
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "glide.hpp"
 #include "layout.hpp"
 
 #include <array>
@@ -159,7 +160,7 @@ class EmojiPicker {
     Event up(unsigned pointer, double x, double y, double now);
     // Opens the skin tones of a held emoji, and moves a gliding grid.
     Event tick(double now);
-    bool gliding() const { return glide_.has_value(); }
+    bool gliding() const { return glide_.active(); }
     // Stick or wheel notches; positive scrolls toward later categories.
     bool scroll(double x, double y, double steps);
     void cancel_pointer(unsigned pointer);
@@ -218,7 +219,6 @@ class EmojiPicker {
         bool caught{};
         // Where the laser was when the hold opened the tones.
         double ox{}, oy{};
-        std::vector<std::pair<double, double>> samples; // Recent (time, scroll) while dragging.
         // Lifted from Recent or Favorites: the emoji, its section, where in
         // Favorites it would land, the laser, and the last edge-scroll time.
         bool lifted{};
@@ -226,11 +226,6 @@ class EmojiPicker {
         std::size_t from{};
         std::optional<std::size_t> slot;
         double lx{}, ly{}, edge_at{};
-    };
-    struct Glide {
-        double velocity{}, at{}; // Scroll pixels per second, and when last moved.
-        bool bounce{};           // Past an end, springing back to it.
-        double end{};
     };
     void stop_glide();
     void scrolled(); // After the grid scrolls under the laser.
@@ -275,7 +270,7 @@ class EmojiPicker {
     // tone (press_ on a Choice) types it while a click elsewhere closes them.
     std::optional<std::size_t> tones_;
     std::size_t favorite_capacity_{EmojiPreferences::max_favorites};
-    std::optional<Glide> glide_;
+    Glide glide_;
     std::map<unsigned, Hit> hovered_;
     std::map<unsigned, std::pair<double, double>> positions_; // Last laser position, for rehover().
 };
