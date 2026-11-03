@@ -1319,6 +1319,19 @@ void swipes_after_listening() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
     std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    // A silent microphone. The real helper would record this machine's own
+    // microphone, and any sound there would turn into phrases mid-test.
+    std::ofstream(directory.path / "helper.py") << R"PY(
+import json, socket
+peer = socket.socket(fileno=3)
+while True:
+    data = peer.recv(65536)
+    if not data:
+        break
+    message = json.loads(data)
+    if message["op"] == "capture" and not message["on"]:
+        peer.send(b'{"op":"paused"}')
+)PY";
     Settings settings;
     settings.swipe_typing = true;
     settings.hide_numpad = true;
@@ -1332,6 +1345,7 @@ void swipes_after_listening() {
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
     options.start_enabled = true;
+    options.dictation_helper = directory.path / "helper.py";
     options.swipe_encoder = [path, calls] {
         auto encoder = std::make_unique<FakeEncoder>();
         encoder->path = path;
