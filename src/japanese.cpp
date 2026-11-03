@@ -3,9 +3,14 @@
 #include <dlfcn.h>
 #include <glib.h>
 #include <map>
+#include <mutex>
+#include <pwd.h>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <type_traits>
+#include <unistd.h>
 
 namespace framekeyboard {
 namespace {
@@ -57,42 +62,27 @@ const std::map<std::string, std::string>& roman_table() {
 }
 // Load the existing system Anthy only on the first conversion. Its public C ABI
 // keeps ordinary keyboard startup independent of the optional Japanese engine.
-class AnthyConverter final : public JapaneseConverter {
-  public:
-    AnthyConverter() {
-        auto& api = library();
-        context_ = api.create();
-        if (!context_) {
-            throw std::runtime_error("Cannot create Japanese conversion context");
-        }
-        api.encoding(context_, 2); // ANTHY_UTF8_ENCODING
-    }
-    ~AnthyConverter() override { library().release(context_); }
-    std::vector<Segment> convert(const std::string& reading) override {
-        if (library().set(context_, reading.c_str()) != 0) {
-            throw std::runtime_error("Japanese conversion failed");
-        }
-        return segments();
-    }
-    std::vector<Segment> resize(int index, int delta) override {
-        auto& api = library();
-        Stat stat{};
-        if (api.stat(context_, &stat) != 0 || index < 0 || index >= stat.segments) {
-            return {};
-        }
-        // Anthy leaves the segments as they were when the change is impossible.
-        api.resize(context_, index, delta);
-        return segments();
-    }
-
-  private:
-    struct Stat {
-        int segments;
-    };
-    struct SegmentStat {
-        int candidates, length;
-    };
-    struct Library {
+struct AnthyStat {
+    int segments;
+};
+struct AnthySegmentStat {
+    int candidates, length;
+};
+struct AnthyPredictionStat {
+    int predictions;
+};
+// Full Keyboard's personality: Anthy keeps what it learns under this name,
+// apart from the stock keyboard's "default" (docs/japanese.md, Learning).
+constexpr const char* learning_id = "framekeyboard";
+constexpr int hiragana_candidate = -3, katakana_candidate = -2; // NTH_*_CANDIDATE
+std::string in_script(const std::string& reading, bool katakana);
+class AnthyConverter;
+// Anthy, loaded once and shared by every converter. `calls` is held around
+// every Anthy call, so a restart on a worker thread never overlaps one;
+// `settings` guards the learning, which the VR thread reads without waiting
+// for a restart.
+struct Anthy {
+    struct Api {
         void* handle{};
         int (*init)(){};
         void (*quit)(){};
@@ -100,69 +90,300 @@ class AnthyConverter final : public JapaneseConverter {
         void (*release)(void*){};
         int (*encoding)(void*, int){};
         int (*set)(void*, const char*){};
-        int (*stat)(void*, Stat*){};
-        int (*segment_stat)(void*, int, SegmentStat*){};
+        int (*stat)(void*, AnthyStat*){};
+        int (*segment_stat)(void*, int, AnthySegmentStat*){};
         int (*get)(void*, int, int, char*, int){};
         void (*resize)(void*, int, int){};
-        template <class T> void symbol(T& fn, const char* name) {
-            fn = reinterpret_cast<T>(dlsym(handle, name));
-            if (!fn) {
-                throw std::runtime_error("Installed Anthy has an incompatible API");
-            }
-        }
-        Library() {
-            handle = dlopen("libanthy.so.0", RTLD_NOW | RTLD_LOCAL);
-            if (!handle) {
-                throw std::runtime_error("Japanese conversion needs the Anthy library");
-            }
-            try {
-                symbol(init, "anthy_init");
-                symbol(quit, "anthy_quit");
-                symbol(create, "anthy_create_context");
-                symbol(release, "anthy_release_context");
-                symbol(encoding, "anthy_context_set_encoding");
-                symbol(set, "anthy_set_string");
-                symbol(stat, "anthy_get_stat");
-                symbol(segment_stat, "anthy_get_segment_stat");
-                symbol(get, "anthy_get_segment");
-                symbol(resize, "anthy_resize_segment");
-                if (init() != 0) {
-                    throw std::runtime_error("Cannot initialize the Anthy dictionary");
-                }
-            } catch (...) {
-                dlclose(handle);
-                throw;
-            }
-        }
-        ~Library() {
-            quit();
-            dlclose(handle);
+        // Learning's: in every Anthy release, but checked like the rest.
+        void (*conf_override)(const char*, const char*){};
+        int (*personality)(const char*){};
+        int (*commit)(void*, int, int){};
+        int (*predict)(void*, const char*){};
+        int (*prediction_stat)(void*, AnthyPredictionStat*){};
+        int (*prediction)(void*, int, char*, int){};
+        int (*commit_prediction)(void*, int){};
+        bool learns() const {
+            return conf_override && personality && commit && predict && prediction_stat && prediction &&
+                   commit_prediction;
         }
     };
+    std::mutex calls;
+    std::optional<Api> api;
+    std::set<AnthyConverter*> converters;
+    std::mutex settings;
+    AnthyLearning learning;
+    std::string dictionary;               // Empty: the installed one.
+    std::optional<AnthyLearning> started; // What the running Anthy learns with.
+    ~Anthy() {
+        if (api) {
+            api->quit();
+            dlclose(api->handle);
+        }
+    }
+};
+Anthy& anthy() {
     // Anthy initialization is process-wide. Share its lifetime across previews/tests.
-    static Library& library() {
-        static Library value;
-        return value;
+    static Anthy value;
+    return value;
+}
+// Anthy's home: the configured one, or the user's own, where Anthy looks
+// (it asks the password database, not HOME).
+std::filesystem::path learning_home(const AnthyLearning& learning) {
+    if (!learning.home.empty()) {
+        return learning.home;
+    }
+    const auto* user = getpwuid(getuid());
+    return user && user->pw_dir ? user->pw_dir : "";
+}
+// Initializes a loaded Anthy with the configured learning; under `calls`.
+void start(Anthy& state) {
+    auto& api = *state.api;
+    const auto [learning, dictionary] = [&] {
+        std::lock_guard lock(state.settings);
+        return std::pair{state.learning, state.dictionary};
+    }();
+    // Anthy forgets its settings when it quits, so each start gives them again.
+    if (!dictionary.empty() && api.conf_override) {
+        api.conf_override("DIC_FILE", dictionary.c_str());
+    }
+    const auto home = learning_home(learning);
+    if (api.learns() && !home.empty()) {
+        api.conf_override("HOME", home.c_str());
+    }
+    if (api.init() != 0) {
+        throw std::runtime_error("Cannot initialize the Anthy dictionary");
+    }
+    // Off, an anonymous personality keeps no record and reads none, not even
+    // the stock keyboard's.
+    if (api.personality) {
+        api.personality(learning.on && api.learns() ? learning_id : "");
+    }
+    std::lock_guard lock(state.settings);
+    state.started = learning;
+}
+// The loaded Anthy, loading it on first use; under `calls`.
+Anthy::Api& loaded() {
+    auto& state = anthy();
+    if (state.api) {
+        return *state.api;
+    }
+    Anthy::Api api;
+    api.handle = dlopen("libanthy.so.0", RTLD_NOW | RTLD_LOCAL);
+    if (!api.handle) {
+        throw std::runtime_error("Japanese conversion needs the Anthy library");
+    }
+    auto symbol = [&](auto& fn, const char* name, bool required = true) {
+        fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(dlsym(api.handle, name));
+        if (!fn && required) {
+            throw std::runtime_error("Installed Anthy has an incompatible API");
+        }
+    };
+    try {
+        symbol(api.init, "anthy_init");
+        symbol(api.quit, "anthy_quit");
+        symbol(api.create, "anthy_create_context");
+        symbol(api.release, "anthy_release_context");
+        symbol(api.encoding, "anthy_context_set_encoding");
+        symbol(api.set, "anthy_set_string");
+        symbol(api.stat, "anthy_get_stat");
+        symbol(api.segment_stat, "anthy_get_segment_stat");
+        symbol(api.get, "anthy_get_segment");
+        symbol(api.resize, "anthy_resize_segment");
+        symbol(api.conf_override, "anthy_conf_override", false);
+        symbol(api.personality, "anthy_set_personality", false);
+        symbol(api.commit, "anthy_commit_segment", false);
+        symbol(api.predict, "anthy_set_prediction_string", false);
+        symbol(api.prediction_stat, "anthy_get_prediction_stat", false);
+        symbol(api.prediction, "anthy_get_prediction", false);
+        symbol(api.commit_prediction, "anthy_commit_prediction", false);
+        state.api = api;
+        start(state);
+    } catch (...) {
+        state.api.reset();
+        dlclose(api.handle);
+        throw;
+    }
+    return *state.api;
+}
+class AnthyConverter final : public JapaneseConverter {
+  public:
+    AnthyConverter() {
+        std::lock_guard lock(anthy().calls);
+        loaded();
+        context();
+        anthy().converters.insert(this);
+    }
+    ~AnthyConverter() override {
+        std::lock_guard lock(anthy().calls);
+        release();
+        anthy().converters.erase(this);
+    }
+    std::vector<Segment> convert(const std::string& reading) override {
+        std::lock_guard lock(anthy().calls);
+        if (loaded().set(context(), reading.c_str()) != 0) {
+            throw std::runtime_error("Japanese conversion failed");
+        }
+        return segments();
+    }
+    std::vector<Segment> resize(int index, int delta) override {
+        std::lock_guard lock(anthy().calls);
+        auto& api = loaded();
+        AnthyStat stat{};
+        // A restart took the last conversion with it: nothing to resize.
+        if (!context_ || api.stat(context_, &stat) != 0 || index < 0 || index >= stat.segments) {
+            return {};
+        }
+        // Anthy leaves the segments as they were when the change is impossible.
+        api.resize(context_, index, delta);
+        return segments();
+    }
+    void learn(const std::vector<std::string>& chosen) override {
+        std::lock_guard lock(anthy().calls);
+        if (!learning() || !context_) {
+            return;
+        }
+        auto& api = *anthy().api;
+        AnthyStat stat{};
+        if (api.stat(context_, &stat) != 0 || stat.segments != static_cast<int>(chosen.size())) {
+            return;
+        }
+        // Anthy learns once every segment is committed. A choice it did not
+        // offer, such as a symbol typed, leaves the phrase unlearned.
+        std::vector<int> picks;
+        for (int s = 0; s < stat.segments; ++s) {
+            const auto pick = index_of(s, chosen[static_cast<std::size_t>(s)]);
+            if (!pick) {
+                return;
+            }
+            picks.push_back(*pick);
+        }
+        for (int s = 0; s < stat.segments; ++s) {
+            api.commit(context_, s, picks[static_cast<std::size_t>(s)]);
+        }
+    }
+    std::vector<std::string> predict(const std::string& reading) override {
+        std::lock_guard lock(anthy().calls);
+        std::vector<std::string> result;
+        if (!learning()) {
+            return result;
+        }
+        auto& api = *anthy().api;
+        AnthyPredictionStat stat{};
+        if (api.predict(predicting(), reading.c_str()) != 0 ||
+            api.prediction_stat(predicting(), &stat) != 0) {
+            return result;
+        }
+        for (int i = 0; i < std::min(stat.predictions, max_predictions); ++i) {
+            char buffer[1024]{};
+            if (api.prediction(predicting(), i, buffer, sizeof(buffer)) > 0 &&
+                g_utf8_validate(buffer, -1, nullptr)) {
+                result.emplace_back(buffer);
+            }
+        }
+        return result;
+    }
+    void learn_prediction(const std::string& reading, const std::string& text) override {
+        std::lock_guard lock(anthy().calls);
+        if (!learning()) {
+            return;
+        }
+        auto& api = *anthy().api;
+        AnthyPredictionStat stat{};
+        if (api.predict(predicting(), reading.c_str()) != 0 ||
+            api.prediction_stat(predicting(), &stat) != 0) {
+            return;
+        }
+        for (int i = 0; i < stat.predictions; ++i) {
+            char buffer[1024]{};
+            if (api.prediction(predicting(), i, buffer, sizeof(buffer)) > 0 && text == buffer) {
+                api.commit_prediction(predicting(), i);
+                return;
+            }
+        }
+    }
+    // Before Anthy restarts; the next call makes new contexts. Under `calls`.
+    void release() {
+        for (auto* context : {&context_, &prediction_context_}) {
+            if (*context) {
+                anthy().api->release(*context);
+                *context = nullptr;
+            }
+        }
+    }
+
+  private:
+    static constexpr int max_predictions = 8;
+    static bool learning() {
+        auto& state = anthy();
+        std::lock_guard lock(state.settings);
+        return state.api && state.api->learns() && state.started && state.started->on;
+    }
+    static void* made() {
+        auto& api = loaded();
+        void* context = api.create();
+        if (!context) {
+            throw std::runtime_error("Cannot create Japanese conversion context");
+        }
+        api.encoding(context, 2); // ANTHY_UTF8_ENCODING
+        return context;
+    }
+    void* context() {
+        if (!context_) {
+            context_ = made();
+        }
+        return context_;
+    }
+    // Predictions have a context of their own: asking for them starts a new
+    // dictionary session, which a conversion still to be committed needs.
+    void* predicting() {
+        if (!prediction_context_) {
+            prediction_context_ = made();
+        }
+        return prediction_context_;
     }
     // Anthy's segment text at `candidate`, or its reading at -1
     // (NTH_UNCONVERTED_CANDIDATE).
     std::string text(int segment, int candidate) {
         char buffer[1024]{};
-        if (library().get(context_, segment, candidate, buffer, sizeof(buffer)) < 0 ||
+        if (anthy().api->get(context_, segment, candidate, buffer, sizeof(buffer)) < 0 ||
             !g_utf8_validate(buffer, -1, nullptr)) {
             throw std::runtime_error("Invalid Japanese conversion candidate");
         }
         return buffer;
     }
+    // Where Anthy offers `chosen` for a segment of its last conversion, as it
+    // numbers candidates: its own, or the reading in either script.
+    std::optional<int> index_of(int segment, const std::string& chosen) {
+        AnthySegmentStat info{};
+        if (anthy().api->segment_stat(context_, segment, &info) != 0) {
+            return {};
+        }
+        try {
+            for (int c = 0; c < info.candidates; ++c) {
+                if (text(segment, c) == chosen) {
+                    return c;
+                }
+            }
+            const auto reading = text(segment, -1);
+            if (chosen == in_script(reading, false)) {
+                return hiragana_candidate;
+            }
+            if (chosen == in_script(reading, true)) {
+                return katakana_candidate;
+            }
+        } catch (const std::exception&) {
+        }
+        return {};
+    }
     std::vector<Segment> segments() {
-        auto& api = library();
-        Stat stat{};
+        auto& api = *anthy().api;
+        AnthyStat stat{};
         if (api.stat(context_, &stat) != 0 || stat.segments <= 0 || stat.segments > 32) {
             throw std::runtime_error("Japanese conversion failed");
         }
         std::vector<Segment> result;
         for (int s = 0; s < stat.segments; ++s) {
-            SegmentStat info{};
+            AnthySegmentStat info{};
             if (api.segment_stat(context_, s, &info) != 0 || info.candidates <= 0) {
                 throw std::runtime_error("No conversion candidates");
             }
@@ -175,6 +396,7 @@ class AnthyConverter final : public JapaneseConverter {
         return result;
     }
     void* context_{};
+    void* prediction_context_{};
 };
 // The reading in one script; other characters stay.
 std::string in_script(const std::string& reading, bool katakana) {
@@ -203,6 +425,71 @@ bool symbols_only(const std::string& reading) {
     return !reading.empty();
 }
 } // namespace
+bool configure_anthy(AnthyLearning learning) {
+    auto& state = anthy();
+    std::lock_guard lock(state.settings);
+    if (learning.home.empty()) {
+        learning.home = state.learning.home;
+    }
+    state.learning = learning;
+    return state.started && *state.started != learning;
+}
+void restart_anthy(bool clear) {
+    auto& state = anthy();
+    std::lock_guard lock(state.calls);
+    if (state.api) {
+        for (auto* converter : state.converters) {
+            converter->release();
+        }
+        state.api->quit();
+        std::lock_guard settings(state.settings);
+        state.started.reset();
+    }
+    if (clear) {
+        // The record itself: a base file and its journal, and their lock.
+        const auto home = [&] {
+            std::lock_guard settings(state.settings);
+            return learning_home(state.learning);
+        }();
+        std::error_code ignored;
+        for (const char* prefix : {"last-record1_", "last-record2_"}) {
+            for (const char* suffix : {".utf8", ""}) {
+                std::filesystem::remove(home / ".anthy" / (prefix + std::string(learning_id) + suffix),
+                                        ignored);
+            }
+        }
+        std::filesystem::remove(home / ".anthy" / ("lock-file_" + std::string(learning_id)), ignored);
+    }
+    if (state.api) {
+        try {
+            start(state);
+        } catch (const std::exception&) {
+            // The next conversion loads it again and reports why it cannot.
+            dlclose(state.api->handle);
+            state.api.reset();
+        }
+    }
+}
+void set_anthy_dictionary(const std::filesystem::path& dictionary) {
+    auto& state = anthy();
+    std::lock_guard lock(state.settings);
+    state.dictionary = dictionary.string();
+}
+bool anthy_learned() {
+    auto& state = anthy();
+    const auto home = [&] {
+        std::lock_guard lock(state.settings);
+        return learning_home(state.learning);
+    }();
+    std::error_code error;
+    for (const char* prefix : {"last-record1_", "last-record2_"}) {
+        const auto path = home / ".anthy" / (prefix + std::string(learning_id) + ".utf8");
+        if (const auto size = std::filesystem::file_size(path, error); !error && size > 0) {
+            return true;
+        }
+    }
+    return false;
+}
 JapaneseComposer::JapaneseComposer(Factory factory) : factory_(std::move(factory)) {
 }
 JapaneseComposer::~JapaneseComposer() = default;
@@ -551,6 +838,12 @@ void JapaneseComposer::prepare_live() {
         whole += segment.candidates.front();
     }
     add(whole, Live::Source::Whole);
+    if (learning_) {
+        const auto words = converter().predict(reading);
+        for (std::size_t i = 0; i < words.size(); ++i) {
+            add(words[i], Live::Source::Prediction, static_cast<int>(i));
+        }
+    }
     const auto& first = live.segments.front().candidates;
     for (std::size_t i = 0; i < first.size(); ++i) {
         add(first[i], Live::Source::First, static_cast<int>(i));
@@ -565,6 +858,13 @@ bool JapaneseComposer::choose_live(int index) {
     }
     drain(true); // A pending n is the ん the list was converted with.
     const auto [source, at] = live_.sources[static_cast<std::size_t>(index)];
+    if (source == Live::Source::Prediction) {
+        // A learned word stands for the whole reading, as typed so far.
+        predicted_ = live_.texts[static_cast<std::size_t>(index)];
+        reading_ = *predicted_;
+        cursor_ = reading_.size();
+        return true;
+    }
     if (source == Live::Source::Hiragana || source == Live::Source::Katakana) {
         reading_ = in_script(reading_, source == Live::Source::Katakana);
         cursor_ = reading_.size();
@@ -597,6 +897,7 @@ void JapaneseComposer::cancel() {
     pending_.clear();
     cursor_ = 0;
     live_ = {};
+    predicted_.reset();
 }
 std::string JapaneseComposer::preedit(bool mark_active) const {
     if (!converting()) {
@@ -633,6 +934,21 @@ std::pair<std::size_t, std::size_t> JapaneseComposer::active_range() const {
 std::string JapaneseComposer::commit_text() {
     drain(true);
     return preedit();
+}
+void JapaneseComposer::learn() {
+    if (!learning_) {
+        return;
+    }
+    if (predicted_) {
+        converter().learn_prediction(live_.reading, *predicted_);
+    } else if (converting() && converted_ == reading_) {
+        // The converter's last conversion is this phrase, as resized here.
+        std::vector<std::string> chosen;
+        for (const auto& segment : segments_) {
+            chosen.push_back(segment.candidates[static_cast<std::size_t>(segment.selected)]);
+        }
+        converter().learn(chosen);
+    }
 }
 std::vector<std::string> JapaneseComposer::candidates() const {
     return converting() ? segments_[static_cast<std::size_t>(active_)].candidates

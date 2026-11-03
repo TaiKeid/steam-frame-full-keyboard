@@ -103,7 +103,9 @@ enum class ControlKind {
     CjkPrev,
     CjkCandidate,
     SwipeTyping,
-    SwipeCandidate
+    SwipeCandidate,
+    JapaneseLearning,
+    ClearLearning // asks first
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -125,6 +127,7 @@ struct Control {
     bool badge{};   // a notification dot on the button's top right corner
     bool dimmed{};  // a toolbar icon drawn quietly, though it still responds
     int segments{}; // a Segment: how many share its track; action.index is its place
+    bool busy{};    // a ring circles its border while its work is under way
     bool hit(double x, double y) const {
         return enabled && bounds.contains(x, y) && (!clip || clip->contains(x, y));
     }
@@ -442,6 +445,7 @@ class PanelRenderer {
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
     double ring_time_{};
+    double busy_ring_{};                  // A busy button's ring, stepping like the mic's.
     double swipe_shake_{}, swipe_fade_{}; // The swipe icon's, and its alert colour left.
     double focus_shake_{}; // The Focus mode icon's shake offset, when last drawn.  // The recognition
                            // ring's time, sampled at 30 fps, when last drawn.

@@ -42,9 +42,23 @@ The flick layout is four rows, as on a phone, laid out like Gboard's 12-key keyb
 
 Flick and toggle typing happen on release; other keys still act on press. A copy of the flick layout without the 「あA1」 key keeps the toolbar's あ / A button, which switches between kana and English.
 
+## Learning
+
+Learning is off by default. With Japanese as the main language or an additional one, Settings → Languages and Layouts offers **Learn from my typing**. Once it is on and applied:
+
+- A phrase committed from a conversion teaches Anthy which candidate each segment took, so they come first next time.
+- Live candidates also offer words committed before that begin with the reading, right after the whole phrase: once ありがとう was committed as 有難う, typing あり offers 有難う. These are only words you committed; Anthy has no dictionary of its own for predictions.
+- Nothing is learned in password, PIN or terminal fields.
+
+Anthy keeps what it learns in plain text, in `~/.anthy/last-record1_framekeyboard.utf8` and `last-record2_framekeyboard.utf8`: under a name of Full Keyboard's own, apart from what Steam's keyboard learns there. A phone IME's learned words sit in storage other apps can't open, but Steam Frame's desktop is an unlocked Linux system, where any program you run can read the files in your home folder. Steam's own keyboard keeps its learning the same way; Full Keyboard's stays off until you turn it on.
+
+**Clear learned words**, under the setting, deletes those files after asking. It can't be pressed while there is nothing to clear. Anthy restarts to forget what it had loaded; meanwhile a ring circles the button, which can't be pressed again, and live candidates wait. Turning learning off stops both learning and using what was learned; the files stay until cleared.
+
+With learning off, Anthy reads and writes no record at all, Steam's keyboard's included, so candidates keep Anthy's own order. Anthy still keeps an empty lock file in `~/.anthy`.
+
 ## Runtime requirements
 
-The integrated modes use `libanthy.so.0`, its installed dictionary and Japanese fonts. These were already present on the tested Steam Frame. No daemon, browser, online converter, clipboard fallback or dictionary training is added: Anthy never learns from your choices, so nothing you type is written to disk. This is deliberate. A phone IME's learned words sit in storage other apps can't open, but Steam Frame's desktop is an unlocked Linux system, where any program you run can read the files in your home folder, and Anthy would keep every phrase you convert there in plain text. Candidates therefore keep Anthy's own order and include no predictions from earlier choices. Learning may come later as a setting you turn on, never by default. Live candidates convert the reading once after each pause in typing, never while you type; ordinary polling/rendering stays adaptive. The library/dictionary load with the first conversion, live or requested, and stay loaded until the keyboard exits.
+The integrated modes use `libanthy.so.0`, its installed dictionary and Japanese fonts. These were already present on the tested Steam Frame. No daemon, browser, online converter, clipboard fallback or dictionary training is added. Unless you turn on [learning](#learning), Anthy learns nothing from your choices, so nothing you type is written to disk. Live candidates convert the reading once after each pause in typing, never while you type; ordinary polling/rendering stays adaptive. The library/dictionary load with the first conversion, live or requested, and stay loaded until the keyboard exits.
 
 The normal launcher with `--input ei --start-enabled` supports the bundled integrated profiles. Japanese characters are composed locally. The normal launcher does not require a matching system keymap; native shortcuts use the compositor keymap where available. The text backend checks the private [Gamescope input-method protocol](https://github.com/ValveSoftware/gamescope/blob/6867f509874f9bc52e12d6f4c4596cdf0d5be6b4/protocol/gamescope-input-method.xml) before enabling output. Missing support leaves a conversion preview and a visible error. The uinput backend cannot deliver composed Japanese text. A numbered `--ei-socket` selects the matching text compositor; custom names need `--text-socket`. See [runtime routing](runtime.md).
 

@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
             if (void* anthy = dlopen("libanthy.so.0", RTLD_NOW | RTLD_LOCAL)) {
                 if (auto* set = reinterpret_cast<void (*)(const char*, const char*)>(
                         dlsym(anthy, "anthy_conf_override"))) {
-                    set("DIC_FILE", dictionary);
+                    set_anthy_dictionary(dictionary);
                 }
             }
         }
@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("temporary directory");
         }
         const fs::path root = scratch;
+        configure_anthy({false, root}); // Its lock file stays in the scratch folder.
         Sink sink;
         {
             auto app = keyboard(root / "a", "", Mode::Vr, sink);
@@ -248,6 +249,32 @@ int main(int argc, char** argv) {
                 control(*app, "ime-more");
                 shot(*app, "23-candidate-list-converting");
             }
+        }
+        {
+            // Learning in the Languages card, with something learned to clear.
+            auto app = keyboard(root / "learning", R"(,"japanese_learning":true)", Mode::Vr, sink);
+            fs::create_directories(root / ".anthy");
+            std::ofstream(root / ".anthy" / "last-record2_framekeyboard.utf8") << "learned\n";
+            app->show_settings();
+            app->move(0, 250, 300); // Over the Languages card, scrolled to its end.
+            app->scroll(0, 0, 10);
+            app->move(0, 1500, 590);
+            shot(*app, "26-settings-learning");
+            control(*app, "clear-learning");
+            shot(*app, "27-settings-clear-confirm");
+            control(*app, "confirm-cancel");
+            // Clearing: what App draws while Anthy restarts, which here is too
+            // quick to catch.
+            auto view = app->view();
+            for (auto& c : view.controls) {
+                if (c.id == "clear-learning") {
+                    c.enabled = false;
+                    c.busy = true;
+                }
+            }
+            app->renderer.paint(view, clock_now, true);
+            app->renderer.write_png(output / "28-settings-clearing.png");
+            std::cout << "28-settings-clearing\n";
         }
         {
             auto app = keyboard(root / "c", "", Mode::Vr, sink, "graphite", "en-us-full", "ja-romaji");

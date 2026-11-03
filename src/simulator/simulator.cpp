@@ -103,6 +103,8 @@ Simulator::Simulator(const Setup& setup)
     options.start_enabled = true;
     options.target_language = "en-us";
     options.config_dir = setup.config_dir;
+    // What its Anthy learns stays in its own folder, apart from the user's.
+    options.anthy_home = setup.config_dir;
     options.data_dir = setup.data_dir;
     options.models_dir = setup.models_dir;
     // Dictation's paste Send writes the field's own clipboard.

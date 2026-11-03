@@ -21,6 +21,7 @@
 #include <atomic>
 #include <csignal>
 #include <deque>
+#include <future>
 #include <optional>
 #include <utility>
 
@@ -64,6 +65,9 @@ struct Options {
     TextOutput* text_output{};
     // Tests replace Japanese conversion; empty loads the system's Anthy.
     JapaneseComposer::Factory japanese_converter;
+    // Where Anthy keeps what it learns; empty is the user's home. Tests and
+    // the simulator keep it apart from the user's own.
+    fs::path anthy_home;
     // Tests replace the dictation helper; empty uses the installed one.
     fs::path dictation_helper;
     // Where on-device models are kept; empty is ~/.local/share/framekeyboard/models.
@@ -598,6 +602,17 @@ class App {
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
     bool pending_emoji_close_on_select_{};
+    bool pending_japanese_learning_{};
+    // Anthy restarts on a worker for learning turned on or off, or to clear
+    // what it learned (docs/japanese.md, Learning); live candidates wait.
+    std::future<void> anthy_restart_;
+    bool clearing_learning_{};
+    bool learned_{}; // Something to clear, as of Settings opening or a restart.
+    void apply_learning();
+    bool learning_allowed() const;
+    void restart_learning(bool clear);
+    void tick_learning();
+    bool restarting_anthy() const { return anthy_restart_.valid(); }
     bool pending_focus_tooltip_{};
     bool pending_desktop_unicode_paste_{};
     int pending_dictation_send_gap_{20};
@@ -629,6 +644,7 @@ class App {
     enum class Confirm {
         None,
         ClearLanguages,
+        ClearLearning,
         SaveLanguages,
         Download,
         DownloadAndApply,

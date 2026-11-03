@@ -776,6 +776,139 @@ void candidate_band() {
         app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
     }
 }
+// A converter that records what learning tells it, and offers 有難う for あり.
+struct LearningConverter : JapaneseConverter {
+    std::vector<std::vector<std::string>>* learned;
+    std::vector<std::pair<std::string, std::string>>* picked;
+    std::vector<Segment> convert(const std::string& reading) override {
+        return {{reading, {"〈" + reading + "〉", reading}}};
+    }
+    std::vector<Segment> resize(int, int) override { return {}; }
+    void learn(const std::vector<std::string>& chosen) override { learned->push_back(chosen); }
+    std::vector<std::string> predict(const std::string& reading) override {
+        return reading == "あり" ? std::vector<std::string>{"有難う"} : std::vector<std::string>{};
+    }
+    void learn_prediction(const std::string& reading, const std::string& text) override {
+        picked->emplace_back(reading, text);
+    }
+};
+// Learning (docs/japanese.md, Learning): with it on, a committed phrase
+// teaches the converter its choices and learned words join the live
+// candidates; off, the converter hears nothing.
+void learning_calls() {
+    std::vector<std::vector<std::string>> learned;
+    std::vector<std::pair<std::string, std::string>> picked;
+    JapaneseComposer composer([&] {
+        auto converter = std::make_unique<LearningConverter>();
+        converter->learned = &learned;
+        converter->picked = &picked;
+        return converter;
+    });
+    composer.kana("あり");
+    composer.prepare_live();
+    require(std::find(composer.live().begin(), composer.live().end(), "有難う") == composer.live().end(),
+            "off, no learned words are offered");
+    composer.convert();
+    composer.commit_text();
+    composer.learn();
+    require(learned.empty() && picked.empty(), "off, nothing is learned");
+    composer.cancel();
+
+    composer.set_learning(true);
+    composer.kana("あり");
+    composer.prepare_live();
+    require(composer.live() == std::vector<std::string>{"〈あり〉", "有難う", "あり", "アリ"},
+            "learned words come after the whole phrase");
+    require(composer.choose_live(1) && composer.commit_text() == "有難う", "a learned word commits");
+    composer.learn();
+    require(picked == std::vector<std::pair<std::string, std::string>>{{"あり", "有難う"}},
+            "and is learned again, for what was typed");
+    composer.cancel();
+    composer.kana("あり");
+    composer.convert();
+    composer.cycle(1);
+    require(composer.commit_text() == "あり", "a conversion commits");
+    composer.learn();
+    require(learned == std::vector<std::vector<std::string>>{{"あり"}},
+            "its segments' choices are learned");
+}
+// The Languages card offers learning with Japanese, saves it, and clears what
+// Anthy learned after asking, with a busy button meanwhile.
+void learning_settings() {
+    char directory[] = "/tmp/framekeyboard-learning-XXXXXX";
+    require(mkdtemp(directory), "temporary learning profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::vector<std::vector<std::string>> learned;
+    std::vector<std::pair<std::string, std::string>> picked;
+    Options options;
+    options.config_dir = directory;
+    options.anthy_home = fs::path(directory) / "home";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = [&] {
+        auto converter = std::make_unique<LearningConverter>();
+        converter->learned = &learned;
+        converter->picked = &picked;
+        return converter;
+    };
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "en-us", "graphite"});
+    app.show_settings();
+    require(!has_control(app, "japanese-learning") && !has_control(app, "clear-learning"),
+            "learning is offered only with Japanese");
+    control(app, "settings"); // Back
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    app.show_settings();
+    const auto find = [&](const std::string& id) {
+        const auto controls = app.view().controls;
+        const auto found =
+            std::find_if(controls.begin(), controls.end(), [&](const Control& c) { return c.id == id; });
+        if (found == controls.end()) {
+            throw std::runtime_error("Missing control " + id);
+        }
+        return *found;
+    };
+    require(!find("japanese-learning").selected && !find("clear-learning").enabled,
+            "learning starts off, with nothing to clear");
+    control(app, "japanese-learning");
+    control(app, "apply");
+    app.flush_settings();
+    std::vector<std::string> errors;
+    require(load_settings(options.config_dir, errors).japanese_learning, "learning is saved");
+
+    flick(app, "a", 1);
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    require(sink.text.back() == "〈あ〉" && learned == std::vector<std::vector<std::string>>{{"〈あ〉"}},
+            "a committed conversion is learned");
+
+    // What Anthy learned, as its record file; Clear asks, then deletes it.
+    const auto record = options.anthy_home / ".anthy" / "last-record2_framekeyboard.utf8";
+    fs::create_directories(record.parent_path());
+    std::ofstream(record) << "learned\n";
+    app.show_settings();
+    require(find("clear-learning").enabled, "something learned can be cleared");
+    control(app, "clear-learning");
+    require(app.view().confirm && fs::exists(record), "Clear asks first");
+    control(app, "confirm-cancel");
+    require(!app.view().confirm && fs::exists(record), "and cancelling keeps it");
+    control(app, "clear-learning");
+    control(app, "confirm-accept");
+    for (int i = 0; i < 400 && find("clear-learning").busy; ++i) {
+        require(!find("clear-learning").enabled, "a busy Clear can't be pressed again");
+        app.tick(2 + i * .01);
+        usleep(5000);
+    }
+    require(!fs::exists(record) && !find("clear-learning").enabled && !find("clear-learning").busy &&
+                app.view().status == "Learned words cleared.",
+            "clearing deletes the record, then says so");
+}
 // The band's ∨ opens the whole list over the keys, as a phone's does: the row
 // keeps the chips that fit, the rest wrap below it and scroll up and down,
 // and ∧, a choice or hiding closes it again.
@@ -1313,11 +1446,22 @@ void text_output_capture() {
     require(sink.text.empty() && sink.keys.empty(), "nothing reaches the target past the text output");
 }
 int main() {
+    // Anthy keeps what it learns, and its lock file, under a home of the tests' own.
+    char anthy_home[] = "/tmp/framekeyboard-anthy-XXXXXX";
+    require(mkdtemp(anthy_home), "temporary Anthy home");
+    struct AnthyHome {
+        fs::path path;
+        ~AnthyHome() { fs::remove_all(path); }
+    } anthy_cleanup{anthy_home};
+    configure_anthy({false, anthy_home});
     try {
         symbols_as_typed();
+        learning_calls();
         progressive_conversion();
         candidate_band();
         candidate_list();
+        learning_settings();
+        configure_anthy({false, anthy_home});
         reading_cursor();
         slow_reopen();
         flick_pages_keep_toolbar();
@@ -1395,7 +1539,7 @@ int main() {
             auto override = reinterpret_cast<void (*)(const char*, const char*)>(
                 dlsym(anthy, "anthy_conf_override"));
             require(override, "Anthy config API");
-            override("DIC_FILE", dictionary);
+            set_anthy_dictionary(dictionary);
         }
         if (anthy) {
             composer.cancel();
@@ -1424,6 +1568,35 @@ int main() {
                 composer.convert();
                 require(composer.commit_text() == phrase, "Anthy's symbols stay as typed");
             }
+            // Learning with the real Anthy, kept in the tests' own home.
+            configure_anthy({true, anthy_home});
+            restart_anthy(false);
+            {
+                JapaneseComposer learner;
+                learner.set_learning(true);
+                const auto offers = [&](const std::string& text) {
+                    return std::find(learner.live().begin(), learner.live().end(), text) !=
+                           learner.live().end();
+                };
+                learner.kana("ありがとう");
+                learner.convert();
+                const auto phrase = learner.commit_text();
+                learner.learn();
+                learner.cancel();
+                require(anthy_learned() &&
+                            !fs::exists(fs::path(anthy_home) / ".anthy" / "last-record2_default.utf8"),
+                        "a committed phrase is learned, apart from the stock keyboard's");
+                learner.kana("あり");
+                learner.prepare_live();
+                require(offers(phrase), "and offered again once its start is typed");
+                restart_anthy(true);
+                learner.cancel();
+                learner.kana("あり");
+                learner.prepare_live();
+                require(!anthy_learned() && !offers(phrase), "clearing forgets it");
+            }
+            configure_anthy({false, anthy_home});
+            restart_anthy(false);
             dlclose(anthy);
         } else {
             require(!std::getenv("FRAMEKEYBOARD_TEST_ANTHY_REQUIRED"), "Anthy required for this run");

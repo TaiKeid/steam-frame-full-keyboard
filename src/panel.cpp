@@ -2297,6 +2297,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     swipe_shake_ = swipe_shake;
     swipe_fade_ = swipe_fade;
     focus_shake_ = shake;
+    // A busy button's ring steps at 30 fps, as the mic's does, also in Settings.
+    const double busy_ring = std::floor(now * 30) / 30;
+    for (const auto& c : view.controls) {
+        if (c.busy) {
+            animating_ = true;
+            if (!full && busy_ring != busy_ring_) {
+                repaint(c.id.c_str());
+            }
+        }
+    }
+    busy_ring_ = busy_ring;
     // The mic key's bars and ring step at 30 fps; between steps a 60 Hz
     // frame would rebuild and compare the whole view for no new pixel.
     next_change_ = continuous ? now : (std::floor(now * 30) + 1) / 30;
@@ -2934,6 +2945,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         draw_icon(cr, control.icon, r, legend);
                     } else {
                         label(cr, control.label, r, 21, view.language->font, legend);
+                    }
+                    if (control.busy) {
+                        draw_ring(cr, t, r, busy_ring_);
                     }
                     break;
                 }

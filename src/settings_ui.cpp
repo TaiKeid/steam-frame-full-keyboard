@@ -210,6 +210,7 @@ void SettingsUi::append(PanelView& view) const {
                 const auto name = selected == field.choices.end() ? field.value : selected->name;
                 view.controls.push_back({field.id, name, bounds, field.checked, Icon::None, field.style,
                                          clip, field.enabled});
+                view.controls.back().busy = field.busy;
                 view.controls.back().action =
                     field.style == ControlStyle::Dropdown
                         ? ControlAction{ControlKind::ToggleDropdown, 0, field.id}

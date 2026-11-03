@@ -1,4 +1,5 @@
 #include "framekeyboard/config.hpp"
+#include "framekeyboard/japanese.hpp"
 #include "platform.hpp"
 #include <cstdlib>
 #include <dlfcn.h>
@@ -42,10 +43,9 @@ std::string use_anthy_dictionary(const fs::path& dictionary) {
         dlclose(anthy);
         return "this Anthy cannot take another dictionary (no anthy_conf_override)";
     }
-    // Kept for the process's lifetime, whether or not Anthy copies it.
-    static std::string path;
-    path = fs::absolute(dictionary).string();
-    set("DIC_FILE", path.c_str());
+    dlclose(anthy);
+    // The keyboard gives it to Anthy at each start, restarts for learning included.
+    set_anthy_dictionary(fs::absolute(dictionary));
     return {};
 }
 } // namespace framekeyboard::simulator

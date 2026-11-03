@@ -731,6 +731,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
         }
+        if (auto* learning = field(document.get(), "japanese_learning", json_type_boolean, true)) {
+            settings.japanese_learning = json_object_get_boolean(learning);
+        }
         if (auto* tooltip = field(document.get(), "focus_tooltip", json_type_boolean, true)) {
             settings.focus_tooltip = json_object_get_boolean(tooltip);
         }
@@ -983,6 +986,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->haptic_sounds_switch));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
+        json_object_object_add(document.get(), "japanese_learning",
+                               json_object_new_boolean(settings->japanese_learning));
         json_object_object_add(document.get(), "focus_tooltip",
                                json_object_new_boolean(settings->focus_tooltip));
         json_object_object_add(document.get(), "desktop_unicode_paste",

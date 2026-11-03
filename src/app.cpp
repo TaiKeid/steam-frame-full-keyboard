@@ -193,6 +193,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_japanese_learning_ = settings_.japanese_learning;
+    configure_anthy({settings_.japanese_learning, options_.anthy_home});
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -288,13 +290,14 @@ std::vector<Control> App::controls() const {
                                                : save               ? "Discard"
                                                                     : "Cancel",
                                                {panel.x + 40, panel.y + 160, 210, 52}});
-            add({ControlKind::ConfirmAccept}, {"confirm-accept",
-                                               confirm_ == Confirm::ClearLanguages ? "Clear"
-                                               : save                              ? "Save"
-                                               : dictation_question()              ? "Proceed"
-                                                                                   : "Download",
-                                               {panel.x + panel.width - 250, panel.y + 160, 210, 52},
-                                               true});
+            add({ControlKind::ConfirmAccept},
+                {"confirm-accept",
+                 confirm_ == Confirm::ClearLanguages || confirm_ == Confirm::ClearLearning ? "Clear"
+                 : save                                                                    ? "Save"
+                 : dictation_question()                                                    ? "Proceed"
+                                                                                           : "Download",
+                 {panel.x + panel.width - 250, panel.y + 160, 210, 52},
+                 true});
         }
         if (address_) {
             // The popup's geometry: a raised panel over the cards, the field, a
@@ -756,25 +759,49 @@ void App::update_settings_ui() {
                                       : "Additional languages",
                            ControlStyle::Button});
     languages.width = 412;
+    // Learning is Anthy's, offered with Japanese as the main language or an
+    // additional one (docs/japanese.md, Learning).
+    const auto japanese_language = [&](const std::string& id) {
+        const auto found = profiles_.languages.find(id);
+        return found != profiles_.languages.end() && found->second.input_method.starts_with("japanese-");
+    };
+    const auto pairs = additional_pairs();
+    std::vector<SettingField> learning_fields;
+    if (japanese_language(pending_.language) ||
+        std::any_of(pairs.begin(), pairs.end(),
+                    [&](const Selection& pair) { return japanese_language(pair.language); })) {
+        learning_fields.push_back(
+            field(ControlKind::JapaneseLearning,
+                  checkbox("japanese-learning", "Learn from my typing", pending_japanese_learning_)));
+        auto clear =
+            field(ControlKind::ClearLearning,
+                  SettingField{"clear-learning", "", "Clear learned words", ControlStyle::Button});
+        clear.width = 412;
+        // Nothing to clear, or clearing already: it can't be pressed.
+        clear.enabled = learned_ && !clearing_learning_;
+        clear.busy = clearing_learning_;
+        learning_fields.push_back(clear);
+    }
+    auto language_fields = std::vector<SettingField>{
+        field(ControlKind::ChooseLayout,
+              dropdown("layout", "Layout", pending_.layout,
+                       [&] {
+                           // Without companion layouts, which are other layouts' English pages.
+                           auto list = choices(profiles_.layouts);
+                           std::erase_if(list, [&](const SettingChoice& choice) {
+                               return profiles_.layouts.at(choice.id).companion;
+                           });
+                           return list;
+                       }())),
+        field(ControlKind::ChooseLanguage,
+              dropdown("language", "Language", pending_.language, language_choices)),
+        languages,
+        field(ControlKind::SwipeTyping,
+              checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
+                       "Powered by FUTO Swipe"))};
+    language_fields.insert(language_fields.end(), learning_fields.begin(), learning_fields.end());
     std::vector<SettingsCard> cards{
-        {{"languages",
-          "Languages and Layouts",
-          {field(ControlKind::ChooseLayout,
-                 dropdown("layout", "Layout", pending_.layout,
-                          [&] {
-                              // Without companion layouts, which are other layouts' English pages.
-                              auto list = choices(profiles_.layouts);
-                              std::erase_if(list, [&](const SettingChoice& choice) {
-                                  return profiles_.layouts.at(choice.id).companion;
-                              });
-                              return list;
-                          }())),
-           field(ControlKind::ChooseLanguage,
-                 dropdown("language", "Language", pending_.language, language_choices)),
-           languages,
-           field(ControlKind::SwipeTyping,
-                 checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
-                          "Powered by FUTO Swipe"))}},
+        {{"languages", "Languages and Layouts", language_fields},
          {"general", "General", general_fields},
          {"typing", "Typing", typing_fields},
          {"dictation", "Dictation", dictation_fields},
@@ -1102,6 +1129,10 @@ PanelView App::build_view(bool picker) const {
     if (settings_open_ && confirm_ == Confirm::ClearLanguages) {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, "Clear all additional languages?",
                                            "Your main language stays."};
+    } else if (settings_open_ && confirm_ == Confirm::ClearLearning) {
+        v.confirm = PanelView::ConfirmView{
+            confirm_popup_bounds, "Clear learned words?",
+            "Japanese suggestions forget the phrases you chose. This can't be undone."};
     } else if (settings_open_ && confirm_ == Confirm::SaveLanguages) {
         v.confirm =
             PanelView::ConfirmView{confirm_popup_bounds, "Save your language changes?",
@@ -1822,6 +1853,7 @@ bool App::tick(double now) {
     }
     refresh_typing();
     update_emoji(now);
+    tick_learning();
     tick_japanese(now);
     if (dictation_open_) {
         // Type as I speak never uses the editor: turning it on returns to
@@ -1965,6 +1997,8 @@ void App::show_settings() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_japanese_learning_ = settings_.japanese_learning;
+    learned_ = anthy_learned();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2207,6 +2241,8 @@ void App::reload() {
         settings_.swipe_switch = updated_settings.swipe_switch;
         settings_.haptic_sounds_switch = updated_settings.haptic_sounds_switch;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
+        settings_.japanese_learning = updated_settings.japanese_learning;
+        apply_learning();
         settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
@@ -2239,6 +2275,7 @@ void App::reload() {
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
+    pending_japanese_learning_ = settings_.japanese_learning;
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2260,6 +2297,39 @@ void App::reload() {
     refresh_typing();
     host_settings_changed(before, "reload");
     status_ = profiles_.errors.empty() ? save_status_ : profiles_.errors.front();
+}
+// Learning, if the user turned it on and the field may keep what is typed:
+// never a password, PIN or terminal.
+bool App::learning_allowed() const {
+    return settings_.japanese_learning && !hint_private() && !hint_no_suggestions();
+}
+void App::apply_learning() {
+    if (configure_anthy({settings_.japanese_learning, options_.anthy_home}) && !restarting_anthy()) {
+        restart_learning(false);
+    }
+}
+void App::restart_learning(bool clear) {
+    if (restarting_anthy()) {
+        return; // the Clear button can't be pressed meanwhile
+    }
+    clearing_learning_ = clear;
+    anthy_restart_ = std::async(std::launch::async, [clear] { restart_anthy(clear); });
+    update_settings_ui();
+    dirty = true;
+}
+void App::tick_learning() {
+    if (!restarting_anthy() ||
+        anthy_restart_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return;
+    }
+    anthy_restart_.get();
+    if (std::exchange(clearing_learning_, false)) {
+        report_status("Learned words cleared.");
+    }
+    learned_ = anthy_learned();
+    apply_learning(); // learning changed while it restarted
+    update_settings_ui();
+    dirty = true;
 }
 bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
@@ -2323,6 +2393,8 @@ void App::commit_japanese() {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
     } else if (text_output_->commit_text(text)) {
+        composition_.set_learning(learning_allowed());
+        composition_.learn();
         composition_.cancel();
         status_.clear();
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
@@ -2599,8 +2671,10 @@ void App::tick_japanese(double now) {
         sync_candidates(); // A profile change leaves none.
         return;
     }
+    composition_.set_learning(learning_allowed());
+    // While Anthy restarts, live candidates wait; typing goes on.
     if (!japanese_latin_ && !composition_.empty() && !composition_.converting() &&
-        !composition_.live_current()) {
+        !composition_.live_current() && !restarting_anthy()) {
         const auto typed = composition_.preedit();
         if (typed != live_typed_) {
             live_typed_ = typed;
@@ -2843,6 +2917,8 @@ void App::apply_settings() {
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.swipe_typing = pending_swipe_typing_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
+    settings_.japanese_learning = pending_japanese_learning_;
+    apply_learning();
     settings_.focus_tooltip = pending_focus_tooltip_;
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
     settings_.dictation_send_gap = pending_dictation_send_gap_;
@@ -3174,6 +3250,18 @@ void App::action(const ControlAction& command) {
             languages_->drag.reset(); // Whatever the other hand holds went with the list.
         }
         set_additional_pairs({});
+    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::ClearLearning) {
+        confirm_ = Confirm::None;
+        pressed_controls_.clear();
+        hovered_.clear();
+        restart_learning(true);
+    } else if (kind == ControlKind::ClearLearning && learned_ && !clearing_learning_) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        confirm_ = Confirm::ClearLearning;
+    } else if (kind == ControlKind::JapaneseLearning) {
+        pending_japanese_learning_ = !pending_japanese_learning_;
+        update_settings_ui();
     } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::SaveLanguages) {
         confirm_ = Confirm::None;
         action({ControlKind::Apply});
