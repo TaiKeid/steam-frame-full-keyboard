@@ -758,6 +758,11 @@ void candidate_band() {
         app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
     }
 }
+void clear_reading(App& app) {
+    for (int i = 0; i < 40 && !app.view().preedit.empty(); ++i) {
+        click_key(app, "Backspace");
+    }
+}
 // ↶'s Backspaces can take a while to be acknowledged, as through a shell:
 // nothing typed meanwhile may overtake the reading coming back, and a
 // recentre or pin keeps it coming.
@@ -811,13 +816,52 @@ void slow_reopen() {
     click_key(app, "Enter");
     sink.hold = true;
     flick(app, "undo", 4);
-    app.tick(5);
+    app.tick(4.1);
+    app.tick(6);
     require(app.view().preedit.empty(), "it is waited for a while");
-    app.tick(7.5);
-    const auto [x, y] = key_centre(app, "Flick-ka");
-    require(app.down(0, x, y, 7.6) && app.view().status.find("stopped answering") != std::string::npos,
-            "after a few seconds the wait ends, saying so");
-    app.up(0, x, y);
+    app.tick(7.2);
+    {
+        const auto [x, y] = key_centre(app, "Flick-ka");
+        require(app.down(0, x, y, 7.3) &&
+                    app.view().status.find("stopped answering") != std::string::npos,
+                "after a few seconds the wait ends, saying so");
+        app.up(0, x, y);
+    }
+    click_key(app, "Backspace");
+    sink.hold = false;
+    // The time counts from the Backspaces, not from pressing ↶: a long hold
+    // on ↶ still leaves the field its few seconds.
+    flick(app, "a", 10);
+    click_key(app, "Enter");
+    sink.hold = true;
+    {
+        const auto [x, y] = key_centre(app, "Flick-undo");
+        app.down(0, x, y, 11);
+        app.tick(12);
+        app.tick(14.5);
+        app.up(0, x, y);
+    }
+    app.tick(14.6);
+    app.tick(15);
+    sink.hold = false;
+    app.tick(15.1);
+    require(app.view().preedit == "あ" &&
+                app.view().status.find("stopped answering") == std::string::npos,
+            "a long hold on ↶ does not use up the wait");
+    clear_reading(app);
+    // A key held with the other hand comes up before the Backspaces go out,
+    // so its repeat cannot land ahead of the reading.
+    {
+        // Space types text, which repeats while held without waiting in
+        // the queue the way a held arrow does.
+        const auto [x, y] = key_centre(app, "Space");
+        require(app.down(1, x, y, 21), "the other hand holds Space");
+    }
+    flick(app, "a", 21.1);
+    click_key(app, "Enter");
+    flick(app, "undo", 21.2); // Before Space repeats, which would come after the phrase.
+    require(app.view().preedit == "あ", "↶ reopens with the other hand holding a key");
+    require(!app.pointer_pressed(1), "↶ lets the held key go first");
 }
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.

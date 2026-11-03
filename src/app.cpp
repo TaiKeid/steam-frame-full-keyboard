@@ -1286,7 +1286,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     // While ↶'s Backspaces are on their way, candidates wait too (keys wait
     // in press_key()): the reading comes back first, in the mode it left.
-    finish_reopen(now);
+    finish_reopen();
     if (reopening_ && candidates_.contains(x, y)) {
         return false;
     }
@@ -1362,7 +1362,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                     const PanelView& v) {
     // While ↶'s Backspaces are on their way, every key waits, the band's
     // arrows too: the reading comes back first, where it was.
-    finish_reopen(now);
+    finish_reopen();
     if (reopening_) {
         return false;
     }
@@ -1872,7 +1872,7 @@ bool App::tick(double now) {
     finish_swipe(false);
     dirty |= keyboard_.tick(now); // a held Shift locks
     dirty |= output_.tick(now);
-    finish_reopen(now); // Its last Backspace may have just been delivered.
+    finish_reopen(); // Its last Backspace may have just been delivered.
     dirty |= tick_dictation(now);
     if (settings_open_) {
         dirty |= settings_ui_.tick(now);
@@ -2582,7 +2582,8 @@ void App::commit_cjk() {
 }
 void App::tick_japanese(double now) {
     dirty |= candidates_.tick(now).redraw;
-    finish_reopen(now);
+    finish_reopen();
+    expire_reopen(now);
     if (!japanese()) {
         sync_candidates(); // A profile change leaves none.
         return;
@@ -3432,9 +3433,9 @@ void App::undo_japanese(double now) {
         flick_toggle_ = FlickToggle{slot->first, back, now};
         return;
     }
-    reopen_phrase(now);
+    reopen_phrase();
 }
-void App::reopen_phrase(double now) {
+void App::reopen_phrase() {
     // 確定取り消し: the phrase just committed leaves the field and is a
     // reading again. Only straight after the commit, while the field and
     // its cursor can only be where it left them.
@@ -3454,28 +3455,41 @@ void App::reopen_phrase(double now) {
         !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
         return;
     }
-    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures(), now};
+    // Keys still held, by either hand, come up first: a repeat must not land
+    // between the Backspaces and the reading. Accepted output still finishes.
+    keyboard_.release_all();
+    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
     for (std::size_t i = 0; i < count; ++i) {
         output_.tap({KEY_BACKSPACE}); // One entry each.
     }
     update_output_status();
-    finish_reopen(now);
+    finish_reopen();
 }
-void App::finish_reopen(double now) {
-    // The reading returns once every Backspace has arrived. A failure leaves
-    // the phrase where it was, typed, rather than in the field and the
-    // reading both; so does a cancel, which empties the queue first. A field
-    // that never answers, as a stalled shell might, is given up on after a
-    // while, so the keys don't wait on it for good.
+void App::expire_reopen(double now) {
+    // A field that never answers, as a stalled shell might, is given up on
+    // after a while, so the keys don't wait on it for good. The time counts
+    // from the first tick after the Backspaces were queued, on the tick's
+    // own clock.
     if (!reopening_) {
         return;
     }
-    if (now - reopening_->since > reopen_patience) {
-        output_.cancel();
+    if (reopening_->since < 0) {
+        reopening_->since = now;
+    } else if (now - reopening_->since > reopen_patience) {
+        output_.cancel(); // Only the Backspaces: every hold ended when they were queued.
         reopening_.reset();
         status_ = "The field stopped answering ↶. Check what is left of the phrase.";
         dirty = true;
-    } else if (output_.failures() != reopening_->failures) {
+    }
+}
+void App::finish_reopen() {
+    // The reading returns once every Backspace has arrived. A failure leaves
+    // the phrase where it was, typed, rather than in the field and the
+    // reading both; so does a cancel, which empties the queue first.
+    if (!reopening_) {
+        return;
+    }
+    if (output_.failures() != reopening_->failures) {
         reopening_.reset();
     } else if (output_.completed() >= reopening_->completed) {
         composition_.kana(reopening_->reading);
@@ -5181,7 +5195,7 @@ void App::flush_direct(double now) {
     // A composer's reading goes first, as before any key; phrases wait for
     // its commit, and for one ↶ is bringing back. They follow keys already
     // queued.
-    finish_reopen(now);
+    finish_reopen();
     const bool reading = composing_text() || reopening_;
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
                        !output_.steam_field_target() && !sink_on();
