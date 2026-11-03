@@ -90,6 +90,8 @@ constexpr double flick_distance = 24;
 constexpr double flick_toggle_seconds = 1.0;
 // Live Japanese candidates wait for this long a pause in typing.
 constexpr double live_candidate_delay = .15;
+// How long ↶ waits for its Backspaces to be acknowledged before giving up.
+constexpr double reopen_patience = 3;
 // A swipe longer than this many samples (over 30 s of motion) is not a word,
 // or its capture is stuck: it ends without typing.
 constexpr std::size_t max_swipe_points = 2000;
@@ -1284,7 +1286,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     // While ↶'s Backspaces are on their way, candidates wait too (keys wait
     // in press_key()): the reading comes back first, in the mode it left.
-    finish_reopen();
+    finish_reopen(now);
     if (reopening_ && candidates_.contains(x, y)) {
         return false;
     }
@@ -1360,7 +1362,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                     const PanelView& v) {
     // While ↶'s Backspaces are on their way, every key waits, the band's
     // arrows too: the reading comes back first, where it was.
-    finish_reopen();
+    finish_reopen(now);
     if (reopening_) {
         return false;
     }
@@ -1870,7 +1872,7 @@ bool App::tick(double now) {
     finish_swipe(false);
     dirty |= keyboard_.tick(now); // a held Shift locks
     dirty |= output_.tick(now);
-    finish_reopen(); // Its last Backspace may have just been delivered.
+    finish_reopen(now); // Its last Backspace may have just been delivered.
     dirty |= tick_dictation(now);
     if (settings_open_) {
         dirty |= settings_ui_.tick(now);
@@ -2580,7 +2582,7 @@ void App::commit_cjk() {
 }
 void App::tick_japanese(double now) {
     dirty |= candidates_.tick(now).redraw;
-    finish_reopen();
+    finish_reopen(now);
     if (!japanese()) {
         sync_candidates(); // A profile change leaves none.
         return;
@@ -3430,9 +3432,9 @@ void App::undo_japanese(double now) {
         flick_toggle_ = FlickToggle{slot->first, back, now};
         return;
     }
-    reopen_phrase();
+    reopen_phrase(now);
 }
-void App::reopen_phrase() {
+void App::reopen_phrase(double now) {
     // 確定取り消し: the phrase just committed leaves the field and is a
     // reading again. Only straight after the commit, while the field and
     // its cursor can only be where it left them.
@@ -3452,21 +3454,28 @@ void App::reopen_phrase() {
         !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
         return;
     }
-    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
+    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures(), now};
     for (std::size_t i = 0; i < count; ++i) {
         output_.tap({KEY_BACKSPACE}); // One entry each.
     }
     update_output_status();
-    finish_reopen();
+    finish_reopen(now);
 }
-void App::finish_reopen() {
+void App::finish_reopen(double now) {
     // The reading returns once every Backspace has arrived. A failure leaves
     // the phrase where it was, typed, rather than in the field and the
-    // reading both; so does a cancel, which empties the queue first.
+    // reading both; so does a cancel, which empties the queue first. A field
+    // that never answers, as a stalled shell might, is given up on after a
+    // while, so the keys don't wait on it for good.
     if (!reopening_) {
         return;
     }
-    if (output_.failures() != reopening_->failures) {
+    if (now - reopening_->since > reopen_patience) {
+        output_.cancel();
+        reopening_.reset();
+        status_ = "The field stopped answering ↶. Check what is left of the phrase.";
+        dirty = true;
+    } else if (output_.failures() != reopening_->failures) {
         reopening_.reset();
     } else if (output_.completed() >= reopening_->completed) {
         composition_.kana(reopening_->reading);
@@ -4138,7 +4147,8 @@ bool App::emoji_key(const std::string& id) const {
     });
 }
 void App::open_emoji() {
-    if (emoji_open_ || settings_open_ || !emoji_available()) {
+    // A reading ↶ is bringing back would be given up with the input.
+    if (emoji_open_ || settings_open_ || !emoji_available() || reopening_) {
         return;
     }
     // A swiped word or composition still in progress goes to the target
@@ -4362,7 +4372,8 @@ bool App::dictation_available() const {
 }
 
 void App::open_dictation() {
-    if (dictation_open_ || settings_open_ || !dictation_available()) {
+    // A reading ↶ is bringing back would be given up with the input.
+    if (dictation_open_ || settings_open_ || !dictation_available() || reopening_) {
         return;
     }
     // A reading in progress goes to the target first, as before any other
@@ -5170,17 +5181,14 @@ void App::flush_direct(double now) {
     // A composer's reading goes first, as before any key; phrases wait for
     // its commit, and for one ↶ is bringing back. They follow keys already
     // queued.
-    finish_reopen();
-    if (reopening_) {
-        return;
-    }
+    finish_reopen(now);
+    const bool reading = composing_text() || reopening_;
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
                        !output_.steam_field_target() && !sink_on();
     if (direct_paste_) {
         tick_direct_paste(now);
-    } else if (paste && !direct_waiting_.empty() && !direct_blocked_ && !composing_text() &&
-               output_.enabled() && !keyboard_.active() && !output_.text_pending() &&
-               !output_.retry_available()) {
+    } else if (paste && !direct_waiting_.empty() && !direct_blocked_ && !reading && output_.enabled() &&
+               !keyboard_.active() && !output_.text_pending() && !output_.retry_available()) {
         // Written, never read: the keyboard owns the clipboard with this text.
         discard_swipe(); // The phrase lands after the word they would replace.
         direct_paste_ = DirectPaste{std::move(direct_waiting_.front())};
@@ -5190,8 +5198,8 @@ void App::flush_direct(double now) {
     }
     // Typing: at most 32 code points per commit, the most the local text
     // path takes at once, so the front phrase goes out in pieces.
-    while (!paste && !direct_waiting_.empty() && !direct_blocked_ && !composing_text() &&
-           output_.can_queue(1) && output_.admit(true, now)) {
+    while (!paste && !direct_waiting_.empty() && !direct_blocked_ && !reading && output_.can_queue(1) &&
+           output_.admit(true, now)) {
         auto& front = direct_waiting_.front();
         const auto commit = text_commits(front).front();
         if (!direct_gap_) {
@@ -5222,7 +5230,7 @@ void App::flush_direct(double now) {
     const std::string reason = direct_waiting_.empty() ? ""
                                : direct_blocked_       ? "refused, waiting for Enter"
                                : direct_paste_         ? "a paste in progress"
-                               : composing_text()      ? "composer reading in progress"
+                               : reading               ? "composer reading in progress"
                                : !output_.enabled()    ? "output disabled"
                                : paste                 ? "keys or a retry before the paste"
                                : output_.can_queue(1)  ? "output not admitted"

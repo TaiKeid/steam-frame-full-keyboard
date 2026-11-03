@@ -533,8 +533,8 @@ class App {
     // conversion returns to the reading, and with neither the phrase just
     // committed comes back as a reading.
     void undo_japanese(double now);
-    void reopen_phrase();
-    void finish_reopen();
+    void reopen_phrase(double now);
+    void finish_reopen(double now);
     // Japanese candidates (docs/japanese.md): the converting segment's, or
     // live ones for the reading, in the band or over the dictation editor's foot.
     std::optional<Rect> candidate_area() const;
@@ -739,6 +739,7 @@ class App {
     struct Reopening {
         std::string reading;
         std::uint64_t completed{}, failures{};
+        double since{};
     };
     std::optional<Reopening> reopening_;
     bool text_ready_{};

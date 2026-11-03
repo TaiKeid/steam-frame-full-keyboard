@@ -807,6 +807,17 @@ void slow_reopen() {
     require(app.view().preedit == "あ", "a recentre keeps the reading coming");
     flick(app, "ka", 3.5);
     require(app.view().preedit == "あか", "typing goes on after it");
+    // A field that never answers is given up on, and the keys work again.
+    click_key(app, "Enter");
+    sink.hold = true;
+    flick(app, "undo", 4);
+    app.tick(5);
+    require(app.view().preedit.empty(), "it is waited for a while");
+    app.tick(7.5);
+    const auto [x, y] = key_centre(app, "Flick-ka");
+    require(app.down(0, x, y, 7.6) && app.view().status.find("stopped answering") != std::string::npos,
+            "after a few seconds the wait ends, saying so");
+    app.up(0, x, y);
 }
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.
