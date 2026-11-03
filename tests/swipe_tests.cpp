@@ -654,12 +654,17 @@ void trail_repaint() {
     app.cancel();
 }
 // Needs the Pinyin engine module, which Frame builds include.
-// Unchanged word lists are not parsed again; edits and a release load them anew.
+// Unchanged word lists are not parsed again; edits and a release load them
+// anew. Only a release that names the encoder loads that again.
 void service_reuse() {
     TemporaryDirectory directory;
     const auto path = directory.path / "words.tsv";
     std::ofstream(path) << "hello\t200\n";
-    SwipeService service([] { return std::unique_ptr<SwipeEncoder>(); });
+    auto encoders = std::make_shared<std::atomic<int>>(0);
+    SwipeService service([encoders] {
+        ++*encoders;
+        return std::unique_ptr<SwipeEncoder>();
+    });
     const auto keyboard = std::make_shared<const SwipeKeyboard>(keyboard_for("en-us-full", "en-us"));
     auto prepare = [&](std::shared_ptr<const SwipeKeyboard> board) {
         service.prepare(std::move(board), path);
@@ -678,6 +683,51 @@ void service_reuse() {
     service.release();
     prepare(keyboard);
     require(service.loads() == 4, "a released word list loads again");
+    require(*encoders == 1, "a word list release keeps the encoder");
+    service.release(true);
+    prepare(keyboard);
+    require(service.loads() == 5 && *encoders == 2, "a released encoder loads again");
+}
+// The toolbar switch keeps the encoder, so switching back is quick; turning
+// swipe typing off in Settings frees it, and turning it on loads it again.
+void encoder_release() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto encoders = std::make_shared<std::atomic<int>>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [encoders] {
+        ++*encoders;
+        return std::unique_ptr<SwipeEncoder>();
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    require(*encoders == 1, "swipe typing loads the encoder");
+    click(app, "swipe-toggle");
+    click(app, "swipe-toggle");
+    settle(app, [&] { return app.swipe_ready(); });
+    require(app.swipe_ready() && *encoders == 1, "the toolbar switch keeps the encoder");
+    auto set_option = [&](bool on) {
+        app.show_settings();
+        if (control(app.view(), "swipe-typing").selected != on) {
+            click(app, "swipe-typing");
+        }
+        click(app, "apply");
+        app.flush_settings();
+        app.summon();
+    };
+    set_option(false);
+    set_option(true);
+    settle(app, [&] { return app.swipe_ready() && *encoders == 2; });
+    require(app.swipe_ready() && *encoders == 2, "the option frees the encoder and loads it again");
 }
 // The laser leaving while a released swipe is decoding: the target's cursor
 // may move before the result arrives, so the word is discarded.
@@ -1687,6 +1737,7 @@ int main(int argc, char** argv) {
     swipes_wait_for_recognition();
     editor_in_preview();
         service_reuse();
+        encoder_release();
         leave_while_decoding();
         suggestions_clear_the_toolbar();
         long_gestures();

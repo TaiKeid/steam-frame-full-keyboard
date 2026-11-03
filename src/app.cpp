@@ -3157,11 +3157,13 @@ void App::prepare_swipe() {
     swipe_track_.reset();
     discard_swipe();
     if (!settings_.swipe_typing || !settings_.swipe_switch) {
-        // Turning swipe off returns the word list's memory; the encoder stays.
+        // Switching swipe off returns the word list's memory. Turning it off
+        // in Settings frees the encoder too; the toolbar switch keeps it, so
+        // switching back on is quick.
         swipe_keyboard_.reset();
         swipe_prepared_.clear();
         if (swipe_) {
-            swipe_->release();
+            swipe_->release(!settings_.swipe_typing);
         }
         return;
     }

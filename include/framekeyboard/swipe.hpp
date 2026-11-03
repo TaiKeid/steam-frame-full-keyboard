@@ -110,9 +110,11 @@ class SwipeService {
     // Loads a word list for a keyboard; skipped when the same, unchanged file
     // is already loaded for an equal keyboard.
     void prepare(std::shared_ptr<const SwipeKeyboard> keyboard, fs::path lexicon);
-    // Drops the word list and returns its memory, for swipe typing turned off.
-    // The encoder stays loaded: unloading and reloading its module is untested.
-    void release();
+    // Drops the word list and returns its memory, for swipe typing switched
+    // off. With `encoder`, the encoder goes too, for swipe typing turned off
+    // in Settings, and the next prepare loads it again. Its module stays
+    // mapped (RTLD_NODELETE), so this frees the model and its buffers.
+    void release(bool encoder = false);
     // Word lists parsed so far, for tests.
     std::size_t loads();
     void decode(std::uint64_t id, std::vector<SwipePoint> points);
@@ -137,6 +139,7 @@ class SwipeService {
         std::vector<SwipePoint> points;
         bool prepare{}, release{};
         std::uint64_t generation{}; // Of a prepare job.
+        bool release_encoder{};     // Of a release job.
     };
     SwipeEncoderFactory factory_;
     std::mutex mutex_;

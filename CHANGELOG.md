@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Turning **Swipe typing** off in Settings now also frees the swipe model, about 3.4 MB, and turning it on loads it again. The toolbar's swipe switch still keeps the model loaded, so switching back is instant.
 - With the headset taken off while the keyboard is showing, Full Keyboard idles at four updates a second, and its Steam bridge polls slowly, instead of running at full speed for nobody. Both return to normal as soon as the headset is worn again.
 - With **KDE Desktop Unicode** set to paste, a clipboard that never finishes being set no longer holds back every later key. The paste gives up after two seconds, as one nobody takes already did.
 - A single invalid optional value in `config.json`, such as a mistyped haptic effect, no longer stops every save ("Could not read saved preferences") or Start with SteamOS. That value falls back as before and is written back corrected; only an unreadable file still blocks saving. The dictation server field also no longer accepts more characters than `config.json` can load.

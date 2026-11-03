@@ -521,12 +521,13 @@ void SwipeService::prepare(std::shared_ptr<const SwipeKeyboard> keyboard, fs::pa
     }
     wake_.notify_all();
 }
-void SwipeService::release() {
+void SwipeService::release(bool encoder) {
     {
         std::lock_guard lock(mutex_);
         std::erase_if(jobs_, [](const Job& job) { return job.prepare; });
         Job job;
         job.release = true;
+        job.release_encoder = encoder;
         jobs_.push_back(std::move(job));
     }
     wake_.notify_all();
@@ -588,6 +589,11 @@ void SwipeService::run() {
             lexicon.reset();
             lexicon_error = "Swipe typing is not ready";
             loaded_path.clear();
+            if (job.release_encoder) {
+                encoder.reset();
+                encoder_error.clear();
+                encoder_tried = false; // The next prepare loads it again.
+            }
             return_memory();
             continue;
         }
