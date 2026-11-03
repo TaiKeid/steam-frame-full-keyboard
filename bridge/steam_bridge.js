@@ -112,6 +112,10 @@
     // Steam's keyboard is closing at our request; until it has, it stays
     // transparent, or Steam paints real keys that the next Show can flash.
     let closingUntil = 0, closingKey = null;
+    // Steam's keyboard is serving a request left native (a web page, a stream,
+    // a field handed back), and for REQUEST_MS after it closes: Steam's
+    // keyboard button can close it and reopen for one of our windows.
+    let leftNativeUntil = 0;
     let lastClock = now(), lastStep = now(), lastInspection = now(), timer, subscription;
     const oldWindowShow = windowApi.ShowWindow;
     const style = win.document.createElement("style");
@@ -511,17 +515,27 @@
                 if (fresh() && owner && time < rawDeadline) {
                     // begin() clears the field intent that tells the two apart.
                     const button = buttonRequest(native);
-                    begin(owner);
-                    // A panel held open by Keep open treats this press as closing it.
-                    // An update's handed-back session is no press: the successor
-                    // already shows itself and would close both keyboards.
-                    if (button && !handedBack) record("button-summon");
-                    handedBack = false;
+                    if (button && !owner.external && routeFor(owner)?.kind === "dashboard" &&
+                        time < leftNativeUntil) {
+                        // A panel with no field over a field the bridge cannot
+                        // type into would type nowhere, and clicking it moves
+                        // Steam's keyboard session; this press stays Steam's.
+                        ignoreOpen = true;
+                    } else {
+                        begin(owner);
+                        // A panel held open by Keep open treats this press as closing it.
+                        // An update's handed-back session is no press: the successor
+                        // already shows itself and would close both keyboards.
+                        if (button && !handedBack) record("button-summon");
+                        handedBack = false;
+                    }
                 }
                 // The incoming app renews the lease only after its first frame.
                 else if (!fresh() && time < adoptUntil) { /* Keep the handoff session adoptable. */ }
                 else if (!fresh() || !potential(native) || time >= rawDeadline) ignoreOpen = true;
             }
+            if (native.open && ignoreOpen && !logical && time >= closingUntil)
+                leftNativeUntil = time + REQUEST_MS;
             // A local-app candidate first needs its asynchronous recovery guard.
             // Only an explicit guard refusal may take its presentation-only path.
             if (!localTarget(native)) closeUpdatePresentation();
