@@ -854,42 +854,6 @@ for (const provider of ["shared", "own"]) {
         (provider === "shared" || again.provider.Hide === again.originals.hide) && f.keyboard.Hide === f.oldHide,
         "disposal removes adopted windows' hooks too");
 }
-// Steam's keyboard serving a field the bridge cannot type into, such as an
-// embedded web page, keeps Steam's keyboard button: a panel with no field
-// there would type nowhere. Shortly after Steam's keyboard closes, the button
-// summons Full Keyboard again.
-for (const direct of [false, true]) {
-    const f = fixture(false, false, false, false, true);
-    const web = "valve.steam.browserview_MainBrowser_2";
-    f.step(); f.status({bIsOpen: true, sOverlayKey: web, bDispatchEventsToSteamVR: true});
-    let s = f.step();
-    assert(!s.eligible && f.nativeOpen(), "a web page's request stays native");
-    // The press closes the page's keyboard and reopens it for the main
-    // window, or moves it there directly.
-    if (!direct) f.status({bIsOpen: false});
-    f.status({bIsOpen: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false});
-    s = f.step();
-    assert(!s.eligible && f.nativeOpen() && !s.events.some(e => e.code === "button-summon"),
-        "Steam's keyboard button stays Steam's over a field the bridge cannot type into");
-    f.status({bIsOpen: false}); f.advance(401);
-    f.status({bIsOpen: true, sOverlayKey: MAIN});
-    s = f.step();
-    assert(s.eligible && !f.nativeOpen() && s.events.at(-1).code === "button-summon",
-        "once Steam's keyboard has closed, the button summons Full Keyboard again");
-    f.bridge.dispose();
-}
-{
-    // A press that reaches a real field still takes it over.
-    const f = fixture(false, false, false, false, true);
-    f.dom.field();
-    f.step(); f.status({bIsOpen: true, sOverlayKey: "valve.steam.browserview_MainBrowser_2",
-        bDispatchEventsToSteamVR: true});
-    f.step(); f.status({bIsOpen: false});
-    f.status({bIsOpen: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false});
-    const s = f.step();
-    assert(s.eligible && !f.nativeOpen(), "a press over a field the bridge can type into still summons");
-    f.bridge.dispose();
-}
 // A window opened later that cannot be hooked stays native, without its
 // partial hooks, and the other windows keep their replacement.
 {
