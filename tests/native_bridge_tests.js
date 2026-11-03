@@ -31,6 +31,9 @@ function editingFixture(manager) {
             if (command === "delete" && start === end)
                 start -= [...f.text.slice(0, start)].at(-1)?.length || 0;
             if (command === "delete") text = "";
+            if (command === "insertParagraph" || command === "insertLineBreak") {
+                events.push(command); text = "\n";
+            }
             f.text = f.text.slice(0, start) + text + f.text.slice(end);
             e.selectionStart = e.selectionEnd = start + text.length;
             events.push("input"); f.onInput?.(); return true;
@@ -46,7 +49,8 @@ function editingFixture(manager) {
     return {doc, events, text: element => fields.get(element).text,
         onInput(element, fn) { fields.get(element).onInput = fn; },
         field(validPredicate = true, focusEvent = true, tagName = "INPUT") {
-            const e = {ownerDocument: doc, isConnected: true, tagName, type: tagName === "INPUT" ? "search" : "textarea",
+            const e = {ownerDocument: doc, isConnected: true, tagName,
+                type: {INPUT: "search", TEXTAREA: "textarea"}[tagName], isContentEditable: tagName === "DIV",
                 disabled: false, readOnly: false, selectionStart: 0, selectionEnd: 0, tabIndex: 0,
                 getClientRects: () => [{}],
                 dispatchEvent(event) {
@@ -565,6 +569,36 @@ for (const production of [false, true]) {
     const events = f.dom.events.length;
     assert(!f.bridge.send(generation, "ShiftEnter", true) && f.dom.text(input) === "" &&
         f.dom.events.length === events, "a single-line field never receives or submits a paragraph break");
+    f.bridge.dispose();
+}
+// Rich-text fields, such as a game's notes in its Steam overlay, are
+// contenteditable elements that Steam validates like any field. They type
+// like a textarea; Enter adds a paragraph unless the page takes it, and never
+// submits a form.
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true), note = f.dom.field(true, true, "DIV");
+    const generation = domOwned(f);
+    assert(f.step(generation).multiline, "a rich-text field reports multiline");
+    assert(f.bridge.send(generation, "notes") && f.bridge.send(generation, "Backspace", true) &&
+        f.bridge.send(generation, "Enter", true) && f.bridge.send(generation, "one") &&
+        f.bridge.send(generation, "ShiftEnter", true) && f.bridge.send(generation, "two"));
+    assert.equal(f.dom.text(note), "note\none\ntwo", "text, Backspace and both breaks reach the field");
+    assert(f.dom.events.includes("insertParagraph") && f.dom.events.includes("insertLineBreak") &&
+        !f.dom.events.includes("submit"), "Enter adds a paragraph, Shift+Enter a line break, and neither submits");
+    note.onKeyDown = event => { if (event.key === "Enter") event.preventDefault(); };
+    const paragraphs = f.dom.events.filter(e => e === "insertParagraph").length;
+    assert(f.bridge.send(generation, "Enter", true) &&
+        f.dom.events.filter(e => e === "insertParagraph").length === paragraphs,
+        "an editor that handles Enter itself gets only the key");
+    f.bridge.dispose();
+}
+{
+    // Without Steam's validation, an editable DIV stays native like any field.
+    const f = fixture(false, false, false, false, true);
+    f.dom.field(false, false, "DIV");
+    f.step(); f.manager.SetVirtualKeyboardShownInternal(true);
+    const s = f.step();
+    assert(!s.eligible && f.nativeOpen(), "an unvalidated rich-text field stays native");
     f.bridge.dispose();
 }
 {

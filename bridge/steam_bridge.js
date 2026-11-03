@@ -130,9 +130,11 @@
             typeof d.defaultView?.KeyboardEvent === "function" &&
             d.queryCommandSupported?.("insertText") && d.queryCommandSupported?.("delete") ? d : null;
     }
+    // Rich-text fields, such as a game's notes in its Steam overlay, are
+    // contenteditable elements; Steam's field checks apply to them unchanged.
     const editableIn = (e, d) => e?.isConnected && e.ownerDocument === d && !e.disabled && !e.readOnly &&
         (e.tagName === "TEXTAREA" || e.tagName === "INPUT" &&
-            ["text", "search", "password", "tel", "url"].includes(e.type));
+            ["text", "search", "password", "tel", "url"].includes(e.type) || e.isContentEditable === true);
     function routeFor(owner) {
         const m = owner.manager;
         if (owner.document?.visibilityState === "hidden") return null;
@@ -151,7 +153,8 @@
     }
     const routeReady = owner => !!routeFor(owner);
     // Only a retained textarea can hold a line break; a changed element is a new request.
-    const multiline = session => session?.route?.kind === "dom" && session.route.element?.tagName === "TEXTAREA";
+    const multiline = session => session?.route?.kind === "dom" &&
+        (session.route.element?.tagName === "TEXTAREA" || session.route.element?.isContentEditable === true);
     function sendDom(session, text, key) {
         const d = session.owner.document, element = session.route.element;
         if (!key) {
@@ -196,6 +199,8 @@
                         text === "ArrowLeft" || text === "ArrowRight" ? "character" : "line");
                 } else if (text === "Enter") {
                     if (element.tagName === "TEXTAREA") d.execCommand("insertText", false, "\n");
+                    else if (element.isContentEditable === true)
+                        d.execCommand(shift ? "insertLineBreak" : "insertParagraph", false, null);
                     else if (!shift) element.form?.requestSubmit?.();
                 }
             }
