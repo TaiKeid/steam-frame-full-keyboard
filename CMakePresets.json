@@ -26,6 +26,16 @@
       }
     },
     {
+      "name": "simulator",
+      "displayName": "Desktop simulator only, without SteamVR or Vulkan",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/simulator",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                         "FRAMEKEYBOARD_VR": "OFF",
+                         "BUILD_TESTING": "OFF",
+                         "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}"}
+    },
+    {
       "name": "frame-arm64",
       "displayName": "Steam Frame ARM64 cross-build",
       "generator": "Ninja",
@@ -39,6 +49,7 @@
   "buildPresets": [
     {"name": "host", "configurePreset": "host"},
     {"name": "sanitized", "configurePreset": "sanitized"},
+    {"name": "simulator", "configurePreset": "simulator", "targets": ["framekeyboard-simulator"]},
     {"name": "frame-arm64", "configurePreset": "frame-arm64"}
   ],
   "testPresets": [

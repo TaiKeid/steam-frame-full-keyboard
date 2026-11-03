@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# Off builds only the keyboard's core and the desktop simulator
+# (docs/simulator.md), for a computer without SteamVR or Vulkan.
+option(FRAMEKEYBOARD_VR "Build the VR keyboard, which needs OpenVR and Vulkan" ON)
 # Keep build-machine directories out of __FILE__, assertions and debug paths.
 # RelWithDebInfo remains useful locally; packaging strips only its installed copy.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -41,7 +44,9 @@ add_custom_command(OUTPUT "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}"
     COMMAND "${WAYLAND_SCANNER}" private-code "${DATA_CONTROL_XML}" "${DATA_CONTROL_CODE}"
     DEPENDS "${DATA_CONTROL_XML}" VERBATIM)
 pkg_check_modules(SDL REQUIRED IMPORTED_TARGET sdl2)
-pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
+if(FRAMEKEYBOARD_VR)
+    pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
+endif()
 
 file(GLOB LAYOUT_FILES CONFIGURE_DEPENDS layouts/*.json)
 file(GLOB PROFILE_FILES CONFIGURE_DEPENDS layouts/*.json languages/*.json themes/*.json)
@@ -168,35 +173,37 @@ foreach(lexicon ${SWIPE_LEXICONS})
     configure_file("${lexicon}" "swipe/lexicons/${name}" COPYONLY)
 endforeach()
 
-# Link the matching architecture from the sysroot; embed only the device runtime path.
-if(CMAKE_CROSSCOMPILING)
-    set(OPENVR_LIBRARY "${CMAKE_SYSROOT}/opt/steamvr/bin/linuxarm64/libopenvr_api.so" CACHE FILEPATH "OpenVR library")
-    set(OPENVR_RUNTIME_PATH "/opt/steamvr/bin/linuxarm64")
-else()
-    find_library(OPENVR_LIBRARY openvr_api HINTS
-        "$ENV{HOME}/.local/share/Steam/steamapps/common/SteamVR/bin/linux64"
-        "$ENV{HOME}/.local/share/Steam/ubuntu12_64" REQUIRED)
-    get_filename_component(OPENVR_RUNTIME_PATH "${OPENVR_LIBRARY}" DIRECTORY)
+if(FRAMEKEYBOARD_VR)
+    # Link the matching architecture from the sysroot; embed only the device runtime path.
+    if(CMAKE_CROSSCOMPILING)
+        set(OPENVR_LIBRARY "${CMAKE_SYSROOT}/opt/steamvr/bin/linuxarm64/libopenvr_api.so" CACHE FILEPATH "OpenVR library")
+        set(OPENVR_RUNTIME_PATH "/opt/steamvr/bin/linuxarm64")
+    else()
+        find_library(OPENVR_LIBRARY openvr_api HINTS
+            "$ENV{HOME}/.local/share/Steam/steamapps/common/SteamVR/bin/linux64"
+            "$ENV{HOME}/.local/share/Steam/ubuntu12_64" REQUIRED)
+        get_filename_component(OPENVR_RUNTIME_PATH "${OPENVR_LIBRARY}" DIRECTORY)
+    endif()
+    add_library(overlay_texture third_party/overlay_texture/vk_texture.cpp)
+    target_include_directories(overlay_texture PUBLIC third_party/overlay_texture third_party/openvr)
+    target_link_libraries(overlay_texture PUBLIC PkgConfig::VULKAN "${OPENVR_LIBRARY}")
+    add_executable(framekeyboard src/main.cpp src/preview.cpp src/vr.cpp)
+    add_executable(framekeyboard-native-guard src/native_restore_guard.cpp)
+    target_include_directories(framekeyboard-native-guard PRIVATE include third_party/openvr)
+    target_link_libraries(framekeyboard-native-guard PRIVATE PkgConfig::NATIVE "${OPENVR_LIBRARY}")
+    set_target_properties(framekeyboard-native-guard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+    add_dependencies(framekeyboard framekeyboard-native-guard)
+    target_link_libraries(framekeyboard PRIVATE keyboard_core overlay_texture PkgConfig::SDL)
+    target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+    # Development binaries find these beside themselves; packages use share/framekeyboard.
+    # Do not embed an absolute source-tree path in the executable for this fallback.
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vr")
+    foreach(manifest actions.json frame-controller.json)
+        configure_file("vr/${manifest}" "vr/${manifest}" COPYONLY)
+    endforeach()
+    set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
 endif()
-add_library(overlay_texture third_party/overlay_texture/vk_texture.cpp)
-target_include_directories(overlay_texture PUBLIC third_party/overlay_texture third_party/openvr)
-target_link_libraries(overlay_texture PUBLIC PkgConfig::VULKAN "${OPENVR_LIBRARY}")
-add_executable(framekeyboard src/main.cpp src/preview.cpp src/vr.cpp)
-add_executable(framekeyboard-native-guard src/native_restore_guard.cpp)
-target_include_directories(framekeyboard-native-guard PRIVATE include third_party/openvr)
-target_link_libraries(framekeyboard-native-guard PRIVATE PkgConfig::NATIVE "${OPENVR_LIBRARY}")
-set_target_properties(framekeyboard-native-guard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
-add_dependencies(framekeyboard framekeyboard-native-guard)
-target_link_libraries(framekeyboard PRIVATE keyboard_core overlay_texture PkgConfig::SDL)
-target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
-target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
-# Development binaries find these beside themselves; packages use share/framekeyboard.
-# Do not embed an absolute source-tree path in the executable for this fallback.
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vr")
-foreach(manifest actions.json frame-controller.json)
-    configure_file("vr/${manifest}" "vr/${manifest}" COPYONLY)
-endforeach()
-set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
 
 # The desktop simulator (docs/simulator.md): the keyboard typing into a text
 # field in its own window, for trying it without a Steam Frame. No OpenVR or
@@ -304,11 +311,13 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/bridge/steam_bridge.js")
         endif()
     endif()
-    # Opt-in timing probe: never sends input; --vr uses its own hidden overlay.
-    add_executable(render-benchmark tests/render_benchmark.cpp)
-    target_link_libraries(render-benchmark PRIVATE keyboard_core overlay_texture Threads::Threads)
-    target_compile_options(render-benchmark PRIVATE -Wall -Wextra -Wpedantic)
-    set_target_properties(render-benchmark PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+    if(FRAMEKEYBOARD_VR)
+        # Opt-in timing probe: never sends input; --vr uses its own hidden overlay.
+        add_executable(render-benchmark tests/render_benchmark.cpp)
+        target_link_libraries(render-benchmark PRIVATE keyboard_core overlay_texture Threads::Threads)
+        target_compile_options(render-benchmark PRIVATE -Wall -Wextra -Wpedantic)
+        set_target_properties(render-benchmark PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+    endif()
     add_executable(language-tests tests/language_tests.cpp)
     target_link_libraries(language-tests PRIVATE keyboard_core)
     target_compile_options(language-tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -410,11 +419,13 @@ if(BUILD_TESTING)
     target_compile_options(emoji-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME emoji COMMAND emoji-tests)
     if(NOT CMAKE_CROSSCOMPILING)
-        add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_tests.py"
-            "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:framekeyboard>")
-        add_test(NAME hosted-launch COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/hosted_launch_tests.py" "$<TARGET_FILE:framekeyboard>")
+        if(FRAMEKEYBOARD_VR)
+            add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_tests.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:framekeyboard>")
+            add_test(NAME hosted-launch COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/hosted_launch_tests.py" "$<TARGET_FILE:framekeyboard>")
+        endif()
         add_test(NAME uninstaller COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/uninstall_tests.py" "${CMAKE_CURRENT_SOURCE_DIR}")
         pkg_check_modules(EIS QUIET IMPORTED_TARGET libeis-1.0>=1.6)
@@ -470,22 +481,26 @@ if(BUILD_TESTING)
     # that the caller has focused and verifies before every command.
     add_executable(text-replace-probe tests/text_replace_probe.cpp)
     target_link_libraries(text-replace-probe PRIVATE keyboard_core)
-    # Opt-in read-only validation against the installed Frame controller models.
-    add_executable(stick-component-probe tests/stick_component_probe.cpp)
-    target_link_libraries(stick-component-probe PRIVATE keyboard_core overlay_texture)
-    set_target_properties(stick-component-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
-    add_executable(vr-panel-probe tests/vr_panel_probe.cpp)
-    target_link_libraries(vr-panel-probe PRIVATE keyboard_core overlay_texture)
-    set_target_properties(vr-panel-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
-    # Opt-in: sends physical haptic output, so it must not run in CTest.
-    add_executable(haptics-probe tests/haptics_probe.cpp)
-    target_link_libraries(haptics-probe PRIVATE keyboard_core overlay_texture)
-    set_target_properties(haptics-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+    if(FRAMEKEYBOARD_VR)
+        # Opt-in read-only validation against the installed Frame controller models.
+        add_executable(stick-component-probe tests/stick_component_probe.cpp)
+        target_link_libraries(stick-component-probe PRIVATE keyboard_core overlay_texture)
+        set_target_properties(stick-component-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+        add_executable(vr-panel-probe tests/vr_panel_probe.cpp)
+        target_link_libraries(vr-panel-probe PRIVATE keyboard_core overlay_texture)
+        set_target_properties(vr-panel-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+        # Opt-in: sends physical haptic output, so it must not run in CTest.
+        add_executable(haptics-probe tests/haptics_probe.cpp)
+        target_link_libraries(haptics-probe PRIVATE keyboard_core overlay_texture)
+        set_target_properties(haptics-probe PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
+    endif()
     # Intentionally excluded from CTest: requires an accessible kernel uinput device.
     add_executable(uinput-smoke-test tests/uinput_smoke.cpp)
     target_link_libraries(uinput-smoke-test PRIVATE keyboard_core)
 endif()
-install(TARGETS framekeyboard framekeyboard-native-guard RUNTIME DESTINATION bin)
+if(FRAMEKEYBOARD_VR)
+    install(TARGETS framekeyboard framekeyboard-native-guard RUNTIME DESTINATION bin)
+endif()
 install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
 install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
