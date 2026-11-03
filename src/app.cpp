@@ -966,7 +966,11 @@ PanelView App::build_view(bool picker) const {
                 v.key_labels[key.id] = "確定";
             }
         }
-        if (flick_track_) {
+        // Only a key with flicks shows their cross; ↶, with a tap alone, does not.
+        const auto flicks = [](const FlickKey& key) {
+            return !key.left.empty() || !key.up.empty() || !key.right.empty() || !key.down.empty();
+        };
+        if (flick_track_ && flicks(table.at(flick_track_->slot))) {
             const auto& key = table.at(flick_track_->slot);
             auto tap = *flick_track_;
             tap.direction = FlickDirection::Tap;

@@ -248,6 +248,11 @@ void flick_input() {
         require(app.view().flick_preview->selected == 0, "moving back selects the tap kana");
         app.cancel_pointer(0);
         require(preedit().empty() && !app.view().flick_preview, "a cancelled flick types nothing");
+        // ↶ has a tap alone, so it shows no cross of choices.
+        const auto [ux, uy] = key_centre(app, "Flick-undo");
+        app.down(0, ux, uy, 31);
+        require(!app.view().flick_preview, "a key without flicks shows no preview");
+        app.cancel_pointer(0);
     }
 
     {
