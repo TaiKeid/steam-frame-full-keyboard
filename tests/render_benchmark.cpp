@@ -245,7 +245,8 @@ void workload(App& app, Upload& upload, const char* name, double duration, doubl
 }
 // A screen other than the keys: `step` runs each frame and may change anything.
 template <class Step>
-void screen_workload(App& app, Upload& upload, const char* name, double duration, bool use_vr, Step step) {
+void screen_workload(App& app, Upload& upload, const char* name, double duration, bool use_vr,
+                     Step step) {
     app.paint(monotonic_seconds());
     upload.submit(app.renderer);
     Samples events, paint, transfer;
@@ -294,9 +295,7 @@ void press_control(App& app, const std::string& id) {
 // The screens the key workloads never reach, as a laser wobbling in the hand does.
 void screens(App& app, Upload& upload, bool use_vr) {
     const auto wobble = [&](double x, double y) {
-        return [&app, x, y](double t) {
-            app.move(0, x + 6 * std::sin(t * 9), y + 4 * std::cos(t * 7));
-        };
+        return [&app, x, y](double t) { app.move(0, x + 6 * std::sin(t * 9), y + 4 * std::cos(t * 7)); };
     };
     app.show_settings();
     screen_workload(app, upload, "settings_laser", 5, use_vr, wobble(800, 300));

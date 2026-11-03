@@ -1,9 +1,9 @@
 #include "framekeyboard/panel.hpp"
 
-#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <iterator>
@@ -75,8 +75,8 @@ class Comparison {
                     char value[16];
                     std::snprintf(value, sizeof value, "%08x", pixel);
                     throw std::runtime_error(std::string(phase) + ": pixel " + std::to_string(x) + "," +
-                                             std::to_string(y) + " is not premultiplied (ARGB " +
-                                             value + ")");
+                                             std::to_string(y) + " is not premultiplied (ARGB " + value +
+                                             ")");
                 }
             }
         }
@@ -629,8 +629,8 @@ void latin_legends(const Layout& layout, const Theme& theme, const Language& lan
     view.keymap = &plain_keymap;
     letters.paint(view, 1, true);
     const auto same = [](const PanelRenderer& a, const PanelRenderer& b) {
-        const auto size = static_cast<std::size_t>(cairo_image_surface_get_stride(a.surface())) *
-                          texture_height;
+        const auto size =
+            static_cast<std::size_t>(cairo_image_surface_get_stride(a.surface())) * texture_height;
         return std::memcmp(cairo_image_surface_get_data(a.surface()),
                            cairo_image_surface_get_data(b.surface()), size) == 0;
     };

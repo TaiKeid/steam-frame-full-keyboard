@@ -2577,8 +2577,8 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         }
         return true;
     }
-    if (cjk_->syllables() && code == "Quote" && composing &&
-        !mods.contains(key_code("ShiftLeft")) && !mods.contains(key_code("ShiftRight"))) {
+    if (cjk_->syllables() && code == "Quote" && composing && !mods.contains(key_code("ShiftLeft")) &&
+        !mods.contains(key_code("ShiftRight"))) {
         if (execute) {
             cjk_->type('\'');
         }
@@ -3144,9 +3144,9 @@ bool App::swipe_supported(const std::string& language_id) const {
 }
 bool App::pending_can_swipe() const {
     return swipe_known(pending_.language) ||
-           std::any_of(pending_favorites_.begin(), pending_favorites_.end(), [&](const Favorite& favorite) {
-               return swipe_known(favorite.selection.language);
-           });
+           std::any_of(
+               pending_favorites_.begin(), pending_favorites_.end(),
+               [&](const Favorite& favorite) { return swipe_known(favorite.selection.language); });
 }
 bool App::swipe_known(const std::string& language) const {
     const auto known = swipe_support_.find(language);

@@ -83,7 +83,8 @@ void update_presentation() {
                     App app(options, sink, no_write, nullptr, no_write);
                     ReplacementPresentation panel(app.background_start());
                     panel.update(preferences.replace_native_keyboard, {.available = true});
-                    require(startup.update_launch() && panel.show() == !preferences.replace_native_keyboard &&
+                    require(startup.update_launch() &&
+                                panel.show() == !preferences.replace_native_keyboard &&
                                 app.reveal_after_update() == preferences.replace_native_keyboard,
                             "with replacement the successor starts hidden, to show itself once "
                             "Steam's handed-back keyboard is taken over or found absent");

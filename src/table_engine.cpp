@@ -198,6 +198,7 @@ std::string TableEngine::text() const {
     if (keys_.empty()) {
         return chosen_;
     }
-    return candidates_.empty() ? std::string{} : chosen_ + candidates_[static_cast<std::size_t>(selected_)];
+    return candidates_.empty() ? std::string{}
+                               : chosen_ + candidates_[static_cast<std::size_t>(selected_)];
 }
 } // namespace framekeyboard

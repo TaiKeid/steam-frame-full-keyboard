@@ -782,7 +782,8 @@ void suggestions_clear_the_toolbar() {
             settings.swipe_typing = true;
             settings.hide_numpad = hide_numpad;
             if (favorite) {
-                settings.favorites.push_back({"de", "German", {"international-full", "de-de", "graphite"}});
+                settings.favorites.push_back(
+                    {"de", "German", {"international-full", "de-de", "graphite"}});
             }
             save_settings(directory.path, settings);
             auto path = std::make_shared<std::vector<int>>(
@@ -1204,7 +1205,8 @@ void swipes_in_the_editor() {
     require(!left, "another key ends the alternatives");
     // A word that doesn't fit stays out whole, and so do its alternatives'
     // replacements of text before it. The notice goes with the text.
-    for (const auto [dx, dy] = key_point(app, "KeyD"); text().size() < DictationEditor::hard_limit - 2;) {
+    for (const auto [dx, dy] = key_point(app, "KeyD");
+         text().size() < DictationEditor::hard_limit - 2;) {
         app.down(0, dx, dy, 3.5);
         app.up(0, dx, dy);
     }
@@ -1734,8 +1736,8 @@ int main(int argc, char** argv) {
         swipes_in_the_editor();
         swiping_over_a_selection();
         swipes_after_listening();
-    swipes_wait_for_recognition();
-    editor_in_preview();
+        swipes_wait_for_recognition();
+        editor_in_preview();
         service_reuse();
         encoder_release();
         leave_while_decoding();

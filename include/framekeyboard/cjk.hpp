@@ -5,9 +5,9 @@
 #include <vector>
 
 namespace framekeyboard {
-// Local Pinyin, Zhuyin, Cangjie, Quick and Hangul composition. The app owns delivery and only clears this
-// state after a successful text commit. No engine learning API is used.
-// 천지인 (korean-cheonjiin) composes in this library and loads no engine.
+// Local Pinyin, Zhuyin, Cangjie, Quick and Hangul composition. The app owns delivery and only clears
+// this state after a successful text commit. No engine learning API is used. 천지인 (korean-cheonjiin)
+// composes in this library and loads no engine.
 class CjkComposer {
   public:
     explicit CjkComposer(const std::string& method);
