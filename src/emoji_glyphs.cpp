@@ -1,6 +1,8 @@
 #include "framekeyboard/emoji_glyphs.hpp"
 
 #include <algorithm>
+#include <cstring>
+#include <hb-ot.h>
 #include <hb.h>
 #include <optional>
 #include <pango/pangocairo.h>
@@ -36,6 +38,42 @@ std::optional<hb_codepoint_t> single_glyph(hb_font_t* font, hb_buffer_t* buffer,
         }
     }
     return glyph;
+}
+
+// Feeds a PNG held in memory to cairo_image_surface_create_from_png_stream.
+struct PngStream {
+    const unsigned char* data;
+    unsigned left;
+};
+cairo_status_t read_png(void* closure, unsigned char* out, unsigned length) {
+    auto& stream = *static_cast<PngStream*>(closure);
+    if (length > stream.left) {
+        return CAIRO_STATUS_READ_ERROR;
+    }
+    std::memcpy(out, stream.data, length);
+    stream.data += length;
+    stream.left -= length;
+    return CAIRO_STATUS_SUCCESS;
+}
+
+// The font's own image of a glyph, as bitmap color fonts (CBDT, sbix) store
+// it, or null for fonts that draw emoji from outlines or layers.
+cairo_surface_t* font_image(hb_font_t* font, hb_codepoint_t glyph) {
+    auto* blob = hb_ot_color_glyph_reference_png(font, glyph);
+    unsigned length = 0;
+    const auto* data = reinterpret_cast<const unsigned char*>(hb_blob_get_data(blob, &length));
+    cairo_surface_t* image = nullptr;
+    if (length > 0) {
+        PngStream stream{data, length};
+        image = cairo_image_surface_create_from_png_stream(read_png, &stream);
+        if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS ||
+            cairo_image_surface_get_width(image) <= 0 || cairo_image_surface_get_height(image) <= 0) {
+            cairo_surface_destroy(image);
+            image = nullptr;
+        }
+    }
+    hb_blob_destroy(blob); // The image is decoded; nothing refers to the font data.
+    return image;
 }
 } // namespace
 
@@ -75,24 +113,40 @@ struct EmojiGlyphs::Font {
     std::optional<hb_codepoint_t> glyph(const std::string& text) const {
         return single_glyph(pango_font_get_hb_font(font), buffer, text);
     }
-    // The glyph centered and fitted, since emoji fonts draw beyond their em box.
+    // The glyph centered and fitted, since emoji fonts draw beyond their em
+    // box. A bitmap font's own image is decoded and scaled here, once:
+    // Cairo's glyph path would also keep its own copy of every emoji it drew
+    // for as long as the font lives, outside this cache's memory limit.
     cairo_surface_t* draw(hb_codepoint_t glyph) const {
         auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
-        auto* scaled = pango_cairo_font_get_scaled_font(PANGO_CAIRO_FONT(font));
-        cairo_glyph_t g{glyph, 0, 0};
-        cairo_text_extents_t extents{};
-        cairo_scaled_font_glyph_extents(scaled, &g, 1, &extents);
-        if (extents.width > 0 && extents.height > 0) {
-            auto* cr = cairo_create(surface);
-            const double scale = std::min(1.0, size / std::max(extents.width, extents.height));
-            cairo_translate(cr, size / 2.0, size / 2.0);
+        auto* cr = cairo_create(surface);
+        cairo_translate(cr, size / 2.0, size / 2.0);
+        if (auto* image = font_image(pango_font_get_hb_font(font), glyph)) {
+            const int width = cairo_image_surface_get_width(image);
+            const int height = cairo_image_surface_get_height(image);
+            const double scale = std::min(1.0, static_cast<double>(size) / std::max(width, height));
             cairo_scale(cr, scale, scale);
-            cairo_translate(cr, -(extents.x_bearing + extents.width / 2),
-                            -(extents.y_bearing + extents.height / 2));
-            cairo_set_scaled_font(cr, scaled);
-            cairo_show_glyphs(cr, &g, 1);
-            cairo_destroy(cr);
+            cairo_set_source_surface(cr, image, -width / 2.0, -height / 2.0);
+            cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
+            cairo_paint(cr);
+            cairo_surface_destroy(image);
+        } else {
+            // Outline and layered color fonts have no image to decode; Cairo
+            // draws those, and keeps its copies.
+            auto* scaled = pango_cairo_font_get_scaled_font(PANGO_CAIRO_FONT(font));
+            cairo_glyph_t g{glyph, 0, 0};
+            cairo_text_extents_t extents{};
+            cairo_scaled_font_glyph_extents(scaled, &g, 1, &extents);
+            if (extents.width > 0 && extents.height > 0) {
+                const double scale = std::min(1.0, size / std::max(extents.width, extents.height));
+                cairo_scale(cr, scale, scale);
+                cairo_translate(cr, -(extents.x_bearing + extents.width / 2),
+                                -(extents.y_bearing + extents.height / 2));
+                cairo_set_scaled_font(cr, scaled);
+                cairo_show_glyphs(cr, &g, 1);
+            }
         }
+        cairo_destroy(cr);
         cairo_surface_flush(surface);
         return surface;
     }
@@ -156,14 +210,23 @@ void EmojiGlyphs::request(int size, const std::vector<std::string>& texts) {
     }
     wake_.notify_all();
 }
-void EmojiGlyphs::release() {
+void EmojiGlyphs::release(const std::vector<std::string>& keep) {
     std::lock_guard lock(mutex_);
     queue_.clear();
     next_ = 0;
+    // As in request(): move the kept images across and free the rest. A
+    // worker still drawing finds its text no longer queued and drops it.
+    decltype(images_) kept;
+    const auto limit = size_ > 0 ? std::min(keep.size(), capacity(size_)) : 0;
+    for (std::size_t i = 0; i < limit && !images_.empty(); ++i) {
+        if (auto node = images_.extract(keep[i])) {
+            kept.insert(std::move(node));
+        }
+    }
     for (auto& [text, surface] : images_) {
         cairo_surface_destroy(surface);
     }
-    images_.clear();
+    images_ = std::move(kept);
     fresh_ = false; // Nothing left to show.
 }
 cairo_surface_t* EmojiGlyphs::image(const std::string& text) const {

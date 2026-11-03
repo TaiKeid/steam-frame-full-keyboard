@@ -14,7 +14,9 @@ namespace framekeyboard {
 // Emoji images from the system's color emoji font. Color fonts store large
 // bitmaps that are slow to scale, so a worker thread shapes and scales each
 // emoji once and the panel only copies the result. The VR thread never waits
-// for it: a cell without its image yet draws empty.
+// for it: a cell without its image yet draws empty. Bitmap fonts' images are
+// decoded directly rather than drawn as glyphs, so these images are the only
+// copies and memory_limit bounds them all.
 class EmojiGlyphs {
   public:
     // Images held at once. A request keeps the earlier images among its
@@ -34,8 +36,9 @@ class EmojiGlyphs {
     // Replaces the queue: images of these texts, `size` pixels square, in this
     // order. Images not requested any more are released.
     void request(int size, const std::vector<std::string>& texts);
-    // Drops the queue and frees every image, as for a closed picker.
-    void release();
+    // Drops the queue and frees every image but those of `keep`, as for a
+    // closed picker that keeps Recent and Favorites for its next opening.
+    void release(const std::vector<std::string>& keep = {});
     // The finished image, or null. Valid until the next request() or release().
     cairo_surface_t* image(const std::string& text) const;
     // How many images of this size fit the memory limit.

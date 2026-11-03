@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -1248,6 +1249,122 @@ void paint_tests() {
     require(!app.paint(1.5), "and only once");
 }
 
+// Images come from the font's own bitmaps, centered and filling their cells,
+// and a release keeps only the images it names.
+void glyph_cache_tests() {
+    EmojiGlyphs glyphs;
+    const std::vector<std::string> texts{"😀", "🍁", "🏰", "👋🏽"};
+    glyphs.check(texts);
+    auto settle = [&] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!(glyphs.checked() && glyphs.idle()) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    };
+    settle();
+    if (!std::all_of(texts.begin(), texts.end(),
+                     [&](const auto& text) { return glyphs.renders(text); })) {
+        std::cout << "No color emoji font here; skipping the glyph cache.\n";
+        return;
+    }
+    constexpr int size = 42;
+    glyphs.request(size, texts);
+    settle();
+    for (const auto& text : texts) {
+        auto* image = glyphs.image(text);
+        require(image && cairo_image_surface_get_width(image) == size &&
+                    cairo_image_surface_get_height(image) == size,
+                "each emoji has an image of the cell size");
+        const auto* data = cairo_image_surface_get_data(image);
+        const int stride = cairo_image_surface_get_stride(image);
+        // The box of drawn pixels, which centering places in the middle.
+        int left = size, right = 0, top = size, bottom = 0;
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                // ARGB32 is native-endian: alpha is the top byte of each pixel.
+                std::uint32_t pixel;
+                std::memcpy(&pixel, data + y * stride + x * 4, sizeof pixel);
+                if (pixel >> 24) {
+                    left = std::min(left, x);
+                    right = std::max(right, x + 1);
+                    top = std::min(top, y);
+                    bottom = std::max(bottom, y + 1);
+                }
+            }
+        }
+        require(right - left > size * 3 / 4 && bottom - top > size * 3 / 4,
+                "each image nearly fills its cell");
+        require(std::abs(left + right - size) <= 3 && std::abs(top + bottom - size) <= 3,
+                "and is centered in it");
+    }
+    auto* maple = glyphs.image("🍁");
+    glyphs.release({"🍁", "🏰"});
+    require(glyphs.image("🍁") == maple && glyphs.image("🏰") && !glyphs.image("😀") &&
+                !glyphs.image("👋🏽"),
+            "a release keeps only the images it names");
+    glyphs.request(size, {"🍁", "😀"});
+    require(glyphs.image("🍁") == maple && !glyphs.image("🏰"),
+            "a request keeps a kept image without drawing it again, and frees one it does not want");
+    settle();
+    require(glyphs.image("😀") != nullptr, "and draws the others again");
+    glyphs.request(size - 2, {"🍁"});
+    require(!glyphs.image("🍁"), "a new size frees every image");
+    glyphs.release({"🍁"});
+    require(!glyphs.image("🍁"), "a release keeps nothing it does not hold");
+}
+
+// A closed picker keeps Recent's and Favorites' images, toned as shown, and
+// frees the rest; opening again shows the kept ones at once.
+void closed_picker_cache_tests() {
+    TemporaryDirectory directory;
+    std::ofstream(directory.path / "emoji.json")
+        << R"({"schema_version":1,"tone":2,"recent":["😀","👋"],"favorites":["🍁"]})";
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    App app(options, sink);
+    auto toggle = [&] {
+        const auto [x, y] = key_center(app, "picker");
+        require(app.down(0, x, y, 1), "the emoji key presses");
+        app.up(0, x, y);
+    };
+    toggle();
+    wait_for_emoji(app);
+    if (!app.emoji_open()) {
+        std::cout << "No color emoji font here; skipping the closed picker's images.\n";
+        return;
+    }
+    const auto view = app.view();
+    const auto* glyphs = view.emoji_glyphs;
+    const auto& wave = bundled_emoji().find("👋")->text(2);
+    std::vector<std::string> others;
+    for (const auto& c : view.emoji->cells) {
+        if (!c.clear && c.text != "😀" && c.text != wave && c.text != "🍁") {
+            others.push_back(c.text);
+        }
+    }
+    require(glyphs && glyphs->image("😀") && glyphs->image(wave) && glyphs->image("🍁") &&
+                !others.empty() && glyphs->image(others.front()),
+            "the open picker has its images");
+    const auto* grin = glyphs->image("😀");
+    toggle();
+    require(!app.emoji_open(), "the emoji key closes the picker");
+    require(glyphs->image("😀") == grin && glyphs->image(wave) && glyphs->image("🍁"),
+            "a closed picker keeps Recent and Favorites, toned as shown");
+    require(std::none_of(others.begin(), others.end(),
+                         [&](const auto& text) { return glyphs->image(text); }),
+            "and frees the rest");
+    toggle();
+    app.tick(monotonic_seconds());
+    require(glyphs->image("😀") == grin, "opening again shows a kept image without drawing it");
+    wait_for_emoji(app);
+    require(glyphs->image(others.front()) != nullptr, "and draws the rest again");
+    toggle();
+}
+
 void shutdown_tests() {
     // Quitting with the picker open still saves what was chosen.
     TemporaryDirectory directory;
@@ -1306,6 +1423,8 @@ int main() {
         tone_render();
         text_output_tests();
         paint_tests();
+        glyph_cache_tests();
+        closed_picker_cache_tests();
         shutdown_tests();
         unavailable_tests();
     } catch (const std::exception& error) {

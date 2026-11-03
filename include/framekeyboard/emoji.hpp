@@ -174,6 +174,9 @@ class EmojiPicker {
     EmojiPickerView view() const;
     // Display texts for the glyph cache: those in view first, then outward.
     std::vector<std::string> glyph_order(std::size_t limit) const;
+    // Display texts of Recent and Favorites as shown, whose images stay
+    // while the picker is closed: they are the first screen when it opens.
+    std::vector<std::string> recent_and_favorites() const;
     // Where in the strip the view starts, for requesting glyphs only on change.
     int first_column() const;
     // Recent holds six columns, less the cell for Clear.

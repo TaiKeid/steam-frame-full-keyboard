@@ -1051,6 +1051,15 @@ int EmojiPicker::first_column() const {
 int EmojiPicker::glyph_size() const {
     return std::max(8, static_cast<int>(std::lround(cell_ * .72)));
 }
+std::vector<std::string> EmojiPicker::recent_and_favorites() const {
+    std::vector<std::string> texts;
+    for (const auto& item : items_) {
+        if (item.entry && item.group <= 1) {
+            texts.push_back(text(item));
+        }
+    }
+    return texts;
+}
 std::vector<std::string> EmojiPicker::glyph_order(std::size_t limit) const {
     std::vector<std::string> order;
     if (tones_) {

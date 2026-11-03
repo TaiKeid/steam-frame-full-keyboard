@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The emoji picker uses less memory and draws faster. It no longer keeps a hidden second copy of every emoji it has shown, which reached about 15 MB after scrolling through all of them, and it draws new emoji about twice as fast. Closing it keeps Recent and Favorites ready for the next opening and frees the rest.
 - Turning **Swipe typing** off in Settings now also frees the swipe model, about 3.4 MB, and turning it on loads it again. The toolbar's swipe switch still keeps the model loaded, so switching back is instant.
 - With the headset taken off while the keyboard is showing, Full Keyboard idles at four updates a second, and its Steam bridge polls slowly, instead of running at full speed for nobody. Both return to normal as soon as the headset is worn again.
 - With **KDE Desktop Unicode** set to paste, a clipboard that never finishes being set no longer holds back every later key. The paste gives up after two seconds, as one nobody takes already did.

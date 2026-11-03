@@ -3818,12 +3818,12 @@ void App::close_emoji() {
     emoji_open_ = false;
     release_input(); // Space, Backspace and the arrows may be held.
     save_emoji();
-    // Stop drawing for a closed picker and free its images, up to 8 MB.
-    // Reopening draws the first screen again in milliseconds. The worker and
-    // its fonts stay: destroying Pango font maps leaks fontconfig data each
-    // time.
+    // Stop drawing for a closed picker and free its images, up to 8 MB, all
+    // but Recent's and Favorites': they open first, and are a few hundred KB
+    // at most. The rest is drawn again in milliseconds. The worker and its
+    // fonts stay: destroying Pango font maps leaks fontconfig data each time.
     if (emoji_glyphs_) {
-        emoji_glyphs_->release();
+        emoji_glyphs_->release(emoji_.recent_and_favorites());
     }
     emoji_requested_ = {};
     dirty = true;
