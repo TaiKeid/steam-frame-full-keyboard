@@ -571,6 +571,13 @@ void candidate_band() {
     Sink sink;
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    {
+        // Shells are offered layouts to choose; the English page is not one.
+        const std::string listed = json_object_to_json_string(app.host_profiles().get());
+        require(listed.find("\"ja-flick-12\"") != std::string::npos &&
+                    listed.find("ja-flick-qwerty") == std::string::npos,
+                "a shell sees the flick layout but not its English page");
+    }
     for (const auto* removed :
          {"ime-toggle", "ime-convert", "ime-commit", "ime-cancel", "ime-hiragana", "ime-katakana",
           "ime-next", "ime-prev", "ime-segment-next", "ime-segment-prev"}) {

@@ -504,6 +504,11 @@ JsonPtr App::host_profiles() const {
             if (id == shell_theme_id) {
                 continue;
             }
+            if constexpr (requires { profile.companion; }) {
+                if (profile.companion) {
+                    continue; // Another layout's English page, never chosen by itself.
+                }
+            }
             auto* entry = json_object_new_object();
             json_object_object_add(entry, "id", json_object_new_string(id.c_str()));
             json_object_object_add(entry, "name", json_object_new_string(profile.name.c_str()));
