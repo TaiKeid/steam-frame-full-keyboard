@@ -854,6 +854,22 @@ for (const provider of ["shared", "own"]) {
         (provider === "shared" || again.provider.Hide === again.originals.hide) && f.keyboard.Hide === f.oldHide,
         "disposal removes adopted windows' hooks too");
 }
+// The bridge reports Steam's keyboard serving a request it left native, such
+// as a web page's field, so a panel held without a field can give way.
+{
+    const f = fixture(false, false, false, false, true);
+    const web = {bIsOpen: true, sOverlayKey: "valve.steam.browserview_MainBrowser_2", bDispatchEventsToSteamVR: true};
+    f.step(); f.status(web);
+    assert(f.step().steam, "Steam's keyboard serving a web page is reported");
+    f.status({bIsOpen: false, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false});
+    assert(!f.step().steam, "and no longer once it closes");
+    const generation = domOwned(f, false);
+    assert(!f.step(generation).steam, "a session of ours is not Steam's");
+    f.status(web);
+    const s = f.step(generation);
+    assert(!s.active && s.steam, "a web page taking Steam's keyboard from our session is reported");
+    f.bridge.dispose();
+}
 // A window opened later that cannot be hooked stays native, without its
 // partial hooks, and the other windows keep their replacement.
 {

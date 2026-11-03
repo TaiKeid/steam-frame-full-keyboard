@@ -24,6 +24,9 @@ class NativeReplacement : public KeySink {
         bool open{}, eligible{}, active{}, available{}, local{};
         // The retained Steam field holds line breaks, so Shift+Enter is a paragraph break.
         bool multiline{};
+        // Steam's own keyboard serves a request the bridge left with it, such
+        // as a field in an embedded web page.
+        bool steam{};
     };
     void poll(double now);
     // Between hidden frames, wake the idle sleep when session metadata changes.
@@ -203,8 +206,9 @@ class ReplacementPresentation {
     bool fallback_requested() const { return state_.open && state_.request == bypass_request_; }
 
   private:
-    // The stock keyboard's fallback always wins over dictation's hold.
-    bool holding() const { return held_ && !fallback_requested(); }
+    // The stock keyboard always wins over dictation's and Keep open's holds:
+    // after our fallback, or while it serves a field we cannot type into.
+    bool holding() const { return held_ && !fallback_requested() && !state_.steam; }
     bool requested() const {
         return state_.available && state_.open && state_.eligible && state_.request != bypass_request_ &&
                state_.request != dismissed_request_;

@@ -549,6 +549,9 @@
     function snapshot() {
         const eligible = !!logical && !closingNative && !ignoreOpen;
         return {version: VERSION, request, open: !!logical || !!native.open || !!handoff, eligible, idle: idle(),
+            // Steam's keyboard serves a request left native, such as a web
+            // page's field; not one the bridge is closing for its own reasons.
+            steam: !logical && !!native.open && ignoreOpen && now() >= closingUntil,
             active: eligible && acknowledged === request && fresh(),
             local: !!logical?.owner.external, multiline: multiline(logical),
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,

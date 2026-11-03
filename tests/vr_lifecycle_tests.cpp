@@ -262,6 +262,49 @@ void targets_keep_their_own_keys() {
     }
 }
 
+// Steam's keyboard serving a field Full Keyboard cannot type into, such as a
+// web page's, is a fallback to it: a panel Keep open holds hides and stays
+// hidden until the next request, and dictation's hold waits until it closes.
+void steams_keyboard_ends_the_holds() {
+    Headset h(false);
+    h.request(60, false);
+    h.display();
+    h.toolbar("keep-open");
+    h.request(60, false);
+    h.display();
+    h.status({60, false, false, false, true, false});
+    h.display();
+    require(h.compositor && h.lifecycle->held_without_field(),
+            "Keep open holds the panel without a field");
+    const NativeReplacement::State steam{61, true, false, false, true, false, false, true};
+    h.status(steam);
+    h.display();
+    require(!h.compositor, "Steam's keyboard serving another field hides the held panel");
+    h.status({61, false, false, false, true, false});
+    h.display();
+    require(!h.compositor && h.app->keep_open(),
+            "it stays hidden once Steam's keyboard closes, with Keep open still on");
+    h.request(62, false);
+    h.display();
+    h.request(62, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 62, "the next request shows it again");
+
+    h.toolbar("keep-open");
+    require(!h.app->keep_open(), "Keep open off for dictation's own hold");
+    h.dictation_hold = true;
+    h.status({62, false, false, false, true, false});
+    h.display();
+    require(h.compositor, "dictation holds the panel after its field closes");
+    h.status({63, true, false, false, true, false, false, true});
+    h.display();
+    require(!h.compositor, "Steam's keyboard hides a dictation hold while it is up");
+    h.status({63, false, false, false, true, false});
+    h.display();
+    require(h.compositor && h.dictation_hold,
+            "and dictation's panel returns, with its text, once it closes");
+}
+
 void keep_open_holds_the_panel_after_its_request() {
     Headset h(false);
     const NativeReplacement::State closed{40, false, false, false, true, false};
@@ -1240,6 +1283,7 @@ int main() {
         an_update_reveals_the_hidden_panel();
         an_update_reveals_without_a_native_target();
         keep_open_holds_the_panel_after_its_request();
+        steams_keyboard_ends_the_holds();
         a_hidden_focused_window_is_flagged();
         the_dashboard_with_the_keys_types_nothing();
         stale_focus_samples_cannot_erase_app_clicks();

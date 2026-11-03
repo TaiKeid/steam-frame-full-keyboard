@@ -31,7 +31,10 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     } else if (button_closes) {
         button_close_ = true; // The press already ended our request.
     }
-    if (!frame.keep_open || frame.watchdog_stalled) {
+    // Steam's keyboard taking a field we cannot type into, such as a web
+    // page's, is a fallback to it like Use Steam keyboard: Keep open then
+    // holds nothing until a request or launch shows the panel again.
+    if (!frame.keep_open || frame.watchdog_stalled || native.steam) {
         keep_armed_ = false;
     } else if (visible_) {
         keep_armed_ = true;

@@ -83,7 +83,8 @@ void NativeReplacement::wait_until(std::chrono::steady_clock::time_point deadlin
         poll(now);
         if (fd_ < 0 || state_.request != previous.request || state_.open != previous.open ||
             state_.eligible != previous.eligible || state_.active != previous.active ||
-            state_.available != previous.available || state_.local != previous.local) {
+            state_.available != previous.available || state_.local != previous.local ||
+            state_.steam != previous.steam) {
             return;
         }
         // Ordinary idle replies may arrive faster than hidden frames. Drain
@@ -388,7 +389,8 @@ void NativeReplacement::poll(double now) {
                       json_object_get_boolean(field("active")) != 0,
                       true,
                       json_object_get_boolean(field("local")) != 0,
-                      json_object_get_boolean(field("multiline")) != 0};
+                      json_object_get_boolean(field("multiline")) != 0,
+                      json_object_get_boolean(field("steam")) != 0};
             last_reply_ = now;
             install_until_ = 0;
             failure_ = Failure::None;
