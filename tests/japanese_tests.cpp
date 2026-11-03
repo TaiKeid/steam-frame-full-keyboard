@@ -796,6 +796,11 @@ void slow_reopen() {
         require(!app.down(0, x, y, 2.5), "keys wait for the reading too");
         app.up(0, x, y);
     }
+    sink.keys.clear();
+    control(app, "ime-down");
+    require(std::none_of(sink.keys.begin(), sink.keys.end(),
+                         [](const auto& key) { return key.first == 108; }),
+            "the band's arrows wait for the reading as keys do");
     control(app, "recenter");
     sink.hold = false;
     app.tick(3);

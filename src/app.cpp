@@ -1282,10 +1282,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (!hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) {
         reopen_.reset();
     }
-    // While ↶'s Backspaces are on their way, keys and candidates wait: the
-    // reading comes back first, in the mode it left.
+    // While ↶'s Backspaces are on their way, candidates wait too (keys wait
+    // in press_key()): the reading comes back first, in the mode it left.
     finish_reopen();
-    if (reopening_ && (hit || candidates_.contains(x, y))) {
+    if (reopening_ && candidates_.contains(x, y)) {
         return false;
     }
     if (settings_open_ && languages_ && !address_ && confirm_ == Confirm::None) {
@@ -1358,6 +1358,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 // A key pressed on the keyboard, or one of the Japanese band's arrows.
 bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now,
                     const PanelView& v) {
+    // While ↶'s Backspaces are on their way, every key waits, the band's
+    // arrows too: the reading comes back first, where it was.
+    finish_reopen();
+    if (reopening_) {
+        return false;
+    }
     if (dictation_open_) {
         return dictation_down(pointer, *key, x, y, now);
     }
@@ -3441,8 +3447,9 @@ void App::reopen_phrase() {
     // must have arrived: one still on its way, or kept for a retry, would
     // come back on top of the reading.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
+    // Phrases Type as I speak still has to type came after it too.
     if (output_.queued() != phrase.queued || output_.text_pending() || output_.retry_available() ||
-        count == 0 || !output_.can_queue(count)) {
+        !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
         return;
     }
     reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
@@ -5161,7 +5168,12 @@ std::string App::live_rest(std::uint64_t id, const std::string& text) {
 
 void App::flush_direct(double now) {
     // A composer's reading goes first, as before any key; phrases wait for
-    // its commit. They follow keys already queued.
+    // its commit, and for one ↶ is bringing back. They follow keys already
+    // queued.
+    finish_reopen();
+    if (reopening_) {
+        return;
+    }
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
                        !output_.steam_field_target() && !sink_on();
     if (direct_paste_) {
