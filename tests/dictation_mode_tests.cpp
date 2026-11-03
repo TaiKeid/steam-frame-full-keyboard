@@ -2386,11 +2386,13 @@ void microphone_tests() {
         const char* language;
         const char* layout;
         const char* text;
-        bool crowded; // A / あ or the Korean switch leaves the status too little room.
+        // The Korean switch leaves the status too little room. Japanese
+        // dictation keeps the keys' scale, whose case leaves enough.
+        bool crowded;
     };
     for (const auto& [language, layout, text, crowded] :
          std::array<Case, 3>{{{"ja-flick", "ja-flick-12", "ゲームの音", false},
-                              {"ja-romaji", "ja-jis-full", "ゲームの音", true},
+                              {"ja-romaji", "ja-jis-full", "ゲームの音", false},
                               {"ko-cheonjiin", "ko-12key", "게임 소리", true}}}) {
         write_config(directory.path,
                      R"(,"hide_numpad":true,"dictation":"server","dictation_server":"127.0.0.1",)"

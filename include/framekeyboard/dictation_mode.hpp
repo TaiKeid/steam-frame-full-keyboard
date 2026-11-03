@@ -15,7 +15,10 @@ struct DictationLayout {
     Layout layout;
     Rect editor; // Layout coordinates; its top is above the layout's own.
 };
-DictationLayout dictation_layout(const Layout& main, double visible_width);
+// `extra` is how much taller the layout may grow, in layout units, so that
+// its keys keep the scale the Japanese band gives them: the room the band
+// leaves, which the mode does not show, goes to the editor.
+DictationLayout dictation_layout(const Layout& main, double visible_width, double extra = 0);
 // How far the editor reaches above the layout's top, and below the
 // function-key row toward the number row, in layout units. Four lines fit.
 constexpr double dictation_editor_rise = 60;

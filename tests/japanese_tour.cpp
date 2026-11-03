@@ -189,6 +189,26 @@ int main(int argc, char** argv) {
             press(*app, "Emoji");
         }
         {
+            // Every toolbar button and the mic key showing, as with favorites,
+            // dictation and the replacement on: each page must keep them in place.
+            const std::string full =
+                R"(,"favorites":[{"id":"a","name":"Japanese, flick","layout":"ja-flick-12",)"
+                R"("language":"ja-flick","theme":"graphite"},{"id":"b","name":"English",)"
+                R"("layout":"en-us-full","language":"en-us","theme":"graphite"}],"hide_numpad":true,)"
+                R"("replace_native_keyboard":true,"dictation":"server","dictation_server":"speech.local:1",)"
+                R"("developer_options":true,"keep_open":true,"passthrough":true,"swipe_typing":true)";
+            auto app = keyboard(root / "c", full, Mode::Vr, sink);
+            shot(*app, "18-full-toolbar-kana");
+            press(*app, "Flick-mode");
+            shot(*app, "19-full-toolbar-english");
+            press(*app, "Flick-mode");
+            shot(*app, "20-full-toolbar-digits");
+            press(*app, "Flick-mode");
+            press(*app, "Dictation");
+            tick(*app);
+            shot(*app, "21-full-toolbar-dictation");
+        }
+        {
             auto app = keyboard(root / "b", "", Mode::RenderDictation, sink);
             app->show_dictation();
             tick(*app);

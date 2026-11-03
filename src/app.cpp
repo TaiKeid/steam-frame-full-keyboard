@@ -4533,7 +4533,10 @@ void App::refresh_dictation_layout() {
     main.language = &profiles_.languages.at(settings_.active.language);
     main.hide_numpad = numpad_hidden();
     main.dictation_available = true; // The mode shows the mic key.
-    dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main));
+    PanelView banded = main;
+    banded.ime_band = japanese();
+    dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
+                                         unbanded_layout_height(banded) - main.layout->height);
     // Placed as the mode shows it: a layout without a function-key row grows
     // taller for the editor.
     main.layout = &dictation_layout_.layout;

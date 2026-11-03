@@ -55,7 +55,7 @@ Key dictation_key(const std::string& action, const std::string& label, Rect boun
 }
 } // namespace
 
-DictationLayout dictation_layout(const Layout& main, double visible_width) {
+DictationLayout dictation_layout(const Layout& main, double visible_width, double extra) {
     DictationLayout result;
     result.layout.id = main.id + "-dictation";
     result.layout.name = main.name;
@@ -63,9 +63,10 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
     result.layout.width = main.width;
     result.layout.height = main.height;
     // The editor lies over the function-key row. A layout without one, such
-    // as flick, moves its keys down by that row to make the same room.
+    // as flick, moves its keys down by that row to make the same room, or
+    // by the band's room when that is more.
     const bool function_row = bounds_of(main, {"F1", "F12"}).has_value();
-    const double drop = function_row ? 0 : function_row_room;
+    const double drop = function_row ? extra : std::max(function_row_room, extra);
     result.layout.height += drop;
     std::optional<Rect> paste;
     double mic_height = 0;
@@ -167,8 +168,10 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
             left = std::max(left, key.bounds.x + key.bounds.width);
         }
     }
-    const auto row = function_row ? bounds_of(main, {"F1", "F12", "Escape"}) : std::nullopt;
-    const double bottom = row ? row->y + row->height : 44;
+    // It ends where the function-key row would, above the gap that row
+    // leaves over the keys.
+    const auto row = lowered(function_row ? bounds_of(main, {"F1", "F12", "Escape"}) : std::nullopt);
+    const double bottom = row ? row->y + row->height : drop - (function_row_room - 44);
     const double right = std::clamp(visible_width, left + 120, main.width);
     result.editor = {left + 12, -dictation_editor_rise, right - left - 12,
                      bottom + dictation_editor_rise + dictation_editor_drop};

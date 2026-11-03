@@ -992,8 +992,8 @@ void slow_reopen() {
         app.up(0, ux, uy);
     }
 }
-// Each flick page keeps the toolbar where it is, with the mic key shown:
-// only the keys change.
+// Each flick page and dictation mode keep the toolbar where it is, with the
+// mic key shown: only the keys change.
 void flick_pages_keep_toolbar() {
     char directory[] = "/tmp/framekeyboard-flick-pages-XXXXXX";
     require(mkdtemp(directory), "temporary flick pages profile");
@@ -1003,7 +1003,8 @@ void flick_pages_keep_toolbar() {
     } cleanup{directory};
     std::ofstream(fs::path(directory) / "config.json")
         << R"({"schema_version":1,"active":{"layout":"ja-flick-12","language":"ja-flick",)"
-        << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"})";
+        << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031",)"
+        << R"("hide_numpad":true})"; // Without the numpad, romaji's keys fit by height.
     Options options;
     options.config_dir = directory;
     options.mode = Mode::Vr;
@@ -1043,6 +1044,26 @@ void flick_pages_keep_toolbar() {
             "the English page keeps the toolbar's buttons and X in place");
     require(std::abs(english.keys_right - kana.keys_right) < .5,
             "the English page's keys reach the same right edge");
+    flick(app, "mode", 2);
+    flick(app, "mode", 3);
+    click_key(app, "Dictation");
+    require(app.dictation_open(), "the mic opens dictation");
+    const auto dictation = page();
+    require(dictation.settings == kana.settings && dictation.close == kana.close &&
+                std::abs(dictation.key_height - kana.key_height) < .5 &&
+                std::abs(dictation.keys_right - kana.keys_right) < .5,
+            "dictation keeps the keys' size and the toolbar in place");
+    click_key(app, "Escape"); // Stops listening,
+    click_key(app, "Escape"); // then leaves.
+    // So does romaji's, under its one-row band.
+    app.apply({"ja-jis-full", "ja-romaji", "graphite"});
+    const auto romaji = page();
+    require(!app.dictation_open() && app.view().layout->id == "ja-jis-full", "romaji shows its keys");
+    click_key(app, "Dictation");
+    const auto romaji_dictation = page();
+    require(app.dictation_open() && std::abs(romaji_dictation.key_height - romaji.key_height) < .5 &&
+                std::abs(romaji_dictation.keys_right - romaji.keys_right) < .5,
+            "romaji dictation keeps the keys' size");
 }
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.
