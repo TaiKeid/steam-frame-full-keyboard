@@ -198,6 +198,20 @@ foreach(manifest actions.json frame-controller.json)
 endforeach()
 set_target_properties(framekeyboard PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "${OPENVR_RUNTIME_PATH}")
 
+# The desktop simulator (docs/simulator.md): the keyboard typing into a text
+# field in its own window, for trying it without a Steam Frame. No OpenVR or
+# Vulkan, and not part of the release package.
+if(NOT CMAKE_CROSSCOMPILING)
+    add_library(simulator_core STATIC src/simulator/field.cpp src/simulator/simulator.cpp)
+    target_include_directories(simulator_core PUBLIC src)
+    target_link_libraries(simulator_core PUBLIC keyboard_core)
+    target_compile_options(simulator_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    add_executable(framekeyboard-simulator src/simulator/main.cpp src/simulator/platform_linux.cpp)
+    target_link_libraries(framekeyboard-simulator PRIVATE simulator_core PkgConfig::SDL)
+    target_compile_options(framekeyboard-simulator PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    target_compile_definitions(framekeyboard-simulator PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+endif()
+
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bridge")
 foreach(bridge_file native_bridge.py steam_bridge.js)
     configure_file("bridge/${bridge_file}" "bridge/${bridge_file}" COPYONLY)
@@ -431,6 +445,15 @@ if(BUILD_TESTING)
             target_link_libraries(clipboard-tests PRIVATE keyboard_core PkgConfig::WAYLAND_SERVER)
             add_test(NAME clipboard COMMAND clipboard-tests)
         endif()
+    endif()
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_executable(simulator-tests tests/simulator_tests.cpp)
+        target_link_libraries(simulator-tests PRIVATE simulator_core)
+        target_compile_options(simulator-tests PRIVATE -Wall -Wextra -Wpedantic)
+        add_test(NAME simulator COMMAND simulator-tests)
+        # Renders the simulator's window contents in typed states for review; not a test.
+        add_executable(simulator-tour tests/simulator_tour.cpp src/simulator/platform_linux.cpp)
+        target_link_libraries(simulator-tour PRIVATE simulator_core)
     endif()
     # Opt-in only: maps a disposable window and verifies focus before each key.
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
