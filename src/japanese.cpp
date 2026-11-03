@@ -442,9 +442,6 @@ bool symbols_only(const std::string& reading) {
 bool configure_anthy(AnthyLearning learning) {
     auto& state = anthy();
     std::lock_guard lock(state.settings);
-    if (learning.home.empty()) {
-        learning.home = state.learning.home;
-    }
     state.learning = learning;
     return state.started && *state.started != learning;
 }
@@ -488,6 +485,9 @@ void set_anthy_dictionary(const std::filesystem::path& dictionary) {
     auto& state = anthy();
     std::lock_guard lock(state.settings);
     state.dictionary = dictionary.string();
+}
+std::filesystem::path default_anthy_home() {
+    return learning_home({});
 }
 bool anthy_learned() {
     auto& state = anthy();

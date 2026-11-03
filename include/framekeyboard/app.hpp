@@ -611,6 +611,7 @@ class App {
     bool learned_{}; // Something to clear, as of Settings opening or a restart.
     void apply_learning();
     fs::path anthy_home() const;
+    bool owns_anthy() const;
     bool learning_allowed() const;
     void restart_learning(bool clear);
     void tick_learning();

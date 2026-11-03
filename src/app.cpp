@@ -194,7 +194,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
-    configure_anthy({settings_.japanese_learning, anthy_home()});
+    if (owns_anthy()) {
+        configure_anthy({settings_.japanese_learning, anthy_home()});
+    }
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2309,7 +2311,14 @@ fs::path App::anthy_home() const {
     const auto own = fs::weakly_canonical(default_config_dir(), error);
     return !options_.config_dir.empty() && fs::weakly_canonical(options_.config_dir, error) != own
                ? options_.config_dir
-               : fs::path{};
+               : default_anthy_home();
+}
+// Anthy is process-wide, and the keyboard that types sets it up. An image
+// export, such as a shell's preview built beside the running keyboard, only
+// draws, and must not move the running one's learning into its throwaway folder.
+bool App::owns_anthy() const {
+    return options_.mode != Mode::Render && options_.mode != Mode::RenderSettings &&
+           options_.mode != Mode::RenderEmoji && options_.mode != Mode::RenderDictation;
 }
 // Learning, if the user turned it on and the field may keep what is typed:
 // never a password, PIN or terminal.
@@ -2317,7 +2326,8 @@ bool App::learning_allowed() const {
     return settings_.japanese_learning && !hint_private() && !hint_no_suggestions();
 }
 void App::apply_learning() {
-    if (configure_anthy({settings_.japanese_learning, anthy_home()}) && !restarting_anthy()) {
+    if (owns_anthy() && configure_anthy({settings_.japanese_learning, anthy_home()}) &&
+        !restarting_anthy()) {
         restart_learning(false);
     }
 }

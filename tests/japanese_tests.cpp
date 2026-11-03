@@ -898,6 +898,16 @@ void learning_settings() {
     const auto record = options.anthy_home / ".anthy" / "last-record2_framekeyboard.utf8";
     fs::create_directories(record.parent_path());
     std::ofstream(record) << "learned\n";
+    {
+        // A shell's preview, built beside the running keyboard, only draws.
+        Options preview = options;
+        preview.mode = Mode::Render;
+        preview.config_dir = fs::path(directory) / "preview";
+        preview.anthy_home.clear();
+        fs::create_directories(preview.config_dir);
+        App image(preview, sink);
+        require(anthy_learned(), "a preview leaves the running keyboard's learning where it is");
+    }
     app.show_settings();
     require(find("clear-learning").enabled, "something learned can be cleared");
     control(app, "clear-learning");

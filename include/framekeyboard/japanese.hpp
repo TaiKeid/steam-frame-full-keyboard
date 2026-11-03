@@ -43,7 +43,7 @@ class JapaneseConverter {
 struct AnthyLearning {
     bool operator==(const AnthyLearning&) const = default;
     bool on{};
-    // Where Anthy keeps it. Empty keeps the home set before, at first $HOME.
+    // Where Anthy keeps it; empty is default_anthy_home().
     std::filesystem::path home;
 };
 // Sets the learning Anthy starts with. True when Anthy already runs with
@@ -55,6 +55,8 @@ bool configure_anthy(AnthyLearning learning);
 void restart_anthy(bool clear);
 // Whether Full Keyboard's record holds anything to clear.
 bool anthy_learned();
+// The user's home, as other programs find it: $HOME, else the password database.
+std::filesystem::path default_anthy_home();
 // A dictionary other than the installed one, for the simulator and tests;
 // every start of Anthy, restarts included, loads it. Before the first conversion.
 void set_anthy_dictionary(const std::filesystem::path& dictionary);
