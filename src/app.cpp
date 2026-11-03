@@ -2079,6 +2079,10 @@ void App::reload() {
     auto cjk = prepare_cjk(candidate.languages.at(settings_.active.language));
     close_emoji(); // Its layout comes from profiles about to be replaced.
     cancel();
+    // Reload may change where phrases go and with which model, but only a new
+    // capture configures the helper. Pause listening, as Apply does: the
+    // phrase being spoken and those already captured finish where they began.
+    pause_capture();
     cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
     dictation_layout_for_.reset(); // An edited layout or theme keeps its ID.

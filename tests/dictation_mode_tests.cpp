@@ -3523,6 +3523,37 @@ void reload_tests() {
     require(app.view().dictation->where == Icon::Cloud, "after Reload the edited URL is used");
 }
 
+// Reload can change where phrases go and with which model, but only a new
+// capture configures the helper, so Reload pauses listening, as documented;
+// listening again uses the reloaded settings.
+void reload_pauses_capture() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "silent");
+    Sink sink;
+    App app(options, sink);
+    press(app, "Dictation");
+    wait_until(app, [&] { return !configures(directory.path).empty(); });
+    app.flush_settings();
+    require(app.view().dictation && app.view().dictation->capturing, "listening before Reload");
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                 R"("dictation_url":"https://speech.example/v1","dictation_model":"whisper-1")");
+    app.reload();
+    app.tick(clock += .02);
+    require(!app.view().dictation->capturing, "Reload pauses listening");
+    press(app, "Dictation");
+    wait_until(app,
+               [&] { return configures(directory.path).find("speech.example") != std::string::npos; });
+    require(configures(directory.path).find("speech.example") != std::string::npos,
+            "listening again sends the reloaded URL to the helper");
+}
+
 // A hosted URL from config.json is where phrases go, so the card's Test
 // checks it rather than the Server field.
 void url_test_tests() {
@@ -3634,6 +3665,7 @@ int main() {
         send_tests();
         suspend_input_tests();
         reload_tests();
+        reload_pauses_capture();
         url_test_tests();
         selection_tests();
         scroll_tests();

@@ -16,7 +16,7 @@
 - With a hosted speech service set as `dictation_url` in `config.json`, the Dictation card's **Test** now checks that service, which is where phrases go, rather than the Server address field.
 - The uninstaller also removes downloaded speech models when `XDG_DATA_HOME` points somewhere other than `~/.local/share`.
 - When native replacement stops working, Settings keeps showing the real reason, such as incompatible Steam interfaces, instead of a generic "connection was lost" after a key that was held in a Steam field is released.
-- **Reload config** now updates an open dictation editor's keys after a layout file was edited, and its size after a theme's padding changed. It also takes hand-edited `dictation_url`, `dictation_model` and `dictation_recent_servers` values from `config.json`.
+- **Reload config** now updates an open dictation editor's keys after a layout file was edited, and its size after a theme's padding changed. It also takes hand-edited `dictation_url`, `dictation_model` and `dictation_recent_servers` values from `config.json`, and pauses listening, as documented, so phrases spoken after it go to the reloaded server with the reloaded model; phrases already captured finish where they began.
 - A dictation helper that stops answering and then never exits is ended after 10 seconds, so dictation and the server **Test** work again without restarting Full Keyboard.
 - Shell integration: `dictation.test_server` now answers `busy` while the previous dictation helper is still shutting down, instead of accepting the request and never reporting a result.
 - Fixed dictation saying "the headset was asleep" when the headset had only been taken off. It says "the headset was taken off" again, as documented.
