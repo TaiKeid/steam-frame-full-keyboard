@@ -272,8 +272,24 @@ void layout_tests() {
     const auto flick_mode = dictation_layout(flick, flick.width);
     const auto flick_send = std::find_if(flick_mode.layout.keys.begin(), flick_mode.layout.keys.end(),
                                          [](const Key& key) { return key.id == "Dictation-send"; });
-    require(flick_send != flick_mode.layout.keys.end() && flick_send->bounds == Rect{120, 138, 150, 62},
-            "without right-hand modifiers, Send takes Tab's slot");
+    // The flick layout has no function-key row: its keys move down to make
+    // the editor's room. Without Tab, Send takes the emoji key's place, and
+    // the mode adds Esc in the side column's free top slot.
+    auto emoji = bounds_in(flick, "Emoji");
+    emoji.y += function_row_room;
+    const auto flick_escape =
+        std::find_if(flick_mode.layout.keys.begin(), flick_mode.layout.keys.end(), [](const Key& key) {
+            return key.action_kind == ActionKind::Key && key.action == "Escape";
+        });
+    require(flick_send != flick_mode.layout.keys.end() && flick_send->bounds == emoji &&
+                flick_mode.layout.height == flick.height + function_row_room &&
+                flick_mode.editor.y + flick_mode.editor.height <= emoji.y,
+            "without right-hand modifiers or Tab, Send takes the emoji key's slot");
+    require(flick_escape != flick_mode.layout.keys.end() &&
+                flick_escape->bounds.x == bounds_in(flick, "Paste").x &&
+                flick_escape->bounds.y == function_row_room &&
+                flick_mode.editor.y + flick_mode.editor.height <= flick_escape->bounds.y,
+            "Esc goes in the side column's top slot, below the editor");
     for (const auto* id : {"ja-flick-12", "ko-12key"}) {
         const auto& source = profiles.layouts.at(id);
         const auto stacked = dictation_layout(source, source.width);
@@ -281,12 +297,15 @@ void layout_tests() {
         const auto cut = bounds_in(stacked.layout, "Dictation-cut");
         const auto paste = bounds_in(stacked.layout, "Dictation-paste");
         const auto undo = bounds_in(stacked.layout, "Dictation-undo");
-        const auto slot = bounds_in(source, "Paste");
+        auto slot = bounds_in(source, "Paste");
+        if (stacked.layout.height > source.height) {
+            slot.y += function_row_room; // Moved down for the editor.
+        }
         require(copy.x == slot.x && copy.width == slot.width && copy.y + copy.height < cut.y &&
                     cut.y + cut.height < paste.y && paste.y + paste.height < undo.y &&
                     undo.y + undo.height == slot.y + slot.height,
                 "without left modifiers, the keys stack above Undo, ending with Paste's slot");
-        require(copy.y >= 110, "the stack clears Convert, beside the editor");
+        require(copy.y >= 110, "the stack starts below the editor's top row");
     }
 }
 
@@ -818,12 +837,7 @@ void language_tests() {
                     editor.preedit_end == editor.text.size() && editor.cursor == editor.preedit_end &&
                     !editor.candidates,
                 "the reading shows at the cursor; the band waits for candidates");
-        const auto convert = std::find_if(view.controls.begin(), view.controls.end(),
-                                          [](const Control& c) { return c.id == "ime-convert"; });
-        require(convert != view.controls.end() &&
-                    convert->bounds.x + convert->bounds.width < editor.bounds.x &&
-                    convert->label == "変換\nConvert",
-                "Convert moves beside the editor, its label on two lines");
+        require(!has_control(app, "ime-convert"), "Space converts: no Convert button");
         press(app, "Escape");
         require(app.dictation_open() && editor_text(app) == "Hello there.Again." &&
                     app.view().dictation->notice.empty(),
@@ -833,7 +847,7 @@ void language_tests() {
         view = app.view();
         require(view.dictation->text == "Hello there.Again.かな" &&
                     view.dictation->preedit_end == view.dictation->preedit_begin &&
-                    !view.dictation->candidates && !has_control(app, "ime-convert"),
+                    !view.dictation->candidates,
                 "Enter commits the reading into the editor");
         type_text(app, "ne");
         press(app, "Dictation");
@@ -2364,11 +2378,12 @@ void microphone_tests() {
         const char* language;
         const char* layout;
         const char* text;
+        bool crowded; // A / あ or the Korean switch leaves the status too little room.
     };
-    for (const auto& [language, layout, text] :
-         std::array<Case, 3>{{{"ja-flick", "ja-flick-12", "ゲームの音"},
-                              {"ja-romaji", "ja-jis-full", "ゲームの音"},
-                              {"ko-cheonjiin", "ko-12key", "게임 소리"}}}) {
+    for (const auto& [language, layout, text, crowded] :
+         std::array<Case, 3>{{{"ja-flick", "ja-flick-12", "ゲームの音", false},
+                              {"ja-romaji", "ja-jis-full", "ゲームの音", true},
+                              {"ko-cheonjiin", "ko-12key", "게임 소리", true}}}) {
         write_config(directory.path,
                      R"(,"hide_numpad":true,"dictation":"server","dictation_server":"127.0.0.1",)"
                      R"("haptic_sounds":"both","swipe_typing":true,"replace_native_keyboard":true,)"
@@ -2403,11 +2418,12 @@ void microphone_tests() {
         local.move(0, cx, cy);
         require(local.view().status_hovered, "the laser on it counts");
         strip(base + 3.1);
-        require(strip(base + 5.5) != at_rest, "it scrolls under the laser");
+        // A status that fits has nothing to scroll.
+        require((strip(base + 5.5) != at_rest) == crowded, "a long one scrolls under the laser");
         const auto [kx, ky] = key_center(local, "Dictation");
         local.move(0, kx, ky);
         require(!local.view().status_hovered, "the laser left it");
-        require(strip(base + 5.6) != at_rest, "the pass under way goes on");
+        require((strip(base + 5.6) != at_rest) == crowded, "the pass under way goes on");
         strip(base + 60);
         require(strip(base + 61) == at_rest && strip(base + 70) == at_rest,
                 "then it returns to its start and stays");

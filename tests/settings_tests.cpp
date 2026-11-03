@@ -993,6 +993,9 @@ void numpad_settings() {
             "close button follows narrower case");
     const auto profiles = load_profiles({}, {});
     for (const auto& [id, layout] : profiles.layouts) {
+        if (layout.companion) {
+            continue; // Another layout's English page, never chosen by itself.
+        }
         app.apply({id, layout.language.empty() ? "en-us" : layout.language, "graphite"});
         require(app.view().hide_numpad && app.view().keyboard->num() &&
                     panel_case_bounds(app.view()).width < full_body.width,

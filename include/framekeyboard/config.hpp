@@ -43,6 +43,12 @@ struct FlickKey {
     std::vector<std::string> tap;
     std::string left, up, right, down;
 };
+// The flick slot that switches Japanese between kana, English and digits:
+// a tap moves to the next mode, a flick left, up or right picks one.
+inline constexpr const char* flick_mode_slot = "mode";
+// ↶ (Gboard's 逆トグル／戻す): steps the last kana back through its key's
+// taps, leaves conversion, or reopens the phrase just committed.
+inline constexpr const char* flick_undo_slot = "undo";
 struct Language {
     bool operator==(const Language&) const = default;
     // name is English, native_name is what speakers call it, and short_name
@@ -55,6 +61,8 @@ struct Language {
     // Flick slot -> kana. A flick language needs every slot and a flick layout
     // serves only flick languages.
     std::map<std::string, FlickKey> flick;
+    // Japanese flick: the same slots in digit mode, typed as they are.
+    std::map<std::string, FlickKey> flick_digits;
     std::vector<std::string> required_keys;
     // Optional swipe word list ID; empty means the profile does not offer swipe.
     std::string swipe_lexicon;

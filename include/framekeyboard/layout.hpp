@@ -73,6 +73,14 @@ enum class Icon {
     // computer, or a hosted provider.
     Mic,
     Undo,
+    // The Japanese flick ↶ (Gboard's 逆トグル／戻す), which acts on the reading,
+    // apart from the dictation editor's Undo.
+    TurnBack,
+    // Space and Enter on the flick layouts (␣, ↵), and the Japanese band's ↑ and ↓.
+    Space,
+    Enter,
+    ArrowUp,
+    ArrowDown,
     Headset,
     Computer,
     Cloud,
@@ -103,6 +111,10 @@ struct Layout {
     std::string id, name;
     // Language to switch to when the current one cannot use this geometry.
     std::string language;
+    // Japanese flick: the layout shown in English mode. A companion layout is
+    // only such a page, never chosen in Settings.
+    std::string latin_layout;
+    bool companion{};
     double width{}, height{};
     std::vector<Key> keys;
 };

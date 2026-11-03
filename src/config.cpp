@@ -181,6 +181,12 @@ Layout parse_layout(const std::string& json) {
     }
     result.width = number(object, "width", 100, 4096);
     result.height = number(object, "height", 100, 2048);
+    if (field(object, "latin_layout", json_type_string, true)) {
+        result.latin_layout = identifier(object, "latin_layout");
+    }
+    if (auto* companion = field(object, "companion", json_type_boolean, true)) {
+        result.companion = json_object_get_boolean(companion);
+    }
     auto* keys = field(object, "keys", json_type_array);
     const auto count = json_object_array_length(keys);
     if (count == 0 || count > 256) {
@@ -210,6 +216,10 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::Emoji;
         } else if (icon == "mic") {
             key.icon = Icon::Mic;
+        } else if (icon == "space") {
+            key.icon = Icon::Space;
+        } else if (icon == "enter") {
+            key.icon = Icon::Enter;
         } else if (!icon.empty()) {
             throw std::runtime_error("unknown key icon");
         }
@@ -338,7 +348,11 @@ Language parse_language(const std::string& json) {
     if (l.input_method == "japanese-kana" && l.kana.empty()) {
         throw std::runtime_error("direct Kana needs a kana mapping");
     }
-    if (auto* slots = field(o, "flick", json_type_object, true)) {
+    auto read_flick = [&](const char* name, std::map<std::string, FlickKey>& table) {
+        auto* slots = field(o, name, json_type_object, true);
+        if (!slots) {
+            return;
+        }
         auto short_text = [](json_object* object, const char* name, bool optional) {
             auto value = text(object, name, "", optional);
             if ((!optional && value.empty()) || value.size() > 16) {
@@ -348,7 +362,7 @@ Language parse_language(const std::string& json) {
         };
         json_object_object_foreach(slots, slot, value) {
             if (!json_object_is_type(value, json_type_object) || std::string(slot).empty() ||
-                std::string(slot).size() > 32 || l.flick.size() >= 32) {
+                std::string(slot).size() > 32 || table.size() >= 32) {
                 throw std::runtime_error("invalid flick key");
             }
             FlickKey key;
@@ -368,8 +382,17 @@ Language parse_language(const std::string& json) {
             key.up = short_text(value, "up", true);
             key.right = short_text(value, "right", true);
             key.down = short_text(value, "down", true);
-            l.flick.emplace(slot, std::move(key));
+            table.emplace(slot, std::move(key));
         }
+    };
+    read_flick("flick", l.flick);
+    read_flick("flick_digits", l.flick_digits);
+    // Digits reuse the kana slots, so a layout serving one serves both.
+    if (!l.flick_digits.empty() &&
+        (l.input_method != "japanese-flick" || l.flick_digits.size() != l.flick.size() ||
+         !std::all_of(l.flick_digits.begin(), l.flick_digits.end(),
+                      [&](const auto& item) { return l.flick.contains(item.first); }))) {
+        throw std::runtime_error("flick_digits needs Japanese flick and the same slots as flick");
     }
     if ((l.input_method == "japanese-flick" || l.input_method == "korean-cheonjiin") !=
         !l.flick.empty()) {
@@ -857,6 +880,9 @@ void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
     }
     const auto& layout = profiles.layouts.at(s.layout);
     const auto& language = profiles.languages.at(s.language);
+    if (layout.companion) {
+        throw std::runtime_error("This layout is another layout's English page. Choose that layout.");
+    }
     auto flick_key = [&](const std::string& slot) {
         return std::any_of(layout.keys.begin(), layout.keys.end(), [&](const Key& key) {
             return key.action_kind == ActionKind::Flick && key.action == slot;
@@ -871,7 +897,9 @@ void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
     }
     for (const auto& [slot, key] : language.flick) {
         (void)key;
-        if (!flick_key(slot)) {
+        // Without a mode key, the toolbar's A / あ switches modes instead;
+        // ↶ is optional too.
+        if (slot != flick_mode_slot && slot != flick_undo_slot && !flick_key(slot)) {
             throw std::runtime_error("Language needs a flick layout. Choose another layout.");
         }
     }

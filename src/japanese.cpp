@@ -61,10 +61,37 @@ const std::map<std::string, std::string>& roman_table() {
     }();
     return table;
 }
-} // namespace
 // Load the existing system Anthy only on the first conversion. Its public C ABI
 // keeps ordinary keyboard startup independent of the optional Japanese engine.
-struct JapaneseComposer::Engine {
+class AnthyConverter final : public JapaneseConverter {
+  public:
+    AnthyConverter() {
+        auto& api = library();
+        context_ = api.create();
+        if (!context_) {
+            throw std::runtime_error("Cannot create Japanese conversion context");
+        }
+        api.encoding(context_, 2); // ANTHY_UTF8_ENCODING
+    }
+    ~AnthyConverter() override { library().release(context_); }
+    std::vector<Segment> convert(const std::string& reading) override {
+        if (library().set(context_, reading.c_str()) != 0) {
+            throw std::runtime_error("Japanese conversion failed");
+        }
+        return segments();
+    }
+    std::vector<Segment> resize(int index, int delta) override {
+        auto& api = library();
+        Stat stat{};
+        if (api.stat(context_, &stat) != 0 || index < 0 || index >= stat.segments) {
+            return {};
+        }
+        // Anthy leaves the segments as they were when the change is impossible.
+        api.resize(context_, index, delta);
+        return segments();
+    }
+
+  private:
     struct Stat {
         int segments;
     };
@@ -82,6 +109,7 @@ struct JapaneseComposer::Engine {
         int (*stat)(void*, Stat*){};
         int (*segment_stat)(void*, int, SegmentStat*){};
         int (*get)(void*, int, int, char*, int){};
+        void (*resize)(void*, int, int){};
         template <class T> void symbol(T& fn, const char* name) {
             fn = reinterpret_cast<T>(dlsym(handle, name));
             if (!fn) {
@@ -103,6 +131,7 @@ struct JapaneseComposer::Engine {
                 symbol(stat, "anthy_get_stat");
                 symbol(segment_stat, "anthy_get_segment_stat");
                 symbol(get, "anthy_get_segment");
+                symbol(resize, "anthy_resize_segment");
                 if (init() != 0) {
                     throw std::runtime_error("Cannot initialize the Anthy dictionary");
                 }
@@ -121,45 +150,93 @@ struct JapaneseComposer::Engine {
         static Library value;
         return value;
     }
-    void* context{};
-    Engine() {
-        auto& api = library();
-        context = api.create();
-        if (!context) {
-            throw std::runtime_error("Cannot create Japanese conversion context");
+    // Anthy's segment text at `candidate`, or its reading at -1
+    // (NTH_UNCONVERTED_CANDIDATE).
+    std::string text(int segment, int candidate) {
+        char buffer[1024]{};
+        if (library().get(context_, segment, candidate, buffer, sizeof(buffer)) < 0 ||
+            !g_utf8_validate(buffer, -1, nullptr)) {
+            throw std::runtime_error("Invalid Japanese conversion candidate");
         }
-        api.encoding(context, 2); // ANTHY_UTF8_ENCODING
+        return buffer;
     }
-    ~Engine() { library().release(context); }
-    std::vector<Segment> convert(const std::string& reading) {
+    std::vector<Segment> segments() {
         auto& api = library();
         Stat stat{};
-        if (api.set(context, reading.c_str()) != 0 || api.stat(context, &stat) != 0 ||
-            stat.segments <= 0 || stat.segments > 32) {
+        if (api.stat(context_, &stat) != 0 || stat.segments <= 0 || stat.segments > 32) {
             throw std::runtime_error("Japanese conversion failed");
         }
         std::vector<Segment> result;
         for (int s = 0; s < stat.segments; ++s) {
             SegmentStat info{};
-            if (api.segment_stat(context, s, &info) != 0 || info.candidates <= 0) {
+            if (api.segment_stat(context_, s, &info) != 0 || info.candidates <= 0) {
                 throw std::runtime_error("No conversion candidates");
             }
-            Segment segment;
+            Segment segment{text(s, -1), {}};
             for (int c = 0; c < std::min(info.candidates, 128); ++c) {
-                char buffer[1024]{};
-                if (api.get(context, s, c, buffer, sizeof(buffer)) < 0 ||
-                    !g_utf8_validate(buffer, -1, nullptr)) {
-                    throw std::runtime_error("Invalid Japanese conversion candidate");
-                }
-                segment.candidates.emplace_back(buffer);
+                segment.candidates.push_back(text(s, c));
             }
             result.push_back(std::move(segment));
         }
         return result;
     }
+    void* context_{};
 };
-JapaneseComposer::JapaneseComposer() = default;
+// The reading in one script; other characters stay.
+std::string in_script(const std::string& reading, bool katakana) {
+    std::string result;
+    for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
+        auto c = g_utf8_get_char(p);
+        if (katakana && c >= 0x3041 && c <= 0x3096) {
+            c += 0x60;
+        }
+        if (!katakana && c >= 0x30a1 && c <= 0x30f6) {
+            c -= 0x60;
+        }
+        char buffer[8]{};
+        const auto n = g_unichar_to_utf8(c, buffer);
+        result.append(buffer, static_cast<std::size_t>(n));
+    }
+    return result;
+}
+} // namespace
+JapaneseComposer::JapaneseComposer(Factory factory) : factory_(std::move(factory)) {
+}
 JapaneseComposer::~JapaneseComposer() = default;
+JapaneseConverter& JapaneseComposer::converter() {
+    if (!converter_) {
+        converter_ = factory_ ? factory_() : std::make_unique<AnthyConverter>();
+    }
+    return *converter_;
+}
+std::vector<JapaneseComposer::Segment>
+JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) const {
+    std::vector<Segment> result;
+    for (auto& from : segments) {
+        if (from.candidates.empty()) {
+            throw std::runtime_error("No conversion candidates");
+        }
+        Segment segment{std::move(from.reading), std::move(from.candidates)};
+        // The segment's reading in both scripts, after Anthy's own candidates.
+        for (const auto& script :
+             {in_script(segment.reading, false), in_script(segment.reading, true)}) {
+            if (!script.empty() && segment.candidates.size() < 130 &&
+                std::find(segment.candidates.begin(), segment.candidates.end(), script) ==
+                    segment.candidates.end()) {
+                segment.candidates.push_back(script);
+            }
+        }
+        result.push_back(std::move(segment));
+    }
+    return result;
+}
+std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string& reading) {
+    converted_.clear();
+    auto result = imported(converter().convert(reading));
+    converted_ = reading;
+    resized_ = false;
+    return result;
+}
 void JapaneseComposer::append(const std::string& text) {
     reading_ = normalized(reading_ + text);
 }
@@ -313,6 +390,9 @@ void JapaneseComposer::backspace() {
     } else {
         erase_character(reading_);
     }
+    if (empty()) {
+        live_ = {}; // Nothing left to stand for.
+    }
 }
 void JapaneseComposer::convert() {
     if (converting()) {
@@ -323,10 +403,9 @@ void JapaneseComposer::convert() {
     if (empty()) {
         return;
     }
-    if (!engine_) {
-        engine_ = std::make_unique<Engine>();
-    }
-    segments_ = engine_->convert(reading_);
+    // Live candidates converted this reading already, and nothing since.
+    segments_ = live_.reading == reading_ && converted_ == reading_ && !resized_ ? live_.segments
+                                                                                 : fresh(reading_);
     active_ = 0;
 }
 void JapaneseComposer::cycle(int direction) {
@@ -342,29 +421,115 @@ void JapaneseComposer::segment(int direction) {
         active_ = std::clamp(active_ + direction, 0, segment_count() - 1);
     }
 }
-void JapaneseComposer::choose(int index) {
-    if (converting() && index >= 0 &&
-        index < static_cast<int>(segments_[static_cast<std::size_t>(active_)].candidates.size())) {
-        segments_[static_cast<std::size_t>(active_)].selected = index;
+void JapaneseComposer::resize(int direction) {
+    if (!converting() || (direction != 1 && direction != -1)) {
+        return;
     }
+    const auto& active = segments_[static_cast<std::size_t>(active_)];
+    // At least one character, and no further than the end of the reading.
+    if ((direction < 0 && g_utf8_strlen(active.reading.c_str(), -1) <= 1) ||
+        (direction > 0 && active_ + 1 >= segment_count())) {
+        return;
+    }
+    if (converted_ != reading_) {
+        // Something else was converted since: Anthy resizes only its last
+        // conversion, so convert this again if that splits it the same way.
+        const auto again = fresh(reading_);
+        if (!std::equal(again.begin(), again.end(), segments_.begin(), segments_.end(),
+                        [](const Segment& a, const Segment& b) { return a.reading == b.reading; })) {
+            converted_.clear(); // The boundaries differ; don't guess.
+            return;
+        }
+    }
+    auto resized = imported(converter().resize(active_, direction));
+    resized_ = true;
+    if (resized.empty() || static_cast<int>(resized.size()) <= active_) {
+        return;
+    }
+    // The segments before the active one keep their choices.
+    for (int i = 0; i < active_; ++i) {
+        const auto index = static_cast<std::size_t>(i);
+        if (resized[index].reading == segments_[index].reading) {
+            resized[index].selected = segments_[index].selected;
+        }
+    }
+    segments_ = std::move(resized);
+}
+bool JapaneseComposer::choose(int index) {
+    if (!converting() || index < 0 ||
+        index >= static_cast<int>(segments_[static_cast<std::size_t>(active_)].candidates.size())) {
+        return false;
+    }
+    segments_[static_cast<std::size_t>(active_)].selected = index;
+    if (active_ + 1 >= segment_count()) {
+        return true;
+    }
+    ++active_;
+    return false;
+}
+bool JapaneseComposer::settled(std::string& reading) const {
+    // A lone n would become ん; any other letter could still change.
+    if (!pending_.empty() && pending_ != "n" && pending_ != "nn") {
+        return false;
+    }
+    reading = pending_.empty() ? reading_ : normalized(reading_ + "ん");
+    return true;
+}
+bool JapaneseComposer::live_current() const {
+    std::string reading;
+    return !converting() && !live_.reading.empty() && settled(reading) && reading == live_.reading;
+}
+void JapaneseComposer::prepare_live() {
+    std::string reading;
+    if (converting() || !settled(reading) || reading.empty() || reading == live_.reading) {
+        return;
+    }
+    Live live;
+    live.segments = fresh(reading);
+    live.reading = reading;
+    auto add = [&](std::string text, Live::Source source, int index = 0) {
+        if (!text.empty() && std::find(live.texts.begin(), live.texts.end(), text) == live.texts.end()) {
+            live.texts.push_back(std::move(text));
+            live.sources.emplace_back(source, index);
+        }
+    };
+    std::string whole;
+    for (const auto& segment : live.segments) {
+        whole += segment.candidates.front();
+    }
+    add(whole, Live::Source::Whole);
+    const auto& first = live.segments.front().candidates;
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        add(first[i], Live::Source::First, static_cast<int>(i));
+    }
+    add(in_script(reading, false), Live::Source::Hiragana);
+    add(in_script(reading, true), Live::Source::Katakana);
+    live_ = std::move(live);
+}
+bool JapaneseComposer::choose_live(int index) {
+    if (!live_current() || index < 0 || index >= static_cast<int>(live_.texts.size())) {
+        return false;
+    }
+    drain(true); // A pending n is the ん the list was converted with.
+    const auto [source, at] = live_.sources[static_cast<std::size_t>(index)];
+    if (source == Live::Source::Hiragana || source == Live::Source::Katakana) {
+        reading_ = in_script(reading_, source == Live::Source::Katakana);
+        return true;
+    }
+    convert();
+    if (source == Live::Source::Whole) {
+        return true;
+    }
+    // A first segment's candidate, found by its text should the conversion differ.
+    const auto& candidates = segments_.front().candidates;
+    const auto& text = live_.texts[static_cast<std::size_t>(index)];
+    const auto found = std::find(candidates.begin(), candidates.end(), text);
+    return choose(found != candidates.end() ? static_cast<int>(found - candidates.begin()) : at);
 }
 void JapaneseComposer::script(bool katakana) {
     drain(true);
     unconvert();
-    std::string result;
-    for (const char* p = reading_.c_str(); *p; p = g_utf8_next_char(p)) {
-        auto c = g_utf8_get_char(p);
-        if (katakana && c >= 0x3041 && c <= 0x3096) {
-            c += 0x60;
-        }
-        if (!katakana && c >= 0x30a1 && c <= 0x30f6) {
-            c -= 0x60;
-        }
-        char buffer[8]{};
-        const auto n = g_unichar_to_utf8(c, buffer);
-        result.append(buffer, static_cast<std::size_t>(n));
-    }
-    reading_ = result;
+    reading_ = in_script(reading_, katakana);
 }
 void JapaneseComposer::unconvert() {
     segments_.clear();
@@ -374,6 +539,7 @@ void JapaneseComposer::cancel() {
     unconvert();
     reading_.clear();
     pending_.clear();
+    live_ = {};
 }
 std::string JapaneseComposer::preedit(bool mark_active) const {
     if (!converting()) {

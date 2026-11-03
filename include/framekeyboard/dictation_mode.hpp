@@ -20,4 +20,7 @@ DictationLayout dictation_layout(const Layout& main, double visible_width);
 // function-key row toward the number row, in layout units. Four lines fit.
 constexpr double dictation_editor_rise = 60;
 constexpr double dictation_editor_drop = 12;
+// The function-key row and the gap below it, which a layout without that row
+// gives its dictation mode by moving its keys down.
+constexpr double function_row_room = 66;
 } // namespace framekeyboard

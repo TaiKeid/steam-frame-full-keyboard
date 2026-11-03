@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <dlfcn.h>
 #include <fstream>
+#include <glib.h>
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
@@ -101,8 +102,28 @@ std::pair<double, double> key_centre(App& app, const std::string& id) {
             }
         }
     }
-    require(right > 0, "flick key is visible");
+    if (right <= 0) {
+        throw std::runtime_error("key not visible: " + id);
+    }
     return {(left + right) / 2, (top + bottom) / 2};
+}
+// Clicks the candidate chip showing `text`, if one is in view.
+bool click_candidate(App& app, const std::string& text, double now) {
+    const auto view = app.view();
+    if (!view.candidates) {
+        return false;
+    }
+    for (const auto& chip : view.candidates->chips) {
+        if (chip.text == text) {
+            const double x = chip.bounds.x + chip.bounds.width / 2,
+                         y = chip.bounds.y + chip.bounds.height / 2;
+            app.down(7, x, y, now);
+            app.up(7, x, y);
+            app.tick(now + .01);
+            return true;
+        }
+    }
+    return false;
 }
 // Presses a flick key at time `now`, drags by (dx, dy) panel pixels and releases.
 void flick(App& app, const std::string& slot, double now, double dx = 0, double dy = 0) {
@@ -144,8 +165,11 @@ void flick_input() {
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     auto preedit = [&] { return app.view().preedit; };
     auto clear = [&] {
-        click_key(app, "Escape");
-        require(preedit().empty(), "Escape clears the flick reading");
+        // The kana page has no Esc: Backspace leaves conversion, then empties the reading.
+        for (int i = 0; i < 40 && !preedit().empty(); ++i) {
+            click_key(app, "Backspace");
+        }
+        require(preedit().empty(), "Backspace clears the flick reading");
     };
 
     flick(app, "a", 1);
@@ -258,10 +282,72 @@ void flick_input() {
     click_key(app, "Enter");
     require(sink.text.back() == "つぱ！" && preedit().empty(), "Enter commits the flick reading");
 
-    control(app, "ime-toggle");
-    require(!app.view().composing, "Latin mode stops composition");
-    flick(app, "na", 50);
-    require(app.view().composing && preedit() == "な", "a flick key returns to kana composition");
+    // 「あA1」 replaces the toolbar's A / あ. English shows the layout's QWERTY
+    // page in the same case; digits turn the grid into a number pad.
+    require(!has_control(app, "ime-toggle"), "the mode key replaces A / あ");
+    const auto kana_case = panel_case_bounds(app.view());
+    flick(app, "mode", 49);
+    require(!app.view().composing && app.view().flick_latin && app.view().ime_band &&
+                app.view().layout->id == "ja-flick-qwerty" && panel_case_bounds(app.view()) == kana_case,
+            "a tap on 「あA1」 shows the English page in the same case, keeping the band");
+    const auto typed = sink.text.size();
+    click_key(app, "KeyQ");
+    click_key(app, "ShiftLeft");
+    click_key(app, "KeyW");
+    require(sink.text.size() == typed + 2 && sink.text[typed] == "q" && sink.text.back() == "W" &&
+                preedit().empty(),
+            "English letters type at once, and Shift makes a capital");
+    flick(app, "mode", 54.2);
+    require(app.view().flick_digits && !app.view().flick_latin && app.view().layout->id == "ja-flick-12",
+            "the next tap switches to digits, back on the grid");
+    require(app.view().key_labels.at("Flick-ka") == "2" && app.view().key_labels.at("Flick-wa") == "0",
+            "the grid shows a number pad");
+    flick(app, "ka", 55);
+    flick(app, "ka", 55.2);
+    flick(app, "ka", 55.4, -60, 0);
+    require(sink.text.size() == typed + 5 && sink.text[typed + 3] == "2" && sink.text.back() == "¥" &&
+                preedit().empty(),
+            "digits type at once, without cycling, and flicks type their symbols");
+    flick(app, "mode", 56, 0, -60);
+    require(app.view().flick_latin, "flicking 「あA1」 up picks English");
+    flick(app, "mode", 56.2, 60, 0);
+    require(app.view().flick_digits, "flicking it right picks digits");
+    flick(app, "mode", 56.4, -60, 0);
+    require(app.view().composing, "flicking it left returns to kana");
+    flick(app, "na", 57);
+    require(preedit() == "な", "kana mode composes again");
+    flick(app, "mode", 57.2, 0, -60);
+    require(sink.text.back() == "な" && app.view().flick_latin, "switching modes commits the reading");
+    flick(app, "mode", 57.4, -60, 0);
+
+    // ↶, as on Gboard: the last kana steps back through its key's taps, and
+    // straight after a commit the phrase comes back as a reading.
+    flick(app, "a", 60);
+    flick(app, "a", 60.3);
+    flick(app, "a", 60.6);
+    flick(app, "undo", 60.8);
+    require(preedit() == "い", "↶ steps the kana back through its key's taps");
+    flick(app, "undo", 61);
+    flick(app, "undo", 61.2);
+    require(preedit() == "ぉ", "and past the first tap to the last");
+    flick(app, "a", 61.4);
+    require(preedit() == "あ", "a tap after it goes on from there");
+    click_key(app, "Enter");
+    require(sink.text.back() == "あ" && preedit().empty(), "Enter commits the reading");
+    sink.keys.clear();
+    flick(app, "undo", 62);
+    require(preedit() == "あ" && sink.keys == std::vector<std::pair<int, int>>{{14, 1}, {14, 0}},
+            "↶ straight after a commit takes the phrase back as a reading");
+    click_key(app, "Enter");
+    click_key(app, "ArrowRight");
+    sink.keys.clear();
+    flick(app, "undo", 63);
+    require(preedit().empty() && sink.keys.empty(), "another key ends that chance");
+    flick(app, "a", 64);
+    click_key(app, "Enter");
+    app.cancel_pointer(0);
+    flick(app, "undo", 65);
+    require(preedit().empty() && sink.keys.empty(), "so does the laser leaving the keyboard");
     clear();
 
     app.show_settings();
@@ -291,6 +377,304 @@ void flick_input() {
     choose(app, "layout", "en-us-full");
     control(app, "apply");
     require(app.selection().language == "ja-romaji", "leaving flick keeps Japanese, as Romaji");
+}
+// Splits a reading into two-character segments, the last possibly one; a
+// segment's candidates are 〈its reading〉 and the reading itself. Resizing
+// moves one boundary and splits the rest again, as Anthy does.
+struct FakeConverter : JapaneseConverter {
+    int* conversions;
+    std::vector<std::string> characters;
+    std::vector<int> lengths;
+    explicit FakeConverter(int* count) : conversions(count) {}
+    void split_from(std::size_t segment, int used) {
+        lengths.resize(segment);
+        for (int left = static_cast<int>(characters.size()) - used; left > 0; left -= 2) {
+            lengths.push_back(std::min(2, left));
+        }
+    }
+    std::vector<Segment> segments() const {
+        std::vector<Segment> result;
+        std::size_t at = 0;
+        for (const int length : lengths) {
+            std::string reading;
+            for (int i = 0; i < length; ++i) {
+                reading += characters[at++];
+            }
+            result.push_back({reading, {"〈" + reading + "〉", reading}});
+        }
+        return result;
+    }
+    std::vector<Segment> convert(const std::string& reading) override {
+        ++*conversions;
+        characters.clear();
+        for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
+            characters.emplace_back(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+        }
+        split_from(0, 0);
+        return segments();
+    }
+    std::vector<Segment> resize(int index, int delta) override {
+        const auto segment = static_cast<std::size_t>(index);
+        int used = 0;
+        for (std::size_t i = 0; i <= segment; ++i) {
+            used += lengths[i];
+        }
+        if (lengths[segment] + delta < 1 || used + delta > static_cast<int>(characters.size())) {
+            return segments();
+        }
+        lengths[segment] += delta;
+        split_from(segment + 1, used + delta);
+        return segments();
+    }
+};
+JapaneseComposer::Factory fake_converter(int* conversions) {
+    return [conversions] { return std::make_unique<FakeConverter>(conversions); };
+}
+void progressive_conversion() {
+    int conversions = 0;
+    JapaneseComposer composer(fake_converter(&conversions));
+    composer.kana("にほんご");
+    require(composer.live().empty() && !composer.live_current(), "no live candidates before a pause");
+    composer.prepare_live();
+    require(composer.live_current() &&
+                composer.live() == std::vector<std::string>{"〈にほ〉〈んご〉", "〈にほ〉", "にほ",
+                                                            "ニホ", "にほんご", "ニホンゴ"},
+            "live candidates: the whole phrase, the first segment, then both scripts, each once");
+    require(conversions == 1 && composer.preedit() == "にほんご" && !composer.converting(),
+            "live candidates leave the reading as typed");
+    composer.prepare_live();
+    require(conversions == 1, "an unchanged reading is not converted again");
+    composer.convert();
+    require(conversions == 1 && composer.converting() && composer.segment_count() == 2,
+            "conversion reuses the live candidates' segments");
+    composer.unconvert();
+    require(composer.choose_live(0) && composer.commit_text() == "〈にほ〉〈んご〉",
+            "the whole phrase commits at once");
+    composer.cancel();
+    require(composer.live().empty(), "a new phrase starts without candidates");
+
+    composer.kana("にほんご");
+    composer.prepare_live();
+    require(!composer.choose_live(2) && composer.converting() && composer.active_segment() == 1 &&
+                composer.candidates().front() == "〈んご〉",
+            "a first segment's candidate moves on to the second segment");
+    require(composer.choose(0) && composer.commit_text() == "にほ〈んご〉",
+            "choosing in the last segment completes the phrase");
+    composer.cancel();
+    composer.kana("にほんご");
+    composer.prepare_live();
+    require(composer.choose_live(5) && composer.commit_text() == "ニホンゴ", "a katakana candidate");
+    composer.cancel();
+    composer.kana("にほんご");
+    composer.prepare_live();
+    composer.kana("を");
+    require(!composer.live_current() && composer.live().size() == 6 && !composer.choose_live(0),
+            "typing leaves the old list stale, and a stale one picks nothing");
+    composer.backspace();
+    require(composer.live_current(), "the list is current again for its reading");
+    for (int i = 0; i < 4; ++i) {
+        composer.backspace();
+    }
+    require(composer.empty() && composer.live().empty(), "an emptied reading drops the list");
+
+    // Romaji: a final n counts as ん; another letter waits.
+    for (const char key : std::string("nihon")) {
+        composer.roman(key);
+    }
+    composer.prepare_live();
+    require(composer.live_current() && composer.live().front() == "〈にほ〉〈ん〉",
+            "a final n converts as ん");
+    composer.roman('k');
+    composer.prepare_live();
+    require(!composer.live_current() && composer.live().front() == "〈にほ〉〈ん〉",
+            "a pending consonant leaves the list for the reading before it");
+    composer.backspace();
+    require(composer.choose_live(0) && composer.commit_text() == "〈にほ〉〈ん〉",
+            "picking with a pending n commits the ん it was converted with");
+    composer.cancel();
+
+    // Resizing: the active segment's end moves; the rest splits again.
+    composer.kana("にほんごを");
+    composer.convert();
+    require(composer.preedit() == "〈にほ〉〈んご〉〈を〉", "three segments");
+    composer.resize(1);
+    require(composer.preedit() == "〈にほん〉〈ごを〉" && composer.active_segment() == 0,
+            "→ lengthens the active segment");
+    composer.resize(-1);
+    composer.resize(-1);
+    require(composer.preedit() == "〈に〉〈ほん〉〈ごを〉", "← shortens it");
+    composer.resize(-1);
+    require(composer.preedit() == "〈に〉〈ほん〉〈ごを〉", "a segment keeps at least one character");
+    composer.cycle(1);
+    require(!composer.choose(1) && composer.active_segment() == 1, "choosing moves on");
+    composer.resize(1);
+    require(composer.preedit() == "に〈ほんご〉〈を〉", "earlier segments keep their choices");
+    composer.segment(1);
+    composer.resize(1);
+    require(composer.preedit() == "に〈ほんご〉〈を〉", "the last segment cannot reach past the end");
+    const int before = conversions;
+    composer.unconvert();
+    composer.convert();
+    require(conversions == before + 1 && composer.preedit() == "〈にほ〉〈んご〉〈を〉",
+            "converting again after a resize starts from Anthy's own split");
+    composer.cancel();
+}
+// The band and its candidates, with the fake converter: live candidates after
+// a pause, a tap moving on through the segments, the arrows resizing, a drag
+// scrolling without picking, and the keys keeping their size across A / あ.
+void candidate_band() {
+    char directory[] = "/tmp/framekeyboard-band-XXXXXX";
+    require(mkdtemp(directory), "temporary band profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    for (const auto* removed :
+         {"ime-toggle", "ime-convert", "ime-commit", "ime-cancel", "ime-hiragana", "ime-katakana",
+          "ime-next", "ime-prev", "ime-segment-next", "ime-segment-prev"}) {
+        require(!has_control(app, removed),
+                "the keys convert, commit, cancel and switch modes: no duplicate buttons");
+    }
+    const auto key_at = [&] { return key_centre(app, "Flick-na"); };
+    const auto kana_keys = key_at();
+    {
+        const auto view = app.view();
+        const auto top = panel_rect(view, view.layout->keys.front().bounds).y;
+        const auto band = ime_band(view);
+        require(view.ime_band && panel_case_bounds(view).width < panel_width - 1 &&
+                    band.candidates.y > band.reading.y &&
+                    top > band.candidates.y + band.candidates.height,
+                "the flick case fits its keys, under a reading row and a candidate row");
+    }
+    const auto kana_case = panel_case_bounds(app.view());
+    flick(app, "mode", 1);
+    require(panel_case_bounds(app.view()) == kana_case, "the English page keeps the case's size");
+    flick(app, "mode", 2, -60, 0);
+    require(key_at() == kana_keys, "back on the kana page, its keys are where they were");
+    auto chips = [&] {
+        std::vector<std::string> result;
+        if (const auto strip = app.view().candidates) {
+            for (const auto& chip : strip->chips) {
+                result.push_back(chip.text);
+            }
+        }
+        return result;
+    };
+    flick(app, "na", 10, -60, 0);
+    flick(app, "ha", 10.2);
+    flick(app, "na", 10.4);
+    flick(app, "ka", 10.6, 0, 60);
+    require(app.view().preedit == "にはなこ", "a reading");
+    app.tick(10.65);
+    app.tick(10.7);
+    require(!app.view().candidates && conversions == 0, "no candidates while typing");
+    app.tick(10.9);
+    const auto live = chips();
+    require(conversions == 1 && live.size() >= 4 && live.front() == "〈には〉〈なこ〉" &&
+                live[1] == "〈には〉",
+            "live candidates after a pause: the whole phrase, then the first segment's");
+    flick(app, "ma", 11);
+    app.tick(11.01);
+    require(app.view().candidates && app.view().candidates->stale, "typing on leaves a stale list");
+    require(!click_candidate(app, "〈には〉", 11.02) || app.view().preedit == "にはなこま",
+            "a stale chip picks nothing");
+    click_key(app, "Backspace");
+    app.tick(11.1);
+    require(!app.view().candidates->stale, "the list is current again for its reading");
+    require(click_candidate(app, "〈には〉", 11.2) && app.view().preedit == "〈には〉〈なこ〉" &&
+                app.view().preedit_active_begin == std::string("〈には〉").size(),
+            "a first segment's live candidate moves on to the second segment");
+    require(chips().front() == "〈なこ〉" && sink.text.empty(), "the next segment's candidates");
+    require(click_candidate(app, "なこ", 11.3) && sink.text.back() == "〈には〉なこ" &&
+                app.view().preedit.empty(),
+            "choosing in the last segment commits the phrase");
+
+    // Flick arrows resize the converting segment; the band's ↑ and ↓ step
+    // through its candidates, and ↶ returns to the reading.
+    flick(app, "na", 12, -60, 0);
+    flick(app, "ha", 12.2);
+    flick(app, "na", 12.4);
+    flick(app, "ka", 12.6, 0, 60);
+    click_key(app, "Space");
+    app.tick(12.7);
+    require(app.view().preedit == "〈には〉〈なこ〉", "変換 converts");
+    click_key(app, "ArrowRight");
+    require(app.view().preedit == "〈にはな〉〈こ〉", "→ lengthens the segment");
+    click_key(app, "ArrowLeft");
+    click_key(app, "ArrowLeft");
+    require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "← shortens it, splitting the rest again");
+    control(app, "ime-down");
+    require(app.view().preedit == "に〈はな〉〈こ〉", "the band's ↓ moves to the next candidate");
+    control(app, "ime-up");
+    require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "and ↑ back");
+    flick(app, "undo", 12.8);
+    require(app.view().preedit == "にはなこ" && !app.view().candidates->stale,
+            "↶ returns to the reading");
+    for (int i = 0; i < 4; ++i) {
+        click_key(app, "Backspace");
+    }
+
+    // A drag along the strip scrolls it without picking anything.
+    for (int i = 0; i < 24; ++i) {
+        flick(app, "na", 13 + i * .02, -60, 0);
+    }
+    app.tick(14);
+    app.tick(14.2);
+    const auto committed = sink.text.size();
+    const auto strip = app.view().candidates;
+    require(strip && !strip->chips.empty(), "candidates for a long reading");
+    const auto& first = strip->chips.front().bounds;
+    const double y = first.y + first.height / 2, x = first.x + first.width / 2;
+    app.down(7, x, y, 14.3);
+    app.move(7, x - 60, y);
+    app.move(7, x - 120, y);
+    app.up(7, x - 120, y);
+    app.tick(14.4);
+    require(sink.text.size() == committed && !app.view().preedit.empty() &&
+                app.view().candidates->chips.front().bounds.x < first.x,
+            "a drag scrolls the strip and picks nothing");
+    while (!app.view().preedit.empty()) {
+        click_key(app, "Backspace");
+    }
+
+    // Romaji on a full layout: the band too, and PC conventions for the arrows.
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    require(app.view().ime_band, "full layouts have the band too");
+    for (const auto& id : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyN", "KeyA", "KeyK", "KeyO"}) {
+        click_key(app, id);
+    }
+    click_key(app, "Space");
+    app.tick(20);
+    click_key(app, "ArrowRight");
+    require(app.view().preedit == "〈には〉〈なこ〉" &&
+                app.view().preedit_active_begin == std::string("〈には〉").size(),
+            "→ moves to the next segment");
+    click_key(app, "ShiftLeft");
+    click_key(app, "ArrowLeft");
+    require(app.view().preedit == "〈には〉〈な〉〈こ〉", "Shift+← shortens it");
+    click_key(app, "Enter");
+    require(sink.text.back() == "〈には〉〈な〉〈こ〉", "Enter commits every segment");
+    if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        for (int i = 0; i < 5; ++i) {
+            flick(app, "na", 30 + i * .1, -60, 0);
+        }
+        app.tick(31);
+        app.tick(31.2);
+        app.paint(31.2);
+        app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
+    }
 }
 void romaji_legends() {
     char directory[] = "/tmp/framekeyboard-romaji-legends-XXXXXX";
@@ -381,6 +765,8 @@ void text_output_capture() {
 }
 int main() {
     try {
+        progressive_conversion();
+        candidate_band();
         romaji_legends();
         flick_input();
         text_output_capture();
@@ -510,7 +896,8 @@ int main() {
         require(app.view().preedit == "にほn", "local preedit");
         require(sink.keys.empty() && sink.text.empty(), "preedit sends no raw keys or text");
         if (anthy) {
-            control(app, "ime-convert");
+            click_key(app, "Space");
+            app.tick(2);
             if (const auto* directory = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
                 app.paint(2);
                 app.renderer.write_png(fs::path(directory) / "framekeyboard-ja-candidates.png");
@@ -527,7 +914,7 @@ int main() {
                 "empty Enter submits normally");
         click_key(app, "KeyA");
         sink.accept = false;
-        control(app, "ime-commit");
+        click_key(app, "Enter");
         require(app.view().preedit == "あ", "failed delivery retains text");
         sink.accept = true;
         app.cancel();
@@ -537,9 +924,7 @@ int main() {
         const auto sent_before_hide = sink.text.size();
         app.set_interaction_active(false);
         require(app.view().preedit.empty(), "dashboard close discards Japanese preedit");
-        control(app, "ime-commit");
         app.set_interaction_active(true);
-        control(app, "ime-commit");
         require(sink.text.size() == sent_before_hide, "no hidden or stale Japanese commit");
         for (const auto* forwarding_key : {"Tab", "Delete", "Home", "End", "Paste"}) {
             click_key(app, "KeyA");
@@ -633,18 +1018,36 @@ int main() {
             for (const auto& id : {"KeyN", "KeyI", "KeyH", "KeyO", "KeyN"}) {
                 click_key(converted, id);
             }
-            control(converted, "ime-convert");
-            std::string choice;
-            for (const auto& button : converted.view().controls) {
-                if (button.id.starts_with("ime-candidate-") && button.label.ends_with(" 日本")) {
-                    choice = button.id;
-                }
-            }
-            require(!choice.empty(), "日本 candidate is clickable");
-            control(converted, choice);
-            control(converted, "ime-commit");
+            click_key(converted, "Space");
+            converted.tick(2);
+            require(click_candidate(converted, "日本", 2),
+                    "日本 is a candidate, and choosing the last segment's commits the phrase");
             require(sink.text == std::vector<std::string>{"日本"},
-                    "candidate button commits through text sink");
+                    "the candidate commits through the text sink");
+            // Live candidates after a pause in typing, before any 変換.
+            for (const auto& id : {"KeyN", "KeyI", "KeyH", "KeyO", "KeyN", "KeyG", "KeyO"}) {
+                click_key(converted, id);
+            }
+            converted.tick(3);
+            converted.tick(3.1);
+            require(!converted.view().candidates, "no live candidates before the pause");
+            converted.tick(3.3);
+            const auto live = converted.view().candidates;
+            require(live && !live->stale && live->chips.size() > 2, "live candidates after a pause");
+            require(click_candidate(converted, "日本語", 3.4),
+                    "the whole phrase is a live candidate and commits at once");
+            require(sink.text.back() == "日本語" && converted.view().preedit.empty(),
+                    "a live candidate commits through the text sink");
+            if (const auto* directory = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+                for (const auto& id : {"KeyK", "KeyY", "KeyO", "KeyU", "KeyH", "KeyA"}) {
+                    click_key(converted, id);
+                }
+                converted.tick(4);
+                converted.tick(4.3);
+                converted.paint(4.3);
+                converted.renderer.write_png(fs::path(directory) / "framekeyboard-ja-live.png");
+                click_key(converted, "Escape");
+            }
         }
         std::cout
             << "Japanese composition, candidates, kana, shortcuts, gates and cancellation passed.\n";

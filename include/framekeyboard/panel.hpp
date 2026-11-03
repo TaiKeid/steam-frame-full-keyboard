@@ -1,5 +1,6 @@
 #pragma once
 
+#include "candidates.hpp"
 #include "emoji.hpp"
 #include "input.hpp"
 #include <array>
@@ -93,16 +94,9 @@ enum class ControlKind {
     ScrollMenu,
     // Contiguous composition groups support policy checks without inspecting IDs.
     ImeToggle,
-    ImeConvert,
-    ImeCommit,
-    ImeCancel,
-    ImeHiragana,
-    ImeKatakana,
-    ImeNext,
-    ImePrev,
-    ImeSegmentNext,
-    ImeSegmentPrev,
-    ImeCandidate,
+    // The Japanese band's ↑ and ↓, pressed as the arrow keys.
+    ImeUp,
+    ImeDown,
     CjkToggle,
     CjkCommit,
     CjkCancel,
@@ -215,6 +209,19 @@ struct PanelView {
     double case_opacity{1};
     bool laser_through_gaps{};
     std::string preedit;
+    // A Japanese language (docs/japanese.md) keeps a band between the toolbar
+    // and the keys in both modes: the reading on the left, its candidates
+    // scrolling beside it, and a hint while there is no reading. The
+    // converting segment is a byte range of `preedit`.
+    bool ime_band{};
+    // The flick layout's band ends its candidate row with ↑ and ↓, which its
+    // kana and digit pages have no keys for.
+    bool ime_arrows{};
+    // Flick keys show the language's English letters or digits (Japanese
+    // English and digit modes); the 「あA1」 key marks which mode is on.
+    bool flick_latin{}, flick_digits{};
+    std::size_t preedit_active_begin{}, preedit_active_end{};
+    std::optional<CandidateStripView> candidates;
     std::map<std::string, std::string> key_labels;
     // The flick key being held: what a tap and each flick would type, and the
     // direction release would choose. Painted as a cross above the keys.
@@ -343,6 +350,14 @@ Rect panel_case_bounds(const PanelView& view);
 bool compact_toolbar(const PanelView& view);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
+// The Japanese band and its parts: the reading, and the candidates beside it.
+struct ImeBand {
+    Rect band, reading, candidates;
+    std::optional<Rect> up, down; // With ime_arrows.
+};
+ImeBand ime_band(const PanelView& view);
+// A candidate's label width, as the band draws it.
+double candidate_text_width(const std::string& text, const std::string& family);
 // Panel area of the flick preview, which may extend past the case.
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
 // Where dictation mode's status line sits in the toolbar row.

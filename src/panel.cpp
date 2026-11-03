@@ -74,12 +74,26 @@ double handle_ease_out(double progress) {
     return t * t * (3 - 2 * t);
 }
 constexpr double normal_toolbar_height = 96;
+// The Japanese band sits below the status line and a compact toolbar's second
+// row; the keys follow it. It stays in both of the language's modes, so A / あ
+// never changes their size, and the case is measured with it. The flick
+// layout, as short as a phone's, gives the reading and the candidates a row
+// each; other layouts share one.
+constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 156,
+                 ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
+bool two_row_band(const PanelView& view) {
+    return view.ime_band && view.language && view.language->input_method == "japanese-flick";
+}
+constexpr double candidate_font_size = 21, reading_font_size = 24;
 struct Placement {
     double scale, x, y;
 };
 Placement placement(const PanelView& view, bool normal = false) {
     const double margin = view.theme->padding;
-    const double toolbar_height = view.composing && !normal ? 208 : normal_toolbar_height;
+    const double toolbar_height = two_row_band(view)          ? ime_two_row_height
+                                  : view.ime_band             ? ime_toolbar_height
+                                  : view.composing && !normal ? 208
+                                                              : normal_toolbar_height;
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
@@ -472,6 +486,35 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-2, -7, -9, 0);
         cairo_line_to(cr, -2, 7);
         break;
+    case Icon::TurnBack:
+        // An arrow back to the left that turns down: back one step, not undo.
+        line(-3.6, 2.4, -8.4, -2.4);
+        cairo_line_to(cr, -3.6, -7.2);
+        line(-8.4, -2.4, 4.8, -2.4);
+        cairo_arc(cr, 4.8, 2.4, 4.8, -pi / 2, pi / 2);
+        cairo_line_to(cr, 3.6, 7.2);
+        break;
+    case Icon::Space:
+        // ␣: an open box's floor, as phones mark the space bar.
+        line(-12, -1, -12, 5);
+        cairo_line_to(cr, 12, 5);
+        cairo_line_to(cr, 12, -1);
+        break;
+    case Icon::Enter:
+        // ↵: down from the top right, then back to the left.
+        line(10, -8, 10, 3);
+        cairo_line_to(cr, -9, 3);
+        line(-3, -3, -9, 3);
+        cairo_line_to(cr, -3, 9);
+        break;
+    case Icon::ArrowUp:
+    case Icon::ArrowDown: {
+        const double tip = icon == Icon::ArrowUp ? -9 : 9;
+        line(0, -tip, 0, tip);
+        line(-7, tip - (tip < 0 ? -7 : 7), 0, tip);
+        cairo_line_to(cr, 7, tip - (tip < 0 ? -7 : 7));
+        break;
+    }
     case Icon::Recenter:
         cairo_arc(cr, 0, 0, 7, 0, 2 * pi);
         line(-11, 0, -5, 0);
@@ -933,7 +976,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         draw_where(cr, view, t, face);
         return;
     }
-    if (key.icon != Icon::None) {
+    // A label set for the moment, such as 変換 on the flick layout's space
+    // bar while composing, stands in for the key's icon.
+    if (key.icon != Icon::None && !view.key_labels.contains(key.id)) {
         const bool super_icon = key.icon == Icon::SteamFrame || key.icon == Icon::SteamOS;
         // Dictation's Copy, Cut and Paste, and the stack on layouts that need
         // one, are ordinary key height or less.
@@ -969,15 +1014,35 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     if (key.action_kind == ActionKind::Flick) {
         const auto custom = view.key_labels.find(key.id);
         const auto& center = custom != view.key_labels.end() ? custom->second : key.label;
-        const auto slot = view.language->flick.find(key.action);
-        if (slot == view.language->flick.end()) {
+        const auto& table = view.flick_digits ? view.language->flick_digits : view.language->flick;
+        const auto slot = table.find(key.action);
+        if (slot == table.end()) {
             label(cr, center, face, t.font_size * 1.3, view.language->font, t.legend, true);
+            return;
+        }
+        const auto hint = disabled_legend(t);
+        if (key.action == flick_undo_slot) {
+            draw_icon(cr, Icon::TurnBack, face, t.legend, 26); // without hints
+            return;
+        }
+        if (key.action == flick_mode_slot) {
+            // The mode key: あ, A and 1 across it, the one in use lit. A tap
+            // moves on to the next; a flick picks one, as its preview shows.
+            const std::array<const char*, 3> modes{"あ", "A", "1"};
+            const int on = view.flick_digits ? 2 : view.flick_latin ? 1 : 0;
+            const double inset = face.width * .08, third = (face.width - 2 * inset) / 3;
+            for (int i = 0; i < 3; ++i) {
+                // One size for all three, small enough for the kana's width.
+                label(cr, modes[static_cast<std::size_t>(i)],
+                      {face.x + inset + third * i, face.y, third, face.height},
+                      std::min(t.font_size, third * .8), view.language->font, i == on ? t.legend : hint,
+                      true);
+            }
             return;
         }
         // The tap kana in the middle, the four flick kana as hints on their sides.
         const auto& flick = slot->second;
         const double side = face.width * .22, band = face.height * .34;
-        const auto hint = disabled_legend(t);
         label(cr, flick.left, {face.x, face.y, side, face.height}, t.small_font_size,
               view.language->font, hint, true);
         label(cr, flick.right, {face.x + face.width - side, face.y, side, face.height},
@@ -986,9 +1051,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
               view.language->font, hint, true);
         label(cr, flick.down, {face.x + side, face.y + face.height - band, face.width - 2 * side, band},
               t.small_font_size, view.language->font, hint, true);
-        label(cr, center,
-              {face.x + side, face.y + band * .6, face.width - 2 * side, face.height - band * 1.2},
-              t.font_size, view.language->font, t.legend, true);
+        const Rect middle{face.x + side, face.y + band * .6, face.width - 2 * side,
+                          face.height - band * 1.2};
+        label(cr, center, middle, t.font_size, view.language->font, t.legend, true);
         return;
     }
     const bool overrides = !view.latin_legends;
@@ -1100,8 +1165,10 @@ Rect panel_case_bounds(const PanelView& view) {
     // Custom geometry can leave only a few pixels after hiding its numpad.
     // Reserve the fixed main toolbar, and room for the scaled IME toolbar when
     // present. This same case is used by painting, controls and the VR mask.
+    // The Chinese and Korean toolbars' buttons need a wide case; the Japanese
+    // band has only A / あ there and fits the keys.
     const bool ime = view.language && view.language->input_method != "xkb";
-    const double minimum = ime ? 1300 : 630;
+    const double minimum = ime && !view.ime_band ? 1300 : 630;
     // A layout narrower than the panel at this scale (flick) also narrows the
     // case, except in Settings, whose controls and cards span the full panel.
     const double slack =
@@ -1110,6 +1177,50 @@ Rect panel_case_bounds(const PanelView& view) {
         std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
                               (slack > 1 ? slack : 0));
     return {(panel_width - width) / 2, 0, width, panel_height};
+}
+ImeBand ime_band(const PanelView& view) {
+    const auto body = panel_case_bounds(view);
+    if (two_row_band(view)) {
+        const Rect reading{body.x + 20, ime_band_top, body.width - 40, ime_band_height};
+        Rect candidates = reading;
+        candidates.y += ime_band_height + ime_band_gap;
+        ImeBand result{{reading.x, reading.y, reading.width, 2 * ime_band_height + ime_band_gap},
+                       reading,
+                       candidates,
+                       {},
+                       {}};
+        if (view.ime_arrows) {
+            constexpr double width = 64, gap = 8;
+            auto& row = result.candidates;
+            row.width -= 2 * (width + gap);
+            result.up = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
+            result.down = Rect{result.up->x + width + gap, row.y + 3, width, row.height - 6};
+        }
+        return result;
+    }
+    const Rect band{body.x + 20, ime_band_top, body.width - 40, ime_band_height};
+    const double reading = std::clamp(std::round(band.width * .4), 240.0, 560.0);
+    return {band,
+            {band.x, band.y, reading, band.height},
+            {band.x + reading + 12, band.y, std::max(0.0, band.width - reading - 12), band.height},
+            {},
+            {}};
+}
+double candidate_text_width(const std::string& text, const std::string& family) {
+    // Measuring needs a context but no pixels: one tiny surface per thread.
+    thread_local struct Measuring {
+        cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+        cairo_t* context = [this] {
+            auto* created = cairo_create(surface);
+            grey_text(created);
+            return created;
+        }();
+        ~Measuring() {
+            cairo_destroy(context);
+            cairo_surface_destroy(surface);
+        }
+    } measuring;
+    return text_width(measuring.context, text, candidate_font_size, family);
 }
 Rect panel_rect(const PanelView& view, Rect r) {
     const auto p = placement(view);
@@ -1514,6 +1625,102 @@ void case_plate(cairo_t* cr, const PanelView& view, const Rect& area, const std:
 Rect emoji_well(const Rect& grid) {
     return {grid.x - 6, grid.y - 6, grid.width + 12, grid.height + 12};
 }
+// Candidates as caps like the toolbar's buttons, clipped to their strip;
+// stale ones dimmed, as a disabled button is.
+void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripView& strip) {
+    const auto& t = *view.theme;
+    cairo_save(cr);
+    const auto clip = pixel_bounds(strip.area);
+    cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
+    cairo_clip(cr);
+    for (const auto& chip : strip.chips) {
+        draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
+        const auto legend = strip.stale     ? disabled_legend(t)
+                            : chip.selected ? t.latched_legend
+                                            : t.legend;
+        label(cr, chip.text, chip.bounds, candidate_font_size, view.language->font, legend, true);
+    }
+    cairo_restore(cr);
+}
+// What the composing line says before anything is typed.
+std::string composition_hint(const PanelView& view) {
+    const auto& method = view.language->input_method;
+    if (view.ime_band && !view.composing) {
+        // The flick layout switches with its 「あA1」 key, others with A / あ.
+        const bool flick = method == "japanese-flick";
+        return std::string(view.flick_digits ? "数字入力" : "英字入力") +
+               (flick ? " · あA1: かな入力に戻る" : " · A / あ: かな入力に戻る");
+    }
+    return method == "korean-2set"        ? "Type → Space/Enter: commit · Esc: cancel"
+           : method == "korean-cheonjiin" ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
+           : method == "chinese-zhuyin"   ? "注音 → Space: select · Enter: commit · Esc: cancel"
+           : method == "chinese-cangjie"  ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
+           : method == "chinese-quick"    ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
+           : method.starts_with("chinese-") ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
+           : method == "japanese-kana"      ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
+           : method == "japanese-flick"
+               ? "フリック入力 → 空白: 変換 · 改行: 確定 · ↶: 戻す"
+               : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
+}
+// The Japanese band: the reading in a small well, underlined as in a text
+// field with the converting segment on the latched colour, and the
+// candidates as caps beside it. A hint stands in while nothing is typed.
+void draw_ime_band(cairo_t* cr, const PanelView& view) {
+    const auto& t = *view.theme;
+    const auto areas = ime_band(view);
+    if (view.preedit.empty()) {
+        const auto hint = composition_hint(view);
+        const auto& line = two_row_band(view) ? areas.reading : areas.band;
+        case_plate(cr, view, line, hint, 19, PANGO_ALIGN_CENTER);
+        label(cr, hint, line, 19, view.language->font, mix(t.legend, t.surface, .35));
+    } else {
+        const auto& r = areas.reading;
+        draw_well(cr, t, r);
+        auto* layout = pango_cairo_create_layout(cr);
+        auto* font = pango_font_description_new();
+        pango_font_description_set_family(font, view.language->font.c_str());
+        pango_font_description_set_absolute_size(font, reading_font_size * PANGO_SCALE);
+        pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+        pango_layout_set_font_description(layout, font);
+        pango_font_description_free(font);
+        pango_layout_set_text(layout, view.preedit.c_str(), static_cast<int>(view.preedit.size()));
+        pango_layout_set_single_paragraph_mode(layout, TRUE);
+        pango_layout_set_width(layout, static_cast<int>((r.width - 24) * PANGO_SCALE));
+        // A long reading keeps its end, where typing goes on, in view; while
+        // converting, the side the active segment is on.
+        const bool early = view.preedit_active_end > view.preedit_active_begin &&
+                           view.preedit_active_end * 2 <= view.preedit.size();
+        pango_layout_set_ellipsize(layout, early ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_START);
+        auto* attributes = pango_attr_list_new();
+        pango_attr_list_insert(attributes, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
+        if (view.preedit_active_end > view.preedit_active_begin &&
+            view.preedit_active_end <= view.preedit.size()) {
+            auto channel = [](double value) {
+                return static_cast<guint16>(std::clamp(value, 0.0, 1.0) * 65535);
+            };
+            for (auto* attribute :
+                 {pango_attr_background_new(channel(t.latched.r), channel(t.latched.g),
+                                            channel(t.latched.b)),
+                  pango_attr_foreground_new(channel(t.latched_legend.r), channel(t.latched_legend.g),
+                                            channel(t.latched_legend.b))}) {
+                attribute->start_index = static_cast<guint>(view.preedit_active_begin);
+                attribute->end_index = static_cast<guint>(view.preedit_active_end);
+                pango_attr_list_insert(attributes, attribute);
+            }
+        }
+        pango_layout_set_attributes(layout, attributes);
+        pango_attr_list_unref(attributes);
+        int width = 0, height = 0;
+        pango_layout_get_pixel_size(layout, &width, &height);
+        source(cr, t.legend);
+        cairo_move_to(cr, r.x + 12, r.y + (r.height - height) / 2);
+        pango_cairo_show_layout(cr, layout);
+        g_object_unref(layout);
+    }
+    if (view.candidates) {
+        draw_candidates(cr, view, *view.candidates);
+    }
+}
 void draw_editor(cairo_t* cr, const PanelView& view) {
     const auto& t = *view.theme;
     const auto& editor = *view.dictation;
@@ -1619,8 +1826,8 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
     }
     if (!editor.notice.empty() || editor.candidates) {
         // A band across the well's foot, darker than the well, so it reads as
-        // laid over the text rather than part of it. Candidates are controls
-        // drawn on it.
+        // laid over the text rather than part of it. Candidates are drawn
+        // on it.
         const Rect band{r.x + 1, r.y + r.height - dictation_notice_height, r.width - 2,
                         dictation_notice_height - 1};
         cairo_save(cr);
@@ -1704,6 +1911,9 @@ std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t 
         if (view.emoji->popup) {
             add(view.emoji->popup->bounds);
         }
+    }
+    if (view.candidates) {
+        add(view.candidates->area);
     }
     if (view.dictation) {
         add(view.dictation->bounds);
@@ -1903,7 +2113,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
-        previous_->view.composing != view.composing ||
+        previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
+        previous_->view.flick_latin != view.flick_latin ||
+        previous_->view.flick_digits != view.flick_digits ||
         previous_->view.latin_legends != view.latin_legends ||
         previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.case_opacity != view.case_opacity ||
@@ -2110,9 +2322,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }
     // The reading line and the flick preview repaint only their own area. The
     // preview's old and new extents both count; it may lie beyond the case.
-    if (!full && previous_->view.preedit != view.preedit) {
+    if (!full && !view.ime_band && previous_->view.preedit != view.preedit) {
         const auto body = panel_case_bounds(view);
         damage_area({std::floor(body.x + 20), 94, std::ceil(body.width - 40), 40});
+    }
+    // The Japanese band: its reading, hint and candidates.
+    if (!full && view.ime_band &&
+        (previous_->view.preedit != view.preedit ||
+         previous_->view.preedit_active_begin != view.preedit_active_begin ||
+         previous_->view.preedit_active_end != view.preedit_active_end ||
+         previous_->view.candidates != view.candidates)) {
+        damage_area(pixel_bounds(ime_band(view).band, 6));
     }
     if (!full && (previous_->view.focus_tooltip != view.focus_tooltip ||
                   (!view.focus_tooltip.empty() && previous_->view.controls != view.controls))) {
@@ -2220,6 +2440,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         damage_area({left, top, right - left, bottom - top});
     }
     // The editor and its counter repaint only their own areas.
+    if (!full && view.dictation && previous_->view.candidates != view.candidates) {
+        damage_area(pixel_bounds(view.dictation->bounds, 2));
+    }
     if (!full && previous_->view.dictation != view.dictation) {
         damage_area(pixel_bounds(view.dictation->bounds, 2));
         if (previous_->view.dictation->counter != view.dictation->counter) {
@@ -2486,59 +2709,15 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         if (view.dictation && !view.settings) {
             draw_editor(cr, view);
-        }
-        if (const auto cells = flick_cells(view)) {
-            // Above the keys, like the trail; partial repaints redraw it inside their clip.
-            // Raised keycaps floating over the keys: their shadows first, so
-            // none falls on a neighbouring cap, then the caps with the keys'
-            // hover gradient and a faint light along the top edge.
-            const auto& preview = *view.flick_preview;
-            const double size = (*cells)[0].height;
-            auto used = [&](std::size_t i) { return i == 0 || !preview.text[i].empty(); };
-            for (std::size_t i = 0; i < cells->size(); ++i) {
-                if (used(i)) {
-                    soft_shadow(cr, (*cells)[i], t.radius, flick_shadow);
-                }
-            }
-            for (std::size_t i = 0; i < cells->size(); ++i) {
-                if (!used(i)) {
-                    continue; // A direction this key does not use.
-                }
-                const auto& r = (*cells)[i];
-                // A gutter in the case's colour sets each cap off from the
-                // keys beneath, as the gaps between keys do. It stays over a
-                // transparent case too: without it, caps over keys of the
-                // same colour run together.
-                rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
-                source(cr, t.surface);
-                cairo_fill(cr);
-                draw_cap(cr, t, r, true, static_cast<int>(i) == preview.selected, true);
-                cairo_move_to(cr, r.x + t.radius, r.y + 1.5);
-                cairo_line_to(cr, r.x + r.width - t.radius, r.y + 1.5);
-                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .12);
-                cairo_set_line_width(cr, 1);
-                cairo_stroke(cr);
-                label(cr, preview.text[i], r, size * .5, view.language->font,
-                      static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
+            if (view.candidates && !view.ime_band) {
+                draw_candidates(cr, view, *view.candidates); // on the band over its foot
             }
         }
         draw_focus_tooltip(cr, view);
-        if (view.composing && !view.settings) {
-            const auto& method = view.language->input_method;
-            const char* hint =
-                method == "korean-2set" ? "Type → Space/Enter: commit · Esc: cancel"
-                : method == "korean-cheonjiin"
-                    ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
-                : method == "chinese-zhuyin"  ? "注音 → Space: select · Enter: commit · Esc: cancel"
-                : method == "chinese-cangjie" ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
-                : method == "chinese-quick"   ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
-                : method.starts_with("chinese-")
-                    ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
-                : method == "japanese-kana" ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
-                : method == "japanese-flick"
-                    ? "フリック入力 → 空白: 変換 · 改行: 確定 · Esc: キャンセル"
-                    : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
-            const std::string reading = view.preedit.empty() ? hint : view.preedit;
+        if (view.ime_band && !view.settings) {
+            draw_ime_band(cr, view);
+        } else if (view.composing && !view.settings) {
+            const std::string reading = view.preedit.empty() ? composition_hint(view) : view.preedit;
             const Rect line{body.x + 20, 94, body.width - 40, 40};
             case_plate(cr, view, line, reading, 27, PANGO_ALIGN_CENTER);
             label(cr, reading, line, 27, view.language->font, t.legend);
@@ -2809,6 +2988,43 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                             : Rect{body.x + inset, 60, body.width - inset - 18, 28};
             case_plate(cr, view, line, view.status, 17, PANGO_ALIGN_CENTER);
             label(cr, view.status, line, 17, view.language->font, t.legend);
+        }
+        if (const auto cells = flick_cells(view)) {
+            // Above the keys, the reading band and the toolbar, which a
+            // top-row key's caps can reach; partial repaints redraw it
+            // inside their clip.
+            // Raised keycaps floating over the keys: their shadows first, so
+            // none falls on a neighbouring cap, then the caps with the keys'
+            // hover gradient and a faint light along the top edge.
+            const auto& preview = *view.flick_preview;
+            const double size = (*cells)[0].height;
+            auto used = [&](std::size_t i) { return i == 0 || !preview.text[i].empty(); };
+            for (std::size_t i = 0; i < cells->size(); ++i) {
+                if (used(i)) {
+                    soft_shadow(cr, (*cells)[i], t.radius, flick_shadow);
+                }
+            }
+            for (std::size_t i = 0; i < cells->size(); ++i) {
+                if (!used(i)) {
+                    continue; // A direction this key does not use.
+                }
+                const auto& r = (*cells)[i];
+                // A gutter in the case's colour sets each cap off from the
+                // keys beneath, as the gaps between keys do. It stays over a
+                // transparent case too: without it, caps over keys of the
+                // same colour run together.
+                rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
+                source(cr, t.surface);
+                cairo_fill(cr);
+                draw_cap(cr, t, r, true, static_cast<int>(i) == preview.selected, true);
+                cairo_move_to(cr, r.x + t.radius, r.y + 1.5);
+                cairo_line_to(cr, r.x + r.width - t.radius, r.y + 1.5);
+                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .12);
+                cairo_set_line_width(cr, 1);
+                cairo_stroke(cr);
+                label(cr, preview.text[i], r, size * .5, view.language->font,
+                      static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
+            }
         }
         // The skin tones of a held emoji, above everything in the picker.
         if (view.emoji && view.emoji->popup && !view.settings) {

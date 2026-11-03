@@ -62,9 +62,15 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
     result.layout.language = main.language;
     result.layout.width = main.width;
     result.layout.height = main.height;
+    // The editor lies over the function-key row. A layout without one, such
+    // as flick, moves its keys down by that row to make the same room.
+    const bool function_row = bounds_of(main, {"F1", "F12"}).has_value();
+    const double drop = function_row ? 0 : function_row_room;
+    result.layout.height += drop;
     std::optional<Rect> paste;
     double mic_height = 0;
-    for (const auto& key : main.keys) {
+    for (auto key : main.keys) {
+        key.bounds.y += drop;
         if (key.action_kind == ActionKind::Shortcut && key.action == "paste") {
             paste = key.bounds;
         }
@@ -79,11 +85,25 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
             result.layout.keys.push_back(std::move(copy));
         }
     }
-    // Send spans the right-hand modifier group. Layouts without one, such as
-    // flick, give it Tab's freed slot.
-    auto send = bounds_of(main, {"AltRight", "MetaRight", "ContextMenu", "ControlRight"});
+    auto lowered = [&](std::optional<Rect> bounds) {
+        if (bounds) {
+            bounds->y += drop;
+        }
+        return bounds;
+    };
+    // Send spans the right-hand modifier group. Layouts without one give it
+    // Tab's freed slot, or, without Tab either (flick), the emoji key's.
+    auto send = lowered(bounds_of(main, {"AltRight", "MetaRight", "ContextMenu", "ControlRight"}));
     if (!send) {
-        send = bounds_of(main, {"Tab"});
+        send = lowered(bounds_of(main, {"Tab"}));
+    }
+    if (!send) {
+        for (const auto& key : main.keys) {
+            if (key.action_kind == ActionKind::Emoji) {
+                send = key.bounds;
+                send->y += drop;
+            }
+        }
     }
     if (send) {
         result.layout.keys.push_back(dictation_key("send", "Send", *send, Icon::None));
@@ -91,9 +111,9 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
     // Copy, Cut and Paste act on the editor alone and take the left modifiers'
     // slots. Layouts without them, such as flick, stack the three above Undo, in
     // Paste's side slot and the freed space over it.
-    const auto control = bounds_of(main, {"ControlLeft"});
-    const auto meta = bounds_of(main, {"MetaLeft"});
-    const auto alt = bounds_of(main, {"AltLeft"});
+    const auto control = lowered(bounds_of(main, {"ControlLeft"}));
+    const auto meta = lowered(bounds_of(main, {"MetaLeft"}));
+    const auto alt = lowered(bounds_of(main, {"AltLeft"}));
     if (control && meta && alt) {
         result.layout.keys.push_back(dictation_key("copy", "Copy", *control, Icon::Copy));
         result.layout.keys.push_back(dictation_key("cut", "Cut", *meta, Icon::Cut));
@@ -116,16 +136,37 @@ DictationLayout dictation_layout(const Layout& main, double visible_width) {
         stacked("paste", "Paste", Icon::Paste);
         stacked("undo", "Undo", Icon::Undo);
     }
-    // The editor starts right of Esc, or right of the side column without one.
+    // The mode needs Esc to leave it. A layout without one (flick) gets it in
+    // the side column's top slot, which that layout leaves free.
+    if (!bounds_of(main, {"Escape"}) && paste) {
+        const Rect slot{paste->x, drop, paste->width, 44};
+        const bool free =
+            std::none_of(result.layout.keys.begin(), result.layout.keys.end(), [&](const Key& key) {
+                const auto& r = key.bounds;
+                return r.x < slot.x + slot.width && slot.x < r.x + r.width &&
+                       r.y < slot.y + slot.height && slot.y < r.y + r.height;
+            });
+        if (free) {
+            Key escape;
+            escape.id = "Escape";
+            escape.label = "Esc";
+            escape.bounds = slot;
+            escape.action_kind = ActionKind::Key;
+            escape.action = "Escape";
+            result.layout.keys.push_back(std::move(escape));
+        }
+    }
+    // The editor starts right of Esc in the function-key row, or right of the
+    // side column without one.
     double left = 0;
     for (const auto& key : main.keys) {
-        if ((key.action_kind == ActionKind::Key && key.action == "Escape") ||
+        if ((function_row && key.action_kind == ActionKind::Key && key.action == "Escape") ||
             (key.action_kind != ActionKind::Key && key.action_kind != ActionKind::Flick &&
              key.bounds.y < 44)) {
             left = std::max(left, key.bounds.x + key.bounds.width);
         }
     }
-    const auto row = bounds_of(main, {"F1", "F12", "Escape"});
+    const auto row = function_row ? bounds_of(main, {"F1", "F12", "Escape"}) : std::nullopt;
     const double bottom = row ? row->y + row->height : 44;
     const double right = std::clamp(visible_width, left + 120, main.width);
     result.editor = {left + 12, -dictation_editor_rise, right - left - 12,

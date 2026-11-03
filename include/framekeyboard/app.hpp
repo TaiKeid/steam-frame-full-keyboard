@@ -62,6 +62,8 @@ struct Options {
     SwipeEncoderFactory swipe_encoder;
     // Tests capture typed text here instead of the output queue; null uses the queue.
     TextOutput* text_output{};
+    // Tests replace Japanese conversion; empty loads the system's Anthy.
+    JapaneseComposer::Factory japanese_converter;
     // Tests replace the dictation helper; empty uses the installed one.
     fs::path dictation_helper;
     // Where on-device models are kept; empty is ~/.local/share/framekeyboard/models.
@@ -104,7 +106,7 @@ class App {
     bool pointer_pressed(unsigned pointer) const {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
                settings_ui_.pressed(pointer) || (swipe_track_ && swipe_track_->pointer == pointer) ||
-               emoji_.pressed(pointer) ||
+               emoji_.pressed(pointer) || candidates_.pressed(pointer) ||
                (languages_ && languages_->drag && languages_->drag->pointer == pointer);
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
@@ -512,6 +514,35 @@ class App {
         double x{}, y{}, pressed{}; // Press point in layout coordinates and press time.
         FlickDirection direction{FlickDirection::Tap};
     };
+    // Japanese flick modes: kana composes; English shows the layout's
+    // QWERTY page, and digits turn the grid into a number pad.
+    enum class FlickMode { Kana, Latin, Digits };
+    FlickMode flick_mode() const;
+    // The flick keys' table for the mode.
+    const std::map<std::string, FlickKey>& flick_keys() const;
+    // The active layout, or its English page in English mode.
+    const Layout& shown_layout() const;
+    bool band_arrows() const;
+    // The layout has the 「あA1」 key, which replaces the toolbar's A / あ.
+    bool has_mode_key() const;
+    // Types any reading first; a failed commit keeps the mode.
+    void set_flick_mode(FlickMode mode);
+    // Digits and symbols from the number pad, typed at once.
+    void type_now(const std::string& text);
+    // ↶, as on Gboard: the last kana steps back through its key's taps,
+    // conversion returns to the reading, and with neither the phrase just
+    // committed comes back as a reading.
+    void undo_japanese(double now);
+    void reopen_phrase();
+    // Japanese candidates (docs/japanese.md): the converting segment's, or
+    // live ones for the reading, in the band or over the dictation editor's foot.
+    std::optional<Rect> candidate_area() const;
+    // A Japanese language's band shows over the main keyboard.
+    bool ime_band_shown() const { return japanese() && !emoji_open_ && !dictation_open_; }
+    void sync_candidates();
+    // Live candidates after a pause, and an English letter's toggle time.
+    void tick_japanese(double now);
+    void pick_candidate(int index);
     bool flick_down(unsigned pointer, const Key& key, double x, double y, double now);
     void flick_move(double x, double y);
     bool flick_up(unsigned pointer, double x, double y);
@@ -694,6 +725,13 @@ class App {
     std::unique_ptr<CjkComposer> cjk_;
     bool cjk_latin_{};
     bool japanese_latin_{};
+    bool japanese_digits_{}; // With japanese_latin_: the flick digits.
+    // The kana phrase committed last, which ↶ can bring back until anything
+    // else is pressed, the laser leaves or the keyboard hides.
+    struct Reopen {
+        std::string text, reading;
+    };
+    std::optional<Reopen> reopen_;
     bool text_ready_{};
     bool text_transport_ready_{}; // The text connection, whatever the profile.
     bool typing_ready_{};
@@ -757,6 +795,11 @@ class App {
         double at{};
     };
     std::optional<FlickToggle> flick_toggle_;
+    CandidateStrip candidates_;
+    // Live candidates wait for a pause: the reading last seen, and when it
+    // will have paused long enough. Infinite once tried for that reading.
+    std::string live_typed_;
+    double live_due_{};
     std::uint64_t swipe_request_{};
     bool swipe_waiting_{}, swipe_shifted_{}, swipe_caps_{};
     // The laser left after releasing the pending swipe: the target's cursor
@@ -846,6 +889,8 @@ class App {
     void refresh_dictation_layout();
     void set_dictation_view(PanelView& view) const;
     bool dictation_down(unsigned pointer, const Key& key, double x, double y, double now);
+    // A key pressed on the keyboard, or one of the Japanese band's arrows.
+    bool press_key(unsigned pointer, const Key* key, double x, double y, double now, const PanelView& v);
     // Typing again clears an error shown over the editor.
     void clear_editor_error();
     void dictation_key_up(const Key& key);

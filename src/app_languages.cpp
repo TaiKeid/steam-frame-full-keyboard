@@ -100,7 +100,9 @@ void App::close_languages() {
 std::vector<std::string> App::layout_order() const {
     std::vector<std::string> result;
     for (const auto& [id, layout] : profiles_.layouts) {
-        result.push_back(id);
+        if (!layout.companion) { // another layout's English page
+            result.push_back(id);
+        }
     }
     // The common layouts first, then the rest by name.
     const auto rank = [](const std::string& id) {

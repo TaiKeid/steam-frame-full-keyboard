@@ -194,9 +194,8 @@ key. Use the `한 / A` control to switch between Hangul and Latin typing. Chines
 has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
 
 For 12-key Korean, choose the **Korean 12-key** layout; it selects
-한국어 천지인. As with Japanese flick, it keeps Esc, the F keys and the number
-row, with Tab, ←, ↑/↓ and Shift on the left and Space, → and a two-row Enter on
-the right. Its 3×4 grid is ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-.
+한국어 천지인. It keeps Esc, the F keys and the number row, with Tab, ←, ↑/↓
+and Shift on the left and Space, → and a two-row Enter on the right. Its 3×4 grid is ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-.
 
 - Vowels are built from the strokes ㅣ, ㆍ and ㅡ: ㅣㆍ ㅏ, ㆍㅣ ㅓ, ㆍㅡ ㅗ,
   ㅡㆍ ㅜ, ㅣㆍㆍ ㅑ, ㆍㆍㅣ ㅕ, ㆍㆍㅡ ㅛ, ㅡㆍㆍ ㅠ. Another ㅣ adds to the vowel

@@ -88,6 +88,8 @@ std::string likely_language(const Profiles& profiles, const std::vector<Favorite
 constexpr double flick_distance = 24;
 // A repeated tap within this time cycles the toggle kana instead of adding one.
 constexpr double flick_toggle_seconds = 1.0;
+// Live Japanese candidates wait for this long a pause in typing.
+constexpr double live_candidate_delay = .15;
 // A swipe longer than this many samples (over 30 s of motion) is not a word,
 // or its capture is stuck: it ends without typing.
 constexpr std::size_t max_swipe_points = 2000;
@@ -113,7 +115,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
       output_(sink), text_output_(options.text_output ? options.text_output : &output_),
-      keyboard_(output_) {
+      keyboard_(output_), composition_(options.japanese_converter) {
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
     models_dir_ = options.models_dir;
@@ -227,11 +229,18 @@ std::vector<Control> App::controls() const {
         result.push_back(std::move(control));
     };
     PanelView geometry;
-    geometry.layout = &profiles_.layouts.at(settings_.active.layout);
+    geometry.layout = &shown_layout();
     geometry.theme = &shown_theme();
     geometry.language = &profiles_.languages.at(settings_.active.language);
     geometry.hide_numpad = numpad_hidden();
     geometry.settings = settings_open_;
+    geometry.ime_band = ime_band_shown();
+    geometry.ime_arrows = band_arrows();
+    if (dictation_open_) {
+        // Its keys set the case, as in geometry(): a layout without
+        // function keys grows taller there, and its case narrower.
+        geometry.layout = &dictation_layout_.layout;
+    }
     const auto body = panel_case_bounds(geometry);
     auto append_move_handle = [&] {
         if (!settings_.pinned && !settings_.use_drag_to_move && !locked_move() && !forwarded()) {
@@ -441,36 +450,15 @@ std::vector<Control> App::controls() const {
             {"dictation-discard", "Discard", {right - 230, y, 110, 36}});
     }
     const auto ime_start = result.size();
-    if (japanese() && !emoji_open_) {
+    if (japanese() && !emoji_open_ && !has_mode_key()) {
+        // The keys convert, commit and cancel; candidates show in the band.
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
-        if (!japanese_latin_) {
-            add({ControlKind::ImeHiragana}, {"ime-hiragana", "ひらがな", {805, 12, 120, 42}});
-            add({ControlKind::ImeKatakana}, {"ime-katakana", "カタカナ", {935, 12, 120, 42}});
-            add({ControlKind::ImeCommit}, {"ime-commit", "確定 / Commit", {1065, 12, 180, 42}});
-            add({ControlKind::ImeCancel}, {"ime-cancel", "Cancel", {1255, 12, 110, 42}});
-            const auto candidates = composition_.candidates();
-            if (!candidates.empty()) {
-                add({ControlKind::ImePrev}, {"ime-prev", "↑", {20, 148, 55, 42}});
-                const int page = composition_.selected() / 5 * 5;
-                for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
-                    add({ControlKind::ImeCandidate, i},
-                        {"ime-candidate-" + std::to_string(i),
-                         std::to_string(i + 1) + " " + candidates[static_cast<std::size_t>(i)],
-                         {85.0 + (i - page) * 240, 148, 230, 42},
-                         i == composition_.selected()});
-                }
-                add({ControlKind::ImeNext}, {"ime-next", "↓", {1290, 148, 55, 42}});
-                add({ControlKind::ImeSegmentPrev}, {"ime-segment-prev", "←", {1355, 148, 55, 42}});
-                add({ControlKind::ImeSegmentNext}, {"ime-segment-next", "→", {1420, 148, 55, 42}});
-                add({ControlKind::None}, {"ime-segment-label",
-                                          std::to_string(composition_.active_segment() + 1) + "/" +
-                                              std::to_string(composition_.segment_count()),
-                                          {1485, 148, 90, 42}});
-            } else {
-                add({ControlKind::ImeConvert}, {"ime-convert", "変換 / Convert", {20, 148, 230, 42}});
-            }
-        }
+    }
+    if (geometry.ime_arrows && !settings_open_) {
+        const auto band = ime_band(geometry);
+        add({ControlKind::ImeUp}, {"ime-up", "Up", *band.up, false, Icon::ArrowUp});
+        add({ControlKind::ImeDown}, {"ime-down", "Down", *band.down, false, Icon::ArrowDown});
     }
     if (cjk_ && !emoji_open_) {
         add({ControlKind::CjkToggle},
@@ -500,7 +488,10 @@ std::vector<Control> App::controls() const {
     const double scale = body.width / panel_width;
     for (std::size_t i = ime_start; i < result.size(); ++i) {
         result[i].bounds.x = body.x + result[i].bounds.x * scale;
-        result[i].bounds.width *= scale;
+        // A / あ alone keeps its size on the narrower flick case.
+        if (result[i].action.kind != ControlKind::ImeToggle) {
+            result[i].bounds.width *= scale;
+        }
     }
     if (dictation_open_ && !settings_open_) {
         // The candidate row, panel x 20 to 1575, would cover the editor. It
@@ -511,30 +502,12 @@ std::vector<Control> App::controls() const {
         const double fit = (editor.width - 24) / (1555 * scale);
         const double top = editor.y + editor.height - dictation_notice_height + 5;
         const bool reading = composing_text();
-        // Convert takes the side column's free slot instead, beside Esc and
-        // as large as the mic key, its label on two lines.
-        std::optional<Rect> side;
-        const auto& keys = dictation_layout_.layout.keys;
-        const auto mic = std::find_if(keys.begin(), keys.end(), [](const Key& key) {
-            return key.action_kind == ActionKind::Dictation && key.action == "mic";
-        });
-        const auto esc = std::find_if(keys.begin(), keys.end(), [](const Key& key) {
-            return key.action_kind == ActionKind::Key && key.action == "Escape";
-        });
-        if (mic != keys.end() && esc != keys.end()) {
-            side = panel_rect(geometry,
-                              {mic->bounds.x, esc->bounds.y, mic->bounds.width, mic->bounds.height});
-        }
         for (std::size_t i = ime_start; i < result.size();) {
             auto& control = result[i];
             if (control.bounds.y != 148) {
                 ++i;
             } else if (!reading) {
                 result.erase(result.begin() + static_cast<std::ptrdiff_t>(i));
-            } else if (control.action.kind == ControlKind::ImeConvert && side) {
-                control.bounds = *side;
-                control.label = "変換\nConvert";
-                ++i;
             } else {
                 control.bounds = {editor.x + 12 + (control.bounds.x - row) * fit, top,
                                   control.bounds.width * fit, 36};
@@ -771,7 +744,15 @@ void App::update_settings_ui() {
         {{"languages",
           "Languages and Layouts",
           {field(ControlKind::ChooseLayout,
-                 dropdown("layout", "Layout", pending_.layout, choices(profiles_.layouts))),
+                 dropdown("layout", "Layout", pending_.layout,
+                          [&] {
+                              // Without companion layouts, which are other layouts' English pages.
+                              auto list = choices(profiles_.layouts);
+                              std::erase_if(list, [&](const SettingChoice& choice) {
+                                  return profiles_.layouts.at(choice.id).companion;
+                              });
+                              return list;
+                          }())),
            field(ControlKind::ChooseLanguage,
                  dropdown("language", "Language", pending_.language, language_choices)),
            languages,
@@ -820,7 +801,7 @@ void App::preview_sound() {
 }
 PanelView App::geometry() const {
     PanelView v;
-    v.layout = &profiles_.layouts.at(settings_.active.layout);
+    v.layout = &shown_layout();
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
     v.hide_numpad = numpad_hidden();
@@ -828,6 +809,10 @@ PanelView App::geometry() const {
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
     v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
+    v.ime_band = ime_band_shown();
+    v.ime_arrows = band_arrows();
+    v.flick_latin = flick_mode() == FlickMode::Latin;
+    v.flick_digits = flick_mode() == FlickMode::Digits;
     if (emoji_open_) {
         v.layout = &emoji_layout_.layout;
         v.composing = false;
@@ -857,7 +842,7 @@ std::string App::game_sound_message() const {
 }
 PanelView App::build_view(bool picker) const {
     PanelView v;
-    v.layout = &profiles_.layouts.at(settings_.active.layout);
+    v.layout = &shown_layout();
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
     v.keymap = keymap_.get();
@@ -928,8 +913,20 @@ PanelView App::build_view(bool picker) const {
         v.status += "Steam keyboard remains available.";
     }
     v.composing = japanese() && !japanese_latin_;
+    v.ime_band = ime_band_shown();
+    v.ime_arrows = band_arrows();
+    v.flick_latin = flick_mode() == FlickMode::Latin;
+    v.flick_digits = flick_mode() == FlickMode::Digits;
+    if (v.ime_band) {
+        // The band underlines the converting segment; an English letter
+        // still cycling shows there too.
+        v.preedit = composition_.preedit();
+        std::tie(v.preedit_active_begin, v.preedit_active_end) = composition_.active_range();
+        if (candidates_.shown()) {
+            v.candidates = candidates_.view();
+        }
+    }
     if (v.composing) {
-        v.preedit = composition_.preedit(true);
         if (v.language->input_method == "japanese-kana") {
             const auto mods = keyboard_.modifiers();
             const bool shifted =
@@ -946,11 +943,12 @@ PanelView App::build_view(bool picker) const {
     }
     if (!v.language->flick.empty()) {
         // Flick keys show their tap kana or jamo even in Latin mode, where a
-        // press returns to composition.
+        // press returns to composition, unless English mode has its own letters.
         const bool japanese_flick = v.language->input_method == "japanese-flick";
+        const auto& table = flick_keys();
         for (const auto& key : v.layout->keys) {
-            if (const auto it = v.language->flick.find(key.action);
-                key.action_kind == ActionKind::Flick && it != v.language->flick.end()) {
+            if (const auto it = table.find(key.action);
+                key.action_kind == ActionKind::Flick && it != table.end()) {
                 v.key_labels[key.id] = it->second.tap.front();
             } else if (japanese_flick && v.composing && !composition_.empty() && key.action == "Space") {
                 v.key_labels[key.id] = composition_.converting() ? "次候補" : "変換";
@@ -959,7 +957,7 @@ PanelView App::build_view(bool picker) const {
             }
         }
         if (flick_track_) {
-            const auto& key = v.language->flick.at(flick_track_->slot);
+            const auto& key = table.at(flick_track_->slot);
             auto tap = *flick_track_;
             tap.direction = FlickDirection::Tap;
             v.flick_preview =
@@ -1061,6 +1059,9 @@ PanelView App::build_view(bool picker) const {
         v.composing = false;
         v.preedit.clear();
         set_dictation_view(v);
+        if (candidates_.shown()) {
+            v.candidates = candidates_.view(); // Japanese, over the editor's foot
+        }
         if (!can_send()) {
             v.disabled_keys.insert("Dictation-send");
         }
@@ -1134,6 +1135,16 @@ bool App::scroll(unsigned pointer, double dx, double dy) {
     }
     if (settings_open_ && languages_) {
         return languages_scroll(pointer, dy); // Only the list under the laser.
+    }
+    if (candidates_.shown() && !settings_open_ && interaction_active_ && !dragging_ &&
+        pointer_positions_.contains(pointer)) {
+        const auto [x, y] = pointer_positions_.at(pointer);
+        // The row only scrolls sideways; an up/down stick scrolls it too.
+        if (candidates_.contains(x, y)) {
+            const bool moved = candidates_.scroll(x, y, std::abs(dx) > std::abs(dy) ? dx : dy);
+            dirty |= moved;
+            return moved;
+        }
     }
     if (dictation_open_ && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer) && std::isfinite(dy)) {
@@ -1213,6 +1224,12 @@ bool App::move(unsigned pointer, double x, double y) {
             return false; // Scrolling or choosing a tone: keys under the laser don't count.
         }
     }
+    if (candidates_.shown() || candidates_.pressed(pointer)) {
+        dirty |= candidates_.move(pointer, x, y, monotonic_seconds()).redraw;
+        if (candidates_.pressed(pointer)) {
+            return false; // Scrolling or picking: keys under the laser don't count.
+        }
+    }
     const auto v = input_view();
     HoverTarget target;
     for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
@@ -1252,6 +1269,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     move(pointer, x, y);
     const auto v = input_view();
+    // Any press but ↶ ends the chance to bring the last phrase back.
+    if (const auto* hit = renderer.hit_key(v, x, y);
+        !hit || hit->action_kind != ActionKind::Flick || hit->action != flick_undo_slot) {
+        reopen_.reset();
+    }
     if (settings_open_ && languages_ && !address_ && confirm_ == Confirm::None) {
         languages_press(pointer, x, y);
     }
@@ -1272,6 +1294,15 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         const auto control =
             std::find_if(v.controls.rbegin(), v.controls.rend(),
                          [&](const Control& item) { return item.id == hovered_[pointer].id; });
+        if (control != v.controls.rend() && (control->action.kind == ControlKind::ImeUp ||
+                                             control->action.kind == ControlKind::ImeDown)) {
+            // Pressed as the arrow keys: candidates while converting, the
+            // field's cursor otherwise, repeating while held.
+            static const Key up{"ime-up", "↑", "", {}, ActionKind::Key, "ArrowUp"},
+                down{"ime-down", "↓", "", {}, ActionKind::Key, "ArrowDown"};
+            return press_key(pointer, control->action.kind == ControlKind::ImeUp ? &up : &down, x, y,
+                             now, v);
+        }
         if (control != v.controls.rend()) {
             pressed_controls_[pointer] = {control->id, control->action};
             if (control->id.starts_with("address-")) {
@@ -1293,6 +1324,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         dirty |= emoji_.down(pointer, x, y, now).redraw;
         return false;
     }
+    // Japanese candidates, also over the dictation editor's foot.
+    if (candidates_.contains(x, y)) {
+        dirty |= candidates_.down(pointer, x, y, now).redraw;
+        return false;
+    }
     if (dictation_open_ && !settings_open_ && v.dictation && v.dictation->bounds.contains(x, y)) {
         if (!sending_ && !confirm_discard_ && !editor_drag_) {
             editor_drag_ = EditorDrag{pointer, x, y, editor_scroll_};
@@ -1300,197 +1336,202 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     if (const auto* key = renderer.hit_key(v, x, y)) {
-        if (dictation_open_) {
-            return dictation_down(pointer, *key, x, y, now);
-        }
-        if (sink_on() && !host_.context) {
-            return false; // the sink types only into a field the shell named
-        }
-        if (direct_active() && key->action_kind == ActionKind::Key && key->action == "Escape") {
-            // Esc stops Type as I speak, dropping what is not yet typed, and
-            // is not sent.
-            if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
-                return false;
-            }
-            stop_direct("Dictation stopped.");
-            return true;
-        }
-        if (direct_blocked_ && key->action_kind == ActionKind::Key && key->action == "Enter") {
-            // Tries the refused phrase again; this Enter is not sent.
-            if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
-                return false;
-            }
-            direct_blocked_ = false;
-            status_.clear();
-            flush_direct(now);
-            return true;
-        }
-        if (key->action_kind == ActionKind::Dictation) {
-            // The mic key opens dictation mode on release, like a toolbar button.
-            if (dictation_key_pointer_ || keyboard_.pointer_pressed(pointer) ||
-                !keyboard_.down(pointer, *key, now, true, 0)) {
-                return false;
-            }
-            dictation_key_pointer_ = pointer;
-            dirty = true;
-            return true;
-        }
-        // Taps and flicks type on release, so the other hand often presses
-        // before this one lets go. Type the held one first to keep press order.
-        if (flick_track_ && flick_track_->pointer != pointer) {
-            finish_flick();
-        }
-        if (swipe_track_ && swipe_track_->pointer != pointer && !swipe_track_->swiping) {
-            const auto track = std::move(*swipe_track_);
-            swipe_track_.reset();
-            type_swipe_tap(track);
-        }
-        if (key->action_kind == ActionKind::Flick) {
-            return flick_down(pointer, *key, x, y, now);
-        }
-        if (key->action_kind == ActionKind::Emoji) {
-            // A local press that acts on release, like a toolbar button.
-            if (emoji_key_pointer_ || v.disabled_keys.contains(key->id) ||
-                keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
-                return false;
-            }
-            emoji_key_pointer_ = pointer;
-            dirty = true;
-            return true;
-        }
-        const auto modifiers = keyboard_.modifiers();
-        // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
-        // While a word list loads, letters type as without swipe: a swipe would
-        // make the next key wait for the whole load on the VR thread.
-        if (swipes(*key, modifiers)) {
-            return swipe_down(pointer, *key, x, y, now, modifiers);
-        }
-        // Any other key ends the swiped word: deliver it first, then forget its alternatives.
-        if (swipe_track_ && swipe_track_->pointer != pointer) {
-            return false; // Only one pointer types while another is swiping.
-        }
-        finish_swipe(true);
-        // A latching Shift or Caps Lock sends nothing, so the swiped word, its
-        // alternatives and the space before the next word all stay valid.
-        const bool latch_only =
-            key->action_kind == ActionKind::Key &&
-            ((key->sticky && is_modifier(key_code(key->action))) || key->action == "CapsLock");
-        if (!latch_only) {
-            discard_swipe();
-            swipe_space_ = false;
-        }
-        const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
-        const bool text_local = !ime_local && text_key(*key, modifiers);
-        const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
-        const bool cancel_accent = unicode_mode() && keymap_->composing() &&
-                                   (key->action == "Escape" || key->action == "Backspace");
-        const bool retry_text = output_.retry_available() && key->action == "Enter";
-        const bool local = ime_local || text_local || cancel_accent || retry_text;
-        if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
-            return false;
-        }
-        // Without a target the key still moves, but sends nothing.
-        if (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action))) {
-            if ((!local || sends_text) && !retry_text) {
-                refuse_without_target(now);
-            }
-        }
-        if (!output_.admit((!local || sends_text) && !retry_text, now)) {
-            update_output_status();
-            dirty = true;
-            return false;
-        }
-        const bool num_dependent = key->action == "NumpadDecimal" ||
-                                   (key->action.starts_with("Numpad") && key->action.size() == 7 &&
-                                    g_ascii_isdigit(key->action.back()));
-        if (!unicode_mode() && num_dependent && output_.enabled()) {
-            // Never guess a native target's lock state or blindly toggle it at
-            // launch. Wait for feedback before forwarding a lock-dependent key.
-            const auto target_num = output_.num_lock_state();
-            if (target_num && native_num_requested_ == target_num) {
-                native_num_requested_.reset();
-            }
-            if (native_num_requested_ || !target_num || *target_num != keyboard_.num()) {
-                if (target_num && !native_num_requested_) {
-                    output_.send(KEY_NUMLOCK, 1);
-                    output_.send(KEY_NUMLOCK, 0);
-                    native_num_requested_ = !*target_num;
-                }
-                status_ = "Waiting for target Num Lock. Press the keypad key again.";
-                dirty = true;
-                return false;
-            }
-        }
-        const bool sends_action = key->action_kind == ActionKind::Shortcut ||
-                                  !is_modifier(key_code(key->action)) || !key->sticky;
-        if (!ime_local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
-            // Commit before either native events or ordinary Unicode text. Spaces,
-            // digits and punctuation must not overtake the unfinished IME word.
-            try {
-                commit_japanese();
-                commit_cjk();
-            } catch (const std::exception& error) {
-                status_ = error.what();
-            }
-            dirty = true;
-            if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
-                return false; // Failed commit must not lose text or change the target.
-            }
-            if (!output_.admit(!local || sends_text, now)) {
-                update_output_status();
-                return false; // The preedit commit may have filled the final queue slot.
-            }
-        }
-        // Capture the symbol before a tapped Shift/AltGr is consumed by down().
-        const auto symbol = text_local
-                                ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
-                                : XKB_KEY_NoSymbol;
-        const bool old_num = keyboard_.num();
-        const bool accepted =
-            keyboard_.down(pointer, *key, now, local, local ? 0 : native_code(*key, modifiers));
-        if (accepted) {
-            try {
-                if (retry_text) {
-                    retry_output();
-                } else if (ime_local) {
-                    japanese_key(*key, true, modifiers);
-                    cjk_key(*key, true, modifiers);
-                    start_reading_repeat(pointer, *key, modifiers, now);
-                } else if (cancel_accent) {
-                    keymap_->cancel_compose();
-                    status_.clear();
-                } else if (sends_text) {
-                    const auto text = keymap_->compose(symbol);
-                    if (preview_input()) {
-                        status_.clear();
-                    } else {
-                        text_output_->text_press(pointer, text, now);
-                    }
-                    if (keymap_->composing()) {
-                        status_ = "Accent pending";
-                    }
-                } else if (!local && !(key->action_kind == ActionKind::Key &&
-                                       is_modifier(key_code(key->action)))) {
-                    // A latched Shift or AltGr belongs to the accented letter
-                    // that follows, so only other keys end a pending accent.
-                    keymap_->cancel_compose();
-                    status_.clear();
-                }
-            } catch (const std::exception& error) {
-                status_ = error.what();
-            }
-            if (keyboard_.num() != old_num) {
-                settings_.num_lock = keyboard_.num();
-                save();
-            }
-        }
-        update_output_status();
-        dirty |= accepted;
-        return accepted;
+        return press_key(pointer, key, x, y, now, v);
     }
     return false;
 }
 
+// A key pressed on the keyboard, or one of the Japanese band's arrows.
+bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now,
+                    const PanelView& v) {
+    if (dictation_open_) {
+        return dictation_down(pointer, *key, x, y, now);
+    }
+    if (sink_on() && !host_.context) {
+        return false; // the sink types only into a field the shell named
+    }
+    if (direct_active() && key->action_kind == ActionKind::Key && key->action == "Escape") {
+        // Esc stops Type as I speak, dropping what is not yet typed, and
+        // is not sent.
+        if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
+            return false;
+        }
+        stop_direct("Dictation stopped.");
+        return true;
+    }
+    if (direct_blocked_ && key->action_kind == ActionKind::Key && key->action == "Enter") {
+        // Tries the refused phrase again; this Enter is not sent.
+        if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
+            return false;
+        }
+        direct_blocked_ = false;
+        status_.clear();
+        flush_direct(now);
+        return true;
+    }
+    if (key->action_kind == ActionKind::Dictation) {
+        // The mic key opens dictation mode on release, like a toolbar button.
+        if (dictation_key_pointer_ || keyboard_.pointer_pressed(pointer) ||
+            !keyboard_.down(pointer, *key, now, true, 0)) {
+            return false;
+        }
+        dictation_key_pointer_ = pointer;
+        dirty = true;
+        return true;
+    }
+    // Taps and flicks type on release, so the other hand often presses
+    // before this one lets go. Type the held one first to keep press order.
+    if (flick_track_ && flick_track_->pointer != pointer) {
+        finish_flick();
+    }
+    if (swipe_track_ && swipe_track_->pointer != pointer && !swipe_track_->swiping) {
+        const auto track = std::move(*swipe_track_);
+        swipe_track_.reset();
+        type_swipe_tap(track);
+    }
+    if (key->action_kind == ActionKind::Flick) {
+        return flick_down(pointer, *key, x, y, now);
+    }
+    if (key->action_kind == ActionKind::Emoji) {
+        // A local press that acts on release, like a toolbar button.
+        if (emoji_key_pointer_ || v.disabled_keys.contains(key->id) ||
+            keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
+            return false;
+        }
+        emoji_key_pointer_ = pointer;
+        dirty = true;
+        return true;
+    }
+    const auto modifiers = keyboard_.modifiers();
+    // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
+    // While a word list loads, letters type as without swipe: a swipe would
+    // make the next key wait for the whole load on the VR thread.
+    if (swipes(*key, modifiers)) {
+        return swipe_down(pointer, *key, x, y, now, modifiers);
+    }
+    // Any other key ends the swiped word: deliver it first, then forget its alternatives.
+    if (swipe_track_ && swipe_track_->pointer != pointer) {
+        return false; // Only one pointer types while another is swiping.
+    }
+    finish_swipe(true);
+    // A latching Shift or Caps Lock sends nothing, so the swiped word, its
+    // alternatives and the space before the next word all stay valid.
+    const bool latch_only =
+        key->action_kind == ActionKind::Key &&
+        ((key->sticky && is_modifier(key_code(key->action))) || key->action == "CapsLock");
+    if (!latch_only) {
+        discard_swipe();
+        swipe_space_ = false;
+    }
+    const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
+    const bool text_local = !ime_local && text_key(*key, modifiers);
+    const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
+    const bool cancel_accent = unicode_mode() && keymap_->composing() &&
+                               (key->action == "Escape" || key->action == "Backspace");
+    const bool retry_text = output_.retry_available() && key->action == "Enter";
+    const bool local = ime_local || text_local || cancel_accent || retry_text;
+    if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
+        return false;
+    }
+    // Without a target the key still moves, but sends nothing.
+    if (key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action))) {
+        if ((!local || sends_text) && !retry_text) {
+            refuse_without_target(now);
+        }
+    }
+    if (!output_.admit((!local || sends_text) && !retry_text, now)) {
+        update_output_status();
+        dirty = true;
+        return false;
+    }
+    const bool num_dependent = key->action == "NumpadDecimal" ||
+                               (key->action.starts_with("Numpad") && key->action.size() == 7 &&
+                                g_ascii_isdigit(key->action.back()));
+    if (!unicode_mode() && num_dependent && output_.enabled()) {
+        // Never guess a native target's lock state or blindly toggle it at
+        // launch. Wait for feedback before forwarding a lock-dependent key.
+        const auto target_num = output_.num_lock_state();
+        if (target_num && native_num_requested_ == target_num) {
+            native_num_requested_.reset();
+        }
+        if (native_num_requested_ || !target_num || *target_num != keyboard_.num()) {
+            if (target_num && !native_num_requested_) {
+                output_.send(KEY_NUMLOCK, 1);
+                output_.send(KEY_NUMLOCK, 0);
+                native_num_requested_ = !*target_num;
+            }
+            status_ = "Waiting for target Num Lock. Press the keypad key again.";
+            dirty = true;
+            return false;
+        }
+    }
+    const bool sends_action =
+        key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)) || !key->sticky;
+    if (!ime_local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
+        // Commit before either native events or ordinary Unicode text. Spaces,
+        // digits and punctuation must not overtake the unfinished IME word.
+        try {
+            commit_japanese();
+            commit_cjk();
+        } catch (const std::exception& error) {
+            status_ = error.what();
+        }
+        dirty = true;
+        if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
+            return false; // Failed commit must not lose text or change the target.
+        }
+        if (!output_.admit(!local || sends_text, now)) {
+            update_output_status();
+            return false; // The preedit commit may have filled the final queue slot.
+        }
+    }
+    // Capture the symbol before a tapped Shift/AltGr is consumed by down().
+    const auto symbol = text_local ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
+                                   : XKB_KEY_NoSymbol;
+    const bool old_num = keyboard_.num();
+    const bool accepted =
+        keyboard_.down(pointer, *key, now, local, local ? 0 : native_code(*key, modifiers));
+    if (accepted) {
+        try {
+            if (retry_text) {
+                retry_output();
+            } else if (ime_local) {
+                japanese_key(*key, true, modifiers);
+                cjk_key(*key, true, modifiers);
+                start_reading_repeat(pointer, *key, modifiers, now);
+            } else if (cancel_accent) {
+                keymap_->cancel_compose();
+                status_.clear();
+            } else if (sends_text) {
+                const auto text = keymap_->compose(symbol);
+                if (preview_input()) {
+                    status_.clear();
+                } else {
+                    text_output_->text_press(pointer, text, now);
+                }
+                if (keymap_->composing()) {
+                    status_ = "Accent pending";
+                }
+            } else if (!local &&
+                       !(key->action_kind == ActionKind::Key && is_modifier(key_code(key->action)))) {
+                // A latched Shift or AltGr belongs to the accented letter
+                // that follows, so only other keys end a pending accent.
+                keymap_->cancel_compose();
+                status_.clear();
+            }
+        } catch (const std::exception& error) {
+            status_ = error.what();
+        }
+        if (keyboard_.num() != old_num) {
+            settings_.num_lock = keyboard_.num();
+            save();
+        }
+    }
+    update_output_status();
+    dirty |= accepted;
+    return accepted;
+    return false;
+}
 bool App::up(unsigned pointer, double x, double y) {
     if (address_repeat_ && address_repeat_->pointer == pointer) {
         address_repeat_.reset();
@@ -1536,6 +1577,15 @@ bool App::up(unsigned pointer, double x, double y) {
     if (emoji_open_ && emoji_.pressed(pointer)) {
         const auto event = emoji_.up(pointer, x, y, monotonic_seconds());
         apply_emoji_event(event);
+        move(pointer, x, y);
+        return false;
+    }
+    if (candidates_.pressed(pointer)) {
+        const auto event = candidates_.up(pointer, x, y, monotonic_seconds());
+        dirty |= event.redraw;
+        if (event.chosen) {
+            pick_candidate(*event.chosen);
+        }
         move(pointer, x, y);
         return false;
     }
@@ -1613,6 +1663,8 @@ void App::cancel_pointer(unsigned pointer) {
     swipe_space_ = false;
     swipe_detached_ = swipe_waiting_;
     settings_ui_.cancel_pointer(pointer);
+    candidates_.cancel_pointer(pointer);
+    reopen_.reset(); // The laser may click into the field next.
     if (languages_ && languages_->drag && languages_->drag->pointer == pointer) {
         languages_->drag.reset();
     }
@@ -1644,6 +1696,8 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
         languages_->drag.reset();
     }
     emoji_.cancel();
+    candidates_.cancel();
+    reopen_.reset();
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
     editor_repeat_.reset();
@@ -1732,6 +1786,7 @@ bool App::tick(double now) {
     }
     refresh_typing();
     update_emoji(now);
+    tick_japanese(now);
     if (dictation_open_) {
         // Type as I speak never uses the editor: turning it on returns to
         // the main keyboard. The editor's text stays in memory, as on Esc.
@@ -1932,6 +1987,7 @@ void App::activate(Selection selection) {
     close_emoji();
     release_input();
     japanese_latin_ = false;
+    japanese_digits_ = false;
     cjk_latin_ = false;
     cjk_ = std::move(cjk);
     settings_.active = std::move(selection);
@@ -2217,16 +2273,22 @@ void App::convert_japanese() {
 }
 void App::commit_japanese() {
     flick_toggle_.reset();
+    reopen_.reset();
     const auto text = composition_.commit_text();
     if (text.empty()) {
         return;
     }
+    const auto reading = composition_.reading();
     if (preview_output()) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
     } else if (text_output_->commit_text(text)) {
         composition_.cancel();
         status_.clear();
+        // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
+        if (!japanese_latin_ && !dictation_open_) {
+            reopen_ = Reopen{text, reading};
+        }
     } else {
         commit_failed();
     }
@@ -2238,8 +2300,11 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
     const auto& code = key.action;
     if (code == "ZenkakuHankaku" || code == "KanaMode") {
         if (execute) {
-            composition_.cancel();
-            japanese_latin_ = !japanese_latin_;
+            commit_japanese(); // as A / あ does
+            if (composition_.empty()) {
+                japanese_latin_ = !japanese_latin_;
+                japanese_digits_ = false;
+            }
         }
         return true;
     }
@@ -2295,7 +2360,16 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                     composition_.cancel();
                 }
             } else if (code == "ArrowLeft" || code == "ArrowRight") {
-                composition_.segment(code == "ArrowLeft" ? -1 : 1);
+                // Phones resize the converting segment with the arrows and PC
+                // IMEs with Shift; the other moves to the next segment.
+                const int direction = code == "ArrowLeft" ? -1 : 1;
+                const bool flick =
+                    profiles_.languages.at(settings_.active.language).input_method == "japanese-flick";
+                if (flick != shift) {
+                    composition_.resize(direction);
+                } else {
+                    composition_.segment(direction);
+                }
             } else {
                 composition_.cycle(code == "ArrowUp" ? -1 : 1);
             }
@@ -2471,6 +2545,87 @@ void App::commit_cjk() {
     } else {
         commit_failed();
     }
+}
+void App::tick_japanese(double now) {
+    dirty |= candidates_.tick(now).redraw;
+    if (!japanese()) {
+        sync_candidates(); // A profile change leaves none.
+        return;
+    }
+    if (!japanese_latin_ && !composition_.empty() && !composition_.converting() &&
+        !composition_.live_current()) {
+        const auto typed = composition_.preedit();
+        if (typed != live_typed_) {
+            live_typed_ = typed;
+            live_due_ = now + live_candidate_delay;
+        } else if (now >= live_due_) {
+            live_due_ = std::numeric_limits<double>::infinity(); // Once for each reading.
+            allow_slow_work(); // Anthy loads its dictionary on first use.
+            try {
+                composition_.prepare_live();
+            } catch (const std::exception&) {
+                // Without Anthy the reading still commits as typed; 変換 says why.
+            }
+            dirty = true;
+        }
+    } else {
+        live_typed_.clear();
+    }
+    sync_candidates();
+}
+std::optional<Rect> App::candidate_area() const {
+    if (!japanese() || emoji_open_ || settings_open_) {
+        return {};
+    }
+    const auto v = geometry();
+    if (dictation_open_) {
+        const auto editor = panel_rect(v, dictation_layout_.editor);
+        return Rect{editor.x + 12, editor.y + editor.height - dictation_notice_height + 3,
+                    editor.width - 24, dictation_notice_height - 6};
+    }
+    return ime_band(v).candidates;
+}
+void App::sync_candidates() {
+    std::vector<std::string> texts;
+    int selected = -1;
+    bool stale = false;
+    const auto area = japanese() ? candidate_area() : std::nullopt;
+    if (area && composition_.converting()) {
+        texts = composition_.candidates();
+        selected = composition_.selected();
+    } else if (area && !japanese_latin_ && !composition_.empty()) {
+        // Live candidates; a stale list stays until the next one is ready.
+        texts = composition_.live();
+        stale = !composition_.live_current();
+    }
+    if (texts.empty()) {
+        if (candidates_.shown()) {
+            candidates_.clear();
+            dirty = true;
+        }
+        return;
+    }
+    const auto before = candidates_.view();
+    const auto& font = profiles_.languages.at(settings_.active.language).font;
+    candidates_.set(*area, std::move(texts), selected, stale,
+                    [&](const std::string& text) { return candidate_text_width(text, font); });
+    dirty |= candidates_.view() != before;
+}
+void App::pick_candidate(int index) {
+    try {
+        flick_toggle_.reset();
+        // A choice in the last segment, or one that completes the phrase, commits it.
+        const bool complete =
+            composition_.converting() ? composition_.choose(index) : composition_.choose_live(index);
+        if (complete) {
+            commit_japanese();
+        }
+    } catch (const std::exception& error) {
+        status_ = error.what();
+    }
+    follow_cursor(); // In dictation mode the reading sits at the cursor.
+    sync_candidates();
+    dirty = true;
 }
 bool App::composing_text() const {
     return !composition_.empty() || (cjk_ && !cjk_->empty());
@@ -2666,9 +2821,10 @@ void App::action(const ControlAction& command) {
     const auto kind = command.kind;
     if (output_.text_pending() &&
         ((kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate) ||
-         (kind >= ControlKind::ImeToggle && kind <= ControlKind::ImeCandidate))) {
-        if (kind != ControlKind::CjkCancel && kind != ControlKind::ImeCancel &&
-            kind != ControlKind::ImeToggle) {
+         kind == ControlKind::ImeToggle)) {
+        // A / あ commits a reading first, which waits like any commit.
+        if (kind != ControlKind::CjkCancel &&
+            (kind != ControlKind::ImeToggle || !composition_.empty())) {
             return;
         }
         output_.cancel_text();
@@ -2698,28 +2854,12 @@ void App::action(const ControlAction& command) {
         follow_cursor(); // In dictation mode the reading sits at the cursor.
         return;
     }
-    if ((kind >= ControlKind::ImeToggle && kind <= ControlKind::ImeCandidate)) {
-        if (kind == ControlKind::ImeToggle) {
-            composition_.cancel();
+    if (kind == ControlKind::ImeToggle) {
+        // The reading, or an English letter still cycling, is typed first.
+        commit_japanese();
+        if (composition_.empty()) {
             japanese_latin_ = !japanese_latin_;
-        } else if (kind == ControlKind::ImeConvert) {
-            convert_japanese();
-        } else if (kind == ControlKind::ImeCommit) {
-            if (!output_.retry_available()) {
-                commit_japanese();
-            } else {
-                retry_output();
-            }
-        } else if (kind == ControlKind::ImeCancel) {
-            composition_.cancel();
-        } else if (kind == ControlKind::ImeHiragana || kind == ControlKind::ImeKatakana) {
-            composition_.script(kind == ControlKind::ImeKatakana);
-        } else if (kind == ControlKind::ImeNext || kind == ControlKind::ImePrev) {
-            composition_.cycle(kind == ControlKind::ImeNext ? 1 : -1);
-        } else if (kind == ControlKind::ImeSegmentNext || kind == ControlKind::ImeSegmentPrev) {
-            composition_.segment(kind == ControlKind::ImeSegmentNext ? 1 : -1);
-        } else if (kind == ControlKind::ImeCandidate) {
-            composition_.choose(command.index);
+            japanese_digits_ = false;
         }
         follow_cursor();
         return;
@@ -3018,15 +3158,63 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     }
 }
+App::FlickMode App::flick_mode() const {
+    if (!japanese() || !japanese_latin_) {
+        return FlickMode::Kana;
+    }
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    return japanese_digits_ && !language.flick_digits.empty() ? FlickMode::Digits : FlickMode::Latin;
+}
+const std::map<std::string, FlickKey>& App::flick_keys() const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    return flick_mode() == FlickMode::Digits ? language.flick_digits : language.flick;
+}
+bool App::band_arrows() const {
+    const auto& keys = shown_layout().keys;
+    return ime_band_shown() &&
+           profiles_.languages.at(settings_.active.language).input_method == "japanese-flick" &&
+           std::none_of(keys.begin(), keys.end(), [](const Key& key) {
+               return key.action_kind == ActionKind::Key && key.action == "ArrowUp";
+           });
+}
+const Layout& App::shown_layout() const {
+    const auto& layout = profiles_.layouts.at(settings_.active.layout);
+    if (flick_mode() == FlickMode::Latin && !layout.latin_layout.empty()) {
+        if (const auto page = profiles_.layouts.find(layout.latin_layout);
+            page != profiles_.layouts.end()) {
+            return page->second; // The English page
+        }
+    }
+    return layout;
+}
+bool App::has_mode_key() const {
+    const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
+    return japanese() && std::any_of(keys.begin(), keys.end(), [](const Key& key) {
+               return key.action_kind == ActionKind::Flick && key.action == flick_mode_slot;
+           });
+}
+void App::set_flick_mode(FlickMode mode) {
+    commit_japanese();
+    if (!composition_.empty()) {
+        return;
+    }
+    japanese_latin_ = mode != FlickMode::Kana;
+    japanese_digits_ = mode == FlickMode::Digits;
+    flick_toggle_.reset();
+    status_.clear();
+}
 bool App::flick_down(unsigned pointer, const Key& key, double x, double y, double now) {
     const auto& language = profiles_.languages.at(settings_.active.language);
     if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || flick_track_ ||
         !language.flick.contains(key.action)) {
         return false;
     }
-    // 12-key keys always compose; Latin mode only changes what the number row types.
-    japanese_latin_ = false;
-    cjk_latin_ = false;
+    // A kana grid shown in Latin mode (Korean, or Japanese without an English
+    // page) composes again when pressed; the mode key keeps the mode it changes.
+    if (key.action != flick_mode_slot && flick_mode() != FlickMode::Digits) {
+        japanese_latin_ = false;
+        cjk_latin_ = false;
+    }
     // A local press shows the key and owns the pointer; nothing is sent.
     if (!keyboard_.down(pointer, key, now, true, 0)) {
         return false;
@@ -3051,7 +3239,7 @@ void App::flick_move(double x, double y) {
     }
 }
 std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
-    const auto& key = profiles_.languages.at(settings_.active.language).flick.at(track.slot);
+    const auto& key = flick_keys().at(track.slot);
     if (cycles) {
         *cycles = false;
     }
@@ -3090,10 +3278,40 @@ void App::finish_flick() {
     const auto track = *flick_track_;
     flick_track_.reset();
     keyboard_.up(track.pointer);
-    const auto& key = profiles_.languages.at(settings_.active.language).flick.at(track.slot);
+    const auto& key = flick_keys().at(track.slot);
     bool cycles = false;
     const auto text = flick_text(track, &cycles);
     try {
+        if (track.slot == flick_mode_slot && japanese()) {
+            // A tap moves on to the next mode; a flick picks one.
+            const auto next = static_cast<FlickMode>((static_cast<int>(flick_mode()) + 1) % 3);
+            switch (track.direction) {
+            case FlickDirection::Tap:
+                set_flick_mode(next);
+                break;
+            case FlickDirection::Left:
+                set_flick_mode(FlickMode::Kana);
+                break;
+            case FlickDirection::Up:
+                set_flick_mode(FlickMode::Latin);
+                break;
+            case FlickDirection::Right:
+                set_flick_mode(FlickMode::Digits);
+                break;
+            case FlickDirection::Down:
+                break;
+            }
+            return;
+        }
+        if (track.slot == flick_undo_slot && japanese()) {
+            undo_japanese(track.pressed);
+            return;
+        }
+        if (flick_mode() == FlickMode::Digits) {
+            flick_toggle_.reset();
+            type_now(text); // Digits and symbols never compose.
+            return;
+        }
         if (cjk_) {
             cjk_->flick(text, cycles); // 천지인 strokes, jamo and punctuation
             status_.clear();
@@ -3113,6 +3331,76 @@ void App::finish_flick() {
         flick_toggle_.reset();
         status_ = error.what();
     }
+}
+void App::type_now(const std::string& text) {
+    if (text.empty()) {
+        return; // A direction this key does not use.
+    }
+    // Through the reading, so a failed commit keeps the text as it does a phrase.
+    commit_japanese();
+    if (!composition_.empty()) {
+        return;
+    }
+    composition_.kana(text);
+    commit_japanese();
+    reopen_.reset(); // Not a phrase to reopen.
+    status_.clear();
+}
+void App::undo_japanese(double now) {
+    if (composition_.converting()) {
+        composition_.unconvert(); // Back to the reading.
+        return;
+    }
+    if (!composition_.empty()) {
+        // 逆トグル: the last kana steps back through its key's taps, and a
+        // tap after it goes on from there.
+        const auto last = composition_.last_kana();
+        const auto& table = flick_keys();
+        auto slot = table.end();
+        if (flick_toggle_ && table.contains(flick_toggle_->slot)) {
+            slot = table.find(flick_toggle_->slot);
+        }
+        if (slot == table.end() || std::find(slot->second.tap.begin(), slot->second.tap.end(), last) ==
+                                       slot->second.tap.end()) {
+            slot = std::find_if(table.begin(), table.end(), [&](const auto& item) {
+                const auto& taps = item.second.tap;
+                return taps.size() > 1 && std::find(taps.begin(), taps.end(), last) != taps.end();
+            });
+        }
+        if (last.empty() || slot == table.end()) {
+            return; // Not typed by a tap.
+        }
+        const auto& taps = slot->second.tap;
+        const auto at =
+            static_cast<std::size_t>(std::find(taps.begin(), taps.end(), last) - taps.begin());
+        const auto back = (at + taps.size() - 1) % taps.size();
+        composition_.backspace();
+        composition_.kana(taps[back]);
+        flick_toggle_ = FlickToggle{slot->first, back, now};
+        return;
+    }
+    reopen_phrase();
+}
+void App::reopen_phrase() {
+    // 確定取り消し: the phrase just committed leaves the field and is a
+    // reading again. Only straight after the commit, while the field and
+    // its cursor can only be where it left them.
+    if (!reopen_ || dictation_open_ || preview_output() || !output_.enabled() || target_missing()) {
+        reopen_.reset();
+        return;
+    }
+    const auto phrase = *reopen_;
+    reopen_.reset();
+    const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
+    if (count == 0 || !output_.can_queue(2 * count)) {
+        return;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        output_.send(KEY_BACKSPACE, 1);
+        output_.send(KEY_BACKSPACE, 0);
+    }
+    composition_.kana(phrase.reading);
+    update_output_status();
 }
 void App::flick_type(const std::string& text) {
     if (text.empty()) {
@@ -3734,6 +4022,9 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
         // Settings rarely overflows; its ends are not worth tracking.
         return settings_ui_.scrolls_at(x, y) ? std::optional{ScrollRoom{true, true}} : std::nullopt;
     }
+    if (candidates_.contains(x, y)) {
+        return candidates_.scroll_room(x, y);
+    }
     if (dictation_open_) {
         // Asked every frame for each pointer: build the view and the limit once.
         const auto v = geometry();
@@ -3767,8 +4058,7 @@ bool App::emoji_available() const {
     return preview_input() || (unicode_mode() && text_ready_ && backend_ready_);
 }
 bool App::emoji_key(const std::string& id) const {
-    const auto& keys =
-        emoji_open_ ? emoji_layout_.layout.keys : profiles_.layouts.at(settings_.active.layout).keys;
+    const auto& keys = emoji_open_ ? emoji_layout_.layout.keys : shown_layout().keys;
     return std::any_of(keys.begin(), keys.end(), [&](const Key& key) {
         return key.id == id && key.action_kind == ActionKind::Emoji;
     });
@@ -4084,17 +4374,21 @@ void App::show_dictation() {
 
 void App::refresh_dictation_layout() {
     const bool hidden = numpad_hidden();
-    if (dictation_layout_for_ && dictation_layout_for_->layout == settings_.active.layout &&
+    // English mode's page has a dictation mode of its own.
+    if (dictation_layout_for_ && dictation_layout_for_->layout == shown_layout().id &&
         dictation_layout_for_->theme == settings_.active.theme &&
         dictation_layout_for_->numpad_hidden == hidden) {
         return;
     }
     PanelView main;
-    main.layout = &profiles_.layouts.at(settings_.active.layout);
+    main.layout = &shown_layout();
     main.theme = &profiles_.themes.at(settings_.active.theme);
     main.language = &profiles_.languages.at(settings_.active.language);
     main.hide_numpad = numpad_hidden();
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main));
+    // Placed as the mode shows it: a layout without a function-key row grows
+    // taller for the editor.
+    main.layout = &dictation_layout_.layout;
     // A layout's own scale can raise the editor into the first toolbar row,
     // which holds the Japanese input buttons: keep a gap under that row.
     auto& editor = dictation_layout_.editor;
@@ -4112,7 +4406,7 @@ void App::refresh_dictation_layout() {
             editor.width -= over / scale;
         }
     }
-    dictation_layout_for_ = DictationLayoutFor{settings_.active.layout, settings_.active.theme, hidden};
+    dictation_layout_for_ = DictationLayoutFor{shown_layout().id, settings_.active.theme, hidden};
     dirty = true;
 }
 
@@ -4156,7 +4450,7 @@ void App::set_dictation_view(PanelView& view) const {
         editor.active_end = at + active.second;
         editor.cursor = editor.preedit_end;
         // The band shows once there is something to choose.
-        editor.candidates = !composition_.candidates().empty() || (cjk_ && !cjk_->candidates().empty());
+        editor.candidates = candidates_.shown() || (cjk_ && !cjk_->candidates().empty());
     }
     editor.capturing = capturing_;
     if (confirm_discard_) {
