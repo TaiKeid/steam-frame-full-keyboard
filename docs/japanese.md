@@ -48,7 +48,7 @@ Learning is on by default, as on Steam's own keyboard, which always learns. With
 
 - A phrase committed from a conversion teaches Anthy which candidate each segment took, so they come first next time.
 - Live candidates also offer words committed before that begin with the reading, right after the whole phrase: once ありがとう was committed as 有難う, typing あり offers 有難う. These are only words you committed; Anthy has no dictionary of its own for predictions.
-- Nothing is learned in password, PIN or terminal fields.
+- Nothing is learned in a field that says it is for a password, a PIN or a terminal, as a [shell](integration.md)'s fields can. Steam's own fields don't say, so there, as on Steam's keyboard, phrases are learned.
 
 Anthy keeps what it learns in plain text, in `~/.anthy/last-record1_framekeyboard.utf8` and `last-record2_framekeyboard.utf8`: under a name of Full Keyboard's own, apart from what Steam's keyboard learns there. A phone IME's learned words sit in storage other apps can't open, but Steam Frame's desktop is an unlocked Linux system, where any program you run can read the files in your home folder. Steam's own keyboard keeps its learning the same way.
 
