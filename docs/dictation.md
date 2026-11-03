@@ -32,7 +32,7 @@ The modes never switch on their own. Audio never goes to a server while On devic
 
 ## Mic key
 
-The mic key is the tall key at the bottom of the side column, below Copy, Cut and Paste and the small emoji key above them (see [emoji picker](emoji.md#side-column)). It is shown only when dictation is usable in the chosen mode for the active language (see [mic key visibility](#mic-key-visibility)); otherwise its slot stays empty.
+The mic key is the tall key at the bottom of the side column, below Cut, Copy and Paste and the small emoji key above them (see [emoji picker](emoji.md#side-column)). It is shown only when dictation is usable in the chosen mode for the active language (see [mic key visibility](#mic-key-visibility)); otherwise its slot stays empty.
 
 - **Normal mode:** pressing the mic key enters dictation mode and starts capturing at once.
 - **Type as I speak:** pressing it starts capture without leaving the normal keyboard.
@@ -47,10 +47,10 @@ The mic key is the tall key at the bottom of the side column, below Copy, Cut an
 ### Dictation mode layout
 
 - An editor replaces the function-key row. Esc stays at its left.
-- **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Copy, Cut and Paste side keys, which act on the focused application.
+- **Hidden:** F1–F12, Print Screen, Scroll Lock, Pause, Tab, Insert, both Ctrl keys, Super, both Alt keys, Steam and Menu, and the Cut, Copy and Paste side keys, which act on the focused application.
 - **Send** takes the place of the right-hand Alt to Ctrl keys. Layouts without them, such as flick, put it in Tab's place.
 - **Undo last phrase** takes the freed side space directly above the mic key, as tall as it.
-- **Copy, Cut and Paste,** shown as icons, take the left Ctrl, Super and Alt keys' places. Layouts without them, such as flick, stack the three above a shorter Undo, between Convert's slot and the mic key.
+- **Cut, Copy and Paste,** shown as icons, take the left Ctrl, Super and Alt keys' places. Layouts without them, such as flick, stack the three above a shorter Undo, between Convert's slot and the mic key.
 - Letters, digits, punctuation, Shift, Caps Lock, Backspace, Delete, Enter, the arrows, Home/End and the number pad stay and edit the editor. PgUp/PgDn scroll it by a page, locally.
 - The status line, which the editor covers, moves into the toolbar row, wrapping onto a second line when long. Japanese and Korean input buttons narrow that space, so there a status too long for two lines stays on one and scrolls under the laser.
 - The toolbar stays. Listening continues under Settings, which waits only while Send runs. Applying a change to the language or recognition settings, Reload, the server test and downloading or deleting a model pause it. Phrases recorded before such a change are still recognized with the server and model they were recorded for, even when listening resumes before they are done. The language and haptic sounds buttons wait until no phrase is being captured, recognized or typed, and the swipe button waits while the editor can't be typed in. X, Pin, Recenter and Esc keep working.
@@ -103,7 +103,7 @@ Short conversational sentences are used rather than descriptions such as 以下�
   - A tapped Shift covers one step; holding it for half a second locks it for several, and the next Shift press unlocks it.
   - Typing, Backspace, Delete, Enter, Paste and a recognized phrase replace the selection. Left and Right without Shift end it at that side; any other move or a click ends it where the cursor lands.
   - Send always sends the whole text, whatever is selected.
-- **Copy, Cut and Paste:** these keys use a buffer of the editor's own, kept in memory and never logged. They never touch the system clipboard, so Paste only inserts what was copied or cut in the editor, and that text does not reach other applications. Copy and Cut need a selection, Paste needs something copied, and all three wait while the editor is locked. The buffer lasts until the keyboard exits.
+- **Cut, Copy and Paste:** these keys use a buffer of the editor's own, kept in memory and never logged. They never touch the system clipboard, so Paste only inserts what was copied or cut in the editor, and that text does not reach other applications. Copy and Cut need a selection, Paste needs something copied, and all three wait while the editor is locked. The buffer lasts until the keyboard exits.
 - **Scrolling:** the thumbstick scrolls the editor a line a step while the laser points at it. With the dashboard open, the overlay requests SteamVR's scroll events; in passthrough, the stick is read directly, as for the emoji grid. Pressing on the text and dragging scrolls it like a touch screen; a press released where it began places the cursor. Scrolling works while listening too. The view follows the cursor as text is inserted.
 - **Counter:** a character counter in the toolbar row shows, for example, `412/900`, turning amber at 900. Characters are counted as Unicode code points, not bytes.
   - Dictation cannot start or continue at 900 characters or more.

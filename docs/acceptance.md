@@ -4,7 +4,7 @@ Use this checklist for a release candidate. Automated core tests and earlier hea
 
 ## Visuals
 
-- Full-size US arrangement, left Copy, Cut and Paste, separated navigation and numpad.
+- Full-size US arrangement, left Cut, Copy and Paste, separated navigation and numpad.
 - Flat dark grey surface, white legends, rounded grey gradient keycaps.
 - Shallow sides; fixed-size caps translate down on press without stretching or exposing a top side.
 - Hover, press and modifier state remain distinguishable at actual headset size.

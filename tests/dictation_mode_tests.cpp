@@ -251,11 +251,11 @@ void layout_tests() {
                             [&](const Key& key) { return key.id == id; })
             ->bounds;
     };
-    require(bounds_in(mode.layout, "Dictation-copy") == bounds_in(main, "ControlLeft") &&
-                bounds_in(mode.layout, "Dictation-cut") == bounds_in(main, "MetaLeft") &&
+    require(bounds_in(mode.layout, "Dictation-cut") == bounds_in(main, "ControlLeft") &&
+                bounds_in(mode.layout, "Dictation-copy") == bounds_in(main, "MetaLeft") &&
                 bounds_in(mode.layout, "Dictation-paste") == bounds_in(main, "AltLeft") &&
                 bounds_in(mode.layout, "Dictation-undo") == Rect{0, 186, 79, 110},
-            "Copy, Cut and Paste take the left modifiers' slots; Undo sits above the mic key, as tall");
+            "Cut, Copy and Paste take the left modifiers' slots; Undo sits above the mic key, as tall");
     const auto& zero = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
                                      [](const Key& key) { return key.id == "Numpad0"; });
     const auto& decimal = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
@@ -309,8 +309,8 @@ void layout_tests() {
         if (stacked.layout.height > source.height) {
             slot.y += function_row_room; // Moved down for the editor.
         }
-        require(copy.x == slot.x && copy.width == slot.width && copy.y + copy.height < cut.y &&
-                    cut.y + cut.height < paste.y && paste.y + paste.height < undo.y &&
+        require(cut.x == slot.x && cut.width == slot.width && cut.y + cut.height < copy.y &&
+                    copy.y + copy.height < paste.y && paste.y + paste.height < undo.y &&
                     undo.y + undo.height == slot.y + slot.height,
                 "without left modifiers, the keys stack above Undo, ending with Paste's slot");
         require(copy.y >= 110, "the stack starts below the editor's top row");

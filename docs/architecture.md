@@ -156,7 +156,7 @@ Use logical names such as `Enter`, `ControlLeft`, `KeyC`, and `NumpadEnter`. Eve
 
 uinput follows the compositor's input routing; it does not address a chosen window. A target overlay ID does not prove keyboard focus. Preserve focus while interacting with the panel and verify delivery in KDE and the outer floating-window session separately.
 
-Copy, Cut and Paste are shortcut actions, initially Ctrl+C, Ctrl+X and Ctrl+V for browser targets. They do not read passwords or clipboard contents. Terminal shortcuts and clipboard sharing across sessions are separate requirements.
+Cut, Copy and Paste are shortcut actions, initially Ctrl+X, Ctrl+C and Ctrl+V for browser targets. They do not read passwords or clipboard contents. Terminal shortcuts and clipboard sharing across sessions are separate requirements.
 
 ## Packaging and failure cleanup
 

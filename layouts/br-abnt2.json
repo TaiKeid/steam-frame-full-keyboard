@@ -21,8 +21,8 @@
       "icon": "emoji"
     },
     {
-      "id": "Copy",
-      "label": "Copy",
+      "id": "Cut",
+      "label": "Cut",
       "secondary_label": "",
       "x": 0,
       "y": 66,
@@ -30,13 +30,13 @@
       "height": 70,
       "action": {
         "kind": "shortcut",
-        "value": "copy"
+        "value": "cut"
       },
-      "icon": "copy"
+      "icon": "cut"
     },
     {
-      "id": "Cut",
-      "label": "Cut",
+      "id": "Copy",
+      "label": "Copy",
       "secondary_label": "",
       "x": 0,
       "y": 146,
@@ -44,9 +44,9 @@
       "height": 70,
       "action": {
         "kind": "shortcut",
-        "value": "cut"
+        "value": "copy"
       },
-      "icon": "cut"
+      "icon": "copy"
     },
     {
       "id": "Paste",

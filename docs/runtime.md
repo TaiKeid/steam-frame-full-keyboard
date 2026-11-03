@@ -55,7 +55,7 @@ For example, to address a different running compositor:
 
 The optional `--input uinput` developer backend requires access to `/dev/uinput`; newly created devices were not discovered by the tested outer VR session. The installed launcher uses libei and does not need this backend.
 
-Copy, Cut and Paste send Ctrl+C, Ctrl+X and Ctrl+V. They do not synchronize clipboards between sessions, implement terminal Ctrl+Shift shortcuts, or read clipboard data. In Unicode mode Caps/Num Lock are local to this panel and do not change the system locks. Native modifier shortcuts remain subject to receiving-app behavior.
+Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. They do not synchronize clipboards between sessions, implement terminal Ctrl+Shift shortcuts, or read clipboard data. In Unicode mode Caps/Num Lock are local to this panel and do not change the system locks. Native modifier shortcuts remain subject to receiving-app behavior.
 
 ## Troubleshooting
 

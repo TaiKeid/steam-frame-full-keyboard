@@ -109,15 +109,15 @@ DictationLayout dictation_layout(const Layout& main, double visible_width, doubl
     if (send) {
         result.layout.keys.push_back(dictation_key("send", "Send", *send, Icon::None));
     }
-    // Copy, Cut and Paste act on the editor alone and take the left modifiers'
+    // Cut, Copy and Paste act on the editor alone and take the left modifiers'
     // slots. Layouts without them, such as flick, stack the three above Undo, in
     // Paste's side slot and the freed space over it.
     const auto control = lowered(bounds_of(main, {"ControlLeft"}));
     const auto meta = lowered(bounds_of(main, {"MetaLeft"}));
     const auto alt = lowered(bounds_of(main, {"AltLeft"}));
     if (control && meta && alt) {
-        result.layout.keys.push_back(dictation_key("copy", "Copy", *control, Icon::Copy));
-        result.layout.keys.push_back(dictation_key("cut", "Cut", *meta, Icon::Cut));
+        result.layout.keys.push_back(dictation_key("cut", "Cut", *control, Icon::Cut));
+        result.layout.keys.push_back(dictation_key("copy", "Copy", *meta, Icon::Copy));
         result.layout.keys.push_back(dictation_key("paste", "Paste", *alt, Icon::Paste));
         if (paste) {
             // As tall as the mic key below it, up over Paste's freed neighbours.
@@ -132,8 +132,8 @@ DictationLayout dictation_layout(const Layout& main, double visible_width, doubl
                 dictation_key(action, label, {paste->x, y, paste->width, stack_key_height}, icon));
             y += stack_key_height + stack_gap;
         };
-        stacked("copy", "Copy", Icon::Copy);
         stacked("cut", "Cut", Icon::Cut);
+        stacked("copy", "Copy", Icon::Copy);
         stacked("paste", "Paste", Icon::Paste);
         stacked("undo", "Undo", Icon::Undo);
     }

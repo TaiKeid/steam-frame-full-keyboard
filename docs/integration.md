@@ -331,14 +331,14 @@ By default, the keyboard types into the Gamescope keyboard focus. A shell that w
 
 ### Exclusive destination
 
-While the sink is on, it is the only destination for committed output. Typed characters, named controls, Copy, Cut and Paste, emoji, dictation Send and Type as I speak all go to the sink. libei, uinput and the clipboard are not used; `dictation_send_paste` is ignored. The sink works with `--input none`. The sink alone decides whether typing is possible: a paused or reconnecting system backend does not stop it, and shortcuts keep the keyboard's own key IDs, whatever keymap the focused application uses.
+While the sink is on, it is the only destination for committed output. Typed characters, named controls, Cut, Copy and Paste, emoji, dictation Send and Type as I speak all go to the sink. libei, uinput and the clipboard are not used; `dictation_send_paste` is ignored. The sink works with `--input none`. The sink alone decides whether typing is possible: a paused or reconnecting system backend does not stop it, and shortcuts keep the keyboard's own key IDs, whatever keymap the focused application uses.
 
 Turning the sink on or off first cancels through the old destination: held keys are released there and queued output for it is dropped. Typing resumes only once a valid context is set for the new destination.
 
 ### Events and acknowledgement
 
 - `commit` carries committed text. `key` is one atomic action, press and release, for a named control. A held key's repeats arrive as further `key` events with `"repeat":true`. Modifier presses alone are not sent. Latched or held modifiers apply to the next `key` and are listed in `modifiers`.
-- Key names are the logical key IDs from the layout (`Enter`, `Backspace`, `ArrowLeft`, `KeyA`, ...), never evdev or Steam codes. Copy, Cut and Paste arrive as `KeyC`, `KeyX` and `KeyV` with `Ctrl`.
+- Key names are the logical key IDs from the layout (`Enter`, `Backspace`, `ArrowLeft`, `KeyA`, ...), never evdev or Steam codes. Cut, Copy and Paste arrive as `KeyC`, `KeyX` and `KeyV` with `Ctrl`.
 - Events are ordered and numbered by `seq`. A swipe correction arrives as `Backspace` keys followed by the new commit, in order, in the same context.
 - A socket write does not mean a field accepted the text. The shell acknowledges with `ack` (`context`, highest accepted `seq`), or rejects one event with `{"op":"reject","context":...,"seq":N}`. A rejected commit is kept for explicit retry, as failed commits are in native replacement. Dictation Send clears the editor only after its commit is acknowledged.
 - One event is in flight at a time (owner, 2026-10-26): the next is sent only after the shell answers the last, exactly as the output queue waits for an asynchronous transport. Each is one local round trip.
