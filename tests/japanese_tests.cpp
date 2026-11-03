@@ -614,6 +614,19 @@ void candidate_band() {
     click_key(app, "ArrowLeft");
     click_key(app, "ArrowLeft");
     require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "← shortens it, splitting the rest again");
+    {
+        // The arrows end the candidate row, beside its chips, not over them.
+        const auto view = app.view();
+        const auto band = ime_band(view);
+        for (const auto* id : {"ime-up", "ime-down"}) {
+            const auto arrow = std::find_if(view.controls.begin(), view.controls.end(),
+                                            [&](const Control& c) { return c.id == id; });
+            require(arrow != view.controls.end() &&
+                        arrow->bounds.x >= band.candidates.x + band.candidates.width &&
+                        arrow->bounds.x + arrow->bounds.width <= band.band.x + band.band.width,
+                    "the band's arrows sit right of the candidate row");
+        }
+    }
     control(app, "ime-down");
     require(app.view().preedit == "に〈はな〉〈こ〉", "the band's ↓ moves to the next candidate");
     control(app, "ime-up");

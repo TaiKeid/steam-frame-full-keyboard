@@ -455,11 +455,6 @@ std::vector<Control> App::controls() const {
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
     }
-    if (geometry.ime_arrows && !settings_open_) {
-        const auto band = ime_band(geometry);
-        add({ControlKind::ImeUp}, {"ime-up", "Up", *band.up, false, Icon::ArrowUp});
-        add({ControlKind::ImeDown}, {"ime-down", "Down", *band.down, false, Icon::ArrowDown});
-    }
     if (cjk_ && !emoji_open_) {
         add({ControlKind::CjkToggle},
             {"cjk-toggle",
@@ -514,6 +509,13 @@ std::vector<Control> App::controls() const {
                 ++i;
             }
         }
+    }
+    // The band's arrows come in panel coordinates already: after the
+    // composition controls' scaling.
+    if (geometry.ime_arrows && !settings_open_) {
+        const auto band = ime_band(geometry);
+        add({ControlKind::ImeUp}, {"ime-up", "Up", *band.up, false, Icon::ArrowUp});
+        add({ControlKind::ImeDown}, {"ime-down", "Down", *band.down, false, Icon::ArrowDown});
     }
     // Swipe suggestions scale the same way, but never start before the end of
     // the first toolbar row or reach the close button; many share the room.
