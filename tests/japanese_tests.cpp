@@ -348,6 +348,23 @@ void flick_input() {
     app.cancel_pointer(0);
     flick(app, "undo", 65);
     require(preedit().empty() && sink.keys.empty(), "so does the laser leaving the keyboard");
+    // Paste commits the reading, then pastes: Backspace would delete the paste.
+    flick(app, "a", 66);
+    flick(app, "ka", 66.2);
+    click_key(app, "Paste");
+    sink.keys.clear();
+    flick(app, "undo", 67);
+    require(preedit().empty() && sink.keys.empty(), "nothing reopens once more was sent after it");
+    // A long phrase comes back whole: one Backspace for each character.
+    for (int i = 0; i < 18; ++i) {
+        flick(app, "a", 68 + i * .01, -60, 0);
+    }
+    click_key(app, "Enter");
+    sink.keys.clear();
+    flick(app, "undo", 69);
+    require(g_utf8_strlen(preedit().c_str(), -1) == 18 && sink.keys.size() == 36,
+            "an 18-character phrase reopens too");
+    clear();
     clear();
 
     app.show_settings();

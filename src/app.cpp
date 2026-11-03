@@ -2289,7 +2289,7 @@ void App::commit_japanese() {
         status_.clear();
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (!japanese_latin_ && !dictation_open_) {
-            reopen_ = Reopen{text, reading};
+            reopen_ = Reopen{text, reading, output_.queued()};
         }
     } else {
         commit_failed();
@@ -3393,13 +3393,14 @@ void App::reopen_phrase() {
     }
     const auto phrase = *reopen_;
     reopen_.reset();
+    // Anything queued since, such as a paste or dictated phrases, came after
+    // the phrase, so Backspace would delete that instead.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
-    if (count == 0 || !output_.can_queue(2 * count)) {
+    if (output_.queued() != phrase.queued || count == 0 || !output_.can_queue(count)) {
         return;
     }
     for (std::size_t i = 0; i < count; ++i) {
-        output_.send(KEY_BACKSPACE, 1);
-        output_.send(KEY_BACKSPACE, 0);
+        output_.tap({KEY_BACKSPACE}); // One entry each.
     }
     composition_.kana(phrase.reading);
     update_output_status();

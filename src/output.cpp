@@ -76,6 +76,7 @@ void OutputController::send(int code, int value) {
         entry->held = true;
         direct_[code] = entry;
         queue_.push_back(entry);
+        ++queued_;
         drain();
     }
 }
@@ -91,6 +92,7 @@ void OutputController::native_press(unsigned pointer, const std::vector<int>& co
     entry->held = true;
     active_[pointer] = entry;
     queue_.push_back(entry);
+    ++queued_;
     drain();
 }
 bool OutputController::sendable(const std::string& text) {
@@ -107,6 +109,7 @@ bool OutputController::taps_then_text(int code, std::size_t count, const std::st
         auto entry = std::make_shared<Entry>();
         entry->codes = {code}; // Not held: released as soon as it is delivered.
         queue_.push_back(entry);
+        ++queued_;
     }
     return enqueue_text(text); // Drains the whole sequence.
 }
@@ -117,6 +120,7 @@ bool OutputController::tap(const std::vector<int>& codes) {
     auto entry = std::make_shared<Entry>();
     entry->codes = codes; // Not held: released as soon as all are delivered.
     queue_.push_back(entry);
+    ++queued_;
     drain();
     return true;
 }
@@ -137,6 +141,7 @@ bool OutputController::enqueue_text(const std::string& text, std::shared_ptr<Ent
     }
     entry->text = text;
     queue_.push_back(entry);
+    ++queued_;
     drain();
     return true; // Ownership transferred, including to the failure retry buffer.
 }
@@ -516,9 +521,11 @@ bool OutputController::tick(double now) {
                     entry->codes = {held->repeat_code};
                     entry->started = entry->waiting = true;
                     queue_.push_back(entry);
+                    ++queued_;
                 }
             } else {
                 queue_.push_back(entry);
+                ++queued_;
             }
             held->repeat_at = now + .04;
             if (!queue_.empty()) {

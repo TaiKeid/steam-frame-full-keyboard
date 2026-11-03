@@ -730,6 +730,7 @@ class App {
     // else is pressed, the laser leaves or the keyboard hides.
     struct Reopen {
         std::string text, reading;
+        std::uint64_t queued{}; // The output queue's count right after the commit.
     };
     std::optional<Reopen> reopen_;
     bool text_ready_{};

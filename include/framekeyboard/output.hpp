@@ -34,6 +34,8 @@ class OutputController : public KeySink, public TextOutput {
     // Counts entries delivered in full. With failures(), tells a sender that
     // its entry arrived, rather than being dropped by a cancel.
     std::uint64_t completed() const { return completed_; }
+    // Counts entries ever queued: unchanged means nothing was sent since.
+    std::uint64_t queued() const { return queued_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
     void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now);
     bool text_press(unsigned pointer, const std::string& text, double now) override;
@@ -122,7 +124,7 @@ class OutputController : public KeySink, public TextOutput {
     double last_text_at_{-1}, text_ready_at_{-1};
     bool text_time_pending_{}, paced_time_pending_{};
     bool enabled_{}, failed_{};
-    std::uint64_t failures_{}, completed_{};
+    std::uint64_t failures_{}, completed_{}, queued_{};
     std::string status_;
     bool status_changed_{};
 };
