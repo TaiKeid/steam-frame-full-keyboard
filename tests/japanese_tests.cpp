@@ -874,19 +874,24 @@ void learning_settings() {
         }
         return *found;
     };
-    require(!find("japanese-learning").selected && !find("clear-learning").enabled,
-            "learning starts off, with nothing to clear");
-    control(app, "japanese-learning");
-    control(app, "apply");
-    app.flush_settings();
-    std::vector<std::string> errors;
-    require(load_settings(options.config_dir, errors).japanese_learning, "learning is saved");
-
+    require(find("japanese-learning").selected && !find("clear-learning").enabled,
+            "learning starts on, as on Steam's keyboard, with nothing to clear");
+    control(app, "settings"); // Back
     flick(app, "a", 1);
     click_key(app, "Space");
     click_key(app, "Enter");
     require(sink.text.back() == "〈あ〉" && learned == std::vector<std::vector<std::string>>{{"〈あ〉"}},
             "a committed conversion is learned");
+    app.show_settings();
+    control(app, "japanese-learning");
+    control(app, "apply");
+    app.flush_settings();
+    std::vector<std::string> errors;
+    require(!load_settings(options.config_dir, errors).japanese_learning, "turning it off is saved");
+    flick(app, "a", 1.5);
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    require(sink.text.size() == 2 && learned.size() == 1, "and nothing is learned then");
 
     // What Anthy learned, as its record file; Clear asks, then deletes it.
     const auto record = options.anthy_home / ".anthy" / "last-record2_framekeyboard.utf8";

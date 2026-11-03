@@ -194,7 +194,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
-    configure_anthy({settings_.japanese_learning, options_.anthy_home});
+    configure_anthy({settings_.japanese_learning, anthy_home()});
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2298,13 +2298,26 @@ void App::reload() {
     host_settings_changed(before, "reload");
     status_ = profiles_.errors.empty() ? save_status_ : profiles_.errors.front();
 }
+// Where Anthy keeps what it learns: the user's home for the user's own
+// profile; with another config folder (tests, the simulator, --config-dir),
+// that folder, so a profile's learning stays with it.
+fs::path App::anthy_home() const {
+    if (!options_.anthy_home.empty()) {
+        return options_.anthy_home;
+    }
+    std::error_code error;
+    const auto own = fs::weakly_canonical(default_config_dir(), error);
+    return !options_.config_dir.empty() && fs::weakly_canonical(options_.config_dir, error) != own
+               ? options_.config_dir
+               : fs::path{};
+}
 // Learning, if the user turned it on and the field may keep what is typed:
 // never a password, PIN or terminal.
 bool App::learning_allowed() const {
     return settings_.japanese_learning && !hint_private() && !hint_no_suggestions();
 }
 void App::apply_learning() {
-    if (configure_anthy({settings_.japanese_learning, options_.anthy_home}) && !restarting_anthy()) {
+    if (configure_anthy({settings_.japanese_learning, anthy_home()}) && !restarting_anthy()) {
         restart_learning(false);
     }
 }

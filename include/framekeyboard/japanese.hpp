@@ -43,8 +43,7 @@ class JapaneseConverter {
 struct AnthyLearning {
     bool operator==(const AnthyLearning&) const = default;
     bool on{};
-    // Where Anthy keeps it. Empty keeps the home set before, at first the
-    // user's own, where Anthy looks.
+    // Where Anthy keeps it. Empty keeps the home set before, at first $HOME.
     std::filesystem::path home;
 };
 // Sets the learning Anthy starts with. True when Anthy already runs with

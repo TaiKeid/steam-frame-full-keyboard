@@ -123,8 +123,9 @@ struct Settings {
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
     // Japanese conversion learns from the phrases committed and offers them
-    // again; Anthy keeps them in plain text (docs/japanese.md, Learning).
-    bool japanese_learning{};
+    // again, as Steam's keyboard does; Anthy keeps them in plain text
+    // (docs/japanese.md, Learning).
+    bool japanese_learning{true};
     // Keep open's amber cue names the hidden window it types into in a tooltip.
     bool focus_tooltip{true};
     // SteamOS's Desktop: non-ASCII text is pasted instead of typed as Unicode entry.

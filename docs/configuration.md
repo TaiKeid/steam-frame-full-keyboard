@@ -102,7 +102,7 @@ While swipe is active, letter keys type on release instead of press, so a press 
 
 ## Japanese learning
 
-With Japanese as the main language or an additional one, the Languages and Layouts card also has **Learn from my typing**, saved as the optional global boolean `japanese_learning` and defaulting to false. Apply and save turns it on or off; Back discards it. Under it, **Clear learned words** deletes what was learned after a confirmation, and can't be pressed while there is nothing to clear or while it is clearing. See [Japanese learning](japanese.md#learning).
+With Japanese as the main language or an additional one, the Languages and Layouts card also has **Learn from my typing**, saved as the optional global boolean `japanese_learning` and defaulting to true, as Steam's keyboard always learns. Apply and save turns it on or off; Back discards it. Under it, **Clear learned words** deletes what was learned after a confirmation, and can't be pressed while there is nothing to clear or while it is clearing. See [Japanese learning](japanese.md#learning).
 
 ## Emoji picker
 

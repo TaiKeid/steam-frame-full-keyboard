@@ -1,5 +1,6 @@
 #include "framekeyboard/japanese.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <dlfcn.h>
 #include <glib.h>
 #include <map>
@@ -126,11 +127,15 @@ Anthy& anthy() {
     static Anthy value;
     return value;
 }
-// Anthy's home: the configured one, or the user's own, where Anthy looks
-// (it asks the password database, not HOME).
+// Anthy's home: the configured one, or the user's own. Anthy itself asks the
+// password database; HOME comes first here, as for every other program, so a
+// run with a home of its own (tests, for one) keeps Anthy's files there.
 std::filesystem::path learning_home(const AnthyLearning& learning) {
     if (!learning.home.empty()) {
         return learning.home;
+    }
+    if (const char* home = std::getenv("HOME"); home && *home) {
+        return home;
     }
     const auto* user = getpwuid(getuid());
     return user && user->pw_dir ? user->pw_dir : "";
