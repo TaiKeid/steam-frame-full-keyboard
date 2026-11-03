@@ -573,12 +573,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             consecutive_timeouts = 0
             return result
 
-        while True:
-            if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
-                break  # Removing an installed app also withdraws a still-running bridge.
-            readable, _, _ = select.select([parent], [parent] if channel.waiting() else [], [],
-                                           0 if pending else max(0, next_poll - time.monotonic()))
-            channel.flush()
+        def receive(readable):
+            nonlocal stopping, restore_native, frame, fallback_request, next_poll, last_parent
+            nonlocal frame_sent, watch_main_loop, standby, pending
             # Drain releases before dispatching more work. CDP can be slower than
             # repeat generation; initial clicks stay ordered, repeats do not pile up.
             received = 0
@@ -665,12 +662,24 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 if len(pending) > 128:
                     raise ValueError("input-backlog")
                 readable, _, _ = select.select([parent], [], [], 0)
-            if stopping:
-                break
-            # Judge the parent by the frames just read, before any wait on
-            # Steam: frames that queued during one are not a stalled parent.
+
+        def judge_parent():
+            # Judge the parent by the frames just read: frames that queued
+            # while the helper waited on Steam are not a stalled parent, and a
+            # parent that did stall cannot renew the lease with an old frame.
             if time.monotonic() - last_parent > 0.7 or not 0 <= time.monotonic() - frame_sent < 0.7:
                 frame["ready"] = False
+
+        while True:
+            if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
+                break  # Removing an installed app also withdraws a still-running bridge.
+            readable, _, _ = select.select([parent], [parent] if channel.waiting() else [], [],
+                                           0 if pending else max(0, next_poll - time.monotonic()))
+            channel.flush()
+            receive(readable)
+            if stopping:
+                break
+            judge_parent()
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
@@ -693,6 +702,12 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                                          "ok": ok is True})
                 if ok is not True:
                     fallback_request = message["request"]
+                # A delivery can wait on Steam for up to DELIVERY_TIMEOUT. Read what
+                # the parent sent meanwhile before this loop's poll may renew the lease.
+                receive(select.select([parent], [], [], 0)[0])
+                if stopping:
+                    break
+                judge_parent()
             watchdog.poll()
             recovery_watchdog.observe_clock(time.monotonic(), time.clock_gettime(time.CLOCK_BOOTTIME), frame_sent)
             if not select.select([parent], [], [], 0)[0] and recovery_watchdog.check(

@@ -405,6 +405,46 @@ class Lifecycle(unittest.TestCase):
             parent.close()
             worker.join(2)
 
+    def test_a_parent_that_stalls_during_a_slow_delivery_cannot_renew_the_lease(self):
+        # The same 0.76 s Steam wait, but the parent sends nothing during it,
+        # as when its main loop has stalled. The next poll must not hand Steam
+        # its old frame as ready, or the lease would outlive the parent.
+        steps = []
+        class StallingCDP(FakeCDP):
+            def evaluate(self, expression, timeout=.4, waiting=None):
+                if ".bridge.step(" in expression:
+                    steps.append(json.loads(expression.split(".bridge.step(", 1)[1].rsplit(")", 1)[0]))
+                    return dict(version=1, request=2, open=True, eligible=True, active=True)
+                if ".bridge.send(" in expression:
+                    stalled = time.monotonic() + .76
+                    while time.monotonic() < stalled:
+                        time.sleep(min(bridge.WAIT_HEARTBEAT, stalled - time.monotonic()))
+                        waiting()
+                return super().evaluate(expression, timeout)
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        client = StallingCDP()
+        worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None))
+        worker.start()
+        try:
+            parent.send(json.dumps(dict(op="frame", progress=1, ready=True, ack=2, sent=time.monotonic())).encode())
+            self.receive(parent, "state")
+            parent.send(json.dumps(dict(op="frame", progress=2, ready=True, ack=2, sent=time.monotonic())).encode())
+            parent.send(json.dumps(dict(op="text", request=2, id=7, text="fixture")).encode())
+            polled = len(steps)
+            self.assertEqual(self.receive(parent, "text-result"), dict(op="text-result", id=7, ok=True))
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline and len(steps) == polled:
+                time.sleep(.02)
+            self.assertGreater(len(steps), polled, "the helper polls again after the delivery")
+            self.assertFalse(steps[-1]["ready"], "the parent's 0.76 s old frame is not ready")
+            parent.send(b'{"op":"stop"}')
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+        finally:
+            parent.close()
+            worker.join(2)
+
     def test_three_consecutive_poll_timeouts_end_helper(self):
         class SlowCDP(FakeCDP):
             def evaluate(self, expression, timeout=.4, waiting=None):
