@@ -776,6 +776,7 @@ void candidate_band() {
         app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
     }
 }
+void clear_reading(App& app);
 // A converter that records what learning tells it, and offers 有難う for あり.
 struct LearningConverter : JapaneseConverter {
     std::vector<std::vector<std::string>>* learned;
@@ -1019,6 +1020,28 @@ void candidate_list() {
     app.tick(6.1);
     app.tick(6.3);
     require(app.view().candidates && !app.view().candidates->list, "hiding closes it");
+
+    // Keys held as ∨ opens let go: a repeating ⌫ and a flick still to land.
+    clear_reading(app);
+    for (const double at : {7.0, 8.5, 10.0}) {
+        flick(app, "ka", at);
+    }
+    app.tick(10.2);
+    app.tick(10.4);
+    const auto [bx, by] = key_centre(app, "Backspace");
+    const auto [fx, fy] = key_centre(app, "Flick-na");
+    app.down(1, bx, by, 11);
+    app.down(2, fx, fy, 11);
+    app.move(2, fx, fy - 60);
+    require(app.view().preedit == "かか", "⌫ takes one kana on press");
+    control(app, "ime-more");
+    for (double at = 11.1; at < 13; at += .1) {
+        app.tick(at);
+    }
+    app.up(1, bx, by);
+    app.up(2, fx, fy - 60);
+    require(app.view().preedit == "かか" && app.view().candidates->list,
+            "keys held under the opening list change nothing");
 }
 void clear_reading(App& app) {
     for (int i = 0; i < 40 && !app.view().preedit.empty(); ++i) {

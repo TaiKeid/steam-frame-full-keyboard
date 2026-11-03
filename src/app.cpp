@@ -3010,6 +3010,13 @@ void App::action(const ControlAction& command) {
     }
     if (kind == ControlKind::CandidateList) {
         candidate_list_ = !candidate_list_ && candidates_.shown();
+        if (candidate_list_) {
+            // Keys held under the list let go: a repeating ⌫ or a flick still
+            // to land would change the reading the list stands for.
+            keyboard_.release_presses();
+            reading_repeat_.reset();
+            flick_track_.reset();
+        }
         sync_candidates();
         dirty = true;
         return;
