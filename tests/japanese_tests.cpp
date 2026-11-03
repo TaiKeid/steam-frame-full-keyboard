@@ -697,6 +697,16 @@ void candidate_band() {
         click_key(app, "Backspace");
     }
 
+    // Before conversion the band's ↓ commits the reading and moves the
+    // field's cursor down, as Tab or Home would.
+    flick(app, "na", 12.9);
+    sink.keys.clear();
+    const auto before = sink.text.size();
+    control(app, "ime-down");
+    require(sink.text.size() == before + 1 && sink.text.back() == "な" && app.view().preedit.empty() &&
+                sink.keys == std::vector<std::pair<int, int>>{{108, 1}, {108, 0}},
+            "↓ before conversion commits the reading, then presses ↓");
+
     // A drag along the strip scrolls it without picking anything.
     for (int i = 0; i < 24; ++i) {
         flick(app, "na", 13 + i * .02, -60, 0);

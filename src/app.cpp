@@ -2351,9 +2351,11 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         }
         return true;
     }
-    if (composing &&
-        (code == "Enter" || code == "NumpadEnter" || code == "Backspace" || code == "Escape" ||
-         code == "ArrowLeft" || code == "ArrowRight" || code == "ArrowUp" || code == "ArrowDown")) {
+    // ↑ and ↓ step through candidates while converting. Before that, like
+    // Tab or Home, they commit the reading and then move the field's cursor.
+    if (composing && (code == "Enter" || code == "NumpadEnter" || code == "Backspace" ||
+                      code == "Escape" || code == "ArrowLeft" || code == "ArrowRight" ||
+                      ((code == "ArrowUp" || code == "ArrowDown") && composition_.converting()))) {
         if (execute) {
             if (code == "Enter" || code == "NumpadEnter") {
                 commit_japanese();
