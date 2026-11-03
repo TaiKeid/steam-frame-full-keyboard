@@ -4277,11 +4277,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             std::cout << "Native replacement paused: " << app.replacement_block() << ".\n" << std::flush;
         }
         replacement_was_ready = backend_ready;
-        // Nobody can type with the headset off and the panel hidden, so the
-        // bridge may poll Steam slowly. A shown panel keeps the normal pace.
-        const bool standby = !lifecycle.visible() &&
-                             vr_system()->GetTrackedDeviceActivityLevel(
-                                 vr::k_unTrackedDeviceIndex_Hmd) == vr::k_EDeviceActivityLevel_Standby;
+        // Nobody can type with the headset off: HeadsetInputGuard blocks a shown
+        // panel too. So the bridge may poll Steam slowly; `worn` is read at the
+        // top of the frame, at least four times a second.
+        const bool standby = !worn;
         replacement.update(replace, report.ready, report.acknowledgement, fallback || report.fallback,
                            completed, true, standby);
         replacement_progress.store(completed);
@@ -4297,7 +4296,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
-        const bool smooth = lifecycle.visible() || motion.leaving();
+        // So does a shown panel nobody wears, until the headset is back on: the
+        // frame that sees it worn again is already smooth.
+        const bool smooth = (lifecycle.visible() && worn) || motion.leaving();
         const auto period = std::chrono::microseconds(smooth ? 16667 : 250000);
         if (smooth) {
             std::this_thread::sleep_until(frame_started + period);
