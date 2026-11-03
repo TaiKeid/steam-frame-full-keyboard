@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Full Keyboard simulator
+Comment=Try Full Keyboard for Steam Frame on a PC, typing into a text field of its own
+Exec=framekeyboard-simulator
+Icon=framekeyboard-simulator
+Terminal=false
+Categories=Utility;

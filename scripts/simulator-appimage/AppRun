@@ -1,0 +1,12 @@
+#!/bin/sh
+# Starts the desktop simulator from its AppImage (docs/simulator.md). Its own
+# libraries come first; the bundled Anthy dictionary is used unless one was
+# given. The simulator starts no other programs, so nothing else sees them.
+here=$(dirname "$(readlink -f "$0")")
+LD_LIBRARY_PATH="$here/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH
+if [ -z "${FRAMEKEYBOARD_ANTHY_DICTIONARY:-}" ] && [ -f "$here/usr/share/anthy/anthy.dic" ]; then
+    FRAMEKEYBOARD_ANTHY_DICTIONARY="$here/usr/share/anthy/anthy.dic"
+    export FRAMEKEYBOARD_ANTHY_DICTIONARY
+fi
+exec "$here/usr/bin/framekeyboard-simulator" "$@"

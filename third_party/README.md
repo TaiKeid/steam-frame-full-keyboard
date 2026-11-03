@@ -57,7 +57,7 @@ Collection, partly via HeliBoard) blended with CC BY-SA 4.0 subtitle frequencies
 Chinese Pinyin list comes from jieba and pypinyin under MIT. See their README
 and licence files for sources, hashes and changes.
 
-Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary.
+Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary. Only the desktop simulator's AppImage can carry a copy of Anthy; `anthy/` records which and its licenses.
 
 Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.
 Korean composition links the installed libhangul public C API, under LGPL-2.1-or-later.

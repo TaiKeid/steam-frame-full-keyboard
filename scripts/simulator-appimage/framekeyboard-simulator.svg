@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- The simulator: a text field with its caret above graphite keys
+       (themes/graphite.json): a flat case and keys with shallow sides. -->
+  <defs>
+    <linearGradient id="key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c333b"/>
+      <stop offset=".55" stop-color="#232a32"/>
+      <stop offset="1" stop-color="#1c232a"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="32" fill="#0b1016"/>
+  <rect x="30" y="30" width="196" height="40" rx="9" fill="#232428" stroke="#3b3d43" stroke-width="1.5"/>
+  <rect x="44" y="39" width="4" height="22" rx="1" fill="#5aa9ff"/>
+  <g fill="#141a21">
+    <rect x="30" y="92" width="44" height="40" rx="8"/>
+    <rect x="80" y="92" width="44" height="40" rx="8"/>
+    <rect x="132" y="92" width="44" height="40" rx="8"/>
+    <rect x="182" y="92" width="44" height="40" rx="8"/>
+    <rect x="30" y="140" width="44" height="40" rx="8"/>
+    <rect x="80" y="140" width="44" height="40" rx="8"/>
+    <rect x="132" y="140" width="44" height="40" rx="8"/>
+    <rect x="182" y="140" width="44" height="40" rx="8"/>
+    <rect x="30" y="188" width="44" height="40" rx="8"/>
+    <rect x="80" y="188" width="96" height="40" rx="8"/>
+    <rect x="182" y="188" width="44" height="40" rx="8"/>
+  </g>
+  <g fill="url(#key)">
+    <rect x="30" y="88" width="44" height="40" rx="8"/>
+    <rect x="132" y="88" width="44" height="40" rx="8"/>
+    <rect x="182" y="88" width="44" height="40" rx="8"/>
+    <rect x="30" y="136" width="44" height="40" rx="8"/>
+    <rect x="80" y="136" width="44" height="40" rx="8"/>
+    <rect x="132" y="136" width="44" height="40" rx="8"/>
+    <rect x="182" y="136" width="44" height="40" rx="8"/>
+    <rect x="30" y="184" width="44" height="40" rx="8"/>
+    <rect x="80" y="184" width="96" height="40" rx="8"/>
+    <rect x="182" y="184" width="44" height="40" rx="8"/>
+  </g>
+  <!-- One key pressed, its top lowered onto its side. -->
+  <rect x="80" y="91" width="44" height="40" rx="8" fill="#355b7a"/>
+</svg>

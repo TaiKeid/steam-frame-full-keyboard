@@ -14,7 +14,7 @@ cmake --build --preset simulator
 ./build/simulator/framekeyboard-simulator --layout ja-flick-12 --language ja-flick
 ```
 
-In a development build, `cmake --build build/host --target framekeyboard-simulator` builds it beside the other programs, as `build/host/framekeyboard-simulator`.
+In a development build, `cmake --build build/host --target framekeyboard-simulator` builds it beside the other programs, as `build/host/framekeyboard-simulator`. An [AppImage](#appimage) runs it without building anything.
 
 The window shows the text field at the top and the keyboard below it. The keyboard has no × and cannot be closed; close the window to quit. Below the keyboard are two buttons of the simulator's own: **Slow field** and **Clear field**. Click in the field to move its caret. The PC's own keyboard does nothing in the window: everything is typed with the on-screen keyboard.
 
@@ -62,6 +62,28 @@ LD_LIBRARY_PATH=$A/usr/lib ./build/simulator/framekeyboard-simulator \
 
 `FRAMEKEYBOARD_ANTHY_DICTIONARY=FILE` does the same as `--anthy-dictionary`. The dictionary must match the library's version. Without Anthy the keyboard still composes kana, and says "Japanese conversion needs the Anthy library" when you convert. As on the headset, the keyboard never asks Anthy to learn, so it saves nothing about what you type ([Japanese input](japanese.md#runtime-requirements)). The JIS language relies on a system input method and cannot type in the simulator.
 
+## AppImage
+
+An AppImage holds the simulator, the libraries it needs and, optionally, Anthy with its dictionary, in one file that runs without installing anything:
+
+```sh
+chmod +x Full_Keyboard_simulator-0.14.1-x86_64.AppImage
+./Full_Keyboard_simulator-0.14.1-x86_64.AppImage --layout ja-flick-12 --language ja-flick
+```
+
+It takes the same options as the simulator and keeps its settings in the same folder. Without FUSE, add `--appimage-extract-and-run`. It runs only on systems at least as new as the one that built it: its libraries are that system's, so it needs a C library (glibc) at least as new, and a CPU those libraries were compiled for. The build prints the glibc version it needs. It does not include swipe typing unless built with the swipe engine, and never dictation.
+
+`scripts/simulator-appimage.sh` builds it into `out/simulator/`, with a `SHA256SUMS` file. It builds the `simulator` preset, copies the simulator and its composition engines into an AppDir, and bundles every library they load apart from the system's own C library, graphics drivers and display, sound and system-service connections. `usr/share/licenses/BUNDLED.txt` inside it lists each bundled library's package, version and license, beside the packages' license files. It needs:
+
+| Variable | What |
+| --- | --- |
+| `FRAMEKEYBOARD_APPIMAGETOOL` | appimagetool. 1.9.1 from [AppImage/appimagetool](https://github.com/AppImage/appimagetool/releases/tag/1.9.1), `appimagetool-x86_64.AppImage`, SHA-256 `ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0`, works; its extracted `AppRun` needs no FUSE |
+| `FRAMEKEYBOARD_APPIMAGE_RUNTIME` | The type2 runtime put in front of the image. 20251108 from [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime/releases/tag/20251108), `runtime-x86_64`, SHA-256 `2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d` |
+| `FRAMEKEYBOARD_ANTHY_ROOT` | Optional: an unpacked Anthy package, with `usr/lib/libanthy.so.0` and `usr/share/anthy/anthy.dic`, to bundle. The AppImage then converts Japanese with it unless `FRAMEKEYBOARD_ANTHY_DICTIONARY` names another dictionary |
+| `FRAMEKEYBOARD_EXECUTORCH_HOST` | Optional: includes swipe typing, as for a [host build](building.md#dependencies) |
+
+Download the tool and the runtime outside the source tree, check their SHA-256, and extract appimagetool with `--appimage-extract` or `unsquashfs`. A bundled Anthy is LGPL 2.1 and its dictionary GPL 2, and many bundled libraries are LGPL: whoever passes the AppImage on must also offer their sources. [Anthy's notes](../third_party/anthy/README.md) say where its source is; the others are the sources of the package versions in `BUNDLED.txt`.
+
 ## Korean and Chinese
 
 The Korean 12-key layout (천지인, `--layout ko-12key --language ko-cheonjiin`) composes inside the keyboard and needs nothing else. Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engine when pkg-config finds `libhangul`, and without it choosing two-set Korean says the Hangul engine is unavailable. Chinese Pinyin and Zhuyin need PyZy (`pyzy-1.0`) the same way. Install the development files, then configure and build again. Cangjie and Quick need no build support, but read SQLite (`libsqlite3.so.0`) tables installed by ibus-table in `/usr/share/ibus-table/tables` ([languages](languages.md#chinese-and-korean-composition)).
@@ -87,6 +109,6 @@ Everything works with a mouse: click to press, drag to flick, right click to hol
 
 ## Code and tests
 
-The simulator lives in `src/simulator/`. `field.cpp` is the text field and the sink that takes the keyboard's output; `simulator.cpp` draws the window's contents and routes pointers to `App`, using only Cairo and Pango; `platform_linux.cpp` finds its folders and points Anthy at a dictionary; `main.cpp` is the SDL window. A Windows port needs its own `platform` file and a `keyboard_core` that builds there.
+The simulator lives in `src/simulator/`; its AppImage's launcher, desktop entry and icon in `scripts/simulator-appimage/`. `field.cpp` is the text field and the sink that takes the keyboard's output; `simulator.cpp` draws the window's contents and routes pointers to `App`, using only Cairo and Pango; `platform_linux.cpp` finds its folders and points Anthy at a dictionary; `main.cpp` is the SDL window. A Windows port needs its own `platform` file and a `keyboard_core` that builds there.
 
 The `simulator` CTest checks the field's editing keys, caret and clipboard, the slow field's confirmations, and the keyboard typing through the simulator: flick, Enter, ↶ in normal and slow fields, English with a held Shift, Copy and Paste, and leaving the keyboard. `build/host/simulator-tour DIR` renders the window in a few typed states to PNG files for review, with real candidates when Anthy is set up as above.
