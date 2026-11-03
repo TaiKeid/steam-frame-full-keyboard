@@ -110,12 +110,17 @@ int main(int argc, char** argv) {
             setup.config_dir = sim::config_dir();
         }
         // An installed keyboard's settings are never the simulator's to change.
-        if (fs::weakly_canonical(fs::absolute(setup.config_dir)) ==
-            fs::weakly_canonical(sim::keyboard_config_dir())) {
+        // Without HOME there is no default folder of either to mix up.
+        if (std::getenv("HOME") && fs::weakly_canonical(fs::absolute(setup.config_dir)) ==
+                                       fs::weakly_canonical(sim::keyboard_config_dir())) {
             throw std::runtime_error(setup.config_dir.string() +
                                      " belongs to the installed keyboard; the simulator keeps its own");
         }
-        setup.models_dir = sim::models_dir();
+        try {
+            setup.models_dir = sim::models_dir();
+        } catch (const std::runtime_error&) {
+            setup.models_dir = setup.config_dir / "models"; // no HOME, but a settings folder
+        }
         if (list) {
             const auto profiles = fk::load_profiles(setup.data_dir, setup.config_dir);
             for (const auto& [id, p] : profiles.layouts) {
@@ -195,6 +200,17 @@ int main(int argc, char** argv) {
             return fingers[id] = pointer;
         };
         bool mouse_pressed = false;
+        // A mouse can report a thousand moves a second, and each one makes the
+        // keyboard look up what is under it. Moves wait, the latest for each
+        // pointer, until another event or the end of the batch: one a frame,
+        // as VR's lasers report.
+        std::map<unsigned, std::pair<double, double>> motion;
+        auto flush_motion = [&] {
+            for (const auto& [pointer, at] : motion) {
+                simulator.pointer_move(pointer, at.first, at.second);
+            }
+            motion.clear();
+        };
         std::signal(SIGINT, handle_signal);
         std::signal(SIGTERM, handle_signal);
         const double start = fk::monotonic_seconds();
@@ -208,6 +224,9 @@ int main(int argc, char** argv) {
             if (SDL_WaitEventTimeout(&event, simulator.app().renderer.animating() ? 16 : 25)) {
                 do {
                     const double at = fk::monotonic_seconds();
+                    if (event.type != SDL_MOUSEMOTION && event.type != SDL_FINGERMOTION) {
+                        flush_motion();
+                    }
                     switch (event.type) {
                     case SDL_QUIT:
                         done = true;
@@ -215,8 +234,7 @@ int main(int argc, char** argv) {
                     case SDL_MOUSEMOTION:
                         // Touches arrive as fingers below, not as their mouse copies.
                         if (event.motion.which != SDL_TOUCH_MOUSEID) {
-                            const auto [x, y] = canvas_point(event.motion.x, event.motion.y);
-                            simulator.pointer_move(sim::Simulator::mouse, x, y);
+                            motion[sim::Simulator::mouse] = canvas_point(event.motion.x, event.motion.y);
                         }
                         break;
                     case SDL_MOUSEBUTTONDOWN:
@@ -243,8 +261,12 @@ int main(int argc, char** argv) {
                             const auto [x, y] = canvas_point(mouse_x, mouse_y);
                             const double direction =
                                 event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
                             double dx = -event.wheel.preciseX * direction;
                             double dy = -event.wheel.preciseY * direction;
+#else
+                            double dx = -event.wheel.x * direction, dy = -event.wheel.y * direction;
+#endif
                             if (SDL_GetModState() & KMOD_SHIFT) {
                                 dx = dy;
                                 dy = 0;
@@ -268,7 +290,7 @@ int main(int argc, char** argv) {
                         } else if (const auto found = fingers.find(event.tfinger.fingerId);
                                    found != fingers.end()) {
                             if (event.type == SDL_FINGERMOTION) {
-                                simulator.pointer_move(found->second, x, y);
+                                motion[found->second] = {x, y};
                             } else {
                                 simulator.pointer_up(found->second, x, y);
                                 fingers.erase(found);
@@ -298,6 +320,7 @@ int main(int argc, char** argv) {
                         break; // Keys and text from the physical keyboard do nothing.
                     }
                 } while (SDL_PollEvent(&event));
+                flush_motion();
             }
             if (simulator.tick(fk::monotonic_seconds())) {
                 auto* canvas = simulator.canvas();
