@@ -141,6 +141,11 @@ int main(int argc, char** argv) {
             shot(*app, "01-kana-idle");
             flicks(*app, nihongo);
             shot(*app, "02-kana-live-candidates");
+            press(*app, "ArrowLeft");
+            press(*app, "ArrowLeft");
+            shot(*app, "02b-kana-cursor");
+            press(*app, "ArrowRight");
+            press(*app, "ArrowRight");
             press(*app, "Space");
             shot(*app, "03-converting");
             press(*app, "ArrowRight");

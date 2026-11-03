@@ -15,12 +15,6 @@ std::string normalized(const std::string& text) {
     g_free(value);
     return result;
 }
-void erase_character(std::string& text) {
-    if (!text.empty()) {
-        text.resize(static_cast<std::size_t>(
-            g_utf8_find_prev_char(text.c_str(), text.c_str() + text.size()) - text.c_str()));
-    }
-}
 const std::map<std::string, std::string>& roman_table() {
     static const auto table = [] {
         std::map<std::string, std::string> result;
@@ -238,7 +232,44 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
     return result;
 }
 void JapaneseComposer::append(const std::string& text) {
-    reading_ = normalized(reading_ + text);
+    // Inserted at the cursor; a combining mark joins the kana before it.
+    const auto before = normalized(reading_.substr(0, cursor_) + text);
+    reading_ = before + reading_.substr(cursor_);
+    cursor_ = before.size();
+}
+std::string JapaneseComposer::before_cursor() const {
+    if (cursor_ == 0) {
+        return {};
+    }
+    const auto* at = g_utf8_find_prev_char(reading_.c_str(), reading_.c_str() + cursor_);
+    return std::string(at, static_cast<std::size_t>(reading_.c_str() + cursor_ - at));
+}
+void JapaneseComposer::erase_before_cursor() {
+    const auto size = before_cursor().size();
+    reading_.erase(cursor_ - size, size);
+    cursor_ -= size;
+}
+bool JapaneseComposer::move(int direction) {
+    if (converting() || (direction != 1 && direction != -1)) {
+        return false;
+    }
+    drain(true); // Romaji still waiting settles where it was typed.
+    if (direction < 0) {
+        if (cursor_ == 0) {
+            return false;
+        }
+        cursor_ -= before_cursor().size();
+    } else {
+        if (cursor_ >= reading_.size()) {
+            return false;
+        }
+        cursor_ =
+            static_cast<std::size_t>(g_utf8_next_char(reading_.c_str() + cursor_) - reading_.c_str());
+    }
+    return true;
+}
+std::size_t JapaneseComposer::cursor() const {
+    return cursor_ + (pending_ == "nn" ? std::string("ん").size() : pending_.size());
 }
 void JapaneseComposer::drain(bool finish) {
     const auto& table = roman_table();
@@ -334,20 +365,19 @@ std::string marked(const std::string& base, const char* combining) {
 }
 } // namespace
 std::string JapaneseComposer::last_kana() const {
-    if (!pending_.empty() || converting() || reading_.empty()) {
+    if (!pending_.empty() || converting()) {
         return {};
     }
-    const auto* last = g_utf8_find_prev_char(reading_.c_str(), reading_.c_str() + reading_.size());
-    return last ? std::string(last) : std::string{};
+    return before_cursor();
 }
 bool JapaneseComposer::mark(const std::string& mark) {
     drain(true);
-    if (reading_.empty()) {
+    // The kana before the cursor, also while converting: the conversion is
+    // only given up below if the mark actually changes it.
+    const auto last = before_cursor();
+    if (last.empty()) {
         return false;
     }
-    // The last reading character, also while converting: the conversion is
-    // only given up below if the mark actually changes it.
-    const std::string last(g_utf8_find_prev_char(reading_.c_str(), reading_.c_str() + reading_.size()));
     // The plain, large form: が -> か, っ -> つ.
     auto* decomposed = g_utf8_normalize(last.c_str(), -1, G_NORMALIZE_DEFAULT);
     const auto base = large_form(
@@ -376,8 +406,9 @@ bool JapaneseComposer::mark(const std::string& mark) {
         return false;
     }
     unconvert();
-    erase_character(reading_);
-    reading_ += next;
+    erase_before_cursor();
+    reading_.insert(cursor_, next);
+    cursor_ += next.size();
     return true;
 }
 void JapaneseComposer::backspace() {
@@ -388,7 +419,7 @@ void JapaneseComposer::backspace() {
     if (!pending_.empty()) {
         pending_.pop_back();
     } else {
-        erase_character(reading_);
+        erase_before_cursor();
     }
     if (empty()) {
         live_ = {}; // Nothing left to stand for.
@@ -472,7 +503,9 @@ bool JapaneseComposer::settled(std::string& reading) const {
     if (!pending_.empty() && pending_ != "n" && pending_ != "nn") {
         return false;
     }
-    reading = pending_.empty() ? reading_ : normalized(reading_ + "ん");
+    reading = pending_.empty()
+                  ? reading_
+                  : normalized(reading_.substr(0, cursor_) + "ん") + reading_.substr(cursor_);
     return true;
 }
 bool JapaneseComposer::live_current() const {
@@ -514,6 +547,7 @@ bool JapaneseComposer::choose_live(int index) {
     const auto [source, at] = live_.sources[static_cast<std::size_t>(index)];
     if (source == Live::Source::Hiragana || source == Live::Source::Katakana) {
         reading_ = in_script(reading_, source == Live::Source::Katakana);
+        cursor_ = reading_.size();
         return true;
     }
     convert();
@@ -529,7 +563,9 @@ bool JapaneseComposer::choose_live(int index) {
 void JapaneseComposer::script(bool katakana) {
     drain(true);
     unconvert();
-    reading_ = in_script(reading_, katakana);
+    const auto before = in_script(reading_.substr(0, cursor_), katakana);
+    reading_ = before + in_script(reading_.substr(cursor_), katakana);
+    cursor_ = before.size();
 }
 void JapaneseComposer::unconvert() {
     segments_.clear();
@@ -539,11 +575,14 @@ void JapaneseComposer::cancel() {
     unconvert();
     reading_.clear();
     pending_.clear();
+    cursor_ = 0;
     live_ = {};
 }
 std::string JapaneseComposer::preedit(bool mark_active) const {
     if (!converting()) {
-        return reading_ + (pending_ == "nn" ? "ん" : pending_);
+        // Romaji still waiting shows where it was typed, at the cursor.
+        return reading_.substr(0, cursor_) + (pending_ == "nn" ? "ん" : pending_) +
+               reading_.substr(cursor_);
     }
     std::string result;
     for (std::size_t i = 0; i < segments_.size(); ++i) {

@@ -282,6 +282,22 @@ void flick_input() {
     click_key(app, "Enter");
     require(sink.text.back() == "つぱ！" && preedit().empty(), "Enter commits the flick reading");
 
+    // ← and → move the cursor in the reading; → first ends a toggle.
+    flick(app, "a", 47);
+    flick(app, "ka", 47.2);
+    flick(app, "sa", 47.4);
+    click_key(app, "ArrowRight");
+    click_key(app, "ArrowLeft");
+    require(app.view().preedit_cursor == std::string("あか").size(),
+            "← moves the cursor in the reading");
+    flick(app, "na", 47.6);
+    require(preedit() == "あかなさ", "a kana goes in at the cursor");
+    click_key(app, "ArrowRight");
+    require(app.view().preedit_cursor == std::string("あかな").size(), "→ ends the toggle first");
+    click_key(app, "ArrowRight");
+    require(app.view().preedit_cursor == preedit().size(), "then moves the cursor");
+    clear();
+
     // 「あA1」 replaces the toolbar's A / あ. English shows the layout's QWERTY
     // page in the same case; digits turn the grid into a number pad.
     require(!has_control(app, "ime-toggle"), "the mode key replaces A / あ");
@@ -728,6 +744,51 @@ void candidate_band() {
         app.renderer.write_png(fs::path(render) / "framekeyboard-ja-band.png");
     }
 }
+// The cursor in the reading: ← and → move it before conversion, and
+// typing, ⌫, the marks and romaji act there.
+void reading_cursor() {
+    JapaneseComposer composer;
+    auto bytes = [](const char* text) { return std::string(text).size(); };
+    composer.kana("あいう");
+    require(composer.cursor() == composer.preedit().size(), "the cursor starts at the end");
+    require(composer.move(-1) && composer.move(-1) && composer.cursor() == bytes("あ"),
+            "← moves it back a character");
+    composer.kana("か");
+    require(composer.preedit() == "あかいう" && composer.cursor() == bytes("あか"),
+            "kana go in at the cursor");
+    composer.backspace();
+    require(composer.preedit() == "あいう" && composer.cursor() == bytes("あ"),
+            "⌫ removes the character before it");
+    composer.kana("は");
+    require(composer.mark("゛") && composer.preedit() == "あばいう" && composer.last_kana() == "ば",
+            "a mark changes the kana before the cursor");
+    composer.roman('k');
+    require(composer.preedit() == "あばkいう" && composer.cursor() == bytes("あばk"),
+            "romaji still waiting shows at the cursor");
+    composer.roman('a');
+    require(composer.preedit() == "あばかいう" && composer.cursor() == bytes("あばか"),
+            "and becomes kana there");
+    composer.script(true);
+    require(composer.preedit() == "アバカイウ" && composer.cursor() == bytes("アバカ"),
+            "a script change keeps the cursor's place");
+    require(composer.move(1) && composer.move(1) && !composer.move(1) &&
+                composer.cursor() == bytes("アバカイウ"),
+            "→ stops at the end");
+    composer.cancel();
+    composer.kana("あ");
+    require(composer.move(-1) && !composer.move(-1) && composer.cursor() == 0, "← stops at the start");
+    composer.roman('n');
+    require(composer.preedit() == "nあ" && composer.commit_text() == "んあ",
+            "a final n settles at the cursor too");
+    composer.cancel();
+    int conversions = 0;
+    JapaneseComposer converting(fake_converter(&conversions));
+    converting.kana("にほんご");
+    converting.move(-1);
+    converting.convert();
+    require(converting.preedit() == "〈にほ〉〈んご〉" && !converting.move(-1),
+            "conversion takes the whole reading, and the cursor waits");
+}
 void romaji_legends() {
     char directory[] = "/tmp/framekeyboard-romaji-legends-XXXXXX";
     require(mkdtemp(directory), "temporary legend profile");
@@ -819,6 +880,7 @@ int main() {
     try {
         progressive_conversion();
         candidate_band();
+        reading_cursor();
         romaji_legends();
         flick_input();
         text_output_capture();

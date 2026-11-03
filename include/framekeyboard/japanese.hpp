@@ -35,9 +35,16 @@ class JapaneseComposer {
     // small, each toggling back; ゛゜小 cycles through its variants (つ っ づ).
     // False when the last character has no such form.
     bool mark(const std::string& mark);
-    // The last reading character, or empty while romaji is pending or converting.
+    // The reading character before the cursor, or empty while romaji is
+    // pending or converting.
     std::string last_kana() const;
+    // Removes the character before the cursor (or a pending roman letter).
     void backspace();
+    // Moves the cursor in the reading by a character, before conversion;
+    // typing and the marks act there. False at an end, or while converting.
+    bool move(int direction);
+    // The cursor's byte offset in preedit(), before conversion.
+    std::size_t cursor() const;
     void convert();
     void cycle(int direction);
     void segment(int direction);
@@ -93,6 +100,8 @@ class JapaneseComposer {
     std::unique_ptr<JapaneseConverter> converter_;
     std::vector<Segment> segments_;
     std::string reading_, pending_;
+    // Where in reading_ typing goes, a byte offset; pending_ waits there.
+    std::size_t cursor_{};
     int active_{};
     Live live_;
     // What the converter last converted, unchanged since: live segments can
@@ -101,6 +110,8 @@ class JapaneseComposer {
     bool resized_{};
     void drain(bool finish);
     void append(const std::string& text);
+    std::string before_cursor() const;
+    void erase_before_cursor();
     JapaneseConverter& converter();
     std::vector<Segment> fresh(const std::string& reading);
     std::vector<Segment> imported(std::vector<JapaneseConverter::Segment> segments) const;

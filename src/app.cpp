@@ -923,6 +923,9 @@ PanelView App::build_view(bool picker) const {
         // The band underlines the converting segment.
         v.preedit = composition_.preedit();
         std::tie(v.preedit_active_begin, v.preedit_active_end) = composition_.active_range();
+        if (!composition_.empty() && !composition_.converting()) {
+            v.preedit_cursor = composition_.cursor();
+        }
         if (candidates_.shown()) {
             v.candidates = candidates_.view();
         }
@@ -2362,12 +2365,15 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                     composition_.cancel();
                 }
             } else if (code == "ArrowLeft" || code == "ArrowRight") {
-                // Phones resize the converting segment with the arrows and PC
+                // Before conversion the arrows move the cursor in the reading.
+                // While converting, phones resize the segment with them and PC
                 // IMEs with Shift; the other moves to the next segment.
                 const int direction = code == "ArrowLeft" ? -1 : 1;
                 const bool flick =
                     profiles_.languages.at(settings_.active.language).input_method == "japanese-flick";
-                if (flick != shift) {
+                if (!composition_.converting()) {
+                    composition_.move(direction);
+                } else if (flick != shift) {
                     composition_.resize(direction);
                 } else {
                     composition_.segment(direction);
@@ -4446,9 +4452,13 @@ void App::set_dictation_view(PanelView& view) const {
     // candidates take the band over the editor's foot.
     std::string preedit;
     std::pair<std::size_t, std::size_t> active;
+    std::optional<std::size_t> caret; // In the reading, before conversion.
     if (!composition_.empty()) {
         preedit = composition_.preedit();
         active = composition_.active_range();
+        if (!composition_.converting()) {
+            caret = composition_.cursor();
+        }
     } else if (cjk_ && !cjk_->empty()) {
         preedit = cjk_->preedit();
     }
@@ -4466,7 +4476,7 @@ void App::set_dictation_view(PanelView& view) const {
         editor.preedit_end = at + preedit.size();
         editor.active_begin = at + active.first;
         editor.active_end = at + active.second;
-        editor.cursor = editor.preedit_end;
+        editor.cursor = caret ? at + *caret : editor.preedit_end;
         // The band shows once there is something to choose.
         editor.candidates = candidates_.shown() || (cjk_ && !cjk_->candidates().empty());
     }

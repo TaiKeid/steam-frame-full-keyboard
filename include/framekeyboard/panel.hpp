@@ -221,6 +221,8 @@ struct PanelView {
     // grid into a number pad; the 「あA1」 key marks which mode is on.
     bool flick_latin{}, flick_digits{};
     std::size_t preedit_active_begin{}, preedit_active_end{};
+    // Where typing goes in `preedit`, before conversion: a byte offset.
+    std::optional<std::size_t> preedit_cursor;
     std::optional<CandidateStripView> candidates;
     std::map<std::string, std::string> key_labels;
     // The flick key being held: what a tap and each flick would type, and the

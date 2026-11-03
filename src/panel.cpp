@@ -1688,8 +1688,9 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
         pango_layout_set_width(layout, static_cast<int>((r.width - 24) * PANGO_SCALE));
         // A long reading keeps its end, where typing goes on, in view; while
         // converting, the side the active segment is on.
-        const bool early = view.preedit_active_end > view.preedit_active_begin &&
-                           view.preedit_active_end * 2 <= view.preedit.size();
+        const bool early = (view.preedit_active_end > view.preedit_active_begin &&
+                            view.preedit_active_end * 2 <= view.preedit.size()) ||
+                           (view.preedit_cursor && *view.preedit_cursor * 2 < view.preedit.size());
         pango_layout_set_ellipsize(layout, early ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_START);
         auto* attributes = pango_attr_list_new();
         pango_attr_list_insert(attributes, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
@@ -1712,9 +1713,18 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
         pango_attr_list_unref(attributes);
         int width = 0, height = 0;
         pango_layout_get_pixel_size(layout, &width, &height);
+        const double top = r.y + (r.height - height) / 2;
         source(cr, t.legend);
-        cairo_move_to(cr, r.x + 12, r.y + (r.height - height) / 2);
+        cairo_move_to(cr, r.x + 12, top);
         pango_cairo_show_layout(cr, layout);
+        if (view.preedit_cursor && *view.preedit_cursor <= view.preedit.size()) {
+            // The caret, as in a text field, where typing goes.
+            PangoRectangle at;
+            pango_layout_index_to_pos(layout, static_cast<int>(*view.preedit_cursor), &at);
+            const double x = std::round(r.x + 12 + at.x / static_cast<double>(PANGO_SCALE));
+            cairo_rectangle(cr, x - 1, top + 3, 2, height - 6);
+            cairo_fill(cr);
+        }
         g_object_unref(layout);
     }
     if (view.candidates) {
@@ -2331,6 +2341,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         (previous_->view.preedit != view.preedit ||
          previous_->view.preedit_active_begin != view.preedit_active_begin ||
          previous_->view.preedit_active_end != view.preedit_active_end ||
+         previous_->view.preedit_cursor != view.preedit_cursor ||
          previous_->view.candidates != view.candidates)) {
         damage_area(pixel_bounds(ime_band(view).band, 6));
     }
