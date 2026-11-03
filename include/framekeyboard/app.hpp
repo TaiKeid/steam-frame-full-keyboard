@@ -738,11 +738,17 @@ class App {
     };
     std::optional<Reopen> reopen_;
     // ↶'s Backspaces on their way: the reading comes back once the queue has
-    // delivered this many entries in all, with no failure since.
+    // delivered `completed` entries in all, with no failure since. While the
+    // phrase itself is still arriving, `backspaces` wait to be queued after
+    // it, as long as nothing else was (`queued` unchanged).
     struct Reopening {
         std::string reading;
-        std::uint64_t completed{}, failures{};
-        double since{-1}; // The first tick after queuing; -1 before it.
+        std::size_t backspaces{};
+        std::uint64_t queued{}, completed{}, failures{};
+        // The last tick that saw an entry delivered, and the count then; -1
+        // before the first tick.
+        double since{-1};
+        std::uint64_t progress{};
     };
     std::optional<Reopening> reopening_;
     bool text_ready_{};

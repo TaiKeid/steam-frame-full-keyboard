@@ -768,13 +768,22 @@ void clear_reading(App& app) {
 // recentre or pin keeps it coming.
 void slow_reopen() {
     struct SlowSink : Sink {
-        bool hold = false;
+        bool hold = false, hold_text = false, text_waiting = false;
+        int allow = 0; // Backspaces let through while holding them
         Delivery deliver_key(int code, int value) override {
             if (hold && code == 14 && value == 1) {
-                return Delivery::Waiting;
+                if (allow == 0) {
+                    return Delivery::Waiting;
+                }
+                --allow;
             }
             return Sink::deliver_key(code, value);
         }
+        bool commit_text(const std::string& value) override {
+            text_waiting = hold_text;
+            return !hold_text && Sink::commit_text(value);
+        }
+        bool text_pending() const override { return text_waiting; }
     };
     char directory[] = "/tmp/framekeyboard-reopen-XXXXXX";
     require(mkdtemp(directory), "temporary reopen profile");
@@ -901,6 +910,54 @@ void slow_reopen() {
         require(app.view().preedit == (delayed ? "あ" : "あか"), "the reading comes back first");
         clear_reading(app);
     }
+    // Settings waits too, as opening it would give up input with the phrase
+    // already deleted.
+    flick(app, "a", 24);
+    click_key(app, "Enter");
+    sink.hold = true;
+    flick(app, "undo", 24.1);
+    control(app, "settings");
+    require(!app.view().settings, "Settings waits for the reading");
+    sink.hold = false;
+    app.tick(24.2);
+    require(app.view().preedit == "あ", "and the reading comes back");
+    clear_reading(app);
+    // The few seconds count from the last Backspace the field took, so a
+    // slow field that still answers gets the reading back.
+    flick(app, "a", 25);
+    flick(app, "ka", 25.05);
+    flick(app, "sa", 25.1);
+    click_key(app, "Enter");
+    sink.hold = true;
+    flick(app, "undo", 25.2);
+    app.tick(25.3);
+    app.tick(27.8);
+    sink.allow = 1;
+    app.tick(27.9);
+    app.tick(30.5);
+    sink.hold = false;
+    app.tick(30.6);
+    require(app.view().preedit == "あかさ" &&
+                app.view().status.find("stopped answering") == std::string::npos,
+            "a slow field that still answers keeps the wait going");
+    clear_reading(app);
+    // ↶ tapped while the phrase is still being typed waits for it to
+    // arrive, and then brings it back.
+    sink.hold_text = true;
+    flick(app, "a", 31);
+    click_key(app, "Enter");
+    flick(app, "undo", 31.1);
+    {
+        const auto [x, y] = key_centre(app, "Flick-ka");
+        require(!app.down(0, x, y, 31.2), "keys wait for a phrase still being typed");
+        app.up(0, x, y);
+    }
+    sink.hold_text = false;
+    app.tick(31.3);
+    app.tick(31.4);
+    require(app.view().preedit == "あ" && !sink.text.empty() && sink.text.back() == "あ",
+            "↶ during typing brings the phrase back once typed");
+    clear_reading(app);
     // Anything but a key, such as Settings, still ends the chance instead:
     // opening it gives up input, which would leave the phrase deleted.
     flick(app, "a", 24);

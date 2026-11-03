@@ -1879,6 +1879,7 @@ bool App::tick(double now) {
     dirty |= keyboard_.tick(now); // a held Shift locks
     dirty |= output_.tick(now);
     finish_reopen(); // Its last Backspace may have just been delivered.
+    expire_reopen(now);
     dirty |= tick_dictation(now);
     if (settings_open_) {
         dirty |= settings_ui_.tick(now);
@@ -2589,7 +2590,6 @@ void App::commit_cjk() {
 void App::tick_japanese(double now) {
     dirty |= candidates_.tick(now).redraw;
     finish_reopen();
-    expire_reopen(now);
     if (!japanese()) {
         sync_candidates(); // A profile change leaves none.
         return;
@@ -2899,8 +2899,11 @@ void App::action(const ControlAction& command) {
         follow_cursor(); // In dictation mode the reading sits at the cursor.
         return;
     }
-    if (kind == ControlKind::ImeToggle && reopening_) {
-        return; // A reading is coming back; switch once it has.
+    if (reopening_ && (kind == ControlKind::ImeToggle || kind == ControlKind::Settings ||
+                       kind == ControlKind::LanguageCycle)) {
+        // A reading is coming back; switch once it has. Settings and another
+        // language give up input, which would leave the phrase deleted.
+        return;
     }
     if (kind == ControlKind::ImeToggle) {
         // The reading is typed first.
@@ -3455,13 +3458,12 @@ void App::reopen_phrase() {
     const auto phrase = *reopen_;
     reopen_.reset();
     // Anything queued since, such as a paste or dictated phrases, came after
-    // the phrase, so Backspace would delete that instead. The phrase itself
-    // must have arrived: one still on its way, or kept for a retry, would
-    // come back on top of the reading.
+    // the phrase, so Backspace would delete that instead. A phrase kept for
+    // a retry would come back on top of the reading.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
     // Phrases Type as I speak still has to type came after it too.
-    if (output_.queued() != phrase.queued || output_.text_pending() || output_.retry_available() ||
-        !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
+    if (output_.queued() != phrase.queued || output_.retry_available() || !direct_waiting_.empty() ||
+        direct_paste_ || count == 0) {
         return;
     }
     // Keys still held, by either hand, come up first: a repeat must not land
@@ -3472,27 +3474,31 @@ void App::reopen_phrase() {
     // letting go of the mic later would commit the reading coming back.
     emoji_key_pointer_.reset();
     dictation_key_pointer_.reset();
-    reopening_ = Reopening{phrase.reading, output_.completed() + count, output_.failures()};
-    for (std::size_t i = 0; i < count; ++i) {
-        output_.tap({KEY_BACKSPACE}); // One entry each.
-    }
-    update_output_status();
+    // A phrase still on its way is waited for like the Backspaces, which
+    // follow it once it has arrived (finish_reopen()).
+    reopening_ = Reopening{phrase.reading, count, phrase.queued, 0, output_.failures()};
     finish_reopen();
 }
 void App::expire_reopen(double now) {
-    // A field that never answers, as a stalled shell might, is given up on
-    // after a while, so the keys don't wait on it for good. The time counts
-    // from the first tick after the Backspaces were queued, on the tick's
-    // own clock.
+    // A field that stops answering, as a stalled shell might, is given up on
+    // after a while without a delivery, so the keys don't wait on it for
+    // good; a slow one that still answers gets all the time it needs. The
+    // time is the tick's own clock, and the tick runs this after delivery.
     if (!reopening_) {
         return;
     }
-    if (reopening_->since < 0) {
+    if (reopening_->since < 0 || output_.completed() != reopening_->progress) {
         reopening_->since = now;
+        reopening_->progress = output_.completed();
     } else if (now - reopening_->since > reopen_patience) {
-        output_.cancel(); // Only the Backspaces: every hold ended when they were queued.
+        if (reopening_->backspaces) {
+            // The phrase is still arriving: it stays queued, and so it is typed.
+            status_ = "↶ stopped waiting for the phrase to be typed.";
+        } else {
+            output_.cancel(); // Only the Backspaces: every hold ended before them.
+            status_ = "The field stopped answering ↶. Check what is left of the phrase.";
+        }
         reopening_.reset();
-        status_ = "The field stopped answering ↶. Check what is left of the phrase.";
         dirty = true;
     }
 }
@@ -3502,6 +3508,26 @@ void App::finish_reopen() {
     // reading both; so does a cancel, which empties the queue first.
     if (!reopening_) {
         return;
+    }
+    if (output_.failures() != reopening_->failures) {
+        reopening_.reset();
+        return;
+    }
+    if (reopening_->backspaces) {
+        // The phrase has to have arrived first, and nothing been queued since.
+        if (output_.text_pending()) {
+            return;
+        }
+        const auto count = std::exchange(reopening_->backspaces, 0);
+        if (output_.queued() != reopening_->queued || !output_.can_queue(count)) {
+            reopening_.reset();
+            return;
+        }
+        reopening_->completed = output_.completed() + count;
+        for (std::size_t i = 0; i < count; ++i) {
+            output_.tap({KEY_BACKSPACE}); // One entry each.
+        }
+        update_output_status();
     }
     if (output_.failures() != reopening_->failures) {
         reopening_.reset();
