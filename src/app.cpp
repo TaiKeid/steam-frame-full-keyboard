@@ -3203,6 +3203,9 @@ void App::set_flick_mode(FlickMode mode) {
     japanese_latin_ = mode != FlickMode::Kana;
     japanese_digits_ = mode == FlickMode::Digits;
     flick_toggle_.reset();
+    // A Shift latched or locked on the English page must not stay on a page
+    // without one, where it would select with the arrows or reach Enter.
+    keyboard_.release_all();
     status_.clear();
 }
 bool App::flick_down(unsigned pointer, const Key& key, double x, double y, double now) {

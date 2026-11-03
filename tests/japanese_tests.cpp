@@ -297,9 +297,20 @@ void flick_input() {
     require(sink.text.size() == typed + 2 && sink.text[typed] == "q" && sink.text.back() == "W" &&
                 preedit().empty(),
             "English letters type at once, and Shift makes a capital");
+    {
+        // A Shift locked on the English page stays behind when the page goes.
+        const auto [x, y] = key_centre(app, "ShiftLeft");
+        app.down(0, x, y, 53);
+        app.tick(53.7);
+        app.up(0, x, y);
+    }
     flick(app, "mode", 54.2);
     require(app.view().flick_digits && !app.view().flick_latin && app.view().layout->id == "ja-flick-12",
             "the next tap switches to digits, back on the grid");
+    sink.keys.clear();
+    click_key(app, "ArrowLeft");
+    require(sink.keys == std::vector<std::pair<int, int>>{{105, 1}, {105, 0}},
+            "the kana and digit pages have no Shift, so none stays locked");
     require(app.view().key_labels.at("Flick-ka") == "2" && app.view().key_labels.at("Flick-wa") == "0",
             "the grid shows a number pad");
     flick(app, "ka", 55);
