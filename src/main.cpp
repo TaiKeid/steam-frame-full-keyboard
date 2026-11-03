@@ -46,6 +46,8 @@ void signal_handler(int) {
 }
 } // namespace
 int main(int argc, char** argv) {
+    // Anthy would log every conversion to this file: nothing typed is logged.
+    unsetenv("ANTHY_HISTORY_FILE");
     try {
         fk::UpdateStartup startup;
         fk::Updates updates(FRAMEKEYBOARD_VERSION, std::vector<std::string>(argv + 1, argv + argc));

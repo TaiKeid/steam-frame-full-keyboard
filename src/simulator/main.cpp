@@ -57,6 +57,8 @@ Placement place(int width, int height) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // Anthy would log every conversion to this file: nothing typed is logged.
+    unsetenv("ANTHY_HISTORY_FILE");
     try {
         sim::Setup setup;
         bool list = false;
