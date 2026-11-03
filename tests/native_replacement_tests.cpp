@@ -412,6 +412,34 @@ void installation_budget() {
         replacement.update(false, false, 0, false, 104);
         close(peer);
     }
+    // The helper stamps its first state with its send time: one sent in time
+    // counts even when a slow frame reads it after the deadline; one sent
+    // after it does not.
+    for (double sent : {102.8, 103.2}) {
+        Local local;
+        int peer = -1;
+        NativeReplacement replacement(local, -1, [&] {
+            int pair[2];
+            require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                    "installation fixture socketpair");
+            peer = pair[1];
+            return pair[0];
+        });
+        replacement.update(true, false, 0, false, 100);
+        take(peer);
+        put(peer, R"({"op":"state","version":1,"open":false,"at":)" + std::to_string(sent) + "}");
+        replacement.poll(103.5);
+        if (sent < 103) {
+            require(replacement.state().available, "a state sent in time counts though read late");
+        } else {
+            require(!replacement.state().available &&
+                        std::string(replacement.unavailable_reason()) ==
+                            "Steam keyboard bridge installation timed out.",
+                    "a state sent after the deadline does not");
+        }
+        replacement.update(false, false, 0, false, 104);
+        close(peer);
+    }
 }
 void sanitized_diagnostics() {
     std::ostringstream output;

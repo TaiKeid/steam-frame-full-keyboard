@@ -342,13 +342,10 @@ void NativeReplacement::poll(double now) {
         return;
     }
     // Startup includes connection/guard setup and a bounded two-second install.
-    // Neither queued frames nor a state arriving after this deadline can extend it.
-    if (install_until_ > 0 && now >= install_until_) {
-        failure_ = Failure::InstallTimeout;
-        schedule_retry(now);
-        stop();
-        return;
-    }
+    // Neither queued frames nor a state sent after this deadline can extend it,
+    // but a state sent in time counts even when a slow frame reads it late, so
+    // what is queued is read first. The helper stamps its first state with its
+    // send time on this same monotonic clock.
     for (int count = 0; count < 64; ++count) {
         char buffer[32769];
         const auto size = recv(fd_, buffer, sizeof(buffer), MSG_DONTWAIT);
@@ -379,6 +376,18 @@ void NativeReplacement::poll(double now) {
         }
         const std::string op(operation);
         if (op == "state" && json_object_get_int(field("version")) == 1) {
+            if (install_until_ > 0) {
+                auto* at = field("at");
+                const auto type = at ? json_object_get_type(at) : json_type_null;
+                const double sent =
+                    type == json_type_double || type == json_type_int ? json_object_get_double(at) : now;
+                if (sent >= install_until_) {
+                    failure_ = Failure::InstallTimeout;
+                    schedule_retry(now);
+                    stop();
+                    break;
+                }
+            }
             if (!state_.available) {
                 diagnostic("available", now);
                 adopt_until_ = 0; // The handoff is installed; later restarts never adopt.
@@ -485,6 +494,11 @@ void NativeReplacement::poll(double now) {
             stop();
             break;
         }
+    }
+    if (fd_ >= 0 && install_until_ > 0 && now >= install_until_) {
+        failure_ = Failure::InstallTimeout; // No state was sent in time.
+        schedule_retry(now);
+        stop();
     }
     if (fd_ >= 0 && (child_exited || (install_until_ == 0 && now - last_reply_ > .8))) {
         failure_ = Failure::ConnectionLost;

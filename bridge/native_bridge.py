@@ -355,21 +355,23 @@ class ParentChannel:
             self.outbox.popleft()
 
     def send_state(self, value):
+        """Returns whether the state went out."""
         self.flush()
         if self.outbox or queued_bytes(self.parent) >= self.STATE_QUEUE_LIMIT:
-            return
+            return False
         data = encode(value)
         now = time.monotonic()
         if value.get("idle") is True and data == self.last_state and \
                 now - self.last_state_at < self.IDLE_HEARTBEAT:
-            return
+            return False
         try:
             sent = self.parent.send(data, socket.MSG_DONTWAIT)
         except BlockingIOError:
-            return
+            return False
         if sent != len(data):
             raise ValueError("parent-backpressure")
         self.last_state, self.last_state_at = data, now
+        return True
 
     def waiting(self):
         return bool(self.outbox)
@@ -560,6 +562,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         pending_repeats = set()
         stopping = False
         consecutive_timeouts = 0
+        announced = False
 
         def evaluate(expression, timeout=0.4):
             nonlocal consecutive_timeouts
@@ -751,7 +754,12 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     next_poll = time.monotonic() + ACTIVE_POLL
                     continue
                 fallback_request = None
-                channel.send_state({"op": "state", **result})
+                state = {"op": "state", **result}
+                if not announced:
+                    # The parent's startup deadline counts when this was sent,
+                    # not when a slow frame of its own reads it.
+                    state["at"] = time.monotonic()
+                announced |= channel.send_state(state)
                 next_poll = time.monotonic() + poll_interval(result, standby)
     except (Exception, SystemExit) as error:
         # Errors are fixed status codes. Never echo CDP expressions, input packets or field values.

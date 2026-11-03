@@ -445,6 +445,23 @@ class Lifecycle(unittest.TestCase):
             parent.close()
             worker.join(2)
 
+    def test_only_the_first_state_carries_its_send_time(self):
+        # The keyboard's startup deadline counts when the first state was sent.
+        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        parent.settimeout(1)
+        worker = threading.Thread(target=bridge.run, args=(child, FakeCDP, None, lambda: None))
+        worker.start()
+        try:
+            first = self.receive(parent, "state")
+            self.assertLess(abs(first["at"] - time.monotonic()), 1, "stamped on the shared monotonic clock")
+            self.assertNotIn("at", self.receive(parent, "state"), "later states are not stamped")
+            parent.send(b'{"op":"stop"}')
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+        finally:
+            parent.close()
+            worker.join(2)
+
     def test_three_consecutive_poll_timeouts_end_helper(self):
         class SlowCDP(FakeCDP):
             def evaluate(self, expression, timeout=.4, waiting=None):
