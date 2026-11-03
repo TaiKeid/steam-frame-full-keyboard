@@ -9,7 +9,7 @@ The emoji picker is a second view of the keyboard. An emoji key in the side colu
 The left side column changes in every layout, whether or not the picker is available:
 
 1. A small **emoji key** at the top. It shows a smiley line icon in the toolbar's icon style.
-2. **Copy**, **Cut** and **Paste** below it, sharing the height of two tall keys.
+2. **Cut**, **Copy** and **Paste** below it, sharing the height of two tall keys.
 3. **Dictation**, a tall key at the bottom.
 
 The Dictation slot holds the mic key when dictation is usable for the active language; otherwise it stays empty, with no placeholder drawing. See [dictation](dictation.md#mic-key).

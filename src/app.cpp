@@ -4524,6 +4524,7 @@ void App::refresh_dictation_layout() {
     // English mode's page has a dictation mode of its own.
     if (dictation_layout_for_ && dictation_layout_for_->layout == shown_layout().id &&
         dictation_layout_for_->theme == settings_.active.theme &&
+        dictation_layout_for_->language == settings_.active.language &&
         dictation_layout_for_->numpad_hidden == hidden) {
         return;
     }
@@ -4557,7 +4558,8 @@ void App::refresh_dictation_layout() {
             editor.width -= over / scale;
         }
     }
-    dictation_layout_for_ = DictationLayoutFor{shown_layout().id, settings_.active.theme, hidden};
+    dictation_layout_for_ =
+        DictationLayoutFor{shown_layout().id, settings_.active.theme, settings_.active.language, hidden};
     dirty = true;
 }
 

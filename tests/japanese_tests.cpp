@@ -1064,6 +1064,21 @@ void flick_pages_keep_toolbar() {
     require(app.dictation_open() && std::abs(romaji_dictation.key_height - romaji.key_height) < .5 &&
                 std::abs(romaji_dictation.keys_right - romaji.keys_right) < .5,
             "romaji dictation keeps the keys' size");
+    click_key(app, "Escape");
+    click_key(app, "Escape");
+    // A language change on the same layout adds or removes the band, and the
+    // open mode follows it.
+    app.apply({"en-us-full", "en-us", "graphite"});
+    const auto english_full = page();
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    const auto romaji_full = page();
+    click_key(app, "Dictation");
+    require(app.dictation_open() && std::abs(page().key_height - romaji_full.key_height) < .5,
+            "romaji dictation on the full layout keeps the keys' size");
+    app.apply({"en-us-full", "en-us", "graphite"});
+    app.tick(5);
+    require(app.dictation_open() && std::abs(page().key_height - english_full.key_height) < .5,
+            "switching to English in the mode takes English's size");
 }
 // The cursor in the reading: ← and → move it before conversion, and
 // typing, ⌫, the marks and romaji act there.

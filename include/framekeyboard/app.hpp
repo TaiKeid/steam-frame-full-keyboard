@@ -1115,7 +1115,7 @@ class App {
     // What dictation_layout_ was built from: its geometry also follows the
     // theme. Compared field by field, so the per-frame check builds no string.
     struct DictationLayoutFor {
-        std::string layout, theme;
+        std::string layout, theme, language; // The language decides the Japanese band.
         bool numpad_hidden{};
     };
     std::optional<DictationLayoutFor> dictation_layout_for_; // Reset whenever profiles change.
