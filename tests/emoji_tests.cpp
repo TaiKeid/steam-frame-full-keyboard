@@ -1307,10 +1307,16 @@ void glyph_cache_tests() {
             "a request keeps a kept image without drawing it again, and frees one it does not want");
     settle();
     require(glyphs.image("😀") != nullptr, "and draws the others again");
+    // The worker may redraw a requested image at once, so check the size of
+    // what comes back rather than its absence.
     glyphs.request(size - 2, {"🍁"});
-    require(!glyphs.image("🍁"), "a new size frees every image");
-    glyphs.release({"🍁"});
-    require(!glyphs.image("🍁"), "a release keeps nothing it does not hold");
+    settle();
+    auto* resized = glyphs.image("🍁");
+    require(resized && cairo_image_surface_get_width(resized) == size - 2,
+            "a new size draws its images again");
+    require(!glyphs.image("😀"), "and frees the others");
+    glyphs.release({"😀"});
+    require(!glyphs.image("🍁") && !glyphs.image("😀"), "a release keeps nothing it does not hold");
 }
 
 // A closed picker keeps Recent's and Favorites' images, toned as shown, and
