@@ -579,6 +579,13 @@ class App {
     // A composing language's reading and candidates show over the main
     // keyboard (PanelView::ime_band).
     bool ime_band_shown() const { return (japanese() || cjk_) && !emoji_open_ && !dictation_open_; }
+    // A composing language shares the shown layout among the user's languages.
+    bool reading_line_shared() const;
+    // The views' ime_room: kept while the band isn't shown, outside the emoji
+    // picker and dictation mode, whose layouts already take the room.
+    bool ime_room_kept() const {
+        return !japanese() && !cjk_ && !emoji_open_ && !dictation_open_ && reading_line_shared();
+    }
     // geometry() with the controls, which place the reading and candidates
     // of full layouts.
     PanelView band_geometry() const;

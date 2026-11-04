@@ -249,6 +249,7 @@ std::vector<Control> App::controls() const {
     geometry.hide_numpad = numpad_hidden();
     geometry.settings = settings_open_;
     geometry.ime_band = ime_band_shown();
+    geometry.ime_room = ime_room_kept();
     geometry.ime_more = band_more();
     // The mic key shows as in geometry(): a hidden one could narrow the case
     // the toolbar is laid out in, but not the one drawn.
@@ -828,6 +829,7 @@ PanelView App::geometry() const {
     v.settings = settings_open_;
     v.composing = (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
     v.ime_band = ime_band_shown();
+    v.ime_room = ime_room_kept();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
@@ -933,6 +935,7 @@ PanelView App::build_view(bool picker) const {
     // says it is the digits page.
     v.composing = japanese_typing() && (!japanese_latin_ || !composition_.empty());
     v.ime_band = ime_band_shown();
+    v.ime_room = ime_room_kept();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
@@ -2401,6 +2404,13 @@ void App::tick_learning() {
 }
 bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
+}
+bool App::reading_line_shared() const {
+    return std::any_of(cycle_entries_.begin(), cycle_entries_.end(), [&](const Selection& entry) {
+        const auto language = profiles_.languages.find(entry.language);
+        return entry.layout == settings_.active.layout && language != profiles_.languages.end() &&
+               language->second.input_method != "xkb";
+    });
 }
 void App::refresh_typing() {
     const bool ready = output_.pump();
@@ -4923,6 +4933,7 @@ void App::refresh_dictation_layout() {
     main.dictation_available = true; // The mode shows the mic key.
     PanelView banded = main;
     banded.ime_band = japanese() || cjk_;
+    banded.ime_room = !banded.ime_band && reading_line_shared();
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
                                          unbanded_layout_height(banded) - main.layout->height);
     // Placed as the mode shows it: a layout without a function-key row grows

@@ -179,7 +179,9 @@ text that was already submitted is never replayed automatically.
 
 Chinese and Korean show the reading centred in a line of its own between the
 toolbar and the keys, with a hint while nothing is typed, and the case fits the
-keys with no empty space at the sides. The candidates show in the toolbar row,
+keys with no empty space at the sides. Other languages on the same layout among
+your languages keep that line's room, empty, so switching to them moves no key.
+The candidates show in the toolbar row,
 after its buttons, where swipe suggestions go: centred while they all fit, or
 filling the row with ∨ after them while there are more; a still row ends on a
 whole candidate, none cut before ∨. Drag them sideways to see more, or tap ∨ to open them all in a menu under the reading line, over the keys,

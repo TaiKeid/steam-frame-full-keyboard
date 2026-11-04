@@ -120,9 +120,9 @@ struct Placement {
 };
 Placement placement(const PanelView& view) {
     const double margin = view.theme->padding;
-    const double toolbar_height = two_row_band(view) ? ime_two_row_height
-                                  : view.ime_band    ? ime_toolbar_height
-                                                     : normal_toolbar_height;
+    const double toolbar_height = two_row_band(view)               ? ime_two_row_height
+                                  : view.ime_band || view.ime_room ? ime_toolbar_height
+                                                                   : normal_toolbar_height;
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
@@ -1270,7 +1270,7 @@ Rect panel_case_bounds(const PanelView& view) {
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
 double unbanded_layout_height(const PanelView& view) {
-    if (!view.ime_band) {
+    if (!view.ime_band && !view.ime_room) {
         return view.layout->height;
     }
     const double room =
@@ -2228,7 +2228,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
-        previous_->view.flick_latin != view.flick_latin ||
+        previous_->view.ime_room != view.ime_room || previous_->view.flick_latin != view.flick_latin ||
         previous_->view.flick_digits != view.flick_digits ||
         previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.case_opacity != view.case_opacity ||

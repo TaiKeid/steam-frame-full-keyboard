@@ -619,6 +619,60 @@ void progressive_conversion() {
 // The band and its candidates, with the fake converter: live candidates after
 // a pause, a tap moving on through the segments, the arrows resizing, a drag
 // scrolling without picking, and the keys keeping their size across A / あ.
+// With a composing language among the user's languages on the same layout,
+// every page keeps the reading line's room, so switching to it from English
+// moves no key; without one, English keeps the whole height.
+void reading_room() {
+    for (const bool shared : {true, false}) {
+        char directory[] = "/tmp/framekeyboard-room-XXXXXX";
+        require(mkdtemp(directory), "temporary room profile");
+        struct Cleanup {
+            fs::path path;
+            ~Cleanup() { fs::remove_all(path); }
+        } cleanup{directory};
+        Settings settings;
+        settings.active = {"en-us-full", "en-us", "graphite"};
+        settings.favorites = {
+            shared ? Favorite{"ja", "Japanese", {"en-us-full", "ja-romaji", "graphite"}}
+                   : Favorite{"de", "German", {"international-full", "de-de", "graphite"}}};
+        save_settings(directory, settings);
+        int conversions = 0;
+        Options options;
+        options.config_dir = directory;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        options.target_language = "en-us";
+        options.japanese_converter = fake_converter(&conversions);
+        Sink sink;
+        App app(options, sink);
+        const auto english = app.view();
+        const auto q = key_centre(app, "KeyQ");
+        auto settings_button = [&] {
+            for (const auto& c : app.view().controls) {
+                if (c.id == "settings") {
+                    return c.bounds;
+                }
+            }
+            throw std::runtime_error("no settings button");
+        };
+        const auto button = settings_button();
+        if (!shared) {
+            require(!english.ime_room && !english.ime_band, "English alone keeps the whole height");
+            continue;
+        }
+        require(english.ime_room && !english.ime_band, "English keeps the reading line's room");
+        control(app, "language-cycle");
+        require(app.selection().language == "ja-romaji" && app.view().ime_band,
+                "the language button switches to romaji");
+        require(key_centre(app, "KeyQ") == q &&
+                    panel_case_bounds(app.view()) == panel_case_bounds(english) &&
+                    settings_button() == button,
+                "switching from English to romaji leaves every key and button in place");
+        control(app, "language-cycle");
+        require(key_centre(app, "KeyQ") == q, "and back again");
+    }
+}
 void candidate_band() {
     char directory[] = "/tmp/framekeyboard-band-XXXXXX";
     require(mkdtemp(directory), "temporary band profile");
@@ -1677,6 +1731,7 @@ int main() {
         learning_calls();
         progressive_conversion();
         candidate_band();
+        reading_room();
         candidate_list();
         learning_settings();
         configure_anthy({false, anthy_home});
