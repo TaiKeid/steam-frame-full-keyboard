@@ -755,6 +755,9 @@ void JapaneseComposer::backspace() {
     }
 }
 void JapaneseComposer::convert() {
+    convert(true);
+}
+void JapaneseComposer::convert(bool preferring) {
     if (converting()) {
         cycle(1);
         return;
@@ -767,6 +770,30 @@ void JapaneseComposer::convert() {
     segments_ = live_.reading == reading_ && converted_ == reading_ && !resized_ ? live_.segments
                                                                                  : fresh(reading_);
     active_ = 0;
+    if (const auto preferred = preferring && preferred_ ? preferred_(reading_) : std::string{};
+        !preferred.empty()) {
+        if (segments_.size() == 1) {
+            auto& candidates = segments_.front().candidates;
+            std::erase(candidates, preferred);
+            candidates.insert(candidates.begin(), preferred);
+        } else {
+            // One segment for the phrase, the converter's own split and the
+            // scripts after it. Resizing goes back to the converter's split;
+            // the converter learns nothing from a phrase it didn't split so.
+            std::string whole;
+            for (const auto& segment : segments_) {
+                whole += segment.candidates.front();
+            }
+            Segment phrase{reading_, {preferred}};
+            for (auto text : {whole, in_script(reading_, false), in_script(reading_, true)}) {
+                if (std::find(phrase.candidates.begin(), phrase.candidates.end(), text) ==
+                    phrase.candidates.end()) {
+                    phrase.candidates.push_back(std::move(text));
+                }
+            }
+            segments_ = {std::move(phrase)};
+        }
+    }
 }
 void JapaneseComposer::cycle(int direction) {
     if (!converting()) {
@@ -872,6 +899,10 @@ void JapaneseComposer::prepare_live() {
         }
         completed.clear();
     };
+    // The usual conversion of a common phrase comes before all of them.
+    if (preferred_) {
+        add(preferred_(reading), Live::Source::Completion);
+    }
     if (completes_first) {
         complete();
     }
@@ -932,7 +963,7 @@ bool JapaneseComposer::choose_live(int index) {
         cursor_ = reading_.size();
         return true;
     }
-    convert();
+    convert(false); // The converter's own split, which the chip shows.
     if (source == Live::Source::Whole) {
         return true;
     }

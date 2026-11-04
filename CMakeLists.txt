@@ -175,6 +175,7 @@ endforeach()
 # Japanese completion's common words, beside the executable as in share/.
 configure_file(japanese/words.tsv japanese/words.tsv COPYONLY)
 configure_file(japanese/kaomoji.tsv japanese/kaomoji.tsv COPYONLY)
+configure_file(japanese/preferred.tsv japanese/preferred.tsv COPYONLY)
 
 if(FRAMEKEYBOARD_VR)
     # Link the matching architecture from the sysroot; embed only the device runtime path.
@@ -503,7 +504,8 @@ endif()
 install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
 install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
-install(FILES japanese/words.tsv japanese/kaomoji.tsv japanese/README.md DESTINATION share/framekeyboard/japanese)
+install(FILES japanese/words.tsv japanese/kaomoji.tsv japanese/preferred.tsv japanese/README.md
+        DESTINATION share/framekeyboard/japanese)
 install(FILES bridge/native_bridge.py bridge/steam_bridge.js DESTINATION share/framekeyboard/bridge)
 install(FILES update/update_helper.py DESTINATION share/framekeyboard/update)
 install(FILES dictation/dictation_helper.py DESTINATION share/framekeyboard/dictation)

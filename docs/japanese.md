@@ -47,6 +47,8 @@ Flick and toggle typing happen on release; other keys still act on press. A copy
 
 While a reading of two kana or more is typed, the live candidates also complete it to common words, up to three, commonest first: おめでと offers おめでとう and おめでとうございます. They come first while they are commoner than the reading itself as a word, as with おめでと, and otherwise after its conversion and your learned words, as ありがとう's completion ありがとうございます does. A tap commits the word in place of the reading. The 20,000 words come from Mozc's open-source dictionary (see `japanese/README.md` and the third-party notices); the list is read on first use and kept in memory, about 1 MB, only once Japanese is typed.
 
+Common chat phrases convert as people usually write them, ahead of Anthy's own order: いきます to 行きます, かえる to 帰る, ありがとう stays in hiragana, ちょっとまって to ちょっと待って. Such a phrase is the first live candidate, and 変換 converts to it, as one segment where Anthy would split the reading otherwise. Once you commit something else for one of these readings more often, with learning on, your choice wins (kept in `japanese-choices.tsv` in the config folder, cleared by **Clear learned words**). The list, `japanese/preferred.tsv`, holds about 100 phrases.
+
 After a reading's emoji come its kaomoji, up to six, from Mozc's emoticon list: にこにこ offers ＼(^o^)／ and (^o^), しくしく (T_T). Typing かおもじ offers all 442. A kaomoji is picked like an emoji, in place of the reading, which ↶ brings back.
 
 After a commit, while nothing is typed, the candidate row offers what may come next, as a phone's does: with learning on, up to three phrases you committed straight after this one before, most often first, then 。 、 ！ ？. A tap types it at once; a phrase then offers what followed it in turn, and punctuation ends the run. Any other press, or the keyboard hiding, ends the offer, and the next commit makes it again.
@@ -62,7 +64,7 @@ Learning is on by default, as on Steam's own keyboard, which always learns. With
 
 Anthy keeps what it learns in plain text, in `~/.anthy/last-record1_framekeyboard.utf8` and `last-record2_framekeyboard.utf8`: under a name of Full Keyboard's own, apart from what Steam's keyboard learns there. A phone IME's learned words sit in storage other apps can't open, but Steam Frame's desktop is an unlocked Linux system, where any program you run can read the files in your home folder. Steam's own keyboard keeps its learning the same way.
 
-**Clear learned words**, under the setting, deletes those files and the next phrases after asking. It can't be pressed while there is nothing to clear. Anthy restarts to forget what it had loaded; meanwhile a ring circles the button, which can't be pressed again, and live candidates wait. Turning learning off stops both learning and using what was learned; the files stay until cleared.
+**Clear learned words**, under the setting, deletes those files, the next phrases and the phrase choices after asking. It can't be pressed while there is nothing to clear. Anthy restarts to forget what it had loaded; meanwhile a ring circles the button, which can't be pressed again, and live candidates wait. Turning learning off stops both learning and using what was learned; the files stay until cleared.
 
 With learning off, Anthy reads and writes no record at all, Steam's keyboard's included, so candidates keep Anthy's own order. Anthy still keeps an empty lock file in `~/.anthy`.
 

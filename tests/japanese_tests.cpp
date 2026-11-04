@@ -626,6 +626,60 @@ void word_completion() {
                 bundled.exact("かおもじ", 1000).size() > 400,
             "the bundled kaomoji come from Mozc's emoticons");
 }
+// A common phrase's usual conversion comes first and is what 変換 gives,
+// until the user commits something else for it.
+void preferred_phrases() {
+    int conversions = 0;
+    {
+        JapaneseComposer composer(fake_converter(&conversions));
+        composer.set_preferred([](const std::string& reading) {
+            return reading == "いきます" ? std::string("行きます") : std::string{};
+        });
+        composer.kana("いきます");
+        composer.prepare_live();
+        require(composer.live().front() == "行きます" && composer.live()[1] == "〈いき〉〈ます〉",
+                "a common phrase's usual conversion comes first");
+        composer.convert();
+        const auto candidates = composer.candidates();
+        require(composer.segment_count() == 1 && candidates.front() == "行きます" &&
+                    std::find(candidates.begin(), candidates.end(), "〈いき〉〈ます〉") !=
+                        candidates.end(),
+                "変換 converts to it as one segment, the converter's split among its candidates");
+        require(composer.commit_text() == "行きます", "and commits it");
+    }
+    char directory[] = "/tmp/framekeyboard-preferred-XXXXXX";
+    require(mkdtemp(directory), "temporary preferred profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    double now = 1;
+    const auto type = [&] {
+        for (const auto* key : {"KeyI", "KeyK", "KeyI", "KeyM", "KeyA", "KeyS", "KeyU"}) {
+            click_key(app, key);
+        }
+        app.tick(now += 1);
+        app.tick(now += 1);
+    };
+    const auto first = [&] { return app.view().candidates->chips.front().text; };
+    type();
+    require(first() == "行きます", "the bundled list's いきます comes first");
+    require(click_candidate(app, "〈いき〉〈ます〉", now += .1) &&
+                sink.text.back() == "〈いき〉〈ます〉",
+            "something else can be chosen");
+    type();
+    require(first() == "〈いき〉〈ます〉", "and once chosen, it wins over the list");
+}
 void progressive_conversion() {
     int conversions = 0;
     JapaneseComposer composer(fake_converter(&conversions));
@@ -1961,6 +2015,7 @@ int main() {
     try {
         symbols_as_typed();
         word_completion();
+        preferred_phrases();
         emoji_candidates();
         learning_calls();
         progressive_conversion();

@@ -154,6 +154,11 @@ class JapaneseComposer {
     // Kaomoji for a reading (japanese/kaomoji.tsv), which live candidates
     // offer after its emoji, up to six; かおもじ offers them all.
     void set_kaomoji(const JapaneseWords* kaomoji) { kaomoji_ = kaomoji; }
+    // The usual conversion of a whole reading, such as 行きます for いきます,
+    // or empty: live candidates offer it first, and 変換 converts to it, as
+    // one segment when the converter splits the reading otherwise.
+    using Preferred = std::function<std::string(const std::string& reading)>;
+    void set_preferred(Preferred preferred) { preferred_ = std::move(preferred); }
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
@@ -198,6 +203,7 @@ class JapaneseComposer {
     EmojiLookup emoji_;
     const JapaneseWords* words_{};
     const JapaneseWords* kaomoji_{};
+    Preferred preferred_;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
     // An emoji picked from the live candidates, now the reading, and the
@@ -207,6 +213,8 @@ class JapaneseComposer {
     };
     std::optional<EmojiChoice> emoji_choice_;
     void drain(bool finish);
+    // With `preferring`, a common phrase converts to its usual conversion.
+    void convert(bool preferring);
     void append(const std::string& text);
     std::string before_cursor() const;
     void erase_before_cursor();

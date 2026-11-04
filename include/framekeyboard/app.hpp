@@ -798,6 +798,10 @@ class App {
     JapaneseComposer composition_;
     JapaneseWords japanese_words_; // What the composer completes readings to.
     JapaneseWords japanese_kaomoji_;
+    // The usual conversions of common phrases (japanese/preferred.tsv), and
+    // what was committed for those readings, which wins once it differs.
+    JapaneseWords japanese_preferred_;
+    NextWords japanese_choices_;
     std::unique_ptr<CjkComposer> cjk_;
     bool japanese_latin_{};
     bool flick_digits_{}; // With japanese_latin_: the flick digits.

@@ -203,11 +203,23 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     composition_.set_words(&japanese_words_);
     japanese_kaomoji_ = JapaneseWords(data_resource(options_.data_dir, "japanese/kaomoji.tsv"));
     composition_.set_kaomoji(&japanese_kaomoji_);
+    japanese_preferred_ = JapaneseWords(data_resource(options_.data_dir, "japanese/preferred.tsv"));
+    composition_.set_preferred([this](const std::string& reading) {
+        const auto preferred = japanese_preferred_.exact(reading, 1);
+        if (preferred.empty()) {
+            return std::string{};
+        }
+        // The user's own most frequent choice for the reading wins.
+        const auto chosen =
+            learning_allowed() ? japanese_choices_.after(reading, 1) : std::vector<std::string>{};
+        return chosen.empty() || chosen.front() == preferred.front() ? preferred.front() : std::string{};
+    });
     if (owns_anthy()) {
         configure_anthy({settings_.japanese_learning, anthy_home()});
         // Next words are learning too: only the keyboard that types keeps them.
         if (!options_.config_dir.empty()) {
             next_words_ = NextWords(options_.config_dir / "japanese-next-words.tsv");
+            japanese_choices_ = NextWords(options_.config_dir / "japanese-choices.tsv");
         }
     } else if (!anthy_configured()) {
         // An image export on its own still keeps Anthy's lock file in its
@@ -245,6 +257,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
 App::~App() {
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
     next_words_.save();
+    japanese_choices_.save();
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result;
@@ -2074,7 +2087,7 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
-    learned_ = anthy_learned() || !next_words_.empty();
+    learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2434,7 +2447,7 @@ void App::tick_learning() {
         restart_learning(true);
         return;
     }
-    learned_ = anthy_learned() || !next_words_.empty();
+    learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty();
     apply_learning(); // learning changed while it restarted
     update_settings_ui();
     dirty = true;
@@ -2514,6 +2527,11 @@ void App::commit_japanese() {
         status_.clear();
         follow_commit(text, queued);
         follow_up_ = text;
+        // A reading with a usual conversion remembers what was chosen for it.
+        if (learning_allowed() && !japanese_preferred_.exact(reading, 1).empty()) {
+            japanese_choices_.record(reading, text);
+            japanese_choices_.touch(monotonic_seconds());
+        }
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (japanese_typing() && !dictation_open_) {
             reopen_ = Reopen{text, reading, output_.queued(), output_.failures(), output_.cancels()};
@@ -2576,8 +2594,10 @@ void App::follow_commit(const std::string& text, std::uint64_t queued_before) {
 }
 void App::tick_next_words() {
     // Written a little after the last change, not at every commit.
-    if (next_words_.dirty() && monotonic_seconds() - next_words_.changed_at() >= 2) {
-        next_words_.save();
+    for (auto* store : {&next_words_, &japanese_choices_}) {
+        if (store->dirty() && monotonic_seconds() - store->changed_at() >= 2) {
+            store->save();
+        }
     }
 }
 bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) {
@@ -3489,6 +3509,7 @@ void App::action(const ControlAction& command) {
         pressed_controls_.clear();
         hovered_.clear();
         next_words_.clear();
+        japanese_choices_.clear();
         last_commit_.reset();
         follow_up_.reset();
         restart_learning(true);
