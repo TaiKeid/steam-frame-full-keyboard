@@ -3950,12 +3950,9 @@ bool App::key_flick_shifts(const Key& key) const {
     }
     const auto letter = xkb_keysym_to_utf32(tap);
     if (g_unichar_isalpha(letter) && g_unichar_toupper(letter) == xkb_keysym_to_utf32(shifted)) {
-        // Romaji and Pinyin compose lowercase letters only, and a letter
-        // swipe typing takes starts a swipe instead.
-        if ((japanese() && flick_mode() != FlickMode::Latin) || (cjk_ && cjk_->chinese())) {
-            return false;
-        }
-        return !(swipe_enabled() && swipe_keyboard_->key_index.contains(key.id));
+        // Romaji and Pinyin compose lowercase letters only. A letter swipe
+        // typing takes never gets here: swipes() has it first.
+        return !(japanese() && flick_mode() != FlickMode::Latin) && !(cjk_ && cjk_->chinese());
     }
     return true;
 }
