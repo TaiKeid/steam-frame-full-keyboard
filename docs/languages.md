@@ -184,8 +184,8 @@ the keys with no empty space at the sides. Other languages on the same layout
 among your languages keep the keys at that size and place, the second toolbar
 row where the line would be, so switching between them moves nothing.
 The candidates show in the toolbar row,
-after its buttons, where swipe suggestions go: centred while they all fit, or
-filling the row with ∨ after them while there are more; a still row ends on a
+where swipe suggestions go: from its left, a clear gap after its buttons, so
+the first is always in the same place, with ∨ after them while there are more; a still row ends on a
 whole candidate, none cut before ∨. Drag them sideways to see more, or tap ∨ to open them all in a menu under the reading line, over the keys,
 as tall as its lines up to five; a press outside the menu closes it, choosing
 nothing, and the keys wait while it is open. The keys do the

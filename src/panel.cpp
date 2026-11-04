@@ -1408,9 +1408,14 @@ ImeBand ime_band(const PanelView& view) {
         return result;
     }
     // Full layouts: the reading line across the case, and the candidates'
-    // room in the toolbar row, after its buttons and before the close button
-    // or the shell's. App centres them in it, ∨ after them if they overflow.
-    return {reading, reading, {first + 10, 12, std::max(0.0, end - 10 - first - 10), 42}, {}};
+    // room in the toolbar row, a clear gap after its buttons, wider than
+    // theirs, and before the close button or the shell's. App starts them at
+    // its left, as phones do, ∨ after them if they overflow.
+    constexpr double candidate_gap = 28;
+    return {reading,
+            reading,
+            {first + candidate_gap, 12, std::max(0.0, end - 10 - first - candidate_gap), 42},
+            {}};
 }
 Rect candidate_list_area(const PanelView& view) {
     const auto band = ime_band(view);

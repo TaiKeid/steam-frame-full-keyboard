@@ -3014,8 +3014,9 @@ void App::sync_candidates() {
     const auto area = candidate_area(geometry);
     const auto& font = profiles_.languages.at(settings_.active.language).font;
     const auto measure = [&](const std::string& text) { return candidate_text_width(text, font); };
-    // The flick band's row ends with ∨. A full layout's row centres the
-    // candidates in the toolbar's room, and ∨ follows those that overflow.
+    // The flick band's row ends with ∨. A full layout's row starts its
+    // candidates at the toolbar room's left, so the first stays in one
+    // place, and ∨ follows those that overflow.
     auto row = area;
     std::optional<Rect> more;
     if (area && band_more() && !dictation_open_) {
@@ -3025,7 +3026,6 @@ void App::sync_candidates() {
                 more = band.more;
             }
         } else if (const double width = candidates_.row_width_of(texts, measure); width <= area->width) {
-            row->x += (area->width - width) / 2;
             row->width = width;
         } else {
             constexpr double button = 64, gap = 8;

@@ -1331,12 +1331,9 @@ void candidate_band() {
         const bool fits = row.width < band.candidates.width - 72;
         require(
             row.y == band.candidates.y && band.candidates.y < band.band.y &&
-                band.reading.y + band.reading.height < key_top(view) &&
-                (fits ? !has_control(app, "ime-more") &&
-                            std::abs(row.x + row.width / 2 -
-                                     (band.candidates.x + band.candidates.width / 2)) < 1
-                      : has_control(app, "ime-more")),
-            "candidates centred in the toolbar row, or with ∨ after them, the reading line under it");
+                band.reading.y + band.reading.height < key_top(view) && row.x == band.candidates.x &&
+                (fits ? !has_control(app, "ime-more") : has_control(app, "ime-more")),
+            "candidates from the toolbar row's left, or with ∨ after them, the reading line under it");
     }
     click_key(app, "ArrowRight");
     require(app.view().preedit == "〈には〉〈なこ〉" &&
