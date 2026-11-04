@@ -350,6 +350,23 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             line(-10, -10, 10, 10);
         }
         break;
+    case Icon::KeyFlick:
+    case Icon::KeyFlickOff:
+        // A key, and under it the downward pull that flicks it. Off, slashed
+        // like Pin.
+        rounded(cr, {-8.5, -10, 17, 9.5}, 3);
+        cairo_stroke(cr);
+        line(-2.5, -5.3, 2.5, -5.3);
+        cairo_set_line_width(cr, 2.4);
+        cairo_move_to(cr, -4.5, 4.5);
+        cairo_line_to(cr, 0, 9);
+        cairo_line_to(cr, 4.5, 4.5);
+        cairo_stroke(cr);
+        cairo_set_line_width(cr, 1.8);
+        if (icon == Icon::KeyFlickOff) {
+            line(-10, -10, 10, 10);
+        }
+        break;
     case Icon::Volume25:
     case Icon::Volume50:
     case Icon::Volume75:
@@ -1299,6 +1316,7 @@ ImeBand ime_band(const PanelView& view) {
         case ControlKind::KeepOpen:
         case ControlKind::SwipeToggle:
         case ControlKind::SoundsToggle:
+        case ControlKind::KeyFlicksToggle:
         case ControlKind::LanguageCycle:
             if (r.y < 50) {
                 first = std::max(first, r.x + r.width);

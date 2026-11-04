@@ -29,6 +29,8 @@ enum class Icon {
     Volume100,
     HapticSound,
     HapticSoundOff,
+    KeyFlick,
+    KeyFlickOff,
     PopHigh,
     PopHighClick,
     PopMiddle,

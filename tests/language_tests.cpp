@@ -198,6 +198,34 @@ void key_flicks() {
         require(app.view().preedit == "ろ", "and types then");
         click(app, "Escape");
     }
+    {
+        // The toolbar's switch pauses flicks: keys type on press again.
+        app.apply({"en-us-full", "en-us", "graphite"});
+        const auto toggle = [&] {
+            for (const auto& control : app.view().controls) {
+                if (control.id == "key-flicks-toggle") {
+                    const double x = control.bounds.x + control.bounds.width / 2,
+                                 y = control.bounds.y + control.bounds.height / 2;
+                    app.down(2, x, y, now);
+                    app.up(2, x, y);
+                    return;
+                }
+            }
+            throw std::runtime_error("no key flick switch");
+        };
+        toggle();
+        sink.events.clear();
+        const auto [x, y] = centre("Digit6");
+        app.down(0, x, y, now);
+        require(typed() == "6", "paused, a key types on press");
+        app.move(0, x, y + 60);
+        app.up(0, x, y + 60);
+        require(typed() == "6", "and pulling it down types nothing more");
+        toggle();
+        sink.events.clear();
+        flick("Digit6", 60);
+        require(typed() == "^", "switched back on, it flicks again");
+    }
     // Romaji composes lowercase: its letters don't flick, its digits do.
     app.apply({"en-us-full", "ja-romaji", "graphite"});
     flick("KeyK", 60);

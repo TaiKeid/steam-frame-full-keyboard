@@ -427,23 +427,34 @@ std::vector<Control> App::controls() const {
     // A switch of its own too, with nothing to do while Settings has sounds off.
     // The second row of a compact toolbar holds three: a fourth would sit on the
     // dictation editor, so it joins the first, still before the language.
+    // So does the key flicks' switch after it.
+    int top_column = 3; // The first row's next place, before the language.
     const bool sounds_button = settings_.haptic_sounds != "off";
-    const bool sounds_on_top = compact && sounds_button && next_column == 3;
     if (sounds_button) {
         const bool on = settings_.haptic_sounds_switch && !capturing_;
+        const bool on_top = compact && next_column == 3;
         add({ControlKind::SoundsToggle},
             {"sounds-toggle", on ? "Turn haptic sounds off" : "Turn haptic sounds on",
-             sounds_on_top ? button(0, 3, 0) : button(next_slot, next_column, 1), false,
+             on_top ? button(0, top_column++, 0) : button(next_slot, next_column++, 1), false,
              on ? Icon::HapticSound : Icon::HapticSoundOff});
         ++next_slot;
         // Waits with the language button. Crossed only while the microphone
         // keeps keys silent, whatever the switch says.
         result.back().enabled = !listening;
     }
+    if (settings_.key_flicks) {
+        const bool on = settings_.key_flicks_switch;
+        const bool on_top = compact && next_column == 3;
+        add({ControlKind::KeyFlicksToggle},
+            {"key-flicks-toggle", on ? "Turn key flicks off" : "Turn key flicks on",
+             on_top ? button(0, top_column++, 0) : button(next_slot, next_column++, 1), false,
+             on ? Icon::KeyFlick : Icon::KeyFlickOff});
+        ++next_slot;
+    }
     if (cycle_entries_.size() > 1 && host_.chrome.favorites) {
         add({ControlKind::LanguageCycle},
             {"language-cycle", language_short_name(profiles_.languages.at(settings_.active.language)),
-             button(next_slot, sounds_on_top ? 4 : 3, 0, 100)});
+             button(next_slot, top_column, 0, 100)});
         // The picker belongs to the language it was opened from.
         result.back().enabled = !emoji_open_ && !listening;
     }
@@ -2257,6 +2268,7 @@ void App::reload() {
         settings_.key_flicks = updated_settings.key_flicks;
         settings_.swipe_switch = updated_settings.swipe_switch;
         settings_.haptic_sounds_switch = updated_settings.haptic_sounds_switch;
+        settings_.key_flicks_switch = updated_settings.key_flicks_switch;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.japanese_learning = updated_settings.japanese_learning;
         apply_learning();
@@ -3303,6 +3315,9 @@ void App::action(const ControlAction& command) {
         settings_.haptic_sounds_switch = !settings_.haptic_sounds_switch;
         save();
         host_settings_changed(before, "user");
+    } else if (kind == ControlKind::KeyFlicksToggle) {
+        settings_.key_flicks_switch = !settings_.key_flicks_switch;
+        save();
     } else if (kind == ControlKind::KeyFlicks) {
         pending_key_flicks_ = !pending_key_flicks_;
         update_settings_ui();
@@ -3913,9 +3928,9 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
     return true;
 }
 bool App::key_flick_key(const Key& key, const std::set<int>& modifiers) {
-    if (!settings_.key_flicks || emoji_open_ || key.action_kind != ActionKind::Key ||
-        key.action == "Space" || key.action.starts_with("Numpad") || key.action == "CapsLock" ||
-        key.action == "NumLock") {
+    if (!settings_.key_flicks || !settings_.key_flicks_switch || emoji_open_ ||
+        key.action_kind != ActionKind::Key || key.action == "Space" ||
+        key.action.starts_with("Numpad") || key.action == "CapsLock" || key.action == "NumLock") {
         return false;
     }
     // Enter, Tab, Backspace and the arrows have no character: they keep

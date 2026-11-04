@@ -123,6 +123,7 @@ struct Settings {
     // and below: each works only while its option allows it.
     bool swipe_switch{true};
     bool haptic_sounds_switch{true};
+    bool key_flicks_switch{true};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
     // Japanese conversion learns from the phrases committed and offers them

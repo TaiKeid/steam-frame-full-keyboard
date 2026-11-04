@@ -736,6 +736,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* sounds = field(document.get(), "haptic_sounds_switch", json_type_boolean, true)) {
             settings.haptic_sounds_switch = json_object_get_boolean(sounds);
         }
+        if (auto* flicks = field(document.get(), "key_flicks_switch", json_type_boolean, true)) {
+            settings.key_flicks_switch = json_object_get_boolean(flicks);
+        }
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
         }
@@ -993,6 +996,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->swipe_switch));
         json_object_object_add(document.get(), "haptic_sounds_switch",
                                json_object_new_boolean(settings->haptic_sounds_switch));
+        json_object_object_add(document.get(), "key_flicks_switch",
+                               json_object_new_boolean(settings->key_flicks_switch));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
         json_object_object_add(document.get(), "japanese_learning",

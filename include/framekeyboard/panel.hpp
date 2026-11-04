@@ -81,9 +81,10 @@ enum class ControlKind {
     // backspace, left, right, enter or esc), a recent server, or close.
     AddressKey,
     AddressRecent,
-    SwipeToggle,   // the toolbar's own switch for swiping
-    SoundsToggle,  // the toolbar's own switch for haptic sounds
-    OpenLanguages, // the Additional languages popup
+    SwipeToggle,     // the toolbar's own switch for swiping
+    SoundsToggle,    // the toolbar's own switch for haptic sounds
+    KeyFlicksToggle, // the toolbar's own switch for key flicks
+    OpenLanguages,   // the Additional languages popup
     CloseLanguages,
     LanguagesLayout, // value: the layout whose languages show
     AddLanguage,     // value: the language, on the layout showing

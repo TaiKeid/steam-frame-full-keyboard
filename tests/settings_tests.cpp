@@ -1302,6 +1302,25 @@ void key_flicks_setting() {
             "it stays pending until Apply");
     click(app, "apply");
     require(saved(app).key_flicks, "Apply saves it");
+    // The toolbar's own switch pauses flicks, saved as it changes.
+    require(control(app.view(), "key-flicks-toggle").icon == Icon::KeyFlick,
+            "with the option on, the toolbar has a key flick switch, on");
+    click(app, "key-flicks-toggle");
+    require(control(app.view(), "key-flicks-toggle").icon == Icon::KeyFlickOff &&
+                !saved(app).key_flicks_switch && saved(app).key_flicks,
+            "a tap pauses flicks and saves that, leaving the option as it is");
+    {
+        App restarted(options, sink);
+        require(control(restarted.view(), "key-flicks-toggle").icon == Icon::KeyFlickOff,
+                "the switch stays off after a restart");
+    }
+    app.show_settings();
+    click(app, "key-flicks");
+    click(app, "apply");
+    const auto controls = app.view().controls;
+    require(std::none_of(controls.begin(), controls.end(),
+                         [](const Control& c) { return c.id == "key-flicks-toggle"; }),
+            "with the option off, the switch is gone");
 }
 void haptic_sounds_setting() {
     TemporaryDirectory directory;
