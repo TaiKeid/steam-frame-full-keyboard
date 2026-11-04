@@ -2768,7 +2768,10 @@ void App::sync_candidates() {
     std::optional<Rect> more;
     if (area && band_more() && !dictation_open_) {
         if (const auto band = ime_band(geometry); band.more) {
-            more = band.more; // The flick band's own.
+            // The flick band's own, while there is more than its row shows.
+            if (candidates_.row_width_of(texts, measure) > area->width) {
+                more = band.more;
+            }
         } else if (const double width = candidates_.row_width_of(texts, measure); width <= area->width) {
             row->x += (area->width - width) / 2;
             row->width = width;

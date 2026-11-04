@@ -719,17 +719,8 @@ void candidate_band() {
     click_key(app, "ArrowLeft");
     click_key(app, "ArrowLeft");
     require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "← shortens it, splitting the rest again");
-    {
-        // ∨ ends the candidate row, beside its chips, not over them.
-        const auto view = app.view();
-        const auto band = ime_band(view);
-        const auto more = std::find_if(view.controls.begin(), view.controls.end(),
-                                       [&](const Control& c) { return c.id == "ime-more"; });
-        require(more != view.controls.end() &&
-                    more->bounds.x >= band.candidates.x + band.candidates.width &&
-                    more->bounds.x + more->bounds.width <= band.band.x + band.band.width,
-                "the band's ∨ sits right of the candidate row");
-    }
+    require(!has_control(app, "ime-more"),
+            "with every candidate in the row, no ∨: its list would be empty");
     click_key(app, "Space");
     require(app.view().preedit == "に〈はな〉〈こ〉", "次候補 moves to the next candidate");
     click_key(app, "Space");
@@ -1049,7 +1040,18 @@ void candidate_list() {
     flick(app, "ka", 1);
     app.tick(1.1);
     app.tick(1.3);
-    require(has_control(app, "ime-more") && !app.view().candidates->list, "∨ comes with candidates");
+    require(has_control(app, "ime-more") && !app.view().candidates->list,
+            "∨ comes with more candidates than the row shows");
+    {
+        // ∨ ends the candidate row, beside its chips, not over them.
+        const auto view = app.view();
+        const auto band = ime_band(view);
+        const auto more = std::find_if(view.controls.begin(), view.controls.end(),
+                                       [&](const Control& c) { return c.id == "ime-more"; });
+        require(more->bounds.x >= band.candidates.x + band.candidates.width &&
+                    more->bounds.x + more->bounds.width <= band.band.x + band.band.width,
+                "the band's ∨ sits right of the candidate row");
+    }
     const auto row = app.view().candidates->chips;
     control(app, "ime-more");
     auto view = app.view();
