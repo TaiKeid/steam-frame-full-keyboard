@@ -110,6 +110,14 @@ constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
 }
+// The flick layout's column icons (↶, 😊, ␣, ↵) share Backspace's size, so
+// they match the ← and → labels between them.
+bool flick_layout(const PanelView& view) {
+    return view.language && view.language->input_method == "japanese-flick";
+}
+constexpr double flick_icon_size = 18;
+// Cut, Copy and Paste: 32 units at a full-size layout's scale.
+constexpr double shortcut_icon_pixels = 34;
 // The reading line of a composing full layout, full width, centred.
 bool reading_line(const PanelView& view) {
     return view.ime_band && !two_row_band(view) && !view.settings;
@@ -1043,10 +1051,21 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         // Dictation's Copy, Cut and Paste, and the stack on layouts that need
         // one, are ordinary key height or less.
         const bool short_key = key.action_kind == ActionKind::Dictation && key.bounds.height < 64;
-        const double size = super_icon || short_key                             ? 22
-                            : key.icon == Icon::Backspace                       ? 18
-                            : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
-                                                                                : 32;
+        double size = super_icon || short_key                             ? 22
+                      : key.icon == Icon::Backspace                       ? 18
+                      : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
+                                                                          : 32;
+        if (key.action_kind == ActionKind::Shortcut) {
+            // Keys are drawn at the layout's scale, which the flick layout's
+            // large keys raise by a third: Cut, Copy and Paste keep the size
+            // a full-size layout gives them, in panel pixels.
+            cairo_matrix_t matrix;
+            cairo_get_matrix(cr, &matrix);
+            size = shortcut_icon_pixels / matrix.xx;
+        } else if (flick_layout(view) &&
+                   (key.icon == Icon::Emoji || key.icon == Icon::Space || key.icon == Icon::Enter)) {
+            size = flick_icon_size; // As Backspace's, beside the arrows' labels.
+        }
         draw_icon(cr, key.icon, face, disabled ? disabled_legend(t) : t.legend, size);
         if (key.icon == Icon::Mic && view.dictation_recognizing) {
             draw_ring(cr, t, face, ring);
@@ -1082,7 +1101,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         }
         const auto hint = disabled_legend(t);
         if (key.action == flick_undo_slot) {
-            draw_icon(cr, Icon::TurnBack, face, t.legend, 26); // without hints
+            draw_icon(cr, Icon::TurnBack, face, t.legend, flick_icon_size); // without hints
             return;
         }
         if (key.action == flick_mode_slot) {
