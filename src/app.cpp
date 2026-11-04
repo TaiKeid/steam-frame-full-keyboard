@@ -2842,7 +2842,15 @@ void App::commit_failed() {
     }
 }
 bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
-    if (!cjk_ || cjk_latin_ || key.action_kind != ActionKind::Key) {
+    if (!cjk_ || key.action_kind != ActionKind::Key) {
+        return false;
+    }
+    // On 천지인's English and digits pages a digit the field refused waits in
+    // the reading: Enter, Backspace and Esc act on it, as on the 한글 page.
+    const auto& action = key.action;
+    if (cjk_latin_ && !(cheonjiin() && !cjk_->empty() &&
+                        (action == "Enter" || action == "NumpadEnter" || action == "Backspace" ||
+                         action == "Escape"))) {
         return false;
     }
     for (const auto* name :

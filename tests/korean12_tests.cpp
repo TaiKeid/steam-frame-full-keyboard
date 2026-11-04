@@ -494,6 +494,16 @@ void app_input() {
     require(sink.text.size() >= 2 && sink.text[sink.text.size() - 2] == "3" && sink.text.back() == "4" &&
                 preedit().empty(),
             "and goes ahead of the next digit");
+    sink.accept = false;
+    flick(app, "eu", now += 2);
+    const auto keys_before = sink.keys.size();
+    press(app, "Backspace", now += 1);
+    require(preedit().empty() && sink.keys.size() == keys_before, "Backspace removes a waiting digit");
+    flick(app, "eu", now += 2);
+    sink.accept = true;
+    press(app, "Enter", now += 1);
+    require(sink.text.back() == "3" && preedit().empty() && sink.keys.size() == keys_before,
+            "and Enter commits one without an Enter of its own");
     flick(app, "mode", now += 2);
     require(app.view().key_labels.at("Flick-i") == "ㅣ", "a third tap returns to 한글");
     flick(app, "mode", now += 2, 0, -60);
