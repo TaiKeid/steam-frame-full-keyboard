@@ -126,15 +126,33 @@ void layout_tests() {
         }
     }
     // The flick layout's emoji key sits beside the kana: Back moves into the
-    // side column's top slot, which the hidden script key doesn't take, and
-    // the column narrows for the grid beside it.
+    // side column's top slot, which the hidden script key doesn't take, the
+    // column's own size, and the grid moves beside the column. The column's
+    // keys stay in their slots, the picker's extra height above them.
     const auto& flick = profiles.layouts.at("ja-flick-12");
-    const auto picker = emoji_layout(flick, flick.width);
-    const auto back = std::find_if(picker.layout.keys.begin(), picker.layout.keys.end(),
-                                   [](const Key& key) { return key.action == "picker"; });
-    require(back != picker.layout.keys.end() && back->bounds.x == 0 && back->bounds.y == 0 &&
-                back->bounds.width < 79 && picker.grid.x < 120,
+    const double taller = flick.height + 40;
+    const auto picker = emoji_layout(flick, flick.width, taller);
+    const auto find_key = [&](const std::string& action) {
+        return std::find_if(picker.layout.keys.begin(), picker.layout.keys.end(),
+                            [&](const Key& key) { return key.action == action; });
+    };
+    const auto back = find_key("picker");
+    const auto script = std::find_if(flick.keys.begin(), flick.keys.end(),
+                                     [](const Key& key) { return key.id == "Flick-script"; });
+    require(back != picker.layout.keys.end() && script != flick.keys.end() &&
+                back->bounds == Rect{script->bounds.x, script->bounds.y + 40, script->bounds.width,
+                                     script->bounds.height} &&
+                picker.grid.x < 120,
             "on the flick layout, Back takes the side column's top slot and the grid moves beside it");
+    for (const auto& key : flick.keys) {
+        if (key.action_kind == ActionKind::Shortcut) {
+            const auto copy = find_key(key.action);
+            require(copy != picker.layout.keys.end() &&
+                        copy->bounds ==
+                            Rect{key.bounds.x, key.bounds.y + 40, key.bounds.width, key.bounds.height},
+                    "the flick picker keeps Cut, Copy and Paste in their slots");
+        }
+    }
 }
 
 EmojiCatalog sample_catalog() {

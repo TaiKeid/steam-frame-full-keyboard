@@ -206,12 +206,11 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     // on the bottom row. Taller or shorter layouts scale vertically. A picker
     // taller than its keyboard takes the room a reading line had above the
     // keys: the keys it takes from the keyboard stay where they were, that
-    // much lower in it, so they don't move as it opens. The flick layout's
-    // narrowed column scales with the picker instead.
+    // much lower in it, so they don't move as it opens.
     if (height <= 0) {
         height = main.height;
     }
-    const double k = height / 416, stretch = height / main.height, extra = height - main.height;
+    const double k = height / 416, extra = height - main.height;
     const double right = std::clamp(visible_width, 0.0, main.width);
     EmojiLayout result;
     result.layout.id = main.id + "-emoji";
@@ -221,7 +220,7 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     result.layout.height = height;
     // The side column: Copy, Cut and Paste. An emoji key outside it (the
     // flick layout's) comes back as Back in the column's top slot when that
-    // is free, so the grid can start beside the column.
+    // is free, the column's own size, so the grid can start beside it.
     std::optional<Rect> column;
     for (const auto& key : main.keys) {
         if (key.action_kind == ActionKind::Shortcut) {
@@ -242,32 +241,28 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
                           column->x < key.bounds.x + key.bounds.width && key.bounds.y < 44;
                });
     }();
-    // Then the column also narrows, and the grid moves up beside it: a
-    // compact layout gains emoji columns.
+    // Then the grid moves up beside the column.
     const auto emoji = std::find_if(main.keys.begin(), main.keys.end(),
                                     [](const Key& key) { return key.action_kind == ActionKind::Emoji; });
     const bool compact =
         column && top_free && emoji != main.keys.end() && emoji->bounds.x >= column->x + column->width;
-    constexpr double compact_width = 54.4, compact_gap = 12;
-    double side = 0;
+    constexpr double compact_gap = 12;
+    double side = 0, slot_height = 0;
+    for (const auto& key : main.keys) {
+        if (key.action_kind == ActionKind::Shortcut) {
+            slot_height = std::max(slot_height, key.bounds.height);
+        }
+    }
     for (const auto& key : main.keys) {
         if (key.action_kind == ActionKind::Emoji || key.action_kind == ActionKind::Shortcut) {
             auto copy = key;
-            if (compact) {
-                copy.bounds.y *= stretch;
-                copy.bounds.height *= stretch;
-            } else {
-                copy.bounds.y += extra;
-            }
+            copy.bounds.y += extra;
             if (key.action_kind == ActionKind::Emoji) {
                 copy.icon = Icon::Back;
                 copy.label = "Back";
                 if (compact) {
-                    copy.bounds = {column->x, 0, column->width, 44 * k};
+                    copy.bounds = {column->x, extra, column->width, slot_height};
                 }
-            }
-            if (compact) {
-                copy.bounds.width = compact_width;
             }
             side = std::max(side, copy.bounds.x + copy.bounds.width);
             result.layout.keys.push_back(std::move(copy));

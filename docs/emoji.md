@@ -24,7 +24,7 @@ The emoji key is disabled (drawn with the theme's disabled color, not clickable)
 - **Bottom:** a space bar under the grid.
 - **Right side:** Backspace and Enter, with the arrow keys below them.
 - **Compact (no numpad) mode:** the keyboard keeps its compact width, unlike Settings, which widens it. The grid shrinks to fit: fewer columns are visible at once.
-- **Japanese:** the picker opens in the same case as the keys, which share it with the reading band, so nothing moves; the grid takes the band's height, keeping its cells their usual size. On the flick layout, whose emoji key sits beside the kana, Back is at the top of the side column.
+- **Japanese:** the picker opens in the same case as the keys, which share it with the reading band, so nothing moves; the grid takes the band's height, keeping its cells their usual size. On the flick layout, whose emoji key sits beside the kana, Back takes the side column's top slot, and Cut, Copy and Paste stay in their places and sizes.
 - **Toolbar:** unchanged, except that the language key is disabled while the picker is open.
 
 The view's geometry is generated from the active layout's case size, key unit and side column, rather than from a separate layout file (*proposal*).
