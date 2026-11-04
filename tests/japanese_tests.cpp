@@ -150,6 +150,19 @@ void flick_input() {
     require(fits("ja-flick-12", "ja-flick") && !fits("en-us-full", "ja-flick") &&
                 !fits("ja-flick-12", "en-us") && !fits("ja-flick-12", "ja-romaji"),
             "flick layout and flick language only fit each other");
+    {
+        // The English page's side keys sit where the kana page's do, so
+        // switching pages moves none of them.
+        const auto bounds = [&](const char* layout, const char* id) {
+            const auto& keys = profiles.layouts.at(layout).keys;
+            return std::find_if(keys.begin(), keys.end(), [&](const Key& key) { return key.id == id; })
+                ->bounds;
+        };
+        for (const auto* id : {"Cut", "Copy", "Paste", "Dictation"}) {
+            require(bounds("ja-flick-12", id) == bounds("ja-flick-qwerty", id),
+                    "both flick pages keep the side keys in place");
+        }
+    }
     char directory[] = "/tmp/framekeyboard-flick-XXXXXX";
     require(mkdtemp(directory), "temporary flick profile");
     struct Cleanup {

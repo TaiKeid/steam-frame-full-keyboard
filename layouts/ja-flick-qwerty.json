@@ -26,9 +26,9 @@
       "label": "Cut",
       "secondary_label": "",
       "x": 0,
-      "y": 54,
+      "y": 57.6,
       "width": 79,
-      "height": 48,
+      "height": 47.6,
       "action": {
         "kind": "shortcut",
         "value": "cut"
@@ -40,9 +40,9 @@
       "label": "Copy",
       "secondary_label": "",
       "x": 0,
-      "y": 112,
+      "y": 115.2,
       "width": 79,
-      "height": 48,
+      "height": 47.6,
       "action": {
         "kind": "shortcut",
         "value": "copy"
@@ -54,9 +54,9 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 170,
+      "y": 172.8,
       "width": 79,
-      "height": 48,
+      "height": 47.6,
       "action": {
         "kind": "shortcut",
         "value": "paste"
@@ -68,9 +68,9 @@
       "label": "Dictation",
       "secondary_label": "",
       "x": 0,
-      "y": 228,
+      "y": 230.4,
       "width": 79,
-      "height": 50,
+      "height": 47.6,
       "action": {
         "kind": "dictation",
         "value": "mic"
