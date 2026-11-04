@@ -3930,10 +3930,12 @@ bool App::key_flick_shifts(const Key& key) const {
         const auto a = base.find(key.action), b = shifted.find(key.action);
         return a != base.end() && b != shifted.end() && a->second != b->second;
     };
-    if (language.input_method == "japanese-kana") {
+    // Kana and jamo keys flick through their own tables; the keys those
+    // leave out, such as Korean digits and punctuation, as on any keyboard.
+    if (language.input_method == "japanese-kana" && language.kana.contains(key.action)) {
         return differs(language.kana, language.kana_shift);
     }
-    if (cjk_ && !cjk_->chinese()) {
+    if (cjk_ && !cjk_->chinese() && language.composition_keys.contains(key.action)) {
         return differs(language.composition_keys, language.composition_shift); // ㅂ ㅃ
     }
     const std::set<int> shift{key_code("ShiftLeft")};

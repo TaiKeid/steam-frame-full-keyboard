@@ -173,6 +173,10 @@ void key_flicks() {
         flick("KeyQ", 60);
         require(app.view().preedit == "ㅃ", "ㅂ flicks to ㅃ");
         click(app, "Escape");
+        sink.events.clear();
+        flick("Digit6", 60);
+        flick("Slash", 60);
+        require(typed() == "^?", "and its digits and punctuation flick as on US QWERTY");
     }
     // Romaji composes lowercase: its letters don't flick, its digits do.
     app.apply({"en-us-full", "ja-romaji", "graphite"});
