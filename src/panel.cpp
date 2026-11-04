@@ -254,7 +254,8 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
     // ゛ and ゜ alone, the 小 key's flick hints and preview cells, are
     // marks no bigger than a dot at a kana's size: drawn larger, they read.
-    if (text == "゛" || text == "゜") {
+    const bool mark = text == "゛" || text == "゜";
+    if (mark) {
         size *= 2.4;
         pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
         pango_layout_set_font_description(layout, font);
@@ -263,7 +264,9 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
         int natural_width, natural_height;
         pango_layout_get_pixel_size(layout, &natural_width, &natural_height);
         if (natural_width > r.width - 8) {
-            const double fitted = std::max(9.0, size * (r.width - 8) / natural_width);
+            // A little under the width: scaled text rounds a pixel wider at
+            // times, and ellipsizing would turn a lone ゛ into "…".
+            const double fitted = std::max(9.0, size * (r.width - 8) / natural_width * .96);
             pango_font_description_set_absolute_size(font, fitted * PANGO_SCALE);
             pango_layout_set_font_description(layout, font);
         }
@@ -278,7 +281,15 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     int width, height;
     pango_layout_get_pixel_size(layout, &width, &height);
     source(cr, color);
-    cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
+    if (mark) {
+        // Centred by its ink: the font draws the mark high in a kana's box.
+        PangoRectangle ink;
+        pango_layout_get_pixel_extents(layout, &ink, nullptr);
+        cairo_move_to(cr, r.x + 4 + (r.width - 8) / 2 - (ink.x + ink.width / 2.0),
+                      r.y + r.height / 2 - (ink.y + ink.height / 2.0));
+    } else {
+        cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
+    }
     pango_cairo_show_layout(cr, layout);
     pango_font_description_free(font);
     g_object_unref(layout);
