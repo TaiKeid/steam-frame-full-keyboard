@@ -203,12 +203,15 @@ void remember_emoji(EmojiPreferences& preferences, const std::string& base) {
 EmojiLayout emoji_layout(const Layout& main, double visible_width, double height) {
     // Designed on the bundled 416-unit-high layouts: the tab row on the
     // function-key row, the grid over the four middle rows, and the space bar
-    // on the bottom row. Taller or shorter layouts scale vertically, and so
-    // do the keys taken from the keyboard when the picker is taller.
+    // on the bottom row. Taller or shorter layouts scale vertically. A picker
+    // taller than its keyboard takes the room a reading line had above the
+    // keys: the keys it takes from the keyboard stay where they were, that
+    // much lower in it, so they don't move as it opens. The flick layout's
+    // narrowed column scales with the picker instead.
     if (height <= 0) {
         height = main.height;
     }
-    const double k = height / 416, stretch = height / main.height;
+    const double k = height / 416, stretch = height / main.height, extra = height - main.height;
     const double right = std::clamp(visible_width, 0.0, main.width);
     EmojiLayout result;
     result.layout.id = main.id + "-emoji";
@@ -250,8 +253,12 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     for (const auto& key : main.keys) {
         if (key.action_kind == ActionKind::Emoji || key.action_kind == ActionKind::Shortcut) {
             auto copy = key;
-            copy.bounds.y *= stretch;
-            copy.bounds.height *= stretch;
+            if (compact) {
+                copy.bounds.y *= stretch;
+                copy.bounds.height *= stretch;
+            } else {
+                copy.bounds.y += extra;
+            }
             if (key.action_kind == ActionKind::Emoji) {
                 copy.icon = Icon::Back;
                 copy.label = "Back";
@@ -296,10 +303,9 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     });
     const double grid_width = grid_right - left;
     if (space != main.keys.end() && space->bounds.x >= left &&
-        space->bounds.x + space->bounds.width <= grid_right && space->bounds.y * stretch >= 344 * k) {
+        space->bounds.x + space->bounds.width <= grid_right && space->bounds.y + extra >= 344 * k) {
         auto bounds = space->bounds;
-        bounds.y *= stretch;
-        bounds.height *= stretch;
+        bounds.y += extra; // In place, as the side keys are.
         add("Space", bounds, "");
     } else {
         const double width = std::min(371.5, grid_width);

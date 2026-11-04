@@ -1022,6 +1022,55 @@ void tone_render() {
     app.renderer.write_png(fs::path(render) / "framekeyboard-emoji-tones.png");
     app.cancel_pointer(0);
 }
+// The keys the picker takes from the keyboard stay where they were as it
+// opens, also over a reading line: Japanese romaji, Chinese and Korean.
+void side_keys_stay() {
+    for (const auto& [layout, language] :
+         std::vector<std::pair<std::string, std::string>>{{"en-us-full", "en-us"},
+                                                          {"en-us-full", "ja-romaji"},
+                                                          {"en-us-full", "zh-cn-pinyin"},
+                                                          {"en-us-full", "ko-kr"}}) {
+        TemporaryDirectory directory;
+        TextSink sink;
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        App app(options, sink);
+        app.apply({layout, language, "graphite"});
+        const auto rect = [&](const char* action) {
+            const auto view = app.view();
+            for (const auto& key : view.layout->keys) {
+                if (key.action == action) {
+                    return panel_rect(view, key.bounds);
+                }
+            }
+            throw std::runtime_error("key not found");
+        };
+        const auto same = [](const Rect& a, const Rect& b) {
+            return std::abs(a.x - b.x) < .5 && std::abs(a.y - b.y) < .5 &&
+                   std::abs(a.width - b.width) < .5 && std::abs(a.height - b.height) < .5;
+        };
+        const std::array<const char*, 4> actions{"picker", "cut", "copy", "paste"};
+        std::array<Rect, 4> before;
+        for (std::size_t i = 0; i < actions.size(); ++i) {
+            before[i] = rect(actions[i]);
+        }
+        const auto [x, y] = key_center(app, "picker");
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        wait_for_emoji(app);
+        if (!app.emoji_open()) {
+            std::cout << "No color emoji font here; skipping the side keys check.\n";
+            return;
+        }
+        for (std::size_t i = 0; i < actions.size(); ++i) {
+            require(same(rect(actions[i]), before[i]),
+                    "the emoji key, as Back, and Cut, Copy and Paste stay in place as the picker opens");
+        }
+    }
+}
 void app_tests() {
     TemporaryDirectory directory;
     TextSink sink;
@@ -1435,6 +1484,7 @@ int main() {
         picker_tests();
         favorites_tests();
         app_tests();
+        side_keys_stay();
         app_favorites_tests();
         tone_render();
         text_output_tests();
