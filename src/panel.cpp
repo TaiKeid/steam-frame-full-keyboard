@@ -1016,18 +1016,15 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     // over it; changing face height would make a pressed key look stretched.
     Rect side{r.x, r.y + t.travel, r.width, r.height + t.depth - t.travel};
     rounded(cr, side, t.radius);
-    // A switch that waits on another page sinks flat, as a disabled toolbar
-    // button does.
-    const bool flat =
-        disabled && key.action_kind == ActionKind::Flick && key.action == flick_script_slot;
-    if (flat) {
+    // A disabled key sinks flat, as a disabled toolbar button does.
+    if (disabled) {
         source(cr, mix(t.side_bottom, t.surface, .5));
         cairo_fill(cr);
     } else {
         gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
     }
     Rect face{r.x, r.y + amount * t.travel, r.width, r.height};
-    if (flat) {
+    if (disabled) {
         rounded(cr, face, t.radius);
         source(cr, mix(t.bottom, t.surface, .4));
         cairo_fill(cr);
