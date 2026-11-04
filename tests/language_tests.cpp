@@ -69,6 +69,118 @@ double keys_top(const PanelView& view) {
     }
     return top;
 }
+// Key flicks: character keys type on release, and pulled down their Shift
+// character, never repeating; Space and Backspace still act on press.
+void key_flicks() {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-key-flicks-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    std::ofstream(path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},)"
+        << R"("key_flicks":true})";
+    Options options;
+    options.config_dir = path;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    Sink sink;
+    App app(options, sink);
+    const auto centre = [&](const std::string& action) {
+        const auto view = app.view();
+        for (const auto& key : view.layout->keys) {
+            if (key.action == action) {
+                const auto r = panel_rect(view, key.bounds);
+                return std::pair{r.x + r.width / 2, r.y + r.height / 2};
+            }
+        }
+        throw std::runtime_error("no key " + action);
+    };
+    double now = 1;
+    // Presses, pulls down by `dy` panel pixels, holds for `hold` seconds and lets go.
+    const auto flick = [&](const std::string& action, double dy, double hold = .05) {
+        const auto [x, y] = centre(action);
+        require(app.down(0, x, y, now), "a key flick starts with a press");
+        app.move(0, x, y + dy / 2);
+        app.move(0, x, y + dy);
+        for (double t = 0; t < hold; t += .05) {
+            app.tick(now += .05);
+        }
+        app.up(0, x, y + dy);
+        app.tick(now += .05);
+    };
+    const auto typed = [&] {
+        std::string text;
+        for (const auto& event : sink.events) {
+            if (event.find(':') == std::string::npos) {
+                text += event;
+            }
+        }
+        return text;
+    };
+    {
+        const auto [x, y] = centre("Digit6");
+        app.down(0, x, y, now);
+        require(typed().empty(), "a character key waits for release");
+        app.up(0, x, y);
+    }
+    require(typed() == "6", "and types its character then");
+    flick("Digit6", 60);
+    require(typed() == "6^", "pulled down, the Shift character: 6 then ^, as on an iPad");
+    flick("KeyK", 0);
+    flick("KeyK", 60);
+    require(typed() == "6^kK", "a letter flicks to its capital while swipe isn't on");
+    flick("Digit6", 60, 1.5);
+    require(typed() == "6^kK^", "held, it types once: character keys don't repeat");
+    sink.events.clear();
+    {
+        // Backspace keeps acting on press, held down for the target to repeat.
+        const auto [x, y] = centre("Backspace");
+        app.down(0, x, y, now);
+        require(sink.events == std::vector<std::string>{"14:1"}, "Backspace acts on press");
+        app.up(0, x, y);
+    }
+    sink.events.clear();
+    click(app, "CapsLock");
+    flick("KeyK", 0);
+    flick("KeyK", 60);
+    flick("Digit6", 60);
+    require(typed() == "KK^", "with Caps Lock a flick still types what the key shows");
+    click(app, "CapsLock");
+    sink.events.clear();
+    {
+        // A flick past the threshold that comes back up types the key itself.
+        const auto [x, y] = centre("Digit6");
+        app.down(0, x, y, now);
+        app.move(0, x, y + 60);
+        app.move(0, x, y + 2);
+        app.up(0, x, y + 2);
+    }
+    require(typed() == "6", "pulled back up, the flick is undone");
+    // German: ´ flicks to its Shift character `, a dead grave that composes.
+    app.apply({"international-full", "de-de", "graphite"});
+    sink.events.clear();
+    flick("Equal", 60);
+    flick("KeyE", 0);
+    require(typed() == "è", "a dead Shift character composes with the next key");
+    if (CjkComposer::supported("korean-2set")) {
+        // Korean: ㅂ flicks to ㅃ, the jamo its Shift gives.
+        app.apply({"en-us-full", "ko-kr", "graphite"});
+        flick("KeyQ", 60);
+        require(app.view().preedit == "ㅃ", "ㅂ flicks to ㅃ");
+        click(app, "Escape");
+    }
+    // Romaji composes lowercase: its letters don't flick, its digits do.
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    flick("KeyK", 60);
+    flick("KeyA", 0);
+    require(app.view().preedit == "か", "a romaji letter types its romaji, flicked or not");
+    click(app, "Escape");
+}
 void unicode_input() {
     const auto path =
         fs::temp_directory_path() / ("framekeyboard-unicode-test-" + std::to_string(getpid()));
@@ -1020,6 +1132,7 @@ int main(int argc, char** argv) {
         }
         require(group.empty() || group == "--core", "unknown test group");
         input_gate_recovery();
+        key_flicks();
         struct Case {
             const char* id;
             const char* layout;

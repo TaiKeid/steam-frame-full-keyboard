@@ -1226,6 +1226,9 @@ bool App::move(unsigned pointer, double x, double y) {
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_move(x, y);
     }
+    if (key_flick_ && key_flick_->pointer == pointer && key_flick_move(x, y)) {
+        return true; // Pulled into a flick: VR ticks as for a new key.
+    }
     if (languages_move(pointer, x, y)) {
         return false;
     }
@@ -1437,6 +1440,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         swipe_track_.reset();
         type_swipe_tap(track);
     }
+    if (key_flick_ && key_flick_->pointer != pointer) {
+        finish_key_flick();
+    }
     if (key->action_kind == ActionKind::Flick) {
         return flick_down(pointer, *key, x, y, now);
     }
@@ -1470,6 +1476,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     if (!latch_only) {
         discard_swipe();
         swipe_space_ = false;
+    }
+    if (key_flick_key(*key, modifiers)) {
+        return key_flick_down(pointer, *key, x, y, now, modifiers);
     }
     const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
     const bool text_local = !ime_local && text_key(*key, modifiers);
@@ -1643,6 +1652,12 @@ bool App::up(unsigned pointer, double x, double y) {
     if (flick_track_ && flick_track_->pointer == pointer) {
         return flick_up(pointer, x, y);
     }
+    if (key_flick_ && key_flick_->pointer == pointer) {
+        key_flick_move(x, y);
+        finish_key_flick();
+        move(pointer, x, y);
+        return true;
+    }
     const bool key_released = keyboard_.up(pointer);
     move(pointer, x, y);
     if (editor_repeat_ && editor_repeat_->pointer == pointer) {
@@ -1704,6 +1719,9 @@ void App::cancel_pointer(unsigned pointer) {
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_track_.reset(); // A flick that left the panel types nothing.
     }
+    if (key_flick_ && key_flick_->pointer == pointer) {
+        key_flick_.reset(); // As a Japanese flick: nothing.
+    }
     // The laser may now click elsewhere in the target, so replacing is unsafe,
     // and the next swiped word may start a new field without a space. A word
     // still being decoded is discarded when ready (Pinyin still composes).
@@ -1760,6 +1778,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     pointer_positions_.clear();
     // An unfinished swipe or flick and an undelivered decode are discarded like preedit.
     flick_track_.reset();
+    key_flick_.reset();
     flick_toggle_.reset();
     swipe_track_.reset();
     swipe_waiting_ = false;
@@ -3041,6 +3060,7 @@ void App::action(const ControlAction& command) {
             keyboard_.release_presses();
             reading_repeat_.reset();
             flick_track_.reset();
+            key_flick_.reset();
             swipe_track_.reset();
             swipe_waiting_ = false;
             ++swipe_request_;
@@ -3880,6 +3900,157 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
     move(pointer, x, y);
     dirty = true;
     return true;
+}
+bool App::key_flick_key(const Key& key, const std::set<int>& modifiers) {
+    if (!settings_.key_flicks || emoji_open_ || key.action_kind != ActionKind::Key ||
+        key.action == "Space" || key.action.starts_with("Numpad") || key.action == "CapsLock" ||
+        key.action == "NumLock") {
+        return false;
+    }
+    // Enter, Tab, Backspace and the arrows have no character: they keep
+    // acting on press and repeating.
+    if (!LanguageMap::printable(keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num()))) {
+        return false;
+    }
+    return japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers) ||
+           text_key(key, modifiers);
+}
+bool App::key_flick_shifts(const Key& key) const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    const auto differs = [&](const auto& base, const auto& shifted) {
+        const auto a = base.find(key.action), b = shifted.find(key.action);
+        return a != base.end() && b != shifted.end() && a->second != b->second;
+    };
+    if (language.input_method == "japanese-kana") {
+        return differs(language.kana, language.kana_shift);
+    }
+    if (cjk_ && !cjk_->chinese()) {
+        return differs(language.composition_keys, language.composition_shift); // ㅂ ㅃ
+    }
+    const std::set<int> shift{key_code("ShiftLeft")};
+    const auto tap = keymap_->symbol(key, {}, false, keyboard_.num());
+    const auto shifted = keymap_->symbol(key, shift, false, keyboard_.num());
+    if (tap == shifted || !LanguageMap::printable(shifted)) {
+        return false;
+    }
+    const auto letter = xkb_keysym_to_utf32(tap);
+    if (g_unichar_isalpha(letter) && g_unichar_toupper(letter) == xkb_keysym_to_utf32(shifted)) {
+        // Romaji and Pinyin compose lowercase letters only, and a letter
+        // swipe typing takes starts a swipe instead.
+        if ((japanese() && flick_mode() != FlickMode::Latin) || (cjk_ && cjk_->chinese())) {
+            return false;
+        }
+        return !(swipe_enabled() && swipe_keyboard_->key_index.contains(key.id));
+    }
+    return true;
+}
+std::string App::key_flick_legend(const Key& key) const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    const auto& shifted = language.input_method == "japanese-kana" ? language.kana_shift
+                          : cjk_ && !cjk_->chinese() ? language.composition_shift
+                                                     : std::map<std::string, std::string>{};
+    if (const auto found = shifted.find(key.action); found != shifted.end()) {
+        return found->second;
+    }
+    return keymap_->legend(key, {key_code("ShiftLeft")}, false, keyboard_.num());
+}
+bool App::key_flick_down(unsigned pointer, const Key& key, double x, double y, double now,
+                         const std::set<int>& modifiers) {
+    if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || key_flick_) {
+        return false;
+    }
+    // The composers and the editor are local; text for the target needs a
+    // place in its queue, as when it types on press.
+    const bool composes = japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers);
+    if (!composes && !dictation_open_) {
+        refuse_without_target(now);
+        if (!output_.admit(true, now)) {
+            update_output_status();
+            dirty = true;
+            return false;
+        }
+    }
+    KeyFlickTrack track;
+    track.pointer = pointer;
+    track.key = key.id;
+    track.modifiers = modifiers;
+    track.symbol = keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num());
+    track.shifts = key_flick_shifts(key);
+    // A local press shows the key and owns the pointer; nothing is typed until release.
+    if (!keyboard_.down(pointer, key, now, true, 0)) {
+        return false;
+    }
+    track.y = renderer.layout_point(geometry(), x, y).second;
+    key_flick_ = std::move(track);
+    dirty = true;
+    return true;
+}
+bool App::key_flick_move(double x, double y) {
+    auto& track = *key_flick_;
+    if (!track.shifts) {
+        return false;
+    }
+    const double pull = std::clamp(
+        (renderer.layout_point(geometry(), x, y).second - track.y) / flick_distance, 0.0, 1.0);
+    if (pull != track.pull) {
+        track.pull = pull;
+        dirty = true;
+    }
+    const bool flicked = pull >= 1;
+    return flicked != std::exchange(track.flicked, flicked) && flicked;
+}
+void App::finish_key_flick() {
+    const auto track = std::move(*key_flick_);
+    key_flick_.reset();
+    keyboard_.up(track.pointer);
+    dirty = true;
+    const auto& keys = geometry().layout->keys;
+    const auto key =
+        std::find_if(keys.begin(), keys.end(), [&](const Key& k) { return k.id == track.key; });
+    if (key == keys.end()) {
+        return;
+    }
+    // A flick types the Shift character the key shows, whatever Shift or
+    // Caps Lock do; a latched Shift went with the press, as for any key.
+    const std::set<int> shift{key_code("ShiftLeft")};
+    const auto& modifiers = track.flicked ? shift : track.modifiers;
+    try {
+        if (japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers)) {
+            japanese_key(*key, true, modifiers);
+            cjk_key(*key, true, modifiers);
+        } else {
+            // An unfinished reading goes first, so the text keeps its order;
+            // one that can't be typed keeps the key from overtaking it.
+            if (dictation_open_) {
+                if (!commit_composition()) {
+                    return;
+                }
+            } else if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
+                commit_japanese();
+                commit_cjk();
+                if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
+                    return;
+                }
+            }
+            const auto symbol =
+                track.flicked ? keymap_->symbol(*key, shift, false, keyboard_.num()) : track.symbol;
+            const auto text = keymap_->compose(symbol);
+            if (preview_input()) {
+                status_.clear();
+            } else if (!text.empty() && !text_output_->commit_text(text)) {
+                text_refused();
+            }
+            if (keymap_->composing()) {
+                status_ = "Accent pending";
+            }
+        }
+    } catch (const std::exception& error) {
+        status_ = error.what();
+    }
+    if (dictation_open_) {
+        editor_goal_x_.reset();
+        follow_cursor();
+    }
 }
 void App::type_swipe_tap(const SwipeTrack& track) {
     keyboard_.up(track.pointer);
@@ -4796,6 +4967,9 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         swipe_track_.reset();
         type_swipe_tap(track);
     }
+    if (key_flick_ && key_flick_->pointer != pointer) {
+        finish_key_flick();
+    }
     // Letters swipe here as on the keyboard, while the editor can be typed in.
     // Any other key ends the swiped word first, so its alternatives never
     // replace text they did not type; a latch changes nothing there.
@@ -4861,6 +5035,10 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         // into the editor.
         clear_editor_error();
         return flick_down(pointer, key, x, y, now);
+    }
+    if (const auto held = keyboard_.modifiers(); editable && key_flick_key(key, held)) {
+        clear_editor_error();
+        return key_flick_down(pointer, key, x, y, now, held);
     }
     // Capture the symbol before a latched Shift is consumed by down().
     const auto modifiers = keyboard_.modifiers();

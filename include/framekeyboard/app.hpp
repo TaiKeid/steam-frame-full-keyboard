@@ -498,6 +498,31 @@ class App {
     void prepare_swipe();
     // Whether a press of this key can start a swipe.
     bool swipes(const Key& key, const std::set<int>& modifiers) const;
+    // Key flicks (Settings): a key that types a character types it on
+    // release instead, never repeating, and pulled down by flick_distance
+    // its Shift character, as an iPad's key flicks do. Space, the numpad
+    // and keys that edit or move keep acting on press.
+    struct KeyFlickTrack {
+        unsigned pointer{};
+        std::string key;
+        double y{};               // Press point in layout coordinates.
+        std::set<int> modifiers;  // At the press, for the tap.
+        xkb_keysym_t symbol{};    // The tap's, before down() consumes a latched Shift.
+        bool shifts{}, flicked{}; // A Shift character to flick to; pulled down far enough.
+        double pull{};            // How far toward a flick, 0 to 1, for the legend.
+    };
+    std::optional<KeyFlickTrack> key_flick_;
+    bool key_flick_key(const Key& key, const std::set<int>& modifiers);
+    // The key has a Shift character of its own to flick to: one its legend
+    // shows, or a letter's capital while swipe doesn't take the letter.
+    bool key_flick_shifts(const Key& key) const;
+    // The key's Shift character as its legend shows it, for the flick.
+    std::string key_flick_legend(const Key& key) const;
+    bool key_flick_down(unsigned pointer, const Key& key, double x, double y, double now,
+                        const std::set<int>& modifiers);
+    // True when the pull crosses into a flick, for VR's haptic tick.
+    bool key_flick_move(double x, double y);
+    void finish_key_flick();
     // Says why text went nowhere: a full editor or a missing target.
     void text_refused();
     bool swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
