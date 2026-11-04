@@ -47,6 +47,8 @@ Flick and toggle typing happen on release; other keys still act on press. A copy
 
 While a reading of two kana or more is typed, the live candidates also complete it to common words, up to three, commonest first: おめでと offers おめでとう and おめでとうございます. They come first while they are commoner than the reading itself as a word, as with おめでと, and otherwise after its conversion and your learned words, as ありがとう's completion ありがとうございます does. A tap commits the word in place of the reading. The 20,000 words come from Mozc's open-source dictionary (see `japanese/README.md` and the third-party notices); the list is read on first use and kept in memory, about 1 MB, only once Japanese is typed.
 
+After a reading's emoji come its kaomoji, up to six, from Mozc's emoticon list: にこにこ offers ＼(^o^)／ and (^o^), しくしく (T_T). Typing かおもじ offers all 442. A kaomoji is picked like an emoji, in place of the reading, which ↶ brings back.
+
 After a commit, while nothing is typed, the candidate row offers what may come next, as a phone's does: with learning on, up to three phrases you committed straight after this one before, most often first, then 。 、 ！ ？. A tap types it at once; a phrase then offers what followed it in turn, and punctuation ends the run. Any other press, or the keyboard hiding, ends the offer, and the next commit makes it again.
 
 ## Learning

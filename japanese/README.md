@@ -35,3 +35,21 @@ python3 -I tools/build_japanese_words.py <mozc>/src/data/dictionary_oss japanese
 | `dictionary09.txt` | `4e5fcd4cbfbf11395166a37b506f547fc54d20edc0884f5184ecd3fc705f0d9a` |
 | `id.def` | `07a05a268c3783b7e02b36e4aa591555a2dd19a1f3c93891576740761c154f2d` |
 | `suggestion_filter.txt` | `2c8fccb65be739cadfa3524921584e84914c96b9977bd1d42834d79700eaa6b5` |
+
+## Kaomoji
+
+`kaomoji.tsv` lists 442 kaomoji under their readings, as
+`reading<TAB>kaomoji<TAB>order`, and every one of them under かおもじ. Live
+candidates offer up to six for the reading as typed, after its emoji, and all of
+them for かおもじ. They come from Mozc's `src/data/emoticon/` at the same commit,
+under Mozc's BSD 3-Clause license (`third_party/mozc/LICENSE`); a kaomoji in both
+of its files keeps its first place and the readings of both. Rebuild it with:
+
+```sh
+python3 -I tools/build_japanese_kaomoji.py <mozc>/src/data/emoticon japanese/kaomoji.tsv
+```
+
+| Source file | SHA-256 |
+| --- | --- |
+| `emoticon.tsv` | `366558b380bef07dda26822c9100d1efabee539f7961b2c6363d4614c4a762c4` |
+| `categorized.tsv` | `4497c16a706de418b05e73eaddbce13e5d3390e7c2de71200b28c0c97ae5c4fc` |

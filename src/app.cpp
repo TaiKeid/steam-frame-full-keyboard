@@ -201,6 +201,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     japanese_words_ = JapaneseWords(data_resource(options_.data_dir, "japanese/words.tsv"));
     composition_.set_words(&japanese_words_);
+    japanese_kaomoji_ = JapaneseWords(data_resource(options_.data_dir, "japanese/kaomoji.tsv"));
+    composition_.set_kaomoji(&japanese_kaomoji_);
     if (owns_anthy()) {
         configure_anthy({settings_.japanese_learning, anthy_home()});
         // Next words are learning too: only the keyboard that types keeps them.

@@ -595,6 +595,36 @@ void word_completion() {
     require(std::find(composer.live().begin(), composer.live().end(), "おめでとう") ==
                 composer.live().end(),
             "a single kana completes nothing");
+
+    // Kaomoji come last, for the reading as typed; かおもじ offers them all.
+    const auto faces = fs::path(directory) / "kaomoji.tsv";
+    std::ofstream(faces) << "かおもじ\t(^o^)\t1\n"
+                            "かおもじ\t(T_T)\t9\n"
+                            "しくしく\t(T_T)\t9\n"
+                            "にこにこ\t(^o^)\t1\n";
+    const JapaneseWords kaomoji(faces);
+    require(kaomoji.exact("かおもじ", 6) == std::vector<std::string>{"(^o^)", "(T_T)"} &&
+                kaomoji.exact("しく", 6).empty(),
+            "kaomoji are found by their whole reading, in their own order");
+    composer.set_kaomoji(&kaomoji);
+    composer.cancel();
+    composer.kana("しくしく");
+    composer.prepare_live();
+    require(composer.live().back() == "(T_T)", "a reading offers its kaomoji last");
+    require(composer.choose_live(static_cast<int>(composer.live().size()) - 1) &&
+                composer.commit_text() == "(T_T)" && composer.reopen_reading() == "しくしく",
+            "a kaomoji commits in place of the reading, which ↶ brings back");
+    composer.cancel();
+    composer.kana("かおもじ");
+    composer.prepare_live();
+    const auto& live = composer.live();
+    require(std::find(live.begin(), live.end(), "(^o^)") != live.end() &&
+                std::find(live.begin(), live.end(), "(T_T)") != live.end(),
+            "かおもじ offers them all");
+    const JapaneseWords bundled(data_resource({}, "japanese/kaomoji.tsv"));
+    require(bundled.exact("にこにこ", 6).front() == "＼(^o^)／" &&
+                bundled.exact("かおもじ", 1000).size() > 400,
+            "the bundled kaomoji come from Mozc's emoticons");
 }
 void progressive_conversion() {
     int conversions = 0;

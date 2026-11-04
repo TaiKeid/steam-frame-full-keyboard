@@ -74,6 +74,8 @@ class JapaneseWords {
     // own conversion: when it is no word itself, or a rarer one than the
     // commonest of them (おめでと, before おめでとう).
     std::vector<std::string> complete(const std::string& reading, std::size_t most, bool& first) const;
+    // Up to `most` words of exactly this reading, lowest cost first.
+    std::vector<std::string> exact(const std::string& reading, std::size_t most) const;
 
   private:
     struct Entry {
@@ -149,6 +151,9 @@ class JapaneseComposer {
     // candidates offer first while they are commoner than the reading as a
     // word, else after the learned ones (JapaneseWords::complete).
     void set_words(const JapaneseWords* words) { words_ = words; }
+    // Kaomoji for a reading (japanese/kaomoji.tsv), which live candidates
+    // offer after its emoji, up to six; かおもじ offers them all.
+    void set_kaomoji(const JapaneseWords* kaomoji) { kaomoji_ = kaomoji; }
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
@@ -192,6 +197,7 @@ class JapaneseComposer {
     bool learning_{};
     EmojiLookup emoji_;
     const JapaneseWords* words_{};
+    const JapaneseWords* kaomoji_{};
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
     // An emoji picked from the live candidates, now the reading, and the

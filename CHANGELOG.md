@@ -19,6 +19,7 @@
 - Chinese and two-set Korean type their own script only, as their keyboards do: the 中文 / A and 한 / A buttons are gone. For English, add an English layout as an additional language and switch with the language button.
 - Japanese live candidates end with emoji for the reading, as on a phone: ねこ offers 🐈 🐱 🐈‍⬛ 😺. They come from the IBus emoji dictionary SteamOS already has.
 - With a Japanese, Chinese or Korean language among your languages, the other languages on the same layout keep the keys at the size its reading line gives them, so switching between English and Romaji on US QWERTY no longer resizes the keys or moves the toolbar: the case only grows down for the reading line.
+- Japanese live candidates end with kaomoji for the reading, after its emoji: にこにこ offers ＼(^o^)／, しくしく (T_T), and かおもじ all 442 of Mozc's.
 - Japanese live candidates complete a partly typed reading to common words, as phones do: おめでと offers おめでとう and おめでとうございます first. The 20,000 words come from Mozc's open-source dictionary.
 - After a Japanese commit, the candidate row offers what may come next until the next key, as phones do: with learning on, phrases you committed straight after this one before, then 。 、 ！ ？. A tap types it at once. **Clear learned words** forgets these phrases too.
 - Added **Flick Only (JP)** to Settings → Languages and Layouts for the Japanese flick layout, as on phones: with it on, taps never cycle, so a quick second tap of か types かか instead of き. It is off by default, as on iPhone and Gboard.

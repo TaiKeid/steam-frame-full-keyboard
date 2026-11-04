@@ -63,7 +63,7 @@ else
 fi
 # Japanese completion's common words, with their sources.
 mkdir -p "$appdir/usr/share/framekeyboard/japanese"
-cp japanese/words.tsv japanese/README.md "$appdir/usr/share/framekeyboard/japanese/"
+cp japanese/words.tsv japanese/kaomoji.tsv japanese/README.md "$appdir/usr/share/framekeyboard/japanese/"
 install -m 755 scripts/simulator-appimage/AppRun "$appdir/AppRun"
 cp scripts/simulator-appimage/framekeyboard-simulator.desktop scripts/simulator-appimage/framekeyboard-simulator.svg \
     "$appdir/"

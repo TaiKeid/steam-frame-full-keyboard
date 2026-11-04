@@ -899,6 +899,13 @@ void JapaneseComposer::prepare_live() {
             add(std::move(text), Live::Source::Emoji);
         }
     }
+    if (kaomoji_) {
+        // Picked like an emoji, in place of the reading.
+        const auto hiragana = in_script(reading, false);
+        for (auto& face : kaomoji_->exact(hiragana, hiragana == "かおもじ" ? 120 : 6)) {
+            add(std::move(face), Live::Source::Emoji);
+        }
+    }
     live_ = std::move(live);
 }
 bool JapaneseComposer::choose_live(int index) {
@@ -1093,6 +1100,31 @@ std::vector<std::string> JapaneseWords::complete(const std::string& reading, std
                 break;
             }
         }
+    }
+    return result;
+}
+std::vector<std::string> JapaneseWords::exact(const std::string& reading, std::size_t most) const {
+    load();
+    const auto reading_of = [&](const Entry& entry) {
+        return std::string_view(text_.data() + entry.reading, entry.reading_size);
+    };
+    const auto [from, to] = std::equal_range(
+        entries_.begin(), entries_.end(), std::string_view(reading), [&](const auto& a, const auto& b) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(a)>, Entry>) {
+                return reading_of(a) < b;
+            } else {
+                return a < reading_of(b);
+            }
+        });
+    std::vector<const Entry*> found;
+    for (auto it = from; it != to; ++it) {
+        found.push_back(&*it);
+    }
+    std::stable_sort(found.begin(), found.end(),
+                     [](const Entry* a, const Entry* b) { return a->cost < b->cost; });
+    std::vector<std::string> result;
+    for (std::size_t i = 0; i < found.size() && result.size() < most; ++i) {
+        result.emplace_back(text_.data() + found[i]->word, found[i]->word_size);
     }
     return result;
 }
