@@ -87,6 +87,11 @@ class CandidateStrip {
     };
     int chip_at(double x, double y) const;
     Rect chip_bounds(std::size_t index) const;
+    // A still row ends on whole chips, so none is cut before ∨; while it is
+    // dragged or glides, chips slide in cut at its edges. One wider than
+    // the row shows cut either way.
+    bool moving() const { return (press_ && press_->dragging) || glide_.active(); }
+    bool shows(std::size_t index) const;
     void reveal(int index);
     void place();
     // The row's chip tops; the open list's lines follow at this pitch.

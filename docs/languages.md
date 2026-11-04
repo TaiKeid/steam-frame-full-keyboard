@@ -181,8 +181,8 @@ Chinese and Korean show the reading centred in a line of its own between the
 toolbar and the keys, with a hint while nothing is typed, and the case fits the
 keys with no empty space at the sides. The candidates show in the toolbar row,
 after its buttons, where swipe suggestions go: centred while they all fit, or
-filling the row with ∨ after them while there are more. Drag them sideways to see
-more, or tap ∨ to open them all in a menu under the reading line, over the keys,
+filling the row with ∨ after them while there are more; a still row ends on a
+whole candidate, none cut before ∨. Drag them sideways to see more, or tap ∨ to open them all in a menu under the reading line, over the keys,
 as tall as its lines up to five; a press outside the menu closes it, choosing
 nothing, and the keys wait while it is open. The keys do the
 rest, with no Commit or Cancel buttons.

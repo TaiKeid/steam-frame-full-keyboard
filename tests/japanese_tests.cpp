@@ -742,6 +742,18 @@ void candidate_band() {
     const auto committed = sink.text.size();
     const auto strip = app.view().candidates;
     require(strip && !strip->chips.empty(), "candidates for a long reading");
+    // A still row ends on whole chips, so none is cut before ∨.
+    const auto whole = [&] {
+        const auto view = app.view();
+        const auto& area = view.candidates->area;
+        return std::all_of(view.candidates->chips.begin(), view.candidates->chips.end(),
+                           [&](const CandidateStripView::Chip& chip) {
+                               return chip.bounds.width > area.width ||
+                                      (chip.bounds.x >= area.x &&
+                                       chip.bounds.x + chip.bounds.width <= area.x + area.width);
+                           });
+    };
+    require(has_control(app, "ime-more") && whole(), "a still row shows only whole chips");
     const auto& first = strip->chips.front().bounds;
     const double y = first.y + first.height / 2, x = first.x + first.width / 2;
     app.down(7, x, y, 14.3);
@@ -750,8 +762,12 @@ void candidate_band() {
     app.up(7, x - 120, y);
     app.tick(14.4);
     require(sink.text.size() == committed && !app.view().preedit.empty() &&
-                app.view().candidates->chips.front().bounds.x < first.x,
+                app.view().candidates->chips.front().text != strip->chips.front().text,
             "a drag scrolls the strip and picks nothing");
+    for (double at = 14.45; at < 17; at += .05) {
+        app.tick(at);
+    }
+    require(whole(), "and so does one come to rest after scrolling");
     while (!app.view().preedit.empty()) {
         click_key(app, "Backspace");
     }

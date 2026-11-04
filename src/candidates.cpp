@@ -132,11 +132,21 @@ Rect CandidateStrip::chip_bounds(std::size_t index) const {
     }
     return {area_.x + starts_[index] - std::round(scroll_), row_top(), widths_[index], chip_height};
 }
+bool CandidateStrip::shows(std::size_t index) const {
+    if ((list_ && lines_[index] > 0) || moving() || widths_[index] > area_.width) {
+        return true;
+    }
+    const auto bounds = chip_bounds(index);
+    return bounds.x >= area_.x && bounds.x + bounds.width <= area_.x + area_.width;
+}
 int CandidateStrip::chip_at(double x, double y) const {
     if (!contains(x, y)) {
         return -1;
     }
     for (std::size_t i = 0; i < texts_.size(); ++i) {
+        if (!shows(i)) {
+            continue;
+        }
         // An open list's chips take presses only where they show: the row's
         // in the row, the others in the list below it.
         const auto& region = list_ && lines_[i] > 0 ? *list_ : area_;
@@ -236,8 +246,12 @@ CandidateStrip::Event CandidateStrip::up(unsigned pointer, double x, double y, d
 CandidateStrip::Event CandidateStrip::tick(double now) {
     Event event;
     const double old = std::round(scroll_);
-    if (glide_.step(now, scroll_, scroll_limit())) {
-        event.redraw = std::round(scroll_) != old;
+    const bool gliding = glide_.active();
+    const bool stepped = glide_.step(now, scroll_, scroll_limit());
+    // Coming to rest drops the chips cut at the edges.
+    event.redraw = gliding && !glide_.active();
+    if (stepped) {
+        event.redraw |= std::round(scroll_) != old;
         // The chips moved under the lasers.
         for (auto& [pointer, chip] : hovered_) {
             if (const auto at = positions_.find(pointer); at != positions_.end()) {
@@ -301,8 +315,9 @@ CandidateStripView CandidateStrip::view() const {
     for (std::size_t i = 0; i < texts_.size(); ++i) {
         const auto bounds = chip_bounds(i);
         const bool listed = list_ && lines_[i] > 0;
-        if (listed ? bounds.y + bounds.height <= list_->y || bounds.y >= list_->y + list_->height
-                   : bounds.x + bounds.width <= area_.x || bounds.x >= area_.x + area_.width) {
+        if (listed
+                ? bounds.y + bounds.height <= list_->y || bounds.y >= list_->y + list_->height
+                : bounds.x + bounds.width <= area_.x || bounds.x >= area_.x + area_.width || !shows(i)) {
             continue;
         }
         // Stale chips take no press, so they show no hover either.
