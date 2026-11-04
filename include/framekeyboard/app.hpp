@@ -549,6 +549,8 @@ class App {
     // geometry() with the controls, which place the reading and candidates
     // of full layouts.
     PanelView band_geometry() const;
+    // Where ∨ goes while the candidates have more than their row shows.
+    std::optional<Rect> candidate_more_;
     // Kana compose: on the kana page, or the flick digits page, whose digits
     // and symbols join the reading as on a phone (3, じに → 3時に).
     bool japanese_typing() const;

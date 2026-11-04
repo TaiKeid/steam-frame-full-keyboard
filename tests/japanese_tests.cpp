@@ -763,10 +763,11 @@ void candidate_band() {
     const auto key_top = [](const PanelView& view) {
         return panel_rect(view, view.layout->keys.front().bounds).y;
     };
-    require(app.view().ime_band && !has_control(app, "ime-toggle") &&
-                panel_case_bounds(app.view()) == panel_case_bounds(english) &&
-                key_top(app.view()) == key_top(english),
-            "full layouts keep the keys' English size and place, with no あ / A");
+    require(
+        app.view().ime_band && !has_control(app, "ime-toggle") &&
+            panel_case_bounds(app.view()).width <= panel_case_bounds(english).width &&
+            key_top(app.view()) > ime_band(app.view()).band.y + ime_band(app.view()).band.height,
+        "full layouts give the reading a line above the keys, in a case that fits them, with no あ / A");
     for (const auto& id : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyN", "KeyA", "KeyK", "KeyO"}) {
         click_key(app, id);
     }
@@ -775,10 +776,16 @@ void candidate_band() {
     {
         const auto view = app.view();
         const auto band = ime_band(view);
-        require(view.candidates && view.candidates->area == band.candidates &&
-                    band.candidates.y < band.band.y &&
-                    band.reading.y + band.reading.height < key_top(view) && has_control(app, "ime-more"),
-                "candidates in the toolbar row with ∨, the reading under it, above the keys");
+        const auto& row = view.candidates->area;
+        const bool fits = row.width < band.candidates.width - 72;
+        require(
+            row.y == band.candidates.y && band.candidates.y < band.band.y &&
+                band.reading.y + band.reading.height < key_top(view) &&
+                (fits ? !has_control(app, "ime-more") &&
+                            std::abs(row.x + row.width / 2 -
+                                     (band.candidates.x + band.candidates.width / 2)) < 1
+                      : has_control(app, "ime-more")),
+            "candidates centred in the toolbar row, or with ∨ after them, the reading line under it");
     }
     click_key(app, "ArrowRight");
     require(app.view().preedit == "〈には〉〈なこ〉" &&

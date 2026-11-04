@@ -51,9 +51,27 @@ namespace {
 bool list_open(const PanelView& view) {
     return view.candidates && view.candidates->list;
 }
-// Hidden keys, and while the candidate list is open, all of them: it covers
-// the keys, which are then neither drawn nor pressed but keep their place.
+bool two_row_band(const PanelView& view);
+// A full layout's open list drops from the toolbar's candidate row, as a
+// raised menu over the keys; the flick layout's covers all of them.
+std::optional<Rect> candidate_menu(const PanelView& view) {
+    if (!list_open(view) || two_row_band(view)) {
+        return {};
+    }
+    const auto& list = *view.candidates->list;
+    return Rect{list.x - 8, list.y, list.width + 16, list.height + 8};
+}
+// Hidden keys, and those the open candidate list covers, which are then
+// neither drawn nor pressed but keep their place.
 bool covered_key(const PanelView& view, const Key& key) {
+    if (const auto menu = candidate_menu(view)) {
+        const auto r = panel_rect(view, key.bounds);
+        if (r.x < menu->x + menu->width && menu->x < r.x + r.width && r.y < menu->y + menu->height &&
+            menu->y < r.y + r.height) {
+            return true;
+        }
+        return hidden_key(view, key);
+    }
     return list_open(view) || hidden_key(view, key);
 }
 // How far the flick preview's caps and the skin tone menu raise their soft
@@ -82,18 +100,17 @@ double handle_ease_out(double progress) {
     return t * t * (3 - 2 * t);
 }
 constexpr double normal_toolbar_height = 96;
-// The flick layout's band sits below the status line and a compact toolbar's
-// second row, a row for the reading and one for the candidates; the keys
-// follow it. It stays in every mode, so the mode key never changes their
-// size, and the case is measured with it. Full layouts show the reading in
-// the status line's place instead, and keep the toolbar's height.
-constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6,
-                 ime_two_row_height = 156 + ime_band_height + ime_band_gap;
-constexpr double ime_line_top = 58, ime_line_height = 34;
+// The band sits below the status line and a compact toolbar's second row;
+// the keys follow it. It stays in every mode, so switching never changes
+// their size, and the case is measured with it. On full layouts it is the
+// reading's line alone, the candidates in the toolbar row above; the flick
+// layout, as short as a phone's, gives the candidates a row of the band.
+constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 156,
+                 ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
 }
-// The reading line of a composing full layout, in the status line's place.
+// The reading line of a composing full layout, full width, centred.
 bool reading_line(const PanelView& view) {
     return view.ime_band && !two_row_band(view) && !view.settings;
 }
@@ -103,7 +120,9 @@ struct Placement {
 };
 Placement placement(const PanelView& view) {
     const double margin = view.theme->padding;
-    const double toolbar_height = two_row_band(view) ? ime_two_row_height : normal_toolbar_height;
+    const double toolbar_height = two_row_band(view) ? ime_two_row_height
+                                  : view.ime_band    ? ime_toolbar_height
+                                                     : normal_toolbar_height;
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
@@ -1200,7 +1219,7 @@ Rect panel_case_bounds(const PanelView& view) {
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
 double unbanded_layout_height(const PanelView& view) {
-    if (!two_row_band(view)) {
+    if (!view.ime_band) {
         return view.layout->height;
     }
     const double room =
@@ -1225,10 +1244,10 @@ ImeBand ime_band(const PanelView& view) {
         }
         return result;
     }
-    // Full layouts: the reading line starts after a compact toolbar's second
-    // row of buttons, the candidates after the first row's and before the
-    // close button or the shell's.
-    double first = body.x + 8, second = body.x + 8, end = body.x + body.width - 18;
+    // Full layouts: the reading line across the case, and the candidates'
+    // room in the toolbar row, after its buttons and before the close button
+    // or the shell's. App centres them in it, ∨ after them if they overflow.
+    double first = body.x + 8, end = body.x + body.width - 18;
     for (const auto& control : view.controls) {
         const auto& r = control.bounds;
         switch (control.action.kind) {
@@ -1240,10 +1259,8 @@ ImeBand ime_band(const PanelView& view) {
         case ControlKind::SwipeToggle:
         case ControlKind::SoundsToggle:
         case ControlKind::LanguageCycle:
-            if (r.y < ime_line_top) {
+            if (r.y < 50) {
                 first = std::max(first, r.x + r.width);
-            } else {
-                second = std::max(second, r.x + r.width);
             }
             break;
         case ControlKind::Close:
@@ -1254,31 +1271,22 @@ ImeBand ime_band(const PanelView& view) {
             break;
         }
     }
-    const Rect line{second + 10, ime_line_top, std::max(0.0, body.x + body.width - 18 - second - 10),
-                    ime_line_height};
-    ImeBand result{line,
-                   {line.x, line.y,
-                    std::min(line.width, std::clamp(std::round(line.width * .45), 240.0, 560.0)),
-                    line.height},
-                   {first + 10, 12, std::max(0.0, end - 10 - first - 10), 42},
-                   {}};
-    if (view.ime_more) {
-        constexpr double width = 64, gap = 8;
-        auto& row = result.candidates;
-        row.width = std::max(0.0, row.width - width - gap);
-        result.more = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
-    }
-    return result;
+    // Halfway between a compact toolbar's second row and the keys.
+    const double top = std::round((104 + placement(view).y - ime_band_height) / 2);
+    const Rect line{body.x + 20, top, body.width - 40, ime_band_height};
+    return {line, line, {first + 10, 12, std::max(0.0, end - 10 - first - 10), 42}, {}};
 }
 Rect candidate_list_area(const PanelView& view) {
     const auto band = ime_band(view);
     const auto p = placement(view);
     if (!two_row_band(view)) {
-        // Under the reading line, across the case.
-        const auto body = panel_case_bounds(view);
-        const double top = band.band.y + band.band.height + 6;
-        const double bottom = p.y + view.layout->height * p.scale;
-        return {body.x + 20, top, body.width - 40, std::max(0.0, bottom - top)};
+        // Dropping from the toolbar's candidate room over the keys: five
+        // lines, or as many as fit above the keys' foot.
+        const auto& room = band.candidates;
+        const double top = room.y + room.height;
+        const double lines = 5 * (CandidateStrip::chip_height + CandidateStrip::chip_spacing) + 8;
+        const double bottom = std::min(top + lines, p.y + view.layout->height * p.scale);
+        return {room.x, top, room.width, std::max(0.0, bottom - top)};
     }
     const double top = band.candidates.y + band.candidates.height;
     const double bottom = p.y + view.layout->height * p.scale;
@@ -1760,22 +1768,12 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
     const auto& t = *view.theme;
     const auto areas = ime_band(view);
     const bool line = reading_line(view);
-    if (view.preedit.empty() && line && !view.status.empty()) {
-        case_plate(cr, view, areas.band, view.status, 17, PANGO_ALIGN_CENTER);
-        label(cr, view.status, areas.band, 17, view.language->font, t.legend);
-    } else if (view.preedit.empty()) {
+    if (view.preedit.empty()) {
         const auto hint = composition_hint(view);
         const auto& r = line ? areas.band : areas.reading;
         case_plate(cr, view, r, hint, 19, PANGO_ALIGN_CENTER);
         label(cr, hint, r, 19, view.language->font, mix(t.legend, t.surface, .35));
     } else {
-        if (line && !view.status.empty()) {
-            const auto& band = areas.band;
-            const double left = areas.reading.x + areas.reading.width + 12;
-            const Rect status{left, band.y, std::max(0.0, band.x + band.width - left), band.height};
-            case_plate(cr, view, status, view.status, 15, PANGO_ALIGN_LEFT);
-            label(cr, view.status, status, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
-        }
         const auto& r = areas.reading;
         draw_well(cr, t, r);
         auto* layout = pango_cairo_create_layout(cr);
@@ -1794,6 +1792,9 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
                             view.preedit_active_end * 2 <= view.preedit.size()) ||
                            (view.preedit_cursor && *view.preedit_cursor * 2 < view.preedit.size());
         pango_layout_set_ellipsize(layout, early ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_START);
+        if (line) {
+            pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+        }
         auto* attributes = pango_attr_list_new();
         pango_attr_list_insert(attributes, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
         if (view.preedit_active_end > view.preedit_active_begin &&
@@ -1828,6 +1829,15 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
             cairo_fill(cr);
         }
         g_object_unref(layout);
+    }
+    if (const auto menu = candidate_menu(view)) {
+        // A raised menu, like the dropdowns: its edge drawn by light and
+        // shadow rather than an outline.
+        const double radius = t.radius + 2;
+        soft_shadow(cr, *menu, radius, tone_shadow);
+        rounded(cr, *menu, radius);
+        source(cr, mix(t.bottom, t.surface, .25));
+        cairo_fill(cr);
     }
     if (view.candidates) {
         draw_candidates(cr, view, *view.candidates);
@@ -2459,7 +2469,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& area : {band.band, band.reading, band.candidates}) {
             damage_area(pixel_bounds(area, 6));
         }
-        if (list_open(view)) {
+        if (const auto menu = candidate_menu(view)) {
+            damage_area(pixel_bounds(*menu, tone_shadow));
+        } else if (list_open(view)) {
             damage_area(pixel_bounds(*view.candidates->list, 6));
         }
     }
@@ -3108,7 +3120,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
                       true);
             }
-        } else if (!view.status.empty() && !in_editor && !reading_line(view)) {
+        } else if (!view.status.empty() && !in_editor) {
             // A compact toolbar's second row takes the left of the status line.
             const double inset = compact_toolbar(view) ? 88 : 18;
             const Rect line = view.settings ? Rect{30, 574, 1540, 24}

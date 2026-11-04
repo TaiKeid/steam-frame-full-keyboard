@@ -490,14 +490,11 @@ std::vector<Control> App::controls() const {
     for (std::size_t i = ime_start; i < result.size(); ++i) {
         result[i].bounds.x = body.x + result[i].bounds.x * scale;
     }
-    // The band's ∨ shows with candidates to open. Full layouts place it by
-    // the toolbar's buttons, all added by now.
-    if (geometry.ime_more && !settings_open_ && candidates_.shown()) {
-        geometry.controls = result;
-        const auto band = ime_band(geometry);
+    // ∨ shows while the candidates have more than their row shows.
+    if (geometry.ime_more && !settings_open_ && candidates_.shown() && candidate_more_) {
         add({ControlKind::CandidateList},
-            {"ime-more", candidate_list_ ? "Close candidates" : "More candidates", *band.more, false,
-             candidate_list_ ? Icon::ChevronUp : Icon::ChevronDown});
+            {"ime-more", candidate_list_ ? "Close candidates" : "More candidates", *candidate_more_,
+             false, candidate_list_ ? Icon::ChevronUp : Icon::ChevronDown});
     }
     // Swipe suggestions scale the same way, but never start before the end of
     // the first toolbar row or reach the close button; many share the room.
@@ -2725,7 +2722,30 @@ void App::sync_candidates() {
         texts = composition_.live();
         stale = !composition_.live_current();
     }
-    if (texts.empty() || !band_more() || dictation_open_) {
+    const auto& font = profiles_.languages.at(settings_.active.language).font;
+    const auto measure = [&](const std::string& text) { return candidate_text_width(text, font); };
+    // The flick band's row ends with ∨. A full layout's row centres the
+    // candidates in the toolbar's room, and ∨ follows those that overflow.
+    auto row = area;
+    std::optional<Rect> more;
+    if (area && band_more() && !dictation_open_) {
+        if (const auto band = ime_band(band_geometry()); band.more) {
+            more = band.more; // The flick band's own.
+        } else if (const double width = CandidateStrip::row_width(texts, measure);
+                   width <= area->width) {
+            row->x += (area->width - width) / 2;
+            row->width = width;
+        } else {
+            constexpr double button = 64, gap = 8;
+            row->width = std::max(0.0, area->width - button - gap);
+            more = Rect{row->x + row->width + gap, row->y + 3, button, row->height - 6};
+        }
+    }
+    if (more != candidate_more_) {
+        candidate_more_ = more;
+        dirty = true;
+    }
+    if (texts.empty() || !more || dictation_open_) {
         candidate_list_ = false;
     }
     if (texts.empty()) {
@@ -2736,14 +2756,11 @@ void App::sync_candidates() {
         return;
     }
     const auto before = candidates_.view();
-    const auto& font = profiles_.languages.at(settings_.active.language).font;
     std::optional<Rect> list;
     if (candidate_list_) {
         list = candidate_list_area(band_geometry());
     }
-    candidates_.set(
-        *area, std::move(texts), selected, stale,
-        [&](const std::string& text) { return candidate_text_width(text, font); }, list);
+    candidates_.set(*row, std::move(texts), selected, stale, measure, list);
     dirty |= candidates_.view() != before;
 }
 void App::pick_candidate(int index) {
@@ -4605,7 +4622,7 @@ void App::refresh_dictation_layout() {
     main.hide_numpad = numpad_hidden();
     main.dictation_available = true; // The mode shows the mic key.
     PanelView banded = main;
-    banded.ime_band = japanese();
+    banded.ime_band = japanese() || cjk_;
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
                                          unbanded_layout_height(banded) - main.layout->height);
     // Placed as the mode shows it: a layout without a function-key row grows

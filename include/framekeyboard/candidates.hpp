@@ -44,6 +44,8 @@ class CandidateStrip {
         std::optional<int> chosen;
     };
     static constexpr double chip_height = 38, chip_padding = 16, chip_spacing = 8, min_chip = 50;
+    // How wide the row of these chips is, end to end.
+    static double row_width(const std::vector<std::string>& texts, const Measure& measure);
     // A new list starts at its beginning; the same one keeps its place and
     // brings a newly selected chip into view. Opening or closing starts again.
     void set(Rect area, std::vector<std::string> texts, int selected, bool stale, const Measure& measure,

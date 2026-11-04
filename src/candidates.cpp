@@ -8,6 +8,19 @@ namespace {
 // A laser moving further than this from the press scrolls instead of picking.
 constexpr double drag_distance = 20;
 } // namespace
+namespace {
+double chip_width(const std::string& text, const CandidateStrip::Measure& measure) {
+    return std::max(CandidateStrip::min_chip,
+                    std::ceil(measure(text)) + 2 * CandidateStrip::chip_padding);
+}
+} // namespace
+double CandidateStrip::row_width(const std::vector<std::string>& texts, const Measure& measure) {
+    double width = 0;
+    for (const auto& text : texts) {
+        width += chip_width(text, measure) + chip_spacing;
+    }
+    return texts.empty() ? 0 : width - chip_spacing;
+}
 void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected, bool stale,
                          const Measure& measure, std::optional<Rect> list) {
     if (texts.empty()) {
@@ -29,7 +42,7 @@ void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected
         widths_.clear();
         double x = 0;
         for (const auto& text : texts_) {
-            const double width = std::max(min_chip, std::ceil(measure(text)) + 2 * chip_padding);
+            const double width = chip_width(text, measure);
             starts_.push_back(x);
             widths_.push_back(width);
             x += width + chip_spacing;

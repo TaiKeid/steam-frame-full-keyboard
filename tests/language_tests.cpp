@@ -818,11 +818,6 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
         }
         Sink sink;
         App app(options, sink);
-        const auto key_rect = [](const PanelView& view, const char* id) {
-            const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
-                                          [&](const Key& item) { return item.id == id; });
-            return panel_rect(view, key->bounds);
-        };
         const auto english = app.view();
         app.apply({"en-us-full", id, "graphite"});
         const auto controls = app.view().controls;
@@ -831,11 +826,13 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                                  return control.id.starts_with("cjk-") || control.id == "ime-toggle";
                              }),
                 "Chinese and Korean type their own script only, and the keys commit and cancel");
-        // The reading takes the status line's place and the candidates the
-        // toolbar's, so the keys stay where English has them.
-        require(app.view().ime_band && panel_case_bounds(app.view()) == panel_case_bounds(english) &&
-                    key_rect(app.view(), "KeyA") == key_rect(english, "KeyA"),
-                "the keys keep their English size and place");
+        // The reading has a line of its own and the candidates the toolbar's
+        // row; the case fits the keys, with no room left at the sides.
+        require(app.view().ime_band &&
+                    panel_case_bounds(app.view()).width <= panel_case_bounds(english).width &&
+                    keys_top(app.view()) >
+                        ime_band(app.view()).band.y + ime_band(app.view()).band.height,
+                "the keys follow the reading line, in a case that fits them");
         click(app, "KeyR");
         require(sink.events.empty(), "composition does not emit raw letters");
         require(!app.view().preedit.empty(), "visible local preedit");
@@ -855,12 +852,43 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             app.tick(2);
             const auto strip = app.view().candidates;
             const auto line = ime_band(app.view());
-            require(strip && !strip->chips.empty() && strip->area == line.candidates &&
+            require(strip && !strip->chips.empty() && strip->area.y == line.candidates.y &&
+                        strip->area.x >= line.candidates.x &&
+                        strip->area.x + strip->area.width <= line.candidates.x + line.candidates.width &&
                         strip->area.y < line.band.y &&
                         line.band.y + line.band.height < keys_top(app.view()),
                     "candidates scroll in the toolbar row, above the reading line and the keys");
             require(strip->chips.front().text == "1 你好" && strip->chips.front().selected,
                     "the first five are numbered for 1–5, the first selected for Space");
+            {
+                // More than the row holds: ∨ after them drops the rest down in a
+                // menu over the keys under it, and the other keys stay.
+                const auto tap = [&](const std::string& id) {
+                    for (const auto& control : app.view().controls) {
+                        if (control.id == id) {
+                            const double x = control.bounds.x + control.bounds.width / 2,
+                                         y = control.bounds.y + control.bounds.height / 2;
+                            app.down(4, x, y, 2.5);
+                            app.up(4, x, y);
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                require(tap("ime-more") && app.view().candidates->list, "∨ opens the menu");
+                const auto view = app.view();
+                const auto& list = *view.candidates->list;
+                const auto key_at = [&](const char* id) {
+                    const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
+                                                  [&](const Key& item) { return item.id == id; });
+                    const auto r = panel_rect(view, key->bounds);
+                    return app.renderer.hit_key(view, r.x + r.width / 2, r.y + r.height / 2);
+                };
+                const auto digit = key_at("Digit5");
+                require(list.y < keys_top(view) + 60 && !digit && key_at("ControlLeft"),
+                        "the menu covers the keys under it, and the others still take presses");
+                require(tap("ime-more") && !app.view().candidates->list, "∧ closes it");
+            }
             {
                 const auto& chip = strip->chips.front().bounds;
                 const double x = chip.x + chip.width / 2, y = chip.y + chip.height / 2;

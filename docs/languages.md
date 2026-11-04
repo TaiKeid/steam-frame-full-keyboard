@@ -177,12 +177,13 @@ already started and a piece fails, the status asks for Enter to retry only the
 unsent remainder. Hiding or changing the typing context cancels queued output;
 text that was already submitted is never replayed automatically.
 
-Chinese and Korean keep the keyboard at the size English has. The reading shows
-in the line under the toolbar, where the status otherwise shows, with a hint while
-nothing is typed; a status that comes up while composing shows beside it. The
-candidates scroll sideways in the toolbar row, after its buttons, where swipe
-suggestions go: drag them to see more, or tap ∨ at the row's end to open them all
-over the keys. The keys do the rest, with no Commit or Cancel buttons.
+Chinese and Korean show the reading centred in a line of its own between the
+toolbar and the keys, with a hint while nothing is typed, and the case fits the
+keys with no empty space at the sides. The candidates show in the toolbar row,
+after its buttons, where swipe suggestions go: centred while they all fit, or
+filling the row with ∨ after them while there are more. Drag them sideways to see
+more, or tap ∨ to drop them all down in a menu over the keys. The keys do the
+rest, with no Commit or Cancel buttons.
 
 For Chinese, type Pinyin without tone numbers. Use `v` for ü and an apostrophe
 for syllable separation where needed. Arrow Up/Down change the highlighted
