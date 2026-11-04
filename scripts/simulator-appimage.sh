@@ -97,7 +97,9 @@ roots=("$appdir/usr/bin/framekeyboard-simulator" "$appdir"/usr/lib/framekeyboard
 bundle_libraries "${roots[@]}"
 # sdl2-compat opens SDL 3 by name at run time, which ldd cannot see.
 if grep -aq 'libSDL3\.so\.0' "$appdir/usr/lib/libSDL2-2.0.so.0" 2>/dev/null; then
-    sdl3=$(ldconfig -p | awk '$1 == "libSDL3.so.0" { print $NF; exit }')
+    # awk reads to the end: leaving early would stop ldconfig with SIGPIPE,
+    # which pipefail turns into a failed build.
+    sdl3=$(ldconfig -p | awk '$1 == "libSDL3.so.0" && !found { print $NF; found = 1 }')
     cp -L "$sdl3" "$appdir/usr/lib/libSDL3.so.0"
     bundled+=("$sdl3")
     bundle_libraries "$appdir/usr/lib/libSDL3.so.0"
