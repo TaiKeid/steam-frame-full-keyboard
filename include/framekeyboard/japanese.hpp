@@ -97,8 +97,8 @@ class JapaneseComposer {
     // Live candidates, offered before conversion: the whole phrase converted,
     // with learning the words committed before that begin with the reading,
     // the first segment's candidates, then the reading in hiragana and in
-    // katakana, each once. prepare_live() converts the reading for them; they
-    // stay listed, stale, once it changes, until prepared again.
+    // katakana, then emoji for those words, each once. prepare_live() converts the reading for them;
+    // they stay listed, stale, once it changes, until prepared again.
     void prepare_live();
     const std::vector<std::string>& live() const { return live_.texts; }
     bool live_current() const;
@@ -118,6 +118,9 @@ class JapaneseComposer {
     void set_learning(bool on) { learning_ = on; }
     // After commit_text() reached the field: teaches the converter the phrase.
     void learn();
+    // Emoji for words, which live candidates offer last (ねこ, 猫 → 🐈).
+    using EmojiLookup = std::function<std::vector<std::string>(const std::vector<std::string>&)>;
+    void set_emoji(EmojiLookup lookup) { emoji_ = std::move(lookup); }
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
@@ -136,7 +139,7 @@ class JapaneseComposer {
     struct Live {
         // Where each text came from: the whole phrase, a learned word, a
         // candidate of the first segment (its index), or the reading in a script.
-        enum class Source { Whole, Prediction, First, Hiragana, Katakana };
+        enum class Source { Whole, Prediction, First, Hiragana, Katakana, Emoji };
         std::string reading; // Converted for these; empty when there are none.
         std::vector<Segment> segments;
         std::vector<std::string> texts;
@@ -155,6 +158,7 @@ class JapaneseComposer {
     std::string converted_;
     bool resized_{};
     bool learning_{};
+    EmojiLookup emoji_;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
     void drain(bool finish);

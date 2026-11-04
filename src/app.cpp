@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/emoji_words.hpp"
 #include "framekeyboard/text_input.hpp"
 #include "framekeyboard/updates.hpp"
 #include <utility>
@@ -194,6 +195,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
+    // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
+    composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     if (owns_anthy()) {
         configure_anthy({settings_.japanese_learning, anthy_home()});
     } else if (!anthy_configured()) {

@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/emoji_words.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <dlfcn.h>
@@ -782,6 +783,39 @@ void candidate_band() {
     }
 }
 void clear_reading(App& app);
+// Emoji from IBus's dictionary come last in the live candidates, found by
+// the reading or its conversions, and a pick commits the emoji.
+void emoji_candidates() {
+    const char* dictionary = std::getenv("FRAMEKEYBOARD_TEST_EMOJI_DICTIONARY");
+    if (!dictionary) {
+        std::cout << "Emoji candidates skipped: no IBus emoji dictionary.\n";
+        return;
+    }
+    set_emoji_dictionary(dictionary);
+    struct CatConverter : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            return {{reading, {"猫", reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<CatConverter>(); });
+    composer.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
+    composer.kana("ねこ");
+    composer.prepare_live();
+    const auto& live = composer.live();
+    const auto katakana = std::find(live.begin(), live.end(), "ネコ");
+    require(katakana != live.end() && live.end() - katakana > 1 && live.size() <= 8,
+            "a few emoji follow the reading's scripts");
+    const auto emoji = *(katakana + 1);
+    // An emoji named after the word, such as 🐈 for ねこ, before ones it is a keyword of.
+    require(emoji_for({"ねこ"}, 4).front() == emoji && !emoji_for({"猫"}, 4).empty(),
+            "the reading's own emoji come first, then its conversions'");
+    require(composer.choose_live(static_cast<int>(katakana + 1 - live.begin())) &&
+                composer.commit_text() == emoji,
+            "a picked emoji commits");
+    set_emoji_dictionary("/nonexistent");
+    require(emoji_for({"猫"}, 4).empty(), "without the dictionary there are none");
+}
 // A converter that records what learning tells it, and offers 有難う for あり.
 struct LearningConverter : JapaneseConverter {
     std::vector<std::vector<std::string>>* learned;
@@ -1500,6 +1534,7 @@ int main() {
     configure_anthy({false, anthy_home});
     try {
         symbols_as_typed();
+        emoji_candidates();
         learning_calls();
         progressive_conversion();
         candidate_band();

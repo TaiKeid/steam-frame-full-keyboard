@@ -871,6 +871,16 @@ void JapaneseComposer::prepare_live() {
     }
     add(in_script(reading, false), Live::Source::Hiragana);
     add(in_script(reading, true), Live::Source::Katakana);
+    if (emoji_) {
+        // For the reading and its likeliest conversions: ねこ and 猫 find 🐈.
+        std::vector<std::string> words{in_script(reading, false), whole};
+        for (std::size_t i = 0; i < std::min<std::size_t>(first.size(), 3); ++i) {
+            words.push_back(first[i]);
+        }
+        for (auto& text : emoji_(words)) {
+            add(std::move(text), Live::Source::Emoji);
+        }
+    }
     live_ = std::move(live);
 }
 bool JapaneseComposer::choose_live(int index) {
@@ -879,6 +889,11 @@ bool JapaneseComposer::choose_live(int index) {
     }
     drain(true); // A pending n is the ん the list was converted with.
     const auto [source, at] = live_.sources[static_cast<std::size_t>(index)];
+    if (source == Live::Source::Emoji) {
+        reading_ = live_.texts[static_cast<std::size_t>(index)]; // In place of the whole reading.
+        cursor_ = reading_.size();
+        return true;
+    }
     if (source == Live::Source::Prediction) {
         // A learned word stands for the whole reading, as typed so far.
         predicted_ = live_.texts[static_cast<std::size_t>(index)];
