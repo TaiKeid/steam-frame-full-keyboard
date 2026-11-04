@@ -223,22 +223,23 @@ int main(int argc, char** argv) {
         const bool trace = std::getenv("FRAMEKEYBOARD_SIMULATOR_TRACE") != nullptr;
         const double started = fk::monotonic_seconds();
         bool reopen = false;
-        auto note = [&](const std::string& what) {
+        // Values, not a built string: nothing is formatted with the trace off.
+        auto note = [&](const auto&... parts) {
             if (trace) {
                 std::cerr << "trace " << std::fixed << std::setprecision(3)
-                          << fk::monotonic_seconds() - started << ' ' << what << '\n';
+                          << fk::monotonic_seconds() - started << ' ';
+                (std::cerr << ... << parts) << '\n';
             }
         };
         auto watch_reopen = [&](const char* after) {
             if (trace && simulator.app().reopen_pending() != reopen) {
                 reopen = !reopen;
-                note(std::string("↶ chance ") + (reopen ? "opens" : "ends") + " after " + after);
+                note("↶ chance ", reopen ? "opens" : "ends", " after ", after);
             }
         };
         auto flush_motion = [&] {
             for (const auto& [pointer, at] : motion) {
-                note("move " + std::to_string(pointer) + ' ' + std::to_string(std::lround(at.first)) + ',' +
-                     std::to_string(std::lround(at.second)));
+                note("move ", pointer, ' ', std::lround(at.first), ',', std::lround(at.second));
                 simulator.pointer_move(pointer, at.first, at.second);
                 watch_reopen("move");
             }
@@ -275,8 +276,8 @@ int main(int argc, char** argv) {
                         if (event.button.which != SDL_TOUCH_MOUSEID) {
                             const auto [x, y] = canvas_point(event.button.x, event.button.y);
                             const bool down = event.type == SDL_MOUSEBUTTONDOWN;
-                            note(std::string(down ? "down " : "up ") + std::to_string(event.button.button) + ' ' +
-                                 std::to_string(std::lround(x)) + ',' + std::to_string(std::lround(y)));
+                            note(down ? "down " : "up ", static_cast<int>(event.button.button), ' ',
+                                 std::lround(x), ',', std::lround(y));
                             if (event.button.button == SDL_BUTTON_LEFT) {
                                 mouse_pressed = down;
                                 if (down) {
@@ -321,12 +322,16 @@ int main(int argc, char** argv) {
                         const auto [x, y] = canvas_point(double(event.tfinger.x) * width,
                                                          double(event.tfinger.y) * height);
                         if (event.type == SDL_FINGERDOWN) {
-                            simulator.pointer_down(finger_pointer(event.tfinger.fingerId), x, y, at);
+                            const auto pointer = finger_pointer(event.tfinger.fingerId);
+                            note("finger down ", pointer, ' ', std::lround(x), ',', std::lround(y));
+                            simulator.pointer_down(pointer, x, y, at);
                         } else if (const auto found = fingers.find(event.tfinger.fingerId);
                                    found != fingers.end()) {
                             if (event.type == SDL_FINGERMOTION) {
                                 motion[found->second] = {x, y};
                             } else {
+                                note("finger up ", found->second, ' ', std::lround(x), ',',
+                                     std::lround(y));
                                 simulator.pointer_up(found->second, x, y);
                                 fingers.erase(found);
                             }
@@ -334,7 +339,7 @@ int main(int argc, char** argv) {
                         break;
                     }
                     case SDL_WINDOWEVENT:
-                        note("window event " + std::to_string(event.window.event));
+                        note("window event ", static_cast<int>(event.window.event));
                         if (event.window.event == SDL_WINDOWEVENT_LEAVE && !mouse_pressed) {
                             simulator.pointer_exit(sim::Simulator::mouse);
                         } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
