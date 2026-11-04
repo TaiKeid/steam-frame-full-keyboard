@@ -1410,6 +1410,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     if (sink_on() && !host_.context) {
         return false; // the sink types only into a field the shell named
     }
+    if (key_flick_ && key_flick_->pointer != pointer) {
+        // A character the other hand holds types first, before anything this
+        // press opens or sends, such as dictation or a retried phrase.
+        finish_key_flick();
+    }
     if (direct_active() && key->action_kind == ActionKind::Key && key->action == "Escape") {
         // Esc stops Type as I speak, dropping what is not yet typed, and
         // is not sent.
@@ -1428,11 +1433,6 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         status_.clear();
         flush_direct(now);
         return true;
-    }
-    if (key_flick_ && key_flick_->pointer != pointer) {
-        // A character the other hand holds types first, before anything
-        // this press opens, such as dictation, could end it.
-        finish_key_flick();
     }
     if (key->action_kind == ActionKind::Dictation) {
         // The mic key opens dictation mode on release, like a toolbar button.
