@@ -219,9 +219,14 @@ bool Simulator::on_close(double x, double y) const {
 }
 void Simulator::pointer_move(unsigned pointer, double x, double y) {
     auto& state = pointers_[pointer];
+    const bool in_window = x >= 0 && y >= 0 && x < width && y < height;
     if (on_keyboard(x, y)) {
         state.inside = true;
         app_->move(pointer, x, y - popup_margin);
+    } else if (!in_window && state.inside && !app_->pointer_pressed(pointer)) {
+        // Outside the window with the button up, as a pointer-driving tool
+        // parks the mouse after a click: the mouse left, as pointer_exit().
+        pointer_exit(pointer);
     } else if (std::exchange(state.inside, false)) {
         leave(pointer);
     }

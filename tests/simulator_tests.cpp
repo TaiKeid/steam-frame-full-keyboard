@@ -239,6 +239,15 @@ void japanese_reopen(bool slow) {
     wait(simulator, .2);
     require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
             "↶ still reopens after the mouse left the window and came back");
+    press(simulator, "Enter");
+    // So does a move outside the window with the button up, as a
+    // pointer-driving tool parks the mouse after each click.
+    simulator.pointer_move(Simulator::mouse, Simulator::width * 3, 0);
+    simulator.pointer_exit(Simulator::mouse);
+    press(simulator, "Flick-undo");
+    wait(simulator, .2);
+    require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
+            "↶ still reopens after a move outside the window");
     // Clear field starts anew, the reading too.
     simulator.pointer_down(Simulator::mouse, Simulator::clear_button().x + 5,
                            Simulator::clear_button().y + 5, clock_now);
