@@ -56,7 +56,7 @@ python3 -I tools/build_japanese_kaomoji.py <mozc>/src/data/emoticon japanese/kao
 
 ## Preferred conversions
 
-`preferred.tsv` holds the usual conversions of about 100 common chat phrases,
-as `reading<TAB>phrase<TAB>0` sorted by reading: いきます 行きます, ありがとう
-ありがとう. It is Full Keyboard's own first draft, under the project's license,
-written to be reviewed by native speakers.
+`preferred.tsv` holds the usual conversions of about 140 common chat phrases
+and short words, as `reading<TAB>phrase<TAB>0` sorted by reading: いきます
+行きます, ありがとう ありがとう, ここ ここ (not 個々). It is Full Keyboard's own,
+under the project's license, and was reviewed by a native speaker.
