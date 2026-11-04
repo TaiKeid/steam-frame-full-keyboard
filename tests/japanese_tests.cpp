@@ -1773,6 +1773,26 @@ int main() {
                 composer.convert();
                 require(composer.commit_text() == phrase, "Anthy's symbols stay as typed");
             }
+            // Romaji types ？ and ！ full-width, as Japanese input methods do,
+            // and the last segment still offers the half-width form.
+            for (const auto& [typed, reading, mark, half] :
+                 std::vector<std::tuple<std::string, std::string, std::string, std::string>>{
+                     {"nanndesuka?", "なんですか？", "？", "?"},
+                     {"chottomatte!", "ちょっとまって！", "！", "!"}}) {
+                composer.cancel();
+                for (const char c : typed) {
+                    composer.roman(c);
+                }
+                require(composer.preedit() == reading, "romaji ? and ! join the reading full-width");
+                composer.convert();
+                require(composer.commit_text().ends_with(mark), "and conversion keeps it");
+                for (int i = 1; i < composer.segment_count(); ++i) {
+                    composer.segment(1);
+                }
+                const auto candidates = composer.candidates();
+                require(std::find(candidates.begin(), candidates.end(), half) != candidates.end(),
+                        "the half-width form is a candidate");
+            }
             // Learning with the real Anthy, kept in the tests' own home.
             configure_anthy({true, anthy_home});
             restart_anthy(false);
