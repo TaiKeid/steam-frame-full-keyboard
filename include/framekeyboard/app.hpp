@@ -10,6 +10,7 @@
 #include "feedback.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
+#include "next_words.hpp"
 #include "output.hpp"
 #include "panel.hpp"
 #include "placement.hpp"
@@ -814,6 +815,18 @@ class App {
     std::optional<std::string> follow_up_;
     std::vector<std::string> follow_ups() const;
     void type_follow_up(const std::string& text);
+    // Phrases committed straight after one another, offered first after the
+    // phrase before them (NextWords), and the last commit with the output's
+    // count right after it: a commit with nothing sent since follows it.
+    NextWords next_words_;
+    struct LastCommit {
+        std::string text;
+        std::uint64_t queued{};
+    };
+    std::optional<LastCommit> last_commit_;
+    // After a commit reached the field: learns that it followed the last.
+    void follow_commit(const std::string& text, std::uint64_t queued_before);
+    void tick_next_words();
     // ↶'s Backspaces on their way: the reading comes back once the queue has
     // delivered this many entries in all, with no failure since.
     struct Reopening {

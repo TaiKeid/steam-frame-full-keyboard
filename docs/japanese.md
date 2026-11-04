@@ -45,7 +45,7 @@ Flick and toggle typing happen on release; other keys still act on press. A copy
 
 ## Prediction
 
-After a commit, while nothing is typed, the candidate row offers what may come next, as a phone's does: 。 、 ！ ？. A tap types it at once; any other press, or the keyboard hiding, ends the offer, and the next commit makes it again.
+After a commit, while nothing is typed, the candidate row offers what may come next, as a phone's does: with learning on, up to three phrases you committed straight after this one before, most often first, then 。 、 ！ ？. A tap types it at once; a phrase then offers what followed it in turn, and punctuation ends the run. Any other press, or the keyboard hiding, ends the offer, and the next commit makes it again.
 
 ## Learning
 
@@ -53,11 +53,12 @@ Learning is on by default, as on Steam's own keyboard, which always learns. With
 
 - A phrase committed from a conversion teaches Anthy which candidate each segment took, so they come first next time.
 - Live candidates also offer words committed before that begin with the reading, right after the whole phrase: once ありがとう was committed as 有難う, typing あり offers 有難う. These are only words you committed; Anthy has no dictionary of its own for predictions.
+- A phrase committed straight after another, with nothing else sent to the field between them, is offered after that one next time (see [Prediction](#prediction)). Up to 2,000 such pairs are kept, the oldest going first, in plain text in `japanese-next-words.tsv` in the config folder (`~/.config/framekeyboard`). Punctuation and dictation mode's editor take no part.
 - Nothing is learned in a field that says it is for a password, a PIN or a terminal, as a [shell](integration.md)'s fields can. Steam's own fields don't say, so there, as on Steam's keyboard, phrases are learned.
 
 Anthy keeps what it learns in plain text, in `~/.anthy/last-record1_framekeyboard.utf8` and `last-record2_framekeyboard.utf8`: under a name of Full Keyboard's own, apart from what Steam's keyboard learns there. A phone IME's learned words sit in storage other apps can't open, but Steam Frame's desktop is an unlocked Linux system, where any program you run can read the files in your home folder. Steam's own keyboard keeps its learning the same way.
 
-**Clear learned words**, under the setting, deletes those files after asking. It can't be pressed while there is nothing to clear. Anthy restarts to forget what it had loaded; meanwhile a ring circles the button, which can't be pressed again, and live candidates wait. Turning learning off stops both learning and using what was learned; the files stay until cleared.
+**Clear learned words**, under the setting, deletes those files and the next phrases after asking. It can't be pressed while there is nothing to clear. Anthy restarts to forget what it had loaded; meanwhile a ring circles the button, which can't be pressed again, and live candidates wait. Turning learning off stops both learning and using what was learned; the files stay until cleared.
 
 With learning off, Anthy reads and writes no record at all, Steam's keyboard's included, so candidates keep Anthy's own order. Anthy still keeps an empty lock file in `~/.anthy`.
 

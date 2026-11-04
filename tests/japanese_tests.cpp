@@ -636,6 +636,83 @@ void progressive_conversion() {
 // The band and its candidates, with the fake converter: live candidates after
 // a pause, a tap moving on through the segments, the arrows resizing, a drag
 // scrolling without picking, and the keys keeping their size across A / あ.
+// Phrases committed straight after one another come back first after the
+// one before them, also once the keyboard restarts; something sent between
+// them breaks the run. Clearing forgets them.
+void next_words() {
+    char directory[] = "/tmp/framekeyboard-next-XXXXXX";
+    require(mkdtemp(directory), "temporary next words profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    const auto chips = [](App& app) {
+        std::vector<std::string> result;
+        if (const auto strip = app.view().candidates) {
+            for (const auto& chip : strip->chips) {
+                result.push_back(chip.text);
+            }
+        }
+        return result;
+    };
+    const auto commit = [](App& app, const char* slot, double now) {
+        flick(app, slot, now);
+        click_key(app, "Enter");
+        app.tick(now + .01);
+    };
+    {
+        Sink sink;
+        App app(options, sink);
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        commit(app, "a", 1);
+        commit(app, "ka", 2); // か straight after あ
+        commit(app, "a", 3);
+        require(chips(app) == std::vector<std::string>{"か", "。", "、", "！", "？"},
+                "a phrase committed straight after another is offered first after it");
+        click_key(app, "Backspace"); // Sent to the field: the run breaks.
+        commit(app, "sa", 4);
+        click_key(app, "Backspace");
+        commit(app, "a", 5);
+        require(chips(app) == std::vector<std::string>{"か", "。", "、", "！", "？"},
+                "a phrase after something else was sent isn't learned to follow the one before");
+        require(click_candidate(app, "か", 5.1) && sink.text.back() == "か" &&
+                    chips(app).front() == "あ",
+                "picking it types it, and offers what followed it in turn");
+    }
+    {
+        Sink sink;
+        App app(options, sink);
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        commit(app, "a", 1);
+        require(chips(app).front() == "か", "they are kept across a restart");
+    }
+    {
+        // With learning off, nothing learned is offered, and nothing more is kept.
+        Settings settings;
+        settings.japanese_learning = false;
+        save_settings(directory, settings);
+        Sink sink;
+        App app(options, sink);
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        commit(app, "a", 1);
+        require(chips(app).front() == "。", "with learning off, only punctuation is offered");
+        commit(app, "sa", 2);
+    }
+    NextWords kept(fs::path(directory) / "japanese-next-words.tsv");
+    require(!kept.empty() && kept.after("あ", 3) == std::vector<std::string>{"か"},
+            "in the config folder");
+    kept.clear();
+    require(kept.empty() && !fs::exists(fs::path(directory) / "japanese-next-words.tsv"),
+            "clearing forgets them and removes the file");
+}
 // With a composing language among the user's languages on the same layout,
 // every page keeps the scale the reading line gives the keys, so switching
 // to it from English moves the keys only down; without one, English keeps
@@ -1777,6 +1854,7 @@ int main() {
         progressive_conversion();
         candidate_band();
         reading_room();
+        next_words();
         candidate_list();
         learning_settings();
         configure_anthy({false, anthy_home});

@@ -201,6 +201,10 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     if (owns_anthy()) {
         configure_anthy({settings_.japanese_learning, anthy_home()});
+        // Next words are learning too: only the keyboard that types keeps them.
+        if (!options_.config_dir.empty()) {
+            next_words_ = NextWords(options_.config_dir / "japanese-next-words.tsv");
+        }
     } else if (!anthy_configured()) {
         // An image export on its own still keeps Anthy's lock file in its
         // profile; one beside a running keyboard leaves that keyboard's be.
@@ -236,6 +240,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
 }
 App::~App() {
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
+    next_words_.save();
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result;
@@ -1918,6 +1923,7 @@ bool App::tick(double now) {
     refresh_typing();
     update_emoji(now);
     tick_learning();
+    tick_next_words();
     tick_japanese(now);
     if (dictation_open_) {
         // Type as I speak never uses the editor: turning it on returns to
@@ -2064,7 +2070,7 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
-    learned_ = anthy_learned();
+    learned_ = anthy_learned() || !next_words_.empty();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2424,7 +2430,7 @@ void App::tick_learning() {
         restart_learning(true);
         return;
     }
-    learned_ = anthy_learned();
+    learned_ = anthy_learned() || !next_words_.empty();
     apply_learning(); // learning changed while it restarted
     update_settings_ui();
     dirty = true;
@@ -2497,11 +2503,12 @@ void App::commit_japanese() {
     if (preview_output()) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
-    } else if (text_output_->commit_text(text)) {
+    } else if (const auto queued = output_.queued(); text_output_->commit_text(text)) {
         composition_.set_learning(learning_allowed());
         composition_.learn();
         composition_.cancel();
         status_.clear();
+        follow_commit(text, queued);
         follow_up_ = text;
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (japanese_typing() && !dictation_open_) {
@@ -2511,17 +2518,62 @@ void App::commit_japanese() {
         commit_failed();
     }
 }
+namespace {
+bool punctuation_only(const std::string& text) {
+    for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
+        if (!g_unichar_ispunct(g_utf8_get_char(p))) {
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
 std::vector<std::string> App::follow_ups() const {
-    // Phones offer the punctuation that most often follows a phrase.
-    return {"。", "、", "！", "？"};
+    // What followed this phrase before, then the punctuation that most
+    // often follows a phrase, as phones offer it.
+    std::vector<std::string> result;
+    if (follow_up_ && learning_allowed()) {
+        result = next_words_.after(*follow_up_, 3);
+    }
+    for (const auto* mark : {"。", "、", "！", "？"}) {
+        if (std::find(result.begin(), result.end(), mark) == result.end()) {
+            result.emplace_back(mark);
+        }
+    }
+    return result;
 }
 void App::type_follow_up(const std::string& text) {
     reopen_.reset();
     follow_up_.reset();
     if (preview_output()) {
         status_ = "Preview: composition committed locally.";
-    } else if (!text_output_->commit_text(text)) {
+    } else if (const auto queued = output_.queued(); text_output_->commit_text(text)) {
+        follow_commit(text, queued);
+        // A phrase offers what followed it in turn; punctuation ends the run.
+        if (!punctuation_only(text)) {
+            follow_up_ = text;
+        }
+    } else {
         commit_failed();
+    }
+}
+void App::follow_commit(const std::string& text, std::uint64_t queued_before) {
+    // The editor's text isn't the field's, and punctuation follows anything.
+    if (dictation_open_ || punctuation_only(text)) {
+        last_commit_.reset();
+        return;
+    }
+    if (last_commit_ && last_commit_->queued == queued_before && learning_allowed()) {
+        next_words_.record(last_commit_->text, text);
+        next_words_.touch(monotonic_seconds());
+        learned_ = true;
+    }
+    last_commit_ = LastCommit{text, output_.queued()};
+}
+void App::tick_next_words() {
+    // Written a little after the last change, not at every commit.
+    if (next_words_.dirty() && monotonic_seconds() - next_words_.changed_at() >= 2) {
+        next_words_.save();
     }
 }
 bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) {
@@ -3432,6 +3484,9 @@ void App::action(const ControlAction& command) {
         confirm_ = Confirm::None;
         pressed_controls_.clear();
         hovered_.clear();
+        next_words_.clear();
+        last_commit_.reset();
+        follow_up_.reset();
         restart_learning(true);
     } else if (kind == ControlKind::ClearLearning && learned_ && !clearing_learning_) {
         pressed_controls_.clear();
