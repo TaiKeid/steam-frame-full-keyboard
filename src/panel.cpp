@@ -256,6 +256,13 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
     pango_layout_set_font_description(layout, font);
     pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    // ゛ and ゜ alone, the 小 key's flick hints and preview cells, are
+    // marks no bigger than a dot at a kana's size: drawn larger, they read.
+    if (text == "゛" || text == "゜") {
+        size *= 2.4;
+        pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+        pango_layout_set_font_description(layout, font);
+    }
     if (fit) {
         int natural_width, natural_height;
         pango_layout_get_pixel_size(layout, &natural_width, &natural_height);
