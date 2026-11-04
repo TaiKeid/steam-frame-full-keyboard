@@ -22,8 +22,7 @@ constexpr Rgb button_on{.184, .310, .478};
 constexpr double field_padding = 14, field_font = 26, bar_font = 17;
 // The simulator's controls sit below the keyboard's case.
 constexpr double bar_y = popup_margin + panel_height + 22, bar_height = 44;
-constexpr const char* placeholder = "Type here with the keyboard below. The text stays in this window "
-                                    "and is never saved.";
+constexpr const char* placeholder = "Type here with the keyboard below. The text stays in this window.";
 constexpr const char* hints = "Left button: point and press   ·   Right click: hold a second pointer, "
                               "again to let go   ·   Touch: one pointer per finger";
 

@@ -18,7 +18,8 @@ namespace {
 void help() {
     std::cout << "Full Keyboard simulator " << FRAMEKEYBOARD_VERSION << "\n\n"
               << "The keyboard types into the text field in its own window, never into\n"
-              << "other applications. Typed text stays in memory and is never saved.\n\n"
+              << "other applications. The field's text stays in memory and is never saved;\n"
+              << "Japanese learning keeps the phrases it learns in the settings folder.\n\n"
               << "  --layout ID               Start with this layout\n"
               << "  --language ID             Start with this language, and a layout that can type it\n"
               << "  --theme ID                Start with this theme\n"
