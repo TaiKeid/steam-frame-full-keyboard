@@ -196,6 +196,10 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_japanese_learning_ = settings_.japanese_learning;
     if (owns_anthy()) {
         configure_anthy({settings_.japanese_learning, anthy_home()});
+    } else if (!anthy_configured()) {
+        // An image export on its own still keeps Anthy's lock file in its
+        // profile; one beside a running keyboard leaves that keyboard's be.
+        configure_anthy({false, anthy_home()});
     }
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;

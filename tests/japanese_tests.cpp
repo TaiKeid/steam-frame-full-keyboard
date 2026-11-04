@@ -906,7 +906,8 @@ void learning_settings() {
         preview.anthy_home.clear();
         fs::create_directories(preview.config_dir);
         App image(preview, sink);
-        require(anthy_learned(), "a preview leaves the running keyboard's learning where it is");
+        require(anthy_learned() && anthy_configured(),
+                "a preview leaves the running keyboard's learning where it is");
     }
     app.show_settings();
     require(find("clear-learning").enabled, "something learned can be cleared");

@@ -115,6 +115,7 @@ struct Anthy {
     AnthyLearning learning;
     std::string dictionary;               // Empty: the installed one.
     std::optional<AnthyLearning> started; // What the running Anthy learns with.
+    bool configured{};
     ~Anthy() {
         if (api) {
             api->quit();
@@ -443,7 +444,13 @@ bool configure_anthy(AnthyLearning learning) {
     auto& state = anthy();
     std::lock_guard lock(state.settings);
     state.learning = learning;
+    state.configured = true;
     return state.started && *state.started != learning;
+}
+bool anthy_configured() {
+    auto& state = anthy();
+    std::lock_guard lock(state.settings);
+    return state.configured;
 }
 void restart_anthy(bool clear) {
     auto& state = anthy();

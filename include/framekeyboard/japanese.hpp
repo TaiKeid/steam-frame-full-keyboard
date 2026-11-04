@@ -49,6 +49,8 @@ struct AnthyLearning {
 // Sets the learning Anthy starts with. True when Anthy already runs with
 // other learning, which restart_anthy() then applies.
 bool configure_anthy(AnthyLearning learning);
+// Whether anything in this process configured Anthy yet.
+bool anthy_configured();
 // Restarts a running Anthy with the configured learning, first deleting what
 // it learned if `clear`, running or not. It waits for conversions under way
 // and blocks while Anthy loads its dictionary again: a worker thread's job.
