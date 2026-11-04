@@ -749,8 +749,7 @@ int main() {
         carried_row();
         const auto profiles = load_profiles({}, {});
         for (const auto& [id, language] : profiles.languages) {
-            const auto layout = id == "ko-cheonjiin"                           ? "ko-12key"
-                                : !language.flick.empty()                      ? "ja-flick-12"
+            const auto layout = !language.flick.empty()                        ? "ja-flick-12"
                                 : (language.keymap == "jp" || id == "ja-kana") ? "ja-jis-full"
                                 : language.keymap == "br"                      ? "br-abnt2-full"
                                 : !language.required_keys.empty()              ? "international-full"

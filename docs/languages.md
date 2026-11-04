@@ -80,7 +80,7 @@ does not automatically select Russian. Updating the app preserves your selection
 | Traditional Chinese, Zhuyin | `zh-tw-zhuyin` | US QWERTY | Local Zhuyin with candidates |
 | Traditional Chinese, Cangjie | `zh-tw-cangjie` | US QWERTY | Local Cangjie table |
 | Traditional Chinese, Quick | `zh-tw-quick` | US QWERTY | Local Quick table |
-| Korean | `ko-kr`, `ko-cheonjiin` | US QWERTY, or 12-key 천지인 (`ko-cheonjiin` only) | Local two-set Hangul, or 천지인 strokes |
+| Korean | `ko-kr` | US QWERTY | Local two-set Hangul |
 | Japanese | `ja-romaji`, `ja-kana`, `ja-jis`, `ja-flick` | US, Japanese JIS, or flick 12-key (`ja-flick` only) | See [Japanese input](japanese.md) |
 
 Open Settings, select Layout, then Language, then Apply and save. Languages
@@ -193,46 +193,6 @@ composition. Space and other ordinary keys commit the word before sending the
 key. Use the `한 / A` control to switch between Hangul and Latin typing. Chinese
 has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
 
-For 12-key Korean, choose the **Korean 12-key** layout; it selects
-한국어 천지인. Like the Japanese flick layout, it is four rows, as on a phone:
-the 3×4 grid ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-, with ↶, ←,
-😊 and 「한A1」 on its left and ⌫, →, Space and Enter on its right. Cut, Copy
-and Paste stay in the side column. The reading shows in a band above the keys,
-which stays in every mode, so the keys keep their size.
-
-- 「한A1」 switches between 한글, English and digits; its lit character shows
-  which is on. A tap moves on to the next mode; a flick picks one: left for
-  한글, up for English, right for digits. Switching commits the reading first.
-  English shows a QWERTY page with Esc, Tab, Shift and the arrows, whose letters
-  type at once. Digits turn the grid into a number pad, 1–9 with ( 0 . on the
-  bottom row; a flick types its symbols, such as ₩ $ € on 2.
-- ↶ goes back one step: the last consonant or punctuation steps back through
-  its key's taps (ㄲ ㅋ ㄱ), and anything else loses its last stroke.
-
-- Vowels are built from the strokes ㅣ, ㆍ and ㅡ: ㅣㆍ ㅏ, ㆍㅣ ㅓ, ㆍㅡ ㅗ,
-  ㅡㆍ ㅜ, ㅣㆍㆍ ㅑ, ㆍㆍㅣ ㅕ, ㆍㆍㅡ ㅛ, ㅡㆍㆍ ㅠ. Another ㅣ adds to the vowel
-  before it: ㅐ ㅔ ㅒ ㅖ ㅢ ㅚ ㅟ, ㅝ after ㅠ, then ㅙ ㅞ; ㆍ after ㅚ gives ㅘ.
-  A lone ㆍ or ㆍㆍ shows in the reading until a stroke finishes it, and is
-  typed as it shows if committed.
-- Tapping a consonant key again within one second changes the consonant:
-  ㄱ ㅋ ㄲ, ㄴ ㄹ, ㄷ ㅌ ㄸ, ㅂ ㅍ ㅃ, ㅅ ㅎ ㅆ, ㅈ ㅊ ㅉ, ㅇ ㅁ. To type the same
-  consonant twice, as in 학교, press Space in between, as on Samsung's 천지인:
-  while the consonant could still change, Space only ends it, and another Space
-  types a space. Waiting a second or pressing → works too.
-- Flicks are shortcuts: a consonant key flicks right for its second consonant
-  and up for its double one, ㅣ flicks right for ㅏ and left for ㅓ, and ㅡ up for
-  ㅗ and down for ㅜ, the side the dot goes on. .,?! cycles . , ? ! and flicks to
-  , ? ! …; ~^- cycles ~ ^ - and flicks to ( " ) '.
-- Syllables, final consonants and clusters such as ㄺ form as in two-set
-  typing, and a final moves to the next syllable when a vowel follows.
-  Backspace removes the last stroke or consonant. Enter commits the reading;
-  Space and other keys commit it before acting, as for two-set Korean, and held
-  Backspace repeats on the reading the same way. The keys do all of this, so the
-  toolbar has no 한 / A, Commit or Cancel buttons on this layout.
-
-천지인 composes inside Full Keyboard and needs no libhangul. Leaving the
-12-key layout switches to two-set Korean, which does.
-
 Pinyin, Zhuyin and Korean keep a bounded preedit. Commit before the
 30-input-character limit; Cangjie and Quick use the retained-text bound above.
 Shortcuts and navigation that leave composition commit first; if output refuses
@@ -255,8 +215,7 @@ at launch with an error message.
 
 Automated tests cover profile legends, sample letters, AltGr levels and dead
 keys of every national keymap, Chinese script conversion/candidates,
-Korean syllables/editing including 천지인 strokes, toggles and flicks, and
-commit ordering. A dedicated receiver checks Unicode
+Korean syllables/editing, and commit ordering. A dedicated receiver checks Unicode
 transport separately from composition. Fluent-speaker review and per-application
 acceptance are still needed; passing a local conversion test does not establish
 that every browser or desktop session accepts it.

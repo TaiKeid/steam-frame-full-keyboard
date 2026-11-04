@@ -298,8 +298,8 @@ void layout_tests() {
                     english.editor.width == flick_mode.editor.width,
                 "the flick layout's English page keeps the editor where the kana page has it");
     }
-    for (const auto* id : {"ja-flick-12", "ko-12key"}) {
-        const auto& source = profiles.layouts.at(id);
+    {
+        const auto& source = profiles.layouts.at("ja-flick-12");
         const auto stacked = dictation_layout(source, source.width);
         const auto copy = bounds_in(stacked.layout, "Dictation-copy");
         const auto cut = bounds_in(stacked.layout, "Dictation-cut");
@@ -907,23 +907,6 @@ void language_tests() {
         }
         require(editor_text(app) == "Hello there.かあかさかさ",
                 "overlapping flicks keep press order in the editor");
-    }
-    write_config(directory.path, server, "ko-cheonjiin", "ko-12key");
-    {
-        Sink sink;
-        App app(options, sink);
-        open_editor(app);
-        wait_until(app, [&] { return editor_text(app) == "Hello there."; });
-        settle(app);
-        const auto [gx, gy] = key_center(app, "Flick-g");
-        const auto [ix, iy] = key_center(app, "Flick-i");
-        require(app.down(0, gx, gy, clock) && app.down(1, ix, iy, clock + .05),
-                "both hands' 천지인 keys accept a press in the editor");
-        app.up(1, ix, iy);
-        app.up(0, gx, gy);
-        press(app, "Enter");
-        require(editor_text(app) == "Hello there.기" && sink.text.empty() && sink.keys.empty(),
-                "천지인 composes into the editor in press order");
     }
     if (!CjkComposer::supported("chinese-pinyin-simplified")) {
         std::cout << "Pinyin in dictation mode skipped: engine absent.\n";
@@ -2386,15 +2369,14 @@ void microphone_tests() {
         const char* language;
         const char* layout;
         const char* text;
-        // The flick layouts and Japanese dictation keep the keys' scale,
-        // whose case leaves the status enough room; render_tests' status_line
-        // covers one too long for its gap.
+        // The flick layout and Japanese dictation keep the keys' scale, whose
+        // case leaves the status enough room; render_tests' status_line covers
+        // one too long for its gap.
         bool crowded;
     };
     for (const auto& [language, layout, text, crowded] :
-         std::array<Case, 3>{{{"ja-flick", "ja-flick-12", "ゲームの音", false},
-                              {"ja-romaji", "ja-jis-full", "ゲームの音", false},
-                              {"ko-cheonjiin", "ko-12key", "게임 소리", false}}}) {
+         std::array<Case, 2>{{{"ja-flick", "ja-flick-12", "ゲームの音", false},
+                              {"ja-romaji", "ja-jis-full", "ゲームの音", false}}}) {
         write_config(directory.path,
                      R"(,"hide_numpad":true,"dictation":"server","dictation_server":"127.0.0.1",)"
                      R"("haptic_sounds":"both","swipe_typing":true,"replace_native_keyboard":true,)"

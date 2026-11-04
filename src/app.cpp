@@ -36,8 +36,7 @@ bool same_keymap(const Language& a, const Language& b) {
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
 }
 std::unique_ptr<CjkComposer> prepare_cjk(const Language& language) {
-    if (language.input_method == "korean-2set" || language.input_method == "korean-cheonjiin" ||
-        language.input_method.starts_with("chinese-")) {
+    if (language.input_method == "korean-2set" || language.input_method.starts_with("chinese-")) {
         return std::make_unique<CjkComposer>(language.input_method);
     }
     return {};
@@ -480,8 +479,7 @@ std::vector<Control> App::controls() const {
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
     }
-    // 천지인's mode key switches pages and its keys commit, as the flick layout's do.
-    if (cjk_ && !emoji_open_ && !has_mode_key()) {
+    if (cjk_ && !emoji_open_) {
         add({ControlKind::CjkToggle},
             {"cjk-toggle",
              cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
@@ -1000,17 +998,16 @@ PanelView App::build_view(bool picker) const {
         }
     }
     if (!v.language->flick.empty()) {
-        // Flick keys show their tap kana or jamo, or digits in digit mode. A
-        // kana grid shown in Latin mode composes again when pressed.
-        const bool japanese_flick = v.language->input_method == "japanese-flick";
+        // Flick keys show their tap kana, or digits in digit mode. A kana
+        // grid shown in Latin mode composes again when pressed.
         const auto& table = flick_keys();
         for (const auto& key : v.layout->keys) {
             if (const auto it = table.find(key.action);
                 key.action_kind == ActionKind::Flick && it != table.end()) {
                 v.key_labels[key.id] = it->second.tap.front();
-            } else if (japanese_flick && v.composing && !composition_.empty() && key.action == "Space") {
+            } else if (v.composing && !composition_.empty() && key.action == "Space") {
                 v.key_labels[key.id] = composition_.converting() ? "次候補" : "変換";
-            } else if (japanese_flick && v.composing && !composition_.empty() && key.action == "Enter") {
+            } else if (v.composing && !composition_.empty() && key.action == "Enter") {
                 v.key_labels[key.id] = "確定";
             }
         }
@@ -1027,11 +1024,6 @@ PanelView App::build_view(bool picker) const {
                                         {flick_text(tap), key.left, key.up, key.right, key.down},
                                         static_cast<int>(flick_track_->direction)};
         }
-    }
-    if (cjk_ && v.ime_band) {
-        // 천지인's band shows the reading on every page: a digit the field
-        // refused waits there for the next commit.
-        v.preedit = cjk_->preedit();
     }
     if (cjk_ && !cjk_latin_) {
         v.composing = true;
@@ -1471,16 +1463,6 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     }
     if (key->action_kind == ActionKind::Flick) {
         return flick_down(pointer, *key, x, y, now);
-    }
-    if (key->action_kind == ActionKind::Key && key->action == "Space" && space_separates(now)) {
-        // 학 ␣ 교: Space only ends 학's ㄱ, so the next ㄱ starts 교, as on
-        // Samsung's 천지인; another Space types a space.
-        if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
-            return false;
-        }
-        flick_toggle_.reset();
-        dirty = true;
-        return true;
     }
     if (key->action_kind == ActionKind::Emoji) {
         // A local press that acts on release, like a toolbar button.
@@ -2703,7 +2685,6 @@ void App::choose_cjk(int index) {
     }
 }
 void App::commit_cjk() {
-    flick_toggle_.reset();
     if (!cjk_ || cjk_->empty()) {
         return;
     }
@@ -2842,15 +2823,7 @@ void App::commit_failed() {
     }
 }
 bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
-    if (!cjk_ || key.action_kind != ActionKind::Key) {
-        return false;
-    }
-    // On 천지인's English and digits pages a digit the field refused waits in
-    // the reading: Enter, Backspace and Esc act on it, as on the 한글 page.
-    const auto& action = key.action;
-    if (cjk_latin_ && !(cheonjiin() && !cjk_->empty() &&
-                        (action == "Enter" || action == "NumpadEnter" || action == "Backspace" ||
-                         action == "Escape"))) {
+    if (!cjk_ || cjk_latin_ || key.action_kind != ActionKind::Key) {
         return false;
     }
     for (const auto* name :
@@ -2863,16 +2836,6 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     const bool composing = !cjk_->empty();
     if (execute && status_ == no_reading_status) {
         status_.clear();
-    }
-    // → ends a 천지인 toggle, so the same consonant key can type its first jamo again.
-    if (code == "ArrowRight" && flick_toggle_ && composing) {
-        if (execute) {
-            flick_toggle_.reset();
-        }
-        return true;
-    }
-    if (execute) {
-        flick_toggle_.reset();
     }
     if (cjk_->phonetic_keys() && !mods.contains(key_code("ShiftLeft")) &&
         !mods.contains(key_code("ShiftRight"))) {
@@ -3392,12 +3355,9 @@ void App::action(const ControlAction& command) {
 bool App::japanese_typing() const {
     return japanese() && (!japanese_latin_ || flick_mode() == FlickMode::Digits);
 }
-bool App::cheonjiin() const {
-    return cjk_ && profiles_.languages.at(settings_.active.language).input_method == "korean-cheonjiin";
-}
 App::FlickMode App::flick_mode() const {
-    // The kana or jamo grid, unless the mode key moved to English or digits.
-    if (!(japanese() ? japanese_latin_ : cheonjiin() && cjk_latin_)) {
+    // The kana grid, unless the mode key moved to English or digits.
+    if (!japanese() || !japanese_latin_) {
         return FlickMode::Kana;
     }
     const auto& language = profiles_.languages.at(settings_.active.language);
@@ -3423,28 +3383,20 @@ const Layout& App::shown_layout() const {
 }
 bool App::has_mode_key() const {
     const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
-    return (japanese() || cheonjiin()) && std::any_of(keys.begin(), keys.end(), [](const Key& key) {
+    return japanese() && std::any_of(keys.begin(), keys.end(), [](const Key& key) {
                return key.action_kind == ActionKind::Flick && key.action == flick_mode_slot;
            });
 }
 void App::set_flick_mode(FlickMode mode) {
-    if (cheonjiin()) {
-        commit_cjk();
-        if (!cjk_->empty()) {
+    // Kana and digits share the reading, as on a phone; the English page
+    // types at once, so the reading goes first.
+    if (mode == FlickMode::Latin) {
+        commit_japanese();
+        if (!composition_.empty()) {
             return;
         }
-        cjk_latin_ = mode != FlickMode::Kana;
-    } else {
-        // Kana and digits share the reading, as on a phone; the English page
-        // types at once, so the reading goes first.
-        if (mode == FlickMode::Latin) {
-            commit_japanese();
-            if (!composition_.empty()) {
-                return;
-            }
-        }
-        japanese_latin_ = mode != FlickMode::Kana;
     }
+    japanese_latin_ = mode != FlickMode::Kana;
     flick_digits_ = mode == FlickMode::Digits;
     flick_toggle_.reset();
     reopen_.reset(); // Committed to switch, not as a phrase ↶ should bring back.
@@ -3459,11 +3411,10 @@ bool App::flick_down(unsigned pointer, const Key& key, double x, double y, doubl
         !language.flick.contains(key.action)) {
         return false;
     }
-    // A kana grid shown in Latin mode (Korean, or Japanese without an English
-    // page) composes again when pressed; the mode key keeps the mode it changes.
+    // A kana grid shown in Latin mode (without an English page) composes
+    // again when pressed; the mode key keeps the mode it changes.
     if (key.action != flick_mode_slot && flick_mode() != FlickMode::Digits) {
         japanese_latin_ = false;
-        cjk_latin_ = false;
     }
     // A local press shows the key and owns the pointer; nothing is sent.
     if (!keyboard_.down(pointer, key, now, true, 0)) {
@@ -3505,11 +3456,11 @@ std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
     case FlickDirection::Tap:
         break;
     }
-    // A quick repeated tap replaces the kana or jamo the previous tap typed,
-    // if it is still the last one in the reading.
+    // A quick repeated tap replaces the kana the previous tap typed, if it is
+    // still the last one in the reading.
     if (flick_toggle_ && flick_toggle_->slot == track.slot && key.tap.size() > 1 &&
         track.pressed - flick_toggle_->at <= flick_toggle_seconds &&
-        (cjk_ ? cjk_->last_flick() : composition_.last_kana()) == key.tap[flick_toggle_->index]) {
+        composition_.last_kana() == key.tap[flick_toggle_->index]) {
         if (cycles) {
             *cycles = true;
         }
@@ -3564,28 +3515,15 @@ void App::finish_flick() {
             undo_japanese(track.pressed);
             return;
         }
-        if (track.slot == flick_undo_slot && cheonjiin()) {
-            undo_korean(track.pressed);
-            return;
-        }
         if (flick_mode() == FlickMode::Digits) {
             flick_toggle_.reset();
-            if (japanese()) {
-                flick_type(text); // Joins the reading, for 3じに to convert to 3時に.
-            } else {
-                type_now(text); // 천지인 has no conversion for digits to join.
-            }
+            flick_type(text); // Joins the reading, for 3じに to convert to 3時に.
             return;
         }
-        if (cjk_) {
-            cjk_->flick(text, cycles); // 천지인 strokes, jamo and punctuation
-            status_.clear();
-        } else {
-            if (cycles) {
-                composition_.backspace();
-            }
-            flick_type(text);
+        if (cycles) {
+            composition_.backspace();
         }
+        flick_type(text);
         if (track.direction == FlickDirection::Tap && key.tap.size() > 1 && !composition_.converting()) {
             const auto index = cycles ? (flick_toggle_->index + 1) % key.tap.size() : 0;
             flick_toggle_ = FlickToggle{track.slot, index, track.pressed};
@@ -3597,81 +3535,12 @@ void App::finish_flick() {
         status_ = error.what();
     }
 }
-void App::type_now(const std::string& text) {
-    if (text.empty()) {
-        return; // A direction this key does not use.
-    }
-    if (cjk_) {
-        // Through the reading too, so a refused commit keeps the digit there
-        // for Enter to retry, as it keeps a word.
-        commit_cjk();
-        if (!cjk_->empty()) {
-            return;
-        }
-        cjk_->flick(text, false);
-        commit_cjk();
-        return;
-    }
-    // Through the reading, so a failed commit keeps the text as it does a phrase.
-    commit_japanese();
-    if (!composition_.empty()) {
-        return;
-    }
-    composition_.kana(text);
-    commit_japanese();
-    reopen_.reset(); // Not a phrase to reopen.
-    status_.clear();
-}
 namespace {
 constexpr const char* reopen_typing_status =
     "The phrase is still being typed. Tap ↶ again once it is in.";
 }
 bool App::undo_held(unsigned pointer) const {
     return flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot;
-}
-// 천지인's ↶ goes back one step: the last consonant or punctuation through
-// its key's taps (ㄲ → ㅋ → ㄱ), anything else a stroke, as Backspace does.
-void App::undo_korean(double now) {
-    if (cjk_->empty()) {
-        return;
-    }
-    const auto last = cjk_->last_flick();
-    const auto& table = flick_keys();
-    const auto cycles = [&](const FlickKey& key) {
-        return key.tap.size() > 1 && std::find(key.tap.begin(), key.tap.end(), last) != key.tap.end();
-    };
-    auto slot = table.end();
-    if (flick_toggle_ && table.contains(flick_toggle_->slot) && cycles(table.at(flick_toggle_->slot))) {
-        slot = table.find(flick_toggle_->slot);
-    } else {
-        slot = std::find_if(table.begin(), table.end(),
-                            [&](const auto& item) { return cycles(item.second); });
-    }
-    if (last.empty() || slot == table.end()) {
-        cjk_->backspace();
-        flick_toggle_.reset();
-        return;
-    }
-    const auto& taps = slot->second.tap;
-    const auto at = static_cast<std::size_t>(std::find(taps.begin(), taps.end(), last) - taps.begin());
-    const auto back = (at + taps.size() - 1) % taps.size();
-    cjk_->flick(taps[back], true);
-    flick_toggle_ = FlickToggle{slot->first, back, now};
-}
-bool App::space_separates(double now) const {
-    if (!cheonjiin() || cjk_latin_ || !flick_toggle_ || now - flick_toggle_->at > flick_toggle_seconds) {
-        return false;
-    }
-    const auto& table = flick_keys();
-    const auto slot = table.find(flick_toggle_->slot);
-    const auto last = cjk_->last_flick();
-    if (slot == table.end() || flick_toggle_->index >= slot->second.tap.size() ||
-        slot->second.tap[flick_toggle_->index] != last) {
-        return false;
-    }
-    // Only a consonant (ㄱ-ㅎ): after punctuation a space is a space.
-    const auto c = g_utf8_get_char(last.c_str());
-    return c >= 0x3131 && c <= 0x314e;
 }
 void App::undo_japanese(double now) {
     if (composition_.converting()) {
@@ -4778,7 +4647,7 @@ void App::refresh_dictation_layout() {
     main.hide_numpad = numpad_hidden();
     main.dictation_available = true; // The mode shows the mic key.
     PanelView banded = main;
-    banded.ime_band = japanese() || cheonjiin();
+    banded.ime_band = japanese();
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
                                          unbanded_layout_height(banded) - main.layout->height);
     // Placed as the mode shows it: a layout without a function-key row grows
@@ -4965,16 +4834,6 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         // into the editor.
         clear_editor_error();
         return flick_down(pointer, key, x, y, now);
-    }
-    if (editable && key.action_kind == ActionKind::Key && key.action == "Space" &&
-        space_separates(now)) {
-        // As on the keyboard: Space only ends a 천지인 consonant that could still change.
-        if (!keyboard_.down(pointer, key, now, true, 0)) {
-            return false;
-        }
-        flick_toggle_.reset();
-        dirty = true;
-        return true;
     }
     // Capture the symbol before a latched Shift is consumed by down().
     const auto modifiers = keyboard_.modifiers();

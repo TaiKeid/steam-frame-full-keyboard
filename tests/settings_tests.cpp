@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/cjk.hpp"
 #include "framekeyboard/key_sounds.hpp"
 #include "framekeyboard/startup.hpp"
 
@@ -337,6 +338,52 @@ void incompatible_saved_language() {
         app.show_settings();
         require(app.view().settings, "Settings remains reachable to repair the saved profile");
     }
+}
+// The Korean 12-key layout (천지인) was removed; a saved one, the main
+// language or an additional one, comes back as two-set Korean on US QWERTY
+// and is gone from the file at the next save.
+void removed_korean_12key() {
+    TemporaryDirectory directory;
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"ko-12key","language":"ko-cheonjiin","theme":"graphite"},)"
+           R"("favorites":[{"id":"a","name":"Korean 12-key","layout":"ko-12key","language":"ko-cheonjiin",)"
+           R"("theme":"graphite"},{"id":"b","name":"German","layout":"international-full",)"
+           R"("language":"de-de","theme":"graphite"},{"id":"c","name":"Korean","layout":"ko-12key",)"
+           R"("language":"ko-kr","theme":"graphite"}]})";
+    const Selection korean{"en-us-full", "ko-kr", "graphite"};
+    std::vector<std::string> errors;
+    const auto settings = load_settings(directory.path, errors);
+    require(errors.empty() && settings.active == korean, "a saved 천지인 main language opens as two-set Korean");
+    require(settings.favorites.size() == 3 && settings.favorites[0].selection == korean &&
+                settings.favorites[1].selection.language == "de-de" && settings.favorites[2].selection == korean,
+            "so do its additional pairs, the others kept");
+    if (!CjkComposer::supported("korean-2set")) {
+        std::cout << "Removed Korean 12-key in the app skipped: Hangul engine absent.\n";
+        return;
+    }
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(app.selection() == korean && app.view().status.empty(),
+            "the keyboard starts on two-set Korean without a complaint");
+    click(app, "pin");
+    app.flush_settings();
+    std::ifstream file(directory.path / "config.json");
+    const std::string saved_text(std::istreambuf_iterator<char>(file), {});
+    require(saved_text.find("ko-12key") == std::string::npos &&
+                saved_text.find("ko-cheonjiin") == std::string::npos,
+            "the next save leaves 천지인 out of the file");
+    app.show_settings();
+    click(app, "additional-languages");
+    std::vector<std::string> additional;
+    const auto view = app.view();
+    for (const auto& row : view.languages->additional) {
+        additional.push_back(row.title);
+    }
+    require(additional == std::vector<std::string>{"German, QWERTZ"},
+            "the additional languages hold no 천지인 row and no second Korean");
 }
 void missing_saved_language_status() {
     for (bool malformed : {false, true}) {
@@ -1830,7 +1877,7 @@ void languages_popup() {
             "the count skips legacy repeats and the main language");
     click(app, "additional-languages");
     auto view = app.view();
-    require(view.languages && view.languages->layouts.size() == 7, "the layouts show as tabs");
+    require(view.languages && view.languages->layouts.size() == 6, "the layouts show as tabs");
     require(view.languages->layouts.front().title == "US QWERTY" &&
                 view.languages->layouts.front().selected,
             "the common layouts lead, on the main language's");
@@ -1841,7 +1888,7 @@ void languages_popup() {
             "the additional list");
     require(view.languages->additional[1].note.find("(missing)") != std::string::npos,
             "a pair whose layout is gone stays listed so it can go");
-    tap_row(app, "Korean 12-key");
+    tap_row(app, "Japanese flick");
     require(!languages_row(app.view(), "Arabic").enabled, "languages a layout can't type stay listed");
     {
         const auto r = languages_row(app.view(), "Arabic").bounds;
@@ -2527,6 +2574,7 @@ int main() {
         compact_toolbar();
         startup_profile_fallback();
         incompatible_saved_language();
+        removed_korean_12key();
         missing_saved_language_status();
         key_control_namespaces();
         favorite_cache_reload();

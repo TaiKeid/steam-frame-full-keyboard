@@ -1,6 +1,5 @@
 #include "framekeyboard/cjk.hpp"
 #include "cjk_engine.hpp"
-#include "framekeyboard/cheonjiin.hpp"
 #include "table_engine.hpp"
 
 #include <dlfcn.h>
@@ -66,13 +65,7 @@ std::shared_ptr<Module> load(const std::string& method) {
 struct CjkComposer::State {
     std::shared_ptr<Module> module;
     std::unique_ptr<CjkEngine> engine; // Reverse destruction keeps module code alive.
-    // Set instead of module and engine for 천지인.
-    std::unique_ptr<CheonjiinComposer> cheonjiin;
     explicit State(const std::string& method) {
-        if (method == "korean-cheonjiin") {
-            cheonjiin = std::make_unique<CheonjiinComposer>();
-            return;
-        }
         if (const auto table = table_for(method)) {
             engine = std::make_unique<TableEngine>(table->path, table->max_keys);
             return;
@@ -86,9 +79,6 @@ struct CjkComposer::State {
 };
 bool CjkComposer::supported(const std::string& method) {
     std::lock_guard lock(engine_mutex());
-    if (method == "korean-cheonjiin") {
-        return true;
-    }
     if (const auto table = table_for(method)) {
         return TableEngine::available(table->path);
     }
@@ -117,11 +107,11 @@ void CjkComposer::type(char key) {
 }
 void CjkComposer::backspace() {
     std::lock_guard lock(engine_mutex());
-    state_->cheonjiin ? state_->cheonjiin->backspace() : state_->engine->backspace();
+    state_->engine->backspace();
 }
 void CjkComposer::cancel() {
     std::lock_guard lock(engine_mutex());
-    state_->cheonjiin ? state_->cheonjiin->cancel() : state_->engine->cancel();
+    state_->engine->cancel();
 }
 void CjkComposer::cycle(int direction) {
     std::lock_guard lock(engine_mutex());
@@ -137,11 +127,11 @@ void CjkComposer::choose(int index) {
 }
 std::string CjkComposer::preedit() const {
     std::lock_guard lock(engine_mutex());
-    return state_->cheonjiin ? state_->cheonjiin->text() : state_->engine->preedit();
+    return state_->engine->preedit();
 }
 std::string CjkComposer::text() const {
     std::lock_guard lock(engine_mutex());
-    return state_->cheonjiin ? state_->cheonjiin->text() : state_->engine->text();
+    return state_->engine->text();
 }
 std::vector<std::string> CjkComposer::candidates() const {
     std::lock_guard lock(engine_mutex());
@@ -153,11 +143,11 @@ int CjkComposer::selected() const {
 }
 bool CjkComposer::empty() const {
     std::lock_guard lock(engine_mutex());
-    return state_->cheonjiin ? state_->cheonjiin->empty() : state_->engine->empty();
+    return state_->engine->empty();
 }
 bool CjkComposer::has_reading() const {
     std::lock_guard lock(engine_mutex());
-    return state_->cheonjiin ? !state_->cheonjiin->empty() : state_->engine->has_reading();
+    return state_->engine->has_reading();
 }
 bool CjkComposer::chinese() const {
     std::lock_guard lock(engine_mutex());
@@ -168,19 +158,5 @@ bool CjkComposer::phonetic_keys() const {
 }
 bool CjkComposer::syllables() const {
     return syllables_;
-}
-bool CjkComposer::flick_input() const {
-    return static_cast<bool>(state_->cheonjiin);
-}
-void CjkComposer::flick(const std::string& text, bool replace) {
-    std::lock_guard lock(engine_mutex());
-    if (!state_->cheonjiin || text.empty()) {
-        return; // Empty: a direction this key does not use.
-    }
-    replace ? state_->cheonjiin->replace(text) : state_->cheonjiin->add(text);
-}
-std::string CjkComposer::last_flick() const {
-    std::lock_guard lock(engine_mutex());
-    return state_->cheonjiin ? state_->cheonjiin->last() : std::string{};
 }
 } // namespace framekeyboard

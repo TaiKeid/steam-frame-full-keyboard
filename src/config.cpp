@@ -124,8 +124,15 @@ Color color(json_object* object, const char* name, const std::string& fallback =
 }
 Selection selection(json_object* object, bool favorite = false) {
     const bool has_theme = field(object, "theme", json_type_string, favorite) != nullptr;
-    return {identifier(object, "layout"), identifier(object, "language"),
-            has_theme ? identifier(object, "theme") : "graphite"};
+    Selection result{identifier(object, "layout"), identifier(object, "language"),
+                     has_theme ? identifier(object, "theme") : "graphite"};
+    // The Korean 12-key layout (천지인) is gone; its users keep Korean, as
+    // two-set on US QWERTY.
+    if (result.language == "ko-cheonjiin" || result.layout == "ko-12key") {
+        result.layout = "en-us-full";
+        result.language = "ko-kr";
+    }
+    return result;
 }
 
 // Scan a directory as a transaction. Duplicate IDs never win by directory order.
@@ -323,7 +330,7 @@ Language parse_language(const std::string& json) {
     l.input_method = text(o, "input_method", "xkb", true);
     if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&
         l.input_method != "japanese-kana" && l.input_method != "japanese-flick" &&
-        l.input_method != "korean-2set" && l.input_method != "korean-cheonjiin" &&
+        l.input_method != "korean-2set" &&
         l.input_method != "chinese-pinyin-simplified" &&
         l.input_method != "chinese-pinyin-traditional" && l.input_method != "chinese-zhuyin" &&
         l.input_method != "chinese-cangjie" && l.input_method != "chinese-quick") {
@@ -389,14 +396,12 @@ Language parse_language(const std::string& json) {
     read_flick("flick_digits", l.flick_digits);
     // Digits reuse the kana slots, so a layout serving one serves both.
     if (!l.flick_digits.empty() &&
-        ((l.input_method != "japanese-flick" && l.input_method != "korean-cheonjiin") ||
-         l.flick_digits.size() != l.flick.size() ||
+        (l.input_method != "japanese-flick" || l.flick_digits.size() != l.flick.size() ||
          !std::all_of(l.flick_digits.begin(), l.flick_digits.end(),
                       [&](const auto& item) { return l.flick.contains(item.first); }))) {
-        throw std::runtime_error("flick_digits needs a flick input method and the same slots as flick");
+        throw std::runtime_error("flick_digits needs Japanese flick and the same slots as flick");
     }
-    if ((l.input_method == "japanese-flick" || l.input_method == "korean-cheonjiin") !=
-        !l.flick.empty()) {
+    if ((l.input_method == "japanese-flick") != !l.flick.empty()) {
         throw std::runtime_error("flick input needs a flick mapping, and only it uses one");
     }
     auto* map = field(o, "keymap", json_type_object);
@@ -892,8 +897,7 @@ void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
             return key.action_kind == ActionKind::Flick && key.action == slot;
         });
     };
-    // Each 12-key layout serves only the language whose slots it shows, so
-    // Japanese flick and Korean 천지인 never pair with each other's layout.
+    // A 12-key layout serves only the language whose slots it shows.
     if (std::any_of(layout.keys.begin(), layout.keys.end(), [&](const Key& key) {
             return key.action_kind == ActionKind::Flick && !language.flick.contains(key.action);
         })) {

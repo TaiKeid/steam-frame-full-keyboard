@@ -12,7 +12,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
-- Phone-style flick keyboards: Japanese 12-key kana and Korean 12-key 천지인.
+- A phone-style Japanese 12-key flick keyboard.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
 - **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
@@ -22,7 +22,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Twelve themes, light and dark, with a see-through Background option. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
 - Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
 - An experimental integration protocol that lets alternative Steam Frame shells host the keyboard: launching, placing, styling and updating it. See [shell integration](docs/integration.md).
-- English, Spanish, Simplified and Traditional Chinese, Japanese, German, French, Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian, Lithuanian, Bulgarian, Catalan, Serbian, Persian, Filipino, Icelandic, Georgian, Armenian, Kazakh, Azerbaijani, Macedonian and Albanian, each on its standard national layout, with regional and alternative keyboards for many of them. Chinese has Simplified and Traditional Pinyin, and Traditional also has Zhuyin, Cangjie and Quick; Korean uses two-set Hangul or a 12-key 천지인 keyboard.
+- English, Spanish, Simplified and Traditional Chinese, Japanese, German, French, Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian, Lithuanian, Bulgarian, Catalan, Serbian, Persian, Filipino, Icelandic, Georgian, Armenian, Kazakh, Azerbaijani, Macedonian and Albanian, each on its standard national layout, with regional and alternative keyboards for many of them. Chinese has Simplified and Traditional Pinyin, and Traditional also has Zhuyin, Cangjie and Quick; Korean uses two-set Hangul.
 
 ![Full Keyboard swipe typing, Japanese input, dictation, emoji and Settings on Steam Frame](docs/images/full-keyboard-demo.webp)
 
@@ -112,7 +112,7 @@ Select a language in Settings and **Apply and save**. The keyboard sends charact
 
 For Japanese, pick **Romaji**, **Kana**, or **JIS** from the Language dropdown in Settings, or the **Japanese flick 12-key** layout for phone-style flick input. Romaji, Kana and Flick compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
 
-Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean offers two-set Hangul or the **Korean 12-key (천지인)** layout: four rows as on a phone, with 「한A1」 for English and digits, Space between same-key consonants as on Samsung's, and flick shortcuts. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
+Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean uses two-set Hangul. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
 
 Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then use the **Reload config** icon in Settings:
 

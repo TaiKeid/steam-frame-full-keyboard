@@ -3,6 +3,7 @@
 //   simulator-tour OUTPUT_DIR
 // Typed text is the tour's own. With Anthy loadable (LD_LIBRARY_PATH and
 // FRAMEKEYBOARD_ANTHY_DICTIONARY, as for the simulator) candidates are real.
+#include "framekeyboard/cjk.hpp"
 #include "simulator/platform.hpp"
 #include "simulator/simulator.hpp"
 #include <algorithm>
@@ -162,18 +163,14 @@ int main(int argc, char** argv) {
             simulator.shutdown();
         }
         {
-            Simulator simulator(setup(root / "ko", "ko-12key", "ko-cheonjiin"));
-            // 한국어: ㅅ toggles to ㅎ, ㅣㆍ, ㄴ, ㄱ ㅡㆍ ㄱ, ㅇ ㆍㅣ.
-            std::istringstream slots("s +s i dot n g eu dot g o dot i");
-            for (std::string slot; slots >> slot;) {
-                if (slot.starts_with('+')) {
-                    flick(simulator, "Flick-" + slot.substr(1), 0, .1);
-                } else {
-                    wait(simulator, 1.5); // apart from a toggle
-                    flick(simulator, "Flick-" + slot, 0, .1);
+            Simulator simulator(setup(root / "ko", "en-us-full", "ko-kr"));
+            // 한국어 in two-set jamo, where libhangul is there to compose it.
+            if (CjkComposer::supported("korean-2set")) {
+                for (const auto* key : {"KeyG", "KeyK", "KeyS", "KeyR", "KeyN", "KeyR", "KeyD", "KeyJ"}) {
+                    flick(simulator, key, 0, .1);
                 }
             }
-            shot(simulator, "07-korean-cheonjiin");
+            shot(simulator, "07-korean");
             control(simulator, "settings");
             shot(simulator, "08-settings");
             simulator.shutdown();
