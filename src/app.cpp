@@ -271,12 +271,13 @@ std::vector<Control> App::controls() const {
     const auto body = panel_case_bounds(geometry);
     auto append_move_handle = [&] {
         if (!settings_.pinned && !settings_.use_drag_to_move && !locked_move() && !forwarded()) {
-            add({ControlKind::MoveHandle}, {"move-handle",
-                                            "Move keyboard",
-                                            {body.x + body.width / 2 - 220, panel_height + 12, 440, 60},
-                                            dragging_ && !resizing_,
-                                            Icon::None,
-                                            ControlStyle::MoveHandle});
+            add({ControlKind::MoveHandle},
+                {"move-handle",
+                 "Move keyboard",
+                 {body.x + body.width / 2 - 220, body.y + body.height + 12, 440, 60},
+                 dragging_ && !resizing_,
+                 Icon::None,
+                 ControlStyle::MoveHandle});
         }
     };
     if (settings_open_) {

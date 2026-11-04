@@ -107,6 +107,8 @@ constexpr double normal_toolbar_height = 96;
 // layout, as short as a phone's, gives the candidates a row of the band.
 constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 156,
                  ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
+// What the reading line adds to the toolbar's height.
+constexpr double reading_room = ime_toolbar_height - normal_toolbar_height;
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
 }
@@ -134,8 +136,11 @@ Placement placement(const PanelView& view) {
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
+    // A page keeping the reading line's scale has its keys right under the
+    // toolbar, in a case ending that much sooner (panel_case_bounds).
     return {scale, (panel_width - visible_layout_width(view) * scale) / 2,
-            toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2};
+            toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2 -
+                (view.ime_room ? reading_room : 0)};
 }
 // Whole pixels around a rectangle, for clips that never cut antialiasing.
 Rect pixel_bounds(Rect r, double margin = 0) {
@@ -1286,7 +1291,9 @@ Rect panel_case_bounds(const PanelView& view) {
     const double width =
         std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
                               (slack > 1 ? slack : 0));
-    return {(panel_width - width) / 2, 0, width, panel_height};
+    // Its top stays put, so the toolbar doesn't move when a reading line
+    // appears: the case grows down for it instead.
+    return {(panel_width - width) / 2, 0, width, panel_height - (view.ime_room ? reading_room : 0)};
 }
 double unbanded_layout_height(const PanelView& view) {
     if (!view.ime_band && !view.ime_room) {

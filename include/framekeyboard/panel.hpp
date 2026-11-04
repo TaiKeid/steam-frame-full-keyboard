@@ -210,8 +210,9 @@ struct PanelView {
     // `preedit`.
     bool ime_band{};
     // A language among the user's composes on this layout while the shown
-    // one doesn't: the toolbar keeps the reading line's room, empty, so
-    // switching between them leaves every key where it was.
+    // one doesn't: the keys keep the scale the reading line gives them, in a
+    // case without the line, ending sooner, so switching between them moves
+    // the keys only down and the toolbar not at all.
     bool ime_room{};
     // The candidate row ends with ∨, which opens the whole list over the
     // keys, as a phone's does.

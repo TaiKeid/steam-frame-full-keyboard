@@ -180,7 +180,8 @@ text that was already submitted is never replayed automatically.
 Chinese and Korean show the reading centred in a line of its own between the
 toolbar and the keys, with a hint while nothing is typed, and the case fits the
 keys with no empty space at the sides. Other languages on the same layout among
-your languages keep that line's room, empty, so switching to them moves no key.
+your languages keep the keys at that size, in a case without the line, so
+switching between them moves the keys only down, as the case grows for it.
 The candidates show in the toolbar row,
 after its buttons, where swipe suggestions go: centred while they all fit, or
 filling the row with ∨ after them while there are more; a still row ends on a

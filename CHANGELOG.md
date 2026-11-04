@@ -17,7 +17,7 @@
 - Japanese on full-size layouts types kana only, as Japanese keyboards do: the あ / A button is gone. For English, add an English layout as an additional language; a JIS keyboard's 半/全 and かな keys still switch.
 - Chinese and two-set Korean type their own script only, as their keyboards do: the 中文 / A and 한 / A buttons are gone. For English, add an English layout as an additional language and switch with the language button.
 - Japanese live candidates end with emoji for the reading, as on a phone: ねこ offers 🐈 🐱 🐈‍⬛ 😺. They come from the IBus emoji dictionary SteamOS already has.
-- With a Japanese, Chinese or Korean language among your languages, the other languages on the same layout keep its reading line's room, so switching between English and Romaji on US QWERTY no longer resizes and moves every key.
+- With a Japanese, Chinese or Korean language among your languages, the other languages on the same layout keep the keys at the size its reading line gives them, so switching between English and Romaji on US QWERTY no longer resizes the keys or moves the toolbar: the case only grows down for the reading line.
 - Added **Flick only** to Settings → Languages and Layouts for the Japanese flick layout, as on phones: with it on, taps never cycle, so a quick second tap of か types かか instead of き. It is off by default, as on iPhone and Gboard.
 - Japanese romaji types ? and ! as ？ and ！, as Japanese input methods do: なんですか？ rather than なんですか?. The half-width forms are among the candidates.
 - Japanese conversion keeps ！, ？ and brackets as typed. ちょっとまって！ used to become ちょっと待って! with a half-width !, and a closing 」 became 』. The other forms are still offered after the typed one.

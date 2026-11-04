@@ -637,8 +637,9 @@ void progressive_conversion() {
 // a pause, a tap moving on through the segments, the arrows resizing, a drag
 // scrolling without picking, and the keys keeping their size across A / あ.
 // With a composing language among the user's languages on the same layout,
-// every page keeps the reading line's room, so switching to it from English
-// moves no key; without one, English keeps the whole height.
+// every page keeps the scale the reading line gives the keys, so switching
+// to it from English moves the keys only down; without one, English keeps
+// the whole height.
 void reading_room() {
     for (const bool shared : {true, false}) {
         char directory[] = "/tmp/framekeyboard-room-XXXXXX";
@@ -678,14 +679,20 @@ void reading_room() {
             require(!english.ime_room && !english.ime_band, "English alone keeps the whole height");
             continue;
         }
-        require(english.ime_room && !english.ime_band, "English keeps the reading line's room");
+        require(english.ime_room && !english.ime_band, "English keeps the reading line's scale");
         control(app, "language-cycle");
         require(app.selection().language == "ja-romaji" && app.view().ime_band,
                 "the language button switches to romaji");
-        require(key_centre(app, "KeyQ") == q &&
-                    panel_case_bounds(app.view()) == panel_case_bounds(english) &&
-                    settings_button() == button,
-                "switching from English to romaji leaves every key and button in place");
+        const auto romaji = panel_case_bounds(app.view());
+        const auto shorter = panel_case_bounds(english);
+        const auto moved = key_centre(app, "KeyQ");
+        require(moved.first == q.first && moved.second > q.second + 40 && settings_button() == button &&
+                    romaji.x == shorter.x && romaji.width == shorter.width && romaji.y == shorter.y &&
+                    romaji.height > shorter.height + 40,
+                "switching to romaji moves the keys only down, under the new reading line, "
+                "and the case grows down for it while the toolbar stays");
+        require(std::abs((moved.second - q.second) - (romaji.height - shorter.height)) < 2,
+                "the keys move down as far as the case grows");
         control(app, "language-cycle");
         require(key_centre(app, "KeyQ") == q, "and back again");
     }
