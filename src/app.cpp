@@ -3917,8 +3917,12 @@ bool App::key_flick_key(const Key& key, const std::set<int>& modifiers) {
         return false;
     }
     // Enter, Tab, Backspace and the arrows have no character: they keep
-    // acting on press and repeating.
-    if (!LanguageMap::printable(keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num()))) {
+    // acting on press and repeating. Kana keys have theirs in the language,
+    // also where the keymap below has none, as for ー and ろ.
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    const bool kana = language.input_method == "japanese-kana" && language.kana.contains(key.action);
+    if (!kana &&
+        !LanguageMap::printable(keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num()))) {
         return false;
     }
     return japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers) ||

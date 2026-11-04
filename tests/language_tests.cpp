@@ -178,6 +178,16 @@ void key_flicks() {
         flick("Slash", 60);
         require(typed() == "^?", "and its digits and punctuation flick as on US QWERTY");
     }
+    // Kana ろ and ー have no symbol in the keymap below, and still wait for release.
+    app.apply({"ja-jis-full", "ja-kana", "graphite"});
+    {
+        const auto [x, y] = centre("IntlRo");
+        app.down(0, x, y, now);
+        require(app.view().preedit.empty(), "ろ waits for release");
+        app.up(0, x, y);
+        require(app.view().preedit == "ろ", "and types then");
+        click(app, "Escape");
+    }
     // Romaji composes lowercase: its letters don't flick, its digits do.
     app.apply({"en-us-full", "ja-romaji", "graphite"});
     flick("KeyK", 60);
