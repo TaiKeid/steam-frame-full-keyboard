@@ -7,6 +7,8 @@
 #   FRAMEKEYBOARD_APPIMAGE_RUNTIME  the type2 runtime it puts in front
 #   FRAMEKEYBOARD_ANTHY_ROOT        optional: an unpacked Anthy package
 #                                   (usr/lib, usr/share/anthy) to bundle
+#   FRAMEKEYBOARD_IBUS_ROOT         optional: unpacked libibus and ibus packages
+#                                   (usr/lib, usr/share/ibus/dicts), for emoji
 #   FRAMEKEYBOARD_EXECUTORCH_HOST   optional: includes swipe typing, as for
 #                                   the host build (docs/building.md)
 set -euo pipefail
@@ -16,6 +18,11 @@ cd "$project_dir"
 tool=${FRAMEKEYBOARD_APPIMAGETOOL:?set FRAMEKEYBOARD_APPIMAGETOOL (docs/simulator.md#appimage)}
 runtime=${FRAMEKEYBOARD_APPIMAGE_RUNTIME:?set FRAMEKEYBOARD_APPIMAGE_RUNTIME (docs/simulator.md#appimage)}
 anthy=${FRAMEKEYBOARD_ANTHY_ROOT:-}
+ibus=${FRAMEKEYBOARD_IBUS_ROOT:-}
+if [[ -n $ibus && ! -f $ibus/usr/share/ibus/dicts/emoji-ja.dict ]]; then
+    echo "No usr/share/ibus/dicts/emoji-ja.dict in $ibus" >&2
+    exit 1
+fi
 if [[ -n $anthy && ! -f $anthy/usr/lib/libanthy.so.0 ]]; then
     echo "No usr/lib/libanthy.so.0 in $anthy" >&2
     exit 1
@@ -103,6 +110,13 @@ if [[ -n $anthy ]]; then
     mkdir -p "$appdir/usr/share/anthy"
     cp "$anthy/usr/share/anthy/anthy.dic" "$appdir/usr/share/anthy/"
     cp -r third_party/anthy "$appdir/usr/share/licenses/"
+fi
+if [[ -n $ibus ]]; then
+    # The Frame has both; the simulator brings them for emoji candidates.
+    cp -L "$ibus/usr/lib/libibus-1.0.so.5" "$appdir/usr/lib/"
+    mkdir -p "$appdir/usr/share/ibus/dicts"
+    cp "$ibus/usr/share/ibus/dicts/emoji-ja.dict" "$appdir/usr/share/ibus/dicts/"
+    cp -r third_party/ibus "$appdir/usr/share/licenses/"
 fi
 # Each bundled library's package, version and license, with the package's
 # own license files and the SPDX texts it names.

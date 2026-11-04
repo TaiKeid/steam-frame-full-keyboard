@@ -1,5 +1,6 @@
 // The desktop simulator's window (docs/simulator.md): SDL events become the
 // Simulator's pointer calls, and its canvas is shown scaled to the window.
+#include "framekeyboard/emoji_words.hpp"
 #include "platform.hpp"
 #include "simulator.hpp"
 #include <SDL.h>
@@ -65,6 +66,9 @@ int main(int argc, char** argv) {
         bool list = false;
         double duration = 0;
         fs::path dictionary;
+        if (const char* path = std::getenv("FRAMEKEYBOARD_EMOJI_DICTIONARY"); path && *path) {
+            fk::set_emoji_dictionary(path); // The Frame has IBus's; a desktop may not.
+        }
         if (const char* path = std::getenv("FRAMEKEYBOARD_ANTHY_DICTIONARY"); path && *path) {
             dictionary = path;
         }
