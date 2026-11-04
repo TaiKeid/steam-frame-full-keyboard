@@ -20,12 +20,16 @@ void require(bool value, const std::string& message) {
 struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
     std::vector<std::string> text, delivery;
+    bool accept = true;
     void send(int code, int value) override {
         keys.emplace_back(code, value);
         delivery.push_back("key");
     }
     bool text_available() override { return true; }
     bool commit_text(const std::string& value) override {
+        if (!accept) {
+            return false;
+        }
         delivery.push_back("commit");
         text.push_back(value);
         return true;
@@ -482,6 +486,14 @@ void app_input() {
     flick(app, "o", now += 2);
     require(sink.text.size() >= 2 && sink.text[sink.text.size() - 2] == "₩" && sink.text.back() == "0",
             "digits and their flicks type at once");
+    sink.accept = false;
+    flick(app, "eu", now += 2);
+    require(preedit() == "3" && !app.view().status.empty(), "a refused digit waits in the band");
+    sink.accept = true;
+    flick(app, "g", now += 2);
+    require(sink.text.size() >= 2 && sink.text[sink.text.size() - 2] == "3" && sink.text.back() == "4" &&
+                preedit().empty(),
+            "and goes ahead of the next digit");
     flick(app, "mode", now += 2);
     require(app.view().key_labels.at("Flick-i") == "ㅣ", "a third tap returns to 한글");
     flick(app, "mode", now += 2, 0, -60);

@@ -1022,6 +1022,11 @@ PanelView App::build_view(bool picker) const {
                                         static_cast<int>(flick_track_->direction)};
         }
     }
+    if (cjk_ && v.ime_band) {
+        // 천지인's band shows the reading on every page: a digit the field
+        // refused waits there for the next commit.
+        v.preedit = cjk_->preedit();
+    }
     if (cjk_ && !cjk_latin_) {
         v.composing = true;
         v.preedit = cjk_->preedit();
@@ -3572,15 +3577,14 @@ void App::type_now(const std::string& text) {
         return; // A direction this key does not use.
     }
     if (cjk_) {
-        // The reading goes first; a refused commit keeps it, and the digit waits.
+        // Through the reading too, so a refused commit keeps the digit there
+        // for Enter to retry, as it keeps a word.
         commit_cjk();
         if (!cjk_->empty()) {
             return;
         }
-        if (!preview_output() && !text_output_->commit_text(text)) {
-            text_refused();
-        }
-        status_.clear();
+        cjk_->flick(text, false);
+        commit_cjk();
         return;
     }
     // Through the reading, so a failed commit keeps the text as it does a phrase.
