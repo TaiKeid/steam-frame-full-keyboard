@@ -1322,7 +1322,8 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             return c.action.kind == ControlKind::CandidateList && c.bounds.contains(x, y);
         })) {
         // The menu's own margin, around the lines, is still the menu.
-        const auto& list = *candidates_.view().list;
+        const auto strip = candidates_.view();
+        const auto& list = *strip.list;
         if (Rect{list.x - 8, list.y, list.width + 16, list.height + 8}.contains(x, y)) {
             return false;
         }
