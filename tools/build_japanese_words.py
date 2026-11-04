@@ -17,8 +17,8 @@ import sys
 MOZC_COMMIT = "74f8ee66c5546d1f3ce4fadbef23a3b402239eed"
 # Parts of speech that complete a reading well: words, not names, particles,
 # affixes or symbols.
-KEPT = ("名詞,一般", "名詞,サ変接続", "名詞,形容動詞語幹", "名詞,副詞可能", "名詞,ナイ形容詞語幹",
-        "動詞,自立", "形容詞,自立", "副詞", "感動詞", "連体詞", "接続詞")
+KEPT = ("名詞,一般", "名詞,代名詞", "名詞,サ変接続", "名詞,形容動詞語幹", "名詞,副詞可能",
+        "名詞,ナイ形容詞語幹", "動詞,自立", "形容詞,自立", "副詞", "感動詞", "連体詞", "接続詞")
 READING = re.compile(r"^[ぁ-ゖー]{2,12}$")
 # A word written in Latin letters or digits completes nothing typed in kana.
 LATIN = re.compile(r"[0-9A-Za-z０-９Ａ-Ｚａ-ｚ]")
@@ -39,6 +39,9 @@ def main() -> int:
     # nothing anyone would choose.
     kept_ids = {number for number, kind in kinds.items()
                 if kind.startswith(KEPT) and kind.split(",")[5] in ("*", "基本形")}
+    # A word Mozc compounded from one of its words (顔全体, 今日の給食, 本剤)
+    # shares that word's id, whose last field names it: keep only the word.
+    base_of = {number: kind.split(",")[6] for number, kind in kinds.items()}
     hidden = set()
     for line in (args.dictionary / "suggestion_filter.txt").read_text(encoding="utf-8").splitlines():
         if line and not line.startswith("#"):
@@ -51,8 +54,9 @@ def main() -> int:
             if len(fields) != 5:
                 continue
             reading, left, _, cost, word = fields
+            base = base_of.get(int(left), "*")
             if (int(left) not in kept_ids or not READING.match(reading) or LATIN.search(word) or
-                    word in hidden or "\t" in word):
+                    word in hidden or "\t" in word or (base != "*" and word != base)):
                 continue
             key = (reading, word)
             best[key] = min(best.get(key, 1 << 30), int(cost))

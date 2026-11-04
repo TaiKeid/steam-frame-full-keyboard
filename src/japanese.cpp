@@ -1110,17 +1110,25 @@ std::vector<std::string> JapaneseWords::complete(const std::string& reading, std
     auto it = std::lower_bound(
         entries_.begin(), entries_.end(), std::string_view(reading),
         [&](const Entry& entry, std::string_view key) { return reading_of(entry) < key; });
+    // A small kana right after the reading would make its last kana another
+    // sound: きみ is no start of きみょう.
+    constexpr std::string_view small = "ゃゅょぁぃぅぇぉゎ";
     std::vector<const Entry*> found;
     for (; it != entries_.end() && reading_of(*it).starts_with(reading); ++it) {
-        if (reading_of(*it).size() == reading.size()) {
+        const auto rest = reading_of(*it).substr(reading.size());
+        if (rest.empty()) {
             exact = std::min(exact, static_cast<int>(it->cost));
-        } else {
+        } else if (rest.size() < 3 || small.find(rest.substr(0, 3)) == std::string_view::npos) {
             found.push_back(&*it);
         }
     }
     std::stable_sort(found.begin(), found.end(),
                      [](const Entry* a, const Entry* b) { return a->cost < b->cost; });
-    first = !found.empty() && found.front()->cost < exact;
+    // A word read so leads its completions unless they are clearly commoner:
+    // おめでとう (1842) leads おめでと (4192), but 涙 keeps its place before
+    // 涙する and だめ before ダメージ.
+    constexpr int clearly = 1000;
+    first = !found.empty() && found.front()->cost + clearly < exact;
     std::vector<std::string> result;
     for (const auto* entry : found) {
         std::string word(text_.data() + entry->word, entry->word_size);

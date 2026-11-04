@@ -9,8 +9,9 @@ The list is derived from Mozc's open-source dictionary,
 `src/data/dictionary_oss/` of https://github.com/google/mozc at commit
 `74f8ee66c5546d1f3ce4fadbef23a3b402239eed`. Only dictionary forms of nouns,
 verbs, adjectives, adverbs, interjections, adnominals and conjunctions are
-kept: no proper nouns, particles, affixes, inflected stems or words written in
-Latin letters or digits, and none of Mozc's own suggestion filter. Mozc is
+kept, pronouns among them: no proper nouns, particles, affixes, inflected stems,
+compounds Mozc built from another word (顔全体, 今日の給食), words written in
+Latin letters or digits, or Mozc's own suggestion filter. Mozc is
 under the BSD 3-Clause license; its dictionary data is derived from IPAdic
 (and ICOT Free Software) and the public-domain Okinawa dictionary. All their
 notices are in `third_party/mozc/LICENSE`.

@@ -641,7 +641,12 @@ void word_completion() {
                            "ありがとうございます\tありがとうございます\t1086\n"
                            "おめでとう\tおめでとう\t1842\n"
                            "おめでとう\tお目出度う\t4071\n"
-                           "おめでとうございます\tおめでとうございます\t2296\n";
+                           "おめでとうございます\tおめでとうございます\t2296\n"
+                           "きみ\t君\t1855\n"
+                           "きみたち\t君たち\t3469\n"
+                           "きみょう\t奇妙\t1000\n"
+                           "なみだ\t涙\t4109\n"
+                           "なみだする\t涙する\t3384\n";
     const JapaneseWords words(file);
     bool first = false;
     require(
@@ -653,6 +658,10 @@ void word_completion() {
                 !first,
             "a reading that is a commoner word than its completions comes before them");
     require(words.complete("ん", 3, first).empty() && !first, "nothing begins with ん");
+    require(words.complete("きみ", 3, first) == std::vector<std::string>{"君たち"} && !first,
+            "a small kana after the reading is another sound: きみ doesn't complete to きみょう");
+    require(words.complete("なみだ", 3, first) == std::vector<std::string>{"涙する"} && !first,
+            "a word read so stays before a completion that is only a little commoner");
     bool none = true;
     require(JapaneseWords{}.complete("おめでと", 3, none).empty() && !none, "no list, no completions");
 

@@ -72,9 +72,10 @@ class JapaneseWords {
   public:
     explicit JapaneseWords(std::filesystem::path file = {}) : file_(std::move(file)) {}
     // Up to `most` words whose reading begins with `reading` and is longer,
-    // commonest first. `first` says whether they come before the reading's
-    // own conversion: when it is no word itself, or a rarer one than the
-    // commonest of them (おめでと, before おめでとう).
+    // commonest first, never one turning its last kana into another sound
+    // with a small kana (きみょう for きみ). `first` says whether they come
+    // before the reading's own conversion: when it is no word itself, or a
+    // clearly rarer one than the commonest of them (おめでと, before おめでとう).
     std::vector<std::string> complete(const std::string& reading, std::size_t most, bool& first) const;
     // Up to `most` words of exactly this reading, lowest cost first.
     std::vector<std::string> exact(const std::string& reading, std::size_t most) const;
