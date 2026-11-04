@@ -1031,6 +1031,43 @@ void reading_room() {
         require(key_centre(app, "KeyQ") == q, "and back again");
     }
 }
+// The language button types a reading as it stands before switching, as
+// 半/全 does; a reading the target refuses keeps its language.
+void language_commits_reading() {
+    char directory[] = "/tmp/framekeyboard-chip-XXXXXX";
+    require(mkdtemp(directory), "temporary chip profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Settings settings;
+    settings.active = {"en-us-full", "ja-romaji", "graphite"};
+    settings.favorites = {Favorite{"en", "English", {"en-us-full", "en-us", "graphite"}}};
+    save_settings(directory, settings);
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    auto preedit = [&] { return app.view().preedit; };
+    sink.accept = false;
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    require(preedit() == "か", "romaji types a reading");
+    control(app, "language-cycle");
+    require(app.selection().language == "ja-romaji" && preedit() == "か" && sink.text.empty(),
+            "a reading the target refuses stays, in its language");
+    sink.accept = true;
+    control(app, "language-cycle");
+    require(app.selection().language == "en-us" && preedit().empty() &&
+                sink.text == std::vector<std::string>{"か"},
+            "the language button types the reading before switching");
+}
 void candidate_band() {
     char directory[] = "/tmp/framekeyboard-band-XXXXXX";
     require(mkdtemp(directory), "temporary band profile");
@@ -2114,6 +2151,7 @@ int main() {
         progressive_conversion();
         candidate_band();
         reading_room();
+        language_commits_reading();
         flick_width();
         next_words();
         candidate_list();

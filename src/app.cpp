@@ -3237,10 +3237,11 @@ void App::apply_settings() {
 }
 void App::action(const ControlAction& command) {
     const auto kind = command.kind;
-    if (output_.text_pending() && kind == ControlKind::ImeToggle) {
-        // A / あ commits a reading first, which waits like any commit. Text
-        // already on its way still finishes.
-        if (!composition_.empty()) {
+    if (output_.text_pending() &&
+        (kind == ControlKind::ImeToggle || kind == ControlKind::LanguageCycle)) {
+        // A / あ and another language commit a reading first, which waits
+        // like any commit. Text already on its way still finishes.
+        if (composing_text()) {
             return;
         }
     }
@@ -3327,7 +3328,9 @@ void App::action(const ControlAction& command) {
         save();
     } else if (kind == ControlKind::LanguageCycle) {
         const auto& entries = cycle_entries_;
-        if (entries.size() > 1) {
+        // The reading is typed as it stands, as 半/全 types it; one that
+        // cannot be keeps its language.
+        if (entries.size() > 1 && commit_composition()) {
             const auto current =
                 std::find_if(entries.begin(), entries.end(),
                              [&](const Selection& entry) { return same_pair(entry, settings_.active); });
