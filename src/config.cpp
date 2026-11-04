@@ -389,10 +389,11 @@ Language parse_language(const std::string& json) {
     read_flick("flick_digits", l.flick_digits);
     // Digits reuse the kana slots, so a layout serving one serves both.
     if (!l.flick_digits.empty() &&
-        (l.input_method != "japanese-flick" || l.flick_digits.size() != l.flick.size() ||
+        ((l.input_method != "japanese-flick" && l.input_method != "korean-cheonjiin") ||
+         l.flick_digits.size() != l.flick.size() ||
          !std::all_of(l.flick_digits.begin(), l.flick_digits.end(),
                       [&](const auto& item) { return l.flick.contains(item.first); }))) {
-        throw std::runtime_error("flick_digits needs Japanese flick and the same slots as flick");
+        throw std::runtime_error("flick_digits needs a flick input method and the same slots as flick");
     }
     if ((l.input_method == "japanese-flick" || l.input_method == "korean-cheonjiin") !=
         !l.flick.empty()) {

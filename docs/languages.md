@@ -194,8 +194,20 @@ key. Use the `한 / A` control to switch between Hangul and Latin typing. Chines
 has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
 
 For 12-key Korean, choose the **Korean 12-key** layout; it selects
-한국어 천지인. It keeps Esc, the F keys and the number row, with Tab, ←, ↑/↓
-and Shift on the left and Space, → and a two-row Enter on the right. Its 3×4 grid is ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-.
+한국어 천지인. Like the Japanese flick layout, it is four rows, as on a phone:
+the 3×4 grid ㅣ ㆍ ㅡ / ㄱㅋ ㄴㄹ ㄷㅌ / ㅂㅍ ㅅㅎ ㅈㅊ / .,?! ㅇㅁ ~^-, with ↶, ←,
+😊 and 「한A1」 on its left and ⌫, →, Space and Enter on its right. Cut, Copy
+and Paste stay in the side column. The reading shows in a band above the keys,
+which stays in every mode, so the keys keep their size.
+
+- 「한A1」 switches between 한글, English and digits; its lit character shows
+  which is on. A tap moves on to the next mode; a flick picks one: left for
+  한글, up for English, right for digits. Switching commits the reading first.
+  English shows a QWERTY page with Esc, Tab, Shift and the arrows, whose letters
+  type at once. Digits turn the grid into a number pad, 1–9 with ( 0 . on the
+  bottom row; a flick types its symbols, such as ₩ $ € on 2.
+- ↶ goes back one step: the last consonant or punctuation steps back through
+  its key's taps (ㄲ ㅋ ㄱ), and anything else loses its last stroke.
 
 - Vowels are built from the strokes ㅣ, ㆍ and ㅡ: ㅣㆍ ㅏ, ㆍㅣ ㅓ, ㆍㅡ ㅗ,
   ㅡㆍ ㅜ, ㅣㆍㆍ ㅑ, ㆍㆍㅣ ㅕ, ㆍㆍㅡ ㅛ, ㅡㆍㆍ ㅠ. Another ㅣ adds to the vowel
@@ -204,16 +216,19 @@ and Shift on the left and Space, → and a two-row Enter on the right. Its 3×4 
   typed as it shows if committed.
 - Tapping a consonant key again within one second changes the consonant:
   ㄱ ㅋ ㄲ, ㄴ ㄹ, ㄷ ㅌ ㄸ, ㅂ ㅍ ㅃ, ㅅ ㅎ ㅆ, ㅈ ㅊ ㅉ, ㅇ ㅁ. To type the same
-  consonant twice, as in 각기, wait a second or press → in between.
+  consonant twice, as in 학교, press Space in between, as on Samsung's 천지인:
+  while the consonant could still change, Space only ends it, and another Space
+  types a space. Waiting a second or pressing → works too.
 - Flicks are shortcuts: a consonant key flicks right for its second consonant
   and up for its double one, ㅣ flicks right for ㅏ and left for ㅓ, and ㅡ up for
   ㅗ and down for ㅜ, the side the dot goes on. .,?! cycles . , ? ! and flicks to
   , ? ! …; ~^- cycles ~ ^ - and flicks to ( " ) '.
 - Syllables, final consonants and clusters such as ㄺ form as in two-set
   typing, and a final moves to the next syllable when a vowel follows.
-  Backspace removes the last stroke or consonant. Space, Enter, Commit, Esc,
-  Cancel and other keys behave as for two-set Korean, and held Backspace
-  repeats on the reading the same way.
+  Backspace removes the last stroke or consonant. Enter commits the reading;
+  Space and other keys commit it before acting, as for two-set Korean, and held
+  Backspace repeats on the reading the same way. The keys do all of this, so the
+  toolbar has no 한 / A, Commit or Cancel buttons on this layout.
 
 천지인 composes inside Full Keyboard and needs no libhangul. Leaving the
 12-key layout switches to two-set Korean, which does.

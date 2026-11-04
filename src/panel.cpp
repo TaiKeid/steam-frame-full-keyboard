@@ -82,15 +82,19 @@ double handle_ease_out(double progress) {
     return t * t * (3 - 2 * t);
 }
 constexpr double normal_toolbar_height = 96;
-// The Japanese band sits below the status line and a compact toolbar's second
-// row; the keys follow it. It stays in both of the language's modes, so A / あ
-// never changes their size, and the case is measured with it. The flick
-// layout, as short as a phone's, gives the reading and the candidates a row
-// each; other layouts share one.
+// The Japanese and 천지인 band sits below the status line and a compact
+// toolbar's second row; the keys follow it. It stays in every mode, so A / あ
+// and the mode key never change their size, and the case is measured with it.
+// The flick layouts, as short as a phone's, give the reading and the
+// candidates a row each; other layouts share one.
 constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 156,
                  ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
+// The flick layouts share one geometry, 천지인's second row waiting for
+// suggestions, so dictation and switching between them keep the keys' size.
 bool two_row_band(const PanelView& view) {
-    return view.ime_band && view.language && view.language->input_method == "japanese-flick";
+    return view.ime_band && view.language &&
+           (view.language->input_method == "japanese-flick" ||
+            view.language->input_method == "korean-cheonjiin");
 }
 constexpr double candidate_font_size = 21, reading_font_size = 24;
 struct Placement {
@@ -1033,14 +1037,15 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
             return;
         }
         if (key.action == flick_mode_slot) {
-            // The mode key: あ, A and 1 across it, the one in use lit. A tap
-            // moves on to the next; a flick picks one, as its preview shows.
-            const std::array<const char*, 3> modes{"あ", "A", "1"};
+            // The mode key: あ or 한, A and 1 across it, the one in use lit. A
+            // tap moves on to the next; a flick picks one, as its preview shows.
+            const auto& mode = slot->second;
+            const std::array<const std::string*, 3> modes{&mode.left, &mode.up, &mode.right};
             const int on = view.flick_digits ? 2 : view.flick_latin ? 1 : 0;
             const double inset = face.width * .08, third = (face.width - 2 * inset) / 3;
             for (int i = 0; i < 3; ++i) {
                 // One size for all three, small enough for the kana's width.
-                label(cr, modes[static_cast<std::size_t>(i)],
+                label(cr, *modes[static_cast<std::size_t>(i)],
                       {face.x + inset + third * i, face.y, third, face.height},
                       std::min(t.font_size, third * .8), view.language->font, i == on ? t.legend : hint,
                       true);
@@ -1677,17 +1682,21 @@ std::string composition_hint(const PanelView& view) {
     if (view.ime_band && !view.composing) {
         // The flick layout switches with its 「あA1」 key, others with A / あ.
         // A tap on 「あA1」 goes English → digits → kana; a left flick picks kana.
+        if (method == "korean-cheonjiin") {
+            return view.flick_digits ? "숫자 입력 · 한A1: 한글 입력으로"
+                                     : "영어 입력 · 한A1을 왼쪽으로 밀면 한글 입력";
+        }
         if (method != "japanese-flick") {
             return "英字入力 · A / あ: かな入力に戻る";
         }
         return view.flick_digits ? "数字入力 · あA1: かな入力に戻る"
                                  : "英字入力 · あA1を左にフリック: かな入力に戻る";
     }
-    return method == "korean-2set"        ? "Type → Space/Enter: commit · Esc: cancel"
-           : method == "korean-cheonjiin" ? "천지인 → ㅣㆍㅡ: vowels · Space/Enter: commit · Esc: cancel"
-           : method == "chinese-zhuyin"   ? "注音 → Space: select · Enter: commit · Esc: cancel"
-           : method == "chinese-cangjie"  ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
-           : method == "chinese-quick"    ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
+    return method == "korean-2set"          ? "Type → Space/Enter: commit · Esc: cancel"
+           : method == "korean-cheonjiin"   ? "천지인 → 스페이스: 다음 글자 · ↶: 한 단계 뒤로"
+           : method == "chinese-zhuyin"     ? "注音 → Space: select · Enter: commit · Esc: cancel"
+           : method == "chinese-cangjie"    ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
+           : method == "chinese-quick"      ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
            : method.starts_with("chinese-") ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
            : method == "japanese-kana"      ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
            : method == "japanese-flick"

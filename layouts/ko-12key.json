@@ -3,31 +3,18 @@
   "id": "ko-12key",
   "name": "Korean 12-key",
   "language": "ko-cheonjiin",
-  "width": 1020,
-  "height": 416,
+  "width": 954,
+  "height": 278,
+  "latin_layout": "ko-12key-qwerty",
   "keys": [
-    {
-      "id": "Emoji",
-      "label": "Emoji",
-      "secondary_label": "",
-      "x": 0,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "emoji",
-        "value": "picker"
-      },
-      "icon": "emoji"
-    },
     {
       "id": "Cut",
       "label": "Cut",
       "secondary_label": "",
       "x": 0,
-      "y": 66,
+      "y": 54,
       "width": 79,
-      "height": 70,
+      "height": 48,
       "action": {
         "kind": "shortcut",
         "value": "cut"
@@ -39,9 +26,9 @@
       "label": "Copy",
       "secondary_label": "",
       "x": 0,
-      "y": 146,
+      "y": 112,
       "width": 79,
-      "height": 70,
+      "height": 48,
       "action": {
         "kind": "shortcut",
         "value": "copy"
@@ -53,9 +40,9 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 226,
+      "y": 170,
       "width": 79,
-      "height": 70,
+      "height": 48,
       "action": {
         "kind": "shortcut",
         "value": "paste"
@@ -67,9 +54,9 @@
       "label": "Dictation",
       "secondary_label": "",
       "x": 0,
-      "y": 306,
+      "y": 228,
       "width": 79,
-      "height": 110,
+      "height": 50,
       "action": {
         "kind": "dictation",
         "value": "mic"
@@ -77,368 +64,16 @@
       "icon": "mic"
     },
     {
-      "id": "Escape",
-      "label": "Esc",
+      "id": "Flick-undo",
+      "label": "↶",
       "secondary_label": "",
       "x": 120,
       "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "Escape"
-      }
-    },
-    {
-      "id": "F1",
-      "label": "F1",
-      "secondary_label": "",
-      "x": 240.8,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F1"
-      }
-    },
-    {
-      "id": "F2",
-      "label": "F2",
-      "secondary_label": "",
-      "x": 301.2,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F2"
-      }
-    },
-    {
-      "id": "F3",
-      "label": "F3",
-      "secondary_label": "",
-      "x": 361.6,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F3"
-      }
-    },
-    {
-      "id": "F4",
-      "label": "F4",
-      "secondary_label": "",
-      "x": 422.0,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F4"
-      }
-    },
-    {
-      "id": "F5",
-      "label": "F5",
-      "secondary_label": "",
-      "x": 512.6,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F5"
-      }
-    },
-    {
-      "id": "F6",
-      "label": "F6",
-      "secondary_label": "",
-      "x": 573.0,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F6"
-      }
-    },
-    {
-      "id": "F7",
-      "label": "F7",
-      "secondary_label": "",
-      "x": 633.4,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F7"
-      }
-    },
-    {
-      "id": "F8",
-      "label": "F8",
-      "secondary_label": "",
-      "x": 693.8,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F8"
-      }
-    },
-    {
-      "id": "F9",
-      "label": "F9",
-      "secondary_label": "",
-      "x": 784.4,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F9"
-      }
-    },
-    {
-      "id": "F10",
-      "label": "F10",
-      "secondary_label": "",
-      "x": 844.8,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F10"
-      }
-    },
-    {
-      "id": "F11",
-      "label": "F11",
-      "secondary_label": "",
-      "x": 905.2,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F11"
-      }
-    },
-    {
-      "id": "F12",
-      "label": "F12",
-      "secondary_label": "",
-      "x": 965.6,
-      "y": 0,
-      "width": 54.4,
-      "height": 44,
-      "action": {
-        "kind": "key",
-        "value": "F12"
-      }
-    },
-    {
-      "id": "Backquote",
-      "label": "`",
-      "secondary_label": "~",
-      "x": 120,
-      "y": 66,
-      "width": 54.4,
+      "width": 120,
       "height": 62,
       "action": {
-        "kind": "key",
-        "value": "Backquote"
-      }
-    },
-    {
-      "id": "Digit1",
-      "label": "1",
-      "secondary_label": "!",
-      "x": 180.4,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit1"
-      }
-    },
-    {
-      "id": "Digit2",
-      "label": "2",
-      "secondary_label": "@",
-      "x": 240.8,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit2"
-      }
-    },
-    {
-      "id": "Digit3",
-      "label": "3",
-      "secondary_label": "#",
-      "x": 301.2,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit3"
-      }
-    },
-    {
-      "id": "Digit4",
-      "label": "4",
-      "secondary_label": "$",
-      "x": 361.6,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit4"
-      }
-    },
-    {
-      "id": "Digit5",
-      "label": "5",
-      "secondary_label": "%",
-      "x": 422.0,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit5"
-      }
-    },
-    {
-      "id": "Digit6",
-      "label": "6",
-      "secondary_label": "^",
-      "x": 482.4,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit6"
-      }
-    },
-    {
-      "id": "Digit7",
-      "label": "7",
-      "secondary_label": "&",
-      "x": 542.8,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit7"
-      }
-    },
-    {
-      "id": "Digit8",
-      "label": "8",
-      "secondary_label": "*",
-      "x": 603.2,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit8"
-      }
-    },
-    {
-      "id": "Digit9",
-      "label": "9",
-      "secondary_label": "(",
-      "x": 663.6,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit9"
-      }
-    },
-    {
-      "id": "Digit0",
-      "label": "0",
-      "secondary_label": ")",
-      "x": 724.0,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Digit0"
-      }
-    },
-    {
-      "id": "Minus",
-      "label": "-",
-      "secondary_label": "_",
-      "x": 784.4,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Minus"
-      }
-    },
-    {
-      "id": "Equal",
-      "label": "=",
-      "secondary_label": "+",
-      "x": 844.8,
-      "y": 66,
-      "width": 54.4,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Equal"
-      }
-    },
-    {
-      "id": "Backspace",
-      "label": "Backspace",
-      "icon": "backspace",
-      "secondary_label": "",
-      "x": 905.2,
-      "y": 66,
-      "width": 114.8,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Backspace"
-      }
-    },
-    {
-      "id": "Tab",
-      "label": "Tab",
-      "secondary_label": "",
-      "x": 120,
-      "y": 138,
-      "width": 150,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "Tab"
+        "kind": "flick",
+        "value": "undo"
       }
     },
     {
@@ -446,8 +81,8 @@
       "label": "←",
       "secondary_label": "",
       "x": 120,
-      "y": 210,
-      "width": 150,
+      "y": 72,
+      "width": 120,
       "height": 62,
       "action": {
         "kind": "key",
@@ -455,12 +90,53 @@
       }
     },
     {
+      "id": "Emoji",
+      "label": "Emoji",
+      "secondary_label": "",
+      "x": 120,
+      "y": 144,
+      "width": 120,
+      "height": 62,
+      "action": {
+        "kind": "emoji",
+        "value": "picker"
+      },
+      "icon": "emoji"
+    },
+    {
+      "id": "Flick-mode",
+      "label": "한A1",
+      "secondary_label": "",
+      "x": 120,
+      "y": 216,
+      "width": 120,
+      "height": 62,
+      "action": {
+        "kind": "flick",
+        "value": "mode"
+      }
+    },
+    {
+      "id": "Backspace",
+      "label": "Backspace",
+      "secondary_label": "",
+      "x": 834,
+      "y": 0,
+      "width": 120,
+      "height": 62,
+      "action": {
+        "kind": "key",
+        "value": "Backspace"
+      },
+      "icon": "backspace"
+    },
+    {
       "id": "ArrowRight",
       "label": "→",
       "secondary_label": "",
-      "x": 864,
-      "y": 210,
-      "width": 156,
+      "x": 834,
+      "y": 72,
+      "width": 120,
       "height": 62,
       "action": {
         "kind": "key",
@@ -468,76 +144,39 @@
       }
     },
     {
-      "id": "ShiftLeft",
-      "label": "Shift",
-      "secondary_label": "",
-      "x": 120,
-      "y": 354,
-      "width": 150,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "ShiftLeft"
-      }
-    },
-    {
       "id": "Space",
       "label": "Space",
       "secondary_label": "",
-      "x": 864,
-      "y": 138,
-      "width": 156,
+      "x": 834,
+      "y": 144,
+      "width": 120,
       "height": 62,
       "action": {
         "kind": "key",
         "value": "Space"
-      }
+      },
+      "icon": "space"
     },
     {
       "id": "Enter",
       "label": "Enter",
       "secondary_label": "",
-      "x": 864,
-      "y": 282,
-      "width": 156,
-      "height": 134,
+      "x": 834,
+      "y": 216,
+      "width": 120,
+      "height": 62,
       "action": {
         "kind": "key",
         "value": "Enter"
-      }
-    },
-    {
-      "id": "ArrowUp",
-      "label": "↑",
-      "secondary_label": "",
-      "x": 120,
-      "y": 282,
-      "width": 72,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "ArrowUp"
-      }
-    },
-    {
-      "id": "ArrowDown",
-      "label": "↓",
-      "secondary_label": "",
-      "x": 198,
-      "y": 282,
-      "width": 72,
-      "height": 62,
-      "action": {
-        "kind": "key",
-        "value": "ArrowDown"
-      }
+      },
+      "icon": "enter"
     },
     {
       "id": "Flick-i",
       "label": "ㅣ",
       "secondary_label": "",
-      "x": 276,
-      "y": 138,
+      "x": 246,
+      "y": 0,
       "width": 190,
       "height": 62,
       "action": {
@@ -549,8 +188,8 @@
       "id": "Flick-dot",
       "label": "ㆍ",
       "secondary_label": "",
-      "x": 472,
-      "y": 138,
+      "x": 442,
+      "y": 0,
       "width": 190,
       "height": 62,
       "action": {
@@ -562,8 +201,8 @@
       "id": "Flick-eu",
       "label": "ㅡ",
       "secondary_label": "",
-      "x": 668,
-      "y": 138,
+      "x": 638,
+      "y": 0,
       "width": 190,
       "height": 62,
       "action": {
@@ -575,8 +214,8 @@
       "id": "Flick-g",
       "label": "ㄱㅋ",
       "secondary_label": "",
-      "x": 276,
-      "y": 210,
+      "x": 246,
+      "y": 72,
       "width": 190,
       "height": 62,
       "action": {
@@ -588,8 +227,8 @@
       "id": "Flick-n",
       "label": "ㄴㄹ",
       "secondary_label": "",
-      "x": 472,
-      "y": 210,
+      "x": 442,
+      "y": 72,
       "width": 190,
       "height": 62,
       "action": {
@@ -601,8 +240,8 @@
       "id": "Flick-d",
       "label": "ㄷㅌ",
       "secondary_label": "",
-      "x": 668,
-      "y": 210,
+      "x": 638,
+      "y": 72,
       "width": 190,
       "height": 62,
       "action": {
@@ -614,8 +253,8 @@
       "id": "Flick-b",
       "label": "ㅂㅍ",
       "secondary_label": "",
-      "x": 276,
-      "y": 282,
+      "x": 246,
+      "y": 144,
       "width": 190,
       "height": 62,
       "action": {
@@ -627,8 +266,8 @@
       "id": "Flick-s",
       "label": "ㅅㅎ",
       "secondary_label": "",
-      "x": 472,
-      "y": 282,
+      "x": 442,
+      "y": 144,
       "width": 190,
       "height": 62,
       "action": {
@@ -640,8 +279,8 @@
       "id": "Flick-j",
       "label": "ㅈㅊ",
       "secondary_label": "",
-      "x": 668,
-      "y": 282,
+      "x": 638,
+      "y": 144,
       "width": 190,
       "height": 62,
       "action": {
@@ -653,8 +292,8 @@
       "id": "Flick-punct",
       "label": ".,?!",
       "secondary_label": "",
-      "x": 276,
-      "y": 354,
+      "x": 246,
+      "y": 216,
       "width": 190,
       "height": 62,
       "action": {
@@ -666,8 +305,8 @@
       "id": "Flick-o",
       "label": "ㅇㅁ",
       "secondary_label": "",
-      "x": 472,
-      "y": 354,
+      "x": 442,
+      "y": 216,
       "width": 190,
       "height": 62,
       "action": {
@@ -679,8 +318,8 @@
       "id": "Flick-sym",
       "label": "~^-",
       "secondary_label": "",
-      "x": 668,
-      "y": 354,
+      "x": 638,
+      "y": 216,
       "width": 190,
       "height": 62,
       "action": {

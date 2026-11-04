@@ -2386,14 +2386,15 @@ void microphone_tests() {
         const char* language;
         const char* layout;
         const char* text;
-        // The Korean switch leaves the status too little room. Japanese
-        // dictation keeps the keys' scale, whose case leaves enough.
+        // The flick layouts and Japanese dictation keep the keys' scale,
+        // whose case leaves the status enough room; render_tests' status_line
+        // covers one too long for its gap.
         bool crowded;
     };
     for (const auto& [language, layout, text, crowded] :
          std::array<Case, 3>{{{"ja-flick", "ja-flick-12", "ゲームの音", false},
                               {"ja-romaji", "ja-jis-full", "ゲームの音", false},
-                              {"ko-cheonjiin", "ko-12key", "게임 소리", true}}}) {
+                              {"ko-cheonjiin", "ko-12key", "게임 소리", false}}}) {
         write_config(directory.path,
                      R"(,"hide_numpad":true,"dictation":"server","dictation_server":"127.0.0.1",)"
                      R"("haptic_sounds":"both","swipe_typing":true,"replace_native_keyboard":true,)"

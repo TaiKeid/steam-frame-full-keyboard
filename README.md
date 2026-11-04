@@ -112,7 +112,7 @@ Select a language in Settings and **Apply and save**. The keyboard sends charact
 
 For Japanese, pick **Romaji**, **Kana**, or **JIS** from the Language dropdown in Settings, or the **Japanese flick 12-key** layout for phone-style flick input. Romaji, Kana and Flick compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
 
-Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean offers two-set Hangul or the **Korean 12-key (천지인)** layout, with flick shortcuts. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
+Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean offers two-set Hangul or the **Korean 12-key (천지인)** layout: four rows as on a phone, with 「한A1」 for English and digits, Space between same-key consonants as on Samsung's, and flick shortcuts. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
 
 Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then use the **Reload config** icon in Settings:
 

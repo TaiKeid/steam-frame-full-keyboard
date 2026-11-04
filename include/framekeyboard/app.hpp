@@ -529,6 +529,9 @@ class App {
     bool band_more() const;
     // The layout has the 「あA1」 key, which replaces the toolbar's A / あ.
     bool has_mode_key() const;
+    void undo_korean(double now);
+    // Space ends a consonant 천지인 could still change, as Samsung's does.
+    bool space_separates(double now) const;
     // Types any reading first; a failed commit keeps the mode.
     void set_flick_mode(FlickMode mode);
     // Digits and symbols from the number pad, typed at once.
@@ -546,7 +549,10 @@ class App {
     // live ones for the reading, in the band or over the dictation editor's foot.
     std::optional<Rect> candidate_area() const;
     // A Japanese language's band shows over the main keyboard.
-    bool ime_band_shown() const { return japanese() && !emoji_open_ && !dictation_open_; }
+    bool ime_band_shown() const {
+        return (japanese() || cheonjiin()) && !emoji_open_ && !dictation_open_;
+    }
+    bool cheonjiin() const;
     void sync_candidates();
     // Live candidates after a pause in typing.
     void tick_japanese(double now);
@@ -748,7 +754,9 @@ class App {
     std::unique_ptr<CjkComposer> cjk_;
     bool cjk_latin_{};
     bool japanese_latin_{};
-    bool japanese_digits_{}; // With japanese_latin_: the flick digits.
+    // With the flick layouts' English page on (japanese_latin_, or cjk_latin_
+    // for 천지인): their digits instead.
+    bool flick_digits_{};
     // The kana phrase committed last, which ↶ can bring back until anything
     // else is pressed, the laser leaves or the keyboard hides.
     struct Reopen {

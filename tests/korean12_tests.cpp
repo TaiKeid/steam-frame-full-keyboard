@@ -2,7 +2,9 @@
 #include "framekeyboard/cheonjiin.hpp"
 #include "framekeyboard/cjk.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <fstream>
 #include <glib.h>
 #include <iostream>
 #include <sstream>
@@ -269,8 +271,10 @@ void app_input() {
     auto preedit = [&] { return app.view().preedit; };
     double now = 100;
     auto clear = [&] {
-        press(app, "Escape", now += 1);
-        require(preedit().empty(), "Escape clears the reading");
+        for (int i = 0; i < 60 && !preedit().empty(); ++i) {
+            press(app, "Backspace", now += 1);
+        }
+        require(preedit().empty(), "Backspace clears the reading");
     };
     // Types slots spaced out in time; "+" taps the same slot again quickly,
     // and ">" presses → to end a toggle.
@@ -359,7 +363,7 @@ void app_input() {
     type("s +s i dot punct +punct");
     require(preedit() == "하,", "punctuation toggles and joins the reading");
     sink.delivery.clear();
-    press(app, "Tab", now += 1);
+    press(app, "ArrowLeft", now += 1);
     require(sink.text.back() == "하," && sink.delivery.size() >= 2 &&
                 sink.delivery.front() == "commit" && sink.delivery[1] == "key" && preedit().empty(),
             "the reading commits before another key");
@@ -410,11 +414,103 @@ void app_input() {
         now += 2;
     }
 
+    // Four rows, as on a phone: no F keys, number row, Esc, Tab or Shift, and
+    // the keys commit and switch instead of toolbar buttons.
+    for (const auto* id : {"Escape", "F1", "Digit1", "Tab", "ShiftLeft", "ArrowUp"}) {
+        const auto& keys = app.view().layout->keys;
+        require(std::none_of(keys.begin(), keys.end(), [&](const Key& key) { return key.id == id; }),
+                std::string("the 12-key layout has no ") + id);
+    }
+    for (const auto* id : {"cjk-toggle", "cjk-commit", "cjk-cancel"}) {
+        require(!has_control(app, id), std::string("no toolbar button: ") + id);
+    }
+    require(app.view().ime_band, "the reading shows in the band, as on the Japanese flick layout");
+
+    // ↶ goes back one step: a consonant through its key's taps, a stroke otherwise.
+    type("g +g");
+    require(preedit() == "ㅋ", "ㄱ toggles to ㅋ");
+    flick(app, "undo", now += .3);
+    require(preedit() == "ㄱ", "↶ steps ㅋ back to ㄱ");
+    flick(app, "undo", now += .3);
+    require(preedit() == "ㄲ", "and on round to ㄲ");
+    type("i dot");
+    require(preedit() == "까", "까");
+    flick(app, "undo", now += 2);
+    require(preedit() == "끼", "↶ removes a vowel's last stroke");
+    flick(app, "undo", now += 2);
+    flick(app, "undo", now += 2);
+    require(preedit() == "ㅋ", "and steps the consonant again");
+    clear();
+
+    // Space ends a consonant that could still change, as on Samsung's 천지인.
+    type("s +s i dot g");
+    require(preedit() == "학", "학");
+    const auto typed = sink.text.size();
+    const auto keys = sink.keys.size();
+    press(app, "Space", now += .3);
+    require(preedit() == "학" && sink.text.size() == typed && sink.keys.size() == keys,
+            "Space right after a consonant only ends it");
+    type("g dot dot eu");
+    require(preedit() == "학교", "so the same key starts the next syllable");
+    press(app, "Space", now += .3);
+    const auto spaced = [&](const std::string& word) {
+        return sink.text.size() >= 2 && sink.text[sink.text.size() - 2] == word &&
+               sink.text.back() == " " && preedit().empty();
+    };
+    require(spaced("학교"), "Space after a vowel commits, then types a space");
+    type("g i dot g");
+    press(app, "Space", now += 2);
+    require(spaced("각"), "a Space after the toggle time commits");
+    type("g i dot punct");
+    press(app, "Space", now += .3);
+    require(spaced("가."), "and one after punctuation does too");
+    sink.keys.clear();
+
+    // 한A1 cycles 한글, English and digits; a flick picks one. The keys keep
+    // their size on every page.
+    const auto korean_case = panel_case_bounds(app.view());
+    const auto grid = key_centre(app, "Flick-i");
+    flick(app, "mode", now += 2);
+    require(app.view().layout->id == "ko-12key-qwerty" && panel_case_bounds(app.view()) == korean_case,
+            "a tap shows the English page, in the same case");
+    press(app, "KeyA", now += 1);
+    require(sink.text.back() == "a" && !app.view().composing, "its letters type at once");
+    flick(app, "mode", now += 2);
+    require(app.view().key_labels.at("Flick-i") == "1" && key_centre(app, "Flick-i") == grid,
+            "another tap turns the grid into digits");
+    flick(app, "dot", now += 2, -60, 0);
+    flick(app, "o", now += 2);
+    require(sink.text.size() >= 2 && sink.text[sink.text.size() - 2] == "₩" && sink.text.back() == "0",
+            "digits and their flicks type at once");
+    flick(app, "mode", now += 2);
+    require(app.view().key_labels.at("Flick-i") == "ㅣ", "a third tap returns to 한글");
+    flick(app, "mode", now += 2, 0, -60);
+    require(app.view().layout->id == "ko-12key-qwerty", "an up flick picks English");
+    flick(app, "mode", now += 2, 60, 0);
+    require(app.view().key_labels.at("Flick-i") == "1", "a right flick picks digits");
+    flick(app, "mode", now += 2, -60, 0);
+    require(app.view().key_labels.at("Flick-i") == "ㅣ", "a left flick picks 한글");
+    if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
+        type("s +s i dot n g eu dot g");
+        app.paint(now + 1);
+        app.renderer.write_png(fs::path(render) / "framekeyboard-ko-12key-reading.png");
+        clear();
+        flick(app, "mode", now += 2, 0, -60);
+        app.paint(now + 1);
+        app.renderer.write_png(fs::path(render) / "framekeyboard-ko-12key-english.png");
+        flick(app, "mode", now += 2, 60, 0);
+        app.paint(now + 2);
+        app.renderer.write_png(fs::path(render) / "framekeyboard-ko-12key-digits.png");
+        flick(app, "mode", now += 2, -60, 0);
+    }
+
     type("g i dot");
-    control(app, "cjk-toggle");
-    require(sink.text.back() == "가" && !app.view().composing, "한 / A commits and stops composition");
+    flick(app, "mode", now += 2);
+    require(sink.text.back() == "가" && !app.view().composing,
+            "한A1 commits and moves to the English page");
+    flick(app, "mode", now += 2, -60, 0);
     flick(app, "n", now += 2);
-    require(app.view().composing && preedit() == "ㄴ", "a 12-key key returns to composition");
+    require(app.view().composing && preedit() == "ㄴ", "a left flick returns to 한글");
     if (const auto* render = std::getenv("FRAMEKEYBOARD_TEST_RENDER_DIR")) {
         clear();
         type("o i dot n > n dot dot i o s +s i dot s dot i i o dot dot eu");
@@ -441,11 +537,58 @@ void app_input() {
                 "leaving 천지인 chooses two-set Korean, which needs its engine");
     }
 }
+// Dictation mode keeps the 12-key layout's key size, and Space separates
+// same-key consonants in its editor too.
+void cheonjiin_dictation() {
+    char directory[] = "/tmp/framekeyboard-korean12-dictation-XXXXXX";
+    require(mkdtemp(directory), "temporary profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::ofstream(fs::path(directory) / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"ko-12key","language":"ko-cheonjiin",)"
+        << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"})";
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    Sink sink;
+    App app(options, sink);
+    const auto height = [&] {
+        const auto view = app.view();
+        for (const auto& key : view.layout->keys) {
+            if (key.id == "Flick-g") {
+                return panel_rect(view, key.bounds).height;
+            }
+        }
+        throw std::runtime_error("no ㄱ key");
+    };
+    const double keys = height();
+    double now = 10;
+    press(app, "Dictation", now += 1);
+    require(app.dictation_open() && std::abs(height() - keys) < .5, "dictation keeps the keys' size");
+    press(app, "Escape", now += 1); // Stops listening, so the editor takes typing.
+    for (const auto& [slot, gap] : std::vector<std::pair<std::string, double>>{
+             {"s", 2}, {"s", .3}, {"i", 2}, {"dot", 2}, {"g", 2}}) {
+        flick(app, slot, now += gap);
+    }
+    press(app, "Space", now += .3);
+    for (const auto* slot : {"g", "dot", "dot", "eu"}) {
+        flick(app, slot, now += 2);
+    }
+    press(app, "Enter", now += 1);
+    require(app.view().dictation && app.view().dictation->text == "학교",
+            "Space between same-key consonants separates them in the editor too");
+}
 } // namespace
 int main() {
     try {
         composer_rules();
         app_input();
+        cheonjiin_dictation();
         std::cout << "Korean 천지인 strokes, toggles, flicks, syllables and editing passed.\n";
         return 0;
     } catch (const std::exception& error) {
