@@ -110,9 +110,11 @@ Simulator::Simulator(const Setup& setup)
     options.clipboard = &sink_;
     options.japanese_converter = setup.japanese_converter;
     app_ = std::make_unique<App>(options, sink_);
-    // The window is the keyboard's place: nothing closes, moves or resizes it.
+    // The window is the keyboard's place: nothing moves or resizes it. The ×
+    // shows, so the toolbar lays out as on the headset, but closes nothing
+    // (on_close).
     App::HostChrome chrome;
-    chrome.close = chrome.move = chrome.resize = false;
+    chrome.move = chrome.resize = false;
     app_->set_chrome(chrome);
     if (setup.layout || setup.language || setup.theme) {
         auto selection = app_->selection();
@@ -203,7 +205,17 @@ void Simulator::pointer_down(unsigned pointer, double x, double y, double now) {
     state.inside = true;
     const double py = y - popup_margin;
     app_->move(pointer, x, py);
+    if (on_close(x, py)) {
+        state.on_close = true;
+        return;
+    }
     app_->down(pointer, x, py, now);
+}
+bool Simulator::on_close(double x, double y) const {
+    const auto controls = app_->view().controls;
+    return std::any_of(controls.begin(), controls.end(), [&](const Control& control) {
+        return control.action.kind == ControlKind::Close && control.bounds.contains(x, y);
+    });
 }
 void Simulator::pointer_move(unsigned pointer, double x, double y) {
     auto& state = pointers_[pointer];
@@ -223,6 +235,9 @@ void Simulator::pointer_exit(unsigned pointer) {
 }
 void Simulator::pointer_up(unsigned pointer, double x, double y) {
     auto& state = pointers_[pointer];
+    if (std::exchange(state.on_close, false)) {
+        return;
+    }
     if (state.inside) {
         app_->up(pointer, x, y - popup_margin);
     } else if (app_->holds_repeat(pointer)) {

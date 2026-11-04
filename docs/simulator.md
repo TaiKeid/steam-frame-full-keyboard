@@ -16,7 +16,7 @@ cmake --build --preset simulator
 
 In a development build, `cmake --build build/host --target framekeyboard-simulator` builds it beside the other programs, as `build/host/framekeyboard-simulator`. An [AppImage](#appimage) runs it without building anything.
 
-The window shows the text field at the top and the keyboard below it. The keyboard has no × and cannot be closed; close the window to quit. Below the keyboard are two buttons of the simulator's own: **Slow field** and **Clear field**. Click in the field to move its caret. The PC's own keyboard does nothing in the window: everything is typed with the on-screen keyboard.
+The window shows the text field at the top and the keyboard below it. The keyboard's × shows, so the toolbar lays out as on the headset, but it closes nothing; close the window to quit. Below the keyboard are two buttons of the simulator's own: **Slow field** and **Clear field**. Click in the field to move its caret. The PC's own keyboard does nothing in the window: everything is typed with the on-screen keyboard.
 
 ![The simulator converting にほんご, with 日本語 already typed into its field](images/simulator.png)
 

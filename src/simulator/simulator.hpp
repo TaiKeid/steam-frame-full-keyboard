@@ -70,8 +70,10 @@ class Simulator {
 
   private:
     struct Pointer {
-        bool inside{}; // Last seen on the keyboard.
+        bool inside{};   // Last seen on the keyboard.
+        bool on_close{}; // Pressed on the ×, which does nothing here.
     };
+    bool on_close(double x, double y) const;
     bool on_keyboard(double x, double y) const;
     // The laser left the panel (vr.cpp, VREvent_FocusLeave).
     void leave(unsigned pointer);

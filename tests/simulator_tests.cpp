@@ -211,8 +211,18 @@ void japanese_reopen(bool slow) {
     Profile profile;
     Simulator simulator(setup(profile, "ja-flick-12", "ja-flick", slow));
     wait(simulator);
-    require(!has_control(simulator, "close") && !has_control(simulator, "move-handle"),
-            "nothing closes or moves the simulator's keyboard");
+    require(has_control(simulator, "close") && !has_control(simulator, "move-handle"),
+            "the × shows, as on the headset, and nothing moves the keyboard");
+    for (const auto& control : simulator.app().view().controls) {
+        if (control.id == "close") {
+            const double x = control.bounds.x + control.bounds.width / 2,
+                         y = control.bounds.y + control.bounds.height / 2 + popup_margin;
+            simulator.pointer_down(Simulator::mouse, x, y, clock_now);
+            simulator.pointer_up(Simulator::mouse, x, y);
+        }
+    }
+    wait(simulator);
+    require(!simulator.quitting(), "and closes nothing");
     press(simulator, "Flick-a");
     require(simulator.app().view().preedit == "あ", "a flick tap composes あ");
     press(simulator, "Enter");
@@ -230,9 +240,10 @@ void japanese_reopen(bool slow) {
     require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
             "↶ still reopens after the mouse left the window and came back");
     // Clear field starts anew, the reading too.
-    simulator.pointer_down(Simulator::mouse, Simulator::clear_button().x + 5, Simulator::clear_button().y + 5,
-                           clock_now);
-    simulator.pointer_up(Simulator::mouse, Simulator::clear_button().x + 5, Simulator::clear_button().y + 5);
+    simulator.pointer_down(Simulator::mouse, Simulator::clear_button().x + 5,
+                           Simulator::clear_button().y + 5, clock_now);
+    simulator.pointer_up(Simulator::mouse, Simulator::clear_button().x + 5,
+                         Simulator::clear_button().y + 5);
     require(simulator.field().text().empty() && simulator.app().view().preedit.empty(),
             "Clear field also cancels the reading");
     press(simulator, "Flick-a");
