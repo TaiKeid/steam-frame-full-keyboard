@@ -224,6 +224,11 @@ int main(int argc, char** argv) {
             SDL_GetWindowSize(window.get(), &width, &height);
             return x >= 0 && y >= 0 && x < width && y < height;
         };
+        auto on_window_edge = [&](int x, int y) {
+            int width = 1, height = 1;
+            SDL_GetWindowSize(window.get(), &width, &height);
+            return x <= 0 || y <= 0 || x >= width - 1 || y >= height - 1;
+        };
         // A mouse can report a thousand moves a second, and each one makes the
         // keyboard look up what is under it. Moves wait, the latest for each
         // pointer, until another event or the end of the batch: one a frame,
@@ -286,6 +291,17 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                                 focus_lost_held.reset();
+                            }
+                            // A pointer-driving tool parks the mouse after a click,
+                            // the button up, at the window's edge, where SDL clamps
+                            // a place outside it: the mouse is leaving, as LEAVE
+                            // says, so only the hover ends and ↶'s chance stays.
+                            if (!mouse_pressed && on_window_edge(event.motion.x, event.motion.y)) {
+                                motion.erase(sim::Simulator::mouse);
+                                note("edge move ", event.motion.x, ',', event.motion.y);
+                                simulator.pointer_exit(sim::Simulator::mouse);
+                                watch_reopen("edge move");
+                                break;
                             }
                             motion[sim::Simulator::mouse] = canvas_point(event.motion.x, event.motion.y);
                         }
