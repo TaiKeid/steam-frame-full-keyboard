@@ -39,9 +39,8 @@ python3 -I tools/build_japanese_words.py <mozc>/src/data/dictionary_oss japanese
 ## Kaomoji
 
 `kaomoji.tsv` lists 442 kaomoji under their readings, as
-`reading<TAB>kaomoji<TAB>order`, and every one of them under かおもじ. Live
-candidates offer up to six for the reading as typed, after its emoji, and all of
-them for かおもじ. They come from Mozc's `src/data/emoticon/` at the same commit,
+`reading<TAB>kaomoji<TAB>order`, and every one of them under かお and かおもじ.
+Live candidates offer all of the reading's, after its emoji. They come from Mozc's `src/data/emoticon/` at the same commit,
 under Mozc's BSD 3-Clause license (`third_party/mozc/LICENSE`); a kaomoji in both
 of its files keeps its first place and the readings of both. Rebuild it with:
 

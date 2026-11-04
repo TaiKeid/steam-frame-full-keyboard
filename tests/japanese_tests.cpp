@@ -622,9 +622,10 @@ void word_completion() {
                 std::find(live.begin(), live.end(), "(T_T)") != live.end(),
             "かおもじ offers them all");
     const JapaneseWords bundled(data_resource({}, "japanese/kaomoji.tsv"));
-    require(bundled.exact("にこにこ", 6).front() == "＼(^o^)／" &&
-                bundled.exact("かおもじ", 1000).size() > 400,
-            "the bundled kaomoji come from Mozc's emoticons");
+    require(bundled.exact("にこにこ", 1000).size() == 65 &&
+                bundled.exact("にこにこ", 1).front() == "＼(^o^)／" &&
+                bundled.exact("かお", 1000).size() > 400 && bundled.exact("かおもじ", 1000).size() > 400,
+            "the bundled kaomoji come from Mozc's emoticons, every one under かお and かおもじ");
 }
 // A common phrase's usual conversion comes first and is what 変換 gives,
 // until the user commits something else for it.

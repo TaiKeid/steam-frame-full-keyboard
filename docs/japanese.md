@@ -49,7 +49,7 @@ While a reading of two kana or more is typed, the live candidates also complete 
 
 Common chat phrases convert as people usually write them, ahead of Anthy's own order: いきます to 行きます, かえる to 帰る, ありがとう stays in hiragana, ちょっとまって to ちょっと待って. Such a phrase is the first live candidate, and 変換 converts to it, as one segment where Anthy would split the reading otherwise. Once you commit something else for one of these readings more often, with learning on, your choice wins (kept in `japanese-choices.tsv` in the config folder, cleared by **Clear learned words**). The list, `japanese/preferred.tsv`, holds about 100 phrases.
 
-After a reading's emoji come its kaomoji, up to six, from Mozc's emoticon list: にこにこ offers ＼(^o^)／ and (^o^), しくしく (T_T). Typing かおもじ offers all 442. A kaomoji is picked like an emoji, in place of the reading, which ↶ brings back.
+After a reading's emoji come all its kaomoji, from Mozc's emoticon list: にこにこ offers ＼(^o^)／, (^o^) and 63 more, しくしく (T_T) and others; ∨ shows those past the row. Typing かお or かおもじ offers all 442. A kaomoji is picked like an emoji, in place of the reading, which ↶ brings back.
 
 After a commit, while nothing is typed, the candidate row offers what may come next, as a phone's does: with learning on, up to three phrases you committed straight after this one before, most often first, then 。 、 ！ ？. A tap types it at once; a phrase then offers what followed it in turn, and punctuation ends the run. Any other press, or the keyboard hiding, ends the offer, and the next commit makes it again.
 

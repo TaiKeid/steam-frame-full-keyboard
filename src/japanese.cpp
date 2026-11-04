@@ -931,9 +931,8 @@ void JapaneseComposer::prepare_live() {
         }
     }
     if (kaomoji_) {
-        // Picked like an emoji, in place of the reading.
-        const auto hiragana = in_script(reading, false);
-        for (auto& face : kaomoji_->exact(hiragana, hiragana == "かおもじ" ? 120 : 6)) {
+        // Every one for the reading, picked like an emoji in place of it.
+        for (auto& face : kaomoji_->exact(in_script(reading, false), 1000)) {
             add(std::move(face), Live::Source::Emoji);
         }
     }

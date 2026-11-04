@@ -152,7 +152,7 @@ class JapaneseComposer {
     // word, else after the learned ones (JapaneseWords::complete).
     void set_words(const JapaneseWords* words) { words_ = words; }
     // Kaomoji for a reading (japanese/kaomoji.tsv), which live candidates
-    // offer after its emoji, up to six; かおもじ offers them all.
+    // offer after its emoji, all of them; かお and かおもじ list every one.
     void set_kaomoji(const JapaneseWords* kaomoji) { kaomoji_ = kaomoji; }
     // The usual conversion of a whole reading, such as 行きます for いきます,
     // or empty: live candidates offer it first, and 変換 converts to it, as

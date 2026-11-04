@@ -9,6 +9,7 @@
 #include <linux/input-event-codes.h>
 #include <pango/pangocairo.h>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace framekeyboard {
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
@@ -1384,8 +1385,20 @@ double candidate_text_width(const std::string& text, const std::string& family) 
             cairo_destroy(context);
             cairo_surface_destroy(surface);
         }
+        // Each list measures its chips again, and the same ones come back
+        // (a kaomoji under many readings): each is laid out once.
+        std::unordered_map<std::string, double> widths;
     } measuring;
-    return text_width(measuring.context, text, candidate_font_size, family);
+    auto key = family + '\n' + text;
+    if (const auto known = measuring.widths.find(key); known != measuring.widths.end()) {
+        return known->second;
+    }
+    if (measuring.widths.size() >= 4096) {
+        measuring.widths.clear();
+    }
+    const double width = text_width(measuring.context, text, candidate_font_size, family);
+    measuring.widths.emplace(std::move(key), width);
+    return width;
 }
 Rect panel_rect(const PanelView& view, Rect r) {
     const auto p = placement(view);

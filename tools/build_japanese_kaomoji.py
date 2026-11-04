@@ -6,15 +6,15 @@ reading (docs/japanese.md, Prediction), from Mozc's emoticon data.
 
 MOZC_EMOTICON_DIR is src/data/emoticon of a Mozc checkout at the commit named
 below. Each kaomoji is listed under each of its readings, and all of them under
-かおもじ, as reading<TAB>kaomoji<TAB>order lines sorted by reading, then by
-Mozc's own order.
+かお and かおもじ, as phones offer them, as reading<TAB>kaomoji<TAB>order lines
+sorted by reading, then by Mozc's own order.
 """
 import argparse
 import pathlib
 import sys
 
 MOZC_COMMIT = "74f8ee66c5546d1f3ce4fadbef23a3b402239eed"
-EVERY = "かおもじ"
+EVERY = ["かお", "かおもじ"]
 
 
 def main() -> int:
@@ -44,7 +44,7 @@ def main() -> int:
     seen = merged.keys()
     rows = []
     for face, (order, readings) in merged.items():
-        for reading in dict.fromkeys(readings + [EVERY]):
+        for reading in dict.fromkeys(readings + EVERY):
             rows.append((reading, order, face))
     rows.sort()
     with args.output.open("w", encoding="utf-8", newline="\n") as output:
