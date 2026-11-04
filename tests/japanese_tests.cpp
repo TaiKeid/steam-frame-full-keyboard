@@ -713,6 +713,35 @@ void next_words() {
     require(kept.empty() && !fs::exists(fs::path(directory) / "japanese-next-words.tsv"),
             "clearing forgets them and removes the file");
 }
+// The flick case is as wide as a full keyboard's without its numpad while it
+// shows the reading line, so switching between them keeps the case's sides.
+void flick_width() {
+    char directory[] = "/tmp/framekeyboard-width-XXXXXX";
+    require(mkdtemp(directory), "temporary width profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Settings settings;
+    settings.active = {"en-us-full", "ja-romaji", "graphite"};
+    settings.hide_numpad = true;
+    save_settings(directory, settings);
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    const auto romaji = panel_case_bounds(app.view());
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    const auto flick = panel_case_bounds(app.view());
+    require(std::abs(flick.width - romaji.width) < 1.5 && std::abs(flick.x - romaji.x) < 1,
+            "the flick case is as wide as a full keyboard's without its numpad");
+}
 // With a composing language among the user's languages on the same layout,
 // every page keeps the scale the reading line gives the keys, so switching
 // to it from English moves the keys only down; without one, English keeps
@@ -1854,6 +1883,7 @@ int main() {
         progressive_conversion();
         candidate_band();
         reading_room();
+        flick_width();
         next_words();
         candidate_list();
         learning_settings();
