@@ -273,11 +273,12 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
     pango_layout_set_font_description(layout, font);
     pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
-    // ゛ and ゜ alone, the 小 key's flick hints and preview cells, are
-    // marks no bigger than a dot at a kana's size: drawn larger, they read.
-    const bool mark = text == "゛" || text == "゜";
-    if (mark) {
-        size *= 2.4;
+    // ゛ and ゜ alone, the 小 key's flick hints and preview cells and the JIS
+    // kana keys, are marks no bigger than a dot at a kana's size: drawn half
+    // again larger, they read. They stay where the font puts them beside a
+    // kana, so ゜ is never taken for 。 or ○.
+    if (text == "゛" || text == "゜") {
+        size *= 1.6;
         pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
         pango_layout_set_font_description(layout, font);
     }
@@ -302,15 +303,7 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     int width, height;
     pango_layout_get_pixel_size(layout, &width, &height);
     source(cr, color);
-    if (mark) {
-        // Centred by its ink: the font draws the mark high in a kana's box.
-        PangoRectangle ink;
-        pango_layout_get_pixel_extents(layout, &ink, nullptr);
-        cairo_move_to(cr, r.x + 4 + (r.width - 8) / 2 - (ink.x + ink.width / 2.0),
-                      r.y + r.height / 2 - (ink.y + ink.height / 2.0));
-    } else {
-        cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
-    }
+    cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
     pango_cairo_show_layout(cr, layout);
     pango_font_description_free(font);
     g_object_unref(layout);
