@@ -30,6 +30,8 @@ The window shows the text field at the top and the keyboard below it. The keyboa
 
 Moving off the keyboard is the laser leaving the panel: a key still held is let go without typing, except a repeating key such as Backspace, which repeats until the button is released. A click outside the keyboard, in the field or on the simulator's buttons, is a laser click elsewhere: it ends ↶'s chance to reopen the phrase just typed, as on the headset, and so does moving over the field. Leaving the window altogether does not, since nothing outside it reaches the field. **Clear field** also cancels the keyboard's open reading, so the next word starts anew.
 
+With `FRAMEKEYBOARD_SIMULATOR_TRACE=1` set, the simulator writes the window's pointer events to stderr: presses, releases and moves with their positions, window events by SDL number, and when ↶'s chance to reopen a phrase opens or ends, after which event. It shows what a pointer-driving tool really sends. Nothing typed is written.
+
 ## Options
 
 | Option | Effect |

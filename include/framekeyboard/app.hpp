@@ -286,6 +286,8 @@ class App {
     void frame_completed() { slow_work_deadline_.store(0); }
     const fs::path& config_dir() const { return options_.config_dir; }
     bool quitting() const { return quit_; }
+    // ↶ could still bring back the phrase committed last (the simulator's trace).
+    bool reopen_pending() const { return reopen_.has_value(); }
     bool updating() const;
     bool take_recenter();
     bool emoji_open() const { return emoji_open_; }

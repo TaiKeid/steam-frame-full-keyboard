@@ -9,6 +9,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -216,9 +217,30 @@ int main(int argc, char** argv) {
         // pointer, until another event or the end of the batch: one a frame,
         // as VR's lasers report.
         std::map<unsigned, std::pair<double, double>> motion;
+        // FRAMEKEYBOARD_SIMULATOR_TRACE: the window's pointer events and when
+        // ↶'s chance ends, on stderr, to see what a pointer-driving tool sends.
+        // Positions and event names only, never what is typed.
+        const bool trace = std::getenv("FRAMEKEYBOARD_SIMULATOR_TRACE") != nullptr;
+        const double started = fk::monotonic_seconds();
+        bool reopen = false;
+        auto note = [&](const std::string& what) {
+            if (trace) {
+                std::cerr << "trace " << std::fixed << std::setprecision(3)
+                          << fk::monotonic_seconds() - started << ' ' << what << '\n';
+            }
+        };
+        auto watch_reopen = [&](const char* after) {
+            if (trace && simulator.app().reopen_pending() != reopen) {
+                reopen = !reopen;
+                note(std::string("↶ chance ") + (reopen ? "opens" : "ends") + " after " + after);
+            }
+        };
         auto flush_motion = [&] {
             for (const auto& [pointer, at] : motion) {
+                note("move " + std::to_string(pointer) + ' ' + std::to_string(std::lround(at.first)) + ',' +
+                     std::to_string(std::lround(at.second)));
                 simulator.pointer_move(pointer, at.first, at.second);
+                watch_reopen("move");
             }
             motion.clear();
         };
@@ -253,6 +275,8 @@ int main(int argc, char** argv) {
                         if (event.button.which != SDL_TOUCH_MOUSEID) {
                             const auto [x, y] = canvas_point(event.button.x, event.button.y);
                             const bool down = event.type == SDL_MOUSEBUTTONDOWN;
+                            note(std::string(down ? "down " : "up ") + std::to_string(event.button.button) + ' ' +
+                                 std::to_string(std::lround(x)) + ',' + std::to_string(std::lround(y)));
                             if (event.button.button == SDL_BUTTON_LEFT) {
                                 mouse_pressed = down;
                                 if (down) {
@@ -310,6 +334,7 @@ int main(int argc, char** argv) {
                         break;
                     }
                     case SDL_WINDOWEVENT:
+                        note("window event " + std::to_string(event.window.event));
                         if (event.window.event == SDL_WINDOWEVENT_LEAVE && !mouse_pressed) {
                             simulator.pointer_exit(sim::Simulator::mouse);
                         } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
@@ -330,10 +355,16 @@ int main(int argc, char** argv) {
                     default:
                         break; // Keys and text from the physical keyboard do nothing.
                     }
+                    watch_reopen(event.type == SDL_MOUSEBUTTONDOWN ? "down"
+                                 : event.type == SDL_MOUSEBUTTONUP ? "up"
+                                 : event.type == SDL_WINDOWEVENT   ? "a window event"
+                                                                   : "another event");
                 } while (SDL_PollEvent(&event));
                 flush_motion();
             }
-            if (simulator.tick(fk::monotonic_seconds())) {
+            const bool ticked = simulator.tick(fk::monotonic_seconds());
+            watch_reopen("a tick");
+            if (ticked) {
                 auto* canvas = simulator.canvas();
                 require(SDL_UpdateTexture(texture.get(), nullptr, cairo_image_surface_get_data(canvas),
                                           cairo_image_surface_get_stride(canvas)) == 0);
