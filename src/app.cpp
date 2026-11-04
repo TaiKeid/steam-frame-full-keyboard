@@ -475,8 +475,11 @@ std::vector<Control> App::controls() const {
             {"dictation-discard", "Discard", {right - 230, y, 110, 36}});
     }
     const auto ime_start = result.size();
-    if (japanese() && !emoji_open_ && !has_mode_key()) {
-        // The keys convert, commit and cancel; candidates show in the band.
+    // Full layouts type kana only, as Japanese keyboards do; English has its
+    // own layouts, and a JIS keyboard's 半/全 and かな keys still switch. A
+    // flick layout without 「あA1」 switches here.
+    if (japanese() && !emoji_open_ && !has_mode_key() &&
+        profiles_.languages.at(settings_.active.language).input_method == "japanese-flick") {
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
     }

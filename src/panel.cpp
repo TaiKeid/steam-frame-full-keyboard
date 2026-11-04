@@ -1692,10 +1692,11 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
 std::string composition_hint(const PanelView& view) {
     const auto& method = view.language->input_method;
     if (view.ime_band && !view.composing) {
-        // The flick layout switches with its 「あA1」 key, others with A / あ.
-        // A tap on 「あA1」 goes English → digits → kana; a left flick picks kana.
+        // The flick layout switches with its 「あA1」 key, a JIS keyboard with
+        // 半/全. A tap on 「あA1」 goes English → digits → kana; a left flick
+        // picks kana.
         if (method != "japanese-flick") {
-            return "英字入力 · A / あ: かな入力に戻る";
+            return "英字入力 · 半/全: かな入力に戻る";
         }
         return view.flick_digits ? "数字入力 · あA1: かな入力に戻る"
                                  : "英字入力 · あA1を左にフリック: かな入力に戻る";
