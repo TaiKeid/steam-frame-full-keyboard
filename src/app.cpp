@@ -1314,6 +1314,25 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         dirty = true;
         return false; // Dismissal consumes the click instead of hitting through.
     }
+    // The open candidate list takes the laser, as a dropdown does: a
+    // candidate or ∧ takes the press, anything else only closes the list,
+    // choosing nothing.
+    if (candidate_list_ && candidates_.open() && !candidates_.contains(x, y) &&
+        std::none_of(v.controls.begin(), v.controls.end(), [&](const Control& c) {
+            return c.action.kind == ControlKind::CandidateList && c.bounds.contains(x, y);
+        })) {
+        // The menu's own margin, around the lines, is still the menu.
+        const auto& list = *candidates_.view().list;
+        if (Rect{list.x - 8, list.y, list.width + 16, list.height + 8}.contains(x, y)) {
+            return false;
+        }
+        candidate_list_ = false;
+        sync_candidates();
+        pressed_controls_.clear();
+        hovered_.clear();
+        dirty = true;
+        return false;
+    }
     if (hovered_[pointer].kind == HoverTarget::Kind::Control) {
         const auto control =
             std::find_if(v.controls.rbegin(), v.controls.rend(),

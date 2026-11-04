@@ -878,15 +878,27 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                 require(tap("ime-more") && app.view().candidates->list, "∨ opens the menu");
                 const auto view = app.view();
                 const auto& list = *view.candidates->list;
-                const auto key_at = [&](const char* id) {
+                const auto key_rect = [&](const char* id) {
                     const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
                                                   [&](const Key& item) { return item.id == id; });
-                    const auto r = panel_rect(view, key->bounds);
+                    return panel_rect(view, key->bounds);
+                };
+                const auto key_at = [&](const char* id) {
+                    const auto r = key_rect(id);
                     return app.renderer.hit_key(view, r.x + r.width / 2, r.y + r.height / 2);
                 };
-                const auto digit = key_at("Digit5");
-                require(list.y < keys_top(view) + 60 && !digit && key_at("ControlLeft"),
-                        "the menu covers the keys under it, and the others still take presses");
+                require(list.y < keys_top(view) + 60 && !key_at("Digit5") && !key_at("ControlLeft"),
+                        "while the menu is open, no key takes a press, under it or not");
+                {
+                    // A press outside the menu only closes it.
+                    const auto r = key_rect("ControlLeft");
+                    app.down(4, r.x + r.width / 2, r.y + r.height / 2, 2.6);
+                    app.up(4, r.x + r.width / 2, r.y + r.height / 2);
+                }
+                require(!app.view().candidates->list && app.view().preedit == "nihao" &&
+                            sink.events.empty(),
+                        "a press outside the menu closes it, choosing nothing");
+                require(tap("ime-more") && app.view().candidates->list, "∨ opens it again");
                 require(tap("ime-more") && !app.view().candidates->list, "∧ closes it");
             }
             {

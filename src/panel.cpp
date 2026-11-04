@@ -2114,7 +2114,9 @@ std::pair<double, double> PanelRenderer::layout_point(const PanelView& view, dou
     return {(x - p.x) / p.scale, (y - p.y) / p.scale};
 }
 const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) const {
-    if (view.settings) {
+    // No key takes a press while the candidate list is open; one outside it
+    // still shows, and a press there closes the list (App::down).
+    if (view.settings || list_open(view)) {
         return nullptr;
     }
     const auto p = placement(view);
