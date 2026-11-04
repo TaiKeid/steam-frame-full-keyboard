@@ -2008,7 +2008,10 @@ Rect dictation_status_bounds(const PanelView& view) {
 }
 std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t limit) {
     const auto body = panel_case_bounds(view);
-    if (!clear_case(view) || !view.laser_through_gaps || held || limit < 2) {
+    // An open candidate list takes the whole case, gaps too: a press
+    // anywhere outside it closes it (App::down) rather than reaching the
+    // application behind.
+    if (!clear_case(view) || !view.laser_through_gaps || held || limit < 2 || list_open(view)) {
         return {body};
     }
     // Everything drawn on the case that takes a press, with a little slack

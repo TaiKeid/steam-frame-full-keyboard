@@ -3025,11 +3025,19 @@ void App::action(const ControlAction& command) {
     if (kind == ControlKind::CandidateList) {
         candidate_list_ = !candidate_list_ && candidates_.shown();
         if (candidate_list_) {
-            // Keys held under the list let go: a repeating ⌫ or a flick still
-            // to land would change the reading the list stands for.
+            // Whatever is still held lets go, choosing nothing: a repeating ⌫,
+            // a flick or a swipe, with any word still being decoded, would
+            // change the reading the list stands for, and another hand's
+            // toolbar button, emoji or mic key would act through the list.
             keyboard_.release_presses();
             reading_repeat_.reset();
             flick_track_.reset();
+            swipe_track_.reset();
+            swipe_waiting_ = false;
+            ++swipe_request_;
+            pressed_controls_.clear();
+            emoji_key_pointer_.reset();
+            dictation_key_pointer_.reset();
         }
         sync_candidates();
         dirty = true;

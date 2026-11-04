@@ -875,7 +875,32 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                     }
                     return false;
                 };
+                // The other hand holds Settings as ∨ opens: it lets go, opening nothing.
+                const auto held = [&] {
+                    for (const auto& control : app.view().controls) {
+                        if (control.id == "settings") {
+                            return std::pair{control.bounds.x + control.bounds.width / 2,
+                                             control.bounds.y + control.bounds.height / 2};
+                        }
+                    }
+                    throw std::runtime_error("no settings control");
+                }();
+                app.move(5, held.first, held.second);
+                app.down(5, held.first, held.second, 2.4);
                 require(tap("ime-more") && app.view().candidates->list, "∨ opens the menu");
+                app.up(5, held.first, held.second);
+                require(!app.view().settings && app.view().candidates->list,
+                        "a toolbar button held as it opens does nothing on release");
+                {
+                    // On a see-through case whose gaps pass the laser, the open
+                    // menu takes the whole case, so a press beside it closes it.
+                    auto see_through = app.view();
+                    see_through.laser_through_gaps = true;
+                    see_through.case_opacity = 0;
+                    require(panel_hit_areas(see_through, false, 29) ==
+                                std::vector<Rect>{panel_case_bounds(see_through)},
+                            "the open menu takes the laser across the whole case");
+                }
                 const auto view = app.view();
                 const auto& list = *view.candidates->list;
                 const auto key_rect = [&](const char* id) {
