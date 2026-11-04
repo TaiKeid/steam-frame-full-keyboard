@@ -542,7 +542,7 @@ class App {
     // Candidates: Japanese for the converting segment or live for the reading
     // (docs/japanese.md), Chinese for the reading; in the toolbar, the flick
     // band or over the dictation editor's foot.
-    std::optional<Rect> candidate_area() const;
+    std::optional<Rect> candidate_area(const PanelView& band) const;
     // A composing language's reading and candidates show over the main
     // keyboard (PanelView::ime_band).
     bool ime_band_shown() const { return (japanese() || cjk_) && !emoji_open_ && !dictation_open_; }

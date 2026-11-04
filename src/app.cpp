@@ -2692,11 +2692,10 @@ PanelView App::band_geometry() const {
     v.controls = controls();
     return v;
 }
-std::optional<Rect> App::candidate_area() const {
+std::optional<Rect> App::candidate_area(const PanelView& v) const {
     if (!(japanese() || cjk_) || emoji_open_ || settings_open_) {
         return {};
     }
-    const auto v = band_geometry();
     if (dictation_open_) {
         const auto editor = panel_rect(v, dictation_layout_.editor);
         return Rect{editor.x + 12, editor.y + editor.height - dictation_notice_height + 3,
@@ -2708,8 +2707,8 @@ void App::sync_candidates() {
     std::vector<std::string> texts;
     int selected = -1;
     bool stale = false;
-    const auto area = candidate_area();
-    if (area && cjk_) {
+    const bool shown = (japanese() || cjk_) && !emoji_open_ && !settings_open_;
+    if (shown && cjk_) {
         texts = cjk_->candidates();
         selected = cjk_->selected();
         if (cjk_->chinese() && !cjk_->phonetic_keys()) {
@@ -2719,14 +2718,29 @@ void App::sync_candidates() {
                 texts[i] = std::to_string(i - page + 1) + " " + texts[i];
             }
         }
-    } else if (area && composition_.converting()) {
+    } else if (shown && composition_.converting()) {
         texts = composition_.candidates();
         selected = composition_.selected();
-    } else if (area && japanese_typing() && !composition_.empty()) {
+    } else if (shown && japanese_typing() && !composition_.empty()) {
         // Live candidates; a stale list stays until the next one is ready.
         texts = composition_.live();
         stale = !composition_.live_current();
     }
+    if (texts.empty()) {
+        if (candidate_more_) {
+            candidate_more_.reset();
+            dirty = true;
+        }
+        candidate_list_ = false;
+        if (candidates_.shown()) {
+            candidates_.clear();
+            dirty = true;
+        }
+        return;
+    }
+    // Only with candidates to place: the geometry takes the controls.
+    const auto geometry = band_geometry();
+    const auto area = candidate_area(geometry);
     const auto& font = profiles_.languages.at(settings_.active.language).font;
     const auto measure = [&](const std::string& text) { return candidate_text_width(text, font); };
     // The flick band's row ends with ∨. A full layout's row centres the
@@ -2734,10 +2748,9 @@ void App::sync_candidates() {
     auto row = area;
     std::optional<Rect> more;
     if (area && band_more() && !dictation_open_) {
-        if (const auto band = ime_band(band_geometry()); band.more) {
+        if (const auto band = ime_band(geometry); band.more) {
             more = band.more; // The flick band's own.
-        } else if (const double width = CandidateStrip::row_width(texts, measure);
-                   width <= area->width) {
+        } else if (const double width = candidates_.row_width_of(texts, measure); width <= area->width) {
             row->x += (area->width - width) / 2;
             row->width = width;
         } else {
@@ -2750,20 +2763,17 @@ void App::sync_candidates() {
         candidate_more_ = more;
         dirty = true;
     }
-    if (texts.empty() || !more || dictation_open_) {
-        candidate_list_ = false;
-    }
-    if (texts.empty()) {
-        if (candidates_.shown()) {
-            candidates_.clear();
-            dirty = true;
-        }
+    if (!area) {
+        candidates_.clear();
         return;
+    }
+    if (!more || dictation_open_) {
+        candidate_list_ = false;
     }
     const auto before = candidates_.view();
     std::optional<Rect> list;
     if (candidate_list_) {
-        list = candidate_list_area(band_geometry());
+        list = candidate_list_area(geometry);
     }
     candidates_.set(*row, std::move(texts), selected, stale, measure, list);
     dirty |= candidates_.view() != before;
