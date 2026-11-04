@@ -26,6 +26,7 @@
 - After a Japanese commit, the candidate row offers what may come next until the next key, as phones do: with learning on, phrases you committed straight after this one before, then 。 、 ！ ？. A tap types it at once. **Clear learned words** forgets these phrases too.
 - Added **Flick Katakana (JP)** to Settings → Languages and Layouts, off by default: it adds an あ ア key to the Japanese flick layout's side column that switches the kana keys to katakana and back, for typing katakana without converting: a reading typed in katakana is the first candidate. It starts in hiragana and isn't saved.
 - Added **Flick Only (JP)** to Settings → Languages and Layouts for the Japanese flick layout, as on phones: with it on, taps never cycle, so a quick second tap of か types かか instead of き. It is off by default, as on iPhone and Gboard.
+- On the Japanese JIS layout, the ¥ and ろ keys typed nothing in Latin mode or with romaji. They now type ¥ (Shift |) and \ (Shift _), as a JIS keyboard's do, and are labelled so.
 - Japanese romaji types ? and ! as ？ and ！, as Japanese input methods do: なんですか？ rather than なんですか?. The half-width forms are among the candidates.
 - Japanese conversion keeps ！, ？ and brackets as typed. ちょっとまって！ used to become ちょっと待って! with a half-width !, and a closing 」 became 』. The other forms are still offered after the typed one.
 - Dictation mode on a Japanese, Chinese or Korean keyboard keeps the keys at their size. It used to make them larger, since it hides the reading's line; the editor now takes its space instead.

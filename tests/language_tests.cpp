@@ -1215,6 +1215,26 @@ int main(int argc, char** argv) {
                     "/",
                 "ABNT2 extra slash");
         require(key_code("NumpadComma") == KEY_KPCOMMA, "ABNT2 keypad separator evdev code");
+        // Japanese composes on a US keymap, which has nothing on the JIS ¥ and
+        // ろ keys; they type and show what a JIS keyboard's do in Latin mode.
+        for (const auto* id : {"ja-kana", "ja-romaji"}) {
+            LanguageMap japanese(profiles.languages.at(id));
+            const auto& jis = profiles.layouts.at("ja-jis-full");
+            const auto yen = key(jis, "IntlYen"), ro = key(jis, "IntlRo");
+            require(japanese.symbol(yen, {}, false, false) == XKB_KEY_yen &&
+                        japanese.symbol(yen, {KEY_LEFTSHIFT}, false, false) == XKB_KEY_bar &&
+                        japanese.symbol(ro, {}, false, false) == XKB_KEY_backslash &&
+                        japanese.symbol(ro, {KEY_RIGHTSHIFT}, false, false) == XKB_KEY_underscore,
+                    "the JIS ¥ and ろ keys type ¥ | and \\ _");
+            require(japanese.legend(yen, {}, false, false) == "¥" &&
+                        japanese.legend(ro, {}, false, false) == "\\" &&
+                        japanese.legend(ro, {KEY_LEFTSHIFT}, false, false) == "_",
+                    "and show them");
+        }
+        LanguageMap english(profiles.languages.at("en-us"));
+        require(english.symbol(key(profiles.layouts.at("ja-jis-full"), "IntlRo"), {}, false, false) ==
+                    XKB_KEY_NoSymbol,
+                "other languages keep their keymap's keys");
         unicode_input();
         national_keymaps(profiles);
         locks_and_accents(profiles);

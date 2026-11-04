@@ -1084,6 +1084,35 @@ void language_commits_reading() {
                 sink.text == std::vector<std::string>{"か"},
             "the language button types the reading before switching");
 }
+// On JIS, romaji takes the ¥ key's ¥ into the reading, as it takes \ from
+// the ろ key, and Latin mode types both.
+void jis_symbols() {
+    char directory[] = "/tmp/framekeyboard-jis-XXXXXX";
+    require(mkdtemp(directory), "temporary JIS profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-jis-full", "ja-romaji", "graphite"});
+    click_key(app, "IntlYen");
+    click_key(app, "IntlRo");
+    require(app.view().preedit == "¥\\" && sink.text.empty(), "romaji takes ¥ and \\ into the reading");
+    click_key(app, "ZenkakuHankaku");
+    click_key(app, "IntlYen");
+    click_key(app, "IntlRo");
+    require(sink.text == std::vector<std::string>{"¥\\", "¥", "\\"},
+            "半/全 types the reading, then Latin ¥ and \\");
+}
 void candidate_band() {
     char directory[] = "/tmp/framekeyboard-band-XXXXXX";
     require(mkdtemp(directory), "temporary band profile");
@@ -2169,6 +2198,7 @@ int main() {
         candidate_band();
         reading_room();
         language_commits_reading();
+        jis_symbols();
         flick_width();
         next_words();
         candidate_list();

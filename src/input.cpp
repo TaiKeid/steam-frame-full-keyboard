@@ -349,8 +349,19 @@ xkb_keysym_t LanguageMap::symbol(const Key& key, const std::set<int>& modifiers,
         xkb_state_update_key(state, KEY_NUMLOCK + 8, XKB_KEY_DOWN);
         xkb_state_update_key(state, KEY_NUMLOCK + 8, XKB_KEY_UP);
     }
-    const auto symbol = xkb_state_key_get_one_sym(state, static_cast<xkb_keycode_t>(code + 8));
+    auto symbol = xkb_state_key_get_one_sym(state, static_cast<xkb_keycode_t>(code + 8));
     xkb_state_unref(state);
+    // Japanese composes on a US keymap, which has nothing on the JIS ¥ and ろ
+    // keys: in Latin mode they type what a JIS keyboard's do (xkb jp(OADG109A)).
+    if (symbol == XKB_KEY_NoSymbol && language_.locale == "ja-JP" &&
+        (code == KEY_YEN || code == KEY_RO)) {
+        const bool shift = modifiers.contains(KEY_LEFTSHIFT) || modifiers.contains(KEY_RIGHTSHIFT);
+        if (code == KEY_YEN) {
+            symbol = shift ? XKB_KEY_bar : XKB_KEY_yen;
+        } else {
+            symbol = shift ? XKB_KEY_underscore : XKB_KEY_backslash;
+        }
+    }
     return symbol;
 }
 bool LanguageMap::printable(xkb_keysym_t symbol) {

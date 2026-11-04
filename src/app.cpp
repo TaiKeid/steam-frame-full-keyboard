@@ -2757,6 +2757,21 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         }
         return true;
     }
+    // Beyond ASCII, such as the JIS ¥ key's ¥: into the reading as typed.
+    if (character > 0x7e && g_unichar_isprint(character) && !is_modifier(key_code(code))) {
+        if (execute) {
+            if (composition_.converting()) {
+                commit_japanese();
+                if (!composition_.empty()) {
+                    return true;
+                }
+            }
+            char text[8]{};
+            composition_.kana(
+                std::string(text, static_cast<std::size_t>(g_unichar_to_utf8(character, text))));
+        }
+        return true;
+    }
     return false;
 }
 bool App::unicode_mode() const {
