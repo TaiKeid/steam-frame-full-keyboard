@@ -890,7 +890,8 @@ bool JapaneseComposer::choose_live(int index) {
     drain(true); // A pending n is the ん the list was converted with.
     const auto [source, at] = live_.sources[static_cast<std::size_t>(index)];
     if (source == Live::Source::Emoji) {
-        reading_ = live_.texts[static_cast<std::size_t>(index)]; // In place of the whole reading.
+        emoji_choice_ = EmojiChoice{live_.texts[static_cast<std::size_t>(index)], reading_};
+        reading_ = emoji_choice_->emoji; // In place of the whole reading.
         cursor_ = reading_.size();
         return true;
     }
@@ -934,6 +935,14 @@ void JapaneseComposer::cancel() {
     cursor_ = 0;
     live_ = {};
     predicted_.reset();
+    emoji_choice_.reset();
+}
+std::string JapaneseComposer::reopen_reading() const {
+    // Only while the emoji is still all there is: typing after a refused
+    // commit makes it part of the reading.
+    return emoji_choice_ && reading_ == emoji_choice_->emoji && pending_.empty() && !converting()
+               ? emoji_choice_->reading
+               : reading_;
 }
 std::string JapaneseComposer::preedit(bool mark_active) const {
     if (!converting()) {

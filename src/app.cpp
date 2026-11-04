@@ -2429,7 +2429,7 @@ void App::commit_japanese() {
     if (text.empty()) {
         return;
     }
-    const auto reading = composition_.reading();
+    const auto reading = composition_.reopen_reading();
     if (preview_output()) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";

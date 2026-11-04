@@ -812,8 +812,8 @@ void emoji_candidates() {
     require(emoji_for({"ねこ"}, 4).front() == emoji && !emoji_for({"猫"}, 4).empty(),
             "the reading's own emoji come first, then its conversions'");
     require(composer.choose_live(static_cast<int>(katakana + 1 - live.begin())) &&
-                composer.commit_text() == emoji,
-            "a picked emoji commits");
+                composer.commit_text() == emoji && composer.reopen_reading() == "ねこ",
+            "a picked emoji commits, and ↶ would bring back its reading");
     set_emoji_dictionary("/nonexistent");
     require(emoji_for({"猫"}, 4).empty(), "without the dictionary there are none");
 }

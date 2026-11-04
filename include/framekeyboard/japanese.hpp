@@ -124,6 +124,10 @@ class JapaneseComposer {
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
+    // What ↶ brings back for the phrase commit_text() gives: the reading, or
+    // for an emoji picked from the live candidates the kana it replaced
+    // (ねこ for 🐈).
+    std::string reopen_reading() const;
     bool converting() const { return !segments_.empty(); }
     std::vector<std::string> candidates() const;
     int selected() const;
@@ -161,6 +165,12 @@ class JapaneseComposer {
     EmojiLookup emoji_;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
+    // An emoji picked from the live candidates, now the reading, and the
+    // reading it replaced.
+    struct EmojiChoice {
+        std::string emoji, reading;
+    };
+    std::optional<EmojiChoice> emoji_choice_;
     void drain(bool finish);
     void append(const std::string& text);
     std::string before_cursor() const;
