@@ -782,6 +782,20 @@ void candidate_band() {
     require(click_candidate(app, "なこ", 11.3) && sink.text.back() == "〈には〉なこ" &&
                 app.view().preedit.empty(),
             "choosing in the last segment commits the phrase");
+    // After a commit the row offers punctuation, as a phone does: a tap types
+    // it at once, and a key press ends the offer.
+    app.tick(11.32);
+    require(chips() == std::vector<std::string>{"。", "、", "！", "？"},
+            "after a commit, the row offers punctuation");
+    require(click_candidate(app, "！", 11.35) && sink.text.back() == "！" && chips().empty(),
+            "a tap types it at once, and the offer ends");
+    flick(app, "a", 11.4);
+    click_key(app, "Enter");
+    app.tick(11.45);
+    require(!chips().empty(), "the next commit offers it again");
+    click_key(app, "Backspace");
+    app.tick(11.5);
+    require(chips().empty(), "and a key press ends it");
 
     // Flick arrows resize the converting segment; 次候補 steps through its
     // candidates, and ↶ returns to the reading.
@@ -1227,8 +1241,9 @@ void candidate_list() {
         }
     }
     require(click_candidate(app, pick, 4) && sink.text == std::vector<std::string>{pick} &&
-                !app.view().candidates && !has_control(app, "ime-more"),
-            "a choice in the list commits it");
+                !app.view().candidates->list && !has_control(app, "ime-more") &&
+                app.view().candidates->chips.front().text == "。",
+            "a choice in the list commits it, closing the list for what may follow");
     flick(app, "ka", 5);
     app.tick(5.1);
     app.tick(5.3);

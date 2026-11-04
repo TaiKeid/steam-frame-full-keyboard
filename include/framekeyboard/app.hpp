@@ -807,6 +807,13 @@ class App {
         std::uint64_t queued{}, failures{}, cancels{};
     };
     std::optional<Reopen> reopen_;
+    // The phrase a Japanese commit typed, while the strip offers what may
+    // come next, as a phone does: punctuation (docs/japanese.md,
+    // Prediction). A press anywhere but the candidates, or the keyboard
+    // hiding, ends it; a choice types at once.
+    std::optional<std::string> follow_up_;
+    std::vector<std::string> follow_ups() const;
+    void type_follow_up(const std::string& text);
     // ↶'s Backspaces on their way: the reading comes back once the queue has
     // delivered this many entries in all, with no failure since.
     struct Reopening {

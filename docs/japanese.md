@@ -43,6 +43,10 @@ The flick layout is four rows, as on a phone, laid out like Gboard's 12-key keyb
 
 Flick and toggle typing happen on release; other keys still act on press. A copy of the flick layout without the 「あA1」 key keeps the toolbar's あ / A button, which switches between kana and English.
 
+## Prediction
+
+After a commit, while nothing is typed, the candidate row offers what may come next, as a phone's does: 。 、 ！ ？. A tap types it at once; any other press, or the keyboard hiding, ends the offer, and the next commit makes it again.
+
 ## Learning
 
 Learning is on by default, as on Steam's own keyboard, which always learns. With Japanese as the main language or an additional one, Settings → Languages and Layouts offers **Learn from my typing** to turn it off. While it is on:

@@ -1380,6 +1380,15 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         dirty = true;
         return false;
     }
+    // A press anywhere but the candidates and their ∨ ends what a commit
+    // offered next.
+    if (follow_up_ && !candidates_.contains(x, y) &&
+        std::none_of(v.controls.begin(), v.controls.end(), [&](const Control& c) {
+            return c.action.kind == ControlKind::CandidateList && c.bounds.contains(x, y);
+        })) {
+        follow_up_.reset();
+        sync_candidates();
+    }
     if (hovered_[pointer].kind == HoverTarget::Kind::Control) {
         const auto control =
             std::find_if(v.controls.rbegin(), v.controls.rend(),
@@ -1813,6 +1822,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     emoji_.cancel();
     candidates_.cancel();
     reopen_.reset();
+    follow_up_.reset();
     // Backspaces still being delivered come back as the reading, unless the
     // composition or the delivery itself is given up.
     if (discard_composition || cancel_delivery) {
@@ -2492,11 +2502,25 @@ void App::commit_japanese() {
         composition_.learn();
         composition_.cancel();
         status_.clear();
+        follow_up_ = text;
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (japanese_typing() && !dictation_open_) {
             reopen_ = Reopen{text, reading, output_.queued(), output_.failures(), output_.cancels()};
         }
     } else {
+        commit_failed();
+    }
+}
+std::vector<std::string> App::follow_ups() const {
+    // Phones offer the punctuation that most often follows a phrase.
+    return {"。", "、", "！", "？"};
+}
+void App::type_follow_up(const std::string& text) {
+    reopen_.reset();
+    follow_up_.reset();
+    if (preview_output()) {
+        status_ = "Preview: composition committed locally.";
+    } else if (!text_output_->commit_text(text)) {
         commit_failed();
     }
 }
@@ -2831,6 +2855,8 @@ void App::sync_candidates() {
         // Live candidates; a stale list stays until the next one is ready.
         texts = composition_.live();
         stale = !composition_.live_current();
+    } else if (shown && japanese_typing() && follow_up_) {
+        texts = follow_ups();
     }
     if (texts.empty()) {
         if (candidate_more_) {
@@ -2901,6 +2927,17 @@ void App::pick_candidate(int index) {
             return;
         }
         flick_toggle_.reset();
+        if (follow_up_ && composition_.empty()) {
+            const auto texts = follow_ups();
+            if (index >= 0 && index < static_cast<int>(texts.size())) {
+                type_follow_up(texts[static_cast<std::size_t>(index)]);
+            }
+            candidate_list_ = false;
+            follow_cursor();
+            sync_candidates();
+            dirty = true;
+            return;
+        }
         // A choice in the last segment, or one that completes the phrase, commits it.
         const bool complete =
             composition_.converting() ? composition_.choose(index) : composition_.choose_live(index);
