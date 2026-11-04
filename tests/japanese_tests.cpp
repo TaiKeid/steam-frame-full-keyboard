@@ -1103,7 +1103,8 @@ void clear_reading(App& app) {
 // nothing typed meanwhile may overtake the reading coming back, and a
 // recentre or pin keeps it coming.
 // ↶ sends one Backspace per character, so it leaves a phrase with a
-// character of several code points, which fields delete differently.
+// character of several code points, which fields delete differently, and on
+// the digits page still steps a kana back through its key's taps.
 void reopen_counts() {
     struct EmojiConverter : JapaneseConverter {
         std::vector<Segment> convert(const std::string& reading) override {
@@ -1145,6 +1146,13 @@ void reopen_counts() {
         now += 2;
     }
     require(app.view().preedit.empty(), "nothing is left to type");
+    flick(app, "a", now);
+    flick(app, "a", now + .2);
+    flick(app, "a", now + .4);
+    flick(app, "mode", now + .6, 60, 0);
+    require(app.view().flick_digits && app.view().preedit == "う", "digits keep the reading");
+    flick(app, "undo", now + .8);
+    require(app.view().preedit == "い", "↶ on the digits page steps the kana back");
 }
 void slow_reopen() {
     struct SlowSink : Sink {

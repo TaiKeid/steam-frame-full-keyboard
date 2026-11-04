@@ -3564,7 +3564,8 @@ void App::undo_japanese(double now) {
         // 逆トグル: the last kana steps back through its key's taps, and a
         // tap after it goes on from there.
         const auto last = composition_.last_kana();
-        const auto& table = flick_keys();
+        // The kana's own keys, also on the digits page: digits never cycle.
+        const auto& table = profiles_.languages.at(settings_.active.language).flick;
         auto slot = table.end();
         if (flick_toggle_ && table.contains(flick_toggle_->slot)) {
             slot = table.find(flick_toggle_->slot);
