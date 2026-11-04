@@ -229,6 +229,13 @@ void japanese_reopen(bool slow) {
     wait(simulator, .2);
     require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
             "↶ still reopens after the mouse left the window and came back");
+    // Clear field starts anew, the reading too.
+    simulator.pointer_down(Simulator::mouse, Simulator::clear_button().x + 5, Simulator::clear_button().y + 5,
+                           clock_now);
+    simulator.pointer_up(Simulator::mouse, Simulator::clear_button().x + 5, Simulator::clear_button().y + 5);
+    require(simulator.field().text().empty() && simulator.app().view().preedit.empty(),
+            "Clear field also cancels the reading");
+    press(simulator, "Flick-a");
     press(simulator, "Enter");
 
     // The pointer leaving the keyboard is the laser leaving the panel: the

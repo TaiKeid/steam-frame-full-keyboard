@@ -175,6 +175,8 @@ void Simulator::press_outside(unsigned pointer, double x, double y) {
         sink_.set_slow(!sink_.slow());
         redraw_ = true;
     } else if (clear_button().contains(x, y)) {
+        // A new start: the keyboard's reading and its output go too.
+        app_->cancel();
         field_.clear();
     } else if (field_bounds.contains(x, y)) {
         auto* cr = cairo_create(canvas_.get());
