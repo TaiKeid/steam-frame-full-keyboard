@@ -177,11 +177,12 @@ already started and a piece fails, the status asks for Enter to retry only the
 unsent remainder. Hiding or changing the typing context cancels queued output;
 text that was already submitted is never replayed automatically.
 
-Chinese and Korean show the reading centred in a line of its own between the
-toolbar and the keys, with a hint while nothing is typed, and the case fits the
-keys with no empty space at the sides. Other languages on the same layout among
-your languages keep the keys at that size, in a case without the line, so
-switching between them moves the keys only down, as the case grows for it.
+Chinese and Korean show the reading centred in a line of its own under the
+toolbar, in the place of a narrow keyboard's second toolbar row, whose buttons
+sit at the line's left, with a hint while nothing is typed, and the case fits
+the keys with no empty space at the sides. Other languages on the same layout
+among your languages keep the keys at that size and place, the second toolbar
+row where the line would be, so switching between them moves nothing.
 The candidates show in the toolbar row,
 after its buttons, where swipe suggestions go: centred while they all fit, or
 filling the row with ∨ after them while there are more; a still row ends on a

@@ -587,6 +587,9 @@ class App {
     bool ime_room_kept() const {
         return !japanese() && !cjk_ && !emoji_open_ && !dictation_open_ && reading_line_shared();
     }
+    // The views' reading_case: the layout composes, or shares its layout with
+    // a language that does, in every mode.
+    bool reading_case() const { return japanese() || cjk_ || reading_line_shared(); }
     // geometry() with the controls, which place the reading and candidates
     // of full layouts.
     PanelView band_geometry() const;

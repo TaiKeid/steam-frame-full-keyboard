@@ -987,9 +987,9 @@ void flick_width() {
             "the flick case is as wide as a full keyboard's without its numpad");
 }
 // With a composing language among the user's languages on the same layout,
-// every page keeps the scale the reading line gives the keys, so switching
-// to it from English moves the keys only down; without one, English keeps
-// the whole height.
+// every page keeps the scale and place the reading line gives the keys, its
+// line in the second toolbar row's place, so switching to it from English
+// moves nothing; without one, English keeps the whole height.
 void reading_room() {
     for (const bool shared : {true, false}) {
         char directory[] = "/tmp/framekeyboard-room-XXXXXX";
@@ -1016,33 +1016,34 @@ void reading_room() {
         App app(options, sink);
         const auto english = app.view();
         const auto q = key_centre(app, "KeyQ");
-        auto settings_button = [&] {
+        auto bounds_of = [&](const std::string& id) {
             for (const auto& c : app.view().controls) {
-                if (c.id == "settings") {
+                if (c.id == id) {
                     return c.bounds;
                 }
             }
-            throw std::runtime_error("no settings button");
+            throw std::runtime_error("no " + id + " button");
         };
-        const auto button = settings_button();
+        const auto button = bounds_of("settings");
         if (!shared) {
             require(!english.ime_room && !english.ime_band, "English alone keeps the whole height");
             continue;
         }
-        require(english.ime_room && !english.ime_band, "English keeps the reading line's scale");
+        require(english.ime_room && !english.ime_band && english.reading_case,
+                "English keeps the reading line's scale");
+        const auto stay = bounds_of("passthrough");
         control(app, "language-cycle");
         require(app.selection().language == "ja-romaji" && app.view().ime_band,
                 "the language button switches to romaji");
         const auto romaji = panel_case_bounds(app.view());
-        const auto shorter = panel_case_bounds(english);
-        const auto moved = key_centre(app, "KeyQ");
-        require(moved.first == q.first && moved.second > q.second + 40 && settings_button() == button &&
-                    romaji.x == shorter.x && romaji.width == shorter.width && romaji.y == shorter.y &&
-                    romaji.height > shorter.height + 40,
-                "switching to romaji moves the keys only down, under the new reading line, "
-                "and the case grows down for it while the toolbar stays");
-        require(std::abs((moved.second - q.second) - (romaji.height - shorter.height)) < 2,
-                "the keys move down as far as the case grows");
+        const auto line = ime_band(app.view()).reading;
+        require(key_centre(app, "KeyQ") == q && bounds_of("settings") == button &&
+                    bounds_of("passthrough") == stay && romaji == panel_case_bounds(english) &&
+                    romaji.height < panel_height - 40,
+                "switching to romaji moves neither keys, case nor toolbar, in a case without "
+                "the second toolbar row");
+        require(line.x >= stay.x + stay.width + 10 && stay.y == line.y + 1 && stay.y > 54,
+                "the reading line takes the second row's place, its switch at the line's left");
         control(app, "language-cycle");
         require(key_centre(app, "KeyQ") == q, "and back again");
     }

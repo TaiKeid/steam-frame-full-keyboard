@@ -277,6 +277,7 @@ std::vector<Control> App::controls() const {
     geometry.settings = settings_open_;
     geometry.ime_band = ime_band_shown();
     geometry.ime_room = ime_room_kept();
+    geometry.reading_case = reading_case();
     geometry.ime_more = band_more();
     // The mic key shows as in geometry(): a hidden one could narrow the case
     // the toolbar is laid out in, but not the one drawn.
@@ -398,8 +399,18 @@ std::vector<Control> App::controls() const {
     // language. Compact: Settings, Recenter, Pin, language, with the rest below.
     const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
+    // A composing layout's reading line takes the second row's place, its
+    // switches at the line's left, in every view of the layout: placed as
+    // the page with the line places them.
+    PanelView banded = geometry;
+    banded.layout = &shown_layout();
+    banded.dictation.reset();
+    banded.emoji.reset();
+    banded.ime_band = japanese() || cjk_;
+    banded.ime_room = !banded.ime_band && reading_line_shared();
+    const double second_row = second_row_top(banded);
     auto slot = [&](int row_one, int compact_column, int compact_row) {
-        return compact ? std::pair{x + compact_column * 70.0, 12.0 + compact_row * 50}
+        return compact ? std::pair{x + compact_column * 70.0, compact_row ? second_row : 12.0}
                        : std::pair{x + row_one * 70.0, 12.0};
     };
     auto button = [&](int row_one, int compact_column, int compact_row, double width = 60) {
@@ -874,6 +885,7 @@ PanelView App::geometry() const {
     v.composing = (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
     v.ime_band = ime_band_shown();
     v.ime_room = ime_room_kept();
+    v.reading_case = reading_case();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
@@ -982,6 +994,7 @@ PanelView App::build_view(bool picker) const {
     v.composing = japanese_typing() && (!japanese_latin_ || !composition_.empty());
     v.ime_band = ime_band_shown();
     v.ime_room = ime_room_kept();
+    v.reading_case = reading_case();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
@@ -5130,6 +5143,7 @@ void App::refresh_dictation_layout() {
     main.language = &profiles_.languages.at(settings_.active.language);
     main.hide_numpad = numpad_hidden();
     main.dictation_available = true; // The mode shows the mic key.
+    main.reading_case = reading_case();
     PanelView banded = main;
     banded.ime_band = japanese() || cjk_;
     banded.ime_room = !banded.ime_band && reading_line_shared();

@@ -105,15 +105,22 @@ double handle_ease_out(double progress) {
     return t * t * (3 - 2 * t);
 }
 constexpr double normal_toolbar_height = 96;
-// The band sits below the status line and a compact toolbar's second row;
-// the keys follow it. It stays in every mode, so switching never changes
-// their size, and the case is measured with it. On full layouts it is the
-// reading's line alone, the candidates in the toolbar row above; the flick
-// layout, as short as a phone's, gives the candidates a row of the band.
-constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 156,
+// The band takes a compact toolbar's second row's place, under the first,
+// the row's switches at the left of its reading line; the keys follow it.
+// It stays in every mode, so switching never changes their size, and the
+// case is measured with it. On full layouts it is the reading's line alone,
+// the candidates in the toolbar row above; the flick layout, as short as a
+// phone's, gives the candidates a row of the band.
+constexpr double ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 106,
                  ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
-// What the reading line adds to the toolbar's height.
-constexpr double reading_room = ime_toolbar_height - normal_toolbar_height;
+// The flick band's top, its reading row level with the second row's switches.
+constexpr double flick_band_top = 58;
+// The second toolbar row the reading line replaced: the case of a composing
+// layout, in every view of it, is that much shorter (PanelView::reading_case).
+constexpr double second_row_room = 50;
+double case_height(const PanelView& view) {
+    return panel_height - (view.reading_case && !view.settings ? second_row_room : 0);
+}
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
 }
@@ -138,14 +145,14 @@ Placement placement(const PanelView& view) {
     const double toolbar_height = two_row_band(view)               ? ime_two_row_height
                                   : view.ime_band || view.ime_room ? ime_toolbar_height
                                                                    : normal_toolbar_height;
+    // A page keeping the reading line's room lays its keys out as the
+    // line's page does, the second toolbar row in the line's place.
+    const double height = case_height(view);
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
-                 (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
-    // A page keeping the reading line's scale has its keys right under the
-    // toolbar, in a case ending that much sooner (panel_case_bounds).
+                 (height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
     return {scale, (panel_width - visible_layout_width(view) * scale) / 2,
-            toolbar_height + (panel_height - toolbar_height - view.layout->height * scale) / 2 -
-                (view.ime_room ? reading_room : 0)};
+            toolbar_height + (height - toolbar_height - view.layout->height * scale) / 2};
 }
 // Whole pixels around a rectangle, for clips that never cut antialiasing.
 Rect pixel_bounds(Rect r, double margin = 0) {
@@ -1313,40 +1320,36 @@ Rect panel_case_bounds(const PanelView& view) {
     const double width =
         std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
                               (slack > 1 ? slack : 0));
-    // Its top stays put, so the toolbar doesn't move when a reading line
-    // appears: the case grows down for it instead.
-    return {(panel_width - width) / 2, 0, width, panel_height - (view.ime_room ? reading_room : 0)};
+    return {(panel_width - width) / 2, 0, width, case_height(view)};
 }
 double unbanded_layout_height(const PanelView& view) {
     if (!view.ime_band && !view.ime_room) {
         return view.layout->height;
     }
     const double room =
-        panel_height - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
+        case_height(view) - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
     return std::max(view.layout->height, room / placement(view).scale);
+}
+namespace {
+// The reading line's top: the flick band's fixed row, or on full layouts
+// halfway between the toolbar's first row and the keys.
+double reading_line_top(const PanelView& view) {
+    if (two_row_band(view)) {
+        return flick_band_top;
+    }
+    return std::round((54 + placement(view).y - ime_band_height) / 2);
+}
+} // namespace
+double second_row_top(const PanelView& banded) {
+    // Centred on the line: 42-pixel buttons on a 44-pixel line.
+    return banded.reading_case && (banded.ime_band || banded.ime_room) ? reading_line_top(banded) + 1
+                                                                       : 62;
 }
 ImeBand ime_band(const PanelView& view) {
     const auto body = panel_case_bounds(view);
-    if (two_row_band(view)) {
-        const Rect reading{body.x + 20, ime_band_top, body.width - 40, ime_band_height};
-        Rect candidates = reading;
-        candidates.y += ime_band_height + ime_band_gap;
-        ImeBand result{{reading.x, reading.y, reading.width, 2 * ime_band_height + ime_band_gap},
-                       reading,
-                       candidates,
-                       {}};
-        if (view.ime_more) {
-            constexpr double width = 64, gap = 8;
-            auto& row = result.candidates;
-            row.width -= width + gap;
-            result.more = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
-        }
-        return result;
-    }
-    // Full layouts: the reading line across the case, and the candidates'
-    // room in the toolbar row, after its buttons and before the close button
-    // or the shell's. App centres them in it, ∨ after them if they overflow.
-    double first = body.x + 8, end = body.x + body.width - 18;
+    // The first row's buttons end where the full layouts' candidates start;
+    // the second row's switches, where the reading line does.
+    double first = body.x + 8, line = body.x + 20, end = body.x + body.width - 18;
     for (const auto& control : view.controls) {
         const auto& r = control.bounds;
         switch (control.action.kind) {
@@ -1361,6 +1364,8 @@ ImeBand ime_band(const PanelView& view) {
         case ControlKind::LanguageCycle:
             if (r.y < 50) {
                 first = std::max(first, r.x + r.width);
+            } else {
+                line = std::max(line, r.x + r.width + 10);
             }
             break;
         case ControlKind::Close:
@@ -1371,10 +1376,27 @@ ImeBand ime_band(const PanelView& view) {
             break;
         }
     }
-    // Halfway between a compact toolbar's second row and the keys.
-    const double top = std::round((104 + placement(view).y - ime_band_height) / 2);
-    const Rect line{body.x + 20, top, body.width - 40, ime_band_height};
-    return {line, line, {first + 10, 12, std::max(0.0, end - 10 - first - 10), 42}, {}};
+    const double top = reading_line_top(view), right = body.x + body.width - 20;
+    const Rect reading{line, top, right - line, ime_band_height};
+    if (two_row_band(view)) {
+        const Rect candidates{body.x + 20, top + ime_band_height + ime_band_gap, body.width - 40,
+                              ime_band_height};
+        ImeBand result{{body.x + 20, top, body.width - 40, 2 * ime_band_height + ime_band_gap},
+                       reading,
+                       candidates,
+                       {}};
+        if (view.ime_more) {
+            constexpr double width = 64, gap = 8;
+            auto& row = result.candidates;
+            row.width -= width + gap;
+            result.more = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
+        }
+        return result;
+    }
+    // Full layouts: the reading line across the case, and the candidates'
+    // room in the toolbar row, after its buttons and before the close button
+    // or the shell's. App centres them in it, ∨ after them if they overflow.
+    return {reading, reading, {first + 10, 12, std::max(0.0, end - 10 - first - 10), 42}, {}};
 }
 Rect candidate_list_area(const PanelView& view) {
     const auto band = ime_band(view);
@@ -1634,25 +1656,79 @@ std::optional<Rect> focus_tooltip_area(const PanelView& view) {
 // A raised card like Settings' cards, with a pointer down to the button and
 // the window's title in the legend colour. It floats over whatever is behind
 // the panel, so its fill stays opaque with any Background.
-void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
+constexpr double focus_tooltip_size = 21, focus_tooltip_pad = 18;
+// A theme's radius may be large: the corners fit the card's height.
+double card_radius(const Theme& t) {
+    return std::min(t.radius + 4, focus_tooltip_height / 2);
+}
+// The tooltip's card without its pointer: as wide as the title, centred on
+// the button, and wide enough for both corners and the pointer between them,
+// however short the title.
+std::optional<Rect> focus_tooltip_card(cairo_t* cr, const PanelView& view) {
     const auto area = focus_tooltip_area(view);
     if (!area) {
+        return {};
+    }
+    const auto& button = *std::find_if(view.controls.begin(), view.controls.end(),
+                                       [](const Control& c) { return c.id == "keep-open"; });
+    const double ink = text_width(cr, view.focus_tooltip, focus_tooltip_size, view.language->font);
+    const double radius = card_radius(*view.theme);
+    const double least = std::min(area->width, 2 * (radius + focus_tooltip_pointer) + 8);
+    const double width = std::clamp(ink + 2 * focus_tooltip_pad, least, area->width);
+    const double centre = button.bounds.x + button.bounds.width / 2;
+    return Rect{std::clamp(centre - width / 2, area->x, area->x + area->width - width), area->y, width,
+                focus_tooltip_height};
+}
+// A raised card floating over whatever is behind the panel, as Settings'
+// cards are, so its fill stays opaque with any Background.
+void draw_card(cairo_t* cr, const Theme& t, const Rect& card) {
+    soft_shadow(cr, card, card_radius(t), 6);
+    rounded(cr, card, card_radius(t));
+    source(cr, mix(t.surface, t.bottom, .45));
+    cairo_fill(cr);
+    cairo_move_to(cr, card.x + card_radius(t), card.y + 1.5);
+    cairo_line_to(cr, card.x + card.width - card_radius(t), card.y + 1.5);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+}
+// The keyboard's messages: a card above the case, at the focus tooltip's
+// height, centred on the case. Beside the tooltip when both show, or above
+// it when the panel has no room beside it.
+void draw_status_card(cairo_t* cr, const PanelView& view) {
+    constexpr double size = 17, pad = 20, gap = 12;
+    const auto body = panel_case_bounds(view);
+    const double width =
+        std::min(text_width(cr, view.status, size, view.language->font) + 2 * pad, panel_width - 16.0);
+    Rect card{std::clamp(body.x + (body.width - width) / 2, 8.0, panel_width - 8 - width),
+              body.y - 4 - focus_tooltip_pointer - focus_tooltip_height, width, focus_tooltip_height};
+    if (const auto tooltip = focus_tooltip_card(cr, view); tooltip &&
+                                                           card.x < tooltip->x + tooltip->width + gap &&
+                                                           tooltip->x < card.x + card.width + gap) {
+        if (const double right = tooltip->x + tooltip->width + gap; right + width <= panel_width - 8) {
+            card.x = std::max(card.x, right);
+        } else if (const double left = tooltip->x - gap - width; left >= 8) {
+            card.x = std::min(card.x, left);
+        } else {
+            card.y = tooltip->y - 8 - focus_tooltip_height;
+        }
+    }
+    draw_card(cr, *view.theme, card);
+    // label() sets text 4 px inside its area.
+    label(cr, view.status, {card.x + pad - 4, card.y, card.width - 2 * pad + 8, card.height}, size,
+          view.language->font, view.theme->legend);
+}
+void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
+    const auto found = focus_tooltip_card(cr, view);
+    if (!found) {
         return;
     }
     const auto& t = *view.theme;
     const auto& button = *std::find_if(view.controls.begin(), view.controls.end(),
                                        [](const Control& c) { return c.id == "keep-open"; });
-    constexpr double size = 21, pad = 18;
-    const double ink = text_width(cr, view.focus_tooltip, size, view.language->font);
-    // A theme's radius may be large: the corners fit the card's height, and
-    // the card is wide enough for both corners and the pointer between them,
-    // however short the title.
-    const double radius = std::min(t.radius + 4, focus_tooltip_height / 2);
-    const double least = std::min(area->width, 2 * (radius + focus_tooltip_pointer) + 8);
-    const double width = std::clamp(ink + 2 * pad, least, area->width);
+    const double radius = card_radius(t);
+    const Rect card = *found;
     const double centre = button.bounds.x + button.bounds.width / 2;
-    const Rect card{std::clamp(centre - width / 2, area->x, area->x + area->width - width), area->y,
-                    width, focus_tooltip_height};
     // The pointer stays clear of the card's rounded corners.
     const double tip = std::clamp(centre, card.x + radius + focus_tooltip_pointer,
                                   card.x + card.width - radius - focus_tooltip_pointer);
@@ -1678,8 +1754,9 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
     // label() sets text 4 px inside its area.
-    label(cr, view.focus_tooltip, {card.x + pad - 4, card.y, card.width - 2 * pad + 8, card.height},
-          size, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+    label(cr, view.focus_tooltip,
+          {card.x + focus_tooltip_pad - 4, card.y, card.width - 2 * focus_tooltip_pad + 8, card.height},
+          focus_tooltip_size, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
 }
 void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
     const double radius = t.radius + 4;
@@ -2293,6 +2370,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
+        previous_->view.reading_case != view.reading_case ||
+        // The message card moves to clear the focus tooltip.
+        (!view.status.empty() && previous_->view.focus_tooltip != view.focus_tooltip) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
         previous_->view.ime_room != view.ime_room || previous_->view.flick_latin != view.flick_latin ||
         previous_->view.flick_digits != view.flick_digits ||
@@ -2914,6 +2994,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
         draw_focus_tooltip(cr, view);
+        if (!view.status.empty() && !view.settings && !in_editor) {
+            draw_status_card(cr, view);
+        }
         if (view.ime_band && !view.settings) {
             draw_ime_band(cr, view);
         }
@@ -3179,11 +3262,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
                       true);
             }
-        } else if (!view.status.empty() && !in_editor) {
-            // A compact toolbar's second row takes the left of the status line.
-            const double inset = compact_toolbar(view) ? 88 : 18;
-            const Rect line = view.settings ? Rect{30, 574, 1540, 24}
-                                            : Rect{body.x + inset, 60, body.width - inset - 18, 28};
+        } else if (!view.status.empty() && view.settings) {
+            const Rect line{30, 574, 1540, 24};
             case_plate(cr, view, line, view.status, 17, PANGO_ALIGN_CENTER);
             label(cr, view.status, line, 17, view.language->font, t.legend);
         }

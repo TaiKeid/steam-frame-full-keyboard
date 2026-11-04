@@ -36,7 +36,9 @@ class Simulator {
     // Pointer IDs: the mouse, the held second pointer (toggle_hold), and
     // touch screen fingers from first_finger up.
     static constexpr unsigned mouse = 0, held = 1, first_finger = 2;
-    static constexpr Rect field_bounds{16, 12, panel_width - 32, popup_margin - 28};
+    // Above the keyboard's messages, which show over the case as on the
+    // headset (a card as tall as the focus tooltip, 60 px over the case).
+    static constexpr Rect field_bounds{16, 12, panel_width - 32, popup_margin - 80};
     // Throws when the setup's layout, language or theme cannot be used.
     explicit Simulator(const Setup& setup);
     void pointer_down(unsigned pointer, double x, double y, double now);

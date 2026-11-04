@@ -211,10 +211,15 @@ struct PanelView {
     // `preedit`.
     bool ime_band{};
     // A language among the user's composes on this layout while the shown
-    // one doesn't: the keys keep the scale the reading line gives them, in a
-    // case without the line, ending sooner, so switching between them moves
-    // the keys only down and the toolbar not at all.
+    // one doesn't: the keys keep the scale and place the reading line gives
+    // them, a compact toolbar's second row where the line would be, so
+    // switching between them moves neither keys nor toolbar.
     bool ime_room{};
+    // The layout composes, or shares its layout with a language that does:
+    // in every view of it but Settings (the emoji picker and dictation mode
+    // too) the case lacks the second toolbar row the reading line replaces,
+    // and ends that much sooner.
+    bool reading_case{};
     // The candidate row ends with ∨, which opens the whole list over the
     // keys, as a phone's does.
     bool ime_more{};
@@ -368,6 +373,10 @@ Rect panel_case_bounds(const PanelView& view);
 // main toolbar and swipe suggestions in one row; the zoom and passthrough
 // buttons then form a second row under Settings.
 bool compact_toolbar(const PanelView& view);
+// Where a compact toolbar's second row goes: on a composing layout's reading
+// line, its switches at the line's left, in every view of the layout.
+// `banded` is the layout's view with the band (or its room) shown.
+double second_row_top(const PanelView& banded);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 // Where a composing language shows its reading and candidates. The flick

@@ -66,10 +66,10 @@ DictationLayout dictation_layout(const Layout& main, double visible_width, doubl
     result.layout.width = main.width;
     result.layout.height = main.height;
     // The editor lies over the function-key row. A layout without one, such
-    // as flick, moves its keys down by that row to make the same room, or
-    // by the band's room when that is more.
+    // as flick, takes the reading line's room, so its keys keep their size,
+    // or without that moves its keys down by a function row's room.
     const bool function_row = bounds_of(main, {"F1", "F12"}).has_value();
-    const double drop = function_row ? extra : std::max(function_row_room, extra);
+    const double drop = function_row || extra > 0 ? extra : function_row_room;
     result.layout.height += drop;
     std::optional<Rect> paste;
     double mic_height = 0;
