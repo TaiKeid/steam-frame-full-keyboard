@@ -496,6 +496,8 @@ class App {
     bool swipe_in_cycle_{};
     bool swipe_enabled() const { return swipe_ && swipe_keyboard_ && !hint_private(); }
     void prepare_swipe();
+    // Whether a press on a swipe letter starts a swipe now.
+    bool swipe_starts(const std::set<int>& modifiers) const;
     // Whether a press of this key can start a swipe.
     bool swipes(const Key& key, const std::set<int>& modifiers) const;
     // Key flicks (Settings): a key that types a character types it on
@@ -525,8 +527,12 @@ class App {
     void finish_key_flick();
     // Says why text went nowhere: a full editor or a missing target.
     void text_refused();
+    // With `gap` the press is between keys, in the letter's reach: until it
+    // moves it shows nothing and takes nothing, and a tap types nothing.
     bool swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
-                    const std::set<int>& mods);
+                    const std::set<int>& mods, bool gap = false);
+    // Such a press becomes a swipe, as one on its letter would. False if refused.
+    bool begin_gap_swipe();
     void swipe_move(double x, double y);
     bool swipe_up(unsigned pointer, double x, double y);
     // A pending word must reach the target before any later key.
@@ -852,6 +858,7 @@ class App {
         std::set<int> modifiers;
         xkb_keysym_t symbol{}; // The tapped character if the press never becomes a swipe.
         bool shifted{}, swiping{};
+        bool gap{}; // Pressed between keys (swipe_down).
         std::vector<SwipePoint> points;
         std::vector<std::pair<double, double>> trail;
         std::size_t painted{}; // Trail point the last repaint request ended at.
@@ -963,9 +970,13 @@ class App {
     // Rebuilds the mode's keys when the layout or the hidden numpad changed.
     void refresh_dictation_layout();
     void set_dictation_view(PanelView& view) const;
-    bool dictation_down(unsigned pointer, const Key& key, double x, double y, double now);
+    bool dictation_down(unsigned pointer, const Key& key, double x, double y, double now,
+                        bool gap = false);
     // A key pressed on the keyboard, or one of the Japanese band's arrows.
-    bool press_key(unsigned pointer, const Key* key, double x, double y, double now, const PanelView& v);
+    // With `gap` the press is between keys in a letter's swipe reach, where
+    // it can only start a swipe.
+    bool press_key(unsigned pointer, const Key* key, double x, double y, double now, const PanelView& v,
+                   bool gap = false);
     // Typing again clears an error shown over the editor.
     void clear_editor_error();
     void dictation_key_up(const Key& key);

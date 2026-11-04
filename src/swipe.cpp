@@ -88,6 +88,38 @@ float interpolate(const std::vector<double>& xs, const std::vector<double>& ys, 
     const double f = span > 0 ? (x - xs[i - 1]) / span : 0;
     return static_cast<float>(ys[i - 1] + (ys[i] - ys[i - 1]) * f);
 }
+// A letter's bounds grown by half the gap to the nearest key facing each
+// side, so neighbouring letters' reaches meet in the middle of their gap. A
+// side with no key facing it stays; a wide gap grows by at most a quarter key.
+Rect swipe_reach(const Layout& layout, const Key& letter) {
+    const auto& r = letter.bounds;
+    constexpr double none = std::numeric_limits<double>::infinity();
+    double left = none, right = none, top = none, bottom = none;
+    for (const auto& key : layout.keys) {
+        const auto& o = key.bounds;
+        if (&key == &letter) {
+            continue;
+        }
+        if (o.y < r.y + r.height && r.y < o.y + o.height) { // In its row.
+            if (o.x + o.width <= r.x) {
+                left = std::min(left, r.x - (o.x + o.width));
+            } else if (o.x >= r.x + r.width) {
+                right = std::min(right, o.x - (r.x + r.width));
+            }
+        }
+        if (o.x < r.x + r.width && r.x < o.x + o.width) { // Above or below it.
+            if (o.y + o.height <= r.y) {
+                top = std::min(top, r.y - (o.y + o.height));
+            } else if (o.y >= r.y + r.height) {
+                bottom = std::min(bottom, o.y - (r.y + r.height));
+            }
+        }
+    }
+    const double most = std::min(r.width, r.height) / 4;
+    auto grow = [most](double gap) { return gap == none ? 0 : std::min(gap / 2, most); };
+    return {r.x - grow(left), r.y - grow(top), r.width + grow(left) + grow(right),
+            r.height + grow(top) + grow(bottom)};
+}
 } // namespace
 
 int SwipeKeyboard::index_of(char32_t character) const {
@@ -196,6 +228,11 @@ std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const La
             if (base != keyboard.letters[i] && it != keyboard.letters.end()) {
                 keyboard.alternate[i] = static_cast<int>(it - keyboard.letters.begin());
             }
+        }
+    }
+    for (const auto& key : layout.keys) {
+        if (keyboard.key_index.contains(key.id)) {
+            keyboard.reach[key.id] = swipe_reach(layout, key);
         }
     }
     return keyboard;

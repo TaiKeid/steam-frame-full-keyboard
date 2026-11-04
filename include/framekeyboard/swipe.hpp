@@ -42,7 +42,11 @@ struct SwipeKeyboard {
     std::vector<char32_t> letters;
     std::vector<SwipePoint> centers;
     std::map<std::string, int> key_index; // Layout key ID -> letter index.
-    Rect frame;                           // Normalization frame around the letter block.
+    // Layout key ID -> where a swipe can start on that letter: its key and
+    // half the gap to each neighbour. A tap there outside the key types
+    // nothing (App::down).
+    std::map<std::string, Rect> reach;
+    Rect frame; // Normalization frame around the letter block.
     double key_width{};
     // AltGr letters without a plain-letter key (Polish ł on l) are swiped on
     // the key that types them; accented ones fold to their plain letter.

@@ -5,6 +5,7 @@
 #include "input.hpp"
 #include <array>
 #include <cairo.h>
+#include <map>
 #include <optional>
 
 namespace framekeyboard {
@@ -250,6 +251,10 @@ struct PanelView {
     bool status_hovered{}; // A laser is on the dictation status line.
     // Case coordinates of the swipe in progress, drawn above the keys.
     std::vector<std::pair<double, double>> swipe_trail;
+    // While a press on a letter would start a swipe: each letter's reach in
+    // layout coordinates (SwipeKeyboard::reach), where a press between keys
+    // can start one too (PanelRenderer::swipe_key).
+    const std::map<std::string, Rect>* swipe_reach{};
     // Keys drawn dimmed, which ignore the laser.
     std::set<std::string> disabled_keys;
     // The emoji picker's grid and tabs; its keys are in `layout`.
@@ -393,6 +398,9 @@ class PanelRenderer {
     // Whether any pixel was redrawn; nothing to upload otherwise.
     bool paint(const PanelView& view, double now, bool force_full = false);
     const Key* hit_key(const PanelView& view, double x, double y) const;
+    // Between keys, the letter whose swipe reach holds the point, the
+    // nearest if two do; a press there can only start a swipe.
+    const Key* swipe_key(const PanelView& view, double x, double y) const;
     // Case coordinates to the layout's own key coordinates, as hit_key uses.
     std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }

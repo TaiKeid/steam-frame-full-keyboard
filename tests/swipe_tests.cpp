@@ -571,6 +571,117 @@ void app_flow(bool ordered_replace) {
 }
 
 // The trail repaints only its extent; that must equal a full repaint.
+// The middle of the clear gap on the line from one key's point to another's.
+std::pair<double, double> gap_between(App& app, const std::string& from, const std::string& to) {
+    const auto view = app.view();
+    const auto [ax, ay] = key_point(app, from);
+    const auto [bx, by] = key_point(app, to);
+    double first = -1, last = -1;
+    for (int i = 0; i <= 400; ++i) {
+        const double t = i / 400.0;
+        if (!app.renderer.hit_key(view, ax + (bx - ax) * t, ay + (by - ay) * t)) {
+            first = first < 0 ? t : first;
+            last = t;
+        }
+    }
+    require(first >= 0, "a gap lies between " + from + " and " + to);
+    const double t = (first + last) / 2;
+    return {ax + (bx - ax) * t, ay + (by - ay) * t};
+}
+void swipes_between_keys() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    auto swipe_from = [&](std::pair<double, double> start, double now) {
+        auto [x, y] = start;
+        app.down(0, x, y, now);
+        for (const auto* action : {"KeyE", "KeyL", "KeyO"}) {
+            const auto [nx, ny] = key_point(app, action);
+            for (int step = 1; step <= 4; ++step) {
+                app.move(0, x + (nx - x) * step / 4, y + (ny - y) * step / 4);
+            }
+            x = nx;
+            y = ny;
+        }
+        app.up(0, x, y);
+    };
+    auto tap = [&](double x, double y, double now) {
+        const bool pressed = app.down(0, x, y, now);
+        return app.up(0, x, y) || pressed;
+    };
+
+    const auto [gx, gy] = gap_between(app, "KeyG", "KeyH");
+    const auto* nearest = app.renderer.swipe_key(app.view(), gx, gy);
+    require(!app.renderer.hit_key(app.view(), gx, gy) && nearest &&
+                (nearest->id == "KeyG" || nearest->id == "KeyH"),
+            "a gap between letters belongs to the nearer letter");
+    require(!tap(gx, gy, 1) && sink.text.empty() && *calls == 0,
+            "a tap between letters presses and releases no key, and types nothing");
+
+    swipe_from({gx, gy}, 2);
+    settle(app, [&] { return !sink.text.empty(); });
+    require(sink.text == std::vector<std::string>{"hello"} && *calls == 1,
+            "a swipe can start between letters");
+    require(has_control(app.view(), "swipe-candidate-1"), "and offers alternatives");
+    tap(gx, gy, 3);
+    require(has_control(app.view(), "swipe-candidate-1") && sink.text.size() == 1,
+            "a tap between letters leaves the word and its alternatives");
+
+    const auto [shift_x, shift_y] = key_point(app, "ShiftLeft");
+    tap(shift_x, shift_y, 4);
+    tap(gx, gy, 4.1);
+    require(!app.view().keyboard->modifiers().empty(), "a tap between letters leaves Shift latched");
+    swipe_from({gx, gy}, 5);
+    settle(app, [&] { return sink.text.back() == "Hello"; });
+    require(app.view().keyboard->modifiers().empty(), "a swipe from between letters uses the latch");
+
+    // Half of each gap belongs to the letter, beside a key that isn't one too.
+    auto first_miss = [&](double x, double y, double dx, double dy) {
+        while (app.renderer.hit_key(app.view(), x, y)) {
+            x += dx;
+            y += dy;
+        }
+        return std::pair{x, y};
+    };
+    const auto [ax, ay] = key_point(app, "KeyA");
+    const auto [below_x, below_y] = first_miss(ax, ay, 0, 1);
+    const auto* below = app.renderer.swipe_key(app.view(), below_x, below_y);
+    require(below && below->id == "KeyA", "the gap under a letter starts a swipe on it");
+    const auto [left_x, left_y] = first_miss(ax, ay, -1, 0);
+    const auto* beside = app.renderer.swipe_key(app.view(), left_x, left_y);
+    require(beside && beside->id == "KeyA", "so does the gap beside it");
+    double caps_x = left_x;
+    while (!app.renderer.hit_key(app.view(), caps_x, left_y)) {
+        caps_x -= 1;
+    }
+    require(!app.renderer.swipe_key(app.view(), caps_x + 1, left_y),
+            "but not the half of the gap by Caps Lock");
+
+    click(app, "swipe-toggle");
+    const auto typed = sink.text;
+    require(!app.renderer.swipe_key(app.view(), gx, gy) && !tap(gx, gy, 6) && sink.text == typed,
+            "with swipe off a gap starts nothing");
+}
 void trail_repaint() {
     TemporaryDirectory directory;
     Settings settings;
@@ -1767,6 +1878,7 @@ int main(int argc, char** argv) {
         app_flow(false);
         app_flow(true);
         text_output_capture();
+        swipes_between_keys();
         trail_repaint();
         std::cout << "swipe tests passed\n";
         return 0;

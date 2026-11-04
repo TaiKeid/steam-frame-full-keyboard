@@ -2099,6 +2099,29 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
     }
     return nullptr;
 }
+const Key* PanelRenderer::swipe_key(const PanelView& view, double x, double y) const {
+    if (!view.swipe_reach || view.settings || list_open(view)) {
+        return nullptr;
+    }
+    const auto [lx, ly] = layout_point(view, x, y);
+    const Key* nearest = nullptr;
+    double nearest_distance = std::numeric_limits<double>::max();
+    for (const auto& key : view.layout->keys) {
+        const auto reach = view.swipe_reach->find(key.id);
+        if (reach == view.swipe_reach->end() || !reach->second.contains(lx, ly) ||
+            covered_key(view, key)) {
+            continue;
+        }
+        const auto& b = key.bounds;
+        const double dx = std::max({b.x - lx, 0.0, lx - (b.x + b.width)});
+        const double dy = std::max({b.y - ly, 0.0, ly - (b.y + b.height)});
+        if (const double distance = std::hypot(dx, dy); distance < nearest_distance) {
+            nearest = &key;
+            nearest_distance = distance;
+        }
+    }
+    return nearest;
+}
 bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto& t = *view.theme;
     const auto modifiers = view.keyboard->modifiers();

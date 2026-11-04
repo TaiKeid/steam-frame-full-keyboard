@@ -1163,6 +1163,11 @@ PanelView App::build_view(bool picker) const {
             v.hovered_controls.insert(target.id);
         }
     }
+    // Between letters a press can start a swipe whenever one on a letter would.
+    if (swipe_starts(keyboard_.modifiers()) &&
+        (!dictation_open_ || (editor_editable() && !phrases_pending()))) {
+        v.swipe_reach = &swipe_keyboard_->reach;
+    }
     return v;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
@@ -1397,12 +1402,17 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (const auto* key = renderer.hit_key(v, x, y)) {
         return press_key(pointer, key, x, y, now, v);
     }
+    // A miss between letters can still start a swipe. It is no key press:
+    // no haptic, and a tap there types nothing.
+    if (const auto* key = renderer.swipe_key(v, x, y)) {
+        press_key(pointer, key, x, y, now, v, true);
+    }
     return false;
 }
 
 // A key pressed on the keyboard.
-bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now,
-                    const PanelView& v) {
+bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now, const PanelView& v,
+                    bool gap) {
     if (undo_held(pointer)) {
         finish_flick(); // In press order, as for any held flick below.
     }
@@ -1413,7 +1423,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         return false;
     }
     if (dictation_open_) {
-        return dictation_down(pointer, *key, x, y, now);
+        return dictation_down(pointer, *key, x, y, now, gap);
     }
     if (sink_on() && !host_.context) {
         return false; // the sink types only into a field the shell named
@@ -1480,7 +1490,10 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     // While a word list loads, letters type as without swipe: a swipe would
     // make the next key wait for the whole load on the VR thread.
     if (swipes(*key, modifiers)) {
-        return swipe_down(pointer, *key, x, y, now, modifiers);
+        return swipe_down(pointer, *key, x, y, now, modifiers, gap);
+    }
+    if (gap) {
+        return false;
     }
     // Any other key ends the swiped word: deliver it first, then forget its alternatives.
     if (swipe_track_ && swipe_track_->pointer != pointer) {
@@ -3816,27 +3829,31 @@ void App::prepare_swipe() {
     }
     swipe_->prepare(swipe_keyboard_, lexicon);
 }
-bool App::swipes(const Key& key, const std::set<int>& modifiers) const {
-    return !emoji_open_ && swipe_enabled() && swipe_->ready() &&
-           swipe_keyboard_->key_index.contains(key.id) && !keymap_->composing() &&
+bool App::swipe_starts(const std::set<int>& modifiers) const {
+    return !emoji_open_ && swipe_enabled() && swipe_->ready() && !keymap_->composing() &&
            std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
                return code != key_code("ShiftLeft") && code != key_code("ShiftRight");
            });
 }
+bool App::swipes(const Key& key, const std::set<int>& modifiers) const {
+    return swipe_starts(modifiers) && swipe_keyboard_->key_index.contains(key.id);
+}
 bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, double now,
-                     const std::set<int>& mods) {
+                     const std::set<int>& mods, bool gap) {
     // The editor is local, and keeps working without a connection.
     if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || swipe_track_) {
         return false;
     }
-    finish_swipe(true);
-    discard_swipe();
     // Pinyin letters only reach the local composer, and the editor is local too:
     // neither needs an output slot.
-    if (!dictation_open_ && !output_.admit(!cjk_, now)) {
-        update_output_status();
-        dirty = true;
-        return false;
+    if (!gap) {
+        finish_swipe(true);
+        discard_swipe();
+        if (!dictation_open_ && !output_.admit(!cjk_, now)) {
+            update_output_status();
+            dirty = true;
+            return false;
+        }
     }
     SwipeTrack track;
     track.pointer = pointer;
@@ -3846,8 +3863,9 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
     // Capture the tap's character before down() consumes a latched Shift.
     track.symbol = keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num());
     track.shifted = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    track.gap = gap;
     // A local press shows the key and owns the pointer; nothing is sent until release.
-    if (!keyboard_.down(pointer, key, now, true, 0)) {
+    if (!gap && !keyboard_.down(pointer, key, now, true, 0)) {
         return false;
     }
     const auto [lx, ly] = renderer.layout_point(geometry(), x, y);
@@ -3892,6 +3910,9 @@ void App::swipe_move(double x, double y) {
         std::hypot(lx - start.x, ly - start.y) > swipe_keyboard_->key_width / 2) {
         // Leaving the start key turns the press into a swipe. Release only the
         // local visual press; it never sent anything.
+        if (track.gap && !begin_gap_swipe()) {
+            return; // Refused, and the track is gone.
+        }
         track.swiping = true;
         keyboard_.cancel_pointer(track.pointer);
     }
@@ -3903,6 +3924,24 @@ void App::swipe_move(double x, double y) {
         track.painted = track.trail.size() - 1;
         dirty = true;
     }
+}
+bool App::begin_gap_swipe() {
+    // What the press on the letter itself does at once: deliver the last
+    // swiped word, drop its alternatives, check the output and use a held
+    // or latched Shift. Until now a tap between keys left all of them alone.
+    finish_swipe(true);
+    discard_swipe();
+    if (!dictation_open_ && !output_.admit(!cjk_, monotonic_seconds())) {
+        swipe_track_.reset();
+        update_output_status();
+        dirty = true;
+        return false;
+    }
+    if (dictation_open_) {
+        clear_editor_error();
+    }
+    keyboard_.use_modifiers();
+    return swipe_track_.has_value();
 }
 bool App::swipe_up(unsigned pointer, double x, double y) {
     auto track = std::move(*swipe_track_);
@@ -3922,7 +3961,7 @@ bool App::swipe_up(unsigned pointer, double x, double y) {
     }
     move(pointer, x, y);
     dirty = true;
-    return true;
+    return track.swiping || !track.gap; // A tap between keys released no key.
 }
 bool App::key_flick_key(const Key& key, const std::set<int>& modifiers) {
     if (!settings_.key_flicks || !settings_.key_flicks_switch || emoji_open_ ||
@@ -4086,6 +4125,9 @@ void App::finish_key_flick() {
 }
 void App::type_swipe_tap(const SwipeTrack& track) {
     keyboard_.up(track.pointer);
+    if (track.gap) {
+        return; // Between keys only a swipe starts.
+    }
     if (cjk_) {
         // A Pinyin tap types into the composer, as it does without swipe.
         const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
@@ -4984,7 +5026,7 @@ bool App::editor_editable() const {
            !send_wait_since_;
 }
 
-bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, double now) {
+bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, double now, bool gap) {
     if (keyboard_.pointer_pressed(pointer)) {
         return false;
     }
@@ -5010,8 +5052,13 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     }
     const bool can_type = editor_editable() && !phrases_pending();
     if (const auto held = keyboard_.modifiers(); can_type && swipes(key, held)) {
-        clear_editor_error();
-        return swipe_down(pointer, key, x, y, now, held);
+        if (!gap) {
+            clear_editor_error();
+        }
+        return swipe_down(pointer, key, x, y, now, held, gap);
+    }
+    if (gap) {
+        return false;
     }
     finish_swipe(true);
     if (key.action_kind != ActionKind::Key ||
