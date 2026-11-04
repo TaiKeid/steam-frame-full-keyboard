@@ -9,6 +9,9 @@
 #                                   (usr/lib, usr/share/anthy) to bundle
 #   FRAMEKEYBOARD_IBUS_ROOT         optional: unpacked libibus and ibus packages
 #                                   (usr/lib, usr/share/ibus/dicts), for emoji
+#   FRAMEKEYBOARD_IBUS_TABLE_ROOT   optional: an unpacked ibus-table-chinese
+#                                   package (usr/share/ibus-table/tables), for
+#                                   Cangjie and Quick
 #   FRAMEKEYBOARD_EXECUTORCH_HOST   optional: includes swipe typing, as for
 #                                   the host build (docs/building.md)
 set -euo pipefail
@@ -21,6 +24,11 @@ anthy=${FRAMEKEYBOARD_ANTHY_ROOT:-}
 ibus=${FRAMEKEYBOARD_IBUS_ROOT:-}
 if [[ -n $ibus && ! -f $ibus/usr/share/ibus/dicts/emoji-ja.dict ]]; then
     echo "No usr/share/ibus/dicts/emoji-ja.dict in $ibus" >&2
+    exit 1
+fi
+tables=${FRAMEKEYBOARD_IBUS_TABLE_ROOT:-}
+if [[ -n $tables && ! -f $tables/usr/share/ibus-table/tables/cangjie5.db ]]; then
+    echo "No usr/share/ibus-table/tables/cangjie5.db in $tables" >&2
     exit 1
 fi
 if [[ -n $anthy && ! -f $anthy/usr/lib/libanthy.so.0 ]]; then
@@ -117,6 +125,13 @@ if [[ -n $ibus ]]; then
     mkdir -p "$appdir/usr/share/ibus/dicts"
     cp "$ibus/usr/share/ibus/dicts/emoji-ja.dict" "$appdir/usr/share/ibus/dicts/"
     cp -r third_party/ibus "$appdir/usr/share/licenses/"
+fi
+if [[ -n $tables ]]; then
+    # The Frame has them; the simulator brings the two it reads.
+    mkdir -p "$appdir/usr/share/ibus-table/tables"
+    cp "$tables/usr/share/ibus-table/tables/cangjie5.db" "$tables/usr/share/ibus-table/tables/quick5.db" \
+        "$appdir/usr/share/ibus-table/tables/"
+    cp -r third_party/ibus-table-chinese "$appdir/usr/share/licenses/"
 fi
 # Each bundled library's package, version and license, with the package's
 # own license files and the SPDX texts it names.

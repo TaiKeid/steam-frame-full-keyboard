@@ -624,7 +624,11 @@ void engines(const std::string& group = "") {
             zhuyin.cancel();
             require(zhuyin.empty(), "Zhuyin cancels");
         }
-        // The real tables on a system that has them; the fixture test covers logic.
+        // The real tables on a system that has them, or in
+        // FRAMEKEYBOARD_TEST_TABLE_DIRECTORY; the fixture test covers logic.
+        require(!std::getenv("FRAMEKEYBOARD_TEST_TABLE_DIRECTORY") ||
+                    (CjkComposer::supported("chinese-cangjie") && CjkComposer::supported("chinese-quick")),
+                "the given tables open");
         if (CjkComposer::supported("chinese-cangjie")) {
             CjkComposer cangjie("chinese-cangjie");
             type(cangjie, "cnkq");
@@ -876,6 +880,9 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
 } // namespace
 int main(int argc, char** argv) {
     try {
+        if (const char* directory = std::getenv("FRAMEKEYBOARD_TEST_TABLE_DIRECTORY")) {
+            set_table_directory(directory);
+        }
         table_engine();
         const auto profiles = load_profiles({}, {});
         traditional_legends(profiles);

@@ -1,4 +1,5 @@
 #include "table_engine.hpp"
+#include "framekeyboard/cjk.hpp"
 
 #include <array>
 #include <dlfcn.h>
@@ -53,10 +54,17 @@ const Sqlite& sqlite() {
 constexpr int sqlite_row = 100;
 constexpr int sqlite_open_readonly = 1, sqlite_open_uri = 0x40;
 const auto sqlite_transient = reinterpret_cast<void (*)(void*)>(-1);
+std::filesystem::path& table_directory() {
+    static std::filesystem::path directory = "/usr/share/ibus-table/tables";
+    return directory;
+}
 } // namespace
 
+void set_table_directory(const std::filesystem::path& directory) {
+    table_directory() = directory;
+}
 std::optional<InputTable> table_for(const std::string& method) {
-    const std::filesystem::path directory = "/usr/share/ibus-table/tables";
+    const auto& directory = table_directory();
     if (method == "chinese-cangjie") {
         return InputTable{directory / "cangjie5.db", 5};
     }

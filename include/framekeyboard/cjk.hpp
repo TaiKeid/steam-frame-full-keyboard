@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,4 +35,9 @@ class CjkComposer {
     std::unique_ptr<State> state_;
     bool phonetic_keys_{}, syllables_{};
 };
+// Cangjie and Quick read the tables SteamOS installs for IBus, in
+// /usr/share/ibus-table/tables. Another folder holding cangjie5.db and
+// quick5.db, for the simulator and tests on a desktop without them; before
+// the first composer.
+void set_table_directory(const std::filesystem::path& directory);
 } // namespace framekeyboard

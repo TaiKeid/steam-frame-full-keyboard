@@ -1,7 +1,7 @@
 #!/bin/sh
 # Starts the desktop simulator from its AppImage (docs/simulator.md). Its own
-# libraries come first; the bundled Anthy and emoji dictionaries are used
-# unless others were given. The simulator starts no other programs, so nothing else sees them.
+# libraries come first; the bundled Anthy and emoji dictionaries and Chinese
+# tables are used unless others were given. The simulator starts no other programs, so nothing else sees them.
 here=$(dirname "$(readlink -f "$0")")
 LD_LIBRARY_PATH="$here/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LD_LIBRARY_PATH
@@ -12,5 +12,9 @@ fi
 if [ -z "${FRAMEKEYBOARD_EMOJI_DICTIONARY:-}" ] && [ -f "$here/usr/share/ibus/dicts/emoji-ja.dict" ]; then
     FRAMEKEYBOARD_EMOJI_DICTIONARY="$here/usr/share/ibus/dicts/emoji-ja.dict"
     export FRAMEKEYBOARD_EMOJI_DICTIONARY
+fi
+if [ -z "${FRAMEKEYBOARD_TABLE_DIRECTORY:-}" ] && [ -f "$here/usr/share/ibus-table/tables/cangjie5.db" ]; then
+    FRAMEKEYBOARD_TABLE_DIRECTORY="$here/usr/share/ibus-table/tables"
+    export FRAMEKEYBOARD_TABLE_DIRECTORY
 fi
 exec "$here/usr/bin/framekeyboard-simulator" "$@"
