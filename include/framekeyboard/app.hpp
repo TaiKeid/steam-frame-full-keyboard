@@ -746,7 +746,6 @@ class App {
     KeyboardState keyboard_;
     JapaneseComposer composition_;
     std::unique_ptr<CjkComposer> cjk_;
-    bool cjk_latin_{};
     bool japanese_latin_{};
     bool flick_digits_{}; // With japanese_latin_: the flick digits.
     // The kana phrase committed last, which ↶ can bring back until anything

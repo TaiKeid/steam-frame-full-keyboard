@@ -1082,9 +1082,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         label(cr, center, middle, t.font_size, view.language->font, t.legend, true);
         return;
     }
-    const bool overrides = !view.latin_legends;
-    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num(),
-                                    overrides);
+    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
     if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
         text = custom->second;
     }
@@ -1101,7 +1099,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
         secondary =
-            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num(), overrides);
+            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
         if (secondary == text) {
             secondary.clear();
         }
@@ -1109,7 +1107,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
         secondary =
-            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num(), overrides);
+            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
         if (secondary == text) {
             secondary.clear();
         }
@@ -2179,7 +2177,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
         previous_->view.flick_latin != view.flick_latin ||
         previous_->view.flick_digits != view.flick_digits ||
-        previous_->view.latin_legends != view.latin_legends ||
         previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.case_opacity != view.case_opacity ||
         // No pixel changes, but the VR loop sets the laser mask with each paint.

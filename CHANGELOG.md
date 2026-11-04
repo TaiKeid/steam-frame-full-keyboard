@@ -10,7 +10,7 @@
 - On the Japanese flick layout's digits page, digits and their symbols now join the reading instead of typing at once, as on a phone: 3, then じに, converts to 3時に, and ３ and 三 are among the candidates. Switching between kana and digits keeps the reading; switching to English still types it first.
 - The ゛ and ゜ hints on the flick layout's 小 key are drawn larger, so they can be read.
 - The Korean 12-key (천지인) keyboard has been removed; Korean uses two-set Hangul. A saved 천지인 selection, including a favorite or additional language, opens as two-set Korean on US QWERTY.
-- Two-set Korean types Hangul only, as Korean keyboards do: the 한 / A button is gone. For English, add an English layout as an additional language.
+- Chinese and two-set Korean type their own script only, as their keyboards do: the 中文 / A and 한 / A buttons are gone. For English, add an English layout as an additional language and switch with the language button.
 - Japanese live candidates end with emoji for the reading, as on a phone: ねこ offers 🐈 🐱 🐈‍⬛ 😺. They come from the IBus emoji dictionary SteamOS already has.
 - Japanese conversion keeps ！, ？ and brackets as typed. ちょっとまって！ used to become ちょっと待って! with a half-width !, and a closing 」 became 』. The other forms are still offered after the typed one.
 - Dictation mode on a Japanese keyboard keeps the keys at their size. It used to make them larger, since it hides the reading's band; the editor now takes the band's space instead.

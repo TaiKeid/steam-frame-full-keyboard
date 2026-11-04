@@ -480,29 +480,23 @@ std::vector<Control> App::controls() const {
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
     }
+    // Chinese and Korean type their own script only, as their keyboards do;
+    // English has its own layouts.
     if (cjk_ && !emoji_open_) {
-        // Korean types Hangul only, as Korean keyboards do; English has its
-        // own layouts.
-        if (cjk_->chinese()) {
-            add({ControlKind::CjkToggle},
-                {"cjk-toggle", cjk_latin_ ? "A / native" : "中文 / A", {680, 12, 150, 42}});
-        }
-        if (!cjk_latin_) {
-            add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {1065, 12, 180, 42}});
-            add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1255, 12, 110, 42}});
-            const auto candidates = cjk_->candidates();
-            if (!candidates.empty()) {
-                const int page = cjk_->selected() / 5 * 5;
-                add({ControlKind::CjkPrev}, {"cjk-prev", "↑", {20, 148, 55, 42}});
-                for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
-                    add({ControlKind::CjkCandidate, i},
-                        {"cjk-candidate-" + std::to_string(i),
-                         std::to_string(i - page + 1) + " " + candidates[static_cast<std::size_t>(i)],
-                         {85.0 + (i - page) * 240, 148, 230, 42},
-                         i == cjk_->selected()});
-                }
-                add({ControlKind::CjkNext}, {"cjk-next", "↓", {1290, 148, 55, 42}});
+        add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {1065, 12, 180, 42}});
+        add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1255, 12, 110, 42}});
+        const auto candidates = cjk_->candidates();
+        if (!candidates.empty()) {
+            const int page = cjk_->selected() / 5 * 5;
+            add({ControlKind::CjkPrev}, {"cjk-prev", "↑", {20, 148, 55, 42}});
+            for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
+                add({ControlKind::CjkCandidate, i},
+                    {"cjk-candidate-" + std::to_string(i),
+                     std::to_string(i - page + 1) + " " + candidates[static_cast<std::size_t>(i)],
+                     {85.0 + (i - page) * 240, 148, 230, 42},
+                     i == cjk_->selected()});
             }
+            add({ControlKind::CjkNext}, {"cjk-next", "↓", {1290, 148, 55, 42}});
         }
     }
     // Composition controls use the available case width; the main toolbar keeps
@@ -863,7 +857,7 @@ PanelView App::geometry() const {
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
     v.composing =
-        (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || (cjk_ && !cjk_latin_);
+        (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
     v.ime_band = ime_band_shown();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
@@ -1028,7 +1022,7 @@ PanelView App::build_view(bool picker) const {
                                         static_cast<int>(flick_track_->direction)};
         }
     }
-    if (cjk_ && !cjk_latin_) {
+    if (cjk_) {
         v.composing = true;
         v.preedit = cjk_->preedit();
         const auto mods = keyboard_.modifiers();
@@ -1113,7 +1107,6 @@ PanelView App::build_view(bool picker) const {
     }
     v.dictation_levels = mic_levels_;
     v.dictation_level_since = mic_level_since_;
-    v.latin_legends = !v.composing && v.language->input_method.starts_with("chinese-");
     if (dictation_open_) {
         // The mode has its own keys, with the composers' labels and flick
         // preview. The reading shows in the editor.
@@ -1478,7 +1471,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         return true;
     }
     const auto modifiers = keyboard_.modifiers();
-    // Pinyin swipes feed the composer; its Latin mode types ordinary keys.
+    // Pinyin swipes feed the composer.
     // While a word list loads, letters type as without swipe: a swipe would
     // make the next key wait for the whole load on the VR thread.
     if (swipes(*key, modifiers)) {
@@ -2075,7 +2068,6 @@ void App::activate(Selection selection) {
     release_input();
     japanese_latin_ = false;
     flick_digits_ = false;
-    cjk_latin_ = false;
     cjk_ = std::move(cjk);
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
@@ -2826,7 +2818,7 @@ void App::commit_failed() {
     }
 }
 bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
-    if (!cjk_ || cjk_latin_ || key.action_kind != ActionKind::Key) {
+    if (!cjk_ || key.action_kind != ActionKind::Key) {
         return false;
     }
     for (const auto* name :
@@ -2988,22 +2980,14 @@ void App::action(const ControlAction& command) {
             return;
         }
     } else if (output_.text_pending() &&
-               (kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate)) {
+               (kind >= ControlKind::CjkCommit && kind <= ControlKind::CjkCandidate)) {
         if (kind != ControlKind::CjkCancel) {
             return;
         }
         output_.cancel_text();
     }
-    if ((kind >= ControlKind::CjkToggle && kind <= ControlKind::CjkCandidate) && cjk_) {
-        if (kind == ControlKind::CjkToggle) {
-            if (!cjk_->empty()) {
-                commit_cjk();
-                if (!cjk_->empty()) {
-                    return;
-                }
-            }
-            cjk_latin_ = !cjk_latin_;
-        } else if (kind == ControlKind::CjkCommit) {
+    if ((kind >= ControlKind::CjkCommit && kind <= ControlKind::CjkCandidate) && cjk_) {
+        if (kind == ControlKind::CjkCommit) {
             if (!output_.retry_available()) {
                 commit_cjk();
             } else {
@@ -3762,7 +3746,7 @@ void App::prepare_swipe() {
     swipe_->prepare(swipe_keyboard_, lexicon);
 }
 bool App::swipes(const Key& key, const std::set<int>& modifiers) const {
-    return !emoji_open_ && swipe_enabled() && swipe_->ready() && !(cjk_ && cjk_latin_) &&
+    return !emoji_open_ && swipe_enabled() && swipe_->ready() &&
            swipe_keyboard_->key_index.contains(key.id) && !keymap_->composing() &&
            std::none_of(modifiers.begin(), modifiers.end(), [](int code) {
                return code != key_code("ShiftLeft") && code != key_code("ShiftRight");

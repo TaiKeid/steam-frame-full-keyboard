@@ -96,7 +96,6 @@ enum class ControlKind {
     ImeToggle,
     // The Japanese band's ∨, which opens the candidate list over the keys (∧ closes it).
     CandidateList,
-    CjkToggle,
     CjkCommit,
     CjkCancel,
     CjkNext,
@@ -201,9 +200,6 @@ struct PanelView {
     std::string version; // Shown in Settings; empty without an installed updater.
     bool settings{};
     bool composing{}; // The composing layout and its preedit are showing.
-    // The keys show the keymap's letters and not the language's own symbols:
-    // a Chinese method's symbols apply only while it composes.
-    bool latin_legends{};
     bool hide_numpad{};
     // Background (Settings): how opaque the case is behind the keys, 1 when
     // filled; below 1 it is drawn see-through, and with `laser_through_gaps`

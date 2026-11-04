@@ -557,10 +557,6 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
     view.preedit.clear();
     view.key_labels.clear();
     compare.frame(view, "composition ended");
-    view.latin_legends = true;
-    compare.frame(view, "latin legends");
-    view.latin_legends = false;
-    compare.frame(view, "language legends");
     // Mutate profiles in place, as Reload may reuse existing storage. Pointer
     // equality is not sufficient for invalidating a retained image.
     theme.top = {.6, .2, .1};
@@ -607,37 +603,6 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
               << " frames pixel-identical\n";
 }
 } // namespace
-// A method's symbols must not show in Latin mode, on either legend of a key.
-void latin_legends(const Layout& layout, const Theme& theme, const Language& language) {
-    Language plain = language;
-    plain.overrides.clear();
-    NullSink sink;
-    KeyboardState keyboard(sink);
-    LanguageMap keymap(language), plain_keymap(plain);
-    PanelView view;
-    view.layout = &layout;
-    view.theme = &theme;
-    view.keyboard = &keyboard;
-    view.language = &language;
-    view.keymap = &keymap;
-    PanelRenderer symbols, latin, letters;
-    symbols.paint(view, 1, true);
-    view.latin_legends = true;
-    latin.paint(view, 1, true);
-    view.latin_legends = false;
-    view.language = &plain;
-    view.keymap = &plain_keymap;
-    letters.paint(view, 1, true);
-    const auto same = [](const PanelRenderer& a, const PanelRenderer& b) {
-        const auto size =
-            static_cast<std::size_t>(cairo_image_surface_get_stride(a.surface())) * texture_height;
-        return std::memcmp(cairo_image_surface_get_data(a.surface()),
-                           cairo_image_surface_get_data(b.surface()), size) == 0;
-    };
-    if (same(symbols, latin) || !same(latin, letters)) {
-        throw std::runtime_error(language.id + ": Latin legends still show the method's symbols");
-    }
-}
 // A row carried across the languages popup repaints alone and leaves nothing behind.
 void carried_row() {
     const auto profiles = load_profiles({}, {});
@@ -756,10 +721,6 @@ int main() {
                                                                                : "en-us-full";
             validate_selection(profiles, {layout, id, "graphite"});
             exercise(profiles.layouts.at(layout), profiles.themes.at("graphite"), language);
-        }
-        for (const auto id : {"zh-tw-cangjie", "zh-tw-quick", "zh-tw-zhuyin"}) {
-            latin_legends(profiles.layouts.at("en-us-full"), profiles.themes.at("graphite"),
-                          profiles.languages.at(id));
         }
         // Every bundled theme paints the same frames incrementally as in full.
         for (const auto& [id, theme] : profiles.themes) {

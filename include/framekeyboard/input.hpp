@@ -96,8 +96,7 @@ class LanguageMap {
     ~LanguageMap();
     LanguageMap(const LanguageMap&) = delete;
     LanguageMap& operator=(const LanguageMap&) = delete;
-    std::string legend(const Key& key, const std::set<int>& modifiers, bool caps, bool num,
-                       bool overrides = true) const;
+    std::string legend(const Key& key, const std::set<int>& modifiers, bool caps, bool num) const;
     xkb_keysym_t symbol(const Key& key, const std::set<int>& modifiers, bool caps, bool num) const;
     static bool printable(xkb_keysym_t symbol);
     // Whether the letter keys type a right-to-left script, so their legends

@@ -736,7 +736,7 @@ void app_traditional() {
         app.apply({"en-us-full", "en-us", "graphite"}); // Saved; the next case starts clean.
     }
 }
-// Symbols on the keys while composing, the keymap's letters in Latin mode.
+// The method's symbols on the keys.
 void traditional_legends(const Profiles& profiles) {
     const auto& layout = profiles.layouts.at("en-us-full");
     const auto key = std::find_if(layout.keys.begin(), layout.keys.end(),
@@ -745,7 +745,6 @@ void traditional_legends(const Profiles& profiles) {
                                     [](const Key& item) { return item.id == "Digit1"; });
     LanguageMap cangjie(profiles.languages.at("zh-tw-cangjie"));
     require(cangjie.legend(*key, {}, false, false) == "日", "Cangjie shows radicals");
-    require(cangjie.legend(*key, {}, false, false, false) == "a", "and letters in Latin mode");
     LanguageMap quick(profiles.languages.at("zh-tw-quick"));
     require(quick.legend(*key, {}, false, false) == "日", "Quick shares the radicals");
     LanguageMap zhuyin(profiles.languages.at("zh-tw-zhuyin"));
@@ -812,10 +811,9 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
         App app(options, sink);
         app.apply({"en-us-full", id, "graphite"});
         const auto controls = app.view().controls;
-        require(std::any_of(controls.begin(), controls.end(),
-                            [](const auto& control) { return control.id == "cjk-toggle"; }) ==
-                    std::string(id).starts_with("zh-"),
-                "Chinese switches to Latin typing with 中文 / A; Korean types Hangul only");
+        require(std::none_of(controls.begin(), controls.end(),
+                             [](const auto& control) { return control.id == "cjk-toggle"; }),
+                "Chinese and Korean type their own script only");
         click(app, "KeyR");
         require(sink.events.empty(), "composition does not emit raw letters");
         require(!app.view().preedit.empty(), "visible local preedit");
