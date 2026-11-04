@@ -770,12 +770,15 @@ void JapaneseComposer::convert(bool preferring) {
     segments_ = live_.reading == reading_ && converted_ == reading_ && !resized_ ? live_.segments
                                                                                  : fresh(reading_);
     active_ = 0;
-    if (const auto preferred = preferring && preferred_ ? preferred_(reading_) : std::string{};
-        !preferred.empty()) {
+    if (const auto phrases =
+            preferring && preferred_ ? preferred_(reading_) : std::vector<std::string>{};
+        !phrases.empty()) {
         if (segments_.size() == 1) {
             auto& candidates = segments_.front().candidates;
-            std::erase(candidates, preferred);
-            candidates.insert(candidates.begin(), preferred);
+            for (const auto& phrase : phrases) {
+                std::erase(candidates, phrase);
+            }
+            candidates.insert(candidates.begin(), phrases.begin(), phrases.end());
         } else {
             // One segment for the phrase, the converter's own split and the
             // scripts after it. Resizing goes back to the converter's split;
@@ -784,8 +787,10 @@ void JapaneseComposer::convert(bool preferring) {
             for (const auto& segment : segments_) {
                 whole += segment.candidates.front();
             }
-            Segment phrase{reading_, {preferred}};
-            for (auto text : {whole, in_script(reading_, false), in_script(reading_, true)}) {
+            Segment phrase{reading_, {}};
+            auto texts = phrases;
+            texts.insert(texts.end(), {whole, in_script(reading_, false), in_script(reading_, true)});
+            for (auto& text : texts) {
                 if (std::find(phrase.candidates.begin(), phrase.candidates.end(), text) ==
                     phrase.candidates.end()) {
                     phrase.candidates.push_back(std::move(text));
@@ -899,9 +904,16 @@ void JapaneseComposer::prepare_live() {
         }
         completed.clear();
     };
-    // The usual conversion of a common phrase comes before all of them.
+    // A reading typed in katakana is wanted as typed (ガッ).
+    if (reading == in_script(reading, true) && reading != in_script(reading, false)) {
+        add(reading, Live::Source::Katakana);
+    }
+    // The usual conversion of a common phrase comes before all of them,
+    // after the user's own choice for it.
     if (preferred_) {
-        add(preferred_(reading), Live::Source::Completion);
+        for (auto& phrase : preferred_(reading)) {
+            add(std::move(phrase), Live::Source::Completion);
+        }
     }
     if (completes_first) {
         complete();

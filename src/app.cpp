@@ -206,14 +206,17 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     composition_.set_kaomoji(&japanese_kaomoji_);
     japanese_preferred_ = JapaneseWords(data_resource(options_.data_dir, "japanese/preferred.tsv"));
     composition_.set_preferred([this](const std::string& reading) {
-        const auto preferred = japanese_preferred_.exact(reading, 1);
-        if (preferred.empty()) {
-            return std::string{};
+        auto phrases = japanese_preferred_.exact(reading, 1);
+        // The user's own most frequent choice for the reading wins; the
+        // usual one stays next.
+        if (!phrases.empty() && learning_allowed()) {
+            for (auto& chosen : japanese_choices_.after(reading, 1)) {
+                if (chosen != phrases.front()) {
+                    phrases.insert(phrases.begin(), std::move(chosen));
+                }
+            }
         }
-        // The user's own most frequent choice for the reading wins.
-        const auto chosen =
-            learning_allowed() ? japanese_choices_.after(reading, 1) : std::vector<std::string>{};
-        return chosen.empty() || chosen.front() == preferred.front() ? preferred.front() : std::string{};
+        return phrases;
     });
     if (owns_anthy()) {
         configure_anthy({settings_.japanese_learning, anthy_home()});

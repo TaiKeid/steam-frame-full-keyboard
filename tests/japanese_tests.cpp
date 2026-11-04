@@ -725,7 +725,8 @@ void preferred_phrases() {
     {
         JapaneseComposer composer(fake_converter(&conversions));
         composer.set_preferred([](const std::string& reading) {
-            return reading == "いきます" ? std::string("行きます") : std::string{};
+            return reading == "いきます" ? std::vector<std::string>{"行きます"}
+                                         : std::vector<std::string>{};
         });
         composer.kana("いきます");
         composer.prepare_live();
@@ -770,7 +771,22 @@ void preferred_phrases() {
                 sink.text.back() == "〈いき〉〈ます〉",
             "something else can be chosen");
     type();
-    require(first() == "〈いき〉〈ます〉", "and once chosen, it wins over the list");
+    require(first() == "〈いき〉〈ます〉" && app.view().candidates->chips.at(1).text == "行きます",
+            "and once chosen, it wins over the list, whose phrase stays next");
+}
+// A reading typed in katakana, as the flick layout's ア mode types it, is
+// offered as typed first; a mixed one keeps the usual order.
+void typed_katakana() {
+    int conversions = 0;
+    JapaneseComposer composer(fake_converter(&conversions));
+    composer.kana("ガッ");
+    composer.prepare_live();
+    require(composer.live().front() == "ガッ" && composer.live()[1] == "〈ガッ〉",
+            "typed katakana comes first, then the conversion");
+    composer.cancel();
+    composer.kana("がッ");
+    composer.prepare_live();
+    require(composer.live().front() == "〈がッ〉", "a mixed reading converts first");
 }
 void progressive_conversion() {
     int conversions = 0;
@@ -2146,6 +2162,7 @@ int main() {
         word_completion();
         flick_katakana();
         preferred_phrases();
+        typed_katakana();
         emoji_candidates();
         learning_calls();
         progressive_conversion();
