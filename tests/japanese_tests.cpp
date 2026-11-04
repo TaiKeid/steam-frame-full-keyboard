@@ -1064,7 +1064,11 @@ void candidate_list() {
     app.up(0, kx, gap);
     require(app.view().preedit == "か" && sink.text.empty() && app.view().candidates->list,
             "the covered keys take no press");
-    // A drag scrolls the list up and down; the row stays.
+    // A drag scrolls the list up and down; the row stays, and the scrollbar
+    // shows how far.
+    const auto thumb = app.view().candidates->thumb;
+    require(thumb && thumb->x >= app.view().candidates->list->x + app.view().candidates->list->width,
+            "a list longer than its room has a scrollbar beside its lines");
     const auto& from = listed.front().bounds;
     const double x = from.x + from.width / 2, y = from.y + from.height / 2;
     app.down(7, x, y, 3);
@@ -1078,6 +1082,7 @@ void candidate_list() {
     require(sink.text.empty() && view.candidates->chips.front().bounds == row.front().bounds &&
                 (first == view.candidates->chips.end() || first->bounds.y < from.y),
             "a drag scrolls the list, not the row, and picks nothing");
+    require(view.candidates->thumb && view.candidates->thumb->y > thumb->y, "and its scrollbar follows");
     control(app, "ime-more");
     view = app.view();
     require(!view.candidates->list && app.renderer.hit_key(view, kx, ky), "∧ closes it");

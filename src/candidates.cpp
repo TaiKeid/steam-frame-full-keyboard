@@ -284,6 +284,14 @@ CandidateStripView CandidateStrip::view() const {
     result.area = area_;
     result.list = list_;
     result.stale = stale_;
+    if (const double limit = scroll_limit(); list_ && limit > 0) {
+        // In the margin right of the lines, its length the share in view.
+        const Rect track{list_->x + list_->width + 1, list_->y + 6, 5, list_->height - 12};
+        const double length = std::max(18.0, track.height * track.height / (track.height + limit));
+        result.thumb =
+            Rect{track.x, track.y + std::clamp(scroll_ / limit, 0.0, 1.0) * (track.height - length),
+                 track.width, length};
+    }
     for (std::size_t i = 0; i < texts_.size(); ++i) {
         const auto bounds = chip_bounds(i);
         const bool listed = list_ && lines_[i] > 0;

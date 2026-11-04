@@ -21,8 +21,9 @@ struct CandidateStripView {
         bool listed{}; // In the open list under the row, and drawn within it.
     };
     Rect area;
-    std::optional<Rect> list; // While the list is open.
-    std::vector<Chip> chips;  // Only those at least partly in view.
+    std::optional<Rect> list;  // While the list is open.
+    std::optional<Rect> thumb; // The open list's scrollbar, while it scrolls.
+    std::vector<Chip> chips;   // Only those at least partly in view.
     // For a reading typed since: dimmed, and a release picks nothing.
     bool stale{};
 };

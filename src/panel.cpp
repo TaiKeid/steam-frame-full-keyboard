@@ -1736,6 +1736,12 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
         }
         cairo_restore(cr);
     }
+    if (strip.thumb) {
+        // As the languages popup's lists show how far they scroll.
+        rounded(cr, *strip.thumb, strip.thumb->width / 2);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
 }
 // What the composing line says before anything is typed.
 std::string composition_hint(const PanelView& view) {
