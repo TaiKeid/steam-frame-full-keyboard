@@ -100,9 +100,8 @@ struct Settings {
     bool num_lock{};
     bool hide_numpad{};
     // The case behind the keys (docs/configuration.md, Background):
-    // "visible", "semi-transparent" (half opaque), "invisible" (clear, still
-    // taking the laser) or "disabled" (clear, the laser passes through its
-    // gaps). Keys keep their theme.
+    // "visible", "semi-transparent" (half opaque) or "invisible" (clear, still
+    // taking the laser). Keys keep their theme.
     std::string background_surface{"visible"};
     // Pops on keyboard keys: "off", "press", "release" or "both".
     std::string haptic_sounds{"off"};

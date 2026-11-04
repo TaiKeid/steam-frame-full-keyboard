@@ -587,8 +587,7 @@ int device_model_kept_megabytes(const std::string& model) {
     return entry ? entry->kept_megabytes : 0;
 }
 bool valid_background_surface(const std::string& surface) {
-    return surface == "visible" || surface == "semi-transparent" || surface == "invisible" ||
-           surface == "disabled";
+    return surface == "visible" || surface == "semi-transparent" || surface == "invisible";
 }
 bool valid_haptic_sounds(const std::string& sounds) {
     return sounds == "off" || sounds == "press" || sounds == "release" || sounds == "both";
@@ -794,14 +793,17 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         try {
             // A bad value fails on its own, leaving the case visible.
             settings.background_surface = text(document.get(), "background_surface", "visible", true);
+            // Disabled, which also let the laser through the case's gaps, was
+            // removed; Invisible looks the same.
+            if (settings.background_surface == "disabled") {
+                settings.background_surface = "invisible";
+            }
             if (!valid_background_surface(settings.background_surface)) {
                 throw std::runtime_error("bad value");
             }
         } catch (const std::exception&) {
-            field_problems.push_back(
-                "config.json: background_surface must be \"visible\", "
-                "\"semi-transparent\", \"invisible\" or \"disabled\"; the background "
-                "is visible");
+            field_problems.push_back("config.json: background_surface must be \"visible\", "
+                                     "\"semi-transparent\" or \"invisible\"; the background is visible");
             settings.background_surface = "visible";
         }
         try {

@@ -2065,104 +2065,6 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
 }
-std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t limit) {
-    const auto body = panel_case_bounds(view);
-    // An open candidate list takes the whole case, gaps too: a press
-    // anywhere outside it closes it (App::down) rather than reaching the
-    // application behind.
-    if (!clear_case(view) || !view.laser_through_gaps || held || limit < 2 || list_open(view)) {
-        return {body};
-    }
-    // Everything drawn on the case that takes a press, with a little slack
-    // for a laser wobbling at an edge. Keys in a row overlap through it.
-    std::vector<Rect> areas;
-    auto add = [&](const Rect& r) {
-        const double left = std::max(body.x, r.x - 4), top = std::max(body.y, r.y - 4);
-        const double right = std::min(body.x + body.width, r.x + r.width + 4);
-        const double bottom = std::min(body.y + body.height, r.y + r.height + 4);
-        if (right > left && bottom > top) {
-            areas.push_back({left, top, right - left, bottom - top});
-        }
-    };
-    for (const auto& key : view.layout->keys) {
-        if (!covered_key(view, key)) {
-            add(panel_rect(view, key.bounds));
-        }
-    }
-    for (const auto& control : view.controls) {
-        if (control.style != ControlStyle::MoveHandle) {
-            add(control.bounds);
-        }
-    }
-    if (view.emoji) {
-        add(emoji_well(view.emoji->grid));
-        add(view.emoji->tabs);
-        // A top-row emoji's tones rise above the grid, over the gap below the tabs.
-        if (view.emoji->popup) {
-            add(view.emoji->popup->bounds);
-        }
-    }
-    if (view.candidates) {
-        add(view.candidates->area);
-        if (view.candidates->list) {
-            add(*view.candidates->list); // Its gaps too: the keys under them are covered.
-        }
-    }
-    if (view.dictation) {
-        add(view.dictation->bounds);
-        if (!view.status.empty()) {
-            add(dictation_status_line(view)); // Pointing at it scrolls it.
-        }
-    }
-    auto unite = [](const Rect& a, const Rect& b) {
-        const double left = std::min(a.x, b.x), top = std::min(a.y, b.y);
-        return Rect{left, top, std::max(a.x + a.width, b.x + b.width) - left,
-                    std::max(a.y + a.height, b.y + b.height) - top};
-    };
-    // First the cheap pass: neighbours in one row that touch become one strip,
-    // leaving a few dozen strips rather than a hundred keys.
-    std::sort(areas.begin(), areas.end(),
-              [](const Rect& a, const Rect& b) { return a.y != b.y ? a.y < b.y : a.x < b.x; });
-    std::vector<Rect> strips;
-    for (const auto& r : areas) {
-        if (!strips.empty()) {
-            auto& last = strips.back();
-            if (std::abs(last.y - r.y) < .5 && std::abs(last.height - r.height) < .5 &&
-                r.x <= last.x + last.width) {
-                last = unite(last, r);
-                continue;
-            }
-        }
-        strips.push_back(r);
-    }
-    // Then, while OpenVR's primitive limit is exceeded, merge the two strips
-    // whose bounding rectangle adds the least uncovered space: a row's gap
-    // to the next row, not a gap the size of a key cluster.
-    auto overlap = [](const Rect& a, const Rect& b) {
-        const double width = std::min(a.x + a.width, b.x + b.width) - std::max(a.x, b.x);
-        const double height = std::min(a.y + a.height, b.y + b.height) - std::max(a.y, b.y);
-        return width > 0 && height > 0 ? width * height : 0;
-    };
-    while (strips.size() > limit) {
-        std::size_t best_i = 0, best_j = 1;
-        double best = std::numeric_limits<double>::max();
-        for (std::size_t i = 0; i < strips.size(); ++i) {
-            for (std::size_t j = i + 1; j < strips.size(); ++j) {
-                const auto u = unite(strips[i], strips[j]);
-                const double waste = u.width * u.height - strips[i].width * strips[i].height -
-                                     strips[j].width * strips[j].height + overlap(strips[i], strips[j]);
-                if (waste < best) {
-                    best = waste;
-                    best_i = i;
-                    best_j = j;
-                }
-            }
-        }
-        strips[best_i] = unite(strips[best_i], strips[best_j]);
-        strips.erase(strips.begin() + static_cast<std::ptrdiff_t>(best_j));
-    }
-    return strips.empty() ? std::vector<Rect>{body} : strips;
-}
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -2313,8 +2215,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.flick_digits != view.flick_digits ||
         previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.case_opacity != view.case_opacity ||
-        // No pixel changes, but the VR loop sets the laser mask with each paint.
-        previous_->view.laser_through_gaps != view.laser_through_gaps ||
         previous_->view.key_labels != view.key_labels ||
         previous_->view.disabled_keys != view.disabled_keys ||
         previous_->view.emoji.has_value() != view.emoji.has_value() ||

@@ -1055,16 +1055,6 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                 app.up(5, held.first, held.second);
                 require(!app.view().settings && app.view().candidates->list,
                         "a toolbar button held as it opens does nothing on release");
-                {
-                    // On a see-through case whose gaps pass the laser, the open
-                    // menu takes the whole case, so a press beside it closes it.
-                    auto see_through = app.view();
-                    see_through.laser_through_gaps = true;
-                    see_through.case_opacity = 0;
-                    require(panel_hit_areas(see_through, false, 29) ==
-                                std::vector<Rect>{panel_case_bounds(see_through)},
-                            "the open menu takes the laser across the whole case");
-                }
                 const auto view = app.view();
                 const auto& list = *view.candidates->list;
                 const auto key_rect = [&](const char* id) {

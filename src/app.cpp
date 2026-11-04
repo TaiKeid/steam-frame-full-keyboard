@@ -645,15 +645,14 @@ void App::update_settings_ui() {
                   checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
                            "Skips the editor but lower accuracy")));
     }
-    // Semi-transparent and Invisible keep the case's laser area; Disabled lets
-    // the laser through its clear gaps (docs/configuration.md, Background).
+    // Semi-transparent and Invisible keep the case's laser area
+    // (docs/configuration.md, Background).
     auto background_surface =
         field(ControlKind::ChooseBackgroundSurface,
               dropdown("background-surface", "Background", pending_background_surface_,
                        {{"visible", "Visible"},
                         {"semi-transparent", "Semi-transparent"},
-                        {"invisible", "Invisible"},
-                        {"disabled", "Disabled"}}));
+                        {"invisible", "Invisible"}}));
     background_surface.width = 250; // "Semi-transparent" and the label, both whole
     auto haptic_sounds = field(
         ControlKind::ChooseHapticSounds,
@@ -826,7 +825,6 @@ PanelView App::geometry() const {
     v.language = &profiles_.languages.at(settings_.active.language);
     v.hide_numpad = numpad_hidden();
     v.case_opacity = case_opacity();
-    v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
     v.composing = (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
     v.ime_band = ime_band_shown();
@@ -869,7 +867,6 @@ PanelView App::build_view(bool picker) const {
     v.keyboard = &keyboard_;
     v.hide_numpad = numpad_hidden();
     v.case_opacity = case_opacity();
-    v.laser_through_gaps = settings_.background_surface == "disabled";
     v.controls = controls();
     v.focus_shake_since = focus_shake_since_;
     v.swipe_shake_since = swipe_shake_since_;

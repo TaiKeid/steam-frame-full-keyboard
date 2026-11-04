@@ -199,10 +199,8 @@ struct PanelView {
     bool composing{}; // The composing layout and its preedit are showing.
     bool hide_numpad{};
     // Background (Settings): how opaque the case is behind the keys, 1 when
-    // filled; below 1 it is drawn see-through, and with `laser_through_gaps`
-    // (0 only) its clear gaps pass the laser (panel_hit_areas).
+    // filled; below 1 it is drawn see-through, and still takes the laser.
     double case_opacity{1};
-    bool laser_through_gaps{};
     std::string preedit;
     // A composing language (Japanese, Chinese, Korean) shows its reading, a
     // hint while there is none, and its candidates scrolling sideways
@@ -384,12 +382,6 @@ Rect dictation_status_bounds(const PanelView& view);
 // Background Semi-transparent: the case's opacity, half on a dark theme;
 // a light theme's pale case reads far brighter, so it keeps only 15%.
 double semi_transparent_case_opacity(const Theme& theme);
-// The case's part of the VR laser mask, in at most `limit` rectangles. Over a
-// transparent case with `laser_through_gaps` it is only what takes a press
-// (keys, controls, the emoji picker and its tones, the dictation editor), so a press in a
-// clear gap reaches the overlay behind; neighbouring rows merge to fit the limit. While a pointer
-// is held it is the whole case, so a swipe or drag crossing a gap keeps it.
-std::vector<Rect> panel_hit_areas(const PanelView& view, bool held, std::size_t limit);
 
 class PanelRenderer {
   public:

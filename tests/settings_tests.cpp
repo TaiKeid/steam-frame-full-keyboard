@@ -1110,8 +1110,7 @@ void background_surface_setting() {
     // Semi-transparent: a half-opaque case that takes the laser everywhere.
     select(app, "background-surface", "semi-transparent");
     click(app, "apply");
-    require(saved(app).background_surface == "semi-transparent" && app.view().case_opacity == .5 &&
-                !app.view().laser_through_gaps,
+    require(saved(app).background_surface == "semi-transparent" && app.view().case_opacity == .5,
             "Apply saves Semi-transparent");
     app.paint(1.2);
     require(
@@ -1119,85 +1118,35 @@ void background_surface_setting() {
                      .rgba()[static_cast<std::size_t>((300 + popup_margin) * panel_width + 10) * 4 + 3] -
                  128) <= 1,
         "a semi-transparent case is drawn at half opacity");
-    require(panel_hit_areas(app.view(), false, 29) == std::vector<Rect>{panel_case_bounds(app.view())},
-            "and the whole case takes the laser");
     app.show_settings();
     // Invisible: a clear case that still takes the laser everywhere.
     select(app, "background-surface", "invisible");
     click(app, "apply");
-    require(saved(app).background_surface == "invisible" && app.view().case_opacity == 0 &&
-                !app.view().laser_through_gaps,
+    require(saved(app).background_surface == "invisible" && app.view().case_opacity == 0,
             "Apply saves Invisible");
     app.paint(1.5);
     require(
         app.renderer.rgba()[static_cast<std::size_t>((300 + popup_margin) * panel_width + 10) * 4 + 3] ==
             0,
         "an invisible case leaves no pixels behind the keys");
-    require(panel_hit_areas(app.view(), false, 29) == std::vector<Rect>{panel_case_bounds(app.view())},
-            "but the whole case still takes the laser");
-    // Disabled: clear, and its gaps pass the laser to the window behind.
-    app.show_settings();
-    select(app, "background-surface", "disabled");
-    click(app, "apply");
-    require(saved(app).background_surface == "disabled" && app.view().case_opacity == 0 &&
-                app.view().laser_through_gaps,
-            "Apply saves Disabled");
-    app.paint(2);
     {
         const auto pixels = app.renderer.rgba();
-        auto alpha = [&](int px, int py) {
-            return pixels[static_cast<std::size_t>((py + popup_margin) * panel_width + px) * 4 + 3];
-        };
-        require(alpha(10, 300) == 0, "the keyboard case leaves no pixels behind the keys");
         const auto [kp, kq] = key_point(app, "KeyQ");
-        require(alpha(static_cast<int>(kp), static_cast<int>(kq)) > 0,
+        require(pixels[static_cast<std::size_t>((static_cast<int>(kq) + popup_margin) * panel_width +
+                                                static_cast<int>(kp)) *
+                           4 +
+                       3] > 0,
                 "keys keep their theme over a transparent case");
     }
     app.renderer.write_png("/tmp/framekeyboard-transparent-background.png");
-    // The laser mask takes only what is drawn on the clear case, within
-    // OpenVR's 32 primitives less the popup, flick preview and handle.
-    {
-        const auto view = app.view();
-        const auto areas = panel_hit_areas(view, false, 29);
-        auto inside = [&](double x, double y) {
-            return std::any_of(areas.begin(), areas.end(),
-                               [&](const Rect& r) { return r.contains(x, y); });
-        };
-        require(areas.size() > 1 && areas.size() <= 29, "the clear case's mask fits OpenVR's limit");
-        auto rect = [&](const std::string& action) {
-            for (const auto& key : view.layout->keys) {
-                if (key.action == action) {
-                    return panel_rect(view, key.bounds);
-                }
-            }
-            throw std::runtime_error("missing key " + action);
-        };
-        auto center = [&](const std::string& action) {
-            const auto r = rect(action);
-            return std::pair{r.x + r.width / 2, r.y + r.height / 2};
-        };
-        for (const auto& key : view.layout->keys) {
-            const auto r = panel_rect(view, key.bounds);
-            require(hidden_key(view, key) ||
-                        (inside(r.x + 2, r.y + 2) && inside(r.x + r.width - 2, r.y + r.height - 2)),
-                    "every visible key takes the laser to its corners");
-        }
-        for (const auto& c : view.controls) {
-            require(c.style == ControlStyle::MoveHandle ||
-                        inside(c.bounds.x + c.bounds.width / 2, c.bounds.y + c.bounds.height / 2),
-                    "every toolbar control takes the laser");
-        }
-        const auto backspace = rect("Backspace");
-        require(!inside((backspace.x + backspace.width + rect("Insert").x) / 2,
-                        backspace.y + backspace.height / 2),
-                "the gap between the main keys and the navigation keys passes the laser through");
-        const auto [right_x, below] = center("ArrowRight");
-        const auto [up_x, up_y] = center("ArrowUp");
-        require(!inside(right_x, up_y) && inside(up_x, up_y) && inside(right_x, below),
-                "so does the empty space beside the up arrow");
-        require(panel_hit_areas(view, true, 29) == std::vector<Rect>{panel_case_bounds(view)},
-                "a held pointer keeps the whole case, so a swipe can cross a gap");
-    }
+    // Disabled, which let the laser through the case's gaps, is gone.
+    app.show_settings();
+    click(app, "background-surface");
+    require(has(app.view(), "choose:background-surface:invisible") &&
+                !has(app.view(), "choose:background-surface:disabled"),
+            "Background offers no Disabled choice");
+    app.back();
+    app.back();
     // Text drawn on the case gets a plate of it back; the rest stays clear.
     {
         app.report_status("Waiting for target Num Lock. Press the keypad key again.");
@@ -1218,14 +1167,11 @@ void background_surface_setting() {
         const auto pixels = app.renderer.rgba();
         require(pixels[static_cast<std::size_t>((300 + popup_margin) * panel_width + 10) * 4 + 3] == 255,
                 "Settings keeps an opaque case");
-        require(panel_hit_areas(app.view(), false, 29) ==
-                    std::vector<Rect>{panel_case_bounds(app.view())},
-                "and the laser takes all of it");
     }
     app.back();
     {
         App reopened(options, sink);
-        require(reopened.view().laser_through_gaps && saved(reopened).background_surface == "disabled",
+        require(reopened.view().case_opacity == 0 && saved(reopened).background_surface == "invisible",
                 "the background surface survives restart");
         reopened.paint(4);
         const auto pixels = reopened.renderer.rgba();
@@ -1255,8 +1201,17 @@ void background_surface_setting() {
         require(loaded.background_surface == "visible" && loaded.hide_numpad && errors.size() == 1,
                 "an unknown background surface is reported and the rest still loads");
     }
-    require(panel_hit_areas(app.view(), false, 29) == std::vector<Rect>{panel_case_bounds(app.view())},
-            "a visible case takes the laser everywhere, as before");
+    {
+        // A saved Disabled, now removed, becomes Invisible, which looks the same.
+        TemporaryDirectory edited;
+        std::ofstream(edited.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+               R"("theme":"graphite"},"background_surface":"disabled"})";
+        std::vector<std::string> errors;
+        const auto loaded = load_settings(edited.path, errors);
+        require(loaded.background_surface == "invisible" && errors.empty(),
+                "a saved Disabled background loads as Invisible");
+    }
     // The reading line of a composing language: a plate behind its hint.
     {
         TemporaryDirectory japanese;

@@ -680,8 +680,7 @@ class LaserDrag {
 // only to overlays that claim scene input, which takes input from the focused
 // app. Instead read each Frame controller's pose, trigger and bumper components:
 // no read takes anything away, so the app receives the trigger and bumper too.
-// A trigger while its laser rests off the keys: outside the keyboard or in a
-// clear gap (Background Disabled). It enters at rest, or still springing back
+// A trigger while its laser rests off the keyboard. It enters at rest, or still springing back
 // from a release just before, and stays at rest until it rises 1°
 // (TriggerReleaseGuard's "held") above the lowest angle seen there: the
 // window behind may take that as a click.
@@ -1562,10 +1561,9 @@ class VrPanel {
             vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_CurrentUniverseId_Uint64, &error);
         return error == vr::TrackedProp_Success ? id : 0;
     }
-    // `held`: a pointer is pressed on the panel or drags it (panel_hit_areas).
-    void submit(PanelRenderer& renderer, const PanelView& view, bool held = false) {
+    void submit(PanelRenderer& renderer, const PanelView& view) {
         RuntimeWait runtime_wait;
-        mask(view, held);
+        mask(view);
         std::string error;
         if (!texture_.update(renderer, error)) {
             throw std::runtime_error(error);
@@ -1578,24 +1576,13 @@ class VrPanel {
             reported_native_ = native;
         }
     }
-    // A press or its release can change the mask without a repaint.
-    bool mask_held() const { return mask_held_; }
     // The panel areas of the last mask, for the passthrough pointer.
     const std::vector<Rect>& mask_areas() const { return mask_areas_; }
-    // The case, while the last mask leaves its clear gaps out (Background
-    // Disabled); only then does a held pointer change the mask.
-    const std::optional<Rect>& mask_gapped_case() const { return mask_gapped_case_; }
-    void mask(const PanelView& view, bool held) {
-        mask_held_ = held;
+    void mask(const PanelView& view) {
         mask_areas_.clear();
-        mask_gapped_case_.reset();
-        if (view.case_opacity <= 0 && view.laser_through_gaps && !view.settings) {
-            mask_gapped_case_ = panel_case_bounds(view);
-        }
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
-        // steal focus from the dashboard. Over a transparent case, its clear
-        // gaps are left out too.
+        // steal focus from the dashboard.
         std::array<vr::VROverlayIntersectionMaskPrimitive_t,
                    vr::k_unMaxOverlayIntersectionMaskPrimitivesCount>
             primitives{};
@@ -1618,9 +1605,7 @@ class VrPanel {
         if (const auto handle = panel_move_handle_bounds(view)) {
             rectangle(*handle);
         }
-        for (const auto& area : panel_hit_areas(view, held, primitives.size() - count)) {
-            rectangle(area);
-        }
+        rectangle(panel_case_bounds(view));
         check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
                                                        static_cast<std::uint32_t>(count)),
               "Set keyboard intersection mask");
@@ -1668,9 +1653,7 @@ class VrPanel {
     std::optional<bool> reported_native_;
     std::optional<bool> scroll_;
     NativePointerInputPolicy native_input_;
-    bool mask_held_{};
     std::vector<Rect> mask_areas_;
-    std::optional<Rect> mask_gapped_case_;
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
@@ -1902,8 +1885,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         return false;
     };
-    // A SteamVR laser that left our overlay, off the keyboard or through a
-    // clear gap of a Disabled background's case. Its hover ends, but swipe
+    // A SteamVR laser that left our overlay, off the keyboard. Its hover ends, but swipe
     // suggestions and the next word's space stay (App::cancel_pointer) until
     // its trigger moves, the other hand takes the laser or the panel hides:
     // a pull off the keys may click the window behind. Only while there is
@@ -1961,27 +1943,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // A pointer position no key or control reaches: the hover of a laser
     // resting off the keys ends without cancelling its pointer.
     constexpr std::pair<double, double> off_panel{-1e4, -1e4};
-    // Where a device's laser meets a Disabled background's clear case, if it
-    // does. The case is the last mask's, so no view is built.
-    auto gap_point = [&](vr::TrackedDeviceIndex_t device) -> std::optional<std::pair<double, double>> {
-        const auto& body = panel.mask_gapped_case();
-        if (!body || !displayed.ready()) {
-            return {};
-        }
-        const auto ray = laser_rays.read(device);
-        const auto hit = ray ? panel_ray_hit(displayed.transform(), displayed.width(),
-                                             static_cast<double>(texture_height) / panel_width,
-                                             ray->origin, ray->direction)
-                             : std::nullopt;
-        if (!hit) {
-            return {};
-        }
-        const double x = hit->u * panel_width, y = hit->v * texture_height - popup_margin;
-        if (!body->contains(x, y)) {
-            return {};
-        }
-        return std::pair{x, y};
-    };
     // The panel's fade in and out (panel_motion.hpp). An exit keeps the overlay
     // shown, without input, until it has faded; fallback and shutdown cut it.
     PanelMotion motion;
@@ -3352,10 +3313,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // popup, flick preview and handle geometry. Reuse it instead
                 // of building another full view for every mouse movement.
                 const auto& areas = panel.mask_areas();
-                const bool inside =
-                    std::any_of(areas.begin(), areas.end(),
-                                [&](const Rect& area) { return area.contains(x, y); }) ||
-                    (panel.mask_gapped_case() && panel.mask_gapped_case()->contains(x, y));
+                const bool inside = std::any_of(areas.begin(), areas.end(),
+                                                [&](const Rect& area) { return area.contains(x, y); });
                 if (device < vr::k_unMaxTrackedDeviceCount) {
                     sound_pointer(sound_pointer_id(sound_main, vr::k_unTrackedDeviceIndexInvalid),
                                   vr::k_unTrackedDeviceIndexInvalid, false, now);
@@ -3419,10 +3378,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     if (const auto trigger = GapTrigger::enter(
                             watch.angle(), released != released_at.end() &&
                                                now - released->second < GapTrigger::release_grace)) {
-                        const auto at = gap_point(device).value_or(off_panel);
                         for (const auto& [pointer, owner] : pointer_devices) {
                             if (owner == device) {
-                                app.move(pointer, at.first, at.second);
+                                app.move(pointer, off_panel.first, off_panel.second);
                             }
                         }
                         gap_watches.insert_or_assign(device, GapWatch{watch, *trigger});
@@ -3471,7 +3429,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             const auto view = app.input_view();
             // The same areas as the intersection mask, built from the full view
             // (the input view has no emoji grid): transparent margins never take
-            // the ray, nor a Disabled background's gaps unless a pointer is held.
+            // the ray.
             auto accepts = [&](double x, double y) {
                 const auto& areas = panel.mask_areas();
                 return std::any_of(areas.begin(), areas.end(),
@@ -3507,25 +3465,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             // Where each ray meets the panel's accepted areas, if it does.
             std::array<std::optional<std::pair<double, double>>, 2> inside{};
-            // Or where it rests in a clear gap of the case (Background Disabled):
-            // the trigger there reaches the app, but the ray has not left.
-            std::array<std::optional<std::pair<double, double>>, 2> gap{};
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
                 if (const auto& hit = samples[hand].hit; hit && !on_resizer[hand]) {
                     const double x = hit->u * panel_width;
                     const double y = hit->v * texture_height - popup_margin;
                     if (accepts(x, y)) {
                         inside[hand] = std::pair{x, y};
-                    } else if (panel_case_bounds(view).contains(x, y)) {
-                        gap[hand] = std::pair{x, y};
                     }
                 }
             }
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
-                sound_pointer(sound_pointer_id(sound_scene, hand), samples[hand].device,
-                              !samples[hand].lost && samples[hand].ray &&
-                                  (inside[hand] || gap[hand] || on_resizer[hand]),
-                              now);
+                sound_pointer(
+                    sound_pointer_id(sound_scene, hand), samples[hand].device,
+                    !samples[hand].lost && samples[hand].ray && (inside[hand] || on_resizer[hand]), now);
             }
             update_key_sounds(now);
             // A ray off the keyboard that meets a floating window's overlay
@@ -3533,7 +3485,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             bool on_window = false;
             for (std::size_t hand = 0; hand < samples.size() && !on_window; ++hand) {
                 const auto& sample = samples[hand];
-                if (sample.ray && !sample.lost && !inside[hand] && !gap[hand] && !on_resizer[hand]) {
+                if (sample.ray && !sample.lost && !inside[hand] && !on_resizer[hand]) {
                     const auto visible = hidden_focus.overlays.visible(now);
                     if (!visible.empty()) {
                         on_window = hidden_focus.overlays.pointed(*sample.ray, visible).has_value();
@@ -3619,8 +3571,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                         if (sample.device < hovered_devices.size()) {
                             hovered_devices[sample.device] = false;
                         }
-                        const auto spot = gap[hand].value_or(off_panel);
-                        app.move(pointer, spot.first, spot.second);
+                        app.move(pointer, off_panel.first, off_panel.second);
                     } else if (std::exchange(scene_inside[hand], false)) {
                         // Leaving the panel ends this hand's presses, as SteamVR's FocusLeave does.
                         if (sample.device < hovered_devices.size()) {
@@ -4046,18 +3997,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         std::erase_if(stick_leaning,
                       [&](const auto& item) { return !pointer_devices.contains(item.first); });
         panel.accept_scroll(scroll_steps);
-        // Over a transparent case the laser mask widens to the whole case
-        // while a pointer is held (panel_hit_areas).
-        const bool held = drag.active() ||
-                          std::any_of(pointer_devices.begin(), pointer_devices.end(),
-                                      [&](const auto& item) { return app.pointer_pressed(item.first); });
         // A state change that redraws no pixel, like a sub-pixel glide step or
         // an image drawn off-screen, uploads nothing: each upload of the whole
         // texture costs milliseconds.
         if (lifecycle.visible() && repaint && app.paint(now)) {
-            panel.submit(app.renderer, app.view(), held);
-        } else if (lifecycle.visible() && panel.mask_gapped_case() && held != panel.mask_held()) {
-            panel.mask(app.view(), held);
+            panel.submit(app.renderer, app.view());
         }
         bool fallback = app.take_native_fallback();
         if (replacement_stalled.exchange(false)) {

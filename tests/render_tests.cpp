@@ -271,12 +271,6 @@ void straight_alpha() {
     view.case_opacity = 0;
     PanelRenderer renderer;
     renderer.paint(view, 1, true);
-    // Invisible and Disabled draw the same pixels, but a switch between them,
-    // from the shell or a reload, must still reach the laser mask.
-    view.laser_through_gaps = true;
-    if (!renderer.paint(view, 1.5)) {
-        throw std::runtime_error("a change of laser_through_gaps repaints, so the mask follows");
-    }
     auto* surface = renderer.surface();
     const auto rgba = renderer.rgba();
     int partial = 0;
@@ -308,38 +302,6 @@ void straight_alpha() {
     }
     if (partial < 1000) {
         throw std::runtime_error("a clear case should leave partly transparent edges to check");
-    }
-}
-// With Background Disabled, a top-row emoji's skin tones rise above the grid
-// into the gap under the tabs; they take the laser there too.
-void emoji_tone_hits() {
-    const auto profiles = load_profiles({}, {});
-    auto layout = profiles.layouts.at("en-us-full");
-    layout.keys.clear(); // Only the picker's own areas.
-    NullSink sink;
-    KeyboardState keyboard(sink);
-    PanelView view;
-    view.layout = &layout;
-    view.theme = &profiles.themes.at("graphite");
-    view.language = &profiles.languages.at("en-us");
-    view.keyboard = &keyboard;
-    view.case_opacity = 0;
-    view.laser_through_gaps = true;
-    EmojiPickerView picker;
-    picker.width = layout.width;
-    picker.tabs = {200, 70, 900, 40};
-    picker.grid = {200, 150, 900, 300};
-    view.emoji = picker;
-    auto inside = [&](double x, double y) {
-        const auto areas = panel_hit_areas(view, false, 29);
-        return std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
-    };
-    if (inside(400, 127) || !inside(400, 90) || !inside(400, 200)) {
-        throw std::runtime_error("the gap between the picker's tabs and grid passes the laser");
-    }
-    view.emoji->popup = EmojiPickerView::Popup{{300, 105, 400, 40}, {}};
-    if (!inside(400, 127)) {
-        throw std::runtime_error("skin tones over that gap take the laser");
     }
 }
 // Alpha of a panel pixel, in case coordinates.
@@ -760,7 +722,6 @@ int main() {
             }
         }
         straight_alpha();
-        emoji_tone_hits();
         // Notice colours default by the legend's lightness; a theme may set its own.
         const std::string base =
             R"({"schema_version":1,"id":"t","name":"T","surface":"#101010","surface_radius":20,)"
