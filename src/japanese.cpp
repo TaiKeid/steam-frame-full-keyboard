@@ -43,7 +43,7 @@ const std::map<std::string, std::string>& roman_table() {
             "twu とぅ dwu どぅ kwa くぁ gwa ぐぁ ye いぇ tcha っちゃ tchu っちゅ tcho っちょ "
             "xa ぁ xi ぃ xu ぅ xe ぇ xo ぉ xya ゃ xyu ゅ xyo ょ xtu っ xtsu っ xwa ゎ xka ヵ xke ヶ "
             "la ぁ li ぃ lu ぅ le ぇ lo ぉ lya ゃ lyu ゅ lyo ょ ltu っ ltsu っ lwa ゎ lka ヵ lke ヶ "
-            "- ー , 、 . 。 [ 「 ] 」 / ・ ? ？ ! ！");
+            "- ー , 、 . 。 [ 「 ] 」 / ・ ? ？ ! ！ \\ ＼ | ｜");
         std::string from, to;
         while (entries >> from >> to) {
             result[from] = to;
@@ -440,6 +440,21 @@ bool symbols_only(const std::string& reading) {
     }
     return !reading.empty();
 }
+// Full-width forms as their narrow ones: ？ as ?, ￥ as ¥.
+std::string half_width(const std::string& text) {
+    std::string result;
+    for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
+        auto c = g_utf8_get_char(p);
+        if (c >= 0xff01 && c <= 0xff5e) {
+            c -= 0xfee0;
+        } else if (c == 0xffe5) {
+            c = 0xa5;
+        }
+        char buffer[8]{};
+        result.append(buffer, static_cast<std::size_t>(g_unichar_to_utf8(c, buffer)));
+    }
+    return result;
+}
 } // namespace
 bool configure_anthy(AnthyLearning learning) {
     auto& state = anthy();
@@ -538,6 +553,11 @@ JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) con
                 candidates.insert(candidates.begin(), segment.reading);
             } else {
                 std::rotate(candidates.begin(), typed, typed + 1);
+            }
+            // Its half-width form next, which Anthy may not offer (¥ for ￥).
+            if (const auto narrow = half_width(segment.reading);
+                std::find(candidates.begin(), candidates.end(), narrow) == candidates.end()) {
+                candidates.insert(candidates.begin() + 1, narrow);
             }
         }
         // The segment's reading in both scripts, after Anthy's own candidates.

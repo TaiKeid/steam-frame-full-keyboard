@@ -1423,7 +1423,7 @@
     {
       "id": "IntlYen",
       "label": "¥",
-      "secondary_label": "",
+      "secondary_label": "|",
       "x": 905.2,
       "y": 66,
       "width": 54.4,

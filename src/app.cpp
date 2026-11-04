@@ -2778,7 +2778,9 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         }
         return true;
     }
-    // Beyond ASCII, such as the JIS ¥ key's ¥: into the reading as typed.
+    // Beyond ASCII, such as the JIS ¥ key's ¥: into the reading as typed,
+    // ¥ full-width as romaji's other symbols are (￥; its half-width form is
+    // among the candidates).
     if (character > 0x7e && g_unichar_isprint(character) && !is_modifier(key_code(code))) {
         if (execute) {
             if (composition_.converting()) {
@@ -2788,8 +2790,9 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                 }
             }
             char text[8]{};
+            const gunichar typed = character == 0xa5 ? 0xffe5 : character;
             composition_.kana(
-                std::string(text, static_cast<std::size_t>(g_unichar_to_utf8(character, text))));
+                std::string(text, static_cast<std::size_t>(g_unichar_to_utf8(typed, text))));
         }
         return true;
     }

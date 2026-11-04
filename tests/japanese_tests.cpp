@@ -556,6 +556,15 @@ void symbols_as_typed() {
     require(composer.candidates() == std::vector<std::string>{"」", "』", "】"} &&
                 composer.commit_text() == "「謁』！…",
             "the other brackets follow the typed one");
+    // A full-width symbol's half-width form follows it, offered or not.
+    struct YenConverter : JapaneseConverter {
+        std::vector<Segment> convert(const std::string&) override { return {{"￥", {"\\", "￥"}}}; }
+        std::vector<Segment> resize(int, int) override { return convert(""); }
+    };
+    JapaneseComposer yen([] { return std::make_unique<YenConverter>(); });
+    yen.kana("￥");
+    yen.convert();
+    require(yen.candidates() == std::vector<std::string>{"￥", "¥", "\\"}, "￥ is followed by ¥");
 }
 // Flick Katakana (JP): a key in the side column switches the kana to
 // katakana, typed and shown, until it is switched back or the language or
@@ -1122,11 +1131,12 @@ void jis_symbols() {
     app.apply({"ja-jis-full", "ja-romaji", "graphite"});
     click_key(app, "IntlYen");
     click_key(app, "IntlRo");
-    require(app.view().preedit == "¥\\" && sink.text.empty(), "romaji takes ¥ and \\ into the reading");
+    require(app.view().preedit == "￥＼" && sink.text.empty(),
+            "romaji takes ¥ and \\ into the reading full-width, as its other symbols");
     click_key(app, "ZenkakuHankaku");
     click_key(app, "IntlYen");
     click_key(app, "IntlRo");
-    require(sink.text == std::vector<std::string>{"¥\\", "¥", "\\"},
+    require(sink.text == std::vector<std::string>{"￥＼", "¥", "\\"},
             "半/全 types the reading, then Latin ¥ and \\");
 }
 void candidate_band() {
