@@ -997,6 +997,15 @@ PanelView App::build_view(bool picker) const {
             }
         }
     }
+    v.key_flick_hints = settings_.key_flicks;
+    if (key_flick_ && key_flick_->shifts && key_flick_->pull > 0) {
+        const auto& keys = v.layout->keys;
+        if (const auto key = std::find_if(keys.begin(), keys.end(),
+                                          [&](const Key& k) { return k.id == key_flick_->key; });
+            key != keys.end()) {
+            v.key_flick = PanelView::KeyFlick{key->id, key_flick_legend(*key), key_flick_->pull};
+        }
+    }
     if (!backend_ready_) {
         v.status = backend_can_resume_ ? "Keyboard paused or disconnected. Waiting for the compositor."
                    : resident_replacement()

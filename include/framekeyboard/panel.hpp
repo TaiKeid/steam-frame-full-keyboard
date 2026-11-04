@@ -219,6 +219,16 @@ struct PanelView {
     std::optional<std::size_t> preedit_cursor;
     std::optional<CandidateStripView> candidates;
     std::map<std::string, std::string> key_labels;
+    // Key flicks: the key pulled toward its Shift character, that character,
+    // and how far, 0 to 1; at 1 a release types it.
+    struct KeyFlick {
+        bool operator==(const KeyFlick&) const = default;
+        std::string key, legend;
+        double pull{};
+    };
+    std::optional<KeyFlick> key_flick;
+    // Key flicks are on: Korean keys show their Shift jamo, as kana keys do.
+    bool key_flick_hints{};
     // The flick key being held: what a tap and each flick would type, and the
     // direction release would choose. Painted as a cross above the keys.
     struct FlickPreview {

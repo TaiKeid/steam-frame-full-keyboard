@@ -557,6 +557,13 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
     view.preedit.clear();
     view.key_labels.clear();
     compare.frame(view, "composition ended");
+    // A key pulled toward its Shift character repaints alone, as it fills.
+    for (const double pull : {.5, 1.0}) {
+        view.key_flick = PanelView::KeyFlick{a.id, "Ä", pull};
+        compare.frame(view, pull < 1 ? "key flick pulled" : "key flick filled");
+    }
+    view.key_flick.reset();
+    compare.frame(view, "key flick ended");
     // Mutate profiles in place, as Reload may reuse existing storage. Pointer
     // equality is not sufficient for invalidating a retained image.
     theme.top = {.6, .2, .1};

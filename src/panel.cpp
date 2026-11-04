@@ -947,6 +947,10 @@ void shift_arrow(cairo_t* cr, double x, double bottom, double width, Color color
 // A latched modifier or lock, or the mic key while it listens: drawn in the latched colour.
 bool latched_key(const PanelView& view, const Key& key, const std::set<int>& modifiers) {
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
+    // A key pulled into a flick fills, as a latched one does: release types its Shift character.
+    if (view.key_flick && view.key_flick->key == key.id && view.key_flick->pull >= 1) {
+        return true;
+    }
     return modifiers.contains(code) || (key.action == "CapsLock" && view.keyboard->caps()) ||
            (key.action == "NumLock" && view.keyboard->num()) ||
            (view.dictation_capturing && key.icon == Icon::Mic);
@@ -1110,8 +1114,12 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     std::string secondary;
     if (view.key_labels.contains(key.id)) {
         const auto small = view.language->kana_shift.find(key.action);
+        const auto jamo = view.language->composition_shift.find(key.action);
         if (small != view.language->kana_shift.end() && small->second != text) {
             secondary = small->second;
+        } else if (view.key_flick_hints && jamo != view.language->composition_shift.end() &&
+                   jamo->second != text) {
+            secondary = jamo->second; // ㅃ over ㅂ, for a flick.
         }
     } else if (key.action_kind == ActionKind::Key && key.action.starts_with("Numpad")) {
         secondary = key.secondary_label;
@@ -1163,6 +1171,39 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
                     view.keyboard->locked(shift));
         label(cr, text, {x + arrow + gap - 4, face.y, width + 8, face.height}, size, view.language->font,
               legend, true, PANGO_ALIGN_CENTER, false, right_to_left(text));
+        return;
+    }
+    if (view.key_flick && view.key_flick->key == key.id && view.key_flick->pull > 0) {
+        // Pulled down, the Shift character slides from its corner into the
+        // middle and grows as the key's own shrinks away below, as an iPad's
+        // key flicks show; a letter's capital, which has no corner, fades in.
+        const double pull = view.key_flick->pull;
+        const auto mix_rect = [&](Rect a, Rect b) {
+            return Rect{a.x + (b.x - a.x) * pull, a.y + (b.y - a.y) * pull,
+                        a.width + (b.width - a.width) * pull, a.height + (b.height - a.height) * pull};
+        };
+        const Rect corner{face.x, face.y + 3, face.width, face.height * .40};
+        const Rect middle{face.x, face.y + face.height * .4, face.width, face.height * .55};
+        const Rect below{face.x, face.y + face.height * .62, face.width, face.height * .38};
+        const double size = secondary.empty() ? t.font_size : t.font_size * .85;
+        const auto faded = [&](double alpha, auto&& draw) {
+            cairo_push_group(cr);
+            draw();
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, alpha);
+        };
+        const auto& lit = legend; // A latched face's colour, once the pull fills it.
+        faded(1 - pull, [&] {
+            label(cr, text, mix_rect(secondary.empty() ? face : middle, below),
+                  size + (t.small_font_size - size) * pull, view.language->font, lit, true,
+                  PANGO_ALIGN_CENTER, false, right_to_left(text));
+        });
+        const auto& shifted = view.key_flick->legend;
+        faded(secondary.empty() ? pull : 1, [&] {
+            label(cr, shifted, mix_rect(corner, face),
+                  t.small_font_size + (t.font_size - t.small_font_size) * pull, view.language->font, lit,
+                  true, PANGO_ALIGN_CENTER, false, right_to_left(shifted));
+        });
         return;
     }
     if (!secondary.empty()) {
@@ -2323,6 +2364,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             continue;
         }
         auto& animation = animations_[key.id];
+        const auto pull_of = [&](const PanelView& v) {
+            return v.key_flick && v.key_flick->key == key.id ? v.key_flick->pull : 0.0;
+        };
         const double old_amount = animation.amount;
         const double target = view.keyboard->pressed(key.id) ? 1 : 0;
         const bool changed_target = target != animation.target;
@@ -2359,7 +2403,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // Settings covers the keys, and key_bounds_ is empty while it shows.
         if (!view.settings && !full &&
             (changed_target || animation.amount != old_amount || mic_changed ||
-             previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id))) {
+             previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id) ||
+             pull_of(previous_->view) != pull_of(view))) {
             damage.push_back(key_bounds_.at(key.id));
         }
     }
