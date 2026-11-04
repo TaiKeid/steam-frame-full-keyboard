@@ -253,8 +253,10 @@ int main(int argc, char** argv) {
         {
             // Learning in the Languages card, with something learned to clear.
             auto app = keyboard(root / "learning", R"(,"japanese_learning":true)", Mode::Vr, sink);
-            fs::create_directories(root / ".anthy");
-            std::ofstream(root / ".anthy" / "last-record2_framekeyboard.utf8") << "learned\n";
+            // Anthy keeps a profile's learning in its config folder.
+            fs::create_directories(root / "learning" / ".anthy");
+            std::ofstream(root / "learning" / ".anthy" / "last-record2_framekeyboard.utf8")
+                << "learned\n";
             app->show_settings();
             app->move(0, 250, 300); // Over the Languages card, scrolled to its end.
             app->scroll(0, 0, 10);
