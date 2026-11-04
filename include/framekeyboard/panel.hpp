@@ -371,8 +371,9 @@ struct ImeBand {
     std::optional<Rect> more; // With ime_more.
 };
 ImeBand ime_band(const PanelView& view);
-// Where the open candidate list goes on: under the candidate row, across the
-// band's width, down to the foot of the keys it covers.
+// Where the open candidate list goes on. Full layouts: under the reading
+// line, in the candidate row's columns, five lines at most. The flick band:
+// under its candidate row, across the band, down to the foot of the keys.
 Rect candidate_list_area(const PanelView& view);
 // The layout height at which a view without the Japanese band would give
 // its keys the scale `view` gives them with it; the layout's own height for

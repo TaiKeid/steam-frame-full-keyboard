@@ -53,8 +53,10 @@ class CandidateStrip {
     }
     // A new list starts at its beginning; the same one keeps its place and
     // brings a newly selected chip into view. Opening or closing starts again.
+    // `list` is the most room the open list may take; with `fit` it ends
+    // after its last line when that comes sooner.
     void set(Rect area, std::vector<std::string> texts, int selected, bool stale, const Measure& measure,
-             std::optional<Rect> list = {});
+             std::optional<Rect> list = {}, bool fit = false);
     void clear();
     bool shown() const { return !texts_.empty(); }
     bool contains(double x, double y) const {
@@ -90,8 +92,16 @@ class CandidateStrip {
     // The row's chip tops; the open list's lines follow at this pitch.
     double row_top() const { return area_.y + (area_.height - chip_height) / 2; }
     static constexpr double line_pitch = chip_height + chip_spacing;
+    // A line's chip top before scrolling: the list's first line sits as far
+    // below its top as it would right under the row, wherever the list is.
+    double line_top(int line) const {
+        return line == 0 ? row_top()
+                         : list_->y + row_top() + line_pitch - (area_.y + area_.height) +
+                               (line - 1) * line_pitch;
+    }
     Rect area_{};
-    std::optional<Rect> list_;
+    std::optional<Rect> list_, requested_list_;
+    bool fit_{};
     // Each chip's place while open: its line (0, the row) and x in that line.
     std::vector<int> lines_;
     std::vector<double> line_starts_;

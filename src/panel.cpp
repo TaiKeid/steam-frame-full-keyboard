@@ -52,8 +52,8 @@ bool list_open(const PanelView& view) {
     return view.candidates && view.candidates->list;
 }
 bool two_row_band(const PanelView& view);
-// A full layout's open list drops from the toolbar's candidate row, as a
-// raised menu over the keys; the flick layout's covers all of them.
+// A full layout's open list opens under the reading line, as a raised menu
+// over the keys; the flick layout's covers all of them.
 std::optional<Rect> candidate_menu(const PanelView& view) {
     if (!list_open(view) || two_row_band(view)) {
         return {};
@@ -1332,10 +1332,11 @@ Rect candidate_list_area(const PanelView& view) {
     const auto band = ime_band(view);
     const auto p = placement(view);
     if (!two_row_band(view)) {
-        // Dropping from the toolbar's candidate room over the keys: five
-        // lines, or as many as fit above the keys' foot.
+        // Under the reading line, which stays in view, in the toolbar's
+        // candidate room's columns, over the keys: five lines, or as many
+        // as fit above the keys' foot. App fits it to fewer.
         const auto& room = band.candidates;
-        const double top = room.y + room.height;
+        const double top = band.reading.y + band.reading.height + 4;
         const double lines = 5 * (CandidateStrip::chip_height + CandidateStrip::chip_spacing) + 8;
         const double bottom = std::min(top + lines, p.y + view.layout->height * p.scale);
         return {room.x, top, room.width, std::max(0.0, bottom - top)};

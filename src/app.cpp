@@ -2857,7 +2857,10 @@ void App::sync_candidates() {
     if (candidate_list_) {
         list = candidate_list_area(geometry);
     }
-    candidates_.set(*row, std::move(texts), selected, stale, measure, list);
+    // A full layout's list ends after its last line; the flick band's
+    // takes the keys' place whole.
+    candidates_.set(*row, std::move(texts), selected, stale, measure, list,
+                    geometry.language->input_method != "japanese-flick");
     dirty |= candidates_.view() != before;
 }
 void App::pick_candidate(int index) {

@@ -22,13 +22,13 @@ double CandidateStrip::row_width(const std::vector<std::string>& texts, const Me
     return texts.empty() ? 0 : width - chip_spacing;
 }
 void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected, bool stale,
-                         const Measure& measure, std::optional<Rect> list) {
+                         const Measure& measure, std::optional<Rect> list, bool fit) {
     if (texts.empty()) {
         clear();
         return;
     }
     const bool same = texts == texts_;
-    if (same && area == area_ && list == list_) {
+    if (same && area == area_ && list == requested_list_ && fit == fit_) {
         stale_ = stale;
         if (selected != selected_) {
             selected_ = selected;
@@ -58,7 +58,8 @@ void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected
         hovered_.clear();
     }
     area_ = area;
-    list_ = list;
+    list_ = requested_list_ = list;
+    fit_ = fit;
     place();
     stale_ = stale;
     selected_ = selected;
@@ -89,6 +90,11 @@ void CandidateStrip::place() {
         x += width + chip_spacing;
     }
     line_count_ = line + 1;
+    if (fit_ && line_count_ > 1) {
+        // The last line and the row's own margin under it.
+        const double bottom = line_top(line_count_ - 1) + chip_height + (area_.height - chip_height) / 2;
+        list_->height = std::min(list_->height, bottom - list_->y);
+    }
 }
 void CandidateStrip::clear() {
     texts_.clear();
@@ -96,6 +102,7 @@ void CandidateStrip::clear() {
     widths_.clear();
     width_ = 0;
     list_.reset();
+    requested_list_.reset();
     lines_.clear();
     line_starts_.clear();
     line_count_ = 0;
@@ -109,8 +116,7 @@ void CandidateStrip::clear() {
 double CandidateStrip::scroll_limit() const {
     if (list_) {
         // The last line and the row's own margin under it, inside the list.
-        const double bottom =
-            row_top() + (line_count_ - 1) * line_pitch + chip_height + (area_.height - chip_height) / 2;
+        const double bottom = line_top(line_count_ - 1) + chip_height + (area_.height - chip_height) / 2;
         return std::max(0.0, bottom - (list_->y + list_->height));
     }
     return std::max(0.0, width_ - area_.width);
@@ -121,7 +127,7 @@ Rect CandidateStrip::chip_bounds(std::size_t index) const {
         const int line = lines_[index];
         const double origin = line == 0 ? area_.x : list_->x;
         const double scroll = line == 0 ? 0 : std::round(scroll_);
-        return {origin + line_starts_[index], row_top() + line * line_pitch - scroll,
+        return {origin + line_starts_[index], line_top(line) - scroll,
                 std::min(widths_[index], line == 0 ? area_.width : list_->width), chip_height};
     }
     return {area_.x + starts_[index] - std::round(scroll_), row_top(), widths_[index], chip_height};
@@ -150,7 +156,7 @@ void CandidateStrip::reveal(int index) {
         if (lines_[at] > 0) {
             // Its line, with the row's margin above and below it.
             const double margin = (area_.height - chip_height) / 2;
-            const double top = row_top() + lines_[at] * line_pitch - margin;
+            const double top = line_top(lines_[at]) - margin;
             const double bottom = top + chip_height + 2 * margin;
             if (top - scroll_ < list_->y) {
                 scroll_ = top - list_->y;

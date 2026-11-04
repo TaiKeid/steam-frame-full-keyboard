@@ -1069,6 +1069,21 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                 require(list.y < keys_top(view) + 60 && !key_at("Digit5") && !key_at("ControlLeft"),
                         "while the menu is open, no key takes a press, under it or not");
                 {
+                    // It opens under the reading line, which stays in view, and
+                    // ends after its last line.
+                    const auto reading = ime_band(view).reading;
+                    double last = 0;
+                    for (const auto& chip : view.candidates->chips) {
+                        if (chip.listed) {
+                            last = std::max(last, chip.bounds.y + chip.bounds.height);
+                        }
+                    }
+                    require(list.y >= reading.y + reading.height && last > list.y &&
+                                list.y + list.height - last < CandidateStrip::chip_height &&
+                                list.height < 5 * CandidateStrip::chip_height,
+                            "the menu opens under the reading line, as tall as its lines");
+                }
+                {
                     // A press outside the menu only closes it.
                     const auto r = key_rect("ControlLeft");
                     app.down(4, r.x + r.width / 2, r.y + r.height / 2, 2.6);
