@@ -1845,7 +1845,13 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
             const auto legend = strip.stale     ? disabled_legend(t)
                                 : chip.selected ? t.latched_legend
                                                 : t.legend;
+            // Within its cap: a kaomoji's stacked marks (tears of ̥) reach far below.
+            cairo_save(cr);
+            const auto face = pixel_bounds(chip.bounds);
+            cairo_rectangle(cr, face.x, face.y, face.width, face.height);
+            cairo_clip(cr);
             label(cr, chip.text, chip.bounds, candidate_font_size, view.language->font, legend, true);
+            cairo_restore(cr);
         }
         cairo_restore(cr);
     }
