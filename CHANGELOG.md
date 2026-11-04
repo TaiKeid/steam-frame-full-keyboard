@@ -67,6 +67,7 @@
 
 ### Development
 
+- The desktop simulator keeps a held press through a brief loss of the window's focus, ignoring the far-off pointer motion some desktops send with it, so a flick in progress no longer drops its kana. A press whose release goes to another window still ends half a second later.
 - The desktop simulator writes its pointer and window events, and when ↶'s chance ends, to stderr with `FRAMEKEYBOARD_SIMULATOR_TRACE` set, to see what a pointer-driving tool sends. Nothing typed is written. Leaving its window no longer ends ↶'s chance, **Clear field** also cancels an open reading, and its × shows, doing nothing, so the toolbar lays out as on the headset.
 - Added reproducible host ASan/UBSan presets for C and C++, with unsuppressed leak checks by default and an explicitly selected Fontconfig filter for secondary diagnostic runs.
 - Fixed leaked server-client resources in the isolated clipboard test fixture, including cleanup during exception unwinding.

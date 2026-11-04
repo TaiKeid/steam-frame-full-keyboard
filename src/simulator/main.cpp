@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <stdexcept>
 
 namespace fk = framekeyboard;
@@ -212,6 +213,17 @@ int main(int argc, char** argv) {
             return fingers[id] = pointer;
         };
         bool mouse_pressed = false;
+        // A press held as the window lost focus: some desktops then send one
+        // pointer motion far outside the window, while the drag and its
+        // release go on in it. Such motions are ignored; unless the pointer
+        // comes back inside or lets go within half a second, the release
+        // went elsewhere and the press is cancelled, as a lost laser is.
+        std::optional<double> focus_lost_held;
+        auto inside_window = [&](int x, int y) {
+            int width = 1, height = 1;
+            SDL_GetWindowSize(window.get(), &width, &height);
+            return x >= 0 && y >= 0 && x < width && y < height;
+        };
         // A mouse can report a thousand moves a second, and each one makes the
         // keyboard look up what is under it. Moves wait, the latest for each
         // pointer, until another event or the end of the batch: one a frame,
@@ -268,6 +280,13 @@ int main(int argc, char** argv) {
                     case SDL_MOUSEMOTION:
                         // Touches arrive as fingers below, not as their mouse copies.
                         if (event.motion.which != SDL_TOUCH_MOUSEID) {
+                            if (focus_lost_held) {
+                                if (!inside_window(event.motion.x, event.motion.y)) {
+                                    note("ignored move ", event.motion.x, ',', event.motion.y);
+                                    break;
+                                }
+                                focus_lost_held.reset();
+                            }
                             motion[sim::Simulator::mouse] = canvas_point(event.motion.x, event.motion.y);
                         }
                         break;
@@ -280,6 +299,7 @@ int main(int argc, char** argv) {
                                  std::lround(x), ',', std::lround(y));
                             if (event.button.button == SDL_BUTTON_LEFT) {
                                 mouse_pressed = down;
+                                focus_lost_held.reset();
                                 if (down) {
                                     simulator.pointer_down(sim::Simulator::mouse, x, y, at);
                                 } else {
@@ -344,9 +364,10 @@ int main(int argc, char** argv) {
                             simulator.pointer_exit(sim::Simulator::mouse);
                         } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                             // A release may never come: end the presses as a lost
-                            // laser does. The held second pointer stays, as shown.
-                            if (std::exchange(mouse_pressed, false)) {
-                                simulator.pointer_cancel(sim::Simulator::mouse);
+                            // laser does, the mouse's only if it doesn't come back.
+                            // The held second pointer stays, as shown.
+                            if (mouse_pressed) {
+                                focus_lost_held = at;
                             }
                             for (const auto& [id, pointer] : fingers) {
                                 simulator.pointer_cancel(pointer);
@@ -366,6 +387,13 @@ int main(int argc, char** argv) {
                                                                    : "another event");
                 } while (SDL_PollEvent(&event));
                 flush_motion();
+            }
+            if (focus_lost_held && fk::monotonic_seconds() - *focus_lost_held > .5) {
+                focus_lost_held.reset();
+                note("press cancelled after focus loss");
+                if (std::exchange(mouse_pressed, false)) {
+                    simulator.pointer_cancel(sim::Simulator::mouse);
+                }
             }
             const bool ticked = simulator.tick(fk::monotonic_seconds());
             watch_reopen("a tick");
