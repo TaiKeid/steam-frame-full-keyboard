@@ -197,6 +197,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
+    pending_flick_katakana_ = settings_.flick_katakana;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     japanese_words_ = JapaneseWords(data_resource(options_.data_dir, "japanese/words.tsv"));
@@ -776,6 +777,10 @@ void App::update_settings_ui() {
         learning_fields.push_back(field(ControlKind::FlickOnly,
                                         checkbox("flick-only", "Flick Only (JP)", pending_flick_only_,
                                                  true, "A quick second tap types the same kana again")));
+        learning_fields.push_back(
+            field(ControlKind::FlickKatakana,
+                  checkbox("flick-katakana", "Flick Katakana (JP)", pending_flick_katakana_, true,
+                           "Adds a key that switches the kana to katakana")));
     }
     if (japanese_language(pending_.language) ||
         std::any_of(pairs.begin(), pairs.end(),
@@ -869,6 +874,8 @@ PanelView App::geometry() const {
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
+    v.flick_script_key = settings_.flick_katakana;
+    v.flick_katakana = katakana_ && flick_mode() == FlickMode::Kana;
     if (emoji_open_) {
         v.layout = &emoji_layout_.layout;
         v.composing = false;
@@ -975,6 +982,8 @@ PanelView App::build_view(bool picker) const {
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
+    v.flick_script_key = settings_.flick_katakana;
+    v.flick_katakana = katakana_ && flick_mode() == FlickMode::Kana;
     if (v.ime_band) {
         // The band underlines the converting segment.
         v.preedit = composition_.preedit();
@@ -1023,10 +1032,14 @@ PanelView App::build_view(bool picker) const {
             const auto& key = table.at(flick_track_->slot);
             auto tap = *flick_track_;
             tap.direction = FlickDirection::Tap;
-            v.flick_preview =
-                PanelView::FlickPreview{flick_track_->key,
-                                        {flick_text(tap), key.left, key.up, key.right, key.down},
-                                        static_cast<int>(flick_track_->direction)};
+            // The mode and script keys show their own legends.
+            const bool kana =
+                flick_track_->slot != flick_mode_slot && flick_track_->slot != flick_script_slot;
+            const auto shown = [&](const std::string& text) { return kana ? flick_kana(text) : text; };
+            v.flick_preview = PanelView::FlickPreview{flick_track_->key,
+                                                      {shown(flick_text(tap)), shown(key.left),
+                                                       shown(key.up), shown(key.right), shown(key.down)},
+                                                      static_cast<int>(flick_track_->direction)};
         }
     }
     if (cjk_) {
@@ -2087,6 +2100,7 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
+    pending_flick_katakana_ = settings_.flick_katakana;
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
@@ -2151,6 +2165,9 @@ void App::activate(Selection selection) {
     release_input();
     japanese_latin_ = false;
     flick_digits_ = false;
+    if (selection.layout != settings_.active.layout || selection.language != settings_.active.language) {
+        katakana_ = false; // Each language and layout starts in hiragana.
+    }
     cjk_ = std::move(cjk);
     settings_.active = std::move(selection);
     keymap_ = std::move(keymap);
@@ -2333,6 +2350,8 @@ void App::reload() {
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.japanese_learning = updated_settings.japanese_learning;
         settings_.flick_only = updated_settings.flick_only;
+        settings_.flick_katakana = updated_settings.flick_katakana;
+        katakana_ = katakana_ && settings_.flick_katakana;
         apply_learning();
         settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
@@ -2369,6 +2388,7 @@ void App::reload() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
+    pending_flick_katakana_ = settings_.flick_katakana;
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -3181,6 +3201,8 @@ void App::apply_settings() {
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
     settings_.japanese_learning = pending_japanese_learning_;
     settings_.flick_only = pending_flick_only_;
+    settings_.flick_katakana = pending_flick_katakana_;
+    katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
     apply_learning();
     settings_.focus_tooltip = pending_focus_tooltip_;
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
@@ -3523,6 +3545,9 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::FlickOnly) {
         pending_flick_only_ = !pending_flick_only_;
         update_settings_ui();
+    } else if (kind == ControlKind::FlickKatakana) {
+        pending_flick_katakana_ = !pending_flick_katakana_;
+        update_settings_ui();
     } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::SaveLanguages) {
         confirm_ = Confirm::None;
         action({ControlKind::Apply});
@@ -3626,6 +3651,9 @@ void App::set_flick_mode(FlickMode mode) {
     keyboard_.release_all();
     status_.clear();
 }
+std::string App::flick_kana(const std::string& text) const {
+    return katakana_ && flick_mode() == FlickMode::Kana ? kana_in_script(text, true) : text;
+}
 bool App::flick_down(unsigned pointer, const Key& key, double x, double y, double now) {
     const auto& language = profiles_.languages.at(settings_.active.language);
     if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || flick_track_ ||
@@ -3681,7 +3709,7 @@ std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
     // still the last one in the reading, unless taps never cycle (Flick only).
     if (!settings_.flick_only && flick_toggle_ && flick_toggle_->slot == track.slot &&
         key.tap.size() > 1 && track.pressed - flick_toggle_->at <= flick_toggle_seconds &&
-        composition_.last_kana() == key.tap[flick_toggle_->index]) {
+        composition_.last_kana() == flick_kana(key.tap[flick_toggle_->index])) {
         if (cycles) {
             *cycles = true;
         }
@@ -3704,6 +3732,17 @@ void App::finish_flick() {
     bool cycles = false;
     const auto text = flick_text(track, &cycles);
     try {
+        if (track.slot == flick_script_slot) {
+            // A tap switches the script of the kana typed from now on; a
+            // flick left or right picks hiragana or katakana.
+            katakana_ = track.direction == FlickDirection::Tap     ? !katakana_
+                        : track.direction == FlickDirection::Left  ? false
+                        : track.direction == FlickDirection::Right ? true
+                                                                   : katakana_;
+            flick_toggle_.reset();
+            dirty = true;
+            return;
+        }
         if (track.slot == flick_mode_slot && has_mode_key()) {
             // A tap moves on to the next mode; a flick picks one. A profile
             // without digits cycles kana and English only.
@@ -3744,7 +3783,7 @@ void App::finish_flick() {
         if (cycles) {
             composition_.backspace();
         }
-        flick_type(text);
+        flick_type(flick_kana(text));
         if (track.direction == FlickDirection::Tap && key.tap.size() > 1 && !composition_.converting()) {
             const auto index = cycles ? (flick_toggle_->index + 1) % key.tap.size() : 0;
             flick_toggle_ = FlickToggle{track.slot, index, track.pressed};
@@ -3788,11 +3827,14 @@ void App::undo_japanese(double now) {
         if (flick_toggle_ && table.contains(flick_toggle_->slot)) {
             slot = table.find(flick_toggle_->slot);
         }
-        if (slot == table.end() || std::find(slot->second.tap.begin(), slot->second.tap.end(), last) ==
+        // Found by its hiragana: the taps are hiragana, also while the kana
+        // are katakana.
+        const auto plain = kana_in_script(last, false);
+        if (slot == table.end() || std::find(slot->second.tap.begin(), slot->second.tap.end(), plain) ==
                                        slot->second.tap.end()) {
             slot = std::find_if(table.begin(), table.end(), [&](const auto& item) {
                 const auto& taps = item.second.tap;
-                return taps.size() > 1 && std::find(taps.begin(), taps.end(), last) != taps.end();
+                return taps.size() > 1 && std::find(taps.begin(), taps.end(), plain) != taps.end();
             });
         }
         if (last.empty() || slot == table.end()) {
@@ -3800,10 +3842,10 @@ void App::undo_japanese(double now) {
         }
         const auto& taps = slot->second.tap;
         const auto at =
-            static_cast<std::size_t>(std::find(taps.begin(), taps.end(), last) - taps.begin());
+            static_cast<std::size_t>(std::find(taps.begin(), taps.end(), plain) - taps.begin());
         const auto back = (at + taps.size() - 1) % taps.size();
         composition_.backspace();
-        composition_.kana(taps[back]);
+        composition_.kana(last == plain ? taps[back] : kana_in_script(taps[back], true));
         flick_toggle_ = FlickToggle{slot->first, back, now};
         return;
     }

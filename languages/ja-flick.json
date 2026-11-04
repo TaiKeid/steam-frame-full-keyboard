@@ -192,6 +192,13 @@
       "tap": [
         "↶"
       ]
+    },
+    "script": {
+      "tap": [
+        "あア"
+      ],
+      "left": "あ",
+      "right": "ア"
     }
   },
   "flick_digits": {
@@ -314,6 +321,13 @@
       "tap": [
         "↶"
       ]
+    },
+    "script": {
+      "tap": [
+        "あア"
+      ],
+      "left": "あ",
+      "right": "ア"
     }
   },
   "dictation": {

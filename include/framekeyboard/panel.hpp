@@ -102,8 +102,9 @@ enum class ControlKind {
     KeyFlicks, // Settings: flick a key down for its Shift character
     SwipeCandidate,
     JapaneseLearning,
-    FlickOnly,    // Settings: Japanese flick taps never cycle
-    ClearLearning // asks first
+    FlickOnly,     // Settings: Japanese flick taps never cycle
+    FlickKatakana, // Settings: show the flick script key
+    ClearLearning  // asks first
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -220,6 +221,9 @@ struct PanelView {
     // The Japanese flick mode: English shows the QWERTY page, digits turn the
     // grid into a number pad; the 「あA1」 key marks which mode is on.
     bool flick_latin{}, flick_digits{};
+    // Flick Katakana (JP) shows the script key; while katakana is on, the
+    // kana keys show and type katakana.
+    bool flick_script_key{}, flick_katakana{};
     std::size_t preedit_active_begin{}, preedit_active_end{};
     // Where typing goes in `preedit`, before conversion: a byte offset.
     std::optional<std::size_t> preedit_cursor;

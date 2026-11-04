@@ -1,4 +1,5 @@
 #include "framekeyboard/dictation_mode.hpp"
+#include "framekeyboard/config.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -12,7 +13,9 @@ bool removed(const Key& key) {
     static const std::set<std::string> actions{
         "PrintScreen",  "ScrollLock", "Pause",     "Tab",     "Insert",   "ControlLeft",
         "ControlRight", "MetaLeft",   "MetaRight", "AltLeft", "AltRight", "ContextMenu"};
-    if (key.action_kind == ActionKind::Shortcut || key.action_kind == ActionKind::Emoji) {
+    // The flick script key gives the side column's top slot to Esc.
+    if (key.action_kind == ActionKind::Shortcut || key.action_kind == ActionKind::Emoji ||
+        (key.action_kind == ActionKind::Flick && key.action == flick_script_slot)) {
         return true;
     }
     if (key.action_kind != ActionKind::Key) {

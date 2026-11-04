@@ -1158,4 +1158,7 @@ std::vector<std::string> JapaneseWords::exact(const std::string& reading, std::s
     }
     return result;
 }
+std::string kana_in_script(const std::string& text, bool katakana) {
+    return in_script(text, katakana);
+}
 } // namespace framekeyboard

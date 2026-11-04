@@ -1,5 +1,6 @@
 #include "framekeyboard/panel.hpp"
 #include "framekeyboard/emoji_glyphs.hpp"
+#include "framekeyboard/japanese.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +22,9 @@ std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
     return {};
 }
 bool hidden_key(const PanelView& view, const Key& key) {
+    if (key.action_kind == ActionKind::Flick && key.action == flick_script_slot) {
+        return !view.flick_script_key; // Only with Flick Katakana (JP).
+    }
     if (key.action_kind == ActionKind::Dictation && key.action == "mic") {
         // Its slot stays empty, unless a model download is on its way.
         return !view.dictation_available && !view.dictation && !view.dictation_download;
@@ -1098,7 +1102,11 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     }
     if (key.action_kind == ActionKind::Flick) {
         const auto custom = view.key_labels.find(key.id);
-        const auto& center = custom != view.key_labels.end() ? custom->second : key.label;
+        // The kana page's legends follow the script key; its own labels stay.
+        const auto shown = [&](const std::string& text) {
+            return view.flick_katakana && !view.flick_digits ? kana_in_script(text, true) : text;
+        };
+        const auto center = shown(custom != view.key_labels.end() ? custom->second : key.label);
         const auto& table = view.flick_digits ? view.language->flick_digits : view.language->flick;
         const auto slot = table.find(key.action);
         if (slot == table.end()) {
@@ -1108,6 +1116,18 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         const auto hint = disabled_legend(t);
         if (key.action == flick_undo_slot) {
             draw_icon(cr, Icon::TurnBack, face, t.legend, flick_icon_size); // without hints
+            return;
+        }
+        if (key.action == flick_script_slot) {
+            // あ and ア side by side, the script in use lit, as the mode key does.
+            const auto& script = slot->second;
+            const double inset = face.width * .1, half = (face.width - 2 * inset) / 2;
+            for (int i = 0; i < 2; ++i) {
+                label(cr, i == 0 ? script.left : script.right,
+                      {face.x + inset + half * i, face.y, half, face.height},
+                      std::min(t.font_size, half * .8), view.language->font,
+                      (i == 1) == view.flick_katakana ? t.legend : hint, true);
+            }
             return;
         }
         if (key.action == flick_mode_slot) {
@@ -1129,13 +1149,14 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         // The tap kana in the middle, the four flick kana as hints on their sides.
         const auto& flick = slot->second;
         const double side = face.width * .22, band = face.height * .34;
-        label(cr, flick.left, {face.x, face.y, side, face.height}, t.small_font_size,
+        label(cr, shown(flick.left), {face.x, face.y, side, face.height}, t.small_font_size,
               view.language->font, hint, true);
-        label(cr, flick.right, {face.x + face.width - side, face.y, side, face.height},
+        label(cr, shown(flick.right), {face.x + face.width - side, face.y, side, face.height},
               t.small_font_size, view.language->font, hint, true);
-        label(cr, flick.up, {face.x + side, face.y, face.width - 2 * side, band}, t.small_font_size,
-              view.language->font, hint, true);
-        label(cr, flick.down, {face.x + side, face.y + face.height - band, face.width - 2 * side, band},
+        label(cr, shown(flick.up), {face.x + side, face.y, face.width - 2 * side, band},
+              t.small_font_size, view.language->font, hint, true);
+        label(cr, shown(flick.down),
+              {face.x + side, face.y + face.height - band, face.width - 2 * side, band},
               t.small_font_size, view.language->font, hint, true);
         const Rect middle{face.x + side, face.y + band * .6, face.width - 2 * side,
                           face.height - band * 1.2};
@@ -2269,6 +2290,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
         previous_->view.ime_room != view.ime_room || previous_->view.flick_latin != view.flick_latin ||
         previous_->view.flick_digits != view.flick_digits ||
+        previous_->view.flick_script_key != view.flick_script_key ||
+        previous_->view.flick_katakana != view.flick_katakana ||
         previous_->view.hide_numpad != view.hide_numpad ||
         previous_->view.case_opacity != view.case_opacity ||
         previous_->view.key_labels != view.key_labels ||

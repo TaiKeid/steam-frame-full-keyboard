@@ -49,6 +49,10 @@ inline constexpr const char* flick_mode_slot = "mode";
 // ↶ (Gboard's 逆トグル／戻す): steps the last kana back through its key's
 // taps, leaves conversion, or reopens the phrase just committed.
 inline constexpr const char* flick_undo_slot = "undo";
+// The script key, shown with Flick Katakana (JP): a tap switches the kana
+// between hiragana and katakana, a flick left or right picks one. Its texts
+// are only its legends.
+inline constexpr const char* flick_script_slot = "script";
 struct Language {
     bool operator==(const Language&) const = default;
     // name is English, native_name is what speakers call it, and short_name
@@ -132,6 +136,9 @@ struct Settings {
     // Japanese flick: taps never cycle, so a quick second tap of か types かか,
     // as phones' Flick only does; off by default, as on phones.
     bool flick_only{};
+    // Japanese flick: a key in the side column switches the kana keys to
+    // katakana and back. Off by default: most Japanese users never use it.
+    bool flick_katakana{};
     // Keep open's amber cue names the hidden window it types into in a tooltip.
     bool focus_tooltip{true};
     // SteamOS's Desktop: non-ASCII text is pasted instead of typed as Unicode entry.

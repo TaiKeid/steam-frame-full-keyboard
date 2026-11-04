@@ -654,6 +654,7 @@ class App {
     bool pending_emoji_close_on_select_{};
     bool pending_japanese_learning_{true};
     bool pending_flick_only_{};
+    bool pending_flick_katakana_{};
     // Anthy restarts on a worker for learning turned on or off, or to clear
     // what it learned (docs/japanese.md, Learning); live candidates wait.
     std::future<void> anthy_restart_;
@@ -805,6 +806,12 @@ class App {
     std::unique_ptr<CjkComposer> cjk_;
     bool japanese_latin_{};
     bool flick_digits_{}; // With japanese_latin_: the flick digits.
+    // The flick kana are katakana (the script key, Flick Katakana (JP)).
+    // Never saved: it starts in hiragana, and a change of language or
+    // layout returns it there.
+    bool katakana_{};
+    // A flick kana as the kana page types and shows it.
+    std::string flick_kana(const std::string& text) const;
     // The kana phrase committed last, which ↶ can bring back until anything
     // else is pressed, the laser leaves or the keyboard hides.
     struct Reopen {

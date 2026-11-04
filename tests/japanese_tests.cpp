@@ -544,6 +544,69 @@ void symbols_as_typed() {
                 composer.commit_text() == "「謁』！…",
             "the other brackets follow the typed one");
 }
+// Flick Katakana (JP): a key in the side column switches the kana to
+// katakana, typed and shown, until it is switched back or the language or
+// layout changes. Without the option the key is hidden.
+void flick_katakana() {
+    char directory[] = "/tmp/framekeyboard-katakana-XXXXXX";
+    require(mkdtemp(directory), "temporary katakana profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    const auto shows_key = [](App& app) {
+        const auto view = app.view();
+        for (int y = 96; y < panel_height; y += 4) {
+            for (int x = 0; x < panel_width; x += 4) {
+                if (const auto* key = app.renderer.hit_key(view, x, y);
+                    key && key->id == "Flick-script") {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    {
+        Sink sink;
+        App app(options, sink);
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        require(!shows_key(app), "without Flick Katakana (JP), no script key");
+    }
+    Settings settings;
+    settings.active = {"ja-flick-12", "ja-flick", "graphite"};
+    settings.flick_katakana = true;
+    save_settings(directory, settings);
+    Sink sink;
+    App app(options, sink);
+    auto preedit = [&] { return app.view().preedit; };
+    require(shows_key(app) && !app.view().flick_katakana, "with it, the script key shows, in hiragana");
+    flick(app, "script", 1);
+    require(app.view().flick_katakana, "a tap switches to katakana");
+    flick(app, "a", 2);
+    flick(app, "a", 2.3);
+    require(preedit() == "イ", "katakana is typed, and quick taps cycle it");
+    flick(app, "undo", 2.5);
+    require(preedit() == "ア", "↶ steps it back through its key, still in katakana");
+    flick(app, "ha", 4);
+    flick(app, "mark", 4.2);
+    require(preedit() == "アバ", "゛゜小 marks it");
+    flick(app, "script", 5, -60, 0);
+    flick(app, "ka", 5.5);
+    require(!app.view().flick_katakana && preedit() == "アバか", "a flick left picks hiragana again");
+    flick(app, "script", 6, 60, 0);
+    require(app.view().flick_katakana, "and right, katakana");
+    app.apply({"en-us-full", "en-us", "graphite"});
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    require(!app.view().flick_katakana, "a change of language returns it to hiragana");
+    std::vector<std::string> errors;
+    require(load_settings(directory, errors).flick_katakana, "the option is saved; the script isn't");
+}
 // A partly typed reading completes to common words: first while it is no
 // word itself, after the conversion and learned words once it is.
 void word_completion() {
@@ -2016,6 +2079,7 @@ int main() {
     try {
         symbols_as_typed();
         word_completion();
+        flick_katakana();
         preferred_phrases();
         emoji_candidates();
         learning_calls();

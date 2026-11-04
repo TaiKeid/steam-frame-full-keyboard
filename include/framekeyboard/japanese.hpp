@@ -64,6 +64,8 @@ std::filesystem::path default_anthy_home();
 // A dictionary other than the installed one, for the simulator and tests;
 // every start of Anthy, restarts included, loads it. Before the first conversion.
 void set_anthy_dictionary(const std::filesystem::path& dictionary);
+// Kana in hiragana or katakana; other characters stay.
+std::string kana_in_script(const std::string& text, bool katakana);
 // The common words a partly typed reading completes to (japanese/words.tsv;
 // docs/japanese.md, Prediction), read on first use. An empty path has none.
 class JapaneseWords {

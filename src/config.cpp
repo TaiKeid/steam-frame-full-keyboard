@@ -747,6 +747,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* flick_only = field(document.get(), "flick_only", json_type_boolean, true)) {
             settings.flick_only = json_object_get_boolean(flick_only);
         }
+        if (auto* katakana = field(document.get(), "flick_katakana", json_type_boolean, true)) {
+            settings.flick_katakana = json_object_get_boolean(katakana);
+        }
         if (auto* tooltip = field(document.get(), "focus_tooltip", json_type_boolean, true)) {
             settings.focus_tooltip = json_object_get_boolean(tooltip);
         }
@@ -917,7 +920,8 @@ void validate_selection_profiles(const Profiles& profiles, const Selection& s) {
         (void)key;
         // Without a mode key, the toolbar's A / あ switches modes instead;
         // ↶ is optional too.
-        if (slot != flick_mode_slot && slot != flick_undo_slot && !flick_key(slot)) {
+        if (slot != flick_mode_slot && slot != flick_undo_slot && slot != flick_script_slot &&
+            !flick_key(slot)) {
             throw std::runtime_error("Language needs a flick layout. Choose another layout.");
         }
     }
@@ -1009,6 +1013,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->japanese_learning));
         json_object_object_add(document.get(), "flick_only",
                                json_object_new_boolean(settings->flick_only));
+        json_object_object_add(document.get(), "flick_katakana",
+                               json_object_new_boolean(settings->flick_katakana));
         json_object_object_add(document.get(), "focus_tooltip",
                                json_object_new_boolean(settings->focus_tooltip));
         json_object_object_add(document.get(), "desktop_unicode_paste",

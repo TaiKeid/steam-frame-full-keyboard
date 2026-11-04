@@ -8,6 +8,19 @@
   "latin_layout": "ja-flick-qwerty",
   "keys": [
     {
+      "id": "Flick-script",
+      "label": "あア",
+      "secondary_label": "",
+      "x": 0,
+      "y": 0,
+      "width": 79,
+      "height": 48,
+      "action": {
+        "kind": "flick",
+        "value": "script"
+      }
+    },
+    {
       "id": "Cut",
       "label": "Cut",
       "secondary_label": "",
