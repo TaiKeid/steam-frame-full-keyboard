@@ -756,9 +756,9 @@ void App::update_settings_ui() {
     if (flick_language(pending_.language) ||
         std::any_of(pairs.begin(), pairs.end(),
                     [&](const Selection& pair) { return flick_language(pair.language); })) {
-        learning_fields.push_back(
-            field(ControlKind::FlickOnly, checkbox("flick-only", "Flick only", pending_flick_only_, true,
-                                                   "A quick second tap types the same kana again")));
+        learning_fields.push_back(field(ControlKind::FlickOnly,
+                                        checkbox("flick-only", "Flick Only (JP)", pending_flick_only_,
+                                                 true, "A quick second tap types the same kana again")));
     }
     if (japanese_language(pending_.language) ||
         std::any_of(pairs.begin(), pairs.end(),
