@@ -858,7 +858,8 @@ PanelView App::geometry() const {
     v.case_opacity = case_opacity();
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
-    v.composing = (japanese() && !japanese_latin_) || (cjk_ && !cjk_latin_);
+    v.composing =
+        (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || (cjk_ && !cjk_latin_);
     v.ime_band = ime_band_shown();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
@@ -962,7 +963,9 @@ PanelView App::build_view(bool picker) const {
                                                            : replacement_unavailable_reason_ + " ";
         v.status += "Steam keyboard remains available.";
     }
-    v.composing = japanese() && !japanese_latin_;
+    // The digits page composes once it holds a reading; before that its band
+    // says it is the digits page.
+    v.composing = japanese_typing() && (!japanese_latin_ || !composition_.empty());
     v.ime_band = ime_band_shown();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
@@ -2448,7 +2451,7 @@ void App::commit_japanese() {
         composition_.cancel();
         status_.clear();
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
-        if (!japanese_latin_ && !dictation_open_) {
+        if (japanese_typing() && !dictation_open_) {
             reopen_ = Reopen{text, reading, output_.queued(), output_.failures(), output_.cancels()};
         }
     } else {
@@ -2471,7 +2474,7 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         }
         return true;
     }
-    if (japanese_latin_) {
+    if (!japanese_typing()) {
         return false;
     }
     for (const char* modifier :
@@ -2723,7 +2726,7 @@ void App::tick_japanese(double now) {
     }
     composition_.set_learning(learning_allowed());
     // While Anthy restarts, live candidates wait; typing goes on.
-    if (!japanese_latin_ && !composition_.empty() && !composition_.converting() &&
+    if (japanese_typing() && !composition_.empty() && !composition_.converting() &&
         !composition_.live_current() && !restarting_anthy()) {
         const auto typed = composition_.preedit();
         if (typed != live_typed_) {
@@ -2764,7 +2767,7 @@ void App::sync_candidates() {
     if (area && composition_.converting()) {
         texts = composition_.candidates();
         selected = composition_.selected();
-    } else if (area && !japanese_latin_ && !composition_.empty()) {
+    } else if (area && japanese_typing() && !composition_.empty()) {
         // Live candidates; a stale list stays until the next one is ready.
         texts = composition_.live();
         stale = !composition_.live_current();
@@ -3375,6 +3378,9 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     }
 }
+bool App::japanese_typing() const {
+    return japanese() && (!japanese_latin_ || flick_mode() == FlickMode::Digits);
+}
 bool App::cheonjiin() const {
     return cjk_ && profiles_.languages.at(settings_.active.language).input_method == "korean-cheonjiin";
 }
@@ -3418,9 +3424,13 @@ void App::set_flick_mode(FlickMode mode) {
         }
         cjk_latin_ = mode != FlickMode::Kana;
     } else {
-        commit_japanese();
-        if (!composition_.empty()) {
-            return;
+        // Kana and digits share the reading, as on a phone; the English page
+        // types at once, so the reading goes first.
+        if (mode == FlickMode::Latin) {
+            commit_japanese();
+            if (!composition_.empty()) {
+                return;
+            }
         }
         japanese_latin_ = mode != FlickMode::Kana;
     }
@@ -3549,7 +3559,11 @@ void App::finish_flick() {
         }
         if (flick_mode() == FlickMode::Digits) {
             flick_toggle_.reset();
-            type_now(text); // Digits and symbols never compose.
+            if (japanese()) {
+                flick_type(text); // Joins the reading, for 3じに to convert to 3時に.
+            } else {
+                type_now(text); // 천지인 has no conversion for digits to join.
+            }
             return;
         }
         if (cjk_) {

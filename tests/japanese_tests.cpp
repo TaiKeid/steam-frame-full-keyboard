@@ -337,13 +337,13 @@ void flick_input() {
     flick(app, "ka", 55);
     flick(app, "ka", 55.2);
     flick(app, "ka", 55.4, -60, 0);
-    require(sink.text.size() == typed + 5 && sink.text[typed + 3] == "2" && sink.text.back() == "¥" &&
-                preedit().empty(),
-            "digits type at once, without cycling, and flicks type their symbols");
+    require(preedit() == "22¥" && sink.text.size() == typed + 2,
+            "digits join the reading, as on a phone, without cycling, and flicks add their symbols");
     flick(app, "a", 55.6, 0, 60);
     flick(app, "sa", 55.8, 0, 60);
-    require(sink.text[sink.text.size() - 2] == "@" && sink.text.back() == "_",
-            "the down flicks give the symbols the English page has no keys for");
+    require(preedit() == "22¥@_", "the down flicks give the symbols the English page has no keys for");
+    click_key(app, "Enter");
+    require(sink.text.back() == "22¥@_" && preedit().empty(), "Enter commits them");
     flick(app, "mode", 56, 0, -60);
     require(app.view().flick_latin, "flicking 「あA1」 up picks English");
     flick(app, "mode", 56.2, 60, 0);
@@ -353,11 +353,16 @@ void flick_input() {
     flick(app, "na", 57);
     require(preedit() == "な", "kana mode composes again");
     flick(app, "mode", 57.2, 60, 0);
-    require(sink.text.back() == "な" && app.view().flick_digits, "switching modes commits the reading");
+    flick(app, "sa", 57.25);
+    require(preedit() == "な3" && app.view().flick_digits && sink.text.back() == "22¥@_",
+            "kana and digits share the reading");
+    flick(app, "mode", 57.28, 0, -60);
+    require(sink.text.back() == "な3" && app.view().flick_latin,
+            "the English page commits the reading first");
+    flick(app, "mode", 57.29, -60, 0);
     sink.keys.clear();
     flick(app, "undo", 57.3);
     require(preedit().empty() && sink.keys.empty(), "a reading committed to switch does not reopen");
-    flick(app, "mode", 57.4, -60, 0);
 
     // ↶, as on Gboard: the last kana steps back through its key's taps, and
     // straight after a commit the phrase comes back as a reading.
@@ -1601,7 +1606,9 @@ int main() {
             require(composer.preedit() == "にほん", "unconvert");
             composer.cancel();
             for (const auto& [reading, phrase] : std::vector<std::pair<std::string, std::string>>{
-                     {"ちょっとまって！", "ちょっと待って！"}, {"「こんにちは」", "「今日は」"}}) {
+                     {"ちょっとまって！", "ちょっと待って！"},
+                     {"「こんにちは」", "「今日は」"},
+                     {"3じに", "3時に"}}) {
                 composer.cancel();
                 composer.kana(reading);
                 composer.convert();

@@ -553,6 +553,9 @@ class App {
         return (japanese() || cheonjiin()) && !emoji_open_ && !dictation_open_;
     }
     bool cheonjiin() const;
+    // Kana compose: on the kana page, or the flick digits page, whose digits
+    // and symbols join the reading as on a phone (3, じに → 3時に).
+    bool japanese_typing() const;
     void sync_candidates();
     // Live candidates after a pause in typing.
     void tick_japanese(double now);
