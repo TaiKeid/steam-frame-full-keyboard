@@ -116,6 +116,9 @@ struct Settings {
     bool start_with_steamos{};
     // Active only when the current language also supports swipe.
     bool swipe_typing{};
+    // A key pulled down types its Shift character, as an iPad's key flicks
+    // do; letters flick to capitals only while swipe isn't active.
+    bool key_flicks{};
     // The toolbar's own switches, saved apart from the Settings options above
     // and below: each works only while its option allows it.
     bool swipe_switch{true};

@@ -97,6 +97,7 @@ enum class ControlKind {
     // The candidate row's ∨, which opens the candidate list over the keys (∧ closes it).
     CandidateList,
     SwipeTyping,
+    KeyFlicks, // Settings: flick a key down for its Shift character
     SwipeCandidate,
     JapaneseLearning,
     ClearLearning // asks first

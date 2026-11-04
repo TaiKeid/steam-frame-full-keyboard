@@ -330,8 +330,7 @@ Language parse_language(const std::string& json) {
     l.input_method = text(o, "input_method", "xkb", true);
     if (l.input_method != "xkb" && l.input_method != "japanese-romaji" &&
         l.input_method != "japanese-kana" && l.input_method != "japanese-flick" &&
-        l.input_method != "korean-2set" &&
-        l.input_method != "chinese-pinyin-simplified" &&
+        l.input_method != "korean-2set" && l.input_method != "chinese-pinyin-simplified" &&
         l.input_method != "chinese-pinyin-traditional" && l.input_method != "chinese-zhuyin" &&
         l.input_method != "chinese-cangjie" && l.input_method != "chinese-quick") {
         throw std::runtime_error("unsupported input method");
@@ -728,6 +727,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* swipe = field(document.get(), "swipe_typing", json_type_boolean, true)) {
             settings.swipe_typing = json_object_get_boolean(swipe);
         }
+        if (auto* flicks = field(document.get(), "key_flicks", json_type_boolean, true)) {
+            settings.key_flicks = json_object_get_boolean(flicks);
+        }
         if (auto* swipe = field(document.get(), "swipe_switch", json_type_boolean, true)) {
             settings.swipe_switch = json_object_get_boolean(swipe);
         }
@@ -985,6 +987,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->start_with_steamos));
         json_object_object_add(document.get(), "swipe_typing",
                                json_object_new_boolean(settings->swipe_typing));
+        json_object_object_add(document.get(), "key_flicks",
+                               json_object_new_boolean(settings->key_flicks));
         json_object_object_add(document.get(), "swipe_switch",
                                json_object_new_boolean(settings->swipe_switch));
         json_object_object_add(document.get(), "haptic_sounds_switch",

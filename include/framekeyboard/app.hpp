@@ -611,6 +611,7 @@ class App {
     bool pending_replace_native_keyboard_{};
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
+    bool pending_key_flicks_{};
     bool pending_emoji_close_on_select_{};
     bool pending_japanese_learning_{true};
     // Anthy restarts on a worker for learning turned on or off, or to clear

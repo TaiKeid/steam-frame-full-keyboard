@@ -193,6 +193,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
@@ -760,7 +761,10 @@ void App::update_settings_ui() {
         languages,
         field(ControlKind::SwipeTyping,
               checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
-                       "Powered by FUTO Swipe"))};
+                       "Powered by FUTO Swipe")),
+        field(ControlKind::KeyFlicks,
+              checkbox("key-flicks", "Flick down for Shift characters", pending_key_flicks_, true,
+                       "Letters flick to capitals only while swipe typing is off"))};
     language_fields.insert(language_fields.end(), learning_fields.begin(), learning_fields.end());
     std::vector<SettingsCard> cards{
         {{"languages", "Languages and Layouts", language_fields},
@@ -1978,6 +1982,7 @@ void App::show_settings() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     learned_ = anthy_learned();
@@ -2219,6 +2224,7 @@ void App::reload() {
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
+        settings_.key_flicks = updated_settings.key_flicks;
         settings_.swipe_switch = updated_settings.swipe_switch;
         settings_.haptic_sounds_switch = updated_settings.haptic_sounds_switch;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
@@ -2255,6 +2261,7 @@ void App::reload() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
     pending_focus_tooltip_ = settings_.focus_tooltip;
@@ -2975,6 +2982,7 @@ void App::apply_settings() {
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.swipe_typing = pending_swipe_typing_;
+    settings_.key_flicks = pending_key_flicks_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
     settings_.japanese_learning = pending_japanese_learning_;
     apply_learning();
@@ -3264,6 +3272,9 @@ void App::action(const ControlAction& command) {
         settings_.haptic_sounds_switch = !settings_.haptic_sounds_switch;
         save();
         host_settings_changed(before, "user");
+    } else if (kind == ControlKind::KeyFlicks) {
+        pending_key_flicks_ = !pending_key_flicks_;
+        update_settings_ui();
     } else if (kind == ControlKind::SwipeTyping && pending_can_swipe()) {
         pending_swipe_typing_ = !pending_swipe_typing_;
         update_settings_ui();

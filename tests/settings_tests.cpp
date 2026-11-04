@@ -1284,6 +1284,25 @@ void background_surface_setting() {
         reading.renderer.write_png("/tmp/framekeyboard-transparent-reading.png");
     }
 }
+// Key flicks: off until chosen, right after swipe typing, saved by Apply.
+void key_flicks_setting() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(!saved(app).key_flicks, "key flicks start off");
+    app.show_settings();
+    const auto flicks = control(app.view(), "key-flicks"), swipe = control(app.view(), "swipe-typing");
+    require(!flicks.selected && flicks.bounds.y > swipe.bounds.y && flicks.bounds.x == swipe.bounds.x,
+            "the option follows swipe typing, unchecked");
+    click(app, "key-flicks");
+    require(control(app.view(), "key-flicks").selected && !saved(app).key_flicks,
+            "it stays pending until Apply");
+    click(app, "apply");
+    require(saved(app).key_flicks, "Apply saves it");
+}
 void haptic_sounds_setting() {
     TemporaryDirectory directory;
     Options options;
@@ -2595,6 +2614,7 @@ int main() {
         launch_startup();
         numpad_settings();
         background_surface_setting();
+        key_flicks_setting();
         haptic_sounds_setting();
         app_settings();
         dictation_settings();

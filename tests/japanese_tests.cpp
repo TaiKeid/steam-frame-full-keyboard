@@ -931,14 +931,29 @@ void learning_settings() {
     control(app, "settings"); // Back
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     app.show_settings();
+    // Scrolls the Languages card until the row shows.
+    double scrolled = 200;
     const auto find = [&](const std::string& id) {
-        const auto controls = app.view().controls;
-        const auto found =
-            std::find_if(controls.begin(), controls.end(), [&](const Control& c) { return c.id == id; });
-        if (found == controls.end()) {
-            throw std::runtime_error("Missing control " + id);
+        for (int step = 0; step < 20; ++step) {
+            const auto controls = app.view().controls;
+            const auto found = std::find_if(controls.begin(), controls.end(),
+                                            [&](const Control& c) { return c.id == id; });
+            if (found != controls.end()) {
+                return *found;
+            }
+            const auto language = std::find_if(controls.begin(), controls.end(), [](const Control& c) {
+                return c.id == "japanese-learning";
+            });
+            if (language == controls.end()) {
+                break;
+            }
+            app.move(9, language->bounds.x + 20, language->bounds.y + 20);
+            app.scroll(9, 0, 1);
+            for (int i = 0; i < 10; ++i) {
+                app.tick(scrolled += .05); // The card glides to its place.
+            }
         }
-        return *found;
+        throw std::runtime_error("Missing control " + id);
     };
     require(find("japanese-learning").selected && !find("clear-learning").enabled,
             "learning starts on, as on Steam's keyboard, with nothing to clear");
