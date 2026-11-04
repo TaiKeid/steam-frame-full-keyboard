@@ -125,6 +125,16 @@ void layout_tests() {
             require(!overlaps(picker.grid, picker.tabs), "tabs sit above the grid");
         }
     }
+    // The flick layout's emoji key sits beside the kana: Back moves into the
+    // side column's top slot, which the hidden script key doesn't take, and
+    // the column narrows for the grid beside it.
+    const auto& flick = profiles.layouts.at("ja-flick-12");
+    const auto picker = emoji_layout(flick, flick.width);
+    const auto back = std::find_if(picker.layout.keys.begin(), picker.layout.keys.end(),
+                                   [](const Key& key) { return key.action == "picker"; });
+    require(back != picker.layout.keys.end() && back->bounds.x == 0 && back->bounds.y == 0 &&
+                back->bounds.width < 79 && picker.grid.x < 120,
+            "on the flick layout, Back takes the side column's top slot and the grid moves beside it");
 }
 
 EmojiCatalog sample_catalog() {

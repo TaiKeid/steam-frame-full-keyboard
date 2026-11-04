@@ -229,9 +229,13 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
                             : Rect{key.bounds.x, 0, key.bounds.width, 0};
         }
     }
+    // Only the keys the picker takes count: the flick layout's script key,
+    // say, is not among them.
     const auto top_free = [&] {
         return column && std::none_of(main.keys.begin(), main.keys.end(), [&](const Key& key) {
-                   return key.bounds.x < column->x + column->width &&
+                   return (key.action_kind == ActionKind::Emoji ||
+                           key.action_kind == ActionKind::Shortcut) &&
+                          key.bounds.x < column->x + column->width &&
                           column->x < key.bounds.x + key.bounds.width && key.bounds.y < 44;
                });
     }();
