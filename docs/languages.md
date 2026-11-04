@@ -190,8 +190,9 @@ For Korean, type the displayed two-set jamo. Shift selects doubled consonants an
 the shifted vowels. Caps Lock does not double jamo. Backspace undoes one typed
 jamo, including changes across syllable boundaries. Enter or Commit submits the
 composition. Space and other ordinary keys commit the word before sending the
-key. Use the `한 / A` control to switch between Hangul and Latin typing. Chinese
-has a corresponding `中文 / A` control. Punctuation uses ordinary US keys.
+key. Korean types Hangul only, as Korean keyboards do; for English, add an
+English layout as an additional language. Chinese has a `中文 / A` control to
+switch between Chinese and Latin typing. Punctuation uses ordinary US keys.
 
 Pinyin, Zhuyin and Korean keep a bounded preedit. Commit before the
 30-input-character limit; Cangjie and Quick use the retained-text bound above.

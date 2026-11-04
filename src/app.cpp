@@ -480,10 +480,12 @@ std::vector<Control> App::controls() const {
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
     }
     if (cjk_ && !emoji_open_) {
-        add({ControlKind::CjkToggle},
-            {"cjk-toggle",
-             cjk_latin_ ? "A / native" : (cjk_->chinese() ? "中文 / A" : "한 / A"),
-             {680, 12, 150, 42}});
+        // Korean types Hangul only, as Korean keyboards do; English has its
+        // own layouts.
+        if (cjk_->chinese()) {
+            add({ControlKind::CjkToggle},
+                {"cjk-toggle", cjk_latin_ ? "A / native" : "中文 / A", {680, 12, 150, 42}});
+        }
         if (!cjk_latin_) {
             add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {1065, 12, 180, 42}});
             add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1255, 12, 110, 42}});

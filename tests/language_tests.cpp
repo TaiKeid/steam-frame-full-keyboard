@@ -807,6 +807,11 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
         Sink sink;
         App app(options, sink);
         app.apply({"en-us-full", id, "graphite"});
+        const auto controls = app.view().controls;
+        require(std::any_of(controls.begin(), controls.end(),
+                            [](const auto& control) { return control.id == "cjk-toggle"; }) ==
+                    std::string(id).starts_with("zh-"),
+                "Chinese switches to Latin typing with 中文 / A; Korean types Hangul only");
         click(app, "KeyR");
         require(sink.events.empty(), "composition does not emit raw letters");
         require(!app.view().preedit.empty(), "visible local preedit");
