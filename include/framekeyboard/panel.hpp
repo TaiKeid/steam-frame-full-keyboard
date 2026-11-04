@@ -92,15 +92,10 @@ enum class ControlKind {
     ConfirmAccept,
     ConfirmCancel,
     ScrollMenu,
-    // Contiguous composition groups support policy checks without inspecting IDs.
+    // あ / A, on a flick layout without 「あA1」.
     ImeToggle,
-    // The Japanese band's ∨, which opens the candidate list over the keys (∧ closes it).
+    // The candidate row's ∨, which opens the candidate list over the keys (∧ closes it).
     CandidateList,
-    CjkCommit,
-    CjkCancel,
-    CjkNext,
-    CjkPrev,
-    CjkCandidate,
     SwipeTyping,
     SwipeCandidate,
     JapaneseLearning,
@@ -207,13 +202,13 @@ struct PanelView {
     double case_opacity{1};
     bool laser_through_gaps{};
     std::string preedit;
-    // A Japanese language (docs/japanese.md) keeps a band between the toolbar
-    // and the keys in both modes: the reading on the left, its candidates
-    // scrolling beside it, and a hint while there is no reading. The
-    // converting segment is a byte range of `preedit`.
+    // A composing language (Japanese, Chinese, Korean) shows its reading, a
+    // hint while there is none, and its candidates scrolling sideways
+    // (ime_band() says where). The converting segment is a byte range of
+    // `preedit`.
     bool ime_band{};
-    // The flick layout's band ends its candidate row with ∨, which opens the
-    // whole list over the keys, as a phone's does.
+    // The candidate row ends with ∨, which opens the whole list over the
+    // keys, as a phone's does.
     bool ime_more{};
     // The Japanese flick mode: English shows the QWERTY page, digits turn the
     // grid into a number pad; the 「あA1」 key marks which mode is on.
@@ -350,7 +345,12 @@ Rect panel_case_bounds(const PanelView& view);
 bool compact_toolbar(const PanelView& view);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
-// The Japanese band and its parts: the reading, and the candidates beside it.
+// Where a composing language shows its reading and candidates. The flick
+// layout's band gives each a row between the toolbar and the keys. Full
+// layouts keep the toolbar's height: the candidates take the first toolbar
+// row after its buttons, where swipe suggestions go, and the reading the line
+// under it, where the status shows; `band` is that line. Full layouts need the
+// view's controls, which place the toolbar's buttons.
 struct ImeBand {
     Rect band, reading, candidates;
     std::optional<Rect> more; // With ime_more.

@@ -483,60 +483,17 @@ std::vector<Control> App::controls() const {
         add({ControlKind::ImeToggle},
             {"ime-toggle", japanese_latin_ ? "A / あ" : "あ / A", {680, 12, 115, 42}});
     }
-    // Chinese and Korean type their own script only, as their keyboards do;
-    // English has its own layouts.
-    if (cjk_ && !emoji_open_) {
-        add({ControlKind::CjkCommit}, {"cjk-commit", "Commit", {1065, 12, 180, 42}});
-        add({ControlKind::CjkCancel}, {"cjk-cancel", "Cancel", {1255, 12, 110, 42}});
-        const auto candidates = cjk_->candidates();
-        if (!candidates.empty()) {
-            const int page = cjk_->selected() / 5 * 5;
-            add({ControlKind::CjkPrev}, {"cjk-prev", "↑", {20, 148, 55, 42}});
-            for (int i = page; i < std::min(page + 5, static_cast<int>(candidates.size())); ++i) {
-                add({ControlKind::CjkCandidate, i},
-                    {"cjk-candidate-" + std::to_string(i),
-                     std::to_string(i - page + 1) + " " + candidates[static_cast<std::size_t>(i)],
-                     {85.0 + (i - page) * 240, 148, 230, 42},
-                     i == cjk_->selected()});
-            }
-            add({ControlKind::CjkNext}, {"cjk-next", "↓", {1290, 148, 55, 42}});
-        }
-    }
-    // Composition controls use the available case width; the main toolbar keeps
-    // its button sizes when the numpad is hidden.
+    // A / あ is placed on the full panel; the toolbar keeps its button sizes
+    // when the numpad is hidden, and A / あ keeps its own on the narrower
+    // flick case.
     const double scale = body.width / panel_width;
     for (std::size_t i = ime_start; i < result.size(); ++i) {
         result[i].bounds.x = body.x + result[i].bounds.x * scale;
-        // A / あ alone keeps its size on the narrower flick case.
-        if (result[i].action.kind != ControlKind::ImeToggle) {
-            result[i].bounds.width *= scale;
-        }
     }
-    if (dictation_open_ && !settings_open_) {
-        // The candidate row, panel x 20 to 1575, would cover the editor. It
-        // moves into the band over the editor's foot while a reading is in
-        // progress, and is hidden otherwise.
-        const auto editor = panel_rect(geometry, dictation_layout_.editor);
-        const double row = body.x + 20 * scale;
-        const double fit = (editor.width - 24) / (1555 * scale);
-        const double top = editor.y + editor.height - dictation_notice_height + 5;
-        const bool reading = composing_text();
-        for (std::size_t i = ime_start; i < result.size();) {
-            auto& control = result[i];
-            if (control.bounds.y != 148) {
-                ++i;
-            } else if (!reading) {
-                result.erase(result.begin() + static_cast<std::ptrdiff_t>(i));
-            } else {
-                control.bounds = {editor.x + 12 + (control.bounds.x - row) * fit, top,
-                                  control.bounds.width * fit, 36};
-                ++i;
-            }
-        }
-    }
-    // The band's ∨ comes in panel coordinates already: after the composition
-    // controls' scaling. It shows with candidates to open.
+    // The band's ∨ shows with candidates to open. Full layouts place it by
+    // the toolbar's buttons, all added by now.
     if (geometry.ime_more && !settings_open_ && candidates_.shown()) {
+        geometry.controls = result;
         const auto band = ime_band(geometry);
         add({ControlKind::CandidateList},
             {"ime-more", candidate_list_ ? "Close candidates" : "More candidates", *band.more, false,
@@ -859,8 +816,7 @@ PanelView App::geometry() const {
     v.case_opacity = case_opacity();
     v.laser_through_gaps = settings_.background_surface == "disabled";
     v.settings = settings_open_;
-    v.composing =
-        (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
+    v.composing = (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
     v.ime_band = ime_band_shown();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
@@ -2729,11 +2685,16 @@ void App::tick_japanese(double now) {
     }
     sync_candidates();
 }
+PanelView App::band_geometry() const {
+    auto v = geometry();
+    v.controls = controls();
+    return v;
+}
 std::optional<Rect> App::candidate_area() const {
-    if (!japanese() || emoji_open_ || settings_open_) {
+    if (!(japanese() || cjk_) || emoji_open_ || settings_open_) {
         return {};
     }
-    const auto v = geometry();
+    const auto v = band_geometry();
     if (dictation_open_) {
         const auto editor = panel_rect(v, dictation_layout_.editor);
         return Rect{editor.x + 12, editor.y + editor.height - dictation_notice_height + 3,
@@ -2745,8 +2706,18 @@ void App::sync_candidates() {
     std::vector<std::string> texts;
     int selected = -1;
     bool stale = false;
-    const auto area = japanese() ? candidate_area() : std::nullopt;
-    if (area && composition_.converting()) {
+    const auto area = candidate_area();
+    if (area && cjk_) {
+        texts = cjk_->candidates();
+        selected = cjk_->selected();
+        if (cjk_->chinese() && !cjk_->phonetic_keys()) {
+            // 1–5 pick from the five around the selection, as numbered.
+            const auto page = static_cast<std::size_t>(std::max(0, selected) / 5 * 5);
+            for (std::size_t i = page; i < std::min(page + 5, texts.size()); ++i) {
+                texts[i] = std::to_string(i - page + 1) + " " + texts[i];
+            }
+        }
+    } else if (area && composition_.converting()) {
         texts = composition_.candidates();
         selected = composition_.selected();
     } else if (area && japanese_typing() && !composition_.empty()) {
@@ -2768,7 +2739,7 @@ void App::sync_candidates() {
     const auto& font = profiles_.languages.at(settings_.active.language).font;
     std::optional<Rect> list;
     if (candidate_list_) {
-        list = candidate_list_area(geometry());
+        list = candidate_list_area(band_geometry());
     }
     candidates_.set(
         *area, std::move(texts), selected, stale,
@@ -2777,6 +2748,14 @@ void App::sync_candidates() {
 }
 void App::pick_candidate(int index) {
     try {
+        if (cjk_) {
+            choose_cjk(index);
+            candidate_list_ = false;
+            follow_cursor();
+            sync_candidates();
+            dirty = true;
+            return;
+        }
         flick_toggle_.reset();
         // A choice in the last segment, or one that completes the phrase, commits it.
         const bool complete =
@@ -2982,29 +2961,6 @@ void App::action(const ControlAction& command) {
         if (!composition_.empty()) {
             return;
         }
-    } else if (output_.text_pending() &&
-               (kind >= ControlKind::CjkCommit && kind <= ControlKind::CjkCandidate)) {
-        if (kind != ControlKind::CjkCancel) {
-            return;
-        }
-        output_.cancel_text();
-    }
-    if ((kind >= ControlKind::CjkCommit && kind <= ControlKind::CjkCandidate) && cjk_) {
-        if (kind == ControlKind::CjkCommit) {
-            if (!output_.retry_available()) {
-                commit_cjk();
-            } else {
-                retry_output();
-            }
-        } else if (kind == ControlKind::CjkCancel) {
-            cjk_->cancel();
-        } else if (kind == ControlKind::CjkNext || kind == ControlKind::CjkPrev) {
-            cjk_->cycle(kind == ControlKind::CjkNext ? 1 : -1);
-        } else if (kind == ControlKind::CjkCandidate) {
-            choose_cjk(command.index);
-        }
-        follow_cursor(); // In dictation mode the reading sits at the cursor.
-        return;
     }
     if (reopening_ && (kind == ControlKind::ImeToggle || kind == ControlKind::Settings ||
                        kind == ControlKind::LanguageCycle)) {
@@ -3358,8 +3314,7 @@ const std::map<std::string, FlickKey>& App::flick_keys() const {
     return flick_mode() == FlickMode::Digits ? language.flick_digits : language.flick;
 }
 bool App::band_more() const {
-    return ime_band_shown() &&
-           profiles_.languages.at(settings_.active.language).input_method == "japanese-flick";
+    return ime_band_shown();
 }
 const Layout& App::shown_layout() const {
     const auto& layout = profiles_.layouts.at(settings_.active.layout);
@@ -3538,7 +3493,7 @@ bool one_backspace_each(const std::string& text) {
 }
 constexpr const char* reopen_typing_status =
     "The phrase is still being typed. Tap ↶ again once it is in.";
-}
+} // namespace
 bool App::undo_held(unsigned pointer) const {
     return flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot;
 }
@@ -3604,9 +3559,10 @@ void App::reopen_phrase() {
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
     // Phrases Type as I speak still has to type came after it too. Nor can
     // Backspaces be counted for a phrase with a character such as 🐈‍⬛.
-    if (!one_backspace_each(phrase.text) || output_.queued() != phrase.queued || output_.failures() != phrase.failures ||
-        output_.cancels() != phrase.cancels || output_.text_pending() || output_.retry_available() ||
-        !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
+    if (!one_backspace_each(phrase.text) || output_.queued() != phrase.queued ||
+        output_.failures() != phrase.failures || output_.cancels() != phrase.cancels ||
+        output_.text_pending() || output_.retry_available() || !direct_waiting_.empty() ||
+        direct_paste_ || count == 0 || !output_.can_queue(count)) {
         return;
     }
     // Keys still held, by either hand, come up first: a repeat must not land

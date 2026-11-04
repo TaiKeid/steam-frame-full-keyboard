@@ -539,11 +539,16 @@ class App {
     void reopen_phrase();
     void finish_reopen();
     void expire_reopen(double now);
-    // Japanese candidates (docs/japanese.md): the converting segment's, or
-    // live ones for the reading, in the band or over the dictation editor's foot.
+    // Candidates: Japanese for the converting segment or live for the reading
+    // (docs/japanese.md), Chinese for the reading; in the toolbar, the flick
+    // band or over the dictation editor's foot.
     std::optional<Rect> candidate_area() const;
-    // A Japanese language's band shows over the main keyboard.
-    bool ime_band_shown() const { return japanese() && !emoji_open_ && !dictation_open_; }
+    // A composing language's reading and candidates show over the main
+    // keyboard (PanelView::ime_band).
+    bool ime_band_shown() const { return (japanese() || cjk_) && !emoji_open_ && !dictation_open_; }
+    // geometry() with the controls, which place the reading and candidates
+    // of full layouts.
+    PanelView band_geometry() const;
     // Kana compose: on the kana page, or the flick digits page, whose digits
     // and symbols join the reading as on a phone (3, じに → 3時に).
     bool japanese_typing() const;

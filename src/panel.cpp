@@ -82,26 +82,28 @@ double handle_ease_out(double progress) {
     return t * t * (3 - 2 * t);
 }
 constexpr double normal_toolbar_height = 96;
-// The Japanese band sits below the status line and a compact toolbar's second
-// row; the keys follow it. It stays in both of the language's modes, so A / あ
-// never changes their size, and the case is measured with it. The flick
-// layout, as short as a phone's, gives the reading and the candidates a row
-// each; other layouts share one.
-constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 156,
-                 ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
+// The flick layout's band sits below the status line and a compact toolbar's
+// second row, a row for the reading and one for the candidates; the keys
+// follow it. It stays in every mode, so the mode key never changes their
+// size, and the case is measured with it. Full layouts show the reading in
+// the status line's place instead, and keep the toolbar's height.
+constexpr double ime_band_top = 108, ime_band_height = 44, ime_band_gap = 6,
+                 ime_two_row_height = 156 + ime_band_height + ime_band_gap;
+constexpr double ime_line_top = 58, ime_line_height = 34;
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
+}
+// The reading line of a composing full layout, in the status line's place.
+bool reading_line(const PanelView& view) {
+    return view.ime_band && !two_row_band(view) && !view.settings;
 }
 constexpr double candidate_font_size = 21, reading_font_size = 24;
 struct Placement {
     double scale, x, y;
 };
-Placement placement(const PanelView& view, bool normal = false) {
+Placement placement(const PanelView& view) {
     const double margin = view.theme->padding;
-    const double toolbar_height = two_row_band(view)          ? ime_two_row_height
-                                  : view.ime_band             ? ime_toolbar_height
-                                  : view.composing && !normal ? 208
-                                                              : normal_toolbar_height;
+    const double toolbar_height = two_row_band(view) ? ime_two_row_height : normal_toolbar_height;
     const double scale =
         std::min((panel_width - 2 * margin) / view.layout->width,
                  (panel_height - toolbar_height - 2 * margin - view.theme->depth) / view.layout->height);
@@ -1098,16 +1100,14 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
                text.size() < 5) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary =
-            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
         if (secondary == text) {
             secondary.clear();
         }
     } else if (!key.secondary_label.empty()) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary =
-            view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
         if (secondary == text) {
             secondary.clear();
         }
@@ -1185,15 +1185,11 @@ std::optional<Rect> flick_preview_bounds(const PanelView& view) {
                 std::ceil(bottom + flick_shadow + 1) - top};
 }
 Rect panel_case_bounds(const PanelView& view) {
-    const auto p = placement(view, true);
+    const auto p = placement(view);
     // Custom geometry can leave only a few pixels after hiding its numpad.
-    // Reserve the fixed main toolbar, and room for the scaled IME toolbar when
-    // present. This same case is used by painting, controls and the VR mask.
-    // The Chinese and Korean toolbars' buttons need a wide case. Japanese has
-    // at most A / あ there and fits the keys, also in its emoji picker.
-    const bool wide_toolbar = view.language && view.language->input_method != "xkb" &&
-                              !view.language->input_method.starts_with("japanese-");
-    const double minimum = wide_toolbar ? 1300 : 630;
+    // Reserve the fixed main toolbar. This same case is used by painting,
+    // controls and the VR mask.
+    const double minimum = 630;
     // A layout narrower than the panel at this scale (flick) also narrows the
     // case, except in Settings, whose controls and cards span the full panel.
     const double slack =
@@ -1204,7 +1200,7 @@ Rect panel_case_bounds(const PanelView& view) {
     return {(panel_width - width) / 2, 0, width, panel_height};
 }
 double unbanded_layout_height(const PanelView& view) {
-    if (!view.ime_band) {
+    if (!two_row_band(view)) {
         return view.layout->height;
     }
     const double room =
@@ -1229,16 +1225,61 @@ ImeBand ime_band(const PanelView& view) {
         }
         return result;
     }
-    const Rect band{body.x + 20, ime_band_top, body.width - 40, ime_band_height};
-    const double reading = std::clamp(std::round(band.width * .4), 240.0, 560.0);
-    return {band,
-            {band.x, band.y, reading, band.height},
-            {band.x + reading + 12, band.y, std::max(0.0, band.width - reading - 12), band.height},
-            {}};
+    // Full layouts: the reading line starts after a compact toolbar's second
+    // row of buttons, the candidates after the first row's and before the
+    // close button or the shell's.
+    double first = body.x + 8, second = body.x + 8, end = body.x + body.width - 18;
+    for (const auto& control : view.controls) {
+        const auto& r = control.bounds;
+        switch (control.action.kind) {
+        case ControlKind::Settings:
+        case ControlKind::Recenter:
+        case ControlKind::Pin:
+        case ControlKind::Passthrough:
+        case ControlKind::KeepOpen:
+        case ControlKind::SwipeToggle:
+        case ControlKind::SoundsToggle:
+        case ControlKind::LanguageCycle:
+            if (r.y < ime_line_top) {
+                first = std::max(first, r.x + r.width);
+            } else {
+                second = std::max(second, r.x + r.width);
+            }
+            break;
+        case ControlKind::Close:
+        case ControlKind::SinkOff:
+            end = std::min(end, r.x);
+            break;
+        default:
+            break;
+        }
+    }
+    const Rect line{second + 10, ime_line_top, std::max(0.0, body.x + body.width - 18 - second - 10),
+                    ime_line_height};
+    ImeBand result{line,
+                   {line.x, line.y,
+                    std::min(line.width, std::clamp(std::round(line.width * .45), 240.0, 560.0)),
+                    line.height},
+                   {first + 10, 12, std::max(0.0, end - 10 - first - 10), 42},
+                   {}};
+    if (view.ime_more) {
+        constexpr double width = 64, gap = 8;
+        auto& row = result.candidates;
+        row.width = std::max(0.0, row.width - width - gap);
+        result.more = Rect{row.x + row.width + gap, row.y + 3, width, row.height - 6};
+    }
+    return result;
 }
 Rect candidate_list_area(const PanelView& view) {
     const auto band = ime_band(view);
     const auto p = placement(view);
+    if (!two_row_band(view)) {
+        // Under the reading line, across the case.
+        const auto body = panel_case_bounds(view);
+        const double top = band.band.y + band.band.height + 6;
+        const double bottom = p.y + view.layout->height * p.scale;
+        return {body.x + 20, top, body.width - 40, std::max(0.0, bottom - top)};
+    }
     const double top = band.candidates.y + band.candidates.height;
     const double bottom = p.y + view.layout->height * p.scale;
     return {band.band.x, top, band.band.width, std::max(0.0, bottom - top)};
@@ -1701,28 +1742,40 @@ std::string composition_hint(const PanelView& view) {
         return view.flick_digits ? "数字入力 · あA1: かな入力に戻る"
                                  : "英字入力 · あA1を左にフリック: かな入力に戻る";
     }
-    return method == "korean-2set"        ? "Type → Space/Enter: commit · Esc: cancel"
-           : method == "chinese-zhuyin"   ? "注音 → Space: select · Enter: commit · Esc: cancel"
-           : method == "chinese-cangjie"  ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
-           : method == "chinese-quick"    ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
+    return method == "korean-2set"          ? "Type → Space/Enter: commit · Esc: cancel"
+           : method == "chinese-zhuyin"     ? "注音 → Space: select · Enter: commit · Esc: cancel"
+           : method == "chinese-cangjie"    ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
+           : method == "chinese-quick"      ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
            : method.starts_with("chinese-") ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
            : method == "japanese-kana"      ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
            : method == "japanese-flick"
                ? "フリック入力 → 空白: 変換 · 改行: 確定 · ↶: 戻す"
                : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
 }
-// The Japanese band: the reading in a small well, underlined as in a text
-// field with the converting segment on the latched colour, and the
-// candidates as caps beside it. A hint stands in while nothing is typed.
+// The reading in a small well, underlined as in a text field with the
+// converting segment on the latched colour, and the candidates as caps. A
+// hint stands in while nothing is typed. On full layouts the reading takes
+// the status line's place, so a status shows beside it, or for the hint.
 void draw_ime_band(cairo_t* cr, const PanelView& view) {
     const auto& t = *view.theme;
     const auto areas = ime_band(view);
-    if (view.preedit.empty()) {
+    const bool line = reading_line(view);
+    if (view.preedit.empty() && line && !view.status.empty()) {
+        case_plate(cr, view, areas.band, view.status, 17, PANGO_ALIGN_CENTER);
+        label(cr, view.status, areas.band, 17, view.language->font, t.legend);
+    } else if (view.preedit.empty()) {
         const auto hint = composition_hint(view);
-        const auto& line = two_row_band(view) ? areas.reading : areas.band;
-        case_plate(cr, view, line, hint, 19, PANGO_ALIGN_CENTER);
-        label(cr, hint, line, 19, view.language->font, mix(t.legend, t.surface, .35));
+        const auto& r = line ? areas.band : areas.reading;
+        case_plate(cr, view, r, hint, 19, PANGO_ALIGN_CENTER);
+        label(cr, hint, r, 19, view.language->font, mix(t.legend, t.surface, .35));
     } else {
+        if (line && !view.status.empty()) {
+            const auto& band = areas.band;
+            const double left = areas.reading.x + areas.reading.width + 12;
+            const Rect status{left, band.y, std::max(0.0, band.x + band.width - left), band.height};
+            case_plate(cr, view, status, view.status, 15, PANGO_ALIGN_LEFT);
+            label(cr, view.status, status, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+        }
         const auto& r = areas.reading;
         draw_well(cr, t, r);
         auto* layout = pango_cairo_create_layout(cr);
@@ -2393,20 +2446,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
     }
-    // The reading line and the flick preview repaint only their own area. The
-    // preview's old and new extents both count; it may lie beyond the case.
-    if (!full && !view.ime_band && previous_->view.preedit != view.preedit) {
-        const auto body = panel_case_bounds(view);
-        damage_area({std::floor(body.x + 20), 94, std::ceil(body.width - 40), 40});
-    }
-    // The Japanese band: its reading, hint and candidates.
+    // The reading, hint and candidates repaint only their own area, as does
+    // the flick preview below. The preview's old and new extents both count;
+    // it may lie beyond the case.
     if (!full && view.ime_band &&
         (previous_->view.preedit != view.preedit ||
          previous_->view.preedit_active_begin != view.preedit_active_begin ||
          previous_->view.preedit_active_end != view.preedit_active_end ||
          previous_->view.preedit_cursor != view.preedit_cursor ||
          previous_->view.candidates != view.candidates)) {
-        damage_area(pixel_bounds(ime_band(view).band, 6));
+        const auto band = ime_band(view);
+        for (const auto& area : {band.band, band.reading, band.candidates}) {
+            damage_area(pixel_bounds(area, 6));
+        }
         if (list_open(view)) {
             damage_area(pixel_bounds(*view.candidates->list, 6));
         }
@@ -2793,11 +2845,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         draw_focus_tooltip(cr, view);
         if (view.ime_band && !view.settings) {
             draw_ime_band(cr, view);
-        } else if (view.composing && !view.settings) {
-            const std::string reading = view.preedit.empty() ? composition_hint(view) : view.preedit;
-            const Rect line{body.x + 20, 94, body.width - 40, 40};
-            case_plate(cr, view, line, reading, 27, PANGO_ALIGN_CENTER);
-            label(cr, reading, line, 27, view.language->font, t.legend);
         }
         if (view.settings) {
             cairo_save(cr);
@@ -3061,7 +3108,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
                       true);
             }
-        } else if (!view.status.empty() && !in_editor) {
+        } else if (!view.status.empty() && !in_editor && !reading_line(view)) {
             // A compact toolbar's second row takes the left of the status line.
             const double inset = compact_toolbar(view) ? 88 : 18;
             const Rect line = view.settings ? Rect{30, 574, 1540, 24}

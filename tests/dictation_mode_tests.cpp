@@ -772,15 +772,6 @@ std::vector<std::string> prompts_sent(const fs::path& directory) {
     }
     return result;
 }
-bool control_in_editor(App& app, const std::string& id) {
-    const auto view = app.view();
-    const auto& editor = view.dictation->bounds;
-    return std::any_of(view.controls.begin(), view.controls.end(), [&](const Control& control) {
-        const auto& r = control.bounds;
-        return control.id == id && r.x >= editor.x && r.x + r.width <= editor.x + editor.width &&
-               r.y >= editor.y && r.y + r.height <= editor.y + editor.height;
-    });
-}
 bool has_control(App& app, const std::string& id) {
     const auto controls = app.view().controls;
     return std::any_of(controls.begin(), controls.end(),
@@ -920,8 +911,17 @@ void language_tests() {
         wait_until(app, [&] { return editor_text(app) == "Hello there."; });
         settle(app);
         type_text(app, "nihao");
-        require(control_in_editor(app, "cjk-candidate-0") && app.view().dictation->candidates,
-                "Pinyin candidates sit in the band");
+        app.tick(clock += .1);
+        {
+            const auto view = app.view();
+            const auto& editor = view.dictation->bounds;
+            const auto& strip = view.candidates;
+            require(strip && !strip->chips.empty() && strip->area.x >= editor.x &&
+                        strip->area.x + strip->area.width <= editor.x + editor.width &&
+                        strip->area.y >= editor.y &&
+                        strip->area.y + strip->area.height <= editor.y + editor.height,
+                    "Pinyin candidates sit in the band over the editor's foot");
+        }
         press(app, "Space");
         const auto text = editor_text(app);
         require(text.size() > 12 && text.starts_with("Hello there.") &&

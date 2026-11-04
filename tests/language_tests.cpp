@@ -61,6 +61,14 @@ void click(App& app, const std::string& action, bool expected = true) {
     }
     throw std::runtime_error("Could not find app key");
 }
+// Where the keys start on the panel.
+double keys_top(const PanelView& view) {
+    double top = panel_height;
+    for (const auto& key : view.layout->keys) {
+        top = std::min(top, panel_rect(view, key.bounds).y);
+    }
+    return top;
+}
 void unicode_input() {
     const auto path =
         fs::temp_directory_path() / ("framekeyboard-unicode-test-" + std::to_string(getpid()));
@@ -626,9 +634,10 @@ void engines(const std::string& group = "") {
         }
         // The real tables on a system that has them, or in
         // FRAMEKEYBOARD_TEST_TABLE_DIRECTORY; the fixture test covers logic.
-        require(!std::getenv("FRAMEKEYBOARD_TEST_TABLE_DIRECTORY") ||
-                    (CjkComposer::supported("chinese-cangjie") && CjkComposer::supported("chinese-quick")),
-                "the given tables open");
+        require(
+            !std::getenv("FRAMEKEYBOARD_TEST_TABLE_DIRECTORY") ||
+                (CjkComposer::supported("chinese-cangjie") && CjkComposer::supported("chinese-quick")),
+            "the given tables open");
         if (CjkComposer::supported("chinese-cangjie")) {
             CjkComposer cangjie("chinese-cangjie");
             type(cangjie, "cnkq");
@@ -809,11 +818,24 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
         }
         Sink sink;
         App app(options, sink);
+        const auto key_rect = [](const PanelView& view, const char* id) {
+            const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
+                                          [&](const Key& item) { return item.id == id; });
+            return panel_rect(view, key->bounds);
+        };
+        const auto english = app.view();
         app.apply({"en-us-full", id, "graphite"});
         const auto controls = app.view().controls;
         require(std::none_of(controls.begin(), controls.end(),
-                             [](const auto& control) { return control.id == "cjk-toggle"; }),
-                "Chinese and Korean type their own script only");
+                             [](const auto& control) {
+                                 return control.id.starts_with("cjk-") || control.id == "ime-toggle";
+                             }),
+                "Chinese and Korean type their own script only, and the keys commit and cancel");
+        // The reading takes the status line's place and the candidates the
+        // toolbar's, so the keys stay where English has them.
+        require(app.view().ime_band && panel_case_bounds(app.view()) == panel_case_bounds(english) &&
+                    key_rect(app.view(), "KeyA") == key_rect(english, "KeyA"),
+                "the keys keep their English size and place");
         click(app, "KeyR");
         require(sink.events.empty(), "composition does not emit raw letters");
         require(!app.view().preedit.empty(), "visible local preedit");
@@ -826,6 +848,27 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
         require(app.view().preedit.empty(), "Tab commits preedit");
         require(sink.events.size() == 3 && sink.events[1] == "15:1", "commit precedes physical Tab");
         if (std::string(id).starts_with("zh-")) {
+            sink.events.clear();
+            for (const auto* action : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
+                click(app, action);
+            }
+            app.tick(2);
+            const auto strip = app.view().candidates;
+            const auto line = ime_band(app.view());
+            require(strip && !strip->chips.empty() && strip->area == line.candidates &&
+                        strip->area.y < line.band.y &&
+                        line.band.y + line.band.height < keys_top(app.view()),
+                    "candidates scroll in the toolbar row, above the reading line and the keys");
+            require(strip->chips.front().text == "1 你好" && strip->chips.front().selected,
+                    "the first five are numbered for 1–5, the first selected for Space");
+            {
+                const auto& chip = strip->chips.front().bounds;
+                const double x = chip.x + chip.width / 2, y = chip.y + chip.height / 2;
+                app.down(3, x, y, 3);
+                app.up(3, x, y);
+            }
+            require(sink.events == std::vector<std::string>{"你好"} && app.view().preedit.empty(),
+                    "a tapped candidate commits");
             sink.events.clear();
             for (const auto* action : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
                 click(app, action);

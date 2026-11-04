@@ -1041,7 +1041,9 @@ int chinese_flow() {
     *path = path_of(keyboard_for("en-us-full", "zh-cn-pinyin"), U"nihao");
     swipe(app, {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}, 1);
     settle(app, [&] { return !app.view().preedit.empty(); });
-    require(!app.view().preedit.empty() && has_control(app.view(), "cjk-candidate-0"),
+    settle(app, [&] { return app.view().candidates.has_value(); });
+    require(!app.view().preedit.empty() && app.view().candidates &&
+                !app.view().candidates->chips.empty(),
             "a Pinyin swipe fills the composer and offers characters");
     require(sink.text.empty() && !has_control(app.view(), "swipe-candidate-0"),
             "nothing is sent and no Latin alternatives appear");

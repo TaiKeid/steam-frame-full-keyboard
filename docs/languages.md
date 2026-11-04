@@ -170,25 +170,32 @@ are refused, and the status line says so, until Backspace fixes it or Esc cancel
 
 If Cangjie or Quick cannot send a choice, the accepted characters stay in the
 local composition, up to 1,024 Unicode code points. After delivery is available,
-Enter or Commit submits that text in smaller pieces. A full composition refuses
+Enter submits that text in smaller pieces. A full composition refuses
 more input without discarding existing text. Backspace removes one reading key,
 or one retained Unicode code point when there is no reading. If submission has
 already started and a piece fails, the status asks for Enter to retry only the
 unsent remainder. Hiding or changing the typing context cancels queued output;
 text that was already submitted is never replayed automatically.
 
+Chinese and Korean keep the keyboard at the size English has. The reading shows
+in the line under the toolbar, where the status otherwise shows, with a hint while
+nothing is typed; a status that comes up while composing shows beside it. The
+candidates scroll sideways in the toolbar row, after its buttons, where swipe
+suggestions go: drag them to see more, or tap ∨ at the row's end to open them all
+over the keys. The keys do the rest, with no Commit or Cancel buttons.
+
 For Chinese, type Pinyin without tone numbers. Use `v` for ü and an apostrophe
-for syllable separation where needed. The candidate row shows five entries at a
-time. Arrow Up/Down or the candidate-row arrows change the highlighted entry.
-Space, number keys 1–5, or clicking a candidate selects it. If it covers the
-whole reading, selection commits the text. Otherwise the remaining reading stays
-available for the next selection. Enter or Commit submits the current conversion;
-Escape or Cancel discards it. A second Enter sends an ordinary Enter. Both script
-profiles use Pinyin; Traditional here does not mean a Zhuyin layout.
+for syllable separation where needed. Arrow Up/Down change the highlighted
+candidate. Space, number keys 1–5, or tapping a candidate selects it; the five
+around the highlighted one are numbered (Zhuyin, whose digits are tones, has no
+numbers). If it covers the whole reading, selection commits the text. Otherwise
+the remaining reading stays available for the next selection. Enter submits the
+current conversion; Escape discards it. A second Enter sends an ordinary Enter.
+Both script profiles use Pinyin; Traditional here does not mean a Zhuyin layout.
 
 For Korean, type the displayed two-set jamo. Shift selects doubled consonants and
 the shifted vowels. Caps Lock does not double jamo. Backspace undoes one typed
-jamo, including changes across syllable boundaries. Enter or Commit submits the
+jamo, including changes across syllable boundaries. Enter submits the
 composition. Space and other ordinary keys commit the word before sending the
 key. Chinese and Korean type their own script only, as their keyboards do; for
 English, add an English layout as an additional language and switch with the

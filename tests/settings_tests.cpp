@@ -353,9 +353,11 @@ void removed_korean_12key() {
     const Selection korean{"en-us-full", "ko-kr", "graphite"};
     std::vector<std::string> errors;
     const auto settings = load_settings(directory.path, errors);
-    require(errors.empty() && settings.active == korean, "a saved 천지인 main language opens as two-set Korean");
+    require(errors.empty() && settings.active == korean,
+            "a saved 천지인 main language opens as two-set Korean");
     require(settings.favorites.size() == 3 && settings.favorites[0].selection == korean &&
-                settings.favorites[1].selection.language == "de-de" && settings.favorites[2].selection == korean,
+                settings.favorites[1].selection.language == "de-de" &&
+                settings.favorites[2].selection == korean,
             "so do its additional pairs, the others kept");
     if (!CjkComposer::supported("korean-2set")) {
         std::cout << "Removed Korean 12-key in the app skipped: Hangul engine absent.\n";
@@ -1268,10 +1270,16 @@ void background_surface_setting() {
         require(reading.view().composing, "romaji input composes");
         reading.paint(6);
         const auto pixels = reading.renderer.rgba();
-        auto alpha = [&](int px, int py) {
-            return pixels[static_cast<std::size_t>((py + popup_margin) * panel_width + px) * 4 + 3];
+        auto alpha = [&](double px, double py) {
+            return pixels[static_cast<std::size_t>((static_cast<int>(py) + popup_margin) * panel_width +
+                                                   static_cast<int>(px)) *
+                              4 +
+                          3];
         };
-        require(alpha(800, 114) >= static_cast<int>(case_plate_alpha * 255) && alpha(60, 114) == 0,
+        const auto line = ime_band(reading.view()).band;
+        const double middle = line.y + line.height / 2;
+        require(alpha(line.x + line.width / 2, middle) >= static_cast<int>(case_plate_alpha * 255) &&
+                    alpha(line.x + 4, middle) == 0,
                 "the reading line's hint sits on a plate fitted to it");
         reading.renderer.write_png("/tmp/framekeyboard-transparent-reading.png");
     }

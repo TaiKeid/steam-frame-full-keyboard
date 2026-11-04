@@ -755,14 +755,31 @@ void candidate_band() {
         click_key(app, "Backspace");
     }
 
-    // Romaji on a full layout: the band too, and PC conventions for the arrows.
+    // Romaji on a full layout: the reading in the status line's place, the
+    // candidates in the toolbar row, and PC conventions for the arrows.
+    app.apply({"en-us-full", "en-us", "graphite"});
+    const auto english = app.view();
     app.apply({"en-us-full", "ja-romaji", "graphite"});
-    require(app.view().ime_band, "full layouts have the band too");
+    const auto key_top = [](const PanelView& view) {
+        return panel_rect(view, view.layout->keys.front().bounds).y;
+    };
+    require(app.view().ime_band && !has_control(app, "ime-toggle") &&
+                panel_case_bounds(app.view()) == panel_case_bounds(english) &&
+                key_top(app.view()) == key_top(english),
+            "full layouts keep the keys' English size and place, with no あ / A");
     for (const auto& id : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyN", "KeyA", "KeyK", "KeyO"}) {
         click_key(app, id);
     }
     click_key(app, "Space");
     app.tick(20);
+    {
+        const auto view = app.view();
+        const auto band = ime_band(view);
+        require(view.candidates && view.candidates->area == band.candidates &&
+                    band.candidates.y < band.band.y &&
+                    band.reading.y + band.reading.height < key_top(view) && has_control(app, "ime-more"),
+                "candidates in the toolbar row with ∨, the reading under it, above the keys");
+    }
     click_key(app, "ArrowRight");
     require(app.view().preedit == "〈には〉〈なこ〉" &&
                 app.view().preedit_active_begin == std::string("〈には〉").size(),
@@ -1129,8 +1146,8 @@ void reopen_counts() {
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     double now = 1;
-    for (const auto& [slot, text, reopens] :
-         std::vector<std::tuple<std::string, std::string, bool>>{{"a", "🐈‍⬛", false}, {"na", "猫", true}}) {
+    for (const auto& [slot, text, reopens] : std::vector<std::tuple<std::string, std::string, bool>>{
+             {"a", "🐈‍⬛", false}, {"na", "猫", true}}) {
         flick(app, slot, now);
         click_key(app, "Space");
         click_key(app, "Enter");
