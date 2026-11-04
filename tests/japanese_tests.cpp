@@ -7,6 +7,7 @@
 #include <glib.h>
 #include <iostream>
 #include <stdexcept>
+#include <tuple>
 #include <unistd.h>
 using namespace framekeyboard;
 void require(bool value, const char* message) {
@@ -1101,6 +1102,50 @@ void clear_reading(App& app) {
 // ↶'s Backspaces can take a while to be acknowledged, as through a shell:
 // nothing typed meanwhile may overtake the reading coming back, and a
 // recentre or pin keeps it coming.
+// ↶ sends one Backspace per character, so it leaves a phrase with a
+// character of several code points, which fields delete differently.
+void reopen_counts() {
+    struct EmojiConverter : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            return {{reading, {reading == "あ" ? "🐈‍⬛" : "猫", reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    char directory[] = "/tmp/framekeyboard-reopen-counts-XXXXXX";
+    require(mkdtemp(directory), "temporary reopen profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = [] { return std::make_unique<EmojiConverter>(); };
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    double now = 1;
+    for (const auto& [slot, text, reopens] :
+         std::vector<std::tuple<std::string, std::string, bool>>{{"a", "🐈‍⬛", false}, {"na", "猫", true}}) {
+        flick(app, slot, now);
+        click_key(app, "Space");
+        click_key(app, "Enter");
+        require(sink.text.back() == text, "the conversion commits");
+        sink.keys.clear();
+        flick(app, "undo", now + 1);
+        require(app.view().preedit.empty() != reopens && sink.keys.size() == (reopens ? 2u : 0u),
+                reopens ? "a phrase of one-code-point characters reopens"
+                        : "a phrase with 🐈‍⬛ stays: its Backspaces can't be counted");
+        if (reopens) {
+            click_key(app, "Backspace"); // The reading of one kana goes.
+        }
+        now += 2;
+    }
+    require(app.view().preedit.empty(), "nothing is left to type");
+}
 void slow_reopen() {
     struct SlowSink : Sink {
         bool hold = false, hold_text = false, text_waiting = false;
@@ -1543,6 +1588,7 @@ int main() {
         configure_anthy({false, anthy_home});
         reading_cursor();
         slow_reopen();
+        reopen_counts();
         flick_pages_keep_toolbar();
         romaji_legends();
         flick_input();

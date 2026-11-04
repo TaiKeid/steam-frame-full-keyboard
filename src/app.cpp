@@ -10,6 +10,7 @@
 #include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
+#include <pango/pango.h>
 #include <stdexcept>
 #include <time.h>
 #include <tuple>
@@ -3538,6 +3539,16 @@ void App::finish_flick() {
     }
 }
 namespace {
+// Each code point is a character of its own, so one Backspace takes it in any
+// field. One drawn from several, such as 🐈‍⬛ or ☺️, takes one Backspace in
+// some fields and several in others.
+bool one_backspace_each(const std::string& text) {
+    std::vector<PangoLogAttr> attributes(static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1)) + 1);
+    pango_get_log_attrs(text.c_str(), static_cast<int>(text.size()), -1, pango_language_get_default(),
+                        attributes.data(), static_cast<int>(attributes.size()));
+    return std::all_of(attributes.begin(), attributes.end(),
+                       [](const PangoLogAttr& attribute) { return attribute.is_cursor_position; });
+}
 constexpr const char* reopen_typing_status =
     "The phrase is still being typed. Tap ↶ again once it is in.";
 }
@@ -3603,8 +3614,9 @@ void App::reopen_phrase() {
     // the phrase, so Backspace would delete that instead. A phrase that
     // failed, is kept for a retry or was cancelled may not be in the field.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
-    // Phrases Type as I speak still has to type came after it too.
-    if (output_.queued() != phrase.queued || output_.failures() != phrase.failures ||
+    // Phrases Type as I speak still has to type came after it too. Nor can
+    // Backspaces be counted for a phrase with a character such as 🐈‍⬛.
+    if (!one_backspace_each(phrase.text) || output_.queued() != phrase.queued || output_.failures() != phrase.failures ||
         output_.cancels() != phrase.cancels || output_.text_pending() || output_.retry_available() ||
         !direct_waiting_.empty() || direct_paste_ || count == 0 || !output_.can_queue(count)) {
         return;
