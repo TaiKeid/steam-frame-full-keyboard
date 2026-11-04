@@ -957,16 +957,30 @@ void learning_settings() {
     click_key(app, "Enter");
     require(sink.text.back() == "〈あ〉" && learned == std::vector<std::vector<std::string>>{{"〈あ〉"}},
             "a committed conversion is learned");
+    // Romaji and kana learn the same way, into the same record.
+    for (const auto& [layout, language, key] :
+         std::vector<std::tuple<std::string, std::string, std::string>>{
+             {"en-us-full", "ja-romaji", "KeyA"}, {"ja-jis-full", "ja-kana", "Digit3"}}) {
+        app.apply({layout, language, "graphite"});
+        learned.clear();
+        click_key(app, key);
+        click_key(app, "Space");
+        click_key(app, "Enter");
+        require(learned == std::vector<std::vector<std::string>>{{"〈あ〉"}},
+                (language + " learns too").c_str());
+    }
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
     app.show_settings();
     control(app, "japanese-learning");
     control(app, "apply");
     app.flush_settings();
     std::vector<std::string> errors;
     require(!load_settings(options.config_dir, errors).japanese_learning, "turning it off is saved");
+    const auto typed = sink.text.size();
     flick(app, "a", 1.5);
     click_key(app, "Space");
     click_key(app, "Enter");
-    require(sink.text.size() == 2 && learned.size() == 1, "and nothing is learned then");
+    require(sink.text.size() == typed + 1 && learned.size() == 1, "and nothing is learned then");
 
     // What Anthy learned, as its record file; Clear asks, then deletes it.
     const auto record = options.anthy_home / ".anthy" / "last-record2_framekeyboard.utf8";
