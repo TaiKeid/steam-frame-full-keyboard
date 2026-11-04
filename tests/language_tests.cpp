@@ -178,6 +178,16 @@ void key_flicks() {
         flick("Slash", 60);
         require(typed() == "^?", "and its digits and punctuation flick as on US QWERTY");
     }
+    // Text the field refuses at release waits for Enter's retry, as a press's does.
+    app.apply({"en-us-full", "en-us", "graphite"});
+    sink.events.clear();
+    sink.accept = false;
+    flick("Digit6", 60);
+    sink.accept = true;
+    require(typed().empty(), "a refused flick types nothing yet");
+    click(app, "Enter");
+    app.tick(now += .1);
+    require(typed() == "^", "and Enter types it");
     // Kana ろ and ー have no symbol in the keymap below, and still wait for release.
     app.apply({"ja-jis-full", "ja-kana", "graphite"});
     {

@@ -4049,6 +4049,12 @@ void App::finish_key_flick() {
             const auto text = keymap_->compose(symbol);
             if (preview_input()) {
                 status_.clear();
+            } else if (!text.empty() && text_output_ == &output_) {
+                // As a press types it, so text the field refuses waits for
+                // Enter's retry; let go at once, it never repeats.
+                output_.text_press(track.pointer, text, monotonic_seconds());
+                output_.release(track.pointer);
+                update_output_status();
             } else if (!text.empty() && !text_output_->commit_text(text)) {
                 text_refused();
             }
