@@ -129,6 +129,9 @@ struct Settings {
     // again, as Steam's keyboard does; Anthy keeps them in plain text
     // (docs/japanese.md, Learning).
     bool japanese_learning{true};
+    // Japanese flick: taps never cycle, so a quick second tap of か types かか,
+    // as phones' Flick only does; off by default, as on phones.
+    bool flick_only{};
     // Keep open's amber cue names the hidden window it types into in a tooltip.
     bool focus_tooltip{true};
     // SteamOS's Desktop: non-ASCII text is pasted instead of typed as Unicode entry.

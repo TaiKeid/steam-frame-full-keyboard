@@ -196,6 +196,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
+    pending_flick_only_ = settings_.flick_only;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     if (owns_anthy()) {
@@ -741,6 +742,18 @@ void App::update_settings_ui() {
     };
     const auto pairs = additional_pairs();
     std::vector<SettingField> learning_fields;
+    // Flick only, with the flick layout as the main language or an additional one.
+    const auto flick_language = [&](const std::string& id) {
+        const auto found = profiles_.languages.find(id);
+        return found != profiles_.languages.end() && found->second.input_method == "japanese-flick";
+    };
+    if (flick_language(pending_.language) ||
+        std::any_of(pairs.begin(), pairs.end(),
+                    [&](const Selection& pair) { return flick_language(pair.language); })) {
+        learning_fields.push_back(
+            field(ControlKind::FlickOnly, checkbox("flick-only", "Flick only", pending_flick_only_, true,
+                                                   "A quick second tap types the same kana again")));
+    }
     if (japanese_language(pending_.language) ||
         std::any_of(pairs.begin(), pairs.end(),
                     [&](const Selection& pair) { return japanese_language(pair.language); })) {
@@ -2039,6 +2052,7 @@ void App::show_settings() {
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
+    pending_flick_only_ = settings_.flick_only;
     learned_ = anthy_learned();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
@@ -2284,6 +2298,7 @@ void App::reload() {
         settings_.key_flicks_switch = updated_settings.key_flicks_switch;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.japanese_learning = updated_settings.japanese_learning;
+        settings_.flick_only = updated_settings.flick_only;
         apply_learning();
         settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
@@ -2319,6 +2334,7 @@ void App::reload() {
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_japanese_learning_ = settings_.japanese_learning;
+    pending_flick_only_ = settings_.flick_only;
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -3050,6 +3066,7 @@ void App::apply_settings() {
     settings_.key_flicks = pending_key_flicks_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
     settings_.japanese_learning = pending_japanese_learning_;
+    settings_.flick_only = pending_flick_only_;
     apply_learning();
     settings_.focus_tooltip = pending_focus_tooltip_;
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
@@ -3385,6 +3402,9 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::JapaneseLearning) {
         pending_japanese_learning_ = !pending_japanese_learning_;
         update_settings_ui();
+    } else if (kind == ControlKind::FlickOnly) {
+        pending_flick_only_ = !pending_flick_only_;
+        update_settings_ui();
     } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::SaveLanguages) {
         confirm_ = Confirm::None;
         action({ControlKind::Apply});
@@ -3540,9 +3560,9 @@ std::string App::flick_text(const FlickTrack& track, bool* cycles) const {
         break;
     }
     // A quick repeated tap replaces the kana the previous tap typed, if it is
-    // still the last one in the reading.
-    if (flick_toggle_ && flick_toggle_->slot == track.slot && key.tap.size() > 1 &&
-        track.pressed - flick_toggle_->at <= flick_toggle_seconds &&
+    // still the last one in the reading, unless taps never cycle (Flick only).
+    if (!settings_.flick_only && flick_toggle_ && flick_toggle_->slot == track.slot &&
+        key.tap.size() > 1 && track.pressed - flick_toggle_->at <= flick_toggle_seconds &&
         composition_.last_kana() == key.tap[flick_toggle_->index]) {
         if (cycles) {
             *cycles = true;

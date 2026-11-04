@@ -190,6 +190,23 @@ void flick_input() {
     }
     require(preedit() == "あ", "the toggle cycle wraps through small kana");
     clear();
+    {
+        // Flick only: taps never cycle, so a quick second tap types the kana again.
+        char only[] = "/tmp/framekeyboard-flick-only-XXXXXX";
+        require(mkdtemp(only), "temporary flick only profile");
+        Cleanup removed{only};
+        Settings settings;
+        settings.active = {"ja-flick-12", "ja-flick", "graphite"};
+        settings.flick_only = true;
+        save_settings(only, settings);
+        auto flick_only = options;
+        flick_only.config_dir = only;
+        Sink only_sink;
+        App only_app(flick_only, only_sink);
+        flick(only_app, "a", 1);
+        flick(only_app, "a", 1.3);
+        require(only_app.view().preedit == "ああ", "with Flick only, a quick second tap types あ again");
+    }
 
     flick(app, "ka", 20, -60, 0);
     flick(app, "ka", 21, 0, -60);
@@ -1011,8 +1028,10 @@ void learning_settings() {
             if (found != controls.end()) {
                 return *found;
             }
+            // Any of the card's rows in view, to scroll it under the laser.
             const auto language = std::find_if(controls.begin(), controls.end(), [](const Control& c) {
-                return c.id == "japanese-learning";
+                return c.id == "japanese-learning" || c.id == "flick-only" || c.id == "key-flicks" ||
+                       c.id == "swipe-typing" || c.id == "language";
             });
             if (language == controls.end()) {
                 break;
@@ -1027,6 +1046,7 @@ void learning_settings() {
     };
     require(find("japanese-learning").selected && !find("clear-learning").enabled,
             "learning starts on, as on Steam's keyboard, with nothing to clear");
+    require(!find("flick-only").selected, "Flick only shows with the flick layout, off as on phones");
     control(app, "settings"); // Back
     flick(app, "a", 1);
     click_key(app, "Space");
@@ -1047,6 +1067,7 @@ void learning_settings() {
     }
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     app.show_settings();
+    find("japanese-learning"); // Scrolled into view.
     control(app, "japanese-learning");
     control(app, "apply");
     app.flush_settings();
@@ -1075,10 +1096,12 @@ void learning_settings() {
     }
     app.show_settings();
     require(find("clear-learning").enabled, "something learned can be cleared");
+    find("clear-learning"); // Scrolled into view.
     control(app, "clear-learning");
     require(app.view().confirm && fs::exists(record), "Clear asks first");
     control(app, "confirm-cancel");
     require(!app.view().confirm && fs::exists(record), "and cancelling keeps it");
+    find("clear-learning"); // Scrolled into view.
     control(app, "clear-learning");
     control(app, "confirm-accept");
     for (int i = 0; i < 400 && find("clear-learning").busy; ++i) {

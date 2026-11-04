@@ -102,6 +102,7 @@ enum class ControlKind {
     KeyFlicks, // Settings: flick a key down for its Shift character
     SwipeCandidate,
     JapaneseLearning,
+    FlickOnly,    // Settings: Japanese flick taps never cycle
     ClearLearning // asks first
 };
 struct ControlAction {

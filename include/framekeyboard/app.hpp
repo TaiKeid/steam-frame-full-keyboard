@@ -652,6 +652,7 @@ class App {
     bool pending_key_flicks_{};
     bool pending_emoji_close_on_select_{};
     bool pending_japanese_learning_{true};
+    bool pending_flick_only_{};
     // Anthy restarts on a worker for learning turned on or off, or to clear
     // what it learned (docs/japanese.md, Learning); live candidates wait.
     std::future<void> anthy_restart_;
