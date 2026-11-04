@@ -2518,7 +2518,12 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                     return true;
                 }
             }
-            composition_.roman(static_cast<char>(character));
+            if (flick_mode() == FlickMode::Latin) {
+                // The flick layout's English page: as typed, not romaji.
+                composition_.kana(std::string(1, static_cast<char>(character)));
+            } else {
+                composition_.roman(static_cast<char>(character));
+            }
         }
         return true;
     }
@@ -3316,7 +3321,8 @@ void App::action(const ControlAction& command) {
     }
 }
 bool App::japanese_typing() const {
-    return japanese() && (!japanese_latin_ || flick_mode() == FlickMode::Digits);
+    return japanese() && (!japanese_latin_ || flick_mode() == FlickMode::Digits ||
+                          (flick_mode() == FlickMode::Latin && has_mode_key() && !composition_.empty()));
 }
 App::FlickMode App::flick_mode() const {
     // The kana grid, unless the mode key moved to English or digits.
@@ -3350,18 +3356,12 @@ bool App::has_mode_key() const {
            });
 }
 void App::set_flick_mode(FlickMode mode) {
-    // Kana and digits share the reading, as on a phone; the English page
-    // types at once, so the reading goes first.
-    if (mode == FlickMode::Latin) {
-        commit_japanese();
-        if (!composition_.empty()) {
-            return;
-        }
-    }
+    // Kana, English and digits share the reading, as on a phone: きょうは,
+    // English, then digits, still converts to 今日は3時に.
     japanese_latin_ = mode != FlickMode::Kana;
     flick_digits_ = mode == FlickMode::Digits;
     flick_toggle_.reset();
-    reopen_.reset(); // Committed to switch, not as a phrase ↶ should bring back.
+    reopen_.reset(); // ↶ would delete past the switch.
     // A Shift latched or locked on the English page must not stay on a page
     // without one, where it would select with the arrows or reach Enter.
     keyboard_.release_all();

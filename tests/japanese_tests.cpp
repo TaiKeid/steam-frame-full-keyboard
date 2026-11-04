@@ -359,12 +359,22 @@ void flick_input() {
     require(preedit() == "な3" && app.view().flick_digits && sink.text.back() == "22¥@_",
             "kana and digits share the reading");
     flick(app, "mode", 57.28, 0, -60);
-    require(sink.text.back() == "な3" && app.view().flick_latin,
-            "the English page commits the reading first");
+    require(preedit() == "な3" && app.view().flick_latin && sink.text.back() == "22¥@_",
+            "the English page keeps the reading open");
+    click_key(app, "KeyA");
+    click_key(app, "ShiftLeft");
+    click_key(app, "KeyB");
+    require(preedit() == "な3aB" && sink.text.back() == "22¥@_",
+            "and its letters join it as typed, not as romaji");
     flick(app, "mode", 57.29, -60, 0);
+    require(preedit() == "な3aB" && app.view().composing, "back on kana, the reading goes on");
+    click_key(app, "Enter");
+    require(sink.text.back() == "な3aB" && preedit().empty(), "Enter commits it all");
+    flick(app, "mode", 57.292);
+    flick(app, "mode", 57.294, -60, 0);
     sink.keys.clear();
     flick(app, "undo", 57.3);
-    require(preedit().empty() && sink.keys.empty(), "a reading committed to switch does not reopen");
+    require(preedit().empty() && sink.keys.empty(), "switching modes ends ↶'s chance");
 
     // ↶, as on Gboard: the last kana steps back through its key's taps, and
     // straight after a commit the phrase comes back as a reading.

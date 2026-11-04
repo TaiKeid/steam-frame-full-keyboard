@@ -528,7 +528,7 @@ class App {
     bool band_more() const;
     // The layout has the 「あA1」 key, which replaces the toolbar's A / あ.
     bool has_mode_key() const;
-    // Types any reading first; a failed commit keeps the mode.
+    // The reading stays open across the modes, as on a phone.
     void set_flick_mode(FlickMode mode);
     // ↶, as on Gboard: the last kana steps back through its key's taps,
     // conversion returns to the reading, and with neither the phrase just
@@ -552,7 +552,8 @@ class App {
     // Where ∨ goes while the candidates have more than their row shows.
     std::optional<Rect> candidate_more_;
     // Kana compose: on the kana page, or the flick digits page, whose digits
-    // and symbols join the reading as on a phone (3, じに → 3時に).
+    // and symbols join the reading as on a phone (3, じに → 3時に), or the
+    // English page while a reading is open, whose letters join it as typed.
     bool japanese_typing() const;
     void sync_candidates();
     // Live candidates after a pause in typing.
