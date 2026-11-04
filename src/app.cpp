@@ -1429,6 +1429,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         flush_direct(now);
         return true;
     }
+    if (key_flick_ && key_flick_->pointer != pointer) {
+        // A character the other hand holds types first, before anything
+        // this press opens, such as dictation, could end it.
+        finish_key_flick();
+    }
     if (key->action_kind == ActionKind::Dictation) {
         // The mic key opens dictation mode on release, like a toolbar button.
         if (dictation_key_pointer_ || keyboard_.pointer_pressed(pointer) ||
@@ -1448,9 +1453,6 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         const auto track = std::move(*swipe_track_);
         swipe_track_.reset();
         type_swipe_tap(track);
-    }
-    if (key_flick_ && key_flick_->pointer != pointer) {
-        finish_key_flick();
     }
     if (key->action_kind == ActionKind::Flick) {
         return flick_down(pointer, *key, x, y, now);

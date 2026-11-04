@@ -459,6 +459,36 @@ void open_editor(App& app) {
     settle_pause(app);
 }
 
+// Key flicks and dictation: a character the other hand holds as the mic
+// opens the editor types into the app first, and flicks type into the editor.
+void key_flick_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","key_flicks":true)");
+    Sink sink;
+    App app(options, sink);
+    const auto [ax, ay] = key_center(app, "KeyA");
+    app.down(1, ax, ay, clock);
+    press(app, "Dictation");
+    app.up(1, ax, ay);
+    require(app.dictation_open() && sink.text == std::vector<std::string>{"a"},
+            "the held a types into the app before the mic opens the editor");
+    press(app, "Dictation");
+    settle_pause(app);
+    const auto [x, y] = key_center(app, "Digit6");
+    app.down(0, x, y, clock);
+    app.move(0, x, y + 60);
+    app.up(0, x, y + 60);
+    require(editor_text(app) == "^" && sink.text.size() == 1,
+            "a flick types its Shift character into the editor");
+}
 void mode_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -3670,6 +3700,7 @@ int main() {
         settings_tests();
         layout_tests();
         mode_tests();
+        key_flick_tests();
         modal_repeat_tests();
         send_tests();
         suspend_input_tests();
