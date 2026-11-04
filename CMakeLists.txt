@@ -172,6 +172,8 @@ foreach(lexicon ${SWIPE_LEXICONS})
     get_filename_component(name "${lexicon}" NAME)
     configure_file("${lexicon}" "swipe/lexicons/${name}" COPYONLY)
 endforeach()
+# Japanese completion's common words, beside the executable as in share/.
+configure_file(japanese/words.tsv japanese/words.tsv COPYONLY)
 
 if(FRAMEKEYBOARD_VR)
     # Link the matching architecture from the sysroot; embed only the device runtime path.
@@ -500,6 +502,7 @@ endif()
 install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
 install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
+install(FILES japanese/words.tsv japanese/README.md DESTINATION share/framekeyboard/japanese)
 install(FILES bridge/native_bridge.py bridge/steam_bridge.js DESTINATION share/framekeyboard/bridge)
 install(FILES update/update_helper.py DESTINATION share/framekeyboard/update)
 install(FILES dictation/dictation_helper.py DESTINATION share/framekeyboard/dictation)
@@ -511,6 +514,7 @@ install(FILES third_party/libei/COPYING third_party/libei/README.md third_party/
 install(FILES third_party/gamescope/gamescope-input-method.xml DESTINATION third_party/gamescope)
 install(FILES third_party/wlr-protocols/wlr-data-control-unstable-v1.xml DESTINATION third_party/wlr-protocols)
 install(FILES third_party/unicode/LICENSE DESTINATION third_party/unicode)
+install(FILES third_party/mozc/LICENSE DESTINATION third_party/mozc)
 if(FRAMEKEYBOARD_SWIPE_ENGINE)
     install(FILES third_party/futo-swipe/LICENSE.md third_party/futo-swipe/README.md
             DESTINATION third_party/futo-swipe)

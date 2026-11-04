@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <dlfcn.h>
+#include <fstream>
 #include <glib.h>
 #include <map>
 #include <mutex>
@@ -858,6 +859,22 @@ void JapaneseComposer::prepare_live() {
     for (const auto& segment : live.segments) {
         whole += segment.candidates.front();
     }
+    // A reading that is no word yet, or a rarer one than what it begins,
+    // completes first, as on a phone: おめでと to おめでとう.
+    bool completes_first = false;
+    std::vector<std::string> completed;
+    if (words_ && g_utf8_strlen(reading.c_str(), -1) >= 2) {
+        completed = words_->complete(reading, 3, completes_first);
+    }
+    auto complete = [&] {
+        for (auto& word : completed) {
+            add(std::move(word), Live::Source::Completion);
+        }
+        completed.clear();
+    };
+    if (completes_first) {
+        complete();
+    }
     add(whole, Live::Source::Whole);
     if (learning_) {
         const auto words = converter().predict(reading);
@@ -865,6 +882,7 @@ void JapaneseComposer::prepare_live() {
             add(words[i], Live::Source::Prediction, static_cast<int>(i));
         }
     }
+    complete();
     const auto& first = live.segments.front().candidates;
     for (std::size_t i = 0; i < first.size(); ++i) {
         add(first[i], Live::Source::First, static_cast<int>(i));
@@ -895,8 +913,8 @@ bool JapaneseComposer::choose_live(int index) {
         cursor_ = reading_.size();
         return true;
     }
-    if (source == Live::Source::Prediction) {
-        // A learned word stands for the whole reading, as typed so far.
+    if (source == Live::Source::Prediction || source == Live::Source::Completion) {
+        // A learned or common word stands for the whole reading, as typed so far.
         predicted_ = live_.texts[static_cast<std::size_t>(index)];
         reading_ = *predicted_;
         cursor_ = reading_.size();
@@ -1001,5 +1019,81 @@ std::vector<std::string> JapaneseComposer::candidates() const {
 }
 int JapaneseComposer::selected() const {
     return converting() ? segments_[static_cast<std::size_t>(active_)].selected : 0;
+}
+void JapaneseWords::load() const {
+    if (loaded_) {
+        return;
+    }
+    loaded_ = true;
+    if (file_.empty()) {
+        return;
+    }
+    std::ifstream input(file_, std::ios::binary);
+    std::ostringstream content;
+    content << input.rdbuf();
+    text_ = std::move(content).str();
+    // reading<TAB>word<TAB>cost lines, sorted by reading; # starts a comment.
+    std::size_t at = 0;
+    while (at < text_.size()) {
+        auto end = text_.find('\n', at);
+        if (end == std::string::npos) {
+            end = text_.size();
+        }
+        const std::string_view line(text_.data() + at, end - at);
+        const auto first = line.find('\t'), second = line.find('\t', first + 1);
+        if (!line.empty() && line[0] != '#' && first != std::string_view::npos &&
+            second != std::string_view::npos && first > 0 && second > first + 1 &&
+            second - first < 256) {
+            Entry entry;
+            entry.reading = static_cast<std::uint32_t>(at);
+            entry.reading_size = static_cast<std::uint16_t>(std::min<std::size_t>(first, 255));
+            entry.word = static_cast<std::uint32_t>(at + first + 1);
+            entry.word_size = static_cast<std::uint16_t>(second - first - 1);
+            int cost = 0;
+            for (const char c : line.substr(second + 1)) {
+                if (c < '0' || c > '9' || cost > 6000) {
+                    break;
+                }
+                cost = cost * 10 + (c - '0');
+            }
+            entry.cost = static_cast<std::uint16_t>(std::min(cost, 65535));
+            entries_.push_back(entry);
+        }
+        at = end + 1;
+    }
+}
+std::vector<std::string> JapaneseWords::complete(const std::string& reading, std::size_t most,
+                                                 bool& first) const {
+    load();
+    int exact = std::numeric_limits<int>::max(); // The reading's own cost as a word.
+    const auto reading_of = [&](const Entry& entry) {
+        return std::string_view(text_.data() + entry.reading, entry.reading_size);
+    };
+    // The entries whose reading begins with this one follow each other.
+    auto it = std::lower_bound(
+        entries_.begin(), entries_.end(), std::string_view(reading),
+        [&](const Entry& entry, std::string_view key) { return reading_of(entry) < key; });
+    std::vector<const Entry*> found;
+    for (; it != entries_.end() && reading_of(*it).starts_with(reading); ++it) {
+        if (reading_of(*it).size() == reading.size()) {
+            exact = std::min(exact, static_cast<int>(it->cost));
+        } else {
+            found.push_back(&*it);
+        }
+    }
+    std::stable_sort(found.begin(), found.end(),
+                     [](const Entry* a, const Entry* b) { return a->cost < b->cost; });
+    first = !found.empty() && found.front()->cost < exact;
+    std::vector<std::string> result;
+    for (const auto* entry : found) {
+        std::string word(text_.data() + entry->word, entry->word_size);
+        if (std::find(result.begin(), result.end(), word) == result.end()) {
+            result.push_back(std::move(word));
+            if (result.size() == most) {
+                break;
+            }
+        }
+    }
+    return result;
 }
 } // namespace framekeyboard

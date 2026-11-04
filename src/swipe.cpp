@@ -48,9 +48,8 @@ char32_t base_letter(char32_t c) {
 fs::path executable_dir() {
     return fs::read_symlink("/proc/self/exe").parent_path();
 }
-// Packages keep resources in share/framekeyboard; development builds copy them
-// beside the executable. An explicit data directory always comes first.
-fs::path resource(const fs::path& data_dir, const fs::path& relative) {
+} // namespace
+fs::path data_resource(const fs::path& data_dir, const fs::path& relative) {
     std::vector<fs::path> candidates;
     if (!data_dir.empty()) {
         candidates.push_back(data_dir / relative);
@@ -66,6 +65,7 @@ fs::path resource(const fs::path& data_dir, const fs::path& relative) {
     }
     return {};
 }
+namespace {
 fs::path module_path() {
     // Only sibling modules, as for the CJK engines: never a working-directory lookalike.
     const auto exe = executable_dir();
@@ -470,7 +470,7 @@ std::vector<float> swipe_features(const std::vector<SwipePoint>& points, const S
 }
 
 fs::path swipe_model_path(const fs::path& data_dir) {
-    return resource(data_dir, "swipe/futo-swipe/model_fp32.pte");
+    return data_resource(data_dir, "swipe/futo-swipe/model_fp32.pte");
 }
 bool swipe_engine_installed(const fs::path& data_dir) {
     std::error_code error;
@@ -483,7 +483,7 @@ fs::path swipe_lexicon_path(const fs::path& data_dir, const fs::path& config_dir
     if (!config_dir.empty() && fs::is_regular_file(config_dir / relative, error)) {
         return config_dir / relative;
     }
-    return resource(data_dir, relative);
+    return data_resource(data_dir, relative);
 }
 
 namespace {

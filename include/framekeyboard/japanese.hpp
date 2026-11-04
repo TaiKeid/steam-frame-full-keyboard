@@ -1,4 +1,6 @@
 #pragma once
+
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -62,6 +64,28 @@ std::filesystem::path default_anthy_home();
 // A dictionary other than the installed one, for the simulator and tests;
 // every start of Anthy, restarts included, loads it. Before the first conversion.
 void set_anthy_dictionary(const std::filesystem::path& dictionary);
+// The common words a partly typed reading completes to (japanese/words.tsv;
+// docs/japanese.md, Prediction), read on first use. An empty path has none.
+class JapaneseWords {
+  public:
+    explicit JapaneseWords(std::filesystem::path file = {}) : file_(std::move(file)) {}
+    // Up to `most` words whose reading begins with `reading` and is longer,
+    // commonest first. `first` says whether they come before the reading's
+    // own conversion: when it is no word itself, or a rarer one than the
+    // commonest of them (おめでと, before おめでとう).
+    std::vector<std::string> complete(const std::string& reading, std::size_t most, bool& first) const;
+
+  private:
+    struct Entry {
+        std::uint32_t reading{}, word{}; // Offsets into text_.
+        std::uint16_t reading_size{}, word_size{}, cost{};
+    };
+    void load() const;
+    std::filesystem::path file_;
+    mutable bool loaded_{};
+    mutable std::string text_;
+    mutable std::vector<Entry> entries_; // By reading, as the file is.
+};
 // Pure local preedit state. Nothing reaches an application until explicit commit.
 class JapaneseComposer {
   public:
@@ -121,6 +145,10 @@ class JapaneseComposer {
     // Emoji for words, which live candidates offer last (ねこ, 猫 → 🐈).
     using EmojiLookup = std::function<std::vector<std::string>(const std::vector<std::string>&)>;
     void set_emoji(EmojiLookup lookup) { emoji_ = std::move(lookup); }
+    // Common words a reading of two or more kana completes to, which live
+    // candidates offer first while they are commoner than the reading as a
+    // word, else after the learned ones (JapaneseWords::complete).
+    void set_words(const JapaneseWords* words) { words_ = words; }
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
@@ -143,7 +171,7 @@ class JapaneseComposer {
     struct Live {
         // Where each text came from: the whole phrase, a learned word, a
         // candidate of the first segment (its index), or the reading in a script.
-        enum class Source { Whole, Prediction, First, Hiragana, Katakana, Emoji };
+        enum class Source { Whole, Prediction, Completion, First, Hiragana, Katakana, Emoji };
         std::string reading; // Converted for these; empty when there are none.
         std::vector<Segment> segments;
         std::vector<std::string> texts;
@@ -163,6 +191,7 @@ class JapaneseComposer {
     bool resized_{};
     bool learning_{};
     EmojiLookup emoji_;
+    const JapaneseWords* words_{};
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
     // An emoji picked from the live candidates, now the reading, and the

@@ -796,6 +796,7 @@ class App {
     TextOutput* text_output_;
     KeyboardState keyboard_;
     JapaneseComposer composition_;
+    JapaneseWords japanese_words_; // What the composer completes readings to.
     std::unique_ptr<CjkComposer> cjk_;
     bool japanese_latin_{};
     bool flick_digits_{}; // With japanese_latin_: the flick digits.

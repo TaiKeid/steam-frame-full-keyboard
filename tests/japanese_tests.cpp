@@ -544,6 +544,58 @@ void symbols_as_typed() {
                 composer.commit_text() == "「謁』！…",
             "the other brackets follow the typed one");
 }
+// A partly typed reading completes to common words: first while it is no
+// word itself, after the conversion and learned words once it is.
+void word_completion() {
+    char directory[] = "/tmp/framekeyboard-words-XXXXXX";
+    require(mkdtemp(directory), "temporary word list");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    const auto file = fs::path(directory) / "words.tsv";
+    std::ofstream(file) << "# reading\tword\tcost\n"
+                           "ありがとう\tありがとう\t646\n"
+                           "ありがとうございます\tありがとうございます\t1086\n"
+                           "おめでとう\tおめでとう\t1842\n"
+                           "おめでとう\tお目出度う\t4071\n"
+                           "おめでとうございます\tおめでとうございます\t2296\n";
+    const JapaneseWords words(file);
+    bool first = false;
+    require(
+        words.complete("おめでと", 3, first) ==
+                std::vector<std::string>{"おめでとう", "おめでとうございます", "お目出度う"} &&
+            first,
+        "completions are the longer readings' words, commonest first, before a reading that is none");
+    require(words.complete("ありがとう", 3, first) == std::vector<std::string>{"ありがとうございます"} &&
+                !first,
+            "a reading that is a commoner word than its completions comes before them");
+    require(words.complete("ん", 3, first).empty() && !first, "nothing begins with ん");
+    bool none = true;
+    require(JapaneseWords{}.complete("おめでと", 3, none).empty() && !none, "no list, no completions");
+
+    int conversions = 0;
+    JapaneseComposer composer(fake_converter(&conversions));
+    composer.set_words(&words);
+    composer.kana("おめでと");
+    composer.prepare_live();
+    require(composer.live().front() == "おめでとう" && composer.live()[1] == "おめでとうございます",
+            "a reading that is no word yet completes first");
+    require(composer.choose_live(1) && composer.commit_text() == "おめでとうございます",
+            "a completion commits as the word");
+    composer.cancel();
+    composer.kana("ありがとう");
+    composer.prepare_live();
+    require(composer.live().front() == "〈あり〉〈がと〉〈う〉" &&
+                composer.live()[1] == "ありがとうございます",
+            "a word converts first, its completions after");
+    composer.cancel();
+    composer.kana("お");
+    composer.prepare_live();
+    require(std::find(composer.live().begin(), composer.live().end(), "おめでとう") ==
+                composer.live().end(),
+            "a single kana completes nothing");
+}
 void progressive_conversion() {
     int conversions = 0;
     JapaneseComposer composer(fake_converter(&conversions));
@@ -1878,6 +1930,7 @@ int main() {
     configure_anthy({false, anthy_home});
     try {
         symbols_as_typed();
+        word_completion();
         emoji_candidates();
         learning_calls();
         progressive_conversion();
@@ -1996,6 +2049,19 @@ int main() {
                 composer.kana(reading);
                 composer.convert();
                 require(composer.commit_text() == phrase, "Anthy's symbols stay as typed");
+            }
+            {
+                // The bundled common words complete a reading before Anthy converts it.
+                const JapaneseWords common(data_resource({}, "japanese/words.tsv"));
+                composer.set_words(&common);
+                composer.cancel();
+                composer.kana("おめでと");
+                composer.prepare_live();
+                const auto& live = composer.live();
+                require(live.size() > 2 && live[0] == "おめでとう" && live[1] == "おめでとうございます",
+                        "おめでと completes to おめでとう and おめでとうございます first");
+                composer.cancel();
+                composer.set_words(nullptr);
             }
             // Romaji types ？ and ！ full-width, as Japanese input methods do,
             // and the last segment still offers the half-width form.

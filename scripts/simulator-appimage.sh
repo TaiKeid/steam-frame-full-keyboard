@@ -61,6 +61,9 @@ if [[ -f $appdir/usr/lib/framekeyboard/framekeyboard-swipe.so ]]; then
 else
     echo 'Packing without the swipe engine: swipe typing will stay off.' >&2
 fi
+# Japanese completion's common words, with their sources.
+mkdir -p "$appdir/usr/share/framekeyboard/japanese"
+cp japanese/words.tsv japanese/README.md "$appdir/usr/share/framekeyboard/japanese/"
 install -m 755 scripts/simulator-appimage/AppRun "$appdir/AppRun"
 cp scripts/simulator-appimage/framekeyboard-simulator.desktop scripts/simulator-appimage/framekeyboard-simulator.svg \
     "$appdir/"
@@ -108,7 +111,7 @@ fi
 # Our own license and those of the code compiled into the simulator.
 mkdir -p "$appdir/usr/share/licenses/framekeyboard/third_party"
 cp LICENSE third_party/README.md "$appdir/usr/share/licenses/framekeyboard/"
-cp -r third_party/libei third_party/gamescope third_party/wlr-protocols third_party/unicode \
+cp -r third_party/libei third_party/gamescope third_party/wlr-protocols third_party/unicode third_party/mozc \
     "$appdir/usr/share/licenses/framekeyboard/third_party/"
 if [[ -f $appdir/usr/lib/framekeyboard/framekeyboard-swipe.so ]]; then
     cp -r third_party/futo-swipe third_party/executorch "$appdir/usr/share/licenses/framekeyboard/third_party/"

@@ -95,6 +95,10 @@ class SwipeLexicon {
 // Resample a path and normalize it into the encoder's letter-block frame.
 std::vector<float> swipe_features(const std::vector<SwipePoint>& points, const SwipeKeyboard& keyboard);
 
+// A bundled data file: in the data directory if one is given, else in
+// share/framekeyboard by the executable's folder (packages), else beside the
+// executable (development builds); empty when none exists.
+fs::path data_resource(const fs::path& data_dir, const fs::path& relative);
 // True when the bundled encoder module and model files are installed.
 bool swipe_engine_installed(const fs::path& data_dir);
 fs::path swipe_model_path(const fs::path& data_dir);

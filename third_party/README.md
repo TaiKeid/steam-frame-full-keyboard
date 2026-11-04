@@ -57,7 +57,9 @@ Collection, partly via HeliBoard) blended with CC BY-SA 4.0 subtitle frequencies
 Chinese Pinyin list comes from jieba and pypinyin under MIT. See their README
 and licence files for sources, hashes and changes.
 
-Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. No learning/commit API is called and composition is not written to a user dictionary. Only the desktop simulator's AppImage can carry a copy of Anthy; `anthy/` records which and its licenses.
+Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. With learning on, its commit and prediction APIs learn under Full Keyboard's own personality (docs/japanese.md, Learning). Only the desktop simulator's AppImage can carry a copy of Anthy; `anthy/` records which and its licenses.
+
+The Japanese common-word list, `japanese/words.tsv`, is derived from Mozc's open-source dictionary (BSD 3-Clause; IPAdic, ICOT Free Software and the public-domain Okinawa dictionary). `mozc/LICENSE` holds those notices; `japanese/README.md` the pinned commit, file hashes and how it is built.
 
 Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.
 Korean composition links the installed libhangul public C API, under LGPL-2.1-or-later.
