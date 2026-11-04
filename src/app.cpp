@@ -1024,17 +1024,18 @@ PanelView App::build_view(bool picker) const {
                 v.key_labels[key.id] = "確定";
             }
         }
-        // Only a key with flicks shows their cross; ↶, with a tap alone, does not.
+        // Only a key with flicks shows their cross; ↶, with a tap alone, and
+        // the script key, a switch whose texts are only its legends, do not.
         const auto flicks = [](const FlickKey& key) {
             return !key.left.empty() || !key.up.empty() || !key.right.empty() || !key.down.empty();
         };
-        if (flick_track_ && flicks(table.at(flick_track_->slot))) {
+        if (flick_track_ && flick_track_->slot != flick_script_slot &&
+            flicks(table.at(flick_track_->slot))) {
             const auto& key = table.at(flick_track_->slot);
             auto tap = *flick_track_;
             tap.direction = FlickDirection::Tap;
-            // The mode and script keys show their own legends.
-            const bool kana =
-                flick_track_->slot != flick_mode_slot && flick_track_->slot != flick_script_slot;
+            // The mode key shows its own legends.
+            const bool kana = flick_track_->slot != flick_mode_slot;
             const auto shown = [&](const std::string& text) { return kana ? flick_kana(text) : text; };
             v.flick_preview = PanelView::FlickPreview{flick_track_->key,
                                                       {shown(flick_text(tap)), shown(key.left),
@@ -3733,12 +3734,9 @@ void App::finish_flick() {
     const auto text = flick_text(track, &cycles);
     try {
         if (track.slot == flick_script_slot) {
-            // A tap switches the script of the kana typed from now on; a
-            // flick left or right picks hiragana or katakana.
-            katakana_ = track.direction == FlickDirection::Tap     ? !katakana_
-                        : track.direction == FlickDirection::Left  ? false
-                        : track.direction == FlickDirection::Right ? true
-                                                                   : katakana_;
+            // A switch: a press, whichever way it moves, turns the kana typed
+            // from now on to the other script.
+            katakana_ = !katakana_;
             flick_toggle_.reset();
             dirty = true;
             return;

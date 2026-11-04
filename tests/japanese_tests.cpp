@@ -586,8 +586,13 @@ void flick_katakana() {
     App app(options, sink);
     auto preedit = [&] { return app.view().preedit; };
     require(shows_key(app) && !app.view().flick_katakana, "with it, the script key shows, in hiragana");
-    flick(app, "script", 1);
-    require(app.view().flick_katakana, "a tap switches to katakana");
+    {
+        const auto [x, y] = key_centre(app, "Flick-script");
+        app.down(3, x, y, .5);
+        require(!app.view().flick_preview, "held, the switch shows no flick cross");
+        app.up(3, x, y);
+        require(app.view().flick_katakana, "a tap switches to katakana");
+    }
     flick(app, "a", 2);
     flick(app, "a", 2.3);
     require(preedit() == "イ", "katakana is typed, and quick taps cycle it");
@@ -598,9 +603,10 @@ void flick_katakana() {
     require(preedit() == "アバ", "゛゜小 marks it");
     flick(app, "script", 5, -60, 0);
     flick(app, "ka", 5.5);
-    require(!app.view().flick_katakana && preedit() == "アバか", "a flick left picks hiragana again");
-    flick(app, "script", 6, 60, 0);
-    require(app.view().flick_katakana, "and right, katakana");
+    require(!app.view().flick_katakana && preedit() == "アバか",
+            "it is a switch: a press that moves away still switches it back");
+    flick(app, "script", 6);
+    require(app.view().flick_katakana, "and a tap switches again");
     app.apply({"en-us-full", "en-us", "graphite"});
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     require(!app.view().flick_katakana, "a change of language returns it to hiragana");

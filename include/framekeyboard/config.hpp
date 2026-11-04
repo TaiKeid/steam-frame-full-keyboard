@@ -49,9 +49,8 @@ inline constexpr const char* flick_mode_slot = "mode";
 // ↶ (Gboard's 逆トグル／戻す): steps the last kana back through its key's
 // taps, leaves conversion, or reopens the phrase just committed.
 inline constexpr const char* flick_undo_slot = "undo";
-// The script key, shown with Flick Katakana (JP): a tap switches the kana
-// between hiragana and katakana, a flick left or right picks one. Its texts
-// are only its legends.
+// The script key, shown with Flick Katakana (JP): a switch, which turns the
+// kana between hiragana and katakana. Its texts are only its legends.
 inline constexpr const char* flick_script_slot = "script";
 struct Language {
     bool operator==(const Language&) const = default;
