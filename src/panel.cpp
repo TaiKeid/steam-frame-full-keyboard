@@ -1111,7 +1111,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         const auto custom = view.key_labels.find(key.id);
         // The kana page's legends follow the script key; its own labels stay.
         const auto shown = [&](const std::string& text) {
-            return view.flick_katakana && !view.flick_digits ? kana_in_script(text, true) : text;
+            return view.flick_katakana && !view.flick_digits && !view.flick_latin
+                       ? kana_in_script(text, true)
+                       : text;
         };
         const auto center = shown(custom != view.key_labels.end() ? custom->second : key.label);
         const auto& table = view.flick_digits ? view.language->flick_digits : view.language->flick;
@@ -1126,14 +1128,16 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
             return;
         }
         if (key.action == flick_script_slot) {
-            // あ and ア side by side, the script in use lit, as the mode key does.
+            // あ and ア side by side, the script in use lit, as the mode key
+            // does; disabled, both dim, the one in use a little less.
             const auto& script = slot->second;
             const double inset = face.width * .1, half = (face.width - 2 * inset) / 2;
+            const auto lit = disabled ? mix(t.legend, hint, .55) : t.legend;
             for (int i = 0; i < 2; ++i) {
                 label(cr, i == 0 ? script.left : script.right,
                       {face.x + inset + half * i, face.y, half, face.height},
                       std::min(t.font_size, half * .8), view.language->font,
-                      (i == 1) == view.flick_katakana ? t.legend : hint, true);
+                      (i == 1) == view.flick_katakana ? lit : hint, true);
             }
             return;
         }

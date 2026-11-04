@@ -890,7 +890,7 @@ PanelView App::geometry() const {
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
     v.flick_script_key = settings_.flick_katakana;
-    v.flick_katakana = katakana_ && flick_mode() == FlickMode::Kana;
+    v.flick_katakana = katakana_;
     if (emoji_open_) {
         v.layout = &emoji_layout_.layout;
         v.composing = false;
@@ -999,7 +999,7 @@ PanelView App::build_view(bool picker) const {
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
     v.flick_script_key = settings_.flick_katakana;
-    v.flick_katakana = katakana_ && flick_mode() == FlickMode::Kana;
+    v.flick_katakana = katakana_;
     if (v.ime_band) {
         // The band underlines the converting segment.
         v.preedit = composition_.preedit();
@@ -1125,6 +1125,14 @@ PanelView App::build_view(bool picker) const {
     } else if (!emoji_available()) {
         for (const auto& key : v.layout->keys) {
             if (key.action_kind == ActionKind::Emoji) {
+                v.disabled_keys.insert(key.id);
+            }
+        }
+    }
+    // The script switch acts on the kana page alone; the digits page has none.
+    if (flick_mode() != FlickMode::Kana) {
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::Flick && key.action == flick_script_slot) {
                 v.disabled_keys.insert(key.id);
             }
         }
@@ -1551,7 +1559,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         type_swipe_tap(track);
     }
     if (key->action_kind == ActionKind::Flick) {
-        return flick_down(pointer, *key, x, y, now);
+        return !v.disabled_keys.contains(key->id) && flick_down(pointer, *key, x, y, now);
     }
     if (key->action_kind == ActionKind::Emoji) {
         // A local press that acts on release, like a toolbar button.

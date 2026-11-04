@@ -227,7 +227,8 @@ struct PanelView {
     // grid into a number pad; the 「あA1」 key marks which mode is on.
     bool flick_latin{}, flick_digits{};
     // Flick Katakana (JP) shows the script key; while katakana is on, the
-    // kana keys show and type katakana.
+    // kana keys show and type katakana. The key shows the script on every
+    // page, and waits, disabled, on the digits page.
     bool flick_script_key{}, flick_katakana{};
     std::size_t preedit_active_begin{}, preedit_active_end{};
     // Where typing goes in `preedit`, before conversion: a byte offset.

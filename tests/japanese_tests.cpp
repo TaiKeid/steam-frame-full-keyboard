@@ -620,6 +620,21 @@ void flick_katakana() {
             "it is a switch: a press that moves away still switches it back");
     flick(app, "script", 6);
     require(app.view().flick_katakana, "and a tap switches again");
+    // The digits page has no kana: the switch shows the script, disabled.
+    flick(app, "mode", 7);
+    flick(app, "mode", 7.5);
+    require(app.view().flick_digits && app.view().flick_katakana &&
+                app.view().disabled_keys.contains("Flick-script"),
+            "on the digits page the switch shows katakana, disabled");
+    {
+        const auto [x, y] = key_centre(app, "Flick-script");
+        require(!app.down(0, x, y, 8), "and takes no press there");
+        app.up(0, x, y);
+    }
+    flick(app, "mode", 8.5);
+    require(!app.view().flick_digits && app.view().flick_katakana &&
+                !app.view().disabled_keys.contains("Flick-script"),
+            "back on the kana page it is still katakana, and works");
     app.apply({"en-us-full", "en-us", "graphite"});
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     require(!app.view().flick_katakana, "a change of language returns it to hiragana");
