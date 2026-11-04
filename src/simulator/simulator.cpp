@@ -212,6 +212,13 @@ void Simulator::pointer_move(unsigned pointer, double x, double y) {
         leave(pointer);
     }
 }
+void Simulator::pointer_exit(unsigned pointer) {
+    if (pointers_[pointer].inside && !app_->pointer_pressed(pointer)) {
+        app_->move(pointer, -1e4, -1e4); // Still inside, for the next move.
+    } else {
+        pointer_move(pointer, -1, -1);
+    }
+}
 void Simulator::pointer_up(unsigned pointer, double x, double y) {
     auto& state = pointers_[pointer];
     if (state.inside) {

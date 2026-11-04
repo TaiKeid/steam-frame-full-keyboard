@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
                     }
                     case SDL_WINDOWEVENT:
                         if (event.window.event == SDL_WINDOWEVENT_LEAVE && !mouse_pressed) {
-                            simulator.pointer_move(sim::Simulator::mouse, -1, -1);
+                            simulator.pointer_exit(sim::Simulator::mouse);
                         } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                             // A release may never come: end the presses as a lost
                             // laser does. The held second pointer stays, as shown.

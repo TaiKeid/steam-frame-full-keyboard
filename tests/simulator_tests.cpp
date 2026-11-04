@@ -223,6 +223,13 @@ void japanese_reopen(bool slow) {
             std::string("↶ reopens the committed phrase") + (slow ? " in a slow field" : ""));
     press(simulator, "Enter");
     require(simulator.field().text() == "あ", "and Enter commits it again");
+    // The mouse leaving the window can't change the field: the chance stays.
+    simulator.pointer_exit(Simulator::mouse);
+    press(simulator, "Flick-undo");
+    wait(simulator, .2);
+    require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
+            "↶ still reopens after the mouse left the window and came back");
+    press(simulator, "Enter");
 
     // The pointer leaving the keyboard is the laser leaving the panel: the
     // chance to reopen ends, and a flick that leaves types nothing.

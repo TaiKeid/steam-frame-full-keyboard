@@ -44,6 +44,11 @@ class Simulator {
     void pointer_up(unsigned pointer, double x, double y);
     // The pointer is gone without a release, as when the window loses focus.
     void pointer_cancel(unsigned pointer);
+    // The mouse left the window with its button up. Nothing outside the
+    // window reaches the simulator's field, so only the hover ends: ↶ can
+    // still bring a phrase back once the mouse is on the keys again, and
+    // coming back over the field ends that chance, as leaving the keys does.
+    void pointer_exit(unsigned pointer);
     // Presses the second pointer at (x, y) and keeps it there until the next
     // call releases it: a second hand holding Shift or a key, for a mouse.
     void toggle_hold(double x, double y, double now);
