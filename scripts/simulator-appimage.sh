@@ -41,6 +41,7 @@ fi
 cmake --preset simulator
 cmake --build --preset simulator
 build=build/simulator
+source "$build/simulator-engines.conf"
 version=$(sed -n 's/^project(framekeyboard VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)
 out=out/simulator
 appdir=$out/FullKeyboardSimulator.AppDir
@@ -53,10 +54,13 @@ install -m 755 "$build/framekeyboard-simulator" "$appdir/usr/bin/"
 strip "$appdir/usr/bin/framekeyboard-simulator"
 # Composition engines and swipe typing load from lib/framekeyboard beside bin.
 for engine in "$build"/engines/*.so; do
+    if [[ ${engine##*/} == framekeyboard-swipe.so && $pack_swipe == 0 ]]; then
+        continue
+    fi
     install -m 644 "$engine" "$appdir/usr/lib/framekeyboard/"
     strip --strip-unneeded "$appdir/usr/lib/framekeyboard/${engine##*/}"
 done
-if [[ -f $appdir/usr/lib/framekeyboard/framekeyboard-swipe.so ]]; then
+if [[ $pack_swipe == 1 ]]; then
     mkdir -p "$appdir/usr/share/framekeyboard/swipe/futo-swipe"
     cp "$build/swipe/futo-swipe/model_fp32.pte" "$appdir/usr/share/framekeyboard/swipe/futo-swipe/"
     cp -r swipe/lexicons "$appdir/usr/share/framekeyboard/swipe/" # with their sources and licenses
@@ -64,7 +68,7 @@ else
     echo 'Packing without the swipe engine: swipe typing will stay off.' >&2
 fi
 # Japanese converts with Mozc's server where the build has it, Anthy otherwise.
-if [[ -x $build/engines/framekeyboard-mozc ]]; then
+if [[ $pack_mozc == 1 ]]; then
     install -m 755 "$build/engines/framekeyboard-mozc" "$appdir/usr/lib/framekeyboard/"
 else
     echo 'Packing without Mozc: Japanese converts with Anthy alone.' >&2
