@@ -2450,9 +2450,6 @@ void JapaneseComposer::resize(int direction) {
         }
     }
     auto resized = imported(converter().resize(active_, direction));
-    if (!resized.empty() && !stretch_.empty()) {
-        stretch_segment(resized.back(), stretch_); // Anthy converted it without.
-    }
     resized_ = true;
     if (resized.empty() || static_cast<int>(resized.size()) <= active_) {
         return;
@@ -2462,6 +2459,26 @@ void JapaneseComposer::resize(int direction) {
         const auto index = static_cast<std::size_t>(i);
         if (resized[index].reading == segments_[index].reading) {
             resized[index] = segments_[index];
+        }
+    }
+    numeral_digits(resized);
+    object_verbs(resized);
+    chat_kana(resized);
+    if (!stretch_.empty()) {
+        stretch_segment(resized.back(), stretch_); // Anthy converted it without.
+    }
+    // Rules may reorder a kept segment's candidates when its neighbour
+    // changes. Its chosen text still belongs to the user.
+    for (int i = 0; i < active_; ++i) {
+        const auto index = static_cast<std::size_t>(i);
+        auto& segment = resized[index];
+        const auto& before = segments_[index];
+        if (segment.reading == before.reading) {
+            const auto& chosen = before.candidates[static_cast<std::size_t>(before.selected)];
+            const auto found = std::find(segment.candidates.begin(), segment.candidates.end(), chosen);
+            if (found != segment.candidates.end()) {
+                segment.selected = static_cast<int>(found - segment.candidates.begin());
+            }
         }
     }
     segments_ = std::move(resized);

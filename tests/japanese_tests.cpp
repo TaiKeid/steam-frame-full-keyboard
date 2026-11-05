@@ -627,6 +627,42 @@ void resized_shorter_choices() {
 void resized_reordered_choices() {
     resized_choices(false);
 }
+// Boundary changes use the same conversion rules as a fresh phrase.
+void resized_rules() {
+    struct Rules : JapaneseConverter {
+        std::vector<Segment> divided;
+        explicit Rules(std::vector<Segment> result) : divided(std::move(result)) {}
+        std::vector<Segment> convert(const std::string& reading) override {
+            return {{reading, {reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return divided; }
+    };
+    using Segments = std::vector<JapaneseConverter::Segment>;
+    for (const auto& [reading, split, expected] :
+         std::vector<std::tuple<std::string, Segments, std::string>>{
+             {"くださいまって",
+              {{"ください", {"下さい", "ください"}}, {"まって", {"待って"}}},
+              "ください待って"},
+             {"ほしよねんも", {{"ほし", {"星"}}, {"よねんも", {"四年も", "4年も"}}}, "星4年も"},
+             {"しゃしんをとって",
+              {{"しゃしんを", {"写真を"}}, {"とって", {"取って", "撮って"}}},
+              "写真を撮って"},
+             {"からかさまって", {{"からかさ", {"傘"}}, {"まって", {"待って"}}}, "から傘待って"},
+             {"にまんぽまで", {{"にまん", {"二万"}}, {"ぽまで", {"歩まで"}}}, "2万歩まで"}}) {
+        JapaneseComposer composer([&] { return std::make_unique<Rules>(split); });
+        composer.kana(reading);
+        composer.convert();
+        composer.resize(-1);
+        require(composer.commit_text() == expected, "resized segments receive conversion rules");
+        const auto earlier = composer.candidates();
+        // Keep the first segment while the rules see it for a second time.
+        composer.segment(1);
+        composer.resize(-1);
+        composer.segment(-1);
+        require(composer.commit_text() == expected && composer.candidates() == earlier,
+                "rules do not reorder or duplicate an earlier segment on another resize");
+    }
+}
 // Symbol segments as Anthy returns them: half-width ！ first, a closing 」 as 』.
 void symbols_as_typed() {
     struct SymbolConverter : JapaneseConverter {
@@ -3389,6 +3425,7 @@ int main() {
         stretched_boundaries();
         resized_shorter_choices();
         resized_reordered_choices();
+        resized_rules();
         symbols_as_typed();
         word_completion();
         flick_katakana();
