@@ -79,9 +79,16 @@ class JapaneseWords {
     // Up to `most` words whose reading begins with `reading` and is longer,
     // commonest first, never one turning its last kana into another sound
     // with a small kana (きみょう for きみ). `first` says whether they come
-    // before the reading's own conversion: when it is no word itself, or a
-    // clearly rarer one than the commonest of them (おめでと, before おめでとう).
+    // before the reading's own conversion: when it is no word itself, nor a
+    // word and a particle (きょうは), or a clearly rarer one of three kana or
+    // more than the commonest of them (おめでと, before おめでとう).
     std::vector<std::string> complete(const std::string& reading, std::size_t most, bool& first) const;
+    // complete() with each word's cost, lower is commoner.
+    std::vector<std::pair<std::string, int>> completions(const std::string& reading, std::size_t most,
+                                                         bool& first) const;
+    // Whether a completion of this cost leads the reading's own conversion,
+    // by complete()'s rule but for an adjective's stem.
+    bool completion_leads(const std::string& reading, int cost) const;
     // Up to `most` words of exactly this reading, lowest cost first.
     std::vector<std::string> exact(const std::string& reading, std::size_t most) const;
 
@@ -91,6 +98,9 @@ class JapaneseWords {
         std::uint16_t reading_size{}, word_size{}, cost{};
     };
     void load() const;
+    // The reading's lowest cost as a word, or as a word and a particle a
+    // little more; the largest int when it is neither.
+    int own_cost(const std::string& reading) const;
     std::filesystem::path file_;
     mutable bool loaded_{};
     mutable std::string text_;
@@ -162,6 +172,9 @@ class JapaneseComposer {
     // Kaomoji for a reading (japanese/kaomoji.tsv), which live candidates
     // offer after its emoji, all of them; かお and かおもじ list every one.
     void set_kaomoji(const JapaneseWords* kaomoji) { kaomoji_ = kaomoji; }
+    // Common chat phrases (japanese/preferred.tsv) complete a reading too,
+    // before the words do: いただき to いただきます.
+    void set_phrases(const JapaneseWords* phrases) { phrases_ = phrases; }
     // The usual conversions of a whole reading, most wanted first, such as
     // 行きます for いきます, after the user's own choice when they chose
     // otherwise (生きます); none for most readings. Live candidates offer
@@ -209,10 +222,22 @@ class JapaneseComposer {
     // stand for a conversion of it, and resizing continues from it.
     std::string converted_;
     bool resized_{};
+    // A preferred phrase 変換 made one segment of, and how many kana ← cut
+    // from its end into segments of their own, the phrase's text cut so.
+    struct Phrase {
+        Segment whole;
+        std::string text; // The phrase as chosen when cutting began.
+        int cut{};
+    };
+    std::optional<Phrase> phrase_;
+    // Resizes a preferred phrase's segment by its own text; false when its
+    // text doesn't end with the kana to cut, for the converter's split.
+    bool resize_phrase(int direction);
     bool learning_{};
     EmojiLookup emoji_;
     const JapaneseWords* words_{};
     const JapaneseWords* kaomoji_{};
+    const JapaneseWords* phrases_{};
     Preferred preferred_;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;

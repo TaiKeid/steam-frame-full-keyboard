@@ -1,7 +1,6 @@
 #include "framekeyboard/japanese.hpp"
 #include <algorithm>
 #include <cerrno>
-#include <cerrno>
 #include <cstdlib>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -851,6 +850,7 @@ void JapaneseComposer::convert(bool preferring) {
     segments_ = live_.reading == reading_ && converted_ == reading_ && !resized_ ? live_.segments
                                                                                  : fresh(reading_);
     active_ = 0;
+    phrase_.reset();
     if (const auto phrases =
             preferring && preferred_ ? preferred_(reading_) : std::vector<std::string>{};
         !phrases.empty()) {
@@ -878,6 +878,7 @@ void JapaneseComposer::convert(bool preferring) {
                 }
             }
             segments_ = {std::move(phrase)};
+            phrase_ = Phrase{segments_.front(), {}, 0};
         }
     }
 }
@@ -897,6 +898,12 @@ void JapaneseComposer::segment(int direction) {
 void JapaneseComposer::resize(int direction) {
     if (!converting() || (direction != 1 && direction != -1)) {
         return;
+    }
+    if (phrase_ && active_ == 0) {
+        if (resize_phrase(direction)) {
+            return;
+        }
+        phrase_.reset(); // Its text doesn't end so: the converter's split.
     }
     const auto& active = segments_[static_cast<std::size_t>(active_)];
     // At least one character, and no further than the end of the reading.
@@ -975,12 +982,37 @@ void JapaneseComposer::prepare_live() {
     // A reading that is no word yet, or a rarer one than what it begins,
     // completes first, as on a phone: おめでと to おめでとう.
     bool completes_first = false;
-    std::vector<std::string> completed;
-    if (words_ && g_utf8_strlen(reading.c_str(), -1) >= 2) {
-        completed = words_->complete(reading, 3, completes_first);
+    std::vector<std::pair<std::string, int>> completed;
+    const bool long_enough = g_utf8_strlen(reading.c_str(), -1) >= 2;
+    if (words_ && long_enough) {
+        completed = words_->completions(reading, 3, completes_first);
+    }
+    // Common chat phrases complete it too, ranked as common words: いただき
+    // to いただきます, ひさし to 久しぶり, but きょうは to 今日は first.
+    if (phrases_ && long_enough) {
+        constexpr int phrase_cost = 1500;
+        bool ignored = false;
+        bool phrased = false;
+        for (auto& [text, cost] : phrases_->completions(reading, 3, ignored)) {
+            const auto same = std::find_if(completed.begin(), completed.end(),
+                                           [&](const auto& got) { return got.first == text; });
+            if (same != completed.end()) {
+                same->second = std::min(same->second, phrase_cost);
+            } else {
+                completed.emplace_back(std::move(text), phrase_cost);
+            }
+            phrased = true;
+        }
+        std::stable_sort(completed.begin(), completed.end(),
+                         [](const auto& a, const auto& b) { return a.second < b.second; });
+        if (completed.size() > 3) {
+            completed.resize(3);
+        }
+        completes_first =
+            completes_first || (phrased && (!words_ || words_->completion_leads(reading, phrase_cost)));
     }
     auto complete = [&] {
-        for (auto& word : completed) {
+        for (auto& [word, cost] : completed) {
             add(std::move(word), Live::Source::Completion);
         }
         completed.clear();
@@ -996,19 +1028,30 @@ void JapaneseComposer::prepare_live() {
             add(std::move(phrase), Live::Source::Completion);
         }
     }
+    const auto predicted = learning_ ? converter().predict(reading) : std::vector<std::string>{};
+    // A conversion committed before, offered back as learned, is the user's
+    // pick for the reading: it leads the dictionary's completions.
+    if (std::find(predicted.begin(), predicted.end(), whole) != predicted.end()) {
+        completes_first = false;
+    }
     if (completes_first) {
         complete();
     }
     add(whole, Live::Source::Whole);
-    if (learning_) {
-        const auto words = converter().predict(reading);
-        for (std::size_t i = 0; i < words.size(); ++i) {
-            add(words[i], Live::Source::Prediction, static_cast<int>(i));
-        }
+    for (std::size_t i = 0; i < predicted.size(); ++i) {
+        add(predicted[i], Live::Source::Prediction, static_cast<int>(i));
+    }
+    // A reading that is one word offers its likeliest other words before
+    // completing it, as completions that lead have already: 雨 and 飴 before
+    // 編める, 神, 紙 and 髪 before 噛み合う.
+    const auto& first = live.segments.front().candidates;
+    constexpr std::size_t before_completions = 5;
+    const std::size_t early = live.segments.size() == 1 ? std::min(first.size(), before_completions) : 0;
+    for (std::size_t i = 0; i < early; ++i) {
+        add(first[i], Live::Source::First, static_cast<int>(i));
     }
     complete();
-    const auto& first = live.segments.front().candidates;
-    for (std::size_t i = 0; i < first.size(); ++i) {
+    for (std::size_t i = early; i < first.size(); ++i) {
         add(first[i], Live::Source::First, static_cast<int>(i));
     }
     add(in_script(reading, false), Live::Source::Hiragana);
@@ -1075,6 +1118,68 @@ void JapaneseComposer::script(bool katakana) {
 void JapaneseComposer::unconvert() {
     segments_.clear();
     active_ = 0;
+    phrase_.reset();
+}
+bool JapaneseComposer::resize_phrase(int direction) {
+    auto& phrase = *phrase_;
+    const auto& reading = phrase.whole.reading;
+    const int length = static_cast<int>(g_utf8_strlen(reading.c_str(), -1));
+    const int cut = phrase.cut - direction; // ← cuts one more kana off.
+    if (cut < 0 || cut >= length) {
+        return true; // Whole again, or one kana left: nothing further.
+    }
+    if (phrase.cut == 0) {
+        const auto& shown = segments_.front();
+        phrase.text = shown.candidates[static_cast<std::size_t>(shown.selected)];
+    }
+    if (cut == 0) {
+        segments_ = {phrase.whole};
+        phrase.cut = 0;
+        active_ = 0;
+        return true;
+    }
+    // The kana cut off end the phrase as written too (今日はいい天気だね), so
+    // the rest keeps its text (今日はいい天気だ) and they convert apart.
+    const auto split = static_cast<std::size_t>(g_utf8_offset_to_pointer(reading.c_str(), length - cut) -
+                                                reading.c_str());
+    const auto head = reading.substr(0, split), tail = reading.substr(split);
+    if (!std::string_view(phrase.text).ends_with(tail) || phrase.text.size() == tail.size()) {
+        return phrase.cut > 0; // Cut as far as it goes, or not at all.
+    }
+    Segment first{head, {phrase.text.substr(0, phrase.text.size() - tail.size())}};
+    for (auto script : {in_script(head, false), in_script(head, true)}) {
+        if (std::find(first.candidates.begin(), first.candidates.end(), script) ==
+            first.candidates.end()) {
+            first.candidates.push_back(std::move(script));
+        }
+    }
+    // The kana cut off stay as written first, as one segment, with the
+    // converter's conversions of them after: ね, not 根.
+    Segment last{tail, {tail}};
+    const auto offer = [&](std::string text) {
+        if (!text.empty() &&
+            std::find(last.candidates.begin(), last.candidates.end(), text) == last.candidates.end()) {
+            last.candidates.push_back(std::move(text));
+        }
+    };
+    const auto converted = imported(converter().convert(tail));
+    std::string joined;
+    for (const auto& segment : converted) {
+        joined += segment.candidates.front();
+    }
+    offer(joined);
+    if (converted.size() == 1) {
+        for (const auto& text : converted.front().candidates) {
+            offer(text);
+        }
+    }
+    offer(in_script(tail, true));
+    converted_ = tail;
+    resized_ = true;
+    segments_ = {std::move(first), std::move(last)};
+    phrase.cut = cut;
+    active_ = 0;
+    return true;
 }
 void JapaneseComposer::cancel() {
     unconvert();
@@ -1192,8 +1297,55 @@ void JapaneseWords::load() const {
         at = end + 1;
     }
 }
-std::vector<std::string> JapaneseWords::complete(const std::string& reading, std::size_t most,
-                                                 bool& first) const {
+// How much lower a completion's cost must be than the reading's own as a
+// word to lead it.
+constexpr int clearly_commoner = 1000;
+int JapaneseWords::own_cost(const std::string& reading) const {
+    load();
+    const auto reading_of = [&](const Entry& entry) {
+        return std::string_view(text_.data() + entry.reading, entry.reading_size);
+    };
+    const auto cost_of = [&](std::string_view word) {
+        int best = std::numeric_limits<int>::max();
+        for (auto at = std::lower_bound(
+                 entries_.begin(), entries_.end(), word,
+                 [&](const Entry& entry, std::string_view key) { return reading_of(entry) < key; });
+             at != entries_.end() && reading_of(*at) == word; ++at) {
+            best = std::min(best, static_cast<int>(at->cost));
+        }
+        return best;
+    };
+    if (const int cost = cost_of(reading); cost != std::numeric_limits<int>::max()) {
+        return cost;
+    }
+    // A word and a particle after it reads as the word, though less surely:
+    // きょうは as 今日は before 脅迫 (きょうはく), but ありが to ありがとう.
+    constexpr int particle_penalty = 2000;
+    int cost = std::numeric_limits<int>::max();
+    for (const std::string_view particle :
+         {"は", "が", "を", "に", "で", "と", "も", "の", "へ", "や", "か", "ね", "よ"}) {
+        if (reading.size() > particle.size() && std::string_view(reading).ends_with(particle)) {
+            const int word = cost_of(std::string_view(reading.data(), reading.size() - particle.size()));
+            if (word != std::numeric_limits<int>::max()) {
+                cost = std::min(cost, word + particle_penalty);
+            }
+        }
+    }
+    return cost;
+}
+bool JapaneseWords::completion_leads(const std::string& reading, int cost) const {
+    // A word read so leads its completions unless they are clearly commoner:
+    // おめでとう (1842) leads おめでと (4192), but 涙 keeps its place before
+    // 涙する and だめ before ダメージ. A word of two kana always leads, as a
+    // phone's does: はな is 花 before 話 (はなし).
+    const int own = own_cost(reading);
+    if (own == std::numeric_limits<int>::max()) {
+        return true;
+    }
+    return g_utf8_strlen(reading.c_str(), -1) > 2 && cost + clearly_commoner < own;
+}
+std::vector<std::pair<std::string, int>>
+JapaneseWords::completions(const std::string& reading, std::size_t most, bool& first) const {
     load();
     int exact = std::numeric_limits<int>::max(); // The reading's own cost as a word.
     const auto reading_of = [&](const Entry& entry) {
@@ -1217,20 +1369,31 @@ std::vector<std::string> JapaneseWords::complete(const std::string& reading, std
     }
     std::stable_sort(found.begin(), found.end(),
                      [](const Entry* a, const Entry* b) { return a->cost < b->cost; });
-    // A word read so leads its completions unless they are clearly commoner:
-    // おめでとう (1842) leads おめでと (4192), but 涙 keeps its place before
-    // 涙する and だめ before ダメージ.
-    constexpr int clearly = 1000;
-    first = !found.empty() && found.front()->cost + clearly < exact;
-    std::vector<std::string> result;
+    // An adjective's stem completes to it first unless the stem is clearly
+    // the commoner word: おもしろ to 面白い.
+    const bool stem = !found.empty() && reading_of(*found.front()) == reading + "い" &&
+                      exact != std::numeric_limits<int>::max() &&
+                      g_utf8_strlen(reading.c_str(), -1) > 2 &&
+                      exact + clearly_commoner >= static_cast<int>(found.front()->cost);
+    first = !found.empty() && (stem || completion_leads(reading, static_cast<int>(found.front()->cost)));
+    std::vector<std::pair<std::string, int>> result;
     for (const auto* entry : found) {
         std::string word(text_.data() + entry->word, entry->word_size);
-        if (std::find(result.begin(), result.end(), word) == result.end()) {
-            result.push_back(std::move(word));
+        if (std::none_of(result.begin(), result.end(),
+                         [&](const auto& got) { return got.first == word; })) {
+            result.emplace_back(std::move(word), static_cast<int>(entry->cost));
             if (result.size() == most) {
                 break;
             }
         }
+    }
+    return result;
+}
+std::vector<std::string> JapaneseWords::complete(const std::string& reading, std::size_t most,
+                                                 bool& first) const {
+    std::vector<std::string> result;
+    for (auto& [word, cost] : completions(reading, most, first)) {
+        result.push_back(std::move(word));
     }
     return result;
 }

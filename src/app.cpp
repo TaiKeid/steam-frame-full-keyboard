@@ -204,6 +204,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     japanese_kaomoji_ = JapaneseWords(data_resource(options_.data_dir, "japanese/kaomoji.tsv"));
     composition_.set_kaomoji(&japanese_kaomoji_);
     japanese_preferred_ = JapaneseWords(data_resource(options_.data_dir, "japanese/preferred.tsv"));
+    composition_.set_phrases(&japanese_preferred_);
     composition_.set_preferred([this](const std::string& reading) {
         auto phrases = japanese_preferred_.exact(reading, 1);
         // The user's own most frequent choice for the reading wins; the

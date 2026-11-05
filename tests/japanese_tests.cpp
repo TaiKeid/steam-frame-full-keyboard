@@ -663,16 +663,23 @@ void word_completion() {
     } cleanup{directory};
     const auto file = fs::path(directory) / "words.tsv";
     std::ofstream(file) << "# reading\tword\tcost\n"
+                           "あり\tあり\t0\n"
                            "ありがとう\tありがとう\t646\n"
                            "ありがとうございます\tありがとうございます\t1086\n"
                            "おめでとう\tおめでとう\t1842\n"
                            "おめでとう\tお目出度う\t4071\n"
                            "おめでとうございます\tおめでとうございます\t2296\n"
+                           "おもしろ\tおもしろ\t2836\n"
+                           "おもしろい\t面白い\t1876\n"
                            "きみ\t君\t1855\n"
                            "きみたち\t君たち\t3469\n"
                            "きみょう\t奇妙\t1000\n"
+                           "きょう\t今日\t121\n"
+                           "きょうはく\t脅迫\t5003\n"
                            "なみだ\t涙\t4109\n"
-                           "なみだする\t涙する\t3384\n";
+                           "なみだする\t涙する\t3384\n"
+                           "はな\t花\t3424\n"
+                           "はなし\t話\t16\n";
     const JapaneseWords words(file);
     bool first = false;
     require(
@@ -686,6 +693,14 @@ void word_completion() {
     require(words.complete("ん", 3, first).empty() && !first, "nothing begins with ん");
     require(words.complete("きみ", 3, first) == std::vector<std::string>{"君たち"} && !first,
             "a small kana after the reading is another sound: きみ doesn't complete to きみょう");
+    require(words.complete("きょうは", 3, first) == std::vector<std::string>{"脅迫"} && !first,
+            "a word and a particle after it read as the word: きょうは leads 脅迫");
+    require(words.complete("はな", 3, first) == std::vector<std::string>{"話"} && !first,
+            "a word of two kana leads completions however common: 花 before 話");
+    require(words.complete("ありが", 1, first) == std::vector<std::string>{"ありがとう"} && first,
+            "a word and a particle read less surely than the word: ありが completes to ありがとう");
+    require(words.complete("おもしろ", 1, first) == std::vector<std::string>{"面白い"} && first,
+            "an adjective's stem completes to it first");
     require(words.complete("なみだ", 3, first) == std::vector<std::string>{"涙する"} && !first,
             "a word read so stays before a completion that is only a little commoner");
     bool none = true;
@@ -700,6 +715,59 @@ void word_completion() {
             "a reading that is no word yet completes first");
     require(composer.choose_live(1) && composer.commit_text() == "おめでとうございます",
             "a completion commits as the word");
+    {
+        // Common chat phrases complete a reading too, ranked as common words.
+        const auto phrase_file = fs::path(directory) / "phrases.tsv";
+        std::ofstream(phrase_file) << "いただきます\tいただきます\t0\n"
+                                      "きょうはありがとう\t今日はありがとう\t0\n";
+        const JapaneseWords phrases(phrase_file);
+        std::ofstream(fs::path(directory) / "more.tsv") << "いただき\tいただき\t4757\n"
+                                                           "きょう\t今日\t121\n";
+        const JapaneseWords more(fs::path(directory) / "more.tsv");
+        JapaneseComposer phrasing(fake_converter(&conversions));
+        phrasing.set_words(&more);
+        phrasing.set_phrases(&phrases);
+        phrasing.kana("いただき");
+        phrasing.prepare_live();
+        require(phrasing.live().front() == "いただきます",
+                "a phrase completes a rare word's reading first");
+        phrasing.cancel();
+        phrasing.kana("きょうは");
+        phrasing.prepare_live();
+        require(phrasing.live().front() == "〈きょ〉〈うは〉" &&
+                    std::find(phrasing.live().begin(), phrasing.live().end(), "今日はありがとう") !=
+                        phrasing.live().end(),
+                "but follows a word and a particle, as a common word would");
+    }
+    {
+        // The conversion committed before, offered back as learned, leads.
+        struct Learned : FakeConverter {
+            using FakeConverter::FakeConverter;
+            std::vector<std::string> predict(const std::string&) override {
+                return {"〈おめ〉〈でと〉"};
+            }
+        };
+        JapaneseComposer learner([&] { return std::make_unique<Learned>(&conversions); });
+        learner.set_words(&words);
+        learner.set_learning(true);
+        learner.kana("おめでと");
+        learner.prepare_live();
+        require(learner.live().front() == "〈おめ〉〈でと〉" && learner.live()[1] == "おめでとう",
+                "a learned pick of the conversion leads the completions");
+    }
+    // A reading converted as one word offers its other words first: here
+    // the fake converter's second candidate, before 涙する.
+    composer.cancel();
+    composer.kana("なみだ");
+    composer.prepare_live();
+    require(composer.live().size() > 2 && composer.live()[0] == "〈なみ〉〈だ〉" &&
+                composer.live()[1] == "涙する",
+            "a reading of two segments keeps completions before the first segment's words");
+    composer.cancel();
+    composer.kana("きみ");
+    composer.prepare_live();
+    require(composer.live() == std::vector<std::string>{"〈きみ〉", "きみ", "キミ", "君たち"},
+            "a one-word reading's other words come before its completions");
     composer.cancel();
     composer.kana("ありがとう");
     composer.prepare_live();
@@ -765,6 +833,36 @@ void preferred_phrases() {
                         candidates.end(),
                 "変換 converts to it as one segment, the converter's split among its candidates");
         require(composer.commit_text() == "行きます", "and commits it");
+    }
+    {
+        // ← cuts a phrase's last kana off into a segment of its own, its
+        // text cut so too; → joins them again.
+        JapaneseComposer composer(fake_converter(&conversions));
+        composer.set_preferred([](const std::string& reading) {
+            return reading == "きょうはいいてんきだね" ? std::vector<std::string>{"今日はいい天気だね"}
+                   : reading == "きょうのよてい"       ? std::vector<std::string>{"今日の予定"}
+                                                       : std::vector<std::string>{};
+        });
+        composer.kana("きょうはいいてんきだね");
+        composer.convert();
+        composer.resize(-1);
+        require(composer.segment_count() == 2 && composer.candidates().front() == "今日はいい天気だ" &&
+                    composer.commit_text() == "今日はいい天気だね",
+                "← keeps the phrase's text, the cut kana apart as written");
+        composer.resize(-1);
+        require(composer.candidates().front() == "今日はいい天気" &&
+                    composer.commit_text() == "今日はいい天気だね" && composer.segment_count() == 2,
+                "and cuts further");
+        composer.resize(1);
+        composer.resize(1);
+        require(composer.segment_count() == 1 && composer.commit_text() == "今日はいい天気だね",
+                "→ joins them back into the phrase");
+        composer.cancel();
+        composer.kana("きょうのよてい");
+        composer.convert();
+        composer.resize(-1);
+        require(composer.commit_text() != "今日の予" && composer.segment_count() > 1,
+                "a phrase not ending in the kana cut goes back to the converter's split");
     }
     char directory[] = "/tmp/framekeyboard-preferred-XXXXXX";
     require(mkdtemp(directory), "temporary preferred profile");
