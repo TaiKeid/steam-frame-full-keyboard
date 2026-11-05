@@ -2596,7 +2596,14 @@ void JapaneseComposer::prepare_live() {
             add(std::move(phrase), Live::Source::Completion);
         }
     }
-    const auto predicted = learning_ ? converter().predict(reading) : std::vector<std::string>{};
+    std::vector<std::string> predicted;
+    if (learning_) {
+        try {
+            predicted = converter().predict(reading);
+        } catch (const std::exception&) {
+            // Predictions may use an unavailable fallback even when conversion succeeded.
+        }
+    }
     // A conversion committed before, offered back as learned, is the user's
     // pick for the reading: it leads the dictionary's completions.
     if (std::find(predicted.begin(), predicted.end(), whole) != predicted.end()) {

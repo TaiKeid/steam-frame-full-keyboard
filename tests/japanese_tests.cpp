@@ -708,6 +708,27 @@ void completion_reopen() {
     flick(app, "undo", 5);
     require(app.view().preedit == "おもしろ", "↶ restores the kana before the completion");
 }
+// An unavailable prediction provider must not discard a successful conversion.
+void live_without_predictions() {
+    struct Unavailable : FakeConverter {
+        int* predictions;
+        Unavailable(int* count, int* predicted) : FakeConverter(count), predictions(predicted) {}
+        std::vector<std::string> predict(const std::string&) override {
+            ++*predictions;
+            throw std::runtime_error("prediction provider unavailable");
+        }
+    };
+    int conversions = 0, predictions = 0;
+    JapaneseComposer composer([&] { return std::make_unique<Unavailable>(&conversions, &predictions); });
+    composer.set_learning(true);
+    composer.kana("にほんご");
+    composer.prepare_live();
+    require(predictions == 1 && composer.live_current() && composer.live().front() == "〈にほ〉〈んご〉",
+            "successful conversion stays live when predictions fail");
+    composer.convert();
+    require(conversions == 1 && composer.commit_text() == "〈にほ〉〈んご〉",
+            "conversion reuses the live segments even without predictions");
+}
 // Symbol segments as Anthy returns them: half-width ！ first, a closing 」 as 』.
 void symbols_as_typed() {
     struct SymbolConverter : JapaneseConverter {
@@ -3480,6 +3501,7 @@ int main() {
         resized_rules();
         completion_reading();
         completion_reopen();
+        live_without_predictions();
         symbols_as_typed();
         word_completion();
         flick_katakana();
