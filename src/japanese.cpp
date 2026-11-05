@@ -2814,6 +2814,9 @@ void JapaneseComposer::cancel() {
     emoji_choice_.reset();
 }
 std::string JapaneseComposer::reopen_reading() const {
+    if (predicted_ && !live_.reading.empty()) {
+        return live_.reading;
+    }
     // Only while the emoji is still all there is: typing after a refused
     // commit makes it part of the reading.
     return emoji_choice_ && reading_ == emoji_choice_->emoji && pending_.empty() && !converting()
@@ -2821,7 +2824,7 @@ std::string JapaneseComposer::reopen_reading() const {
                : reading_;
 }
 std::string JapaneseComposer::typed_reading() const {
-    return predicted_ && !live_.reading.empty() ? live_.reading : reopen_reading();
+    return reopen_reading();
 }
 std::string JapaneseComposer::preedit(bool mark_active) const {
     if (!converting()) {

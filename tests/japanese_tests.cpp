@@ -663,6 +663,51 @@ void resized_rules() {
                 "rules do not reorder or duplicate an earlier segment on another resize");
     }
 }
+// A completion replaces the output text, but ↶ restores what was typed.
+void completion_reading() {
+    int conversions = 0;
+    JapaneseComposer composer(fake_converter(&conversions));
+    composer.set_preferred([](const std::string& reading) {
+        return reading == "おもしろ" ? std::vector<std::string>{"面白い"} : std::vector<std::string>{};
+    });
+    composer.kana("おもしろ");
+    composer.prepare_live();
+    require(composer.live().front() == "面白い" && composer.choose_live(0),
+            "a completion replaces the whole reading");
+    require(composer.commit_text() == "面白い" && composer.typed_reading() == "おもしろ",
+            "a completion commits its text while retaining the typed reading");
+    require(composer.reopen_reading() == "おもしろ", "a completion reopens the typed kana");
+}
+void completion_reopen() {
+    char directory[] = "/tmp/framekeyboard-completion-reopen-XXXXXX";
+    require(mkdtemp(directory), "temporary completion profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    flick(app, "a", 1, 0, 60);
+    flick(app, "ma", 1.5, 0, 60);
+    flick(app, "sa", 2, -60, 0);
+    flick(app, "ra", 2.5, 0, 60);
+    require(app.view().preedit == "おもしろ", "the completion's kana are typed");
+    app.tick(3);
+    app.tick(3.3);
+    require(click_candidate(app, "面白い", 4) && sink.text.back() == "面白い",
+            "the live completion commits through the fake sink");
+    flick(app, "undo", 5);
+    require(app.view().preedit == "おもしろ", "↶ restores the kana before the completion");
+}
 // Symbol segments as Anthy returns them: half-width ！ first, a closing 」 as 』.
 void symbols_as_typed() {
     struct SymbolConverter : JapaneseConverter {
@@ -3426,6 +3471,8 @@ int main() {
         resized_shorter_choices();
         resized_reordered_choices();
         resized_rules();
+        completion_reading();
+        completion_reopen();
         symbols_as_typed();
         word_completion();
         flick_katakana();

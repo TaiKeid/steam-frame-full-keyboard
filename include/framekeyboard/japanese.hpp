@@ -215,9 +215,9 @@ class JapaneseComposer {
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
-    // What ↶ brings back for the phrase commit_text() gives: the reading, or
-    // for an emoji picked from the live candidates the kana it replaced
-    // (ねこ for 🐈).
+    // What ↶ brings back for the phrase commit_text() gives: the typed reading,
+    // also for a completion or emoji picked from the live candidates
+    // (おもしろ for 面白い, ねこ for 🐈).
     std::string reopen_reading() const;
     // The reading typed for the phrase commit_text() gives, also where a
     // word picked from the live candidates replaced it (すぐいく for すぐ行く).
