@@ -2120,8 +2120,13 @@ bool JapaneseComposer::carried_words(const std::vector<Segment>& segments,
     return true;
 }
 void JapaneseComposer::stretch_segment(Segment& segment, const Stretch& stretch) {
+    auto reading = stretch.apply(segment.reading);
+    // A final kana split off on its own stays converted; don't move the
+    // stretch onto another segment or discard this segment's candidates.
+    if (reading.empty()) {
+        return;
+    }
     // Those that can't take it go: 倍々 for ばいばい, as ばいばーい.
-    segment.reading = stretch.apply(segment.reading);
     std::vector<std::string> candidates;
     for (const auto& candidate : segment.candidates) {
         if (auto stretched = stretch.apply(candidate);
@@ -2130,7 +2135,10 @@ void JapaneseComposer::stretch_segment(Segment& segment, const Stretch& stretch)
             candidates.push_back(std::move(stretched));
         }
     }
-    segment.candidates = std::move(candidates);
+    if (!candidates.empty()) {
+        segment.reading = std::move(reading);
+        segment.candidates = std::move(candidates);
+    }
 }
 std::vector<std::string> JapaneseComposer::usual_phrases(const std::string& reading) const {
     auto phrases = preferred_ ? preferred_(reading) : std::vector<std::string>{};

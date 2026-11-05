@@ -544,6 +544,42 @@ struct FakeConverter : JapaneseConverter {
 JapaneseComposer::Factory fake_converter(int* conversions) {
     return [conversions] { return std::make_unique<FakeConverter>(conversions); };
 }
+// A final kana split off a stretched word keeps its own candidates.
+void stretched_boundaries() {
+    struct Stretched : JapaneseConverter {
+        bool split;
+        explicit Stretched(bool initially_split) : split(initially_split) {}
+        std::vector<Segment> convert(const std::string& reading) override {
+            if (reading == "すごーい") {
+                return {{reading, {reading}}};
+            }
+            return split ? divided() : std::vector<Segment>{{reading, {"凄い", reading}}};
+        }
+        static std::vector<Segment> divided() {
+            return {{"すご", {"凄", "すご"}}, {"い", {"い", "胃"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return divided(); }
+    };
+    for (const bool split : {false, true}) {
+        JapaneseComposer composer([split] { return std::make_unique<Stretched>(split); });
+        composer.kana("すごーい");
+        composer.convert();
+        if (!split) {
+            require(composer.preedit() == "すごーい", "a whole word keeps its stretch");
+            composer.resize(-1);
+        }
+        require(composer.segment_count() == 2, "the final kana is a separate segment");
+        for (int i = 0; i < composer.segment_count(); ++i) {
+            require(!composer.candidates().empty(), "a split stretched word keeps candidates");
+            const auto [begin, end] = composer.active_range();
+            require(end > begin, "a split stretched word keeps a nonempty segment");
+            composer.segment(1);
+        }
+        require((composer.preedit() == "凄い" || composer.preedit() == "すごい") &&
+                    composer.commit_text() == composer.preedit(),
+                "a lone final kana stays converted without moving the stretch to another word");
+    }
+}
 // Symbol segments as Anthy returns them: half-width ！ first, a closing 」 as 』.
 void symbols_as_typed() {
     struct SymbolConverter : JapaneseConverter {
@@ -3303,6 +3339,7 @@ int main() {
     } anthy_cleanup{anthy_home};
     configure_anthy({false, anthy_home});
     try {
+        stretched_boundaries();
         symbols_as_typed();
         word_completion();
         flick_katakana();
