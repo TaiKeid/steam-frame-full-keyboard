@@ -1779,7 +1779,7 @@ void JapaneseComposer::object_verbs(std::vector<Segment>& segments) {
         auto& candidates = segments[i].candidates;
         // The first candidate afresh for each rule: one may have moved it.
         for (const auto& rule : rules) {
-            const std::string_view verb = candidates.front();
+            std::string_view verb = candidates.front();
             // Or the noun and verb in one segment: 1000円化して.
             for (const auto noun : rule.nouns) {
                 const auto at = verb.find(std::string(noun) + std::string(rule.wrong));
@@ -1790,6 +1790,8 @@ void JapaneseComposer::object_verbs(std::vector<Segment>& segments) {
                     break;
                 }
             }
+            // promote() rotates the strings the earlier view referred to.
+            verb = candidates.front();
             if (i > 0 && verb.starts_with(rule.wrong) && after(rule.nouns)) {
                 promote(candidates,
                         std::string(rule.right) + std::string(verb.substr(rule.wrong.size())));

@@ -1376,6 +1376,11 @@ void object_verbs() {
                 return {
                     {"しゃしんと", {"写真と"}}, {"かさを", {"傘を"}}, {"とった", {"取った", "撮った"}}};
             }
+            if (reading == "あせかいてあせかいた") {
+                return {{"あせ", {"汗"}},
+                        {"かいてあせかいた",
+                         {"書いて汗書いた", "書いて汗かいた", "かいて汗書いた", "かいて汗かいた"}}};
+            }
             if (reading == "せんえんかして") {
                 return {{"せんえんかして", {"千円化して", "千円貸して"}}};
             }
@@ -1418,6 +1423,8 @@ void object_verbs() {
     require(as("しゃしんはちょうどとった") == "写真はちょうど撮った", "across a word between");
     require(as("しゃしんとかさをとった") == "写真と傘を取った", "not across another object");
     require(as("せんえんかして") == "千円貸して", "in one segment");
+    require(as("あせかいてあせかいた") == "汗かいて汗かいた",
+            "a promoted in-segment verb also takes its preceding object's spelling");
     require(as("かみをきった") == "髪を切った", "hair is cut");
     require(as("しあいはさんたいいちでかった") == "試合は3対1で勝った", "a game is won");
     require(as("いえについた") == "家に着いた", "a place is reached");
