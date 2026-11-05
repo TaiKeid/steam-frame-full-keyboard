@@ -1206,6 +1206,33 @@ void numpad_settings() {
     app.paint(5);
     app.renderer.write_png("/tmp/framekeyboard-numpad-hidden.png");
 }
+void legacy_background_surface_tests() {
+    TemporaryDirectory directory;
+    {
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.hosted_fd = 99; // App only needs to know it is hosted.
+        CaptureSink sink;
+        App app(options, sink);
+        auto values =
+            json_ptr(json_tokener_parse(R"({"background_surface":"disabled","hide_numpad":true})"));
+        require(app.host_settings_set(values.get(), 1).first.empty(),
+                "protocol 1 accepts the legacy disabled background surface");
+        const auto settings = app.host_settings();
+        require(std::string(json_object_get_string(
+                    json_object_object_get(settings.get(), "background_surface"))) == "invisible" &&
+                    app.view().case_opacity == 0 && app.view().hide_numpad,
+                "the legacy surface becomes invisible and other settings in the request apply");
+        app.flush_settings();
+        std::vector<std::string> errors;
+        const auto saved = load_settings(directory.path, errors);
+        require(errors.empty() && saved.background_surface == "invisible" && saved.hide_numpad,
+                "the legacy surface saves in canonical form");
+        require(sink.events.empty(), "legacy settings compatibility sends no input");
+    }
+}
+
 void background_surface_setting() {
     TemporaryDirectory directory;
     Options options;
@@ -2713,6 +2740,7 @@ int main() {
         reload_startup();
         launch_startup();
         numpad_settings();
+        legacy_background_surface_tests();
         background_surface_setting();
         key_flicks_setting();
         haptic_sounds_setting();

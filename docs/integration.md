@@ -217,7 +217,7 @@ Settings written over the protocol persist, exactly like the same change in Sett
 | Key | Type and range |
 | --- | --- |
 | `swipe_typing`, `swipe_switch`, `haptic_sounds_switch`, `num_lock`, `hide_numpad`, `use_drag_to_move`, `auto_leveling`, `pinned`, `emoji_close_on_select`, `desktop_unicode_paste` | boolean |
-| `background_surface` | `visible`, `semi-transparent`, `invisible` |
+| `background_surface` | `visible`, `semi-transparent`, `invisible`; legacy `disabled` is accepted as `invisible` |
 | `haptic_sounds` | `off`, `press`, `release`, `both` |
 | `haptic_effect` | `a` to `f` |
 | `haptic_volume` | 25, 50, 75 or 100 (percent) |

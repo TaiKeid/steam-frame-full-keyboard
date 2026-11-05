@@ -2745,10 +2745,10 @@ void hosted_tests() {
     require(app.host_settings_set(surface.get(), 6) ==
                 std::pair<std::string, std::string>{"invalid_setting", "background_surface"},
             "a background surface outside visible, semi-transparent and invisible is refused");
-    auto removed = json_ptr(json_tokener_parse(R"({"background_surface":"disabled"})"));
-    require(app.host_settings_set(removed.get(), 6) ==
+    auto uppercase = json_ptr(json_tokener_parse(R"({"background_surface":"DISABLED"})"));
+    require(app.host_settings_set(uppercase.get(), 6) ==
                 std::pair<std::string, std::string>{"invalid_setting", "background_surface"},
-            "so is the removed Disabled");
+            "background surface values are case sensitive");
     auto sounds = json_ptr(json_tokener_parse(R"({"haptic_sounds":"loud"})"));
     require(app.host_settings_set(sounds.get(), 6) ==
                 std::pair<std::string, std::string>{"invalid_setting", "haptic_sounds"},

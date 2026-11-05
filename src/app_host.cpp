@@ -343,7 +343,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
             }
         } else if (key == "background_surface") {
             if (!json_object_is_type(check_value, json_type_string) ||
-                !valid_background_surface(json_object_get_string(check_value))) {
+                (!valid_background_surface(json_object_get_string(check_value)) &&
+                 std::string(json_object_get_string(check_value)) != "disabled")) {
                 return {"invalid_setting", key};
             }
         } else if (key == "haptic_sounds") {
@@ -419,7 +420,10 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
         } else if (key == "dictation_fallback") {
             settings_.dictation_fallback = pending_dictation_fallback_ = on;
         } else if (key == "background_surface") {
-            settings_.background_surface = pending_background_surface_ = json_object_get_string(value);
+            const std::string surface = json_object_get_string(value);
+            // Protocol 1 keeps the old spelling, with the loader's migration.
+            settings_.background_surface = pending_background_surface_ =
+                surface == "disabled" ? "invisible" : surface;
         } else if (key == "haptic_sounds") {
             settings_.haptic_sounds = pending_haptic_sounds_ = json_object_get_string(value);
         } else if (key == "haptic_effect") {
