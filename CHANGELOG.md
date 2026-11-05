@@ -88,6 +88,7 @@
 - Fixed leaked server-client resources in the isolated clipboard test fixture, including cleanup during exception unwinding.
 - Added isolated regression coverage for dictation editing, helper cleanup and cancellation, pointer-controlled sound playback and shutdown, and Cangjie/Quick text recovery, pacing and cancellation.
 - Fixed ARM64 linking and a C-linkage declaration in the sound test library.
+- The release archive no longer carries the documentation folder and contributing guide, which nothing on the headset reads: about 4.7 MB less on each install. The README and changelog in it link to the documentation online, at the release's version.
 
 ## 0.14.1: The keyboard returns promptly after an update
 

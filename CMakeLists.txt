@@ -515,7 +515,6 @@ endif()
 if(FRAMEKEYBOARD_VR)
     install(TARGETS framekeyboard framekeyboard-native-guard RUNTIME DESTINATION bin)
 endif()
-install(DIRECTORY docs DESTINATION .)
 install(DIRECTORY layouts languages themes config vr DESTINATION share/framekeyboard)
 install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
 install(FILES japanese/words.tsv japanese/kaomoji.tsv japanese/preferred.tsv japanese/mozc-words.tsv
@@ -542,4 +541,20 @@ if(FRAMEKEYBOARD_WHISPER_DIR)
     install(FILES third_party/whisper.cpp/LICENSE DESTINATION third_party/whisper.cpp)
 endif()
 
-install(FILES LICENSE README.md CHANGELOG.md CONTRIBUTING.md DESTINATION .)
+# A package leaves out docs/ and CONTRIBUTING.md, which nothing installed
+# reads. Its README and changelog link to them online instead, at the
+# release's tag, in the repository the updater uses (update/update_helper.py).
+set(FRAMEKEYBOARD_REPOSITORY "TaiKeid/steam-frame-full-keyboard")
+set(packaged_docs "https://github.com/${FRAMEKEYBOARD_REPOSITORY}/blob/${PROJECT_VERSION}")
+set(packaged_images "https://raw.githubusercontent.com/${FRAMEKEYBOARD_REPOSITORY}/${PROJECT_VERSION}")
+foreach(document README.md CHANGELOG.md)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${document})
+    file(READ ${document} text)
+    # Images first, by their raw files, so the links after them keep theirs.
+    string(REPLACE "](docs/images/" "](${packaged_images}/docs/images/" text "${text}")
+    string(REPLACE "](docs/" "](${packaged_docs}/docs/" text "${text}")
+    string(REPLACE "](CONTRIBUTING.md" "](${packaged_docs}/CONTRIBUTING.md" text "${text}")
+    file(WRITE ${CMAKE_BINARY_DIR}/packaged/${document} "${text}")
+    install(FILES ${CMAKE_BINARY_DIR}/packaged/${document} DESTINATION .)
+endforeach()
+install(FILES LICENSE DESTINATION .)
