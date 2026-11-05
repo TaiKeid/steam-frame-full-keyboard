@@ -7,6 +7,7 @@
 #include <fstream>
 #include <glib.h>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <sys/wait.h>
 #include <tuple>
@@ -742,6 +743,24 @@ void word_completion() {
         require(romaji.preedit() == "げんいn" && live.front() == "〈げん〉〈いん〉" &&
                     other != live.end(),
                 "gennin reads げんいん, a word, so 現任 follows its conversion");
+        {
+            struct Whole : JapaneseConverter {
+                std::vector<Segment> convert(const std::string& reading) override {
+                    return {{reading, {reading == "せんえん" ? "千円" : reading}}};
+                }
+                std::vector<Segment> resize(int, int) override { return {}; }
+            };
+            std::ofstream(fs::path(directory) / "sen.tsv") << "せんねん\t専念\t4843\n";
+            const JapaneseWords sen(fs::path(directory) / "sen.tsv");
+            JapaneseComposer yen([] { return std::make_unique<Whole>(); });
+            yen.set_words(&sen);
+            for (const char c : std::string("sennenn")) {
+                yen.roman(c);
+            }
+            yen.prepare_live();
+            require(yen.live().front() == "千円",
+                    "a reading Anthy converts whole to a word leads the other reading's words");
+        }
         romaji.cancel();
         romaji.kana("こんいちは");
         romaji.prepare_live();
@@ -770,6 +789,25 @@ void word_completion() {
                     std::find(phrasing.live().begin(), phrasing.live().end(), "今日はありがとう") !=
                         phrasing.live().end(),
                 "but follows a word and a particle, as a common word would");
+        std::ofstream(fs::path(directory) / "chat.tsv") << "こんにちは\tこんにちは\t0\n"
+                                                           "こんやあいてる\t今夜空いてる\t0\n";
+        const JapaneseWords chat(fs::path(directory) / "chat.tsv");
+        std::ofstream(fs::path(directory) / "common.tsv") << "こんにち\t今日\t785\n"
+                                                             "こんにちは\tこんにちは\t1276\n"
+                                                             "こんや\t今夜\t3613\n";
+        const JapaneseWords common(fs::path(directory) / "common.tsv");
+        JapaneseComposer chatting(fake_converter(&conversions));
+        chatting.set_words(&common);
+        chatting.set_phrases(&chat);
+        chatting.kana("こんに");
+        chatting.prepare_live();
+        require(chatting.live().front() == "こんにちは",
+                "a word the phrases list too ranks ahead: こんにちは before 今日");
+        chatting.cancel();
+        chatting.kana("こんや");
+        chatting.prepare_live();
+        require(chatting.live().front() == "〈こん〉〈や〉",
+                "a phrase doesn't lead a common word: 今夜 before 今夜空いてる");
     }
     {
         // The conversion committed before, offered back as learned, leads.
@@ -929,6 +967,24 @@ void preferred_phrases() {
     type();
     require(first() == "〈いき〉〈ます〉" && app.view().candidates->chips.at(1).text == "行きます",
             "and once chosen, it wins over the list, whose phrase stays next");
+    click_key(app, "Escape");
+
+    // A word's form picked in a sentence is remembered for the word, and
+    // leads it in later sentences.
+    const auto horaiku = [&] {
+        for (const auto* key : {"KeyH", "KeyO", "KeyR", "KeyA", "KeyI", "KeyK", "KeyU"}) {
+            click_key(app, key);
+        }
+        app.tick(now += 1);
+        app.tick(now += 1);
+    };
+    horaiku();
+    require(first() == "〈ほら〉行く", "the sentence's word takes the list's form");
+    require(click_candidate(app, "〈ほら〉", now += .1) && click_candidate(app, "〈いく〉", now += .1) &&
+                sink.text.back() == "〈ほら〉〈いく〉",
+            "another form can be picked for it");
+    horaiku();
+    require(first() == "〈ほら〉〈いく〉", "and then leads the word");
 }
 // A reading typed in katakana, as the flick layout's ア mode types it, is
 // offered as typed first; a mixed one keeps the usual order.
@@ -943,6 +999,90 @@ void typed_katakana() {
     composer.kana("がッ");
     composer.prepare_live();
     require(composer.live().front() == "〈がッ〉", "a mixed reading converts first");
+}
+// A word's usual form from the phrase list leads its segment, before a
+// particle too, and a kana word Anthy left after に, へ, で or と takes it;
+// a helper verb after て stays kana.
+void word_forms() {
+    struct Segments : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            if (reading == "すぐいくね") {
+                return {{"すぐ", {"直ぐ", "すぐ"}}, {"いくね", {"育ね", "いくね"}}};
+            }
+            if (reading == "すぐいく") {
+                return {{"すぐ", {"直ぐ", "すぐ"}}, {"いく", {"育", "行く"}}};
+            }
+            if (reading == "たべにいこう") {
+                return {{"たべにいこう", {"食べにいこう"}}};
+            }
+            if (reading == "いくから") {
+                return {{"いくから", {"育から", "いくから"}}};
+            }
+            if (reading == "ごはんできた") {
+                return {{"ごはんできた", {"ご飯できた"}}};
+            }
+            if (reading == "くるまでいく") {
+                return {{"くるまで", {"車で", "来るまで"}}, {"いく", {"育", "行く"}}};
+            }
+            if (reading == "じかんがあう" || reading == "あしたあう") {
+                const auto first = reading.substr(0, reading.size() - std::string("あう").size());
+                return {{first, {first == "じかんが" ? "時間が" : "明日"}}, {"あう", {"合う", "会う"}}};
+            }
+            return {{reading, {"持っていく"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Segments>(); });
+    composer.set_preferred([](const std::string& reading) {
+        const std::map<std::string, std::string> forms{{"いく", "行く"}, {"いこう", "行こう"},
+                                                       {"きた", "来た"}, {"くる", "来る"},
+                                                       {"あう", "会う"}, {"があう", "が合う"}};
+        const auto form = forms.find(reading);
+        return form != forms.end() ? std::vector<std::string>{form->second} : std::vector<std::string>{};
+    });
+    const auto whole = [&](const char* reading) {
+        composer.cancel();
+        composer.kana(reading);
+        composer.prepare_live();
+        return composer.live().front();
+    };
+    require(whole("すぐいく") == "直ぐ行く", "a segment's word takes its usual form first");
+    require(whole("すぐいくね") == "直ぐ行くね", "before a particle too");
+    require(whole("たべにいこう") == "食べに行こう", "a kana word after に takes it within a segment");
+    require(whole("もっていく") == "持っていく", "a helper verb after て stays kana");
+    require(whole("いくから") == "行くから", "longer particles too: から");
+    require(whole("ごはんできた") == "ご飯できた", "not after で, which できる begins with");
+    require(whole("くるまでいく") == "車で行く",
+            "nor before a particle Anthy doesn't read: 車で, not 来るまで");
+    require(whole("じかんがあう") == "時間が合う" && whole("あしたあう") == "明日会う",
+            "after a case particle, the list's form after it: が合う, else 会う");
+
+    // What each such word was committed as, without its particle, which the
+    // app remembers as the user's choice.
+    using Choices = std::vector<std::pair<std::string, std::string>>;
+    const auto converted = [&](const char* reading) {
+        composer.cancel();
+        composer.kana(reading);
+        composer.convert();
+    };
+    converted("すぐいくね");
+    require(composer.word_choices() == Choices{{"いく", "行く"}},
+            "a word as committed, without its particle");
+    composer.segment(1);
+    composer.cycle(1);
+    require(composer.commit_text() == "直ぐ育ね" && composer.word_choices() == Choices{{"いく", "育"}},
+            "or as picked instead");
+    converted("たべにいこう");
+    require(composer.word_choices() == Choices{{"いこう", "行こう"}}, "a word after に too");
+    composer.cycle(1);
+    require(composer.commit_text() == "食べにいこう" &&
+                composer.word_choices() == Choices{{"いこう", "いこう"}},
+            "kept in kana");
+    converted("もっていく");
+    require(composer.word_choices().empty(), "a helper verb after て is no such word");
+    converted("じかんがあう");
+    require(composer.word_choices() == Choices{{"があう", "が合う"}},
+            "a form after a particle with its particle");
 }
 void progressive_conversion() {
     int conversions = 0;
@@ -2400,6 +2540,7 @@ int main() {
         flick_katakana();
         preferred_phrases();
         typed_katakana();
+        word_forms();
         emoji_candidates();
         learning_calls();
         progressive_conversion();
@@ -2441,6 +2582,8 @@ int main() {
                                                               {"nn", "ん"},
                                                               {"kanna", "かんあ"},
                                                               {"kannna", "かんな"},
+                                                              {"xn", "ん"},
+                                                              {"kaxnna", "かんな"},
                                                               {"matcha", "まっちゃ"},
                                                               {"kyou", "きょう"},
                                                               {"shashin", "しゃしん"},

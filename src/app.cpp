@@ -2558,6 +2558,7 @@ void App::commit_japanese() {
         return;
     }
     const auto reading = composition_.reopen_reading();
+    const auto words = composition_.word_choices();
     if (preview_output()) {
         composition_.cancel();
         status_ = "Preview: composition committed locally.";
@@ -2568,9 +2569,15 @@ void App::commit_japanese() {
         status_.clear();
         follow_commit(text, queued);
         follow_up_ = text;
-        // A reading with a usual conversion remembers what was chosen for it.
+        // A reading with a usual conversion remembers what was chosen for
+        // it; in a sentence, each word with one does.
         if (learning_allowed() && !japanese_preferred_.exact(reading, 1).empty()) {
             japanese_choices_.record(reading, text);
+            japanese_choices_.touch(monotonic_seconds());
+        } else if (learning_allowed() && !words.empty()) {
+            for (const auto& [word, form] : words) {
+                japanese_choices_.record(word, form);
+            }
             japanese_choices_.touch(monotonic_seconds());
         }
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).

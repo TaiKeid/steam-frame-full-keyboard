@@ -162,6 +162,11 @@ class JapaneseComposer {
     void set_learning(bool on) { learning_ = on; }
     // After commit_text() reached the field: teaches the converter the phrase.
     void learn();
+    // The words of the converted phrase commit_text() gives that have a usual
+    // form (set_preferred), each with the form it was committed in, without
+    // its particle: いく and 生く for 生くね. Remembered as the user's choice,
+    // a form picked so beats the usual one in later sentences too.
+    std::vector<std::pair<std::string, std::string>> word_choices() const;
     // Emoji for words, which live candidates offer last (ねこ, 猫 → 🐈).
     using EmojiLookup = std::function<std::vector<std::string>(const std::vector<std::string>&)>;
     void set_emoji(EmojiLookup lookup) { emoji_ = std::move(lookup); }
@@ -230,6 +235,24 @@ class JapaneseComposer {
         int cut{};
     };
     std::optional<Phrase> phrase_;
+    // A word's usual form by the phrase list, and the reading the list has
+    // it under: after a segment read `before` that ends in a case particle,
+    // the list's entry for particle + word where it has one (があう, が合う).
+    std::optional<std::pair<std::string, std::string>> word_form(const std::string& word,
+                                                                 const std::string& before) const;
+    // A segment reading's usual form, also before a particle where Anthy's
+    // `text` ends with that particle too; empty without one.
+    std::string usual_form(const std::string& reading, const std::string& text,
+                           const std::string& before) const;
+    // `text` with a kana word Anthy left at its end, after に, へ or と, in
+    // its usual form; empty without one.
+    std::string usual_tail(const std::string& reading, const std::string& text) const;
+    // The reading of the word with a usual form a segment's reading holds, as
+    // usual_form() and usual_tail() find it, and the form `text` writes it
+    // in, a context entry's particle first; none when `text` writes it
+    // otherwise than they would.
+    std::optional<std::pair<std::string, std::string>>
+    word_choice(const std::string& reading, const std::string& text, const std::string& before) const;
     // Resizes a preferred phrase's segment by its own text; false when its
     // text doesn't end with the kana to cut, for the converter's split.
     bool resize_phrase(int direction);

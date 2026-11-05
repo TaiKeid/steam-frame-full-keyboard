@@ -45,7 +45,7 @@ const std::map<std::string, std::string>& roman_table() {
             "twu とぅ dwu どぅ kwa くぁ gwa ぐぁ ye いぇ tcha っちゃ tchu っちゅ tcho っちょ "
             "xa ぁ xi ぃ xu ぅ xe ぇ xo ぉ xya ゃ xyu ゅ xyo ょ xtu っ xtsu っ xwa ゎ xka ヵ xke ヶ "
             "la ぁ li ぃ lu ぅ le ぇ lo ぉ lya ゃ lyu ゅ lyo ょ ltu っ ltsu っ lwa ゎ lka ヵ lke ヶ "
-            "- ー , 、 . 。 [ 「 ] 」 / ・ ? ？ ! ！ \\ ＼ | ｜");
+            "- ー , 、 . 。 [ 「 ] 」 / ・ ? ？ ! ！ \\ ＼ | ｜ xn ん");
         std::string from, to;
         while (entries >> from >> to) {
             result[from] = to;
@@ -612,9 +612,161 @@ JapaneseConverter& JapaneseComposer::converter() {
     }
     return *converter_;
 }
+namespace {
+// Particles a word's usual form may come before, kept as typed: いくね as
+// 行くね, いくから as 行くから.
+constexpr std::string_view word_particles[] = {
+    "は", "が", "を",   "に",   "で",   "と",   "も",   "の",   "へ",   "や",   "か",   "ね",  "よ",
+    "な", "わ", "から", "かも", "けど", "まで", "だけ", "ので", "のに", "よね", "かな", "って"};
+// Particles ending the segment before a word that the phrase list may give
+// the word another form after: が + あう is が合う (時間が合う), where あう
+// alone is 会う.
+constexpr std::string_view case_particles[] = {"が", "を", "に", "と", "で", "は", "も"};
+// The particles a kana word Anthy left at a segment's end may follow
+// (usual_tail). Not で, which できる and its forms begin with (ご飯できた),
+// nor て, where 〜ていく and 〜てくる are written in kana.
+constexpr std::string_view tail_particles[] = {"に", "へ", "と"};
+} // namespace
+std::optional<std::pair<std::string, std::string>>
+JapaneseComposer::word_form(const std::string& word, const std::string& before) const {
+    if (!preferred_) {
+        return {};
+    }
+    for (const auto particle : case_particles) {
+        if (std::string_view(before).ends_with(particle)) {
+            auto key = std::string(particle) + word;
+            if (auto forms = preferred_(key);
+                !forms.empty() && std::string_view(forms.front()).starts_with(particle)) {
+                return std::pair{std::move(key), forms.front().substr(particle.size())};
+            }
+        }
+    }
+    if (auto forms = preferred_(word); !forms.empty()) {
+        return std::pair{word, std::move(forms.front())};
+    }
+    return {};
+}
+std::string JapaneseComposer::usual_form(const std::string& reading, const std::string& text,
+                                         const std::string& before) const {
+    if (auto form = word_form(reading, before)) {
+        return form->second;
+    }
+    for (const auto particle : word_particles) {
+        if (reading.size() > particle.size() && std::string_view(reading).ends_with(particle)) {
+            const auto word = reading.substr(0, reading.size() - particle.size());
+            if (g_utf8_strlen(word.c_str(), -1) < 2) {
+                continue;
+            }
+            if (auto form = word_form(word, before)) {
+                // Only where Anthy reads the particle too: くるまで is 車で,
+                // not 来るまで.
+                return std::string_view(text).ends_with(particle) ? form->second + std::string(particle)
+                                                                  : std::string{};
+            }
+        }
+    }
+    return {};
+}
+std::string JapaneseComposer::usual_tail(const std::string& reading, const std::string& text) const {
+    if (!preferred_) {
+        return {};
+    }
+    // A word Anthy left in kana after one of the tail particles takes its
+    // usual form: 食べにいこう as 食べに行こう.
+    const auto length = g_utf8_strlen(reading.c_str(), -1);
+    for (glong start = 1; start + 2 <= length; ++start) {
+        const auto at =
+            static_cast<std::size_t>(g_utf8_offset_to_pointer(reading.c_str(), start) - reading.c_str());
+        const auto before = static_cast<std::size_t>(
+            g_utf8_offset_to_pointer(reading.c_str(), start - 1) - reading.c_str());
+        const auto particle = reading.substr(before, at - before);
+        const auto word = reading.substr(at);
+        if (std::find(std::begin(tail_particles), std::end(tail_particles), particle) ==
+                std::end(tail_particles) ||
+            !std::string_view(text).ends_with(word) || text.size() == word.size()) {
+            continue;
+        }
+        if (auto forms = preferred_(word); !forms.empty() && forms.front() != word) {
+            return text.substr(0, text.size() - word.size()) + forms.front();
+        }
+    }
+    return {};
+}
+std::optional<std::pair<std::string, std::string>>
+JapaneseComposer::word_choice(const std::string& reading, const std::string& text,
+                              const std::string& before) const {
+    // A context entry's key keeps its particle in the choice: があう, が合う.
+    const auto chosen = [](const std::pair<std::string, std::string>& form, const std::string& word,
+                           const std::string& written) {
+        return std::pair{form.first, form.first.substr(0, form.first.size() - word.size()) + written};
+    };
+    if (auto form = word_form(reading, before)) {
+        return chosen(*form, reading, text);
+    }
+    for (const auto particle : word_particles) {
+        if (reading.size() > particle.size() && std::string_view(reading).ends_with(particle)) {
+            const auto word = reading.substr(0, reading.size() - particle.size());
+            if (g_utf8_strlen(word.c_str(), -1) < 2) {
+                continue;
+            }
+            if (auto form = word_form(word, before)) {
+                if (text.size() > particle.size() && std::string_view(text).ends_with(particle)) {
+                    return chosen(*form, word, text.substr(0, text.size() - particle.size()));
+                }
+                return {};
+            }
+        }
+    }
+    if (!preferred_) {
+        return {};
+    }
+    // A word after a tail particle, as usual_tail() finds it, kept in kana
+    // or in one of its forms.
+    const auto length = g_utf8_strlen(reading.c_str(), -1);
+    for (glong start = 1; start + 2 <= length; ++start) {
+        const auto at =
+            static_cast<std::size_t>(g_utf8_offset_to_pointer(reading.c_str(), start) - reading.c_str());
+        const auto previous = static_cast<std::size_t>(
+            g_utf8_offset_to_pointer(reading.c_str(), start - 1) - reading.c_str());
+        const auto particle = reading.substr(previous, at - previous);
+        if (std::find(std::begin(tail_particles), std::end(tail_particles), particle) ==
+            std::end(tail_particles)) {
+            continue;
+        }
+        const auto word = reading.substr(at);
+        auto forms = preferred_(word);
+        if (forms.empty()) {
+            continue;
+        }
+        forms.push_back(word);
+        for (const auto& form : forms) {
+            if (text.size() > form.size() && std::string_view(text).ends_with(form)) {
+                return std::pair{word, form};
+            }
+        }
+    }
+    return {};
+}
+std::vector<std::pair<std::string, std::string>> JapaneseComposer::word_choices() const {
+    std::vector<std::pair<std::string, std::string>> result;
+    if (!converting() || predicted_) {
+        return result;
+    }
+    std::string before;
+    for (const auto& segment : segments_) {
+        if (auto choice =
+                word_choice(segment.reading,
+                            segment.candidates[static_cast<std::size_t>(segment.selected)], before)) {
+            result.push_back(std::move(*choice));
+        }
+        before = segment.reading;
+    }
+    return result;
+}
 std::vector<JapaneseComposer::Segment>
 JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) const {
     std::vector<Segment> result;
+    std::string before; // The segment before's reading, for a word's context.
     for (auto& from : segments) {
         if (from.candidates.empty()) {
             throw std::runtime_error("No conversion candidates");
@@ -636,6 +788,18 @@ JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) con
                 candidates.insert(candidates.begin() + 1, narrow);
             }
         }
+        // A word's usual form, as the phrase list gives it, leads its
+        // segment, before a particle too: いく as 行く, いくね as 行くね, so
+        // すぐいく is すぐ行く where Anthy offers 育 first.
+        auto form = usual_form(segment.reading, segment.candidates.front(), before);
+        if (form.empty()) {
+            form = usual_tail(segment.reading, segment.candidates.front());
+        }
+        if (!form.empty()) {
+            auto& candidates = segment.candidates;
+            std::erase(candidates, form);
+            candidates.insert(candidates.begin(), form);
+        }
         // The segment's reading in both scripts, after Anthy's own candidates.
         for (const auto& script :
              {in_script(segment.reading, false), in_script(segment.reading, true)}) {
@@ -645,6 +809,7 @@ JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) con
                 segment.candidates.push_back(script);
             }
         }
+        before = segment.reading;
         result.push_back(std::move(segment));
     }
     return result;
@@ -999,29 +1164,30 @@ void JapaneseComposer::prepare_live() {
     if (words_ && long_enough) {
         completed = words_->completions(reading, 3, completes_first);
     }
-    // Common chat phrases complete it too, ranked as common words: いただき
-    // to いただきます, ひさし to 久しぶり, but きょうは to 今日は first.
+    // Common chat phrases complete it too, ranked as fairly common words:
+    // いただき to いただきます, ひさし to 久しぶり, but きょうは and こんや to 今日は
+    // and 今夜 first. A word the phrases list too ranks well ahead, as
+    // chatted: こんに to こんにちは before 今日 (こんにち).
     if (phrases_ && long_enough) {
-        constexpr int phrase_cost = 1500;
+        constexpr int phrase_cost = 3000, chatted = 1000;
         bool ignored = false;
-        bool phrased = false;
         for (auto& [text, cost] : phrases_->completions(reading, 3, ignored)) {
             const auto same = std::find_if(completed.begin(), completed.end(),
                                            [&](const auto& got) { return got.first == text; });
             if (same != completed.end()) {
-                same->second = std::min(same->second, phrase_cost);
+                same->second -= chatted;
             } else {
                 completed.emplace_back(std::move(text), phrase_cost);
             }
-            phrased = true;
         }
         std::stable_sort(completed.begin(), completed.end(),
                          [](const auto& a, const auto& b) { return a.second < b.second; });
         if (completed.size() > 3) {
             completed.resize(3);
         }
-        completes_first =
-            completes_first || (phrased && (!words_ || words_->completion_leads(reading, phrase_cost)));
+        completes_first = completes_first ||
+                          (!completed.empty() &&
+                           (!words_ || words_->completion_leads(reading, completed.front().second)));
     }
     auto complete = [&] {
         for (auto& [word, cost] : completed) {
@@ -1069,8 +1235,14 @@ void JapaneseComposer::prepare_live() {
             }
         }
     }
+    // The reading is a word too when Anthy converts it whole to one (千円 for
+    // せんえん, before 専念 for せんねん).
+    const auto& own = live.segments.front().candidates.front();
+    const bool anthy_word =
+        live.segments.size() == 1 && own != in_script(reading, false) && own != in_script(reading, true);
     const bool carried_first =
-        !carried.empty() && (!words_ || words_->own_cost(reading) == std::numeric_limits<int>::max()) &&
+        !carried.empty() && !anthy_word &&
+        (!words_ || words_->own_cost(reading) == std::numeric_limits<int>::max()) &&
         (!preferred_ || preferred_(reading).empty());
     if (carried_first) {
         std::vector<std::string> texts;
