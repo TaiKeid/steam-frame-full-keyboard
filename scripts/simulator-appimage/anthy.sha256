@@ -1,0 +1,5 @@
+# Pinned AppImage payloads, unchanged from these package archives.
+# anthy-9100h-7-x86_64.pkg.tar.zst SHA-256 72bd530708e5a7e799d442a24d6a998dac91723be19ccf8745cf2b175728b3ec
+085e95fa94540e5a136cf9549eeb86997859a1aee44d062cbbc2178336b7b5c7  usr/lib/libanthy.so.0
+33920166a34eac25932b2391a073f114d1535b5914c6324a91adc08260b72b94  usr/lib/libanthydic.so.0
+2c377408c6073fe77090ac785dd54878e5102236a1bf061dbc67fc286ff35cf0  usr/share/anthy/anthy.dic

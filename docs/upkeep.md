@@ -30,6 +30,8 @@ It reads each pin from the file that owns it and compares it with the upstream's
 | ExecuTorch with XNNPACK | `tools/build-executorch.sh` (`pinned=`), `third_party/executorch/` | Swipe model runtime | Rebuild with `tools/build-executorch.sh`; `swipe-model`; swipe in the headset |
 | FUTO Swipe encoder | `third_party/futo-swipe/README.md` (revision, SHA-256), `model_fp32.pte` | Swipe typing | `swipe-model`; the license notice beside the setting is still accurate |
 | Mozc server (fcitx5-mozc) | `tools/fetch-mozc.sh` (`version=`, a SHA-256 per architecture), `third_party/mozc/` | Japanese conversion | Check both packages' signatures before pinning ([building](building.md#dependencies)); `tools/fetch-mozc.sh` for host and frame-arm64; `japanese-input`; the simulator's `--japanese-candidates` report over a fixed phrase set, compared with the pinned version's; Japanese conversion and the server's memory in the headset |
+| Mozc common-word and kaomoji data | `tools/build_japanese_words.py` and `tools/build_japanese_kaomoji.py` (`MOZC_COMMIT`, currently `74f8ee66c5546d1f3ce4fadbef23a3b402239eed`); `japanese/README.md` records source hashes | Japanese completion and kaomoji | Keep both pins identical; rebuild both lists and update source hashes; `japanese-input`; compare the simulator's `--japanese-candidates` report over a fixed phrase set |
+| AppImage Anthy, IBus and Chinese tables | `scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256` (package versions, archive hashes and payload hashes) | Desktop simulator conversion, Japanese emoji candidates, Cangjie and Quick | Check the new packages and their licenses; regenerate payload hashes from the packages; update the adjacent third-party notices; build the AppImage and try each input method. Packaging rejects unpacked inputs whose bundled bytes differ from the pins |
 | Swipe word lists | `swipe/lexicons/README.md` (commit, source hashes), `tools/build_swipe_lexicon.py` | Swipe vocabulary | `swipe`, `swipe-chinese` |
 | libei client | `third_party/libei/provenance.json`, `third_party/libei/` | Typing into local apps | `ei-handshake`, `ei-recovery`; `ei-target-probe` in its own receiver; the [input matrix](acceptance.md#input-matrix). If SteamOS's own libei gains the negotiation fix, consider dropping the copy |
 | OpenVR header | `third_party/openvr/openvr.h` | Overlay, input and render-model calls | Full build; every VR check in [acceptance](acceptance.md) |
@@ -41,6 +43,7 @@ It reads each pin from the file that owns it and compares it with the upstream's
 
 These are linked or used as the Frame provides them, never bundled:
 - Anthy;
+- libibus (`libibus-1.0.so.5`) and `/usr/share/ibus/dicts/emoji-ja.dict` (Japanese emoji candidates);
 - PyZy and libhangul;
 - libsqlite3 and the `cangjie5` and `quick5` tables in `/usr/share/ibus-table/tables` (Cangjie and Quick);
 - Cairo, Pango and HarfBuzz;

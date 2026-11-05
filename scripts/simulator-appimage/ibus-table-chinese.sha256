@@ -1,0 +1,4 @@
+# Pinned AppImage payloads, unchanged from these package archives.
+# ibus-table-chinese-1.8.14-1-any.pkg.tar.zst SHA-256 9278dbcfe896820cfc6477ec0790c48ac0e88ef16939f5fc2cb1cacb72e1048f
+4a55133102f79d6f61b5aeec695f0a51922b89beed0b0ebfc2f39e03af1cacd8  usr/share/ibus-table/tables/cangjie5.db
+e090dafec45e8fe8272fb01fbeb0841457e82882f728bef97470682a92b84b8c  usr/share/ibus-table/tables/quick5.db

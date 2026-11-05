@@ -17,6 +17,8 @@ openvr=$(pin third_party/README.md 'OpenVR [0-9.]+ header' | cut -d' ' -f2)
 gamescope=$(grep -A1 'gamescope-input-method.xml' "$root/third_party/README.md" | grep -oE '[0-9a-f]{40}' | head -n 1)
 models=$(pin dictation/dictation_helper.py 'MODEL_REVISION = "[0-9a-f]{40}"' | cut -d'"' -f2)
 mozc=$(pin tools/fetch-mozc.sh 'version=[^ ]+' | cut -d= -f2)
+mozc_dictionary=$(pin tools/build_japanese_words.py 'MOZC_COMMIT = "[0-9a-f]{40}"' | cut -d'"' -f2)
+mozc_kaomoji=$(pin tools/build_japanese_kaomoji.py 'MOZC_COMMIT = "[0-9a-f]{40}"' | cut -d'"' -f2)
 futo=$(pin third_party/futo-swipe/README.md '`[0-9a-f]{40}`' | tr -d '`')
 heliboard=$(pin swipe/lexicons/README.md '`[0-9a-f]{40}`' | tr -d '`')
 emoji=$(grep -A1 'emoji-test.txt' "$root/third_party/README.md" | grep -oE 'version [0-9.]+' | head -n 1 | cut -d' ' -f2)
@@ -70,6 +72,10 @@ row "FUTO Swipe encoder (HF)" "${futo:0:12}" "file ${f_sha:0:7}" "$(same "$futo_
 z_ver=$(curl -fsS --max-time 20 https://archlinuxarm.org/packages/aarch64/fcitx5-mozc 2>/dev/null |
     grep -m1 -oE '[0-9]+(\.[0-9]+)+-[0-9]+')
 row "Mozc server (fcitx5-mozc)" "$mozc" "$z_ver" "$(same "$mozc" "$z_ver")"
+z_dictionary_head=$(head_commit https://github.com/google/mozc.git)
+z_dictionary_state=$(same "$mozc_dictionary" "$z_dictionary_head")
+[[ "$mozc_dictionary" == "$mozc_kaomoji" ]] || z_dictionary_state=CHECK
+row "Mozc dictionary and kaomoji" "${mozc_dictionary:0:12}" "${z_dictionary_head:0:12}" "$z_dictionary_state"
 h_head=$(head_commit https://codeberg.org/Helium314/aosp-dictionaries.git)
 row "Swipe word lists" "${heliboard:0:12}" "${h_head:0:12}" "$(same "$heliboard" "$h_head")"
 u_ver=$(curl -fsS --max-time 20 https://unicode.org/Public/emoji/latest/emoji-test.txt 2>/dev/null |

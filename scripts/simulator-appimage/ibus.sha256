@@ -1,0 +1,5 @@
+# Pinned AppImage payloads, unchanged from these package archives.
+# libibus-1.5.32-1-x86_64.pkg.tar.zst SHA-256 15090980be372958a550075fe34bf75db5ebbb79a0a126f9a04712c39d62428c
+e281e9ec42cca6a5095ccab63d77a44eda222eceb5b000d48265d8d34e4f02b5  usr/lib/libibus-1.0.so.5
+# ibus-1.5.32-1-x86_64.pkg.tar.zst SHA-256 b86cbfe19b4dfba6d730a7afd2fce2b33da37869b242a7e51970da91833c1130
+9bdc2b4378869255aac3fededf2622ad57c5aaf55fffa18b2792c46709252434  usr/share/ibus/dicts/emoji-ja.dict

@@ -22,20 +22,19 @@ project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$project_dir"
 tool=${FRAMEKEYBOARD_APPIMAGETOOL:?set FRAMEKEYBOARD_APPIMAGETOOL (docs/simulator.md#appimage)}
 runtime=${FRAMEKEYBOARD_APPIMAGE_RUNTIME:?set FRAMEKEYBOARD_APPIMAGE_RUNTIME (docs/simulator.md#appimage)}
+# Package versions, archive hashes and exact bundled payload hashes live in
+# scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256.
 anthy=${FRAMEKEYBOARD_ANTHY_ROOT:-}
 ibus=${FRAMEKEYBOARD_IBUS_ROOT:-}
-if [[ -n $ibus && ! -f $ibus/usr/share/ibus/dicts/emoji-ja.dict ]]; then
-    echo "No usr/share/ibus/dicts/emoji-ja.dict in $ibus" >&2
-    exit 1
-fi
 tables=${FRAMEKEYBOARD_IBUS_TABLE_ROOT:-}
-if [[ -n $tables && ! -f $tables/usr/share/ibus-table/tables/cangjie5.db ]]; then
-    echo "No usr/share/ibus-table/tables/cangjie5.db in $tables" >&2
-    exit 1
+if [[ -n $anthy ]]; then
+    bash scripts/simulator-appimage/verify-inputs.sh anthy "$anthy"
 fi
-if [[ -n $anthy && ! -f $anthy/usr/lib/libanthy.so.0 ]]; then
-    echo "No usr/lib/libanthy.so.0 in $anthy" >&2
-    exit 1
+if [[ -n $ibus ]]; then
+    bash scripts/simulator-appimage/verify-inputs.sh ibus "$ibus"
+fi
+if [[ -n $tables ]]; then
+    bash scripts/simulator-appimage/verify-inputs.sh ibus-table-chinese "$tables"
 fi
 
 cmake --preset simulator

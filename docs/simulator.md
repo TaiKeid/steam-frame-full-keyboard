@@ -108,6 +108,13 @@ It takes the same options as the simulator and keeps its settings in the same fo
 | `FRAMEKEYBOARD_IBUS_TABLE_ROOT` | Optional: an unpacked `ibus-table-chinese` package, with `usr/share/ibus-table/tables/cangjie5.db` and `quick5.db`, to bundle for Cangjie and Quick, which the Steam Frame has of its own. `FRAMEKEYBOARD_TABLE_DIRECTORY` names another folder of tables at run time |
 | `FRAMEKEYBOARD_EXECUTORCH_HOST` | Optional: includes swipe typing, as for a [host build](building.md#dependencies) |
 
+The optional Anthy, IBus and Chinese-table roots must match the pinned package
+payloads in `scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256`.
+Those files record the package versions and archive hashes as well as each
+bundled file's hash. Packaging verifies the bytes before building; an incomplete,
+modified or different-version root is rejected. See [upkeep](upkeep.md) before
+changing a pin.
+
 Download the tool and the runtime outside the source tree, check their SHA-256, and extract appimagetool with `--appimage-extract` or `unsquashfs`. A bundled Anthy is LGPL 2.1 and its dictionary GPL 2, and many bundled libraries are LGPL: whoever passes the AppImage on must also offer their sources. [Anthy's notes](../third_party/anthy/README.md) say where its source is; the others are the sources of the package versions in `BUNDLED.txt`.
 
 ## Korean and Chinese
