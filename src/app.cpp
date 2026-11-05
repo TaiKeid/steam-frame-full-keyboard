@@ -2380,8 +2380,8 @@ void App::reload() {
     profiles_ = std::move(candidate);
     dictation_layout_for_.reset(); // An edited layout or theme keeps its ID.
     keymap_ = std::move(keymap);
-    std::vector<std::string> config_errors;
-    const auto updated_settings = load_settings(options_.config_dir, config_errors);
+    std::vector<std::string> config_errors, field_errors;
+    const auto updated_settings = load_settings(options_.config_dir, config_errors, &field_errors);
     if (config_errors.empty()) {
         settings_.favorites = updated_settings.favorites;
         settings_.pinned = updated_settings.pinned;
@@ -2429,6 +2429,7 @@ void App::reload() {
         keyboard_.set_num(settings_.num_lock);
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
+    profiles_.errors.insert(profiles_.errors.end(), field_errors.begin(), field_errors.end());
     pending_ = main_selection();
     pending_favorites_ = settings_.favorites;
     remember_languages();

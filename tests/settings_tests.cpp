@@ -926,6 +926,45 @@ void dictation_field_fallbacks() {
     require(errors.empty() && field_errors.size() == 1 && loaded.dictation == "off",
             "a bad sole endpoint disables server recognition");
 }
+void reload_optional_field_errors() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.background_surface = "invisible";
+    save_settings(directory.path, settings);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    CaptureSink sink;
+    int reconciliations = 0;
+    bool reconciled_hidden = false;
+    App app(
+        options, sink, [](const Settings&) {}, nullptr,
+        [&](const Settings& updated) {
+            ++reconciliations;
+            reconciled_hidden = updated.hide_numpad;
+        });
+    app.flush_settings();
+    require(app.view().case_opacity == 0 && !app.view().hide_numpad && reconciliations == 1,
+            "reload fixture starts with a valid background and visible numpad");
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full",)"
+           R"("language":"en-us","theme":"graphite"},"hide_numpad":true,)"
+           R"("background_surface":"bad"})";
+    app.reload();
+    app.flush_settings();
+    require(app.view().hide_numpad && app.view().case_opacity == 1,
+            "Reload applies a valid edit and the bad optional field's fallback");
+    require(app.view().status.find("background_surface") != std::string::npos,
+            "Reload reports optional field problems through the normal profile status");
+    require(reconciliations == 2 && reconciled_hidden,
+            "Reload reconciles preferences despite an optional field problem");
+    std::ofstream(directory.path / "config.json") << "{broken";
+    app.reload();
+    app.flush_settings();
+    require(app.view().hide_numpad && app.view().case_opacity == 1 && reconciliations == 2,
+            "an unreadable reload retains preferences without reconciliation");
+    require(sink.events.empty(), "reloading optional fallbacks sends no input");
+}
 void reload_startup() {
     TemporaryDirectory directory;
     const auto config = directory.path / "config";
@@ -2670,6 +2709,7 @@ int main() {
         preferences_with_a_bad_optional_field();
         preferences_with_broken_startup();
         dictation_field_fallbacks();
+        reload_optional_field_errors();
         reload_startup();
         launch_startup();
         numpad_settings();
