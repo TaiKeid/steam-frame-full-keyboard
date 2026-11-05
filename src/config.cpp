@@ -758,42 +758,65 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* developer = field(document.get(), "developer_options", json_type_boolean, true)) {
             settings.developer_options = json_object_get_boolean(developer);
         }
-        try {
-            // Hand-edited dictation fields fail on their own: dictation stays
-            // off, and the layout, language and every other setting still load.
-            settings.dictation = text(document.get(), "dictation", "device", true);
-            settings.dictation_server = text(document.get(), "dictation_server", "", true);
-            settings.dictation_url = text(document.get(), "dictation_url", "", true);
+        // Parse each optional field independently so saving a fallback cannot
+        // overwrite valid neighboring preferences.
+        auto optional_field = [&](const char* name, auto read) {
+            try {
+                read();
+                return true;
+            } catch (const std::exception& error) {
+                field_problems.push_back("config.json: " + std::string(name) + ": " + error.what());
+                return false;
+            }
+        };
+        auto optional_text = [&](const char* name, std::string& destination, auto valid,
+                                 const char* expected) {
+            return optional_field(name, [&] {
+                const auto value = text(document.get(), name, destination, true);
+                if (!valid(value)) {
+                    throw std::runtime_error(expected);
+                }
+                destination = value;
+            });
+        };
+        auto optional_boolean = [&](const char* name, bool& destination) {
+            optional_field(name, [&] {
+                if (auto* value = field(document.get(), name, json_type_boolean, true)) {
+                    destination = json_object_get_boolean(value);
+                }
+            });
+        };
+        if (!optional_text(
+                "dictation", settings.dictation,
+                [](const auto& value) {
+                    return value == "off" || value == "server" || value == "device";
+                },
+                "must be \"off\", \"server\" or \"device\"; dictation is off")) {
+            settings.dictation = "off";
+        }
+        const bool server_valid = optional_text(
+            "dictation_server", settings.dictation_server,
+            [](const auto& value) { return value.empty() || valid_dictation_server(value); },
+            "must be host or host:port; the server is unset");
+        const bool url_valid = optional_text(
+            "dictation_url", settings.dictation_url,
+            [](const auto& value) { return value.empty() || valid_dictation_url(value); },
+            "must be an http or https URL; the URL is unset");
+        optional_field("dictation_model", [&] {
             settings.dictation_model = text(document.get(), "dictation_model", "", true);
-            if (settings.dictation != "off" && settings.dictation != "server" &&
-                settings.dictation != "device") {
-                throw std::runtime_error("dictation must be \"off\", \"server\" or \"device\"");
-            }
-            settings.dictation_device_model =
-                text(document.get(), "dictation_device_model", "small-q8_0", true);
-            if (!valid_device_model(settings.dictation_device_model)) {
-                throw std::runtime_error("dictation_device_model is not an on-device model");
-            }
-            if (auto* fallback = field(document.get(), "dictation_fallback", json_type_boolean, true)) {
-                settings.dictation_fallback = json_object_get_boolean(fallback);
-            }
+        });
+        optional_text("dictation_device_model", settings.dictation_device_model, valid_device_model,
+                      "must be an on-device model; it is small-q8_0");
+        optional_boolean("dictation_fallback", settings.dictation_fallback);
+        optional_field("dictation_server_source", [&] {
             settings.dictation_server_by_shell =
                 text(document.get(), "dictation_server_source", "user", true) == "shell";
-            if (!settings.dictation_server.empty() &&
-                !valid_dictation_server(settings.dictation_server)) {
-                throw std::runtime_error("dictation_server must be host or host:port");
-            }
-            if (!settings.dictation_url.empty() && !valid_dictation_url(settings.dictation_url)) {
-                throw std::runtime_error("dictation_url must be an http or https URL");
-            }
-        } catch (const std::exception& error) {
-            field_problems.push_back("config.json: " + std::string(error.what()) + "; dictation is off");
+        });
+        // A bad endpoint only disables server recognition when neither endpoint
+        // remains usable. Device recognition does not depend on either address.
+        if ((!server_valid || !url_valid) && settings.dictation == "server" &&
+            settings.dictation_server.empty() && settings.dictation_url.empty()) {
             settings.dictation = "off";
-            settings.dictation_server.clear();
-            settings.dictation_url.clear();
-            settings.dictation_model.clear();
-            settings.dictation_device_model = "small-q8_0";
-            settings.dictation_fallback = false;
         }
         try {
             // A bad value fails on its own, leaving the case visible.
@@ -841,21 +864,18 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
             field_problems.push_back("config.json: haptic_volume must be 25, 50, 75 or 100; it is 75");
             settings.haptic_volume = 75;
         }
-        try {
-            // Like the dictation fields, a bad value fails on its own.
+        optional_field("dictation_send_gap_ms", [&] {
             if (auto* gap = field(document.get(), "dictation_send_gap_ms", json_type_int, true)) {
                 const auto value = json_object_get_int(gap);
                 if (value != 10 && value != 20 && value != 30 && value != 40) {
-                    throw std::runtime_error("bad value");
+                    throw std::runtime_error("must be 10, 20, 30 or 40; it is 20 ms");
                 }
                 settings.dictation_send_gap = value;
             }
-            if (auto* paste = field(document.get(), "dictation_send_paste", json_type_boolean, true)) {
-                settings.dictation_send_paste = json_object_get_boolean(paste);
-            }
-            if (auto* direct = field(document.get(), "dictation_direct", json_type_boolean, true)) {
-                settings.dictation_direct = json_object_get_boolean(direct);
-            }
+        });
+        optional_boolean("dictation_send_paste", settings.dictation_send_paste);
+        optional_boolean("dictation_direct", settings.dictation_direct);
+        optional_field("dictation_recent_servers", [&] {
             // Only a convenience list: unusable entries are skipped quietly.
             if (auto* recent =
                     field(document.get(), "dictation_recent_servers", json_type_array, true)) {
@@ -869,14 +889,7 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
                     }
                 }
             }
-        } catch (const std::exception&) {
-            field_problems.push_back(
-                "config.json: dictation_send_gap_ms must be 10, 20, 30 or 40, and dictation_send_paste "
-                "and dictation_direct booleans; Send types at 20 ms into the editor");
-            settings.dictation_send_gap = 20;
-            settings.dictation_send_paste = false;
-            settings.dictation_direct = false;
-        }
+        });
         if (auto* favorites = field(document.get(), "favorites", json_type_array, true)) {
             if (json_object_array_length(favorites) > 32) {
                 throw std::runtime_error("too many favorites");

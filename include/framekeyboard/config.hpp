@@ -143,7 +143,7 @@ struct Settings {
     bool desktop_unicode_paste{};
     // Dictation (docs/dictation.md). The Dictation card in Settings edits the
     // mode and server; the URL and model are kept as they are in the file. An
-    // invalid value turns dictation off without affecting any other setting.
+    // invalid field falls back on its own; a bad mode turns dictation off.
     // "off", "server" or "device"; on device by default, which needs the
     // model downloaded first (owner, 2026-10-27).
     std::string dictation{"device"};

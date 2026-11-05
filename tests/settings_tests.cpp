@@ -842,6 +842,90 @@ void preferences_with_broken_startup() {
                 !development_saved.start_with_steamos,
             "unsupported release layout cannot block ordinary saves or persist startup flags");
 }
+void dictation_field_fallbacks() {
+    TemporaryDirectory directory;
+    const auto config = directory.path / "config";
+    fs::create_directories(config);
+    const std::string fields =
+        R"("dictation":"server","dictation_server":"speech.example:8080",)"
+        R"("dictation_url":"https://speech.example/v1","dictation_model":"whisper-1",)"
+        R"("dictation_fallback":true,"dictation_device_model":"small-q4_0",)"
+        R"("dictation_server_source":"shell","dictation_send_gap_ms":40,)"
+        R"("dictation_send_paste":true,"dictation_direct":true,)"
+        R"("dictation_recent_servers":["first.example:8080","second.example:8080"])";
+    auto write = [&](std::string values) {
+        std::ofstream(config / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full",)"
+               R"("language":"en-us","theme":"graphite"},)"
+            << values << '}';
+    };
+    // The reported pair of errors must not erase either block's valid neighbors.
+    auto values = fields;
+    values.replace(values.find("https://speech.example/v1"), 25, "https://bad url/v1");
+    values.replace(values.find("gap_ms\":40") + 8, 2, "25");
+    write(values);
+    std::vector<std::string> errors, field_errors;
+    auto loaded = load_settings(config, errors, &field_errors);
+    auto preserved = [](const Settings& settings) {
+        return settings.dictation == "server" && settings.dictation_server == "speech.example:8080" &&
+               settings.dictation_model == "whisper-1" && settings.dictation_fallback &&
+               settings.dictation_device_model == "small-q4_0" && settings.dictation_direct &&
+               settings.dictation_send_paste && settings.dictation_server_by_shell &&
+               settings.dictation_recent_servers ==
+                   std::vector<std::string>{"first.example:8080", "second.example:8080"};
+    };
+    require(errors.empty() && preserved(loaded) && loaded.dictation_send_gap == 20 &&
+                loaded.dictation_url.empty(),
+            "bad URL and send gap preserve all valid dictation fields");
+    require(field_errors.size() == 2 && field_errors[0].find("dictation_url") != std::string::npos &&
+                field_errors[1].find("dictation_send_gap_ms") != std::string::npos,
+            "each bad dictation field has its own diagnostic");
+    save_preferences_with_startup(loaded, directory.path / "framekeyboard", config,
+                                  directory.path / "units", [] {});
+    errors.clear();
+    field_errors.clear();
+    loaded = load_settings(config, errors, &field_errors);
+    require(errors.empty() && preserved(loaded) && loaded.dictation_send_gap == 20 &&
+                field_errors.size() == 1 && field_errors[0].find("dictation_url") != std::string::npos,
+            "saving and reloading retain valid dictation fields and the hand-edited URL");
+
+    for (const auto& key :
+         {"dictation", "dictation_server", "dictation_url", "dictation_model", "dictation_device_model",
+          "dictation_fallback", "dictation_server_source", "dictation_send_gap_ms",
+          "dictation_send_paste", "dictation_direct", "dictation_recent_servers"}) {
+        values = fields;
+        const auto begin = values.find(std::string("\"") + key + "\":") + std::string(key).size() + 3;
+        const auto end = values[begin] == '[' ? values.find(']', begin) + 1 : values.find(',', begin);
+        values.replace(begin, end == std::string::npos ? values.size() - begin : end - begin, "null");
+        write(values);
+        errors.clear();
+        field_errors.clear();
+        loaded = load_settings(config, errors, &field_errors);
+        require(errors.empty() && field_errors.size() == 1 &&
+                    field_errors.front().find(key) != std::string::npos,
+                "a malformed dictation field reports only its own fallback");
+        require(loaded.dictation == (std::string(key) == "dictation" ? "off" : "server") &&
+                    loaded.dictation_device_model ==
+                        (std::string(key) == "dictation_device_model" ? "small-q8_0" : "small-q4_0") &&
+                    loaded.dictation_fallback == (std::string(key) != "dictation_fallback") &&
+                    loaded.dictation_direct == (std::string(key) != "dictation_direct") &&
+                    loaded.dictation_send_paste == (std::string(key) != "dictation_send_paste") &&
+                    loaded.dictation_send_gap == (std::string(key) == "dictation_send_gap_ms" ? 20 : 40),
+                "a malformed dictation field leaves its neighbors intact");
+    }
+    write(R"("dictation":"device","dictation_server":"bad server","dictation_url":"bad url")");
+    errors.clear();
+    field_errors.clear();
+    loaded = load_settings(config, errors, &field_errors);
+    require(errors.empty() && field_errors.size() == 2 && loaded.dictation == "device",
+            "bad server fields do not disable on-device recognition");
+    write(R"("dictation":"server","dictation_url":"bad url")");
+    errors.clear();
+    field_errors.clear();
+    loaded = load_settings(config, errors, &field_errors);
+    require(errors.empty() && field_errors.size() == 1 && loaded.dictation == "off",
+            "a bad sole endpoint disables server recognition");
+}
 void reload_startup() {
     TemporaryDirectory directory;
     const auto config = directory.path / "config";
@@ -2585,6 +2669,7 @@ int main() {
         deferred_reload_errors();
         preferences_with_a_bad_optional_field();
         preferences_with_broken_startup();
+        dictation_field_fallbacks();
         reload_startup();
         launch_startup();
         numpad_settings();
