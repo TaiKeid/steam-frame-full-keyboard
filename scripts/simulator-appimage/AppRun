@@ -1,7 +1,8 @@
 #!/bin/sh
 # Starts the desktop simulator from its AppImage (docs/simulator.md). Its own
 # libraries come first; the bundled Anthy and emoji dictionaries and Chinese
-# tables are used unless others were given. The simulator starts no other programs, so nothing else sees them.
+# tables are used unless others were given. Child programs inherit this path;
+# C/C++ runtimes stay on the host so its helpers and graphics plugins use theirs.
 here=$(dirname "$(readlink -f "$0")")
 LD_LIBRARY_PATH="$here/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LD_LIBRARY_PATH

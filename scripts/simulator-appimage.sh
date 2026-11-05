@@ -83,12 +83,13 @@ cp scripts/simulator-appimage/framekeyboard-simulator.desktop scripts/simulator-
     "$appdir/"
 ln -s framekeyboard-simulator.svg "$appdir/.DirIcon"
 
-# The system keeps its C library, graphics stack and display connections:
-# they must match its drivers and the running session.
+# The system keeps its C/C++ runtimes, graphics stack and display connections.
+# Child programs and graphics plugins inherit LD_LIBRARY_PATH: bundling older
+# libstdc++ or libgcc_s would mask the host runtimes they were built against.
 system_library() {
     case $1 in
     ld-linux* | libc.so* | libm.so* | libmvec.so* | libdl.so* | librt.so* | libpthread.so* | \
-        libresolv.so* | libutil.so*) return 0 ;;
+        libresolv.so* | libutil.so* | libstdc++.so* | libgcc_s.so*) return 0 ;;
     libGL* | libEGL* | libOpenGL* | libgbm* | libdrm* | libvulkan* | libwayland-* | libX* | libxcb* | \
         libdecor*) return 0 ;;
     libasound* | libpulse* | libpipewire* | libdbus-* | libsystemd* | libudev*) return 0 ;;
@@ -193,7 +194,7 @@ ARCH=x86_64 "$tool" --no-appstream --runtime-file "$runtime" "$appdir" "$image"
 (cd "$out" && sha256sum "${image##*/}" >SHA256SUMS)
 cat "$out/SHA256SUMS"
 # The newest C library version anything in it asks for.
-glibc=$(for binary in "$appdir"/usr/bin/* "$appdir"/usr/lib/*.so* "$appdir"/usr/lib/framekeyboard/*.so; do
+glibc=$(for binary in "$appdir"/usr/bin/* "$appdir"/usr/lib/*.so* "$appdir"/usr/lib/framekeyboard/*; do
     objdump -T "$binary"
 done 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)
 echo "It needs glibc ${glibc#GLIBC_} or newer, and a CPU this machine's libraries were built for."
