@@ -45,6 +45,8 @@ With `FRAMEKEYBOARD_SIMULATOR_TRACE=1` set, the simulator writes the window's po
 | `--config-dir PATH` | Keep settings here instead |
 | `--data-dir PATH` | Read extra profiles from here |
 | `--duration SECONDS` | Quit after this time |
+| `--japanese-candidates` | Print what Japanese input offers for phrases read from standard input, without a window; see [Japanese candidates](#japanese-candidates) |
+| `--candidates N` | How many candidates it lists for each phrase and segment, 12 live and 6 a segment by default |
 
 A chosen layout, language or theme is applied and saved, as **Apply and save** in Settings would, so the next run starts with it. Settings, the emoji picker and the language button are the keyboard's own, as on the headset. The simulator keeps its settings in `~/.config/framekeyboard-simulator` (`$XDG_CONFIG_HOME/framekeyboard-simulator`), and refuses to use an installed keyboard's `~/.config/framekeyboard`. Custom profiles go in its `layouts`, `languages` and `themes` subfolders, as described in the [configuration reference](configuration.md).
 
@@ -63,6 +65,23 @@ LD_LIBRARY_PATH=$A/usr/lib ./build/simulator/framekeyboard-simulator \
 ```
 
 `FRAMEKEYBOARD_ANTHY_DICTIONARY=FILE` does the same as `--anthy-dictionary`. The dictionary must match the library's version. Without Anthy the keyboard still composes kana, and says "Japanese conversion needs the Anthy library" when you convert. As on the headset, Anthy always learns ([Japanese learning](japanese.md#learning)), but the simulator keeps what it learns in `.anthy` inside its own config folder, not in your home, so it neither copies nor touches your desktop's input method's learning. The JIS language relies on a system input method and cannot type in the simulator.
+
+### Japanese candidates
+
+`--japanese-candidates` checks conversion much faster than typing in the window. It reads phrases from standard input, one a line, types each as the keyboard would, and prints its live candidates and what 変換 converts it to, segment by segment, each candidate separated by `|`. A line with Latin letters is typed as romaji, so `konnichiha` reads こんいちは, as on the keyboard. Any other line is typed as kana, as the flick and JIS kana layouts do, and spaces are left out. Empty lines and lines starting with `#` are copied as they are, for notes. It uses the same Anthy, phrase lists and emoji as the keyboard, with learning off, so every run offers what a new profile does, and writes nothing.
+
+```sh
+printf 'じかんがあう\nkyouhaiitenkidane\n' | ./Full_Keyboard_simulator-*.AppImage --japanese-candidates
+```
+
+```text
+じかんがあう
+  live  時間が合う | 時間が | 次官が | …
+  変換  [時間が | 次官が | …] [合う | 会う | あう | …]
+kyouhaiitenkidane → きょうはいいてんきだね
+  live  今日はいい天気だね | …
+  変換  [今日はいい天気だね | …]
+```
 
 ## AppImage
 
@@ -109,7 +128,7 @@ Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engi
 
 ## For AI agents
 
-Everything works with a mouse: click to press, drag to flick, right click to hold a second pointer. The caret does not blink, so every screenshot shows it. The window keeps the keyboard's proportions (1600 by 1000) at whatever size it is given. `--slow-field` reproduces Steam's delivery timing.
+To check many Japanese phrases, use [`--japanese-candidates`](#japanese-candidates) rather than typing each in the window. Everything works with a mouse: click to press, drag to flick, right click to hold a second pointer. The caret does not blink, so every screenshot shows it. The window keeps the keyboard's proportions (1600 by 1000) at whatever size it is given. `--slow-field` reproduces Steam's delivery timing.
 
 ## Code and tests
 

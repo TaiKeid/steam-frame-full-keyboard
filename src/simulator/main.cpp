@@ -2,6 +2,7 @@
 // Simulator's pointer calls, and its canvas is shown scaled to the window.
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/emoji_words.hpp"
+#include "framekeyboard/japanese_candidates.hpp"
 #include "platform.hpp"
 #include "simulator.hpp"
 #include <SDL.h>
@@ -35,6 +36,10 @@ void help() {
               << "\n"
               << "  --data-dir PATH           Extra profile folder\n"
               << "  --duration SECONDS        Quit after this time\n"
+              << "  --japanese-candidates     Read phrases from standard input, one a line, kana or\n"
+              << "                            romaji, and print what Japanese input offers for each,\n"
+              << "                            without a window or learning\n"
+              << "  --candidates N            How many candidates it lists, 12 live and 6 a segment\n"
               << "  --version                 Print the version\n\n"
               << "The selection is saved, so later runs start with it.\n";
 }
@@ -66,7 +71,8 @@ int main(int argc, char** argv) {
     unsetenv("ANTHY_HISTORY_FILE");
     try {
         sim::Setup setup;
-        bool list = false;
+        bool list = false, candidates = false;
+        fk::JapaneseCandidatesOptions candidate_options;
         double duration = 0;
         fs::path dictionary;
         if (const char* path = std::getenv("FRAMEKEYBOARD_EMOJI_DICTIONARY"); path && *path) {
@@ -108,6 +114,16 @@ int main(int argc, char** argv) {
                 setup.config_dir = value();
             } else if (argument == "--data-dir") {
                 setup.data_dir = value();
+            } else if (argument == "--japanese-candidates") {
+                candidates = true;
+            } else if (argument == "--candidates") {
+                const auto count = value();
+                std::size_t end = 0;
+                const auto number = std::stoul(count, &end);
+                if (end != count.size() || number == 0) {
+                    throw std::runtime_error("--candidates needs a positive number");
+                }
+                candidate_options.live = candidate_options.segment = number;
             } else if (argument == "--duration") {
                 const auto seconds = value();
                 std::size_t end = 0;
@@ -154,6 +170,13 @@ int main(int argc, char** argv) {
             }
         }
         fs::create_directories(setup.config_dir);
+        if (candidates) {
+            // Anthy keeps its lock file in the settings folder, and learns nothing.
+            fk::configure_anthy({false, setup.config_dir});
+            candidate_options.data_dir = setup.data_dir;
+            fk::report_japanese_candidates(std::cin, std::cout, candidate_options);
+            return 0;
+        }
 
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
         // The first click on an inactive window presses a key, as computer

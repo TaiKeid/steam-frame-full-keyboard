@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/emoji_words.hpp"
+#include "framekeyboard/japanese_candidates.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <dlfcn.h>
@@ -8,6 +9,7 @@
 #include <glib.h>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <sys/wait.h>
 #include <tuple>
@@ -985,6 +987,27 @@ void preferred_phrases() {
             "another form can be picked for it");
     horaiku();
     require(first() == "〈ほら〉〈いく〉", "and then leads the word");
+}
+// The candidates report types each phrase, in kana or romaji, and lists what
+// the live candidates and 変換 offer for it; notes stay as they are.
+void candidates_report() {
+    int conversions = 0;
+    std::istringstream phrases("# notes\nにほんご\nnun\n\n");
+    std::ostringstream report;
+    JapaneseCandidatesOptions options;
+    options.converter = fake_converter(&conversions);
+    options.live = 3;
+    options.segment = 2;
+    report_japanese_candidates(phrases, report, options);
+    require(report.str() == "# notes\n"
+                            "にほんご\n"
+                            "  live  〈にほ〉〈んご〉 | 〈にほ〉 | にほ | … 3 more\n"
+                            "  変換  [〈にほ〉 | にほ | … 1 more] [〈んご〉 | んご | … 1 more]\n"
+                            "nun → ぬん\n"
+                            "  live  〈ぬん〉 | ぬん | ヌン\n"
+                            "  変換  [〈ぬん〉 | ぬん | … 1 more]\n"
+                            "\n",
+            "each phrase with its live candidates and segments, romaji as its reading");
 }
 // A reading typed in katakana, as the flick layout's ア mode types it, is
 // offered as typed first; a mixed one keeps the usual order.
@@ -2540,6 +2563,7 @@ int main() {
         flick_katakana();
         preferred_phrases();
         typed_katakana();
+        candidates_report();
         word_forms();
         emoji_candidates();
         learning_calls();
