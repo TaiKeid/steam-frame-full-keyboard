@@ -1033,9 +1033,13 @@ void idle_wakeups() {
     require(native_guard_poll_ms(true, false) == 25 && native_guard_poll_ms(false, true) == 25,
             "armed or restored guards keep their short deadline/event timer");
     require(native_guard_poll_ms(false, false) == 250, "an idle guard does not wake at 40 Hz");
-    require(native_guard_poll_ms(false, true, false, 1) == 25 &&
-                native_guard_poll_ms(false, true, true, 60) == 25,
-            "a restore waits closely for its keyboard to open, and to close once open");
+    require(native_guard_poll_ms(false, true, false, 1) == 25,
+            "a restore waits closely for its keyboard to open");
+    require(native_guard_poll_ms(false, true, true, 1) == 250 &&
+                native_guard_poll_ms(false, true, true, 60) == 250,
+            "an open restored keyboard is watched for its close at the idle pace");
+    require(native_guard_poll_ms(true, true, true, 60) == 25,
+            "arming during a restored keyboard keeps the short deadline timer");
     require(native_guard_poll_ms(false, true, false, native_guard_open_wait + 1) == 250,
             "an open report that never comes leaves the guard watching at the idle pace");
 
