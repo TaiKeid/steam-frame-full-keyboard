@@ -598,6 +598,9 @@ class App {
     // The views' reading_case: the layout composes, or shares its layout with
     // a language that does, in every mode.
     bool reading_case() const { return japanese() || cjk_ || reading_line_shared(); }
+    // The views' reading_room, from the main layout whichever layout a view
+    // shows, so the emoji picker and dictation mode keep its case.
+    double reading_room() const;
     // geometry() with the controls, which place the reading and candidates
     // of full layouts.
     PanelView band_geometry() const;

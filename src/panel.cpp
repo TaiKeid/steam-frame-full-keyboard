@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <limits>
 #include <linux/input-event-codes.h>
+#include <memory>
 #include <pango/pangocairo.h>
 #include <stdexcept>
 #include <unordered_map>
@@ -116,10 +117,10 @@ constexpr double ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 10
 // The flick band's top, its reading row level with the second row's switches.
 constexpr double flick_band_top = 58;
 // The second toolbar row the reading line replaced: the case of a composing
-// layout, in every view of it, is that much shorter (PanelView::reading_case).
+// layout, in every view of it, is at most that much shorter.
 constexpr double second_row_room = 50;
 double case_height(const PanelView& view) {
-    return panel_height - (view.reading_case && !view.settings ? second_row_room : 0);
+    return panel_height - (view.reading_case && !view.settings ? view.reading_room : 0);
 }
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
@@ -1366,6 +1367,20 @@ double reading_line_top(const PanelView& view) {
     return std::round((54 + placement(view).y - ime_band_height) / 2);
 }
 } // namespace
+double reading_case_room(const Layout& layout, const Theme& theme, bool flick) {
+    if (flick) {
+        return second_row_room;
+    }
+    // The scale placement() gives the keys under the normal toolbar in the
+    // full case; under the reading line's taller toolbar, at that scale, they
+    // need `needed` of the case.
+    const double margin = theme.padding;
+    const double scale =
+        std::min((panel_width - 2 * margin) / layout.width,
+                 (panel_height - normal_toolbar_height - 2 * margin - theme.depth) / layout.height);
+    const double needed = ime_toolbar_height + 2 * margin + theme.depth + layout.height * scale;
+    return std::clamp(std::floor(panel_height - needed), 0.0, second_row_room);
+}
 double second_row_top(const PanelView& banded) {
     // Centred on the line: 42-pixel buttons on a 44-pixel line.
     return banded.reading_case && (banded.ime_band || banded.ime_room) ? reading_line_top(banded) + 1
@@ -2229,6 +2244,42 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         }
     }
 }
+// The flick preview (PanelView::flick_preview), in panel coordinates.
+void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rect, 5>& cells) {
+    const auto& t = *view.theme;
+    // Raised keycaps floating over the keys: their shadows first, so
+    // none falls on a neighbouring cap, then the caps with the keys'
+    // hover gradient and a faint light along the top edge.
+    const auto& preview = *view.flick_preview;
+    const double size = cells[0].height;
+    auto used = [&](std::size_t i) { return i == 0 || !preview.text[i].empty(); };
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        if (used(i)) {
+            soft_shadow(cr, cells[i], t.radius, flick_shadow);
+        }
+    }
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        if (!used(i)) {
+            continue; // A direction this key does not use.
+        }
+        const auto& r = cells[i];
+        // A gutter in the case's colour sets each cap off from the
+        // keys beneath, as the gaps between keys do. It stays over a
+        // transparent case too: without it, caps over keys of the
+        // same colour run together.
+        rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
+        source(cr, t.surface);
+        cairo_fill(cr);
+        draw_cap(cr, t, r, true, static_cast<int>(i) == preview.selected, true);
+        cairo_move_to(cr, r.x + t.radius, r.y + 1.5);
+        cairo_line_to(cr, r.x + r.width - t.radius, r.y + 1.5);
+        cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .12);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+        label(cr, preview.text[i], r, size * .5, view.language->font,
+              static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
+    }
+}
 } // namespace
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
@@ -2402,6 +2453,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.reading_case != view.reading_case ||
+        previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the focus tooltip.
         (!view.status.empty() && previous_->view.focus_tooltip != view.focus_tooltip) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
@@ -2880,6 +2932,24 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_destroy(trail);
         cairo_surface_flush(trail_);
     }
+    // The flick preview's soft shadows rasterize slightly differently under
+    // each pass's clip, so the preview is drawn once, into an image at whole
+    // pixels, which every pass copies exactly.
+    std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)> preview_image(
+        nullptr, cairo_surface_destroy);
+    Rect preview_at{};
+    if (const auto cells = flick_cells(view); cells && !view.settings) {
+        preview_at = *flick_preview_bounds(view);
+        preview_image.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                                       static_cast<int>(preview_at.width),
+                                                       static_cast<int>(preview_at.height)));
+        auto* preview = cairo_create(preview_image.get());
+        grey_text(preview);
+        cairo_translate(preview, -preview_at.x, -preview_at.y);
+        draw_flick_preview(preview, view, *cells);
+        cairo_destroy(preview);
+        cairo_surface_flush(preview_image.get());
+    }
     auto draw = [&](const std::vector<Rect>& pass) {
         // Clear and restore the case only inside the damaged pixels. Any neighboring
         // key intersecting that region is repainted in the original stacking order.
@@ -3298,42 +3368,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             case_plate(cr, view, line, view.status, 17, PANGO_ALIGN_CENTER);
             label(cr, view.status, line, 17, view.language->font, t.legend);
         }
-        if (const auto cells = flick_cells(view)) {
+        if (preview_image) {
             // Above the keys, the reading band and the toolbar, which a
-            // top-row key's caps can reach; partial repaints redraw it
-            // inside their clip.
-            // Raised keycaps floating over the keys: their shadows first, so
-            // none falls on a neighbouring cap, then the caps with the keys'
-            // hover gradient and a faint light along the top edge.
-            const auto& preview = *view.flick_preview;
-            const double size = (*cells)[0].height;
-            auto used = [&](std::size_t i) { return i == 0 || !preview.text[i].empty(); };
-            for (std::size_t i = 0; i < cells->size(); ++i) {
-                if (used(i)) {
-                    soft_shadow(cr, (*cells)[i], t.radius, flick_shadow);
-                }
-            }
-            for (std::size_t i = 0; i < cells->size(); ++i) {
-                if (!used(i)) {
-                    continue; // A direction this key does not use.
-                }
-                const auto& r = (*cells)[i];
-                // A gutter in the case's colour sets each cap off from the
-                // keys beneath, as the gaps between keys do. It stays over a
-                // transparent case too: without it, caps over keys of the
-                // same colour run together.
-                rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
-                source(cr, t.surface);
-                cairo_fill(cr);
-                draw_cap(cr, t, r, true, static_cast<int>(i) == preview.selected, true);
-                cairo_move_to(cr, r.x + t.radius, r.y + 1.5);
-                cairo_line_to(cr, r.x + r.width - t.radius, r.y + 1.5);
-                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .12);
-                cairo_set_line_width(cr, 1);
-                cairo_stroke(cr);
-                label(cr, preview.text[i], r, size * .5, view.language->font,
-                      static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
-            }
+            // top-row key's caps can reach (draw_flick_preview()).
+            cairo_set_source_surface(cr, preview_image.get(), preview_at.x, preview_at.y);
+            cairo_paint(cr);
         }
         // The skin tones of a held emoji, above everything in the picker.
         if (view.emoji && view.emoji->popup && !view.settings) {

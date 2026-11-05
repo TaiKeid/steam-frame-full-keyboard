@@ -303,6 +303,7 @@ std::vector<Control> App::controls() const {
     geometry.ime_band = ime_band_shown();
     geometry.ime_room = ime_room_kept();
     geometry.reading_case = reading_case();
+    geometry.reading_room = reading_room();
     geometry.ime_more = band_more();
     // The mic key shows as in geometry(): a hidden one could narrow the case
     // the toolbar is laid out in, but not the one drawn.
@@ -908,6 +909,7 @@ PanelView App::geometry() const {
     v.ime_band = ime_band_shown();
     v.ime_room = ime_room_kept();
     v.reading_case = reading_case();
+    v.reading_room = reading_room();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
@@ -1017,6 +1019,7 @@ PanelView App::build_view(bool picker) const {
     v.ime_band = ime_band_shown();
     v.ime_room = ime_room_kept();
     v.reading_case = reading_case();
+    v.reading_room = reading_room();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
     v.flick_digits = flick_mode() == FlickMode::Digits;
@@ -3727,6 +3730,14 @@ const std::map<std::string, FlickKey>& App::flick_keys() const {
 bool App::band_more() const {
     return ime_band_shown();
 }
+double App::reading_room() const {
+    if (!reading_case()) {
+        return 0;
+    }
+    return reading_case_room(
+        profiles_.layouts.at(settings_.active.layout), profiles_.themes.at(settings_.active.theme),
+        profiles_.languages.at(settings_.active.language).input_method == "japanese-flick");
+}
 const Layout& App::shown_layout() const {
     const auto& layout = profiles_.layouts.at(settings_.active.layout);
     if (flick_mode() == FlickMode::Latin && !layout.latin_layout.empty()) {
@@ -5216,6 +5227,7 @@ void App::refresh_dictation_layout() {
     main.hide_numpad = numpad_hidden();
     main.dictation_available = true; // The mode shows the mic key.
     main.reading_case = reading_case();
+    main.reading_room = reading_room();
     PanelView banded = main;
     banded.ime_band = japanese() || cjk_;
     banded.ime_room = !banded.ime_band && reading_line_shared();

@@ -1651,9 +1651,11 @@ void flick_width() {
 // With a composing language among the user's languages on the same layout,
 // every page keeps the scale and place the reading line gives the keys, its
 // line in the second toolbar row's place, so switching to it from English
-// moves nothing; without one, English keeps the whole height.
+// moves nothing; without one, English keeps the whole height. Either way the
+// keys have the same size: the reading line only shortens the case.
 void reading_room() {
-    for (const bool shared : {true, false}) {
+    double pitch = 0; // From Q to W, with English alone.
+    for (const bool shared : {false, true}) {
         char directory[] = "/tmp/framekeyboard-room-XXXXXX";
         require(mkdtemp(directory), "temporary room profile");
         struct Cleanup {
@@ -1665,6 +1667,8 @@ void reading_room() {
         settings.favorites = {
             shared ? Favorite{"ja", "Japanese", {"en-us-full", "ja-romaji", "graphite"}}
                    : Favorite{"de", "German", {"international-full", "de-de", "graphite"}}};
+        // Narrow, so the toolbar has the second row the reading line takes.
+        settings.hide_numpad = true;
         save_settings(directory, settings);
         int conversions = 0;
         Options options;
@@ -1678,6 +1682,7 @@ void reading_room() {
         App app(options, sink);
         const auto english = app.view();
         const auto q = key_centre(app, "KeyQ");
+        const double q_to_w = key_centre(app, "KeyW").first - q.first;
         auto bounds_of = [&](const std::string& id) {
             for (const auto& c : app.view().controls) {
                 if (c.id == id) {
@@ -1689,10 +1694,12 @@ void reading_room() {
         const auto button = bounds_of("settings");
         if (!shared) {
             require(!english.ime_room && !english.ime_band, "English alone keeps the whole height");
+            pitch = q_to_w;
             continue;
         }
         require(english.ime_room && !english.ime_band && english.reading_case,
                 "English keeps the reading line's scale");
+        require(q_to_w == pitch, "the reading line's room keeps the keys at their size");
         const auto stay = bounds_of("passthrough");
         control(app, "language-cycle");
         require(app.selection().language == "ja-romaji" && app.view().ime_band,
@@ -1701,7 +1708,7 @@ void reading_room() {
         const auto line = ime_band(app.view()).reading;
         require(key_centre(app, "KeyQ") == q && bounds_of("settings") == button &&
                     bounds_of("passthrough") == stay && romaji == panel_case_bounds(english) &&
-                    romaji.height < panel_height - 40,
+                    romaji.height < panel_height,
                 "switching to romaji moves neither keys, case nor toolbar, in a case without "
                 "the second toolbar row");
         require(line.x >= stay.x + stay.width + 10 && stay.y == line.y + 1 && stay.y > 54,

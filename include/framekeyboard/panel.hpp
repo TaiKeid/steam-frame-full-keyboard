@@ -217,8 +217,10 @@ struct PanelView {
     // The layout composes, or shares its layout with a language that does:
     // in every view of it but Settings (the emoji picker and dictation mode
     // too) the case lacks the second toolbar row the reading line replaces,
-    // and ends that much sooner.
+    // and ends `reading_room` sooner (reading_case_room(), from the main
+    // layout, so the views' own layouts don't change it).
     bool reading_case{};
+    double reading_room{};
     // The candidate row ends with ∨, which opens the whole list over the
     // keys, as a phone's does.
     bool ime_more{};
@@ -377,6 +379,12 @@ bool compact_toolbar(const PanelView& view);
 // line, its switches at the line's left, in every view of the layout.
 // `banded` is the layout's view with the band (or its room) shown.
 double second_row_top(const PanelView& banded);
+// How much sooner a composing layout's case ends (PanelView::reading_room).
+// A full layout's keys keep the size they have under the normal toolbar, as
+// in a language without the reading line, so its case loses only the height
+// they leave spare; the flick layout, as short as a phone's, loses the whole
+// second row.
+double reading_case_room(const Layout& layout, const Theme& theme, bool flick);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
 // Where a composing language shows its reading and candidates. The flick
