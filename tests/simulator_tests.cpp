@@ -159,6 +159,18 @@ struct Profile {
     }
     ~Profile() { fs::remove_all(path); }
 };
+void injected_converter() {
+    Profile profile;
+    Setup options;
+    options.config_dir = profile.path;
+    options.language = "ja-flick";
+    options.japanese_converter = [] { return std::make_unique<Reading>(); };
+    Simulator simulator(options);
+    require(simulator.app().options().mozc_server.empty(),
+            "an injected converter does not start the bundled Mozc server");
+    require(!fs::exists(profile.path / "mozc"), "an injected converter creates no Mozc profile");
+    simulator.shutdown();
+}
 void candidate_profile() {
     Profile profile;
     const auto config = profile.path / "settings";
@@ -384,6 +396,7 @@ void bad_selection() {
 
 int main() {
     try {
+        injected_converter();
         candidate_profile();
         editing();
         slow_field();

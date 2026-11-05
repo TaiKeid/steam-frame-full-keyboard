@@ -107,7 +107,9 @@ Simulator::Simulator(const Setup& setup)
     options.anthy_home = setup.config_dir;
     options.data_dir = setup.data_dir;
     options.models_dir = setup.models_dir;
-    options.mozc_server = mozc_engine(); // As the keyboard: Mozc where it is bundled.
+    if (!setup.japanese_converter) {
+        options.mozc_server = mozc_engine(); // As the keyboard: Mozc where it is bundled.
+    }
     // For testing conversion: Mozc is waited for rather than left to Anthy,
     // and what Anthy converts anyway has an orange border.
     options.mozc_patience = std::chrono::seconds(3);
