@@ -232,7 +232,7 @@
         "kind": "key",
         "value": "Backspace"
       },
-      "icon": "backspace"
+      "icon": "delete-left"
     },
     {
       "id": "Tab",

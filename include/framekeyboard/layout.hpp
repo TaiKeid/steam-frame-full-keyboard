@@ -51,6 +51,7 @@ enum class Icon {
     SteamFrame,
     SteamOS,
     Backspace,
+    DeleteLeft,
     PassthroughOn,
     PassthroughOff,
     KeepOpenOn,

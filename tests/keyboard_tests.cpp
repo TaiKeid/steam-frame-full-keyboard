@@ -417,7 +417,9 @@ int main() {
         require(defaults.layouts.at("en-us-full").keys.size() == 109,
                 "109 baseline keys, with the mic key");
         for (const auto& [id, layout] : defaults.layouts) {
-            require(key(layout, "Backspace").icon == fk::Icon::Backspace,
+            // The flick pages draw it as phones do, a tag with × in it.
+            require(key(layout, "Backspace").icon ==
+                        (id.starts_with("ja-flick") ? fk::Icon::DeleteLeft : fk::Icon::Backspace),
                     "Backspace uses the |<- icon, distinct from the left arrow");
         }
         state_tests(defaults.layouts.at("en-us-full"));

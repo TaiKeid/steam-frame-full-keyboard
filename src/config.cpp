@@ -219,6 +219,8 @@ Layout parse_layout(const std::string& json) {
             key.icon = Icon::SteamOS;
         } else if (icon == "backspace") {
             key.icon = Icon::Backspace;
+        } else if (icon == "delete-left") {
+            key.icon = Icon::DeleteLeft;
         } else if (icon == "emoji") {
             key.icon = Icon::Emoji;
         } else if (icon == "mic") {

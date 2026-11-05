@@ -563,6 +563,18 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(0, -6, -6, 0);
         cairo_line_to(cr, 0, 6);
         break;
+    case Icon::DeleteLeft:
+        // ⌫ as phones draw Backspace: a tag pointing left with × in it.
+        cairo_set_line_width(cr, 2.3);
+        cairo_move_to(cr, -13, 0);
+        cairo_line_to(cr, -6, -8);
+        cairo_arc(cr, 10, -6, 2, -pi / 2, 0);
+        cairo_arc(cr, 10, 6, 2, 0, pi / 2);
+        cairo_line_to(cr, -6, 8);
+        cairo_close_path(cr);
+        line(0, -3.5, 7, 3.5);
+        line(7, -3.5, 0, 3.5);
+        break;
     case Icon::Back:
         line(9, 0, -9, 0);
         line(-2, -7, -9, 0);
@@ -1078,10 +1090,10 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         // Dictation's Copy, Cut and Paste, and the stack on layouts that need
         // one, are ordinary key height or less.
         const bool short_key = key.action_kind == ActionKind::Dictation && key.bounds.height < 64;
-        double size = super_icon || short_key                             ? 22
-                      : key.icon == Icon::Backspace                       ? 18
-                      : key.icon == Icon::Emoji || key.icon == Icon::Back ? 26
-                                                                          : 32;
+        double size = super_icon || short_key                                       ? 22
+                      : key.icon == Icon::Backspace || key.icon == Icon::DeleteLeft ? 18
+                      : key.icon == Icon::Emoji || key.icon == Icon::Back           ? 26
+                                                                                    : 32;
         if (key.action_kind == ActionKind::Shortcut) {
             // Keys are drawn at the layout's scale, which the flick layout's
             // large keys raise by a third: Cut, Copy and Paste keep the size
