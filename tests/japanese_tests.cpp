@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cstdlib>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <fstream>
 #include <glib.h>
 #include <iostream>
 #include <stdexcept>
+#include <sys/wait.h>
 #include <tuple>
 #include <unistd.h>
 using namespace framekeyboard;
@@ -962,18 +964,6 @@ void next_words() {
         commit(app, "a", 1);
         require(chips(app).front() == "か", "they are kept across a restart");
     }
-    {
-        // With learning off, nothing learned is offered, and nothing more is kept.
-        Settings settings;
-        settings.japanese_learning = false;
-        save_settings(directory, settings);
-        Sink sink;
-        App app(options, sink);
-        app.apply({"ja-flick-12", "ja-flick", "graphite"});
-        commit(app, "a", 1);
-        require(chips(app).front() == "。", "with learning off, only punctuation is offered");
-        commit(app, "sa", 2);
-    }
     NextWords kept(fs::path(directory) / "japanese-next-words.tsv");
     require(!kept.empty() && kept.after("あ", 3) == std::vector<std::string>{"か"},
             "in the config folder");
@@ -1474,7 +1464,7 @@ void learning_settings() {
     app.apply({"en-us-full", "en-us", "graphite"});
     app.show_settings();
     require(!has_control(app, "japanese-learning") && !has_control(app, "clear-learning"),
-            "learning is offered only with Japanese");
+            "Clear learned words is offered only with Japanese, and learning has no switch");
     control(app, "settings"); // Back
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     app.show_settings();
@@ -1490,7 +1480,7 @@ void learning_settings() {
             }
             // Any of the card's rows in view, to scroll it under the laser.
             const auto language = std::find_if(controls.begin(), controls.end(), [](const Control& c) {
-                return c.id == "japanese-learning" || c.id == "flick-only" || c.id == "key-flicks" ||
+                return c.id == "clear-learning" || c.id == "flick-only" || c.id == "key-flicks" ||
                        c.id == "swipe-typing" || c.id == "language";
             });
             if (language == controls.end()) {
@@ -1504,8 +1494,8 @@ void learning_settings() {
         }
         throw std::runtime_error("Missing control " + id);
     };
-    require(find("japanese-learning").selected && !find("clear-learning").enabled,
-            "learning starts on, as on Steam's keyboard, with nothing to clear");
+    require(!find("clear-learning").enabled && !has_control(app, "japanese-learning"),
+            "learning is always on, as on Steam's keyboard, with nothing to clear yet");
     require(!find("flick-only").selected, "Flick only shows with the flick layout, off as on phones");
     control(app, "settings"); // Back
     flick(app, "a", 1);
@@ -1526,23 +1516,14 @@ void learning_settings() {
                 (language + " learns too").c_str());
     }
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
-    app.show_settings();
-    find("japanese-learning"); // Scrolled into view.
-    control(app, "japanese-learning");
-    control(app, "apply");
-    app.flush_settings();
-    std::vector<std::string> errors;
-    require(!load_settings(options.config_dir, errors).japanese_learning, "turning it off is saved");
-    const auto typed = sink.text.size();
-    flick(app, "a", 1.5);
-    click_key(app, "Space");
-    click_key(app, "Enter");
-    require(sink.text.size() == typed + 1 && learned.size() == 1, "and nothing is learned then");
 
-    // What Anthy learned, as its record file; Clear asks, then deletes it.
+    // What Anthy learned, in Full Keyboard's own record beside the stock
+    // keyboard's; Clear asks, then deletes ours only.
     const auto record = options.anthy_home / ".anthy" / "last-record2_framekeyboard.utf8";
+    const auto stock = options.anthy_home / ".anthy" / "last-record2_default.utf8";
     fs::create_directories(record.parent_path());
     std::ofstream(record) << "learned\n";
+    std::ofstream(stock) << "learned\n";
     {
         // A shell's preview, built beside the running keyboard, only draws.
         Options preview = options;
@@ -1569,9 +1550,83 @@ void learning_settings() {
         app.tick(2 + i * .01);
         usleep(5000);
     }
-    require(!fs::exists(record) && !find("clear-learning").enabled && !find("clear-learning").busy &&
-                app.view().status == "Learned words cleared.",
-            "clearing deletes the record, then says so");
+    require(!fs::exists(record) && fs::exists(stock) && !find("clear-learning").enabled &&
+                !find("clear-learning").busy && app.view().status == "Learned words cleared.",
+            "clearing deletes Full Keyboard's record, not the stock keyboard's, then says so");
+    require(!import_stock_learning(options.config_dir / "japanese-learning-imported") &&
+                !fs::exists(record),
+            "the stock keyboard's record was imported at the first start only, and isn't again");
+}
+// Full Keyboard learns into a record of its own, which starts once from a
+// copy of the stock keyboard's, read under Anthy's lock and left as it is.
+void stock_learning_import() {
+    char directory[] = "/tmp/framekeyboard-import-XXXXXX";
+    require(mkdtemp(directory), "temporary import home");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    const fs::path home = directory, anthy = home / ".anthy";
+    const auto marker = home / "config" / "japanese-learning-imported";
+    const auto content = [](const fs::path& path) {
+        std::ifstream input(path);
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    configure_anthy({true, home});
+    require(!import_stock_learning(marker) && fs::exists(marker), "nothing to import, and only once");
+    fs::remove(marker);
+    fs::create_directories(anthy);
+    std::ofstream(anthy / "last-record1_default.utf8") << "base\n";
+    const auto base_time = fs::last_write_time(anthy / "last-record1_default.utf8");
+
+    // The stock keyboard writing its journal, under its lock, as the import
+    // starts: the import waits for it. Only system calls after fork().
+    const auto lock_path = (anthy / "lock-file_default").string();
+    const auto journal_path = (anthy / "last-record2_default.utf8").string();
+    int ready[2];
+    require(pipe(ready) == 0, "a pipe to the stock keyboard");
+    const pid_t writer = fork();
+    if (writer == 0) {
+        const int lock = open(lock_path.c_str(), O_CREAT | O_RDWR, 0600);
+        struct flock range{};
+        range.l_type = F_WRLCK;
+        range.l_whence = SEEK_SET;
+        range.l_len = 1;
+        fcntl(lock, F_SETLKW, &range);
+        int journal = open(journal_path.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0600);
+        (void)!write(journal, "ha", 2);
+        (void)!write(ready[1], "", 1);
+        usleep(200000);
+        (void)!write(journal, "lf\n", 3);
+        close(journal);
+        _exit(0);
+    }
+    char signal{};
+    require(read(ready[0], &signal, 1) == 1, "the stock keyboard holds its lock");
+    require(import_stock_learning(marker), "the stock keyboard's record is imported");
+    int status = 0;
+    waitpid(writer, &status, 0);
+    close(ready[0]);
+    close(ready[1]);
+    require(content(anthy / "last-record1_framekeyboard.utf8") == "base\n" &&
+                content(anthy / "last-record2_framekeyboard.utf8") == "half\n",
+            "whole, as the stock keyboard finished writing it");
+    require(content(anthy / "last-record1_default.utf8") == "base\n" &&
+                fs::last_write_time(anthy / "last-record1_default.utf8") == base_time &&
+                content(anthy / "last-record2_default.utf8") == "half\n",
+            "the stock keyboard's record stays as it is");
+    require(anthy_learned(), "what was imported can be cleared");
+    restart_anthy(true);
+    require(!anthy_learned() && !fs::exists(anthy / "last-record1_framekeyboard.utf8") &&
+                fs::exists(anthy / "last-record1_default.utf8") &&
+                fs::exists(anthy / "last-record2_default.utf8"),
+            "Clear deletes Full Keyboard's record only");
+    require(!import_stock_learning(marker) && !anthy_learned(), "and a cleared record stays empty");
+    fs::remove(marker);
+    std::ofstream(anthy / "last-record1_framekeyboard.utf8") << "own\n";
+    require(!import_stock_learning(marker) &&
+                content(anthy / "last-record1_framekeyboard.utf8") == "own\n",
+            "a record of Full Keyboard's own from before stays as it is");
 }
 // The band's ∨ opens the whole list over the keys, as a phone's does: the row
 // keeps the chips that fit, the rest wrap below it and scroll up and down,
@@ -2226,6 +2281,7 @@ int main() {
         next_words();
         candidate_list();
         learning_settings();
+        stock_learning_import();
         configure_anthy({false, anthy_home});
         reading_cursor();
         slow_reopen();
@@ -2385,8 +2441,10 @@ int main() {
                 learner.learn();
                 learner.cancel();
                 require(anthy_learned() &&
+                            !fs::exists(fs::path(anthy_home) / ".anthy" / "last-record1_default.utf8") &&
                             !fs::exists(fs::path(anthy_home) / ".anthy" / "last-record2_default.utf8"),
-                        "a committed phrase is learned, apart from the stock keyboard's");
+                        "a committed phrase is learned into Full Keyboard's own record, not the stock "
+                        "keyboard's");
                 learner.kana("あり");
                 learner.prepare_live();
                 require(offers(phrase), "and offered again once its start is typed");

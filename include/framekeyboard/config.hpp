@@ -131,7 +131,6 @@ struct Settings {
     // Japanese conversion learns from the phrases committed and offers them
     // again, as Steam's keyboard does; Anthy keeps them in plain text
     // (docs/japanese.md, Learning).
-    bool japanese_learning{true};
     // Japanese flick: taps never cycle, so a quick second tap of か types かか,
     // as phones' Flick only does; off by default, as on phones.
     bool flick_only{};

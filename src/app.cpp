@@ -195,7 +195,6 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
-    pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
@@ -219,9 +218,11 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         return phrases;
     });
     if (owns_anthy()) {
-        configure_anthy({settings_.japanese_learning, anthy_home()});
+        configure_anthy({true, anthy_home()});
         // Next words are learning too: only the keyboard that types keeps them.
         if (!options_.config_dir.empty()) {
+            // Our own learning starts from what the stock keyboard learned.
+            import_stock_learning(options_.config_dir / "japanese-learning-imported");
             next_words_ = NextWords(options_.config_dir / "japanese-next-words.tsv");
             japanese_choices_ = NextWords(options_.config_dir / "japanese-choices.tsv");
         }
@@ -799,9 +800,6 @@ void App::update_settings_ui() {
     if (japanese_language(pending_.language) ||
         std::any_of(pairs.begin(), pairs.end(),
                     [&](const Selection& pair) { return japanese_language(pair.language); })) {
-        learning_fields.push_back(
-            field(ControlKind::JapaneseLearning,
-                  checkbox("japanese-learning", "Learn from my typing", pending_japanese_learning_)));
         auto clear =
             field(ControlKind::ClearLearning,
                   SettingField{"clear-learning", "", "Clear learned words", ControlStyle::Button});
@@ -1192,7 +1190,8 @@ PanelView App::build_view(bool picker) const {
     } else if (settings_open_ && confirm_ == Confirm::ClearLearning) {
         v.confirm = PanelView::ConfirmView{
             confirm_popup_bounds, "Clear learned words?",
-            "Japanese suggestions forget the phrases you chose. This can't be undone."};
+            "Full Keyboard will forget the words it learned. Other keyboards keep their own. "
+            "This can't be undone."};
     } else if (settings_open_ && confirm_ == Confirm::SaveLanguages) {
         v.confirm =
             PanelView::ConfirmView{confirm_popup_bounds, "Save your language changes?",
@@ -2123,7 +2122,6 @@ void App::show_settings() {
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
-    pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty();
@@ -2373,7 +2371,6 @@ void App::reload() {
         settings_.haptic_sounds_switch = updated_settings.haptic_sounds_switch;
         settings_.key_flicks_switch = updated_settings.key_flicks_switch;
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
-        settings_.japanese_learning = updated_settings.japanese_learning;
         settings_.flick_only = updated_settings.flick_only;
         settings_.flick_katakana = updated_settings.flick_katakana;
         katakana_ = katakana_ && settings_.flick_katakana;
@@ -2411,7 +2408,6 @@ void App::reload() {
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
-    pending_japanese_learning_ = settings_.japanese_learning;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_focus_tooltip_ = settings_.focus_tooltip;
@@ -2456,14 +2452,13 @@ bool App::owns_anthy() const {
     return options_.mode != Mode::Render && options_.mode != Mode::RenderSettings &&
            options_.mode != Mode::RenderEmoji && options_.mode != Mode::RenderDictation;
 }
-// Learning, if the user turned it on and the field may keep what is typed:
-// never a password, PIN or terminal.
+// Learning, always on as on Steam's keyboard, where the field may keep what
+// is typed: never a password, PIN or terminal.
 bool App::learning_allowed() const {
-    return settings_.japanese_learning && !hint_private() && !hint_no_suggestions();
+    return !hint_private() && !hint_no_suggestions();
 }
 void App::apply_learning() {
-    if (owns_anthy() && configure_anthy({settings_.japanese_learning, anthy_home()}) &&
-        !restarting_anthy()) {
+    if (owns_anthy() && configure_anthy({true, anthy_home()}) && !restarting_anthy()) {
         restart_learning(false);
     }
 }
@@ -3242,7 +3237,6 @@ void App::apply_settings() {
     settings_.swipe_typing = pending_swipe_typing_;
     settings_.key_flicks = pending_key_flicks_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
-    settings_.japanese_learning = pending_japanese_learning_;
     settings_.flick_only = pending_flick_only_;
     settings_.flick_katakana = pending_flick_katakana_;
     katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
@@ -3585,9 +3579,6 @@ void App::action(const ControlAction& command) {
         pressed_controls_.clear();
         hovered_.clear();
         confirm_ = Confirm::ClearLearning;
-    } else if (kind == ControlKind::JapaneseLearning) {
-        pending_japanese_learning_ = !pending_japanese_learning_;
-        update_settings_ui();
     } else if (kind == ControlKind::FlickOnly) {
         pending_flick_only_ = !pending_flick_only_;
         update_settings_ui();

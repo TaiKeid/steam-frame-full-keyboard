@@ -62,7 +62,7 @@ LD_LIBRARY_PATH=$A/usr/lib ./build/simulator/framekeyboard-simulator \
   --anthy-dictionary $A/usr/share/anthy/anthy.dic --layout ja-flick-12 --language ja-flick
 ```
 
-`FRAMEKEYBOARD_ANTHY_DICTIONARY=FILE` does the same as `--anthy-dictionary`. The dictionary must match the library's version. Without Anthy the keyboard still composes kana, and says "Japanese conversion needs the Anthy library" when you convert. As on the headset, Anthy learns while **Learn from my typing** is on ([Japanese learning](japanese.md#learning)), and the simulator keeps what it learns in `.anthy` inside its own config folder, not in your home. The JIS language relies on a system input method and cannot type in the simulator.
+`FRAMEKEYBOARD_ANTHY_DICTIONARY=FILE` does the same as `--anthy-dictionary`. The dictionary must match the library's version. Without Anthy the keyboard still composes kana, and says "Japanese conversion needs the Anthy library" when you convert. As on the headset, Anthy always learns ([Japanese learning](japanese.md#learning)), but the simulator keeps what it learns in `.anthy` inside its own config folder, not in your home, so it neither copies nor touches your desktop's input method's learning. The JIS language relies on a system input method and cannot type in the simulator.
 
 ## AppImage
 

@@ -743,9 +743,6 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* close = field(document.get(), "emoji_close_on_select", json_type_boolean, true)) {
             settings.emoji_close_on_select = json_object_get_boolean(close);
         }
-        if (auto* learning = field(document.get(), "japanese_learning", json_type_boolean, true)) {
-            settings.japanese_learning = json_object_get_boolean(learning);
-        }
         if (auto* flick_only = field(document.get(), "flick_only", json_type_boolean, true)) {
             settings.flick_only = json_object_get_boolean(flick_only);
         }
@@ -1011,8 +1008,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->key_flicks_switch));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
-        json_object_object_add(document.get(), "japanese_learning",
-                               json_object_new_boolean(settings->japanese_learning));
+        // Learning is always on now; the old switch goes.
+        json_object_object_del(document.get(), "japanese_learning");
         json_object_object_add(document.get(), "flick_only",
                                json_object_new_boolean(settings->flick_only));
         json_object_object_add(document.get(), "flick_katakana",

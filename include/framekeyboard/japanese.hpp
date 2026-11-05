@@ -39,9 +39,9 @@ class JapaneseConverter {
         (void)text;
     }
 };
-// Anthy's learning, process-wide like Anthy itself. Off, Anthy keeps no
-// record at all; on, a record of Full Keyboard's own in `home`/.anthy, apart
-// from the one the stock keyboard learns into there.
+// Anthy's learning, process-wide like Anthy itself. Off (previews, tours),
+// Anthy keeps no record at all; on, a record of Full Keyboard's own in
+// `home`/.anthy, apart from the one the stock keyboard learns into there.
 struct AnthyLearning {
     bool operator==(const AnthyLearning&) const = default;
     bool on{};
@@ -59,6 +59,11 @@ bool anthy_configured();
 void restart_anthy(bool clear);
 // Whether Full Keyboard's record holds anything to clear.
 bool anthy_learned();
+// Starts Full Keyboard's record from a copy of the stock keyboard's, once:
+// unless `marker` exists, which it then creates, or there is a record of our
+// own already. It reads the stock record under Anthy's lock and leaves it as
+// it is. True when it copied anything. Call before Anthy starts.
+bool import_stock_learning(const std::filesystem::path& marker);
 // The user's home, as other programs find it: $HOME, else the password database.
 std::filesystem::path default_anthy_home();
 // A dictionary other than the installed one, for the simulator and tests;

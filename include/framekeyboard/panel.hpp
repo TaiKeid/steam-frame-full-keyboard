@@ -101,7 +101,6 @@ enum class ControlKind {
     SwipeTyping,
     KeyFlicks, // Settings: flick a key down for its Shift character
     SwipeCandidate,
-    JapaneseLearning,
     FlickOnly,     // Settings: Japanese flick taps never cycle
     FlickKatakana, // Settings: show the flick script key
     ClearLearning  // asks first

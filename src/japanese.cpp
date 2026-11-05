@@ -1,7 +1,10 @@
 #include "framekeyboard/japanese.hpp"
 #include <algorithm>
+#include <cerrno>
+#include <cerrno>
 #include <cstdlib>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <fstream>
 #include <glib.h>
 #include <map>
@@ -73,9 +76,11 @@ struct AnthySegmentStat {
 struct AnthyPredictionStat {
     int predictions;
 };
-// Full Keyboard's personality: Anthy keeps what it learns under this name,
-// apart from the stock keyboard's "default" (docs/japanese.md, Learning).
+// Full Keyboard's personality: Anthy keeps what it learns here under this
+// name, apart from the stock keyboard's "default", which it imports once
+// (docs/japanese.md, Learning).
 constexpr const char* learning_id = "framekeyboard";
+constexpr const char* stock_id = "default";
 constexpr int hiragana_candidate = -3, katakana_candidate = -2; // NTH_*_CANDIDATE
 std::string in_script(const std::string& reading, bool katakana);
 class AnthyConverter;
@@ -455,6 +460,11 @@ std::string half_width(const std::string& text) {
     }
     return result;
 }
+// A personality's record: its base file and journal, as Anthy names them.
+std::filesystem::path record_file(const std::filesystem::path& directory, int part,
+                                  const std::string& id) {
+    return directory / ("last-record" + std::to_string(part) + "_" + id + ".utf8");
+}
 } // namespace
 bool configure_anthy(AnthyLearning learning) {
     auto& state = anthy();
@@ -481,6 +491,7 @@ void restart_anthy(bool clear) {
     }
     if (clear) {
         // The record itself: a base file and its journal, and their lock.
+        // The stock keyboard's own stays as it is.
         const auto home = [&] {
             std::lock_guard settings(state.settings);
             return learning_home(state.learning);
@@ -519,13 +530,63 @@ bool anthy_learned() {
         return learning_home(state.learning);
     }();
     std::error_code error;
-    for (const char* prefix : {"last-record1_", "last-record2_"}) {
-        const auto path = home / ".anthy" / (prefix + std::string(learning_id) + ".utf8");
-        if (const auto size = std::filesystem::file_size(path, error); !error && size > 0) {
+    for (const int part : {1, 2}) {
+        if (const auto size =
+                std::filesystem::file_size(record_file(home / ".anthy", part, learning_id), error);
+            !error && size > 0) {
             return true;
         }
     }
     return false;
+}
+bool import_stock_learning(const std::filesystem::path& marker) {
+    std::error_code error;
+    if (std::filesystem::exists(marker, error)) {
+        return false;
+    }
+    // Once only, whatever there was to copy: a record cleared later stays
+    // empty, and later stock learning stays the stock keyboard's.
+    std::filesystem::create_directories(marker.parent_path(), error);
+    std::ofstream(marker).close();
+    auto& state = anthy();
+    const auto directory = [&] {
+        std::lock_guard lock(state.settings);
+        return learning_home(state.learning) / ".anthy";
+    }();
+    for (const int part : {1, 2}) {
+        if (std::filesystem::exists(record_file(directory, part, learning_id), error)) {
+            return false; // A record of our own already.
+        }
+    }
+    // Under Anthy's own lock, a lock on the lock file's first byte, which a
+    // writing stock keyboard holds: the copy is never half written. Read
+    // only: the stock keyboard's files stay exactly as they are.
+    const auto lock_file = directory / ("lock-file_" + std::string(stock_id));
+    const int lock = open(lock_file.c_str(), O_RDONLY | O_CLOEXEC);
+    if (lock >= 0) {
+        struct flock range{};
+        range.l_type = F_RDLCK;
+        range.l_whence = SEEK_SET;
+        range.l_len = 1;
+        while (fcntl(lock, F_SETLKW, &range) == -1 && errno == EINTR) {
+        }
+    }
+    bool copied = false;
+    for (const int part : {1, 2}) {
+        const auto from = record_file(directory, part, stock_id);
+        if (std::filesystem::exists(from, error) &&
+            std::filesystem::copy_file(from, record_file(directory, part, learning_id), error)) {
+            std::filesystem::permissions(record_file(directory, part, learning_id),
+                                         std::filesystem::perms::owner_read |
+                                             std::filesystem::perms::owner_write,
+                                         std::filesystem::perm_options::replace, error);
+            copied = true;
+        }
+    }
+    if (lock >= 0) {
+        close(lock); // Releases the lock.
+    }
+    return copied;
 }
 JapaneseComposer::JapaneseComposer(Factory factory) : factory_(std::move(factory)) {
 }

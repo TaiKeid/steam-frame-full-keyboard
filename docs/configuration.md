@@ -120,7 +120,7 @@ Flicks also type into the dictation editor.
 
 ## Japanese learning
 
-With Japanese as the main language or an additional one, the Languages and Layouts card also has **Learn from my typing**, saved as the optional global boolean `japanese_learning` and defaulting to true, as Steam's keyboard always learns. Apply and save turns it on or off; Back discards it. Under it, **Clear learned words** deletes what was learned after a confirmation, and can't be pressed while there is nothing to clear or while it is clearing. See [Japanese learning](japanese.md#learning).
+Japanese input always learns, as Steam's keyboard does, into a record of its own beside Steam's keyboard's, which it starts from a copy of once, at the first start; there is no setting for it, and an older `japanese_learning` key is dropped on the next save. With Japanese as the main language or an additional one, the Languages and Layouts card has **Clear learned words**, which deletes what Full Keyboard learned after a confirmation, leaves Steam's keyboard's record as it is, and can't be pressed while there is nothing to clear or while it is clearing. See [Japanese learning](japanese.md#learning).
 
 With Japanese flick as the main language or an additional one, the card also has **Flick Only (JP)**, saved as the optional global boolean `flick_only` and defaulting to false, as on phones. Its second line reads "A quick second tap types the same kana again". With it on, flick taps never cycle (see [Japanese input](japanese.md#flick-input)). Apply and save turns it on or off; Back discards it.
 
