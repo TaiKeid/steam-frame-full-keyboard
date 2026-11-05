@@ -4208,14 +4208,17 @@ bool App::key_flick_key(const Key& key, const std::set<int>& modifiers) {
     // Enter, Tab, Backspace and the arrows have no character: they keep
     // acting on press and repeating. Kana keys have theirs in the language,
     // also where the keymap below has none, as for ー and ろ.
-    const auto& language = profiles_.languages.at(settings_.active.language);
-    const bool kana = language.input_method == "japanese-kana" && language.kana.contains(key.action);
-    if (!kana &&
+    if (!kana_key(key) &&
         !LanguageMap::printable(keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num()))) {
         return false;
     }
     return japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers) ||
            text_key(key, modifiers);
+}
+bool App::kana_key(const Key& key) const {
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    return language.input_method == "japanese-kana" && japanese_typing() &&
+           language.kana.contains(key.action);
 }
 bool App::key_flick_shifts(const Key& key) const {
     const auto& language = profiles_.languages.at(settings_.active.language);
@@ -4225,7 +4228,7 @@ bool App::key_flick_shifts(const Key& key) const {
     };
     // Kana and jamo keys flick through their own tables; the keys those
     // leave out, such as Korean digits and punctuation, as on any keyboard.
-    if (language.input_method == "japanese-kana" && language.kana.contains(key.action)) {
+    if (kana_key(key)) {
         return differs(language.kana, language.kana_shift);
     }
     if (cjk_ && !cjk_->chinese() && language.composition_keys.contains(key.action)) {
@@ -4247,7 +4250,7 @@ bool App::key_flick_shifts(const Key& key) const {
 }
 std::string App::key_flick_legend(const Key& key) const {
     const auto& language = profiles_.languages.at(settings_.active.language);
-    const auto& shifted = language.input_method == "japanese-kana" ? language.kana_shift
+    const auto& shifted = kana_key(key)              ? language.kana_shift
                           : cjk_ && !cjk_->chinese() ? language.composition_shift
                                                      : std::map<std::string, std::string>{};
     if (const auto found = shifted.find(key.action); found != shifted.end()) {

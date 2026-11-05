@@ -199,6 +199,27 @@ void key_flicks() {
         click(app, "Escape");
     }
     {
+        // A kana key pulled shows its small kana; in Latin mode the keys are
+        // letters, each flicking to its capital, whatever their kana do.
+        const auto pulled = [&](const std::string& action) {
+            const auto [x, y] = centre(action);
+            app.down(0, x, y, now);
+            app.move(0, x, y + 30);
+            const auto shown = app.view().key_flick;
+            app.cancel_pointer(0);
+            return shown ? shown->legend : std::string{};
+        };
+        require(pulled("KeyE") == "ぃ" && pulled("KeyK").empty(), "kana keys flick to their small kana");
+        click(app, "KanaMode");
+        require(pulled("KeyE") == "E" && pulled("KeyK") == "K",
+                "in Latin mode, letters to their capitals");
+        sink.events.clear();
+        flick("KeyK", 60);
+        flick("KeyE", 60);
+        require(typed() == "KE", "and type them");
+        click(app, "KanaMode");
+    }
+    {
         // The toolbar's switch pauses flicks: keys type on press again.
         app.apply({"en-us-full", "en-us", "graphite"});
         const auto toggle = [&] {

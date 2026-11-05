@@ -516,6 +516,9 @@ class App {
     };
     std::optional<KeyFlickTrack> key_flick_;
     bool key_flick_key(const Key& key, const std::set<int>& modifiers);
+    // A JIS kana key typing its kana: not in Latin mode, where it types its
+    // letter or symbol as on any keyboard.
+    bool kana_key(const Key& key) const;
     // The key has a Shift character of its own to flick to: one its legend
     // shows, or a letter's capital while swipe doesn't take the letter.
     bool key_flick_shifts(const Key& key) const;
