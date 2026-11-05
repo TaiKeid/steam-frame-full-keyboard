@@ -2119,7 +2119,7 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
     object_verbs(result);
     chat_kana(result);
     if (!stretch.empty()) {
-        stretch_segment(result.back(), stretch);
+        stretch_segments(result, stretch);
     }
     if (converted != reading) {
         converted_as_ = std::move(converted);
@@ -2154,10 +2154,19 @@ bool JapaneseComposer::carried_words(const std::vector<Segment>& segments, const
     }
     return true;
 }
-void JapaneseComposer::stretch_segment(Segment& segment, const Stretch& stretch) {
+void JapaneseComposer::stretch_segments(std::vector<Segment>& segments, Stretch stretch) {
+    if (segments.empty()) {
+        return;
+    }
+    auto index = segments.size() - 1;
+    // A final kana on its own leaves the marks at the preceding segment's
+    // end, in both its reading and every candidate: 凄ー | い.
+    if (!stretch.final.empty() && segments[index].reading == stretch.final && index > 0) {
+        --index;
+        stretch.final.clear();
+    }
+    auto& segment = segments[index];
     auto reading = stretch.apply(segment.reading);
-    // A final kana split off on its own stays converted; don't move the
-    // stretch onto another segment or discard this segment's candidates.
     if (reading.empty()) {
         return;
     }
@@ -2500,7 +2509,7 @@ void JapaneseComposer::resize(int direction) {
     object_verbs(resized);
     chat_kana(resized);
     if (!stretch_.empty()) {
-        stretch_segment(resized.back(), stretch_); // Anthy converted it without.
+        stretch_segments(resized, stretch_); // Anthy converted it without.
     }
     // Rules may reorder a kept segment's candidates when its neighbour
     // changes. Its chosen text still belongs to the user.

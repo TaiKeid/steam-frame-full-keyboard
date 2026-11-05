@@ -327,8 +327,8 @@ class JapaneseComposer {
     // carried over, that holds a kana the carried n changed is a word.
     bool carried_words(const std::vector<Segment>& segments, const std::string& typed,
                        const std::string& converted) const;
-    // Puts a stretching ー back on a segment converted without it.
-    static void stretch_segment(Segment& segment, const Stretch& stretch);
+    // Puts a stretching ー back on the segments converted without it.
+    static void stretch_segments(std::vector<Segment>& segments, Stretch stretch);
     // The usual conversions of `reading`, else of the reading as converted,
     // the n carried over, a stretching ー kept on.
     std::vector<std::string> usual_phrases(const std::string& reading) const;

@@ -544,11 +544,13 @@ struct FakeConverter : JapaneseConverter {
 JapaneseComposer::Factory fake_converter(int* conversions) {
     return [conversions] { return std::make_unique<FakeConverter>(conversions); };
 }
-// A final kana split off a stretched word keeps its own candidates.
+// A final kana split off a stretched word leaves the stretch on the preceding segment.
 void stretched_boundaries() {
     struct Stretched : JapaneseConverter {
         bool split;
-        explicit Stretched(bool initially_split) : split(initially_split) {}
+        std::vector<std::string>* learned;
+        Stretched(bool initially_split, std::vector<std::string>* chosen)
+            : split(initially_split), learned(chosen) {}
         std::vector<Segment> convert(const std::string& reading) override {
             if (reading == "すごーい") {
                 return {{reading, {reading}}};
@@ -558,26 +560,49 @@ void stretched_boundaries() {
         static std::vector<Segment> divided() {
             return {{"すご", {"凄", "すご"}}, {"い", {"い", "胃"}}};
         }
-        std::vector<Segment> resize(int, int) override { return divided(); }
+        std::vector<Segment> resize(int index, int delta) override {
+            require(index == 0 && delta == -1, "shortening the stretched word splits its final kana");
+            return divided();
+        }
+        void learn(const std::vector<std::string>& chosen) override { *learned = chosen; }
     };
     for (const bool split : {false, true}) {
-        JapaneseComposer composer([split] { return std::make_unique<Stretched>(split); });
+        std::vector<std::string> learned;
+        JapaneseComposer composer([&] { return std::make_unique<Stretched>(split, &learned); });
         composer.kana("すごーい");
+        if (split) {
+            composer.prepare_live();
+            require(composer.live().front() == "すごーい",
+                    "live conversion keeps the stretch before a separate final kana");
+        }
         composer.convert();
         if (!split) {
             require(composer.preedit() == "すごーい", "a whole word keeps its stretch");
             composer.resize(-1);
         }
         require(composer.segment_count() == 2, "the final kana is a separate segment");
-        for (int i = 0; i < composer.segment_count(); ++i) {
-            require(!composer.candidates().empty(), "a split stretched word keeps candidates");
-            const auto [begin, end] = composer.active_range();
-            require(end > begin, "a split stretched word keeps a nonempty segment");
-            composer.segment(1);
-        }
-        require((composer.preedit() == "凄い" || composer.preedit() == "すごい") &&
-                    composer.commit_text() == composer.preedit(),
-                "a lone final kana stays converted without moving the stretch to another word");
+        const auto first = composer.candidates();
+        require(first == std::vector<std::string>{"すごー", "凄ー", "スゴー"},
+                "the preceding segment's reading and every candidate keep the stretch");
+        composer.choose(1);
+        require(composer.candidates() == std::vector<std::string>{"い", "胃", "イ"},
+                "the final kana keeps its reading and candidates without a stretch");
+        require(composer.preedit() == "凄ーい" && composer.commit_text() == "凄ーい",
+                "a split stretched word shows and commits the stretch before the final kana");
+        // word_choices() reports each segment's reading when it has a listed form.
+        composer.set_preferred(
+            [](const std::string& reading) { return std::vector<std::string>{reading}; });
+        require(composer.word_choices() ==
+                    std::vector<std::pair<std::string, std::string>>{{"すごー", "凄ー"}, {"い", "い"}},
+                "the segment readings are すごー and い");
+        composer.set_learning(true);
+        composer.learn();
+        require(learned == std::vector<std::string>{"凄ー", "い"},
+                "learning receives valid choices from both stretched segments");
+        composer.segment(-1);
+        composer.choose(0);
+        require(composer.preedit() == "すごーい" && composer.commit_text() == "すごーい",
+                "the kana candidates join to the typed reading, including the stretch");
     }
 }
 // Resizing a later segment retains the earlier candidate list and its choice.
