@@ -305,6 +305,68 @@ void steams_keyboard_ends_the_holds() {
             "and dictation's panel returns, with its text, once it closes");
 }
 
+// Losing the helper during a request is a fallback too: its cleanup reopens
+// Steam's keyboard for that field, though no state reports it until a helper
+// runs again. Both holds give way; a restart with no request open changes nothing.
+void losing_the_helper_ends_the_holds() {
+    Headset h(false);
+    const NativeReplacement::State lost{};
+    h.request(70, false);
+    h.display();
+    h.toolbar("keep-open");
+    h.request(70, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 70, "Keep open's panel serves a request");
+    h.status(lost);
+    h.display();
+    require(!h.compositor, "losing the helper during a request hides the held panel");
+    h.status(lost);
+    h.display();
+    require(!h.compositor, "it stays hidden while no helper runs");
+    h.status({1, true, false, false, true, false, false, true});
+    h.display();
+    require(!h.compositor, "and while the next helper reports Steam's restored keyboard");
+    h.status({1, false, false, false, true, false});
+    h.display();
+    require(!h.compositor && h.app->keep_open(),
+            "it stays hidden once Steam's keyboard closes, with Keep open still on");
+    h.request(2, false);
+    h.display();
+    h.request(2, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 2, "the next request shows it again");
+
+    h.status({2, false, false, false, true, false});
+    h.display();
+    const int shown = h.presentations;
+    require(h.compositor && h.lifecycle->held_without_field(), "Keep open holds the panel");
+    h.status(lost);
+    h.display();
+    h.status({1, false, false, false, true, false});
+    h.display();
+    require(h.compositor && h.lifecycle->held_without_field() && h.presentations == shown,
+            "a helper restart with no request open leaves the held panel as it was");
+
+    h.toolbar("keep-open");
+    require(!h.app->keep_open(), "Keep open off for dictation's own hold");
+    h.dictation_hold = true;
+    h.request(3, false);
+    h.display();
+    h.request(3, false);
+    h.display();
+    require(h.compositor && h.report().acknowledgement == 3, "dictation's panel serves a request");
+    h.status(lost);
+    h.display();
+    require(!h.compositor, "losing the helper hides dictation's hold too");
+    h.status({1, true, false, false, true, false, false, true});
+    h.display();
+    require(!h.compositor, "while Steam's restored keyboard is up");
+    h.status({1, false, false, false, true, false});
+    h.display();
+    require(h.compositor && h.dictation_hold,
+            "and dictation's panel returns, with its text, once it closes");
+}
+
 void keep_open_holds_the_panel_after_its_request() {
     Headset h(false);
     const NativeReplacement::State closed{40, false, false, false, true, false};
@@ -1284,6 +1346,7 @@ int main() {
         an_update_reveals_without_a_native_target();
         keep_open_holds_the_panel_after_its_request();
         steams_keyboard_ends_the_holds();
+        losing_the_helper_ends_the_holds();
         a_hidden_focused_window_is_flagged();
         the_dashboard_with_the_keys_types_nothing();
         stale_focus_samples_cannot_erase_app_clicks();

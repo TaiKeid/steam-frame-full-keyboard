@@ -8,6 +8,15 @@ VrLifecycle::VrLifecycle(bool background_start, VrLifecycleEffects effects)
 
 void VrLifecycle::begin_frame(const Frame& frame) {
     const auto& native = frame.native;
+    // A helper lost during a request is a fallback too: its cleanup reopens
+    // Steam's keyboard for that field, which no state reports until a helper
+    // runs again. Both holds wait until one reports that keyboard closed, or
+    // a request of ours; a restart with no request open changes nothing.
+    if (!frame.replacement_enabled || (native.available && (!native.open || native.eligible))) {
+        lost_session_ = false;
+    } else if (native_.available && native_.open && !native.available) {
+        lost_session_ = true;
+    }
     native_ = native;
     if (!frame.replacement_enabled || (visible_ && native.active)) {
         update_revealed_ = false;
@@ -34,12 +43,12 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     // Steam's keyboard taking a field we cannot type into, such as a web
     // page's, is a fallback to it like Use Steam keyboard: Keep open then
     // holds nothing until a request or launch shows the panel again.
-    if (!frame.keep_open || frame.watchdog_stalled || native.steam) {
+    if (!frame.keep_open || frame.watchdog_stalled || native.steam || lost_session_) {
         keep_armed_ = false;
     } else if (visible_) {
         keep_armed_ = true;
     }
-    presentation_.hold(frame.dictation_hold || keep_armed_);
+    presentation_.hold(!lost_session_ && (frame.dictation_hold || keep_armed_));
     presentation_.update(frame.replacement_enabled, native);
     if (frame.watchdog_stalled) {
         update_revealed_ = false;

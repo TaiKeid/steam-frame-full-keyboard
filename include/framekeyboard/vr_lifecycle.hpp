@@ -192,6 +192,8 @@ class VrLifecycle {
     // Keep open holds the panel only once it has been shown, and X or a
     // native fallback lets go until a request or summon shows it again.
     bool keep_armed_{};
+    // The helper was lost while a request was open (begin_frame).
+    bool lost_session_{};
     // A button summon over the held panel, dismissed once acknowledged.
     std::uint64_t close_when_acknowledged_{};
     bool button_close_{};
