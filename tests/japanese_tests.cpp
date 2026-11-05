@@ -716,6 +716,38 @@ void word_completion() {
     require(composer.choose_live(1) && composer.commit_text() == "おめでとうございます",
             "a completion commits as the word");
     {
+        // Romaji's nn is ん, as in Mozc; the words the reading makes with the
+        // n carried over come first while it makes none, after it otherwise.
+        std::ofstream(fs::path(directory) / "nn.tsv") << "げんいん\t原因\t1000\n"
+                                                         "げんにん\t現任\t4000\n"
+                                                         "こんにちは\tこんにちは\t1276\n";
+        const JapaneseWords nn(fs::path(directory) / "nn.tsv");
+        JapaneseComposer romaji(fake_converter(&conversions));
+        romaji.set_words(&nn);
+        for (const char c : std::string("konnichiha")) {
+            romaji.roman(c);
+        }
+        romaji.prepare_live();
+        require(romaji.preedit() == "こんいちは" && romaji.live().front() == "こんにちは",
+                "konnichiha reads こんいちは and offers こんにちは first");
+        require(romaji.choose_live(0) && romaji.commit_text() == "こんにちは",
+                "which commits as itself");
+        romaji.cancel();
+        for (const char c : std::string("gennin")) {
+            romaji.roman(c);
+        }
+        romaji.prepare_live();
+        const auto live = romaji.live();
+        const auto other = std::find(live.begin(), live.end(), "現任");
+        require(romaji.preedit() == "げんいn" && live.front() == "〈げん〉〈いん〉" &&
+                    other != live.end(),
+                "gennin reads げんいん, a word, so 現任 follows its conversion");
+        romaji.cancel();
+        romaji.kana("こんいちは");
+        romaji.prepare_live();
+        require(romaji.live().front() == "〈こん〉〈いち〉〈は〉", "kana typed so is meant so");
+    }
+    {
         // Common chat phrases complete a reading too, ranked as common words.
         const auto phrase_file = fs::path(directory) / "phrases.tsv";
         std::ofstream(phrase_file) << "いただきます\tいただきます\t0\n"
@@ -2401,11 +2433,14 @@ int main() {
         JapaneseComposer composer;
         for (const auto& [roman, expected] :
              std::vector<std::pair<std::string, std::string>>{{"nihon", "にほん"},
-                                                              {"konnichiha", "こんにちは"},
+                                                              {"konnichiha", "こんいちは"},
+                                                              {"konnnichiha", "こんにちは"},
+                                                              {"honnya", "ほんや"},
                                                               {"gakkou", "がっこう"},
                                                               {"shin'you", "しんよう"},
                                                               {"nn", "ん"},
-                                                              {"kanna", "かんな"},
+                                                              {"kanna", "かんあ"},
+                                                              {"kannna", "かんな"},
                                                               {"matcha", "まっちゃ"},
                                                               {"kyou", "きょう"},
                                                               {"shashin", "しゃしん"},

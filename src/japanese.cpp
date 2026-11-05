@@ -444,6 +444,22 @@ bool symbols_only(const std::string& reading) {
     }
     return !reading.empty();
 }
+// The reading with each ん before a vowel or や, ゆ, よ read the other way
+// romaji's nn allows: こんいちは as こんにちは, ほんや as ほんにゃ.
+std::string carried_n(const std::string& reading) {
+    static const std::map<std::string, std::string> carried{
+        {"あ", "な"}, {"い", "に"},   {"う", "ぬ"},   {"え", "ね"},
+        {"お", "の"}, {"や", "にゃ"}, {"ゆ", "にゅ"}, {"よ", "にょ"}};
+    std::string result;
+    bool after_n = false;
+    for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
+        const std::string kana(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+        const auto found = after_n ? carried.find(kana) : carried.end();
+        result += found != carried.end() ? found->second : kana;
+        after_n = kana == "ん";
+    }
+    return result;
+}
 // Full-width forms as their narrow ones: ？ as ?, ￥ as ¥.
 std::string half_width(const std::string& text) {
     std::string result;
@@ -678,7 +694,7 @@ bool JapaneseComposer::move(int direction) {
     return true;
 }
 std::size_t JapaneseComposer::cursor() const {
-    return cursor_ + (pending_ == "nn" ? std::string("ん").size() : pending_.size());
+    return cursor_ + pending_.size();
 }
 void JapaneseComposer::drain(bool finish) {
     const auto& table = roman_table();
@@ -698,16 +714,11 @@ void JapaneseComposer::drain(bool finish) {
                 continue;
             }
             if (next == 'n') {
-                // nn commits one ん; retain the second n for nna/nni etc.
-                if (pending_.size() == 2) {
-                    if (finish) {
-                        append("ん");
-                        pending_.clear();
-                    }
-                    return;
-                }
+                // nn is one ん, as in Mozc's table and other IMEs: honnya
+                // is ほんや. A reading spelled so also offers the word the
+                // other reading makes (こんいちは: こんにちは; prepare_live).
                 append("ん");
-                pending_.erase(0, std::string("aiueoy").find(pending_[2]) != std::string::npos ? 1 : 2);
+                pending_.erase(0, 2);
                 continue;
             }
             if (std::string("aiueoy").find(next) == std::string::npos) {
@@ -742,6 +753,7 @@ void JapaneseComposer::roman(char key) {
         throw std::runtime_error("Commit this phrase before typing more");
     }
     unconvert();
+    romaji_ = true;
     pending_ += static_cast<char>(g_ascii_tolower(key));
     drain(false);
 }
@@ -949,7 +961,7 @@ bool JapaneseComposer::choose(int index) {
 }
 bool JapaneseComposer::settled(std::string& reading) const {
     // A lone n would become ん; any other letter could still change.
-    if (!pending_.empty() && pending_ != "n" && pending_ != "nn") {
+    if (!pending_.empty() && pending_ != "n") {
         return false;
     }
     reading = pending_.empty()
@@ -1041,6 +1053,45 @@ void JapaneseComposer::prepare_live() {
     for (std::size_t i = 0; i < predicted.size(); ++i) {
         add(predicted[i], Live::Source::Prediction, static_cast<int>(i));
     }
+    // Romaji's nn is ん, so konnichiha reads こんいちは: the words the reading
+    // makes with the n carried over (こんにちは) come first while it makes
+    // none itself, and after its conversion otherwise (原因, then 現任).
+    std::vector<std::string> carried;
+    if (romaji_) {
+        if (const auto other = carried_n(reading); other != reading) {
+            if (preferred_) {
+                carried = preferred_(other);
+            }
+            if (words_) {
+                for (auto& word : words_->exact(other, 2)) {
+                    carried.push_back(std::move(word));
+                }
+            }
+        }
+    }
+    const bool carried_first =
+        !carried.empty() && (!words_ || words_->own_cost(reading) == std::numeric_limits<int>::max()) &&
+        (!preferred_ || preferred_(reading).empty());
+    if (carried_first) {
+        std::vector<std::string> texts;
+        std::vector<std::pair<Live::Source, int>> sources;
+        for (auto& text : carried) {
+            if (std::find(texts.begin(), texts.end(), text) == texts.end()) {
+                texts.push_back(std::move(text));
+                sources.emplace_back(Live::Source::Completion, 0);
+            }
+        }
+        carried.clear();
+        // Before everything listed so far.
+        for (std::size_t i = 0; i < live.texts.size(); ++i) {
+            if (std::find(texts.begin(), texts.end(), live.texts[i]) == texts.end()) {
+                texts.push_back(live.texts[i]);
+                sources.push_back(live.sources[i]);
+            }
+        }
+        live.texts = std::move(texts);
+        live.sources = std::move(sources);
+    }
     // A reading that is one word offers its likeliest other words before
     // completing it, as completions that lead have already: 雨 and 飴 before
     // 編める, 神, 紙 and 髪 before 噛み合う.
@@ -1049,6 +1100,9 @@ void JapaneseComposer::prepare_live() {
     const std::size_t early = live.segments.size() == 1 ? std::min(first.size(), before_completions) : 0;
     for (std::size_t i = 0; i < early; ++i) {
         add(first[i], Live::Source::First, static_cast<int>(i));
+    }
+    for (auto& text : carried) {
+        add(std::move(text), Live::Source::Completion);
     }
     complete();
     for (std::size_t i = early; i < first.size(); ++i) {
@@ -1185,6 +1239,7 @@ void JapaneseComposer::cancel() {
     unconvert();
     reading_.clear();
     pending_.clear();
+    romaji_ = false;
     cursor_ = 0;
     live_ = {};
     predicted_.reset();
@@ -1200,8 +1255,7 @@ std::string JapaneseComposer::reopen_reading() const {
 std::string JapaneseComposer::preedit(bool mark_active) const {
     if (!converting()) {
         // Romaji still waiting shows where it was typed, at the cursor.
-        return reading_.substr(0, cursor_) + (pending_ == "nn" ? "ん" : pending_) +
-               reading_.substr(cursor_);
+        return reading_.substr(0, cursor_) + pending_ + reading_.substr(cursor_);
     }
     std::string result;
     for (std::size_t i = 0; i < segments_.size(); ++i) {

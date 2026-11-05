@@ -89,6 +89,9 @@ class JapaneseWords {
     // Whether a completion of this cost leads the reading's own conversion,
     // by complete()'s rule but for an adjective's stem.
     bool completion_leads(const std::string& reading, int cost) const;
+    // The reading's lowest cost as a word, or as a word and a particle a
+    // little more; the largest int when it is neither.
+    int own_cost(const std::string& reading) const;
     // Up to `most` words of exactly this reading, lowest cost first.
     std::vector<std::string> exact(const std::string& reading, std::size_t most) const;
 
@@ -98,9 +101,6 @@ class JapaneseWords {
         std::uint16_t reading_size{}, word_size{}, cost{};
     };
     void load() const;
-    // The reading's lowest cost as a word, or as a word and a particle a
-    // little more; the largest int when it is neither.
-    int own_cost(const std::string& reading) const;
     std::filesystem::path file_;
     mutable bool loaded_{};
     mutable std::string text_;
@@ -238,6 +238,9 @@ class JapaneseComposer {
     const JapaneseWords* words_{};
     const JapaneseWords* kaomoji_{};
     const JapaneseWords* phrases_{};
+    // The reading came from romaji, whose nn may have meant ん and a な-row
+    // kana instead (prepare_live).
+    bool romaji_{};
     Preferred preferred_;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
