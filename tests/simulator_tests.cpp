@@ -2,8 +2,10 @@
 // keyboard typing into it through the simulator's pointer routing.
 #include "simulator/simulator.hpp"
 #include <algorithm>
+#include <fcntl.h>
 #include <iostream>
 #include <stdexcept>
+#include <sys/wait.h>
 #include <unistd.h>
 using namespace framekeyboard;
 using namespace framekeyboard::simulator;
@@ -157,6 +159,38 @@ struct Profile {
     }
     ~Profile() { fs::remove_all(path); }
 };
+void candidate_profile() {
+    Profile profile;
+    const auto config = profile.path / "settings";
+    const auto temporary = profile.path / "temporary";
+    fs::create_directories(temporary);
+    const auto binary = fs::read_symlink("/proc/self/exe").parent_path() / "framekeyboard-simulator";
+    auto run = [&](const char* engine, int expected) {
+        const auto child = fork();
+        require(child >= 0, "fork candidate report");
+        if (child == 0) {
+            const int null = open("/dev/null", O_RDWR);
+            dup2(null, STDIN_FILENO);
+            dup2(null, STDOUT_FILENO);
+            close(null);
+            setenv("TMPDIR", temporary.c_str(), 1);
+            execl(binary.c_str(), binary.c_str(), "--japanese-candidates", "--config-dir",
+                  config.c_str(), engine,
+                  engine == std::string("--mozc-server") ? "/bin/false" : nullptr,
+                  static_cast<char*>(nullptr));
+            _exit(127);
+        }
+        int status = 0;
+        require(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+                    WEXITSTATUS(status) == expected,
+                "candidate report exits as expected");
+        require(!fs::exists(config / "mozc"),
+                "candidate report never uses the interactive Mozc profile");
+        require(fs::is_empty(temporary), "candidate profile is removed on return and exception");
+    };
+    run("--mozc-server", 1); // A failed server makes the report throw after creating its profile.
+    run("--anthy-only", 0);
+}
 double clock_now = 10;
 void wait(Simulator& simulator, double seconds = .1) {
     for (const double end = clock_now + seconds; clock_now < end; clock_now += .01) {
@@ -350,6 +384,7 @@ void bad_selection() {
 
 int main() {
     try {
+        candidate_profile();
         editing();
         slow_field();
         japanese_reopen(false);

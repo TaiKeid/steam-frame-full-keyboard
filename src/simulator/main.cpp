@@ -1,5 +1,6 @@
 // The desktop simulator's window (docs/simulator.md): SDL events become the
 // Simulator's pointer calls, and its canvas is shown scaled to the window.
+#include "candidate_profile.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/emoji_words.hpp"
 #include "framekeyboard/japanese_candidates.hpp"
@@ -185,7 +186,8 @@ int main(int argc, char** argv) {
             // Anthy keeps its lock file in the settings folder, and learns nothing.
             fk::configure_anthy({false, setup.config_dir});
             candidate_options.data_dir = setup.data_dir;
-            candidate_options.mozc_profile = setup.config_dir;
+            sim::CandidateProfile profile;
+            candidate_options.mozc_profile = profile.path();
             if (!mozc_chosen) {
                 candidate_options.mozc_server = fk::mozc_engine(); // As the keyboard converts.
             }

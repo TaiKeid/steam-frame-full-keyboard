@@ -474,6 +474,7 @@ if(BUILD_TESTING)
     if(NOT CMAKE_CROSSCOMPILING)
         add_executable(simulator-tests tests/simulator_tests.cpp)
         target_link_libraries(simulator-tests PRIVATE simulator_core)
+        add_dependencies(simulator-tests framekeyboard-simulator)
         target_compile_options(simulator-tests PRIVATE -Wall -Wextra -Wpedantic)
         add_test(NAME simulator COMMAND simulator-tests)
         # Renders the simulator's window contents in typed states for review; not a test.
