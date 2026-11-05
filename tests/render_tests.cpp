@@ -163,6 +163,69 @@ void candidate_menu_resize() {
         compare.frame(view, "candidate menu shrinks again");
     }
 }
+void candidate_scrolling() {
+    const auto profiles = load_profiles({}, {});
+    for (const auto& [layout, language] :
+         {std::pair{"en-us-full", "ja-romaji"}, std::pair{"ja-jis-full", "ja-kana"},
+          std::pair{"ja-flick-12", "ja-flick"}}) {
+        for (const auto* theme : {"graphite", "porcelain", "neon"}) {
+            NullSink sink;
+            KeyboardState keyboard(sink);
+            LanguageMap keymap(profiles.languages.at(language));
+            PanelView view;
+            view.layout = &profiles.layouts.at(layout);
+            view.theme = &profiles.themes.at(theme);
+            view.language = &profiles.languages.at(language);
+            view.keyboard = &keyboard;
+            view.keymap = &keymap;
+            view.ime_band = view.ime_more = view.composing = true;
+            view.preedit = "かお";
+            view.case_opacity = 0;
+            std::vector<std::string> texts;
+            for (int i = 0; i < 442; ++i) {
+                texts.push_back("(＾▽＾)" + std::to_string(i));
+            }
+            const auto measure = [&](const std::string& text) {
+                return candidate_text_width(text, view.language->font);
+            };
+            const bool flick = view.language->input_method == "japanese-flick";
+            auto row = ime_band(view).candidates;
+            if (!flick) {
+                row.width = std::max(0.0, row.width - 72);
+            }
+            CandidateStrip strip;
+            Comparison compare;
+            for (bool open : {false, true}) {
+                strip.set(row, texts, -1, false, measure,
+                          open ? std::optional{candidate_list_area(view)} : std::nullopt, !flick);
+                view.candidates = strip.view();
+                compare.frame(view, "candidate scrolling starts");
+                for (int frame = 0; frame < 8; ++frame) {
+                    const auto area = open ? *view.candidates->list : row;
+                    if (!strip.scroll(area.x + area.width / 2, area.y + area.height / 2, 1)) {
+                        throw std::runtime_error("candidate scrolling fixture must move");
+                    }
+                    view.candidates = strip.view();
+                    compare.frame(view, "scrolled candidates match a full paint");
+                    const auto& damage = compare.incremental.damage();
+                    if (damage.empty()) {
+                        throw std::runtime_error("candidate scrolling must keep partial paints");
+                    }
+                    for (std::size_t i = 0; i < damage.size(); ++i) {
+                        for (std::size_t j = 0; j < damage.size(); ++j) {
+                            const auto& a = damage[i];
+                            const auto& b = damage[j];
+                            if (i != j && a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width &&
+                                a.y + a.height <= b.y + b.height) {
+                                throw std::runtime_error("candidate damage repeats a contained pass");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 void handle_states() {
     const auto profiles = load_profiles({}, {});
     NullSink sink;
@@ -727,6 +790,7 @@ void status_line() {
 int main() {
     try {
         candidate_menu_resize();
+        candidate_scrolling();
         handle_states();
         status_line();
         carried_row();

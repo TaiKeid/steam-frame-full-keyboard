@@ -183,6 +183,11 @@ std::optional<std::array<Rect, 5>> flick_cells(const PanelView& view) {
 bool overlaps(const Rect& a, const Rect& b) {
     return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
+Rect clip_bounds(cairo_t* cr) {
+    double left, top, right, bottom;
+    cairo_clip_extents(cr, &left, &top, &right, &bottom);
+    return {left, top, right - left, bottom - top};
+}
 // The panel is a texture seen at any angle, with no fixed pixel layout, so
 // text is antialiased in grey even where the system's fonts ask for subpixel
 // (coloured) antialiasing, as SteamOS's do: that would fringe every legend
@@ -1956,12 +1961,16 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
         if (listed && !strip.list) {
             break;
         }
-        cairo_save(cr);
         const auto clip = pixel_bounds(listed ? *strip.list : strip.area);
+        if (!overlaps(clip, clip_bounds(cr))) {
+            continue;
+        }
+        cairo_save(cr);
         cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
         cairo_clip(cr);
+        const auto pass = clip_bounds(cr);
         for (const auto& chip : strip.chips) {
-            if (chip.listed != listed) {
+            if (chip.listed != listed || !overlaps(pixel_bounds(chip.bounds, 1), pass)) {
                 continue;
             }
             draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
@@ -2026,69 +2035,73 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
     const auto& t = *view.theme;
     const auto areas = ime_band(view);
     const bool line = reading_line(view);
-    if (view.preedit.empty()) {
-        const auto hint = composition_hint(view);
-        const auto& r = line ? areas.band : areas.reading;
-        case_plate(cr, view, r, hint, 19, PANGO_ALIGN_CENTER);
-        label(cr, hint, r, 19, view.language->font, mix(t.legend, t.surface, .35));
-    } else {
-        const auto& r = areas.reading;
-        draw_well(cr, t, r);
-        auto* layout = pango_cairo_create_layout(cr);
-        auto* font = pango_font_description_new();
-        pango_font_description_set_family(font, view.language->font.c_str());
-        pango_font_description_set_absolute_size(font, reading_font_size * PANGO_SCALE);
-        pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
-        pango_layout_set_font_description(layout, font);
-        pango_font_description_free(font);
-        pango_layout_set_text(layout, view.preedit.c_str(), static_cast<int>(view.preedit.size()));
-        pango_layout_set_single_paragraph_mode(layout, TRUE);
-        pango_layout_set_width(layout, static_cast<int>((r.width - 24) * PANGO_SCALE));
-        // A long reading keeps its end, where typing goes on, in view; while
-        // converting, the side the active segment is on.
-        const bool early = (view.preedit_active_end > view.preedit_active_begin &&
-                            view.preedit_active_end * 2 <= view.preedit.size()) ||
-                           (view.preedit_cursor && *view.preedit_cursor * 2 < view.preedit.size());
-        pango_layout_set_ellipsize(layout, early ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_START);
-        if (line) {
-            pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
-        }
-        auto* attributes = pango_attr_list_new();
-        pango_attr_list_insert(attributes, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
-        if (view.preedit_active_end > view.preedit_active_begin &&
-            view.preedit_active_end <= view.preedit.size()) {
-            auto channel = [](double value) {
-                return static_cast<guint16>(std::clamp(value, 0.0, 1.0) * 65535);
-            };
-            for (auto* attribute :
-                 {pango_attr_background_new(channel(t.latched.r), channel(t.latched.g),
-                                            channel(t.latched.b)),
-                  pango_attr_foreground_new(channel(t.latched_legend.r), channel(t.latched_legend.g),
-                                            channel(t.latched_legend.b))}) {
-                attribute->start_index = static_cast<guint>(view.preedit_active_begin);
-                attribute->end_index = static_cast<guint>(view.preedit_active_end);
-                pango_attr_list_insert(attributes, attribute);
+    const auto clip = clip_bounds(cr);
+    if (overlaps(pixel_bounds(line && view.preedit.empty() ? areas.band : areas.reading, 6), clip)) {
+        if (view.preedit.empty()) {
+            const auto hint = composition_hint(view);
+            const auto& r = line ? areas.band : areas.reading;
+            case_plate(cr, view, r, hint, 19, PANGO_ALIGN_CENTER);
+            label(cr, hint, r, 19, view.language->font, mix(t.legend, t.surface, .35));
+        } else {
+            const auto& r = areas.reading;
+            draw_well(cr, t, r);
+            auto* layout = pango_cairo_create_layout(cr);
+            auto* font = pango_font_description_new();
+            pango_font_description_set_family(font, view.language->font.c_str());
+            pango_font_description_set_absolute_size(font, reading_font_size * PANGO_SCALE);
+            pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+            pango_layout_set_font_description(layout, font);
+            pango_font_description_free(font);
+            pango_layout_set_text(layout, view.preedit.c_str(), static_cast<int>(view.preedit.size()));
+            pango_layout_set_single_paragraph_mode(layout, TRUE);
+            pango_layout_set_width(layout, static_cast<int>((r.width - 24) * PANGO_SCALE));
+            // A long reading keeps its end, where typing goes on, in view; while
+            // converting, the side the active segment is on.
+            const bool early = (view.preedit_active_end > view.preedit_active_begin &&
+                                view.preedit_active_end * 2 <= view.preedit.size()) ||
+                               (view.preedit_cursor && *view.preedit_cursor * 2 < view.preedit.size());
+            pango_layout_set_ellipsize(layout, early ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_START);
+            if (line) {
+                pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
             }
+            auto* attributes = pango_attr_list_new();
+            pango_attr_list_insert(attributes, pango_attr_underline_new(PANGO_UNDERLINE_SINGLE));
+            if (view.preedit_active_end > view.preedit_active_begin &&
+                view.preedit_active_end <= view.preedit.size()) {
+                auto channel = [](double value) {
+                    return static_cast<guint16>(std::clamp(value, 0.0, 1.0) * 65535);
+                };
+                for (auto* attribute :
+                     {pango_attr_background_new(channel(t.latched.r), channel(t.latched.g),
+                                                channel(t.latched.b)),
+                      pango_attr_foreground_new(channel(t.latched_legend.r), channel(t.latched_legend.g),
+                                                channel(t.latched_legend.b))}) {
+                    attribute->start_index = static_cast<guint>(view.preedit_active_begin);
+                    attribute->end_index = static_cast<guint>(view.preedit_active_end);
+                    pango_attr_list_insert(attributes, attribute);
+                }
+            }
+            pango_layout_set_attributes(layout, attributes);
+            pango_attr_list_unref(attributes);
+            int width = 0, height = 0;
+            pango_layout_get_pixel_size(layout, &width, &height);
+            const double top = r.y + (r.height - height) / 2;
+            source(cr, t.legend);
+            cairo_move_to(cr, r.x + 12, top);
+            pango_cairo_show_layout(cr, layout);
+            if (view.preedit_cursor && *view.preedit_cursor <= view.preedit.size()) {
+                // The caret, as in a text field, where typing goes.
+                PangoRectangle at;
+                pango_layout_index_to_pos(layout, static_cast<int>(*view.preedit_cursor), &at);
+                const double x = std::round(r.x + 12 + at.x / static_cast<double>(PANGO_SCALE));
+                cairo_rectangle(cr, x - 1, top + 3, 2, height - 6);
+                cairo_fill(cr);
+            }
+            g_object_unref(layout);
         }
-        pango_layout_set_attributes(layout, attributes);
-        pango_attr_list_unref(attributes);
-        int width = 0, height = 0;
-        pango_layout_get_pixel_size(layout, &width, &height);
-        const double top = r.y + (r.height - height) / 2;
-        source(cr, t.legend);
-        cairo_move_to(cr, r.x + 12, top);
-        pango_cairo_show_layout(cr, layout);
-        if (view.preedit_cursor && *view.preedit_cursor <= view.preedit.size()) {
-            // The caret, as in a text field, where typing goes.
-            PangoRectangle at;
-            pango_layout_index_to_pos(layout, static_cast<int>(*view.preedit_cursor), &at);
-            const double x = std::round(r.x + 12 + at.x / static_cast<double>(PANGO_SCALE));
-            cairo_rectangle(cr, x - 1, top + 3, 2, height - 6);
-            cairo_fill(cr);
-        }
-        g_object_unref(layout);
     }
-    if (const auto menu = candidate_menu(view)) {
+    if (const auto menu = candidate_menu(view);
+        menu && overlaps(pixel_bounds(*menu, tone_shadow), clip)) {
         // A raised menu, like the dropdowns: its edge drawn by light and
         // shadow rather than an outline.
         const double radius = t.radius + 2;
@@ -2639,7 +2652,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // across the keyboard the way one bounding rectangle would.
     std::vector<Rect> areas;
     auto damage_area = [&](Rect r) {
-        areas.push_back(r);
+        const auto contains = [](const Rect& outer, const Rect& inner) {
+            return outer.x <= inner.x && outer.y <= inner.y &&
+                   outer.x + outer.width >= inner.x + inner.width &&
+                   outer.y + outer.height >= inner.y + inner.height;
+        };
+        if (std::none_of(areas.begin(), areas.end(),
+                         [&](const Rect& area) { return contains(area, r); })) {
+            std::erase_if(areas, [&](const Rect& area) { return contains(r, area); });
+            areas.push_back(r);
+        }
         for (const auto& [id, bounds] : key_bounds_) {
             if (overlaps(bounds, r)) {
                 damage.push_back(bounds);
