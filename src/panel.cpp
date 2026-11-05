@@ -2478,7 +2478,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.emoji.has_value() != view.emoji.has_value() ||
         previous_->view.dictation.has_value() != view.dictation.has_value() ||
         previous_->view.dictation_available != view.dictation_available ||
-        list_open(previous_->view) != list_open(view);
+        list_open(previous_->view) != list_open(view) ||
+        // A resized menu covers different keys, whose ink bounds must be rebuilt.
+        candidate_menu(previous_->view) != candidate_menu(view);
     // A row carried over the popup's lists moves alone, and repaints alone.
     const bool only_lifted_moved = [&] {
         const auto* before = previous_ ? &previous_->view.languages : nullptr;

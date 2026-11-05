@@ -115,6 +115,54 @@ class Comparison {
         }
     }
 };
+void candidate_menu_resize() {
+    const auto profiles = load_profiles({}, {});
+    for (const auto& [layout, language] :
+         {std::pair{"en-us-full", "ja-romaji"}, std::pair{"ja-jis-full", "ja-kana"}}) {
+        NullSink sink;
+        KeyboardState keyboard(sink);
+        LanguageMap keymap(profiles.languages.at(language));
+        PanelView view;
+        view.layout = &profiles.layouts.at(layout);
+        view.theme = &profiles.themes.at("graphite");
+        view.language = &profiles.languages.at(language);
+        view.keyboard = &keyboard;
+        view.keymap = &keymap;
+        view.ime_band = view.ime_more = view.composing = true;
+        view.preedit = "かか";
+        CandidateStrip strip;
+        auto row = ime_band(view).candidates;
+        row.width = std::max(0.0, row.width - 72);
+        const auto list = candidate_list_area(view);
+        const auto measure = [&](const std::string& text) {
+            return candidate_text_width(text, view.language->font);
+        };
+        auto set = [&](int count, bool open) {
+            std::vector<std::string> texts;
+            for (int i = 0; i < count; ++i) {
+                texts.push_back("候補" + std::to_string(i));
+            }
+            strip.set(row, texts, -1, false, measure, open ? std::optional{list} : std::nullopt, true);
+            view.candidates = strip.view();
+        };
+        Comparison compare;
+        set(200, false);
+        compare.frame(view, "closed candidate menu");
+        set(200, true);
+        compare.frame(view, "open tall candidate menu");
+        const double tall = view.candidates->list->height;
+        set(30, true);
+        if (view.candidates->list->height >= tall) {
+            throw std::runtime_error("candidate menu fixture must shrink over the keys");
+        }
+        // Compare every pixel, including the newly uncovered keys and old shadow.
+        compare.frame(view, "candidate menu shrinks while open");
+        set(200, true);
+        compare.frame(view, "candidate menu grows while open");
+        set(30, true);
+        compare.frame(view, "candidate menu shrinks again");
+    }
+}
 void handle_states() {
     const auto profiles = load_profiles({}, {});
     NullSink sink;
@@ -678,6 +726,7 @@ void status_line() {
 }
 int main() {
     try {
+        candidate_menu_resize();
         handle_states();
         status_line();
         carried_row();
