@@ -580,6 +580,53 @@ void stretched_boundaries() {
                 "a lone final kana stays converted without moving the stretch to another word");
     }
 }
+// Resizing a later segment retains the earlier candidate list and its choice.
+void resized_choices(bool shorter) {
+    struct Choices : JapaneseConverter {
+        bool shorter;
+        std::vector<std::string>* learned;
+        Choices(bool fewer, std::vector<std::string>* chosen) : shorter(fewer), learned(chosen) {}
+        std::vector<Segment> convert(const std::string&) override {
+            return {{"きょう", {"今日", "京", "強", "教"}}, {"てんき", {"天気"}}};
+        }
+        std::vector<Segment> resize(int, int) override {
+            return {{"きょう", shorter ? std::vector<std::string>{"今日"}
+                                       : std::vector<std::string>{"今日", "強", "京"}},
+                    {"てん", {"天"}},
+                    {"き", {"気"}}};
+        }
+        void learn(const std::vector<std::string>& chosen) override { *learned = chosen; }
+    };
+    std::vector<std::string> learned;
+    JapaneseComposer composer([&] { return std::make_unique<Choices>(shorter, &learned); });
+    composer.set_learning(true);
+    composer.kana("きょうてんき");
+    composer.convert();
+    const auto candidates = composer.candidates();
+    composer.cycle(shorter ? -1 : 1);
+    const auto selected = composer.selected();
+    const auto chosen = candidates.at(static_cast<std::size_t>(selected));
+    composer.segment(1);
+    composer.resize(-1);
+    composer.segment(-1);
+    require(composer.selected() < static_cast<int>(composer.candidates().size()),
+            "an earlier choice stays within its candidate list after resize");
+    require(composer.candidates().at(static_cast<std::size_t>(composer.selected())) == chosen,
+            "an earlier choice keeps its text when resize reorders candidates");
+    require(composer.candidates() == candidates && composer.selected() == selected,
+            "an earlier segment retains all candidates and its selection");
+    require(composer.preedit() == chosen + "天気" && composer.commit_text() == chosen + "天気",
+            "a resized phrase shows and commits the chosen earlier text");
+    composer.learn();
+    require(learned == std::vector<std::string>{chosen, "天", "気"},
+            "learning receives the retained choice and the resized segments");
+}
+void resized_shorter_choices() {
+    resized_choices(true);
+}
+void resized_reordered_choices() {
+    resized_choices(false);
+}
 // Symbol segments as Anthy returns them: half-width ！ first, a closing 」 as 』.
 void symbols_as_typed() {
     struct SymbolConverter : JapaneseConverter {
@@ -3340,6 +3387,8 @@ int main() {
     configure_anthy({false, anthy_home});
     try {
         stretched_boundaries();
+        resized_shorter_choices();
+        resized_reordered_choices();
         symbols_as_typed();
         word_completion();
         flick_katakana();

@@ -2461,7 +2461,7 @@ void JapaneseComposer::resize(int direction) {
     for (int i = 0; i < active_; ++i) {
         const auto index = static_cast<std::size_t>(i);
         if (resized[index].reading == segments_[index].reading) {
-            resized[index].selected = segments_[index].selected;
+            resized[index] = segments_[index];
         }
     }
     segments_ = std::move(resized);
