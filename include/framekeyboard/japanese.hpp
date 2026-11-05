@@ -38,7 +38,13 @@ class JapaneseConverter {
         (void)reading;
         (void)text;
     }
+    // Whether the last conversion weighed the whole sentence, as Mozc does:
+    // a particle it reads as part of a word then stays so (京都 for きょうと,
+    // not 今日と).
+    virtual bool weighs_context() const { return false; }
 };
+// A converter using the system's Anthy, loaded on first use.
+std::unique_ptr<JapaneseConverter> anthy_converter();
 // Anthy's learning, process-wide like Anthy itself. Off (previews, tours),
 // Anthy keeps no record at all; on, a record of Full Keyboard's own in
 // `home`/.anthy, apart from the one the stock keyboard learns into there.
@@ -194,6 +200,10 @@ class JapaneseComposer {
     // while a reading typed on its own takes set_preferred()'s order.
     using WordPick = std::function<std::string(const std::string& reading)>;
     void set_word_pick(WordPick pick) { word_pick_ = std::move(pick); }
+    // Whether segments take the usual forms of their words (on by default);
+    // a converter that weighs the whole sentence, as Mozc, may do better
+    // without.
+    void set_word_forms(bool on) { word_forms_ = on; }
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
@@ -250,6 +260,7 @@ class JapaneseComposer {
     struct Place {
         std::string before;
         bool last{true};
+        bool context{}; // The converter weighed the sentence (weighs_context()).
     };
     // A word's usual forms by the phrase list, the one to use first, and the
     // reading the list has them under: after a segment that ends in a case
@@ -304,6 +315,9 @@ class JapaneseComposer {
         // `text` stretched so; empty when it doesn't end with the final kana.
         std::string apply(const std::string& text) const;
     };
+    // Whether each of `segments`, converted from `typed` with romaji's n
+    // carried over, that holds a kana the carried n changed is a word.
+    bool carried_words(const std::vector<Segment>& segments, const std::string& typed) const;
     // Puts a stretching ー back on a segment converted without it.
     static void stretch_segment(Segment& segment, const Stretch& stretch);
     // The usual conversions of `reading`, else of the reading as converted,
@@ -326,6 +340,7 @@ class JapaneseComposer {
     std::string alternative_;
     Preferred preferred_;
     WordPick word_pick_;
+    bool word_forms_ = true;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
     // An emoji picked from the live candidates, now the reading, and the

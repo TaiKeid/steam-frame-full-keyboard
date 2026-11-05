@@ -16,6 +16,7 @@ overlay=$(grep -A1 'frame-perf-overlay' "$root/third_party/README.md" | grep -oE
 openvr=$(pin third_party/README.md 'OpenVR [0-9.]+ header' | cut -d' ' -f2)
 gamescope=$(grep -A1 'gamescope-input-method.xml' "$root/third_party/README.md" | grep -oE '[0-9a-f]{40}' | head -n 1)
 models=$(pin dictation/dictation_helper.py 'MODEL_REVISION = "[0-9a-f]{40}"' | cut -d'"' -f2)
+mozc=$(pin tools/fetch-mozc.sh 'version=[^ ]+' | cut -d= -f2)
 futo=$(pin third_party/futo-swipe/README.md '`[0-9a-f]{40}`' | tr -d '`')
 heliboard=$(pin swipe/lexicons/README.md '`[0-9a-f]{40}`' | tr -d '`')
 emoji=$(grep -A1 'emoji-test.txt' "$root/third_party/README.md" | grep -oE 'version [0-9.]+' | head -n 1 | cut -d' ' -f2)
@@ -65,6 +66,10 @@ row "Whisper models (HF)" "${models:0:12}" "${m_rev:0:12}" "$(same "$models" "$m
 # The repository moves with other files; what matters is our encoder file.
 f_sha=$(hf_file_sha futo-org/futo-swipe "$futo_file")
 row "FUTO Swipe encoder (HF)" "${futo:0:12}" "file ${f_sha:0:7}" "$(same "$futo_sha" "$f_sha")"
+# The Frame's server is Arch Linux ARM's build, which can lag Arch Linux's.
+z_ver=$(curl -fsS --max-time 20 https://archlinuxarm.org/packages/aarch64/fcitx5-mozc 2>/dev/null |
+    grep -m1 -oE '[0-9]+(\.[0-9]+)+-[0-9]+')
+row "Mozc server (fcitx5-mozc)" "$mozc" "$z_ver" "$(same "$mozc" "$z_ver")"
 h_head=$(head_commit https://codeberg.org/Helium314/aosp-dictionaries.git)
 row "Swipe word lists" "${heliboard:0:12}" "${h_head:0:12}" "$(same "$heliboard" "$h_head")"
 u_ver=$(curl -fsS --max-time 20 https://unicode.org/Public/emoji/latest/emoji-test.txt 2>/dev/null |

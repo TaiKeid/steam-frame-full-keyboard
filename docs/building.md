@@ -29,6 +29,17 @@ export FRAMEKEYBOARD_WHISPER_HOST=/path/to/whisper-host
 export FRAMEKEYBOARD_WHISPER_FRAME=/path/to/whisper-arm64
 ```
 
+Japanese conversion uses Mozc's server, `mozc_server`, taken from the pinned fcitx5-mozc package: Arch Linux's x86_64 package for host and simulator builds, Arch Linux ARM's aarch64 build of it for the Frame. `tools/fetch-mozc.sh` downloads the package, checks it against its pinned SHA-256 and the notices in `third_party/mozc/`, and keeps only the server, which links nothing but glibc, libstdc++ and libgcc_s. It is prebuilt, so with `FRAMEKEYBOARD_SYSROOT` set the frame-arm64 fetch checks that the Frame has every library version it needs (`tools/check_frame_libraries.py`), and `scripts/package.sh` checks again. Builds without it convert Japanese with Anthy alone, so `scripts/package.sh` refuses to package a release without it:
+
+```sh
+tools/fetch-mozc.sh host /path/to/mozc-host
+FRAMEKEYBOARD_SYSROOT=/path/to/sysroot tools/fetch-mozc.sh frame-arm64 /path/to/mozc-arm64
+export FRAMEKEYBOARD_MOZC_HOST=/path/to/mozc-host/mozc_server
+export FRAMEKEYBOARD_MOZC_FRAME=/path/to/mozc-arm64/mozc_server
+```
+
+Arch Linux ARM keeps no archive of old packages, so keep the downloaded package in `/path/to/mozc-arm64.download`: once Arch Linux ARM updates fcitx5-mozc, it is the only copy of the pinned version. To move the pin, check the new packages' signatures first, Arch Linux's against its keyring and Arch Linux ARM's against its build system key (`68B3537F39A313B3E574D06777193F152BDBE6A6`, certified by its master keys in [archlinuxarm-keyring](https://github.com/archlinuxarm/archlinuxarm-keyring)), then set the version and both SHA-256 values in `tools/fetch-mozc.sh` ([upkeep](upkeep.md)).
+
 The OpenVR header is vendored, but `libopenvr_api.so` comes from an installed SteamVR runtime or a separately supplied SDK library. The build searches common Linux Steam paths. Override discovery with `-DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so` when configuring CMake.
 
 ```sh

@@ -14,6 +14,10 @@ struct JapaneseCandidatesOptions {
     std::size_t live = 12;               // Live candidates listed for each phrase.
     std::size_t segment = 6;             // Candidates listed for each of 変換's segments.
     JapaneseComposer::Factory converter; // Anthy unless set.
+    // Mozc instead, Anthy only while Mozc can't convert: its server and a
+    // folder for its profile (mozc.hpp).
+    std::filesystem::path mozc_server, mozc_profile;
+    bool word_forms = true; // JapaneseComposer::set_word_forms()
 };
 // Reads phrases, one a line, and writes what Japanese input offers for each.
 // A line with Latin letters is typed as romaji, any other as kana; spaces

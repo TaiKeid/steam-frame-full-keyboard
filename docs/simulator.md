@@ -47,6 +47,9 @@ With `FRAMEKEYBOARD_SIMULATOR_TRACE=1` set, the simulator writes the window's po
 | `--duration SECONDS` | Quit after this time |
 | `--japanese-candidates` | Print what Japanese input offers for phrases read from standard input, without a window; see [Japanese candidates](#japanese-candidates) |
 | `--candidates N` | How many candidates it lists for each phrase and segment, 12 live and 6 a segment by default |
+| `--mozc-server PATH` | With `--japanese-candidates`, convert with this `mozc_server` rather than the bundled one, Anthy only while it can't answer |
+| `--anthy-only` | With `--japanese-candidates`, convert with Anthy alone, to compare it with Mozc |
+| `--no-word-forms` | With `--japanese-candidates`, leave out the usual forms of words within segments, to compare |
 
 A chosen layout, language or theme is applied and saved, as **Apply and save** in Settings would, so the next run starts with it. Settings, the emoji picker and the language button are the keyboard's own, as on the headset. The simulator keeps its settings in `~/.config/framekeyboard-simulator` (`$XDG_CONFIG_HOME/framekeyboard-simulator`), and refuses to use an installed keyboard's `~/.config/framekeyboard`. Custom profiles go in its `layouts`, `languages` and `themes` subfolders, as described in the [configuration reference](configuration.md).
 
@@ -56,7 +59,7 @@ Steam's own text fields confirm each key the keyboard sends before taking the ne
 
 ## Japanese
 
-Kanji conversion uses Anthy, as on the headset: the library `libanthy.so.0` and its dictionary. Install your distribution's Anthy package, or point the simulator at an Anthy unpacked somewhere else:
+Kanji conversion uses [Mozc](japanese.md#mozc) where the build has its server (`FRAMEKEYBOARD_MOZC_HOST`, [building](building.md)), keeping its profile in the simulator's config folder, and Anthy meanwhile and otherwise, as on the headset. Anthy is the library `libanthy.so.0` and its dictionary. Install your distribution's Anthy package, or point the simulator at an Anthy unpacked somewhere else:
 
 ```sh
 A=/path/to/unpacked/anthy

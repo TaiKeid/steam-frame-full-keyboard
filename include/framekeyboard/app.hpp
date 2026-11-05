@@ -64,8 +64,13 @@ struct Options {
     SwipeEncoderFactory swipe_encoder;
     // Tests capture typed text here instead of the output queue; null uses the queue.
     TextOutput* text_output{};
-    // Tests replace Japanese conversion; empty loads the system's Anthy.
+    // Tests replace Japanese conversion; empty uses Mozc where installed,
+    // the system's Anthy otherwise and meanwhile.
     JapaneseComposer::Factory japanese_converter;
+    // The Mozc server to convert Japanese with, Anthy only meanwhile; the
+    // keyboard and the simulator give the installed one (mozc_engine()).
+    // Empty is Anthy alone.
+    fs::path mozc_server;
     // Where Anthy keeps what it learns. Empty is the user's home with the
     // default config folder, and any other config folder itself.
     fs::path anthy_home;
@@ -669,6 +674,15 @@ class App {
     void apply_learning();
     fs::path anthy_home() const;
     bool owns_anthy() const;
+    // Japanese among the user's languages as saved, main or additional.
+    bool japanese_added() const;
+    // Mozc's server runs only while Japanese is added: started when it is,
+    // kept running, and stopped when it is removed, not to use its memory.
+    void sync_mozc();
+    fs::path mozc_server_; // Empty without Mozc: Anthy converts.
+    // When tick() last made sure the server runs: one that died starts again
+    // within seconds, not at the next conversion.
+    double mozc_checked_{};
     bool learning_allowed() const;
     void restart_learning(bool clear);
     void tick_learning();

@@ -1,7 +1,10 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/emoji_words.hpp"
 #include "framekeyboard/japanese_candidates.hpp"
+#include "framekeyboard/mozc.hpp"
 #include <algorithm>
+#include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -11,7 +14,9 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <sys/wait.h>
+#include <thread>
 #include <tuple>
 #include <unistd.h>
 using namespace framekeyboard;
@@ -709,6 +714,7 @@ void word_completion() {
             "a word read so stays before a completion that is only a little commoner");
     require(words.complete("あった", 3, first) == std::vector<std::string>{"あったかい"} && !first,
             "a verb's past, as typed, before its completions: あった before あったかい");
+    require(!words.completion_leads("しんだ", 0), "also in んだ: しんだ (死んだ) before 診断");
     bool none = true;
     require(JapaneseWords{}.complete("おめでと", 3, none).empty() && !none, "no list, no completions");
 
@@ -1051,6 +1057,98 @@ void candidates_report() {
                             "\n",
             "each phrase with its live candidates and segments, romaji as its reading");
 }
+// A converter that weighs the whole sentence, as Mozc does, keeps a particle
+// it reads as part of a word: 京都旅行 stays, where Anthy's gives way.
+void context_converter() {
+    struct Sentence : JapaneseConverter {
+        std::vector<Segment> convert(const std::string&) override {
+            return {{"きょうと", {"京都"}}, {"りょこう", {"旅行"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+        bool weighs_context() const override { return true; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Sentence>(); });
+    composer.set_preferred([](const std::string& reading) {
+        return reading == "きょう" ? std::vector<std::string>{"今日"} : std::vector<std::string>{};
+    });
+    composer.kana("きょうとりょこう");
+    composer.prepare_live();
+    require(composer.live().front() == "京都旅行", "a converter weighing the sentence keeps 京都");
+}
+// Mozc's server runs only while Japanese is among the user's languages,
+// and Anthy converts whenever Mozc can't answer. A stand-in server that
+// never answers shows both. It notes the path it was started as and its
+// process, which stays the same through exec.
+void mozc_lifecycle() {
+    char directory[] = "/tmp/framekeyboard-mozc-XXXXXX";
+    require(mkdtemp(directory), "temporary Mozc profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    const auto server = fs::path(directory) / "mozc_server";
+    std::ofstream(server) << "#!/bin/sh\necho \"$0\" > \"$XDG_CONFIG_HOME/mozc/started-as\"\n"
+                          << "echo $$ > \"$XDG_CONFIG_HOME/mozc/pid\"\nexec sleep 600\n";
+    fs::permissions(server, fs::perms::owner_all);
+    // What the stand-in wrote, once it has.
+    auto noted = [&](const char* name) {
+        const auto path = fs::path(directory) / "config/mozc" / name;
+        for (int i = 0; i < 200 && (!fs::exists(path) || fs::file_size(path) == 0); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        std::string text;
+        std::getline(std::ifstream(path), text);
+        fs::remove(path);
+        return text;
+    };
+    int conversions = 0;
+    Options options;
+    options.config_dir = fs::path(directory) / "config";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    options.mozc_server = server;
+    Sink sink;
+    {
+        App app(options, sink);
+        app.apply({"en-us-full", "en-us", "graphite"});
+        require(!mozc_running(), "without Japanese, no Mozc server runs");
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        require(mozc_running() && fs::is_directory(options.config_dir / "mozc"),
+                "adding Japanese starts it, with its profile in the config folder");
+        const auto started_as = noted("started-as");
+        require(access("/usr/bin/bwrap", X_OK) != 0 || started_as == "/usr/lib/mozc/mozc_server",
+                "in bubblewrap it runs where Mozc's own client accepts its server");
+        // One that dies starts again within the tick's check, not at the
+        // next conversion.
+        const int first = std::stoi(noted("pid"));
+        kill(first, SIGKILL);
+        for (int i = 0; i < 200 && mozc_running(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        require(!mozc_running(), "the stand-in is gone");
+        app.tick(1000);
+        require(mozc_running() && std::stoi(noted("pid")) != first,
+                "the keyboard's tick starts it again");
+        app.apply({"en-us-full", "en-us", "graphite"});
+        require(!mozc_running(), "and removing it stops it");
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    }
+    require(!mozc_running(), "the keyboard's end stops it too");
+
+    // A Mozc that doesn't answer leaves conversion to the fallback.
+    start_mozc(server, fs::path(directory) / "config");
+    require(!wait_for_mozc(std::chrono::milliseconds(100)), "the stand-in never answers");
+    JapaneseComposer composer(
+        [&] { return mozc_converter([&] { return fake_converter(&conversions)(); }); });
+    composer.kana("にほんご");
+    composer.convert();
+    require(composer.commit_text() == "〈にほ〉〈んご〉", "Anthy, here the fake, converts meanwhile");
+    stop_mozc();
+    require(!mozc_running(), "stopped on request");
+}
 // Romaji's nn is ん, but 変換 converts the reading with the n carried over
 // where Anthy splits that one into fewer segments: minna as みんな, not
 // 民|亜. On a tie the reading stays as typed: gennin is げんいん.
@@ -1059,6 +1157,12 @@ void carried_conversion() {
         std::vector<Segment> convert(const std::string& reading) override {
             if (reading == "みんあ") {
                 return {{"みん", {"民"}}, {"あ", {"亜"}}};
+            }
+            if (reading == "じかんある") {
+                return {{"じかん", {"時間"}}, {"ある", {"ある"}}};
+            }
+            if (reading == "じかんなる") {
+                return {{"じかんなる", {"時間なる"}}};
             }
             if (reading == "みんな") {
                 return {{"みんな", {"皆", "みんな"}}};
@@ -1073,6 +1177,16 @@ void carried_conversion() {
         std::vector<Segment> resize(int, int) override { return {}; }
     };
     JapaneseComposer composer([] { return std::make_unique<Carried>(); });
+    // The carried n wins only where it makes words: みんな is one.
+    char directory[] = "/tmp/framekeyboard-carried-XXXXXX";
+    require(mkdtemp(directory), "temporary word list");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::ofstream(fs::path(directory) / "words.tsv") << "みんな\tみんな\t2000\n";
+    const JapaneseWords words(fs::path(directory) / "words.tsv");
+    composer.set_words(&words);
     const auto romaji = [&](const std::string& letters) {
         composer.cancel();
         for (const char c : letters) {
@@ -1083,6 +1197,8 @@ void carried_conversion() {
     };
     require(romaji("minna") == "皆" && composer.reading() == "みんあ",
             "the carried reading converts, the typed one stays the reading");
+    require(romaji("jikannaru") == "時間ある",
+            "not where it makes no word: jikannaru is 時間ある, not 時間なる");
     require(romaji("gennin") == "〈げんいん〉" && composer.candidates().at(1) == "〈げんにん〉",
             "on a tie, the reading as typed, the other's word second");
     composer.cancel();
@@ -1173,6 +1289,18 @@ void word_forms() {
             if (reading == "くるまで") {
                 return {{"くるまで", {"車で"}}};
             }
+            if (reading == "いってきまーす") {
+                return {{"いって", {"言って"}}, {"きまーす", {"来マーす"}}};
+            }
+            if (reading == "いってきます") {
+                return {{"いってきます", {"言ってきます"}}};
+            }
+            if (reading == "きょうとりょこう") {
+                return {{"きょうと", {"京都"}}, {"りょこう", {"旅行"}}};
+            }
+            if (reading == "ほんけんについて") {
+                return {{"ほんけんについて", {"本件について"}}};
+            }
             if (reading == "ばいばーい") {
                 return {{"ばい", {"倍"}}, {"ばー", {"バー"}}, {"い", {"意"}}};
             }
@@ -1236,7 +1364,10 @@ void word_forms() {
                                                        {"かう", "買う"},
                                                        {"はい", "はい"},
                                                        {"〜であう", "〜で会う"},
-                                                       {"〜であった", "〜で会った"}};
+                                                       {"〜であった", "〜で会った"},
+                                                       {"いってきます", "行ってきます"},
+                                                       {"ついて", "着いて"},
+                                                       {"きょう", "今日"}};
         const auto form = forms.find(reading);
         return form != forms.end() ? std::vector<std::string>{form->second} : std::vector<std::string>{};
     });
@@ -1310,6 +1441,11 @@ void word_forms() {
     const JapaneseWords phrases(fs::path(directory) / "phrases.tsv");
     composer.set_phrases(&phrases);
     require(whole("くるまで") == "車で", "くるまで is 車で before 車で来た");
+    require(whole("いってきまーす") == "行ってきまーす",
+            "a ー before another final kana, in a listed phrase");
+    require(whole("ほんけんについて") == "本件について", "について is \"about\", no 着いて");
+    require(whole("きょうとりょこう") == "今日と旅行",
+            "Anthy's 京都, no common word, gives way to the listed 今日 and と");
     // The user's latest pick for a word leads, the usual form next.
     composer.set_word_pick([](const std::string& reading) { return reading == "いく" ? "往く" : ""; });
     converted("すぐいく");
@@ -2784,6 +2920,8 @@ int main() {
         typed_katakana();
         candidates_report();
         carried_conversion();
+        context_converter();
+        mozc_lifecycle();
         word_forms();
         emoji_candidates();
         learning_calls();

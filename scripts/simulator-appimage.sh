@@ -14,6 +14,8 @@
 #                                   Cangjie and Quick
 #   FRAMEKEYBOARD_EXECUTORCH_HOST   optional: includes swipe typing, as for
 #                                   the host build (docs/building.md)
+#   FRAMEKEYBOARD_MOZC_HOST         optional: Mozc's server, so Japanese
+#                                   converts with Mozc (docs/building.md)
 set -euo pipefail
 shopt -s nullglob
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -60,6 +62,12 @@ if [[ -f $appdir/usr/lib/framekeyboard/framekeyboard-swipe.so ]]; then
     cp -r swipe/lexicons "$appdir/usr/share/framekeyboard/swipe/" # with their sources and licenses
 else
     echo 'Packing without the swipe engine: swipe typing will stay off.' >&2
+fi
+# Japanese converts with Mozc's server where the build has it, Anthy otherwise.
+if [[ -x $build/engines/framekeyboard-mozc ]]; then
+    install -m 755 "$build/engines/framekeyboard-mozc" "$appdir/usr/lib/framekeyboard/"
+else
+    echo 'Packing without Mozc: Japanese converts with Anthy alone.' >&2
 fi
 # Japanese completion's common words, with their sources.
 mkdir -p "$appdir/usr/share/framekeyboard/japanese"

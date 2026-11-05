@@ -9,7 +9,8 @@
       "binaryDir": "${sourceDir}/build/host",
       "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug",
                          "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}",
-                         "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_HOST}"}
+                         "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_HOST}",
+                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_HOST}"}
     },
     {
       "name": "sanitized",
@@ -33,7 +34,8 @@
       "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo",
                          "FRAMEKEYBOARD_VR": "OFF",
                          "BUILD_TESTING": "OFF",
-                         "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}"}
+                         "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}",
+                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_HOST}"}
     },
     {
       "name": "frame-arm64",
@@ -43,7 +45,8 @@
       "toolchainFile": "${sourceDir}/cmake/steam-frame-aarch64.cmake",
       "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo",
                          "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_FRAME}",
-                         "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_FRAME}"}
+                         "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_FRAME}",
+                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_FRAME}"}
     }
   ],
   "buildPresets": [

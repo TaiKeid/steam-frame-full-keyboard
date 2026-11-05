@@ -36,6 +36,18 @@ for engine in framekeyboard-whisper whisper-quantize; do
     python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/$engine" \
         "$project_dir" "$FRAMEKEYBOARD_SYSROOT" "$FRAMEKEYBOARD_WHISPER_FRAME"
 done
+# Japanese converts with Mozc's server; a release without it falls back to
+# Anthy for good (docs/japanese.md, Mozc).
+if [[ ! -f $package_dir/lib/framekeyboard/framekeyboard-mozc ]]; then
+    echo "Missing framekeyboard-mozc: set FRAMEKEYBOARD_MOZC_FRAME (docs/building.md)." >&2
+    exit 1
+fi
+python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/framekeyboard-mozc" \
+    "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
+# It is prebuilt, not linked against the sysroot, so check its library
+# versions against the Frame's.
+python3 tools/check_frame_libraries.py "$package_dir/lib/framekeyboard/framekeyboard-mozc" \
+    "$FRAMEKEYBOARD_SYSROOT"
 if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*(libpyzy|libhangul)'; then
     echo 'Optional language libraries must not be startup dependencies.' >&2
     exit 1

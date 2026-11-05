@@ -59,6 +59,8 @@ and licence files for sources, hashes and changes.
 
 Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. Its commit and prediction APIs learn under Full Keyboard's own personality (docs/japanese.md, Learning). Only the desktop simulator's AppImage can carry a copy of Anthy; `anthy/` records which and its licenses.
 
+Japanese conversion uses Mozc's server, `mozc_server` from Mozc 3.35.6354.2, shipped unchanged as `lib/framekeyboard/framekeyboard-mozc` (docs/japanese.md, Mozc). It is taken from the fcitx5-mozc 3.35.6354.2-1 package, Arch Linux ARM's aarch64 build for the Frame and Arch Linux's x86_64 one for host builds, each pinned by SHA-256 in `tools/fetch-mozc.sh` after its signature was checked (docs/building.md). `mozc/LICENSE` and `mozc/credits_en.html` hold its notices: Mozc (BSD 3-Clause) and the libraries and dictionaries built into it, among them Abseil (Apache 2.0), Protocol Buffers (BSD 3-Clause), IPAdic and the Okinawa dictionary.
+
 The Japanese common-word list, `japanese/words.tsv`, and kaomoji list, `japanese/kaomoji.tsv`, are derived from Mozc's open-source dictionary and emoticon data (BSD 3-Clause; IPAdic, ICOT Free Software and the public-domain Okinawa dictionary). `mozc/LICENSE` holds those notices; `japanese/README.md` the pinned commit, file hashes and how it is built.
 
 Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.

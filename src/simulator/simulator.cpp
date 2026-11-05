@@ -1,4 +1,5 @@
 #include "simulator.hpp"
+#include "framekeyboard/mozc.hpp"
 #include <algorithm>
 #include <pango/pangocairo.h>
 #include <stdexcept>
@@ -106,6 +107,7 @@ Simulator::Simulator(const Setup& setup)
     options.anthy_home = setup.config_dir;
     options.data_dir = setup.data_dir;
     options.models_dir = setup.models_dir;
+    options.mozc_server = mozc_engine(); // As the keyboard: Mozc where it is bundled.
     // Dictation's paste Send writes the field's own clipboard.
     options.clipboard = &sink_;
     options.japanese_converter = setup.japanese_converter;

@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/ei_input.hpp"
+#include "framekeyboard/mozc.hpp"
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/shell_protocol.hpp"
 #include "framekeyboard/startup.hpp"
@@ -186,6 +187,7 @@ int main(int argc, char** argv) {
             }
         }
         options.update_launch = options.mode == fk::Mode::Vr && startup.update_launch();
+        options.mozc_server = fk::mozc_engine(); // Japanese with Mozc where it is installed.
         const bool start_hidden = options.autostart || options.update_launch;
         const int deliberate_exit = fk::deliberate_exit_status(options.autostart);
         if (options.autostart) {

@@ -460,6 +460,20 @@ std::string carried_n(const std::string& reading) {
     }
     return result;
 }
+// Which characters of carried_n(reading) it changed, one flag each.
+std::vector<bool> carried_marks(const std::string& reading) {
+    std::vector<bool> marks;
+    bool after_n = false;
+    for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
+        const std::string kana(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+        const auto other = carried_n("ん" + kana);
+        const bool changed = after_n && other != "ん" + kana;
+        const auto count = changed ? g_utf8_strlen(other.c_str(), -1) - 1 : 1;
+        marks.insert(marks.end(), static_cast<std::size_t>(count), changed);
+        after_n = kana == "ん";
+    }
+    return marks;
+}
 // Full-width forms as their narrow ones: ？ as ?, ￥ as ¥.
 std::string half_width(const std::string& text) {
     std::string result;
@@ -603,12 +617,15 @@ bool import_stock_learning(const std::filesystem::path& marker) {
     }
     return copied;
 }
+std::unique_ptr<JapaneseConverter> anthy_converter() {
+    return std::make_unique<AnthyConverter>();
+}
 JapaneseComposer::JapaneseComposer(Factory factory) : factory_(std::move(factory)) {
 }
 JapaneseComposer::~JapaneseComposer() = default;
 JapaneseConverter& JapaneseComposer::converter() {
     if (!converter_) {
-        converter_ = factory_ ? factory_() : std::make_unique<AnthyConverter>();
+        converter_ = factory_ ? factory_() : anthy_converter();
     }
     return *converter_;
 }
@@ -751,7 +768,8 @@ JapaneseComposer::particle_split(const std::string& reading, const std::string& 
                 // Where Anthy reads the kana as another word, a common one
                 // stays: くるまで is 車で, not 来るまで, but いくよ 行くよ, not 幾夜.
                 if ((hiragana_only(found->second.front()) && noun_particle(particle)) ||
-                    (!std::string_view(text).ends_with(particle) && common_word(reading, text))) {
+                    (!std::string_view(text).ends_with(particle) &&
+                     (place.context || common_word(reading, text)))) {
                     return {};
                 }
                 return std::pair{word, std::string(particle)};
@@ -811,6 +829,10 @@ std::optional<JapaneseComposer::Tail> JapaneseComposer::tail_word(const std::str
             }
         }
         for (const auto particle : tail_particles) {
+            // Not について, "about", which is no 着いて.
+            if (particle == "に" && std::string_view(word).starts_with("ついて")) {
+                continue;
+            }
             if (after(particle)) {
                 if (auto found = word_forms(word, {})) {
                     return Tail{word, word, std::move(found->second)};
@@ -885,6 +907,7 @@ std::vector<JapaneseComposer::Segment>
 JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) const {
     std::vector<Segment> result;
     Place place; // Where the segment stands, for a word's context.
+    place.context = converter_ && converter_->weighs_context();
     for (auto& from : segments) {
         place.last = &from == &segments.back();
         if (from.candidates.empty()) {
@@ -910,8 +933,9 @@ JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) con
         // A word's usual form, as the phrase list gives it, leads its
         // segment, before a particle too: いく as 行く, いくね as 行くね, so
         // すぐいく is すぐ行く where Anthy offers 育 first.
-        auto forms = usual_forms(segment.reading, segment.candidates.front(), place);
-        if (forms.empty()) {
+        auto forms = word_forms_ ? usual_forms(segment.reading, segment.candidates.front(), place)
+                                 : std::vector<std::string>{};
+        if (forms.empty() && word_forms_) {
             if (auto tail = usual_tail(segment.reading, segment.candidates.front(), place);
                 !tail.empty()) {
                 forms.push_back(std::move(tail));
@@ -964,18 +988,21 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
         base.resize(base.size() - long_vowel.size());
         stretch.marks += long_vowel;
     }
-    for (const std::string_view vowel : {"い", "う"}) {
-        if (stretch.empty() && std::string_view(base).ends_with(vowel)) {
-            auto head = base.substr(0, base.size() - vowel.size());
-            std::string marks;
-            while (std::string_view(head).ends_with(long_vowel) && g_utf8_strlen(head.c_str(), -1) > 2) {
-                head.resize(head.size() - long_vowel.size());
-                marks += long_vowel;
-            }
-            if (!marks.empty()) {
-                base = head + std::string(vowel);
-                stretch = {marks, std::string(vowel)};
-            }
+    // Before another final kana only in a phrase the list has (いってきまーす,
+    // いただきまーす), not in one it doesn't (まーね is no 真似).
+    if (stretch.empty() && g_utf8_strlen(base.c_str(), -1) > 2) {
+        const char* last = g_utf8_prev_char(base.c_str() + base.size());
+        const std::string final(last);
+        auto head = base.substr(0, base.size() - final.size());
+        std::string marks;
+        while (std::string_view(head).ends_with(long_vowel) && g_utf8_strlen(head.c_str(), -1) > 2) {
+            head.resize(head.size() - long_vowel.size());
+            marks += long_vowel;
+        }
+        if (!marks.empty() && hiragana_only(final) && final != long_vowel &&
+            (final == "い" || final == "う" || (preferred_ && !preferred_(head + final).empty()))) {
+            base = head + final;
+            stretch = {marks, final};
         }
     }
     if (!stretch.empty()) {
@@ -996,7 +1023,7 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
     auto result = imported(converter().convert(converted));
     if (converted != base) {
         auto typed = imported(converter().convert(base));
-        if (result.size() < typed.size()) {
+        if (result.size() < typed.size() && carried_words(result, base)) {
             result = imported(converter().convert(converted));
         } else {
             if (result.size() == typed.size()) {
@@ -1028,6 +1055,28 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
     converted_ = reading;
     resized_ = false;
     return result;
+}
+bool JapaneseComposer::carried_words(const std::vector<Segment>& segments,
+                                     const std::string& typed) const {
+    // Only where the carried n makes words: みんな, 何人で, ごめんね; not where
+    // the typed reading was meant (じかんある, 時間なる; しけんいつ, 試験につ).
+    const auto marks = carried_marks(typed);
+    std::size_t at = 0;
+    for (const auto& segment : segments) {
+        const auto length = static_cast<std::size_t>(g_utf8_strlen(segment.reading.c_str(), -1));
+        bool changed = false;
+        for (std::size_t i = at; i < at + length && i < marks.size(); ++i) {
+            changed = changed || marks[i];
+        }
+        const bool word =
+            (words_ && words_->own_cost(segment.reading) != std::numeric_limits<int>::max()) ||
+            (preferred_ && !preferred_(segment.reading).empty());
+        if (changed && !word) {
+            return false;
+        }
+        at += length;
+    }
+    return true;
 }
 void JapaneseComposer::stretch_segment(Segment& segment, const Stretch& stretch) {
     // Those that can't take it go: 倍々 for ばいばい, as ばいばーい.
@@ -1841,9 +1890,9 @@ bool JapaneseWords::completion_leads(const std::string& reading, int cost) const
     // おめでとう (1842) leads おめでと (4192), but 涙 keeps its place before
     // 涙する and だめ before ダメージ. A word of two kana always leads, as a
     // phone's does: はな is 花 before 話 (はなし).
-    // A reading ending in った is a verb's past, as typed: あった before
-    // あったかい, かった before かったるい, やった before ヤッター.
-    if (std::string_view(reading).ends_with("った")) {
+    // A reading ending in った or んだ is a verb's past, as typed: あった
+    // before あったかい, やった before ヤッター, しんだ (死んだ) before 診断.
+    if (std::string_view(reading).ends_with("った") || std::string_view(reading).ends_with("んだ")) {
         return false;
     }
     const int own = own_cost(reading);

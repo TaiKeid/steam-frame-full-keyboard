@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/emoji_words.hpp"
+#include "framekeyboard/mozc.hpp"
 #include "framekeyboard/text_input.hpp"
 #include "framekeyboard/updates.hpp"
 #include <utility>
@@ -111,6 +112,18 @@ std::string language_short_name(const Language& language) {
     return name;
 }
 } // namespace
+namespace {
+// Mozc converts where it is installed, Anthy otherwise and meanwhile.
+JapaneseComposer::Factory japanese_factory(const Options& options) {
+    if (options.japanese_converter) {
+        return options.japanese_converter;
+    }
+    if (options.mozc_server.empty()) {
+        return {};
+    }
+    return [] { return mozc_converter(anthy_converter); };
+}
+} // namespace
 App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences,
          Updates* updates, SettingsWriter::Write reconcile_preferences)
     : updates_(updates), options_(options),
@@ -118,7 +131,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
       output_(sink), text_output_(options.text_output ? options.text_output : &output_),
-      keyboard_(output_), composition_(options.japanese_converter) {
+      keyboard_(output_), composition_(japanese_factory(options)) {
+    mozc_server_ = options.mozc_server;
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
     models_dir_ = options.models_dir;
@@ -237,6 +251,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         // profile; one beside a running keyboard leaves that keyboard's be.
         configure_anthy({false, anthy_home()});
     }
+    sync_mozc();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -266,6 +281,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     }
 }
 App::~App() {
+    if (owns_anthy() && !mozc_server_.empty()) {
+        stop_mozc();
+    }
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
     next_words_.save();
     japanese_choices_.save();
@@ -1971,6 +1989,10 @@ bool App::tick(double now) {
             updates_->check_periodically(static_cast<double>(boot.tv_sec));
         }
     }
+    if (now - mozc_checked_ >= 2) {
+        mozc_checked_ = now;
+        sync_mozc();
+    }
     update_save_status();
     if (reload_requested_ && !quit_ && settings_writer_.idle()) {
         try {
@@ -2130,7 +2152,8 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
-    learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty();
+    learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
+               (!mozc_server_.empty() && mozc_learned(options_.config_dir));
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2282,6 +2305,7 @@ void App::apply(Selection selection) {
     startup_status_.clear();
     rebuild_cycle_entries();
     save();
+    sync_mozc();
 }
 void App::rebuild_cycle_entries() {
     std::vector<Selection> entries;
@@ -2381,6 +2405,7 @@ void App::reload() {
         settings_.flick_katakana = updated_settings.flick_katakana;
         katakana_ = katakana_ && settings_.flick_katakana;
         apply_learning();
+        sync_mozc();
         settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
@@ -2454,6 +2479,25 @@ fs::path App::anthy_home() const {
 // Anthy is process-wide, and the keyboard that types sets it up. An image
 // export, such as a shell's preview built beside the running keyboard, only
 // draws, and must not move the running one's learning into its throwaway folder.
+bool App::japanese_added() const {
+    const auto japanese = [&](const std::string& id) {
+        const auto found = profiles_.languages.find(id);
+        return found != profiles_.languages.end() && found->second.input_method.starts_with("japanese-");
+    };
+    return japanese(default_.language) || japanese(settings_.active.language) ||
+           std::any_of(settings_.favorites.begin(), settings_.favorites.end(),
+                       [&](const Favorite& favorite) { return japanese(favorite.selection.language); });
+}
+void App::sync_mozc() {
+    if (!owns_anthy() || mozc_server_.empty() || options_.config_dir.empty()) {
+        return;
+    }
+    if (japanese_added()) {
+        start_mozc(mozc_server_, options_.config_dir);
+    } else {
+        stop_mozc();
+    }
+}
 bool App::owns_anthy() const {
     return options_.mode != Mode::Render && options_.mode != Mode::RenderSettings &&
            options_.mode != Mode::RenderEmoji && options_.mode != Mode::RenderDictation;
@@ -2493,7 +2537,8 @@ void App::tick_learning() {
         restart_learning(true);
         return;
     }
-    learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty();
+    learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
+               (!mozc_server_.empty() && mozc_learned(options_.config_dir));
     apply_learning(); // learning changed while it restarted
     update_settings_ui();
     dirty = true;
@@ -3259,6 +3304,7 @@ void App::apply_settings() {
     settings_.flick_katakana = pending_flick_katakana_;
     katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
     apply_learning();
+    sync_mozc();
     settings_.focus_tooltip = pending_focus_tooltip_;
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
     settings_.dictation_send_gap = pending_dictation_send_gap_;
@@ -3590,6 +3636,9 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
         next_words_.clear();
         japanese_choices_.clear();
+        if (!mozc_server_.empty() && !options_.config_dir.empty()) {
+            clear_mozc_learning(options_.config_dir);
+        }
         last_commit_.reset();
         follow_up_.reset();
         restart_learning(true);

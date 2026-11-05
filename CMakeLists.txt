@@ -58,7 +58,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/app.cpp src/app_languages.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/next_words.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/app.cpp src/app_languages.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/mozc.cpp src/next_words.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -166,6 +166,19 @@ elseif(CMAKE_CROSSCOMPILING)
     message(WARNING "FRAMEKEYBOARD_WHISPER_DIR is unset: this release cannot offer on-device dictation")
 else()
     message(STATUS "On-device dictation engine unavailable: set FRAMEKEYBOARD_WHISPER_DIR to build it")
+endif()
+# Optional Japanese conversion engine: Mozc's server, a prebuilt program
+# fetched by tools/fetch-mozc.sh outside Git (docs/japanese.md, Mozc). It is
+# installed as framekeyboard-mozc; without it, Anthy converts.
+set(FRAMEKEYBOARD_MOZC_SERVER "" CACHE FILEPATH "mozc_server program for Japanese conversion")
+if(FRAMEKEYBOARD_MOZC_SERVER)
+    configure_file("${FRAMEKEYBOARD_MOZC_SERVER}" "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-mozc" COPYONLY)
+    install(PROGRAMS "${FRAMEKEYBOARD_MOZC_SERVER}" DESTINATION lib/framekeyboard RENAME framekeyboard-mozc)
+    install(FILES third_party/mozc/credits_en.html DESTINATION third_party/mozc)
+elseif(CMAKE_CROSSCOMPILING)
+    message(WARNING "FRAMEKEYBOARD_MOZC_SERVER is unset: this release converts Japanese with Anthy alone")
+else()
+    message(STATUS "Mozc unavailable: set FRAMEKEYBOARD_MOZC_SERVER to convert Japanese with it")
 endif()
 file(GLOB SWIPE_LEXICONS CONFIGURE_DEPENDS swipe/lexicons/*.tsv)
 foreach(lexicon ${SWIPE_LEXICONS})

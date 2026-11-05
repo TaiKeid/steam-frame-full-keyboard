@@ -1,5 +1,6 @@
 #include "framekeyboard/japanese_candidates.hpp"
 #include "framekeyboard/emoji_words.hpp"
+#include "framekeyboard/mozc.hpp"
 #include "framekeyboard/swipe.hpp"
 #include <glib.h>
 #include <istream>
@@ -52,7 +53,16 @@ void report_japanese_candidates(std::istream& phrases, std::ostream& report,
     JapaneseWords words(data_resource(options.data_dir, "japanese/words.tsv"));
     JapaneseWords kaomoji(data_resource(options.data_dir, "japanese/kaomoji.tsv"));
     JapaneseWords preferred(data_resource(options.data_dir, "japanese/preferred.tsv"));
-    JapaneseComposer composer(options.converter);
+    auto converter = options.converter;
+    if (!options.mozc_server.empty()) {
+        start_mozc(options.mozc_server, options.mozc_profile);
+        if (!wait_for_mozc(std::chrono::seconds(10))) {
+            throw std::runtime_error("Mozc did not start");
+        }
+        converter = [] { return mozc_converter(anthy_converter); };
+    }
+    JapaneseComposer composer(converter);
+    composer.set_word_forms(options.word_forms);
     composer.set_emoji([](const std::vector<std::string>& found) { return emoji_for(found, 4); });
     composer.set_words(&words);
     composer.set_kaomoji(&kaomoji);

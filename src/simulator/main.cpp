@@ -3,6 +3,7 @@
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/emoji_words.hpp"
 #include "framekeyboard/japanese_candidates.hpp"
+#include "framekeyboard/mozc.hpp"
 #include "platform.hpp"
 #include "simulator.hpp"
 #include <SDL.h>
@@ -40,6 +41,8 @@ void help() {
               << "                            romaji, and print what Japanese input offers for each,\n"
               << "                            without a window or learning\n"
               << "  --candidates N            How many candidates it lists, 12 live and 6 a segment\n"
+              << "  --mozc-server PATH        Convert with this mozc_server, not the bundled one\n"
+              << "  --anthy-only              Convert with Anthy alone, to compare\n"
               << "  --version                 Print the version\n\n"
               << "The selection is saved, so later runs start with it.\n";
 }
@@ -71,7 +74,7 @@ int main(int argc, char** argv) {
     unsetenv("ANTHY_HISTORY_FILE");
     try {
         sim::Setup setup;
-        bool list = false, candidates = false;
+        bool list = false, candidates = false, mozc_chosen = false;
         fk::JapaneseCandidatesOptions candidate_options;
         double duration = 0;
         fs::path dictionary;
@@ -116,6 +119,14 @@ int main(int argc, char** argv) {
                 setup.data_dir = value();
             } else if (argument == "--japanese-candidates") {
                 candidates = true;
+            } else if (argument == "--no-word-forms") {
+                candidate_options.word_forms = false;
+            } else if (argument == "--mozc-server") {
+                candidate_options.mozc_server = value();
+                mozc_chosen = true;
+            } else if (argument == "--anthy-only") {
+                candidate_options.mozc_server.clear();
+                mozc_chosen = true;
             } else if (argument == "--candidates") {
                 const auto count = value();
                 std::size_t end = 0;
@@ -174,6 +185,10 @@ int main(int argc, char** argv) {
             // Anthy keeps its lock file in the settings folder, and learns nothing.
             fk::configure_anthy({false, setup.config_dir});
             candidate_options.data_dir = setup.data_dir;
+            candidate_options.mozc_profile = setup.config_dir;
+            if (!mozc_chosen) {
+                candidate_options.mozc_server = fk::mozc_engine(); // As the keyboard converts.
+            }
             fk::report_japanese_candidates(std::cin, std::cout, candidate_options);
             return 0;
         }
