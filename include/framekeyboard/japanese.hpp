@@ -347,6 +347,8 @@ class JapaneseComposer {
     // Numbers Mozc reads as kanji numerals, in digits where it offers them
     // (四年も as 4年も, 二百六十|年 as 260|年), in place.
     static void numeral_digits(std::vector<Segment>& segments);
+    // 階 where Mozc reads 回 for a floor (6階のエレベーター), in place.
+    static void floors(std::vector<Segment>& segments);
     // Verbs the object before them decides (雪降って, 写真を撮って), in place.
     static void object_verbs(std::vector<Segment>& segments);
     // Words chat writes in kana (ください, なし, できる), in place.

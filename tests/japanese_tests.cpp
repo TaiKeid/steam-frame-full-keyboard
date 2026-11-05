@@ -1215,6 +1215,22 @@ void object_verbs() {
             if (reading == "せんえんかして") {
                 return {{"せんえんかして", {"千円化して", "千円貸して"}}};
             }
+            if (reading == "しあいはさんたいいちでかった") {
+                return {{"しあいは", {"試合は"}},
+                        {"3たい", {"3対"}},
+                        {"1で", {"1で"}},
+                        {"かった", {"買った", "勝った"}}};
+            }
+            if (reading == "いえについた" || reading == "いえにいるとつい") {
+                return reading == "いえについた"
+                           ? std::vector<Segment>{{"いえに", {"家に"}}, {"ついた", {"ついた", "着いた"}}}
+                           : std::vector<Segment>{{"いえに", {"家に"}},
+                                                  {"いると", {"いると"}},
+                                                  {"つい", {"つい", "着い"}}};
+            }
+            if (reading == "かぜがはやってる") {
+                return {{"かぜが", {"風が", "風邪が"}}, {"はやってる", {"流行ってる"}}};
+            }
             if (reading == "かみをきった") {
                 return {{"かみを", {"神を", "髪を"}}, {"きった", {"切った"}}};
             }
@@ -1239,6 +1255,10 @@ void object_verbs() {
     require(as("しゃしんとかさをとった") == "写真と傘を取った", "not across another object");
     require(as("せんえんかして") == "千円貸して", "in one segment");
     require(as("かみをきった") == "髪を切った", "hair is cut");
+    require(as("しあいはさんたいいちでかった") == "試合は3対1で勝った", "a game is won");
+    require(as("いえについた") == "家に着いた", "a place is reached");
+    require(as("いえにいるとつい") == "家にいるとつい", "but only right before");
+    require(as("かぜがはやってる") == "風邪が流行ってる", "a cold spreads");
 }
 // Words chat writes in kana come in kana where the converter offers them so:
 // お伝えください, できる, よく, つらい; not in a noun (上出来) or after a
@@ -1283,6 +1303,15 @@ void chat_kana() {
                          {reading == "まったほうがいい" ? "待った" : "しない"}},
                         {"ほうがいい", {"ほうがいい", "方がいい"}}};
             }
+            if (reading == "15ふんおき") { // じゅうごふんおき, in digits.
+                return {{"15", {"15"}}, {"ふん", {"分"}}, {"おき", {"起き", "おき"}}};
+            }
+            if (reading == "ごーるでんうぃーく") {
+                return {{reading, {"GW", "ゴールデンウィーク"}}};
+            }
+            if (reading == "あめだからかさ") {
+                return {{"あめだ", {"雨だ"}}, {"からかさ", {"傘", "唐傘"}}};
+            }
             if (reading == "やっとねたから") {
                 return {{"やっと", {"やっと"}}, {"ねたから", {"ネタから", "寝たから"}}};
             }
@@ -1312,6 +1341,9 @@ void chat_kana() {
     require(as("まったほうがいい") == "待った方がいい", "方がいい after た");
     require(as("しないほうがいい") == "しないほうがいい", "not after ない");
     require(as("やっとねたから") == "やっと寝たから", "寝た ending a clause");
+    require(as("じゅうごふんおき") == "15分おき", "おき after a time");
+    require(as("ごーるでんうぃーく") == "ゴールデンウィーク", "a word spelled out");
+    require(as("あめだからかさ") == "雨だから傘", "から kept before 傘");
 }
 // A typed word leads its completions where they are no adjective of it
 // (協会 is no completion of a stem きょうか), and a word the list lacks
@@ -1397,6 +1429,16 @@ void spelled_numbers() {
              {"にひゃくいちごうしつ", "201ごうしつ"},
              {"さんがいの", "3がいの"},
              {"せんぴーす", "1000ぴーす"},
+             {"かようびのよじに", "かようびの4じに"},
+             {"にほんからよじかん", "にほんから4じかん"},
+             {"えいがはくじから", "えいがは9じから"},
+             {"ごがつのみっかからいつかまで", "5がつの3にちから5にちまで"},
+             {"いつかのごごさんじ", "5にちのごご3じ"},
+             {"ひゃくてんまんてん", "100てんまんてん"},
+             {"じゅってん", "10てん"},
+             {"れいてんさんびょう", "0.3びょう"},
+             {"こみでにまんさんぜんえん", "こみで2まん3000えん"},
+             {"しんどさんだった", "しんど3だった"},
          }) {
         require(as(kana) == sent, (kana + " converts as " + sent).c_str());
     }
@@ -1428,13 +1470,15 @@ void spelled_numbers() {
                              "べんきょうにせんねん",
                              "とこにひゃくえん",
                              "ごじゅうのとう",
-                             "にほんからよじかん",
                              "にはつかない",
                              "いちがいに",
                              "はっぴょう",
                              "じっぱー",
                              "ひゃくにんいっしゅ",
-                             "せんねんする"}) {
+                             "せんねんする",
+                             "くじにあたった",
+                             "いつかいきたい",
+                             "よじのぼる"}) {
         require(as(kana) == kana, (std::string(kana) + " stays as typed").c_str());
     }
 }
@@ -1452,6 +1496,13 @@ void numeral_digits() {
                 {"いちど", {{"いちど", {"一度", "1度"}}}},
                 {"いったい", {{"いったい", {"一体", "1体"}}}},
                 {"ごじゅうのとう", {{"ごじゅうのとう", {"五重塔", "5重塔"}}}},
+                {"さんたいいちで", {{"さんたい", {"3対"}}, {"いちで", {"一で", "1で"}}}},
+                {"38どごぶ", {{"38", {"38"}}, {"ど", {"度"}}, {"ごぶ", {"五分", "5分"}}}},
+                {"いちにちにまんぽ",
+                 {{"いちにち", {"1日"}}, {"にまん", {"二万", "にまん"}}, {"ぽ", {"歩"}}}},
+                {"6かいのえれべーたーで",
+                 {{"6", {"6"}}, {"かいの", {"回の", "階の"}}, {"えれべーたーで", {"エレベーターで"}}}},
+                {"6かいのしあい", {{"6", {"6"}}, {"かいの", {"回の", "階の"}}, {"しあい", {"試合"}}}},
             };
             const auto found = segments.find(reading);
             return found != segments.end() ? found->second : std::vector<Segment>{{reading, {reading}}};
@@ -1472,6 +1523,11 @@ void numeral_digits() {
     require(as("いちど") == "一度", "一度 stays");
     require(as("いったい") == "一体", "一体 stays");
     require(as("ごじゅうのとう") == "五重塔", "a numeral of another number stays");
+    require(as("さんたいいちで") == "3対1で", "a score's second number");
+    require(as("さんじゅうはちどごぶ") == "38度5分", "a temperature's 分");
+    require(as("いちにちにまんぽ") == "1日2万歩", "2万 where only 二万 is offered");
+    require(as("ろっかいのえれべーたーで") == "6階のエレベーターで", "a floor");
+    require(as("ろっかいのしあい") == "6回の試合", "times stay times");
 }
 // Romaji's nn is ん, but 変換 converts the reading with the n carried over
 // where Anthy splits that one into fewer segments: minna as みんな, not

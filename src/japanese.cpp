@@ -1,6 +1,7 @@
 #include "framekeyboard/japanese.hpp"
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <dlfcn.h>
@@ -518,7 +519,7 @@ constexpr std::pair<std::string_view, std::string_view> joined[] = {
     {"かい", "しゃ"}, {"かい", "ぎ"}, {"かい", "わ"},   {"えん", "りょ"}, {"こ", "と"},
     {"じ", "つ"},     {"にん", "き"}, {"じ", "き"},     {"ぼん", "じめ"}, {"がつ", "びょう"},
     {"ぽん", "ぎ"},   {"じ", "こ"},   {"じ", "ぶん"},   {"じ", "しん"},   {"じ", "む"},
-    {"じ", "けん"},   {"じ", "たく"}, {"じ", "び"}};
+    {"じ", "けん"},   {"じ", "たく"}, {"じ", "び"},     {"じ", "のぼ"}};
 // A digit alone with its counter that is a word, kept as Mozc converts it.
 constexpr std::string_view words[] = {
     "いっぱい",   "いちばん",   "いちにち", "いっさい", "いちじ",     "にじ",       "くじ",
@@ -549,8 +550,9 @@ constexpr std::string_view two_counters[] = {"まい", "かいめ", "かい",   
 // After a time of day, a digit before じ is the hour, even one that alone is a
 // word or a particle: よるくじ 夜9時, ごごにじ 午後2時.
 constexpr std::string_view times_of_day[] = {
-    "よる",   "あさ",     "ごぜん",   "ごご",     "ひる", "ゆうがた", "よなか", "しんや", "けさ",
-    "こんや", "こんばん", "まいばん", "まいあさ", "いま", "あした",   "あす",   "きょう", "きのう"};
+    "よる",   "あさ", "ごぜん", "ごご",     "ひる",     "ゆうがた", "よなか",
+    "しんや", "けさ", "こんや", "こんばん", "まいばん", "まいあさ", "いま",
+    "あした", "あす", "きょう", "きのう",   "ようび"}; // 火曜日の4時.
 constexpr std::pair<std::string_view, int> days[] = {
     {"ついたち", 1}, {"ふつか", 2}, {"みっか", 3},   {"よっか", 4},  {"いつか", 5}, {"むいか", 6},
     {"なのか", 7},   {"ようか", 8}, {"ここのか", 9}, {"とおか", 10}, {"はつか", 20}};
@@ -622,6 +624,9 @@ std::vector<Number> parses(std::string_view text, std::size_t at) {
             }
             total += unit * found->value;
             group = digit = 0;
+            if (parts == 1) {
+                hundreds = first == "に"; // にまん after a particle.
+            }
         } else {
             if (parts == 1) {
                 tens = restricted && found->value == 10;
@@ -697,6 +702,11 @@ bool counts(std::string_view text, std::size_t at, const Number& number, std::st
         const bool ends =
             rest.empty() || (any_prefix(rest, particles) && !rest.starts_with("の")) || // 五重塔.
             rest.starts_with("から") || rest.starts_with("まで") || rest.starts_with("たい");
+        // A digit alone after a scale: しんどさん 震度3, れべるご レベル5.
+        if (number.parts == 1 && number.value < 10 &&
+            (preceding.ends_with("しんど") || (ends && preceding.ends_with("れべる")))) {
+            return true;
+        }
         if (number.parts < 2 || number.geminate || !led || !ends) {
             return false;
         }
@@ -722,6 +732,19 @@ bool counts(std::string_view text, std::size_t at, const Number& number, std::st
     if (hour && number.first != "し") {
         return true;
     }
+    // よじ after any particle (火曜日の4時); くじ, a lottery too, before
+    // から, まで, ごろ, すぎ or には (えいがはくじから 9時から).
+    const auto then_text = rest.substr(counter.size());
+    if (boundary && number.first == "よ" &&
+        (counter == "じ" || counter == "じかん" || counter == "じはん")) {
+        return true;
+    }
+    if (boundary && number.first == "く" && counter == "じ" &&
+        (then_text.starts_with("から") || then_text.starts_with("まで") ||
+         then_text.starts_with("ごろ") || then_text.starts_with("すぎ") ||
+         then_text.starts_with("には") || then_text.starts_with("まえ"))) {
+        return true;
+    }
     // A word such as ごじ counts before another number: ごじごじゅっぷん, and
     // linked to one with the same counter, にじからさんじ (not にほんから
     // よじかん).
@@ -738,7 +761,8 @@ bool counts(std::string_view text, std::size_t at, const Number& number, std::st
     const auto next_counter = then.parts ? counter_at(after.substr(then.end)) : std::string_view{};
     const bool rate = !next_counter.empty() && (!linked || next_counter.starts_with(counter));
     const auto whole = std::string(text.substr(at, number.end - at)) + std::string(counter);
-    if (std::find(std::begin(longer_only), std::end(longer_only), counter) != std::end(longer_only) ||
+    if ((number.value < 10 &&
+         std::find(std::begin(longer_only), std::end(longer_only), counter) != std::end(longer_only)) ||
         (!rate && std::find(std::begin(words), std::end(words), whole) != std::end(words))) {
         return false;
     }
@@ -846,17 +870,26 @@ std::vector<std::pair<std::size_t, std::string>> digit_run(std::string_view text
 // 1.5ばい, よんじゅうにてんいちきゅうごきろ 42.195きろ. Empty if none.
 std::pair<std::size_t, std::string> decimal(std::string_view text, std::size_t at) {
     constexpr std::string_view point = "てん";
+    std::vector<std::pair<std::size_t, long long>> wholes; // Each number's end and value.
     for (const auto& number : parses(text, at)) {
-        if (!text.substr(number.end).starts_with(point)) {
+        wholes.emplace_back(number.end, number.value);
+    }
+    for (const std::string_view zero : {"れい", "ぜろ"}) { // れいてんさん is 0.3.
+        if (text.substr(at).starts_with(zero)) {
+            wholes.emplace_back(at + zero.size(), 0);
+        }
+    }
+    for (const auto& [end, value] : wholes) {
+        if (!text.substr(end).starts_with(point)) {
             continue;
         }
-        const auto runs = digit_run(text, number.end + point.size());
+        const auto runs = digit_run(text, end + point.size());
         for (auto run = runs.rbegin(); run != runs.rend(); ++run) {
             // Not てん again: にてんさんてん is 二転三転.
             if (const auto counter = counter_at(text.substr(run->first));
                 !counter.empty() && counter != point) {
                 return {run->first + counter.size(),
-                        std::to_string(number.value) + "." + run->second + std::string(counter)};
+                        std::to_string(value) + "." + run->second + std::string(counter)};
             }
         }
     }
@@ -883,19 +916,31 @@ std::string numbers_as_digits(const std::string& reading) {
     using namespace numbers;
     const std::string_view text(reading);
     std::string result;
-    bool month = false;
+    bool month = false, dated = false; // After a month; after a day.
     for (std::size_t i = 0; i < text.size();) {
+        // A day after a month, with の too (ごがつのみっか), or after another
+        // day and から or まで (みっかからいつかまで).
         if (month) {
             month = false;
+            std::string_view link;
+            for (const std::string_view l : {"の", "から", "まで", "と", "や"}) {
+                if (text.substr(i).starts_with(l)) {
+                    link = l;
+                    break;
+                }
+            }
+            const auto at = i + link.size();
             const auto day = std::find_if(std::begin(days), std::end(days), [&](const auto& d) {
-                return text.substr(i).starts_with(d.first);
+                return text.substr(at).starts_with(d.first);
             });
-            if (day != std::end(days)) {
-                result += std::to_string(day->second) + "にち";
-                i += day->first.size();
+            if (day != std::end(days) && (link.empty() || link == "の" || dated)) {
+                result += std::string(link) + std::to_string(day->second) + "にち";
+                i = at + day->first.size();
+                month = dated = true; // Another day may follow: から いつか まで.
                 continue;
             }
         }
+        dated = false;
         // At the start or after a particle: a decimal, a number digit by
         // digit, a day.
         const auto preceding = text.substr(0, i);
@@ -926,7 +971,23 @@ std::string numbers_as_digits(const std::string& reading) {
             if (day != std::end(lone_days) && (rest.empty() || any_prefix(rest, day_ends))) {
                 result += std::to_string(day->second) + "にち";
                 i += day->first.size();
+                month = dated = true;
                 continue;
+            }
+            // Any day before の and a time of day: いつかのごごさんじ.
+            const auto any_day = std::find_if(std::begin(days), std::end(days), [&](const auto& d) {
+                return text.substr(i).starts_with(d.first);
+            });
+            if (any_day != std::end(days)) {
+                const auto after_day = text.substr(i + any_day->first.size());
+                if (after_day.starts_with("の") &&
+                    std::any_of(std::begin(times_of_day), std::end(times_of_day), [&](auto time) {
+                        return after_day.substr(std::string_view("の").size()).starts_with(time);
+                    })) {
+                    result += std::to_string(any_day->second) + "にち";
+                    i += any_day->first.size();
+                    continue;
+                }
             }
         }
         const auto found = parses(text, i);
@@ -936,7 +997,8 @@ std::string numbers_as_digits(const std::string& reading) {
             const auto counter = counter_at(text.substr(it->end));
             if ((it == found.rbegin() || !counter.empty()) && counts(text, i, *it, counter)) {
                 result += written(it->value);
-                month = counter == "がつ";
+                month = counter == "がつ" || counter == "にち";
+                dated = counter == "にち";
                 result += counter;
                 i = it->end + counter.size();
                 done = true;
@@ -1528,6 +1590,13 @@ void JapaneseComposer::numeral_digits(std::vector<Segment>& segments) {
             return counter;
         };
         auto counter = counter_in(reading.substr(number.end));
+        // 五分 read ごぶ after a temperature: 38度5分.
+        const std::string_view previous =
+            i > 0 ? std::string_view(segments[i - 1].candidates.front()) : "";
+        if (counter.empty() && previous.ends_with("度") &&
+            reading.substr(number.end).starts_with("ぶ")) {
+            counter = "ぶ";
+        }
         auto next = i + 1; // The segment after the number and its counter.
         if (counter.empty() && number.end == reading.size() && next < segments.size()) {
             counter = counter_in(segments[next].reading);
@@ -1541,8 +1610,12 @@ void JapaneseComposer::numeral_digits(std::vector<Segment>& segments) {
         // A word such as 一日 counts before another number: 1日3回.
         const bool rate = next < segments.size() && parse(segments[next].reading, 0).parts &&
                           kanji_number(segments[next].candidates.front()).first;
-        if ((counter.empty() && (number.parts < 2 || has_kanji(rest))) || // Not 十五夜.
-            (number.parts < 2 && listed(longer_only, counter)) ||         // 一度, 一点物.
+        // A score's second number: 3対|一で.
+        const bool score = previous.size() > std::string_view("対").size() && previous.ends_with("対") &&
+                           std::isdigit(static_cast<unsigned char>(
+                               previous[previous.size() - std::string_view("対").size() - 1]));
+        if ((counter.empty() && !score && (number.parts < 2 || has_kanji(rest))) || // Not 十五夜.
+            (number.parts < 2 && listed(longer_only, counter)) ||                   // 一度, 一点物.
             (listed(words, whole) && !rate) || (number.parts < 2 && listed(numeral_words, whole)) ||
             (number.first == "し" && counter != "がつ")) {
             continue;
@@ -1554,12 +1627,71 @@ void JapaneseComposer::numeral_digits(std::vector<Segment>& segments) {
                 mixed.replace(at, std::string_view(kana).size(), kanji);
             }
         }
+        bool moved = false;
         for (const auto& digits : {mixed, std::to_string(value)}) {
             const auto text = prefix + digits + rest;
             const auto found = std::find(candidates.begin(), candidates.end(), text);
             if (found != candidates.end()) {
                 std::rotate(candidates.begin(), found, found + 1);
+                moved = true;
                 break;
+            }
+        }
+        // Mozc offers 二万 in no digits but 20000: 2万 then, as chat writes it.
+        if (!moved && value >= 10000 && mixed != std::to_string(value)) {
+            candidates.insert(candidates.begin(), prefix + mixed + rest);
+        }
+    }
+    floors(segments);
+}
+// A floor where Mozc reads 回: after 地下, or before a room, a lift or a floor's
+// place (6階のエレベーター, 5階の502号室, 地下2階).
+void JapaneseComposer::floors(std::vector<Segment>& segments) {
+    constexpr std::string_view times = "回", floor = "階";
+    constexpr std::string_view places[] = {
+        "エレベーター", "部屋", "号室", "トイレ", "売り場",   "フロア", "ロビー", "教室", "会議室",
+        "ベランダ",     "窓",   "建て", "受付",   "オフィス", "事務所", "席",     "店"};
+    for (std::size_t i = 0; i < segments.size(); ++i) {
+        auto& candidates = segments[i].candidates;
+        const std::string_view front = candidates.front();
+        // 回 after the number, in this segment (6回の) or the one before (五|回の).
+        std::size_t at = 0;
+        while (at < front.size() && std::isdigit(static_cast<unsigned char>(front[at]))) {
+            ++at;
+        }
+        at = at ? at : numbers::kanji_number(front).second;
+        const std::string_view before =
+            i > 0 ? std::string_view(segments[i - 1].candidates.front()) : "";
+        const bool counted =
+            at || (!before.empty() && (std::isdigit(static_cast<unsigned char>(before.back())) ||
+                                       numbers::kanji_number(before).second == before.size()));
+        if (!counted || !front.substr(at).starts_with(times) ||
+            !(segments[i].reading.find("かい") != std::string::npos ||
+              segments[i].reading.find("がい") != std::string::npos)) {
+            continue;
+        }
+        auto rest = front.substr(at + times.size());
+        const std::string_view next =
+            i + 1 < segments.size() ? std::string_view(segments[i + 1].candidates.front()) : "";
+        const auto starts_place = [&](std::string_view text) {
+            while (!text.empty() && std::isdigit(static_cast<unsigned char>(text.front()))) {
+                text.remove_prefix(1); // 502号室.
+            }
+            return std::any_of(std::begin(places), std::end(places),
+                               [&](auto place) { return text.starts_with(place); });
+        };
+        const auto preceding =
+            i > 1 && !at ? std::string_view(segments[i - 2].candidates.front()) : before;
+        const bool underground = preceding.ends_with("地下") ||
+                                 std::string_view(before).find("地下") != std::string_view::npos;
+        if (underground ||
+            starts_place(rest.starts_with("の") ? rest.substr(std::string_view("の").size()) : rest) ||
+            (rest == "の" || rest.empty() ? starts_place(next) : false)) {
+            auto text = std::string(front);
+            text.replace(at, times.size(), floor);
+            const auto found = std::find(candidates.begin(), candidates.end(), text);
+            if (found != candidates.end()) {
+                std::rotate(candidates.begin(), found, found + 1);
             }
         }
     }
@@ -1601,6 +1733,13 @@ void JapaneseComposer::object_verbs(std::vector<Segment>& segments) {
         {"乾", "渇", {"喉"}},
         {"写", "移", {"色", "風邪"}},
         {"変", "替", {"電球", "電池", "シーツ", "タオル", "替え"}},
+        {"帰って",
+         "返って",
+         {"貸したら", "貸したのに", "返事", "連絡", "返信", "LINE", "メール", "お金"}},
+        {"つ", "着", {"家", "駅", "空港", "会社", "学校", "ホテル", "会場", "現地", "目的地"}},
+        {"早", "速", {"足"}},
+        {"買", "勝", {"試合", "勝負", "決勝", "対戦"}},
+        {"溜", "貯", {"お金", "ポイント", "貯金", "円"}},
     };
     const auto promote = [](std::vector<std::string>& candidates, const std::string& text) {
         const auto found = std::find(candidates.begin(), candidates.end(), text);
@@ -1623,7 +1762,8 @@ void JapaneseComposer::object_verbs(std::vector<Segment>& segments) {
                     break;
                 }
             }
-            if (back == 1 || !particle.empty()) {
+            // Further back only before が, を, は or も: 家に|いると|つい stays.
+            if (back == 1 || (!particle.empty() && particle != "に")) {
                 objects.push_back(before);
             }
             if (particle == "を") {
@@ -1658,18 +1798,17 @@ void JapaneseComposer::object_verbs(std::vector<Segment>& segments) {
         // A noun the verb after it decides: 風邪 before ひく, 歯を before
         // みがく, 帽子を before かぶる, 咳が before でる or とまる (席を出る
         // stays).
-        static const std::array<std::array<std::string_view, 4>, 11> nouns{{
-            {"ひ", "かぜ", "風", "風邪"},
-            {"みが", "はを", "葉", "歯"},
-            {"かぶ", "ぼうしを", "防止", "帽子"},
-            {"で", "せきが", "席", "咳"},
-            {"とま", "せきが", "席", "咳"},
-            {"き", "かみを", "神", "髪"},
-            {"そ", "かみを", "神", "髪"},
-            {"の", "かみが", "神", "髪"},
-            {"もら", "かきを", "書き", "柿"},
-            {"た", "かきを", "書き", "柿"},
-            {"くさ", "ねが", "音", "根"},
+        static const std::array<std::array<std::string_view, 4>, 20> nouns{{
+            {"ひ", "かぜ", "風", "風邪"},           {"みが", "はを", "葉", "歯"},
+            {"かぶ", "ぼうしを", "防止", "帽子"},   {"で", "せきが", "席", "咳"},
+            {"とま", "せきが", "席", "咳"},         {"き", "かみを", "神", "髪"},
+            {"そ", "かみを", "神", "髪"},           {"の", "かみが", "神", "髪"},
+            {"もら", "かきを", "書き", "柿"},       {"た", "かきを", "書き", "柿"},
+            {"くさ", "ねが", "音", "根"},           {"はや", "かぜが", "風", "風邪"},
+            {"やす", "かぜで", "風", "風邪"},       {"あが", "ていじで", "提示", "定時"},
+            {"かえ", "ていじで", "提示", "定時"},   {"はし", "こうえんを", "公演", "公園"},
+            {"あそ", "こうえんで", "公演", "公園"}, {"たの", "かんじを", "感じ", "幹事"},
+            {"しんど", "じしんは", "自身", "地震"}, {"の", "いっぱい", "いっぱい", "一杯"},
         }};
         for (const auto& [verb_start, noun_reading, wrong, right] : nouns) {
             if (i == 0) {
@@ -1770,6 +1909,14 @@ void JapaneseComposer::chat_kana(std::vector<Segment>& segments) {
         auto& segment = segments[index];
         auto& candidates = segment.candidates;
         std::string text = candidates.front();
+        // A view of the string itself, not of a temporary the conditional makes.
+        const std::string_view previous =
+            index > 0 ? std::string_view(segments[index - 1].candidates.front()) : std::string_view();
+        // Mozc reads からかさ as 唐傘 and shows 傘: から is the particle.
+        if (segment.reading.starts_with("からかさ") && text.starts_with("傘")) {
+            candidates.insert(candidates.begin(), "から" + text);
+            continue;
+        }
         // And words chat writes in kanji where Mozc writes kana: 時 after a
         // clause (暇な時), ご飯, の方が, 置いた (not 〜ておいた), 曇り; but
         // うち read so, not 家.
@@ -1790,7 +1937,6 @@ void JapaneseComposer::chat_kana(std::vector<Segment>& segments) {
             text.replace(0, std::string_view("ネタ").size(), "寝た");
         }
         // Not とき alone.
-        const std::string_view previous = index > 0 ? segments[index - 1].candidates.front() : "";
         replace_all(text, "とき", "時", [&](std::string_view before, std::string_view rest) {
             return any_end(before.empty() ? previous : before, {"た", "な", "い", "る", "の"}) &&
                    (rest.empty() ||
@@ -1806,6 +1952,16 @@ void JapaneseComposer::chat_kana(std::vector<Segment>& segments) {
             any_start(segment.reading, {"おいた", "おいて", "おいと", "おいちゃ", "おきっぱ"}) &&
             text.starts_with("お")) {
             text.replace(0, std::string_view("お").size(), "置");
+        }
+        // おき after a time counter: 15分おき, 2日おき.
+        if (segment.reading.starts_with("おき") &&
+            (text.starts_with("起き") || text.starts_with("置き")) &&
+            any_end(previous, {"分", "時間", "日", "週間", "年", "秒", "ヶ月", "か月", "駅"})) {
+            text.replace(0, std::string_view("起き").size(), "おき");
+        }
+        // A word spelled out stays so: ごーるでんうぃーく is no GW.
+        if (segment.reading.starts_with("ごーるでんうぃーく") && text.starts_with("GW")) {
+            text.replace(0, 2, "ゴールデンウィーク");
         }
         if (segment.reading.starts_with("くもり") && text.starts_with("曇") &&
             !text.starts_with("曇り")) {
