@@ -1790,6 +1790,55 @@ void carried_conversion() {
     composer.convert();
     require(composer.commit_text() == "民亜", "kana typed so are meant so");
 }
+// Number rewriting changes character offsets before carried-n word checks.
+void carried_number_boundaries() {
+    struct Numbered : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            std::vector<Segment> result;
+            std::string rest;
+            if (reading.starts_with("2026ねん")) {
+                result = {{"2026", {"2026"}}, {"ねん", {"年"}}};
+                rest = reading.substr(std::string("2026ねん").size());
+            } else if (reading.starts_with("にせんい16ねん")) {
+                result = {{"にせんい", {"二千位"}}, {"16", {"16"}}, {"ねん", {"年"}}};
+                rest = reading.substr(std::string("にせんい16ねん").size());
+            } else {
+                return {{reading, {reading}}};
+            }
+            if (rest == "みんな") {
+                result.push_back({rest, {"皆"}});
+            } else if (rest == "みんあ") {
+                result.push_back({"みん", {"民"}});
+                result.push_back({"あ", {"亜"}});
+            } else if (rest == "じかんなる") {
+                result.push_back({rest, {"時間なる"}});
+            } else if (rest == "じかんある") {
+                result.push_back({"じかん", {"時間"}});
+                result.push_back({"ある", {"ある"}});
+            }
+            return result;
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Numbered>(); });
+    composer.set_preferred([](const std::string& reading) {
+        return reading == "みんな" ? std::vector<std::string>{"皆"} : std::vector<std::string>{};
+    });
+    const auto as = [&](const std::string& roman) {
+        composer.cancel();
+        for (const char c : roman) {
+            composer.roman(c);
+        }
+        composer.convert();
+        return composer.commit_text();
+    };
+    require(as("nisennijuurokunen") == "2026年",
+            "a carried number wins when its rewritten reading makes fewer segments");
+    require(as("nisennijuurokunenminna") == "2026年皆",
+            "a carried word after a rewritten number uses its new character offset");
+    require(as("nisennijuurokunenjikannaru") == "二千位16年時間ある",
+            "a nonword after a rewritten number still rejects the carried reading");
+}
 // A reading typed in katakana, as the flick layout's ア mode types it, is
 // offered as typed first; a mixed one keeps the usual order.
 void typed_katakana() {
@@ -3502,6 +3551,7 @@ int main() {
         completion_reading();
         completion_reopen();
         live_without_predictions();
+        carried_number_boundaries();
         symbols_as_typed();
         word_completion();
         flick_katakana();

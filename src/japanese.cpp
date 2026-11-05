@@ -912,10 +912,34 @@ std::pair<std::size_t, std::string> digit_string(std::string_view text, std::siz
 constexpr std::pair<std::string_view, int> lone_days[] = {
     {"にじゅうよっか", 24}, {"じゅうよっか", 14}, {"はつか", 20}, {"よっか", 4}, {"ふつか", 2}};
 } // namespace numbers
-std::string numbers_as_digits(const std::string& reading) {
+std::string numbers_as_digits(const std::string& reading, std::vector<bool>* marks = nullptr) {
     using namespace numbers;
     const std::string_view text(reading);
     std::string result;
+    std::vector<bool> normalized_marks;
+    std::size_t marked_at = 0;
+    const auto append = [&](std::string_view replacement, std::size_t begin, std::size_t end,
+                            bool number) {
+        result += replacement;
+        if (!marks) {
+            return;
+        }
+        const auto consumed = static_cast<std::size_t>(
+            g_utf8_strlen(text.data() + begin, static_cast<gssize>(end - begin)));
+        // A recognized number accounts for carried changes inside it. Keep
+        // the remaining marks aligned with the characters sent to conversion.
+        if (number) {
+            normalized_marks.insert(normalized_marks.end(),
+                                    static_cast<std::size_t>(g_utf8_strlen(
+                                        replacement.data(), static_cast<gssize>(replacement.size()))),
+                                    false);
+        } else {
+            const auto first = marks->cbegin() + static_cast<std::ptrdiff_t>(marked_at);
+            normalized_marks.insert(normalized_marks.end(), first,
+                                    first + static_cast<std::ptrdiff_t>(consumed));
+        }
+        marked_at += consumed;
+    };
     bool month = false, dated = false; // After a month; after a day.
     for (std::size_t i = 0; i < text.size();) {
         // A day after a month, with の too (ごがつのみっか), or after another
@@ -934,7 +958,8 @@ std::string numbers_as_digits(const std::string& reading) {
                 return text.substr(at).starts_with(d.first);
             });
             if (day != std::end(days) && (link.empty() || link == "の" || dated)) {
-                result += std::string(link) + std::to_string(day->second) + "にち";
+                append(std::string(link) + std::to_string(day->second) + "にち", i,
+                       at + day->first.size(), true);
                 i = at + day->first.size();
                 month = dated = true; // Another day may follow: から いつか まで.
                 continue;
@@ -950,12 +975,12 @@ std::string numbers_as_digits(const std::string& reading) {
                           std::any_of(std::begin(number_words), std::end(number_words),
                                       [&](auto w) { return preceding.ends_with(w); });
         if (auto [end, digits] = decimal(text, i); !digits.empty()) {
-            result += digits;
+            append(digits, i, end, true);
             i = end;
             continue;
         }
         if (auto [end, digits] = digit_string(text, i); open && !digits.empty()) {
-            result += digits;
+            append(digits, i, end, true);
             i = end;
             continue;
         }
@@ -969,7 +994,7 @@ std::string numbers_as_digits(const std::string& reading) {
             constexpr std::string_view day_ends[] = {"は",   "が",   "も",   "を", "の", "に",   "で",
                                                      "から", "まで", "かん", "め", "ご", "まえ", "、"};
             if (day != std::end(lone_days) && (rest.empty() || any_prefix(rest, day_ends))) {
-                result += std::to_string(day->second) + "にち";
+                append(std::to_string(day->second) + "にち", i, i + day->first.size(), true);
                 i += day->first.size();
                 month = dated = true;
                 continue;
@@ -984,7 +1009,7 @@ std::string numbers_as_digits(const std::string& reading) {
                     std::any_of(std::begin(times_of_day), std::end(times_of_day), [&](auto time) {
                         return after_day.substr(std::string_view("の").size()).starts_with(time);
                     })) {
-                    result += std::to_string(any_day->second) + "にち";
+                    append(std::to_string(any_day->second) + "にち", i, i + any_day->first.size(), true);
                     i += any_day->first.size();
                     continue;
                 }
@@ -996,10 +1021,9 @@ std::string numbers_as_digits(const std::string& reading) {
         for (auto it = found.rbegin(); it != found.rend() && !done; ++it) {
             const auto counter = counter_at(text.substr(it->end));
             if ((it == found.rbegin() || !counter.empty()) && counts(text, i, *it, counter)) {
-                result += written(it->value);
+                append(written(it->value) + std::string(counter), i, it->end + counter.size(), true);
                 month = counter == "がつ" || counter == "にち";
                 dated = counter == "にち";
-                result += counter;
                 i = it->end + counter.size();
                 done = true;
             }
@@ -1009,13 +1033,16 @@ std::string numbers_as_digits(const std::string& reading) {
         }
         if (number.parts) {
             // Kept as typed, whole: no number within it either (しじゅうくにち).
-            result.append(text.substr(i, number.end - i));
+            append(text.substr(i, number.end - i), i, number.end, false);
             i = number.end;
             continue;
         }
         const auto next = static_cast<std::size_t>(g_utf8_next_char(text.data() + i) - text.data());
-        result.append(text.substr(i, next - i));
+        append(text.substr(i, next - i), i, next, false);
         i = next;
+    }
+    if (marks) {
+        *marks = std::move(normalized_marks);
     }
     return result;
 }
@@ -2047,6 +2074,7 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
     // Numbers are found in the carried reading itself: nisennijuurokunen is
     // にせんにじゅうろくねん, 2026ねん, not にせんい16ねん.
     auto converted = romaji_ ? carried_n(base) : base;
+    std::string numbered_from;
     if (romaji_) {
         auto raw = reading;
         raw.resize(raw.size() - stretch.marks.size() - stretch.final.size());
@@ -2058,12 +2086,14 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
         if (auto numbered = numbers_as_digits(carried_n(raw + stretch.final));
             digits(numbered) > digits(base)) {
             converted = std::move(numbered);
+            numbered_from = raw + stretch.final;
         }
     }
     auto result = imported(converter().convert(converted));
     if (converted != base) {
         auto typed = imported(converter().convert(base));
-        if (result.size() < typed.size() && carried_words(result, base)) {
+        if (result.size() < typed.size() &&
+            carried_words(result, numbered_from.empty() ? base : numbered_from, converted)) {
             result = imported(converter().convert(converted));
         } else {
             if (result.size() == typed.size()) {
@@ -2099,11 +2129,14 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
     resized_ = false;
     return result;
 }
-bool JapaneseComposer::carried_words(const std::vector<Segment>& segments,
-                                     const std::string& typed) const {
+bool JapaneseComposer::carried_words(const std::vector<Segment>& segments, const std::string& typed,
+                                     const std::string& converted) const {
     // Only where the carried n makes words: みんな, 何人で, ごめんね; not where
     // the typed reading was meant (じかんある, 時間なる; しけんいつ, 試験につ).
-    const auto marks = carried_marks(typed);
+    auto marks = carried_marks(typed);
+    if (const auto carried = carried_n(typed); carried != converted) {
+        numbers_as_digits(carried, &marks);
+    }
     std::size_t at = 0;
     for (const auto& segment : segments) {
         const auto length = static_cast<std::size_t>(g_utf8_strlen(segment.reading.c_str(), -1));

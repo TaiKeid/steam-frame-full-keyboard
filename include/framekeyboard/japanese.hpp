@@ -325,7 +325,8 @@ class JapaneseComposer {
     };
     // Whether each of `segments`, converted from `typed` with romaji's n
     // carried over, that holds a kana the carried n changed is a word.
-    bool carried_words(const std::vector<Segment>& segments, const std::string& typed) const;
+    bool carried_words(const std::vector<Segment>& segments, const std::string& typed,
+                       const std::string& converted) const;
     // Puts a stretching ー back on a segment converted without it.
     static void stretch_segment(Segment& segment, const Stretch& stretch);
     // The usual conversions of `reading`, else of the reading as converted,
