@@ -1314,6 +1314,16 @@ void cancellation_respects_device_ownership() {
     require(!h.drag_owner && h.pointers.empty(), "hiding must forget movement and pointer captures");
 }
 
+void overlay_watchdog_slows_in_standby() {
+    require(overlay_watchdog_poll_ms(true, true) == 50,
+            "a watched panel stays responsive while the headset is worn");
+    require(overlay_watchdog_poll_ms(true, false) == 250,
+            "a watched panel uses the idle watchdog period while the headset is off");
+    require(overlay_watchdog_poll_ms(false, true) == 250 &&
+                overlay_watchdog_poll_ms(false, false) == 250,
+            "an unwatched panel keeps the idle watchdog period in either headset state");
+}
+
 void watchdog_fallback_is_request_scoped() {
     Headset h;
     h.request(60);
@@ -1337,6 +1347,7 @@ void watchdog_fallback_is_request_scoped() {
 
 int main() {
     try {
+        overlay_watchdog_slows_in_standby();
         targets_keep_their_own_keys();
         late_work_cannot_cross_targets();
         same_target_changes_keep_accepted_text();

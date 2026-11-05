@@ -23,6 +23,11 @@ class TrackingReadiness {
     double next_check_{};
 };
 
+// Only a watched panel someone can see needs the faster stall check.
+constexpr int overlay_watchdog_poll_ms(bool watched, bool worn) {
+    return watched && worn ? 50 : 250;
+}
+
 // Paces the replacement watchdog thread. With replacement off there is no helper
 // reading health and nothing to hide, so the thread blocks instead of polling.
 // The VR thread owns the enabled flag; the watchdog thread only waits on it.
