@@ -11,6 +11,7 @@
 #include <functional>
 #include <glib.h>
 #include <iostream>
+#include <iterator>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -175,16 +176,17 @@ std::string command_input(std::uint64_t session, SessionCommand type, std::int32
     put_bytes(message, 4, command);
     return message;
 }
-// Mozc's own character form rules (config_handler.cc), digits converted
-// half-width as chat writes them (2日, 1000円) instead of as last chosen.
+// Mozc's own character form rules (config_handler.cc), digits, Latin
+// letters and % converted half-width as chat writes them (2日, 1000円,
+// Tシャツ, 10%) instead of as last chosen, which starts full-width.
 std::string config_input() {
     enum Form { half = 0, full = 1, last = 2 };
     const std::pair<std::string_view, std::pair<Form, Form>> rules[] = {
-        {"ア", {full, full}},          {"A", {full, last}},   {"0", {full, half}},
-        {"(){}[]", {full, last}},      {".,", {full, last}},  {"。、", {full, full}},
-        {"・「」", {full, full}},      {"\"'", {full, last}}, {":;", {full, last}},
-        {"#%&@$^_|`\\", {full, last}}, {"~", {full, last}},   {"<>=+-/*", {full, last}},
-        {"?!", {full, last}}};
+        {"ア", {full, full}},      {"A", {full, half}},          {"0", {full, half}},
+        {"%", {full, half}},       {"(){}[]", {full, last}},     {".,", {full, last}},
+        {"。、", {full, full}},    {"・「」", {full, full}},     {"\"'", {full, last}},
+        {":;", {full, last}},      {"#&@$^_|`\\", {full, last}}, {"~", {full, last}},
+        {"<>=+-/*", {full, last}}, {"?!", {full, last}}};
     std::string config;
     for (const auto& [group, forms] : rules) {
         std::string rule;
@@ -264,6 +266,7 @@ struct Server {
     // before it ever answers turns it off, and the server runs as it is.
     bool sandbox = true, sandboxed = false, answered = false;
     std::filesystem::path path, base;
+    std::filesystem::path words; // Our words for its user dictionary (write_dictionary()).
     ~Server() {
         if (pid > 0) {
             kill(pid, SIGTERM);
@@ -371,6 +374,47 @@ std::vector<std::string> sandbox_command(const std::string& bwrap, const Server&
     command.insert(command.end(), {"--die-with-parent", "--", mozc_install_path});
     return command;
 }
+// Our words (japanese/mozc-words.tsv, reading<TAB>word) as Mozc's user
+// dictionary, user_dictionary.db in its profile: a UserDictionaryStorage
+// (user_dictionary_storage.proto) holding one dictionary of nouns, which
+// Mozc reads as it starts and segments sentences with (陽キャの集まり).
+// Written again only when it differs; nothing without the file.
+void write_dictionary(const Server& state) {
+    std::ifstream in(state.words);
+    if (state.words.empty() || !in) {
+        return;
+    }
+    std::string entries, line;
+    while (std::getline(in, line)) {
+        const auto tab = line.find('\t');
+        if (line.empty() || line.front() == '#' || tab == std::string::npos) {
+            continue;
+        }
+        const auto end = line.find('\t', tab + 1);
+        std::string entry;
+        put_bytes(entry, 1, std::string_view(line).substr(0, tab));
+        put_bytes(
+            entry, 2,
+            std::string_view(line).substr(tab + 1, end == std::string::npos ? end : end - tab - 1));
+        put_number(entry, 5, 1); // NOUN
+        put_bytes(entries, 4, entry);
+    }
+    std::string dictionary;
+    put_number(dictionary, 1, 1);
+    put_bytes(dictionary, 3, "Full Keyboard");
+    dictionary += entries;
+    std::string storage;
+    put_bytes(storage, 2, dictionary);
+    const auto file = state.base / "mozc" / "user_dictionary.db";
+    std::ifstream old(file, std::ios::binary);
+    if (std::string(std::istreambuf_iterator<char>(old), {}) == storage) {
+        return;
+    }
+    const auto part = file.string() + ".part";
+    std::ofstream(part, std::ios::binary | std::ios::trunc) << storage;
+    std::error_code ignored;
+    std::filesystem::rename(part, file, ignored);
+}
 // Starts the server unless it is running; it gets ready on its own. Called
 // with the server's lock held.
 void spawn(Server& state) {
@@ -391,6 +435,7 @@ void spawn(Server& state) {
     std::filesystem::create_directories(state.base / "mozc", error);
     std::filesystem::permissions(state.base / "mozc", std::filesystem::perms::owner_all,
                                  std::filesystem::perm_options::replace, error);
+    write_dictionary(state);
     // Built before fork(): the child only calls async-signal-safe functions.
     std::vector<std::string> variables;
     for (char** variable = environ; *variable; ++variable) {
@@ -729,9 +774,11 @@ std::filesystem::path mozc_engine() {
     }
     return {};
 }
-void start_mozc(const std::filesystem::path& path, const std::filesystem::path& profile) {
+void start_mozc(const std::filesystem::path& path, const std::filesystem::path& profile,
+                const std::filesystem::path& words) {
     auto& state = server();
     std::lock_guard guard(state.lock);
+    state.words = words;
     if (state.wanted && state.path == path && state.base == profile) {
         spawn(state); // Started again if it went.
         return;

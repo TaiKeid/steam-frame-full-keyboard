@@ -2498,7 +2498,8 @@ void App::sync_mozc() {
         return;
     }
     if (japanese_added()) {
-        start_mozc(mozc_server_, options_.config_dir);
+        start_mozc(mozc_server_, options_.config_dir,
+                   data_resource(options_.data_dir, "japanese/mozc-words.tsv"));
     } else {
         stop_mozc();
     }

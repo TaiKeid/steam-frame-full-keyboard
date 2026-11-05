@@ -96,8 +96,10 @@ class JapaneseWords {
     std::vector<std::pair<std::string, int>> completions(const std::string& reading, std::size_t most,
                                                          bool& first) const;
     // Whether a completion of this cost leads the reading's own conversion,
-    // by complete()'s rule but for an adjective's stem.
-    bool completion_leads(const std::string& reading, int cost) const;
+    // by complete()'s rule but for an adjective's stem. A reading the list
+    // lacks counts as a word of cost `unlisted`, by default none.
+    bool completion_leads(const std::string& reading, int cost,
+                          int unlisted = std::numeric_limits<int>::max()) const;
     // The reading's lowest cost as a word, or as a word and a particle a
     // little more; the largest int when it is neither.
     int own_cost(const std::string& reading) const;
@@ -342,6 +344,13 @@ class JapaneseComposer {
     // which the conversion keeps; and on a tie between romaji's readings,
     // the other's whole phrase, which the live candidates offer second.
     std::string converted_as_;
+    // Numbers Mozc reads as kanji numerals, in digits where it offers them
+    // (四年も as 4年も, 二百六十|年 as 260|年), in place.
+    static void numeral_digits(std::vector<Segment>& segments);
+    // Verbs the object before them decides (雪降って, 写真を撮って), in place.
+    static void object_verbs(std::vector<Segment>& segments);
+    // Words chat writes in kana (ください, なし, できる), in place.
+    static void chat_kana(std::vector<Segment>& segments);
     Stretch stretch_;
     std::string alternative_;
     Preferred preferred_;

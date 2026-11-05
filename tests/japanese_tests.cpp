@@ -11,6 +11,7 @@
 #include <fstream>
 #include <glib.h>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -1139,8 +1140,19 @@ void mozc_lifecycle() {
     }
     require(!mozc_running(), "the keyboard's end stops it too");
 
-    // A Mozc that doesn't answer leaves conversion to the fallback.
-    start_mozc(server, fs::path(directory) / "config");
+    // A Mozc that doesn't answer leaves conversion to the fallback. Our words
+    // become its user dictionary as it starts.
+    const auto words = fs::path(directory) / "words.tsv";
+    std::ofstream(words) << "# Words.\nようきゃ\t陽キャ\n";
+    start_mozc(server, fs::path(directory) / "config", words);
+    {
+        std::ifstream file(fs::path(directory) / "config/mozc/user_dictionary.db", std::ios::binary);
+        const std::string written(std::istreambuf_iterator<char>(file), {});
+        require(written.find("ようきゃ") != std::string::npos &&
+                    written.find("陽キャ") != std::string::npos &&
+                    written.find("Words") == std::string::npos,
+                "Mozc's user dictionary holds our words, not the comment");
+    }
     require(!wait_for_mozc(std::chrono::milliseconds(100)), "the stand-in never answers");
     JapaneseComposer composer(
         [&] { return mozc_converter([&] { return fake_converter(&conversions)(); }); });
@@ -1170,6 +1182,297 @@ void mozc_lifecycle() {
     stop_mozc();
     require(!mozc_running(), "stopped on request");
 }
+// The object decides a verb Mozc reads otherwise, from its own candidates:
+// 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
+void object_verbs() {
+    struct Verbs : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            const Segment shake{"ふってきた", {"振ってきた", "降ってきた"}};
+            if (reading == "ゆきふってきた") {
+                return {{"ゆき", {"雪"}}, shake};
+            }
+            if (reading == "てふってきた") {
+                return {{"て", {"手"}}, shake};
+            }
+            if (reading == "あめがやんだ") {
+                return {{"あめが", {"雨が"}}, {"やんだ", {"病んだ", "止んだ"}}};
+            }
+            if (reading == "せきがでる") {
+                return {{"せきが", {"席が", "咳が"}}, {"でる", {"出る"}}};
+            }
+            if (reading == "せきをでる") {
+                return {{"せきを", {"席を", "咳を"}}, {"でる", {"出る"}}};
+            }
+            if (reading == "しゃしんはちょうどとった") {
+                return {{"しゃしんは", {"写真は"}},
+                        {"ちょうど", {"ちょうど"}},
+                        {"とった", {"取った", "撮った"}}};
+            }
+            if (reading == "しゃしんとかさをとった") {
+                return {
+                    {"しゃしんと", {"写真と"}}, {"かさを", {"傘を"}}, {"とった", {"取った", "撮った"}}};
+            }
+            if (reading == "せんえんかして") {
+                return {{"せんえんかして", {"千円化して", "千円貸して"}}};
+            }
+            if (reading == "かみをきった") {
+                return {{"かみを", {"神を", "髪を"}}, {"きった", {"切った"}}};
+            }
+            return {{"かぜ", {"風", "風邪"}}, {"ひいた", {"引いた"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Verbs>(); });
+    const auto as = [&](const std::string& kana) {
+        composer.cancel();
+        composer.kana(kana);
+        composer.convert();
+        return composer.commit_text();
+    };
+    require(as("ゆきふってきた") == "雪降ってきた", "snow falls");
+    require(as("てふってきた") == "手振ってきた", "a hand still waves");
+    require(as("かぜひいた") == "風邪引いた", "a cold is caught");
+    require(as("あめがやんだ") == "雨がやんだ", "rain stops, in kana");
+    require(as("せきがでる") == "咳が出る", "a cough comes");
+    require(as("せきをでる") == "席を出る", "a seat is still left");
+    require(as("しゃしんはちょうどとった") == "写真はちょうど撮った", "across a word between");
+    require(as("しゃしんとかさをとった") == "写真と傘を取った", "not across another object");
+    require(as("せんえんかして") == "千円貸して", "in one segment");
+    require(as("かみをきった") == "髪を切った", "hair is cut");
+}
+// Words chat writes in kana come in kana where the converter offers them so:
+// お伝えください, できる, よく, つらい; not in a noun (上出来) or after a
+// kanji (仲良く), and 辛い read からい stays.
+void chat_kana() {
+    struct Formal : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            if (reading == "おつたえください") {
+                return {{reading, {"お伝え下さい", "お伝えください"}}};
+            }
+            if (reading == "できる") {
+                return {{reading, {"出来る", "できる"}}};
+            }
+            if (reading == "よくなった") {
+                return {{reading, {"良くなった", "よくなった"}}};
+            }
+            if (reading == "なかよく") {
+                return {{reading, {"仲良く", "仲よく"}}};
+            }
+            if (reading == "つらい") {
+                return {{reading, {"辛い", "つらい"}}};
+            }
+            if (reading == "からい") {
+                return {{reading, {"辛い", "からい"}}};
+            }
+            if (reading == "ひまなとき") {
+                return {{reading, {"暇なとき", "暇な時"}}};
+            }
+            if (reading == "とき") {
+                return {{reading, {"とき", "時"}}};
+            }
+            if (reading == "うちのいぬ") {
+                return {{"うちの", {"家の", "うちの"}}, {"いぬ", {"犬"}}};
+            }
+            if (reading == "どこにおいた" || reading == "とっておいた") {
+                return {{reading.substr(0, reading.size() - std::string("おいた").size()),
+                         {reading == "どこにおいた" ? "どこに" : "取って"}},
+                        {"おいた", {"おいた", "置いた"}}};
+            }
+            if (reading == "まったほうがいい" || reading == "しないほうがいい") {
+                return {{reading.substr(0, reading.size() - std::string("ほうがいい").size()),
+                         {reading == "まったほうがいい" ? "待った" : "しない"}},
+                        {"ほうがいい", {"ほうがいい", "方がいい"}}};
+            }
+            if (reading == "やっとねたから") {
+                return {{"やっと", {"やっと"}}, {"ねたから", {"ネタから", "寝たから"}}};
+            }
+            return {{reading, {"上出来", "上でき"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Formal>(); });
+    const auto as = [&](const std::string& kana) {
+        composer.cancel();
+        composer.kana(kana);
+        composer.convert();
+        return composer.commit_text();
+    };
+    require(as("おつたえください") == "お伝えください", "ください in kana");
+    require(as("できる") == "できる", "できる in kana");
+    require(as("じょうでき") == "上出来", "a noun keeps its kanji");
+    require(as("よくなった") == "よくなった", "よく in kana");
+    require(as("なかよく") == "仲良く", "but not after a kanji");
+    require(as("つらい") == "つらい", "つらい in kana");
+    require(as("からい") == "辛い", "からい keeps its kanji");
+    require(as("ひまなとき") == "暇な時", "時 after a clause");
+    require(as("とき") == "とき", "とき alone stays");
+    require(as("うちのいぬ") == "うちの犬", "うち as read");
+    require(as("どこにおいた") == "どこに置いた", "置いた");
+    require(as("とっておいた") == "取っておいた", "but 〜ておいた in kana");
+    require(as("まったほうがいい") == "待った方がいい", "方がいい after た");
+    require(as("しないほうがいい") == "しないほうがいい", "not after ない");
+    require(as("やっとねたから") == "やっと寝たから", "寝た ending a clause");
+}
+// A typed word leads its completions where they are no adjective of it
+// (協会 is no completion of a stem きょうか), and a word the list lacks
+// that the converter reads whole leads all but clearly commoner ones.
+void whole_words_lead() {
+    char directory[] = "/tmp/framekeyboard-whole-XXXXXX";
+    require(mkdtemp(directory), "temporary word list");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::ofstream(fs::path(directory) / "words.tsv")
+        << "おもしろ\tおもしろ\t2836\nおもしろい\t面白い\t1876\nきょうか\t強化\t3419\n"
+           "きょうかい\t協会\t3967\nねんしき\t年式\t4800\n"; // Sorted by reading.
+    const JapaneseWords words(fs::path(directory) / "words.tsv");
+    struct Words : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            return {{reading,
+                     {reading == "きょうか" ? "強化"
+                      : reading == "ねんし" ? "年始"
+                                            : reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Words>(); });
+    composer.set_words(&words);
+    const auto first = [&](const std::string& kana) {
+        composer.cancel();
+        composer.kana(kana);
+        composer.prepare_live();
+        return composer.live().front();
+    };
+    require(first("きょうか") == "強化", "a word leads a completion that is no adjective of it");
+    require(first("ねんし") == "年始", "a word the list lacks leads a rarer completion");
+    require(first("おもしろ") == "面白い", "an adjective's stem still completes to it first");
+}
+// Numbers spelled in kana before a counter go to the converter as digits,
+// which Mozc converts as chat writes them (30分, 1万円); a digit and counter
+// that make a word, or a に that is a particle, stay as typed.
+void spelled_numbers() {
+    struct Echo : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            return {{reading, {reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Echo>(); });
+    const auto as = [&](const std::string& kana) {
+        composer.cancel();
+        composer.kana(kana);
+        composer.convert();
+        return composer.commit_text();
+    };
+    for (const auto& [kana, sent] : std::vector<std::pair<std::string, std::string>>{
+             {"さんじゅっぷん", "30ぷん"},
+             {"いちまんえん", "1まんえん"},
+             {"にまんごせんえん", "2まん5000えん"},
+             {"じゅうまん", "10まん"},
+             {"はっぴゃくえん", "800えん"},
+             {"さんぜんえん", "3000えん"},
+             {"じゅうがつはつか", "10がつ20にち"},
+             {"あとさんぷん", "あと3ぷん"},
+             {"あとにじゅっぷん", "あと20ぷん"},
+             {"よじにあおう", "4じにあおう"},
+             {"しがつ", "4がつ"},
+             {"ごじゅっこ", "50こ"},
+             {"ぴざをにまい", "ぴざを2まい"},
+             {"よるくじに", "よる9じに"},
+             {"さんじゅうにん", "30にん"},
+             {"ごせんにん", "5000にん"},
+             {"ゆうがたごじ", "ゆうがた5じ"},
+             {"まいばんじゅうじに", "まいばん10じに"},
+             {"ごじごじゅっぷん", "5じ50ぷん"},
+             {"かいぎはにじからさんじ", "かいぎは2じから3じ"},
+             {"にせんにじゅうろくねん", "2026ねん"},
+             {"ことしはにせんにじゅうろくねん", "ことしは2026ねん"},
+             {"もうよねん", "もう4ねん"},
+             {"よんひゃく", "400"},
+             {"いってんごばい", "1.5ばい"},
+             {"ぜろきゅうぜろから", "090から"},
+             {"いちいちきゅうばん", "119ばん"},
+             {"じゅうよっかに", "14にちに"},
+             {"にひゃくいちごうしつ", "201ごうしつ"},
+             {"さんがいの", "3がいの"},
+             {"せんぴーす", "1000ぴーす"},
+         }) {
+        require(as(kana) == sent, (kana + " converts as " + sent).c_str());
+    }
+    for (const auto* kana : {"いちばん",
+                             "いっぱい",
+                             "にほん",
+                             "みなさんほんとうに",
+                             "けっかにまんぞく",
+                             "しこみ",
+                             "よこはま",
+                             "しじゅうくにち",
+                             "ごしゅうぎ",
+                             "せんもん",
+                             "きゅうじつ",
+                             "じゅうぶん",
+                             "まいかいちこく",
+                             "ろっこつ",
+                             "にくまん",
+                             "こんびににかいもの",
+                             "ねっとにかいた",
+                             "よるにじこ",
+                             "よせん",
+                             "ふくせん",
+                             "ろくせん",
+                             "にてんさんてん",
+                             "ふつかよい",
+                             "よっかいち",
+                             "にじゅうにはらった",
+                             "べんきょうにせんねん",
+                             "とこにひゃくえん",
+                             "ごじゅうのとう",
+                             "にほんからよじかん",
+                             "にはつかない",
+                             "いちがいに",
+                             "はっぴょう",
+                             "じっぱー",
+                             "ひゃくにんいっしゅ",
+                             "せんねんする"}) {
+        require(as(kana) == kana, (std::string(kana) + " stays as typed").c_str());
+    }
+}
+// Numbers Mozc reads as kanji numerals come in digits where it offers them:
+// 四年も as 4年も, 三件 as 3件, 第二回 as 第2回; not words (一度, 一体), nor
+// numerals that are no spelled number (五 in 五重塔).
+void numeral_digits() {
+    struct Numerals : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            static const std::map<std::string, std::vector<Segment>> segments{
+                {"ほしよねんも", {{"ほし", {"星"}}, {"よねんも", {"四年も", "４年も", "4年も"}}}},
+                {"さんけん", {{"さんけん", {"三件", "3件"}}}},
+                {"だいにかい", {{"だいにかい", {"第二回", "第2回"}}}},
+                {"やくひゃくにん", {{"やく", {"約"}}, {"ひゃくにん", {"百人", "100人"}}}},
+                {"いちど", {{"いちど", {"一度", "1度"}}}},
+                {"いったい", {{"いったい", {"一体", "1体"}}}},
+                {"ごじゅうのとう", {{"ごじゅうのとう", {"五重塔", "5重塔"}}}},
+            };
+            const auto found = segments.find(reading);
+            return found != segments.end() ? found->second : std::vector<Segment>{{reading, {reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Numerals>(); });
+    const auto as = [&](const std::string& kana) {
+        composer.cancel();
+        composer.kana(kana);
+        composer.convert();
+        return composer.commit_text();
+    };
+    require(as("ほしよねんも") == "星4年も", "a counted numeral in digits");
+    require(as("さんけん") == "3件", "with a counter only Mozc reads so");
+    require(as("だいにかい") == "第2回", "after 第");
+    require(as("やくひゃくにん") == "約100人", "a unit alone");
+    require(as("いちど") == "一度", "一度 stays");
+    require(as("いったい") == "一体", "一体 stays");
+    require(as("ごじゅうのとう") == "五重塔", "a numeral of another number stays");
+}
 // Romaji's nn is ん, but 変換 converts the reading with the n carried over
 // where Anthy splits that one into fewer segments: minna as みんな, not
 // 民|亜. On a tie the reading stays as typed: gennin is げんいん.
@@ -1187,6 +1490,9 @@ void carried_conversion() {
             }
             if (reading == "みんな") {
                 return {{"みんな", {"皆", "みんな"}}};
+            }
+            if (reading == "3にんくる") { // さんにんくる, its number in digits.
+                return {{"3にん", {"3人"}}, {"くる", {"来る"}}};
             }
             if (reading == "さんいんくる" || reading == "さんにんくる") {
                 return {{reading.substr(0, reading.size() - std::string("くる").size()),
@@ -1227,10 +1533,10 @@ void carried_conversion() {
         composer.roman(c);
     }
     composer.prepare_live();
-    require(composer.live().at(0) == "参院来る" && composer.live().at(1) == "三人来る",
+    require(composer.live().at(0) == "参院来る" && composer.live().at(1) == "3人来る",
             "in a sentence too, the other whole phrase second");
     composer.convert();
-    require(composer.candidates().at(1) == "三人", "and each segment it reads otherwise");
+    require(composer.candidates().at(1) == "3人", "and each segment it reads otherwise");
     composer.cancel();
     composer.kana("みんあ");
     composer.convert();
@@ -2947,6 +3253,11 @@ int main() {
         preferred_phrases();
         typed_katakana();
         candidates_report();
+        numeral_digits();
+        object_verbs();
+        chat_kana();
+        whole_words_lead();
+        spelled_numbers();
         carried_conversion();
         context_converter();
         mozc_lifecycle();

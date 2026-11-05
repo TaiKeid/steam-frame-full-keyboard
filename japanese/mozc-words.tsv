@@ -1,0 +1,27 @@
+# Words Mozc's dictionary lacks or reads formally, as chat writes them:
+# reading<TAB>word, sorted by reading. Full Keyboard gives them to its own
+# Mozc as a user dictionary (docs/japanese.md, Mozc), so Mozc segments a
+# sentence around them: ようきゃのあつまり is 陽キャの集まり. Nouns all.
+あさいち	朝イチ
+いんきゃ	陰キャ
+うち	うち
+えーてぃーえむ	ATM
+えすえぬえす	SNS
+おし	推し
+かのぴ	かのぴ
+かれぴ	かれぴ
+くれか	クレカ
+じーぴーえー	GPA
+しゃめ	写メ
+ずっとも	ずっ友
+つきぱす	月パス
+でぃーえむ	DM
+どうせつ	同接
+にせあか	偽垢
+ねとげ	ネトゲ
+ぶいあーる	VR
+めんへら	メンヘラ
+ゆーあーるえる	URL
+ようきゃ	陽キャ
+りあたい	リアタイ
+ろむせん	ロム専

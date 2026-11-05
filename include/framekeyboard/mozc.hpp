@@ -17,8 +17,11 @@ std::filesystem::path mozc_engine();
 // Starts the server at `path`, once per process, with its user profile in
 // `profile`/mozc, apart from any Mozc the user runs. It doesn't wait: Mozc
 // answers in a moment, and Anthy converts until then. It is kept running,
-// and started again if it crashes, until stop_mozc().
-void start_mozc(const std::filesystem::path& path, const std::filesystem::path& profile);
+// and started again if it crashes, until stop_mozc(). `words`, a
+// reading<TAB>word list such as japanese/mozc-words.tsv, becomes its user
+// dictionary.
+void start_mozc(const std::filesystem::path& path, const std::filesystem::path& profile,
+                const std::filesystem::path& words = {});
 // Waits up to `patience` for the server to answer; false if it doesn't.
 bool wait_for_mozc(std::chrono::milliseconds patience);
 // Stops the server, saving what it learned; it isn't started again.

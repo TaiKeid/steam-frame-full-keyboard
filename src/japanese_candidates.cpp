@@ -55,7 +55,8 @@ void report_japanese_candidates(std::istream& phrases, std::ostream& report,
     JapaneseWords preferred(data_resource(options.data_dir, "japanese/preferred.tsv"));
     auto converter = options.converter;
     if (!options.mozc_server.empty()) {
-        start_mozc(options.mozc_server, options.mozc_profile);
+        start_mozc(options.mozc_server, options.mozc_profile,
+                   data_resource(options.data_dir, "japanese/mozc-words.tsv"));
         if (!wait_for_mozc(std::chrono::seconds(10))) {
             throw std::runtime_error("Mozc did not start");
         }

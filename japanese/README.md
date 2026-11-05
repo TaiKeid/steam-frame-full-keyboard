@@ -62,3 +62,5 @@ short words and word forms, as `reading<TAB>phrase<TAB>0` sorted by reading:
 〜 and a particle, such as 〜があう 〜が合う, only gives a word's form after a
 segment ending in that particle. It is Full
 Keyboard's own, under the project's license.
+
+`mozc-words.tsv` lists words, as `reading<TAB>word` sorted by reading, that Full Keyboard gives its Mozc as a user dictionary (docs/japanese.md, Mozc): chat words Mozc's dictionary lacks or reads formally. Each is a noun to Mozc. It is written by hand.
