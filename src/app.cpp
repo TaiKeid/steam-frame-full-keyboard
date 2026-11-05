@@ -205,6 +205,11 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     composition_.set_kaomoji(&japanese_kaomoji_);
     japanese_preferred_ = JapaneseWords(data_resource(options_.data_dir, "japanese/preferred.tsv"));
     composition_.set_phrases(&japanese_preferred_);
+    // In a sentence a listed word follows the user's latest pick for it, as
+    // on a phone; typed on its own, their most frequent one, below.
+    composition_.set_word_pick([this](const std::string& reading) {
+        return learning_allowed() ? japanese_choices_.latest(reading) : std::string{};
+    });
     composition_.set_preferred([this](const std::string& reading) {
         auto phrases = japanese_preferred_.exact(reading, 1);
         // The user's own most frequent choice for the reading wins; the
@@ -2558,6 +2563,7 @@ void App::commit_japanese() {
         return;
     }
     const auto reading = composition_.reopen_reading();
+    const auto typed = composition_.typed_reading();
     const auto words = composition_.word_choices();
     if (preview_output()) {
         composition_.cancel();
@@ -2570,15 +2576,19 @@ void App::commit_japanese() {
         follow_commit(text, queued);
         follow_up_ = text;
         // A reading with a usual conversion remembers what was chosen for
-        // it; in a sentence, each word with one does.
-        if (learning_allowed() && !japanese_preferred_.exact(reading, 1).empty()) {
-            japanese_choices_.record(reading, text);
-            japanese_choices_.touch(monotonic_seconds());
-        } else if (learning_allowed() && !words.empty()) {
+        // it, from the live candidates as from 変換, and each word with one
+        // in it what it was converted to.
+        if (learning_allowed()) {
+            const bool listed = !japanese_preferred_.exact(typed, 1).empty();
+            if (listed) {
+                japanese_choices_.record(typed, text);
+            }
             for (const auto& [word, form] : words) {
                 japanese_choices_.record(word, form);
             }
-            japanese_choices_.touch(monotonic_seconds());
+            if (listed || !words.empty()) {
+                japanese_choices_.touch(monotonic_seconds());
+            }
         }
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (japanese_typing() && !dictation_open_) {

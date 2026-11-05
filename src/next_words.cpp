@@ -85,6 +85,16 @@ std::vector<std::string> NextWords::after(const std::string& previous, std::size
     }
     return result;
 }
+std::string NextWords::latest(const std::string& previous) const {
+    load();
+    const Pair* last = nullptr;
+    for (const auto& pair : pairs_) {
+        if (pair.previous == previous && (!last || pair.stamp > last->stamp)) {
+            last = &pair;
+        }
+    }
+    return last ? last->next : std::string{};
+}
 bool NextWords::empty() const {
     load();
     return pairs_.empty();

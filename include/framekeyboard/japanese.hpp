@@ -92,6 +92,8 @@ class JapaneseWords {
     // The reading's lowest cost as a word, or as a word and a particle a
     // little more; the largest int when it is neither.
     int own_cost(const std::string& reading) const;
+    // Whether the reading is no word itself but a word and a particle.
+    bool word_and_particle(const std::string& reading) const;
     // Up to `most` words of exactly this reading, lowest cost first.
     std::vector<std::string> exact(const std::string& reading, std::size_t most) const;
 
@@ -187,6 +189,11 @@ class JapaneseComposer {
     // converter splits the reading otherwise.
     using Preferred = std::function<std::vector<std::string>(const std::string& reading)>;
     void set_preferred(Preferred preferred) { preferred_ = std::move(preferred); }
+    // The form last picked for a listed word, by its reading as listed (いく,
+    // があう), or empty. Inside a sentence it leads the word, as on a phone,
+    // while a reading typed on its own takes set_preferred()'s order.
+    using WordPick = std::function<std::string(const std::string& reading)>;
+    void set_word_pick(WordPick pick) { word_pick_ = std::move(pick); }
     bool empty() const { return reading_.empty() && pending_.empty(); }
     // The kana typed, without romaji still pending.
     const std::string& reading() const { return reading_; }
@@ -194,6 +201,9 @@ class JapaneseComposer {
     // for an emoji picked from the live candidates the kana it replaced
     // (ねこ for 🐈).
     std::string reopen_reading() const;
+    // The reading typed for the phrase commit_text() gives, also where a
+    // word picked from the live candidates replaced it (すぐいく for すぐ行く).
+    std::string typed_reading() const;
     bool converting() const { return !segments_.empty(); }
     std::vector<std::string> candidates() const;
     int selected() const;
@@ -235,27 +245,70 @@ class JapaneseComposer {
         int cut{};
     };
     std::optional<Phrase> phrase_;
-    // A word's usual form by the phrase list, and the reading the list has
-    // it under: after a segment read `before` that ends in a case particle,
-    // the list's entry for particle + word where it has one (があう, が合う).
-    std::optional<std::pair<std::string, std::string>> word_form(const std::string& word,
-                                                                 const std::string& before) const;
-    // A segment reading's usual form, also before a particle where Anthy's
-    // `text` ends with that particle too; empty without one.
-    std::string usual_form(const std::string& reading, const std::string& text,
-                           const std::string& before) const;
-    // `text` with a kana word Anthy left at its end, after に, へ or と, in
-    // its usual form; empty without one.
-    std::string usual_tail(const std::string& reading, const std::string& text) const;
-    // The reading of the word with a usual form a segment's reading holds, as
-    // usual_form() and usual_tail() find it, and the form `text` writes it
-    // in, a context entry's particle first; none when `text` writes it
-    // otherwise than they would.
+    // Where a segment stands in its phrase: the reading of the one before it,
+    // empty for the first, and whether it ends the phrase.
+    struct Place {
+        std::string before;
+        bool last{true};
+    };
+    // A word's usual forms by the phrase list, the one to use first, and the
+    // reading the list has them under: after a segment that ends in a case
+    // particle, the list's context entry for it where it has one (〜があう,
+    // 〜が合う); at the phrase's end also for one that begins with it.
+    std::optional<std::pair<std::string, std::vector<std::string>>> word_forms(const std::string& word,
+                                                                               const Place& place) const;
+    // Whether Anthy's `text` writes `reading` as a common word, by the word
+    // list, and kana after it: 車で for くるまで.
+    bool common_word(const std::string& reading, const std::string& text) const;
+    // A segment reading as a listed word and a particle after it, where the
+    // word's form applies: not where Anthy's `text` reads the particle as
+    // part of a common word, nor for a hiragana form before a particle a
+    // noun takes.
     std::optional<std::pair<std::string, std::string>>
-    word_choice(const std::string& reading, const std::string& text, const std::string& before) const;
+    particle_split(const std::string& reading, const std::string& text, const Place& place) const;
+    // A segment reading's usual forms, also before a particle; none without.
+    std::vector<std::string> usual_forms(const std::string& reading, const std::string& text,
+                                         const Place& place) const;
+    // The forms listed under `key` that begin with `prefix`, without it, the
+    // user's latest pick first (set_word_pick()).
+    std::vector<std::string> listed_forms(const std::string& key, const std::string& prefix) const;
+    // A listed word at the end of a segment reading: its key in the list,
+    // the kana Anthy's text ends with for it, and the forms for those. After
+    // a case particle, at the phrase's end, the list's context entry for it
+    // (仕事であった, 〜であった, であった, で会った), else after a tail particle
+    // the word's own forms; not in a word Anthy kept whole.
+    struct Tail {
+        std::string key, kana;
+        std::vector<std::string> forms;
+    };
+    std::optional<Tail> tail_word(const std::string& reading, const std::string& text,
+                                  const Place& place) const;
+    // `text` with a kana word Anthy left at its end, after に, へ, と or
+    // から, in its usual form; empty without one.
+    std::string usual_tail(const std::string& reading, const std::string& text,
+                           const Place& place) const;
+    // The reading of the word with a usual form a segment's reading holds, as
+    // usual_forms() and usual_tail() find it, and the form `text` writes it
+    // in, a context entry's mark and particle first; none when `text` writes
+    // it otherwise than they would.
+    std::optional<std::pair<std::string, std::string>>
+    word_choice(const std::string& reading, const std::string& text, const Place& place) const;
     // Resizes a preferred phrase's segment by its own text; false when its
     // text doesn't end with the kana to cut, for the converter's split.
     bool resize_phrase(int direction);
+    // A ー that stretches a word, as chat writes it: on its end (いいよー), or
+    // before a final い or う (ばいばーい), `final` then.
+    struct Stretch {
+        std::string marks, final;
+        bool empty() const { return marks.empty(); }
+        // `text` stretched so; empty when it doesn't end with the final kana.
+        std::string apply(const std::string& text) const;
+    };
+    // Puts a stretching ー back on a segment converted without it.
+    static void stretch_segment(Segment& segment, const Stretch& stretch);
+    // The usual conversions of `reading`, else of the reading as converted,
+    // the n carried over, a stretching ー kept on.
+    std::vector<std::string> usual_phrases(const std::string& reading) const;
     bool learning_{};
     EmojiLookup emoji_;
     const JapaneseWords* words_{};
@@ -264,7 +317,15 @@ class JapaneseComposer {
     // The reading came from romaji, whose nn may have meant ん and a な-row
     // kana instead (prepare_live).
     bool romaji_{};
+    // The reading as Anthy converted it for converted_, where it differs:
+    // romaji's n carried over, a stretching ー left off (fresh()); that ー,
+    // which the conversion keeps; and on a tie between romaji's readings,
+    // the other's whole phrase, which the live candidates offer second.
+    std::string converted_as_;
+    Stretch stretch_;
+    std::string alternative_;
     Preferred preferred_;
+    WordPick word_pick_;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;
     // An emoji picked from the live candidates, now the reading, and the

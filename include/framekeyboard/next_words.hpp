@@ -16,6 +16,8 @@ class NextWords {
     void record(const std::string& previous, const std::string& next);
     // The phrases that followed `previous`, most often first, then most recent.
     std::vector<std::string> after(const std::string& previous, std::size_t most) const;
+    // The phrase recorded last after `previous`; empty without one.
+    std::string latest(const std::string& previous) const;
     bool empty() const;
     // Forgets them all and removes the file.
     void clear();

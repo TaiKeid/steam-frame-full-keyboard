@@ -666,6 +666,7 @@ void word_completion() {
     } cleanup{directory};
     const auto file = fs::path(directory) / "words.tsv";
     std::ofstream(file) << "# reading\tword\tcost\n"
+                           "あったかい\tあったかい\t2633\n"
                            "あり\tあり\t0\n"
                            "ありがとう\tありがとう\t646\n"
                            "ありがとうございます\tありがとうございます\t1086\n"
@@ -706,6 +707,8 @@ void word_completion() {
             "an adjective's stem completes to it first");
     require(words.complete("なみだ", 3, first) == std::vector<std::string>{"涙する"} && !first,
             "a word read so stays before a completion that is only a little commoner");
+    require(words.complete("あった", 3, first) == std::vector<std::string>{"あったかい"} && !first,
+            "a verb's past, as typed, before its completions: あった before あったかい");
     bool none = true;
     require(JapaneseWords{}.complete("おめでと", 3, none).empty() && !none, "no list, no completions");
 
@@ -969,6 +972,12 @@ void preferred_phrases() {
     type();
     require(first() == "〈いき〉〈ます〉" && app.view().candidates->chips.at(1).text == "行きます",
             "and once chosen, it wins over the list, whose phrase stays next");
+    for (int i = 0; i < 2; ++i) {
+        require(click_candidate(app, "行きます", now += .1),
+                "the list's phrase picked from the live row");
+        type();
+    }
+    require(first() == "行きます", "counts too: picked more often, it leads again");
     click_key(app, "Escape");
 
     // A word's form picked in a sentence is remembered for the word, and
@@ -987,6 +996,39 @@ void preferred_phrases() {
             "another form can be picked for it");
     horaiku();
     require(first() == "〈ほら〉〈いく〉", "and then leads the word");
+    click_key(app, "Escape");
+    // Also in a sentence the list has, as すぐいく: いく picked for its いく
+    // more often than 〈いく〉 leads the word elsewhere.
+    for (int i = 0; i < 2; ++i) {
+        for (const auto* key : {"KeyS", "KeyU", "KeyG", "KeyU", "KeyI", "KeyK", "KeyU"}) {
+            click_key(app, key);
+        }
+        app.tick(now += 1);
+        app.tick(now += 1);
+        require(click_candidate(app, "〈すぐ〉", now += .1) && click_candidate(app, "いく", now += .1) &&
+                    sink.text.back() == "〈すぐ〉いく",
+                "a word picked in a listed sentence");
+    }
+    horaiku();
+    require(first() == "〈ほら〉いく", "counts for the word too");
+    click_key(app, "Escape");
+    app.tick(now += .1); // The same reading typed again is a new one.
+    // In a sentence the latest pick leads; typed on its own, the most picked
+    // one does, as on the iPhone. いく is picked more often here, 〈いく〉 last.
+    for (const auto* form : {"いく", "〈いく〉"}) {
+        horaiku();
+        require(click_candidate(app, "〈ほら〉", now += .1) && click_candidate(app, form, now += .1),
+                "a word picked in a sentence");
+    }
+    horaiku();
+    require(first() == "〈ほら〉〈いく〉", "in a sentence the latest pick leads");
+    click_key(app, "Escape");
+    for (const auto* key : {"KeyI", "KeyK", "KeyU"}) {
+        click_key(app, key);
+    }
+    app.tick(now += 1);
+    app.tick(now += 1);
+    require(first() == "いく", "on its own the one picked most often");
 }
 // The candidates report types each phrase, in kana or romaji, and lists what
 // the live candidates and 変換 offer for it; notes stay as they are.
@@ -1008,6 +1050,54 @@ void candidates_report() {
                             "  変換  [〈ぬん〉 | ぬん | … 1 more]\n"
                             "\n",
             "each phrase with its live candidates and segments, romaji as its reading");
+}
+// Romaji's nn is ん, but 変換 converts the reading with the n carried over
+// where Anthy splits that one into fewer segments: minna as みんな, not
+// 民|亜. On a tie the reading stays as typed: gennin is げんいん.
+void carried_conversion() {
+    struct Carried : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            if (reading == "みんあ") {
+                return {{"みん", {"民"}}, {"あ", {"亜"}}};
+            }
+            if (reading == "みんな") {
+                return {{"みんな", {"皆", "みんな"}}};
+            }
+            if (reading == "さんいんくる" || reading == "さんにんくる") {
+                return {{reading.substr(0, reading.size() - std::string("くる").size()),
+                         {reading == "さんいんくる" ? "参院" : "三人"}},
+                        {"くる", {"来る"}}};
+            }
+            return {{reading, {"〈" + reading + "〉"}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    JapaneseComposer composer([] { return std::make_unique<Carried>(); });
+    const auto romaji = [&](const std::string& letters) {
+        composer.cancel();
+        for (const char c : letters) {
+            composer.roman(c);
+        }
+        composer.convert();
+        return composer.commit_text();
+    };
+    require(romaji("minna") == "皆" && composer.reading() == "みんあ",
+            "the carried reading converts, the typed one stays the reading");
+    require(romaji("gennin") == "〈げんいん〉" && composer.candidates().at(1) == "〈げんにん〉",
+            "on a tie, the reading as typed, the other's word second");
+    composer.cancel();
+    for (const char c : std::string("sanninkuru")) {
+        composer.roman(c);
+    }
+    composer.prepare_live();
+    require(composer.live().at(0) == "参院来る" && composer.live().at(1) == "三人来る",
+            "in a sentence too, the other whole phrase second");
+    composer.convert();
+    require(composer.candidates().at(1) == "三人", "and each segment it reads otherwise");
+    composer.cancel();
+    composer.kana("みんあ");
+    composer.convert();
+    require(composer.commit_text() == "民亜", "kana typed so are meant so");
 }
 // A reading typed in katakana, as the flick layout's ア mode types it, is
 // offered as typed first; a mixed one keeps the usual order.
@@ -1044,6 +1134,69 @@ void word_forms() {
             if (reading == "ごはんできた") {
                 return {{"ごはんできた", {"ご飯できた"}}};
             }
+            if (reading == "いくよ") {
+                return {{"いくよ", {"幾夜", "行くよ"}}};
+            }
+            if (reading == "うんがいい") {
+                return {{"うんが", {"運が", "うんが"}}, {"いい", {"良い", "いい"}}};
+            }
+            if (reading == "いいじゃん") {
+                return {{"いいじゃん", {"飯井じゃん", "いいじゃん"}}};
+            }
+            if (reading == "がっこうからかえる") {
+                return {{"がっこう", {"学校"}}, {"からかえる", {"からかえる"}}};
+            }
+            if (reading == "からかう") {
+                return {{"からかう", {"からかう"}}};
+            }
+            if (reading == "はいっていい") {
+                return {{"はいって", {"入って", "はいって"}}, {"いい", {"いい"}}};
+            }
+            if (reading == "ばしょであう") {
+                return {{"ばしょ", {"場所"}}, {"であう", {"出会う"}}};
+            }
+            if (reading == "であう") {
+                return {{"であう", {"出会う"}}};
+            }
+            if (reading == "しごとであった") {
+                return {{"しごとであった", {"仕事であった"}}};
+            }
+            if (reading == "いいよー") {
+                return {{"い", {"意"}}, {"いよー", {"伊予ー"}}};
+            }
+            if (reading == "いいよ") {
+                return {{"いいよ", {"いいよ"}}};
+            }
+            if (reading == "かれー") {
+                return {{"かれー", {"カレー", "枯れー"}}};
+            }
+            if (reading == "くるまで") {
+                return {{"くるまで", {"車で"}}};
+            }
+            if (reading == "ばいばーい") {
+                return {{"ばい", {"倍"}}, {"ばー", {"バー"}}, {"い", {"意"}}};
+            }
+            if (reading == "ばいばい") {
+                return {{"ばいばい", {"倍々", "ばいばい", "バイバイ"}}};
+            }
+            if (reading == "かわいー") {
+                return {{"かわいー", {"河合ー"}}};
+            }
+            if (reading == "かわい") {
+                return {{"かわい", {"河合"}}};
+            }
+            if (reading == "でーと") {
+                return {{"でー", {"デー"}}, {"と", {"と"}}};
+            }
+            if (reading == "こーら") {
+                return {{"こーら", {"コーラ"}}};
+            }
+            if (reading == "えきでであった") {
+                return {{"えきで", {"駅で"}}, {"であった", {"出会った"}}};
+            }
+            if (reading == "がっこうであったはなし") {
+                return {{"がっこうであった", {"学校であった"}}, {"はなし", {"話"}}};
+            }
             if (reading == "くるまでいく") {
                 return {{"くるまで", {"車で", "来るまで"}}, {"いく", {"育", "行く"}}};
             }
@@ -1056,10 +1209,34 @@ void word_forms() {
         std::vector<Segment> resize(int, int) override { return {}; }
     };
     JapaneseComposer composer([] { return std::make_unique<Segments>(); });
+    // The word list has 車, so Anthy's 車で for くるまで stays.
+    char directory[] = "/tmp/framekeyboard-forms-XXXXXX";
+    require(mkdtemp(directory), "temporary word list");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::ofstream(fs::path(directory) / "words.tsv") << "からかう\tからかう\t3882\n"
+                                                        "かわいい\t可愛い\t1575\n"
+                                                        "くるま\t車\t3659\n"
+                                                        "こーらす\tコーラス\t3000\n"
+                                                        "でーと\tデート\t4206\n";
+    const JapaneseWords words(fs::path(directory) / "words.tsv");
+    composer.set_words(&words);
     composer.set_preferred([](const std::string& reading) {
-        const std::map<std::string, std::string> forms{{"いく", "行く"}, {"いこう", "行こう"},
-                                                       {"きた", "来た"}, {"くる", "来る"},
-                                                       {"あう", "会う"}, {"があう", "が合う"}};
+        const std::map<std::string, std::string> forms{{"いく", "行く"},
+                                                       {"いこう", "行こう"},
+                                                       {"きた", "来た"},
+                                                       {"くる", "来る"},
+                                                       {"あう", "会う"},
+                                                       {"〜があう", "〜が合う"},
+                                                       {"うん", "うん"},
+                                                       {"いい", "いい"},
+                                                       {"かえる", "帰る"},
+                                                       {"かう", "買う"},
+                                                       {"はい", "はい"},
+                                                       {"〜であう", "〜で会う"},
+                                                       {"〜であった", "〜で会った"}};
         const auto form = forms.find(reading);
         return form != forms.end() ? std::vector<std::string>{form->second} : std::vector<std::string>{};
     });
@@ -1076,7 +1253,10 @@ void word_forms() {
     require(whole("いくから") == "行くから", "longer particles too: から");
     require(whole("ごはんできた") == "ご飯できた", "not after で, which できる begins with");
     require(whole("くるまでいく") == "車で行く",
-            "nor before a particle Anthy doesn't read: 車で, not 来るまで");
+            "nor before a particle Anthy reads as part of a common word: 車で, not 来るまで");
+    require(whole("いくよ") == "行くよ", "a rare one gives way: 行くよ, not 幾夜");
+    require(whole("うんがいい") == "運がいい", "a kana form not before a particle a noun takes: 運が");
+    require(whole("いいじゃん") == "いいじゃん", "but before one that ends a sentence");
     require(whole("じかんがあう") == "時間が合う" && whole("あしたあう") == "明日会う",
             "after a case particle, the list's form after it: が合う, else 会う");
 
@@ -1104,8 +1284,38 @@ void word_forms() {
     converted("もっていく");
     require(composer.word_choices().empty(), "a helper verb after て is no such word");
     converted("じかんがあう");
-    require(composer.word_choices() == Choices{{"があう", "が合う"}},
+    require(composer.word_choices() == Choices{{"〜があう", "〜が合う"}},
             "a form after a particle with its particle");
+
+    require(whole("がっこうからかえる") == "学校から帰る", "a kana word after から takes its form");
+    require(whole("からかう") == "からかう", "but not in a word of its own: からかう");
+    require(whole("はいっていい") == "入っていい", "a kana form gives way before って: 入って");
+    require(whole("ばしょであう") == "場所で会う" && whole("であう") == "出会う",
+            "a context entry marked 〜 applies after a segment, from the particle that begins it");
+    require(whole("しごとであった") == "仕事で会った", "and inside one, after the particle");
+    require(whole("いいよー") == "いいよー",
+            "a word stretched with ー converts as the word, the ー kept");
+    require(whole("かれー") == "カレー", "but Anthy's katakana word stays: カレー");
+    require(whole("ばいばーい") == "ばいばーい", "also a ー before a final い, in what can take it");
+    require(whole("かわいー") == "かわいー" && composer.live().at(1) == "可愛ー",
+            "an adjective stretched in place of its い, as typed, then its stem");
+    require(whole("でーと") == "デート", "a loanword typed in kana, as the word list writes it");
+    require(whole("こーら") == "コーラ",
+            "Anthy's katakana word before completions: コーラ, not コーラス");
+    require(whole("えきでであった") == "駅で出会った", "a context entry's particle isn't doubled");
+    require(whole("がっこうであったはなし") == "学校であった話",
+            "nor does one within a segment apply before the phrase goes on");
+    // A phrase only the list has doesn't lead a word and a particle.
+    std::ofstream(fs::path(directory) / "phrases.tsv") << "くるまできた\t車で来た\t0\n";
+    const JapaneseWords phrases(fs::path(directory) / "phrases.tsv");
+    composer.set_phrases(&phrases);
+    require(whole("くるまで") == "車で", "くるまで is 車で before 車で来た");
+    // The user's latest pick for a word leads, the usual form next.
+    composer.set_word_pick([](const std::string& reading) { return reading == "いく" ? "往く" : ""; });
+    converted("すぐいく");
+    composer.segment(1);
+    require(composer.candidates().at(0) == "往く" && composer.candidates().at(1) == "行く",
+            "a picked form first, then the usual one, then Anthy's");
 }
 void progressive_conversion() {
     int conversions = 0;
@@ -1260,6 +1470,15 @@ void next_words() {
     NextWords kept(fs::path(directory) / "japanese-next-words.tsv");
     require(!kept.empty() && kept.after("あ", 3) == std::vector<std::string>{"か"},
             "in the config folder");
+    kept.record("あ", "さ");
+    kept.record("あ", "か");
+    kept.record("あ", "さ");
+    kept.record("あ", "か");
+    kept.record("あ", "か");
+    kept.record("あ", "さ");
+    require(kept.after("あ", 1) == std::vector<std::string>{"か"} && kept.latest("あ") == "さ" &&
+                kept.latest("い").empty(),
+            "the most frequent and the latest are told apart");
     kept.clear();
     require(kept.empty() && !fs::exists(fs::path(directory) / "japanese-next-words.tsv"),
             "clearing forgets them and removes the file");
@@ -2564,6 +2783,7 @@ int main() {
         preferred_phrases();
         typed_katakana();
         candidates_report();
+        carried_conversion();
         word_forms();
         emoji_candidates();
         learning_calls();
