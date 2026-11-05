@@ -1049,13 +1049,14 @@ void candidates_report() {
     report_japanese_candidates(phrases, report, options);
     require(report.str() == "# notes\n"
                             "にほんご\n"
-                            "  live  〈にほ〉〈んご〉 | 〈にほ〉 | にほ | … 3 more\n"
-                            "  変換  [〈にほ〉 | にほ | … 1 more] [〈んご〉 | んご | … 1 more]\n"
+                            "  live (Anthy)  〈にほ〉〈んご〉 | 〈にほ〉 | にほ | … 3 more\n"
+                            "  変換 (Anthy)  [〈にほ〉 | にほ | … 1 more] [〈んご〉 | んご | … 1 more]\n"
                             "nun → ぬん\n"
-                            "  live  〈ぬん〉 | ぬん | ヌン\n"
-                            "  変換  [〈ぬん〉 | ぬん | … 1 more]\n"
+                            "  live (Anthy)  〈ぬん〉 | ぬん | ヌン\n"
+                            "  変換 (Anthy)  [〈ぬん〉 | ぬん | … 1 more]\n"
                             "\n",
-            "each phrase with its live candidates and segments, romaji as its reading");
+            "each phrase with its live candidates and segments, the engine that converted them, "
+            "romaji as its reading");
 }
 // A converter that weighs the whole sentence, as Mozc does, keeps a particle
 // it reads as part of a word: 京都旅行 stays, where Anthy's gives way.
@@ -1145,7 +1146,27 @@ void mozc_lifecycle() {
         [&] { return mozc_converter([&] { return fake_converter(&conversions)(); }); });
     composer.kana("にほんご");
     composer.convert();
-    require(composer.commit_text() == "〈にほ〉〈んご〉", "Anthy, here the fake, converts meanwhile");
+    require(composer.commit_text() == "〈にほ〉〈んご〉" && composer.fell_back(),
+            "Anthy, here the fake, converts meanwhile, and says so");
+    // The simulator's mark for that is on the live candidates, and only there.
+    for (const bool mark : {false, true}) {
+        Options marked = options;
+        marked.mark_fallback = mark;
+        marked.mozc_server.clear(); // The stand-in above stays the server.
+        marked.japanese_converter = [&] {
+            return mozc_converter([&] { return fake_converter(&conversions)(); },
+                                  std::chrono::milliseconds(50));
+        };
+        App app(marked, sink);
+        app.apply({"en-us-full", "ja-romaji", "graphite"});
+        click_key(app, "KeyN");
+        click_key(app, "KeyI");
+        app.tick(1);
+        app.tick(2);
+        const auto view = app.view();
+        require(view.candidates && !view.candidates->chips.empty() && view.candidates->fallback == mark,
+                mark ? "candidates Anthy converted are marked" : "unmarked without the option");
+    }
     stop_mozc();
     require(!mozc_running(), "stopped on request");
 }

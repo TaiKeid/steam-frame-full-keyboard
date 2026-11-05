@@ -42,6 +42,9 @@ class JapaneseConverter {
     // a particle it reads as part of a word then stays so (京都 for きょうと,
     // not 今日と).
     virtual bool weighs_context() const { return false; }
+    // Whether a fallback made the last conversion: Anthy, while Mozc
+    // couldn't answer. The simulator marks what it offers then.
+    virtual bool fell_back() const { return false; }
 };
 // A converter using the system's Anthy, loaded on first use.
 std::unique_ptr<JapaneseConverter> anthy_converter();
@@ -154,6 +157,9 @@ class JapaneseComposer {
     void prepare_live();
     const std::vector<std::string>& live() const { return live_.texts; }
     bool live_current() const;
+    // Whether the last conversion, for the live candidates or 変換, came
+    // from the converter's fallback (JapaneseConverter::fell_back()).
+    bool fell_back() const { return converter_ && converter_->fell_back(); }
     // Picks a live candidate of the current list. True when the phrase is
     // ready to commit; a first segment's candidate of a longer phrase instead
     // starts conversion at the second segment.

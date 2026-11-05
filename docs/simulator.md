@@ -59,7 +59,7 @@ Steam's own text fields confirm each key the keyboard sends before taking the ne
 
 ## Japanese
 
-Kanji conversion uses [Mozc](japanese.md#mozc) where the build has its server (`FRAMEKEYBOARD_MOZC_HOST`, [building](building.md)), keeping its profile in the simulator's config folder, and Anthy meanwhile and otherwise, as on the headset. Anthy is the library `libanthy.so.0` and its dictionary. Install your distribution's Anthy package, or point the simulator at an Anthy unpacked somewhere else:
+Kanji conversion uses [Mozc](japanese.md#mozc) where the build has its server (`FRAMEKEYBOARD_MOZC_HOST`, [building](building.md)), keeping its profile in the simulator's config folder, and Anthy otherwise, as on the headset. Unlike the headset, which converts with Anthy at once while Mozc isn't answering, the simulator waits up to 3 seconds for Mozc, started again if it went, so a test sees what Mozc offers. Candidates Anthy converted anyway have an orange border. Anthy is the library `libanthy.so.0` and its dictionary. Install your distribution's Anthy package, or point the simulator at an Anthy unpacked somewhere else:
 
 ```sh
 A=/path/to/unpacked/anthy
@@ -71,7 +71,7 @@ LD_LIBRARY_PATH=$A/usr/lib ./build/simulator/framekeyboard-simulator \
 
 ### Japanese candidates
 
-`--japanese-candidates` checks conversion much faster than typing in the window. It reads phrases from standard input, one a line, types each as the keyboard would, and prints its live candidates and what 変換 converts it to, segment by segment, each candidate separated by `|`. A line with Latin letters is typed as romaji, so `konnichiha` reads こんいちは, as on the keyboard. Any other line is typed as kana, as the flick and JIS kana layouts do, and spaces are left out. Empty lines and lines starting with `#` are copied as they are, for notes. It uses the same Anthy, phrase lists and emoji as the keyboard, with learning off, so every run offers what a new profile does, and writes nothing.
+`--japanese-candidates` checks conversion much faster than typing in the window. It reads phrases from standard input, one a line, types each as the keyboard would, and prints its live candidates and what 変換 converts it to, segment by segment, each candidate separated by `|`. A line with Latin letters is typed as romaji, so `konnichiha` reads こんいちは, as on the keyboard. Any other line is typed as kana, as the flick and JIS kana layouts do, and spaces are left out. Empty lines and lines starting with `#` are copied as they are, for notes. It uses the same Mozc, Anthy, phrase lists and emoji as the keyboard, with learning off, so every run offers what a new profile does, and writes nothing. Each line says which engine converted it: `(Mozc)`, or `(Anthy)` with `--anthy-only`, without a Mozc server, or where Mozc didn't answer within 3 seconds.
 
 ```sh
 printf 'じかんがあう\nkyouhaiitenkidane\n' | ./Full_Keyboard_simulator-*.AppImage --japanese-candidates
@@ -79,11 +79,11 @@ printf 'じかんがあう\nkyouhaiitenkidane\n' | ./Full_Keyboard_simulator-*.A
 
 ```text
 じかんがあう
-  live  時間が合う | 時間が | 次官が | …
-  変換  [時間が | 次官が | …] [合う | 会う | あう | …]
+  live (Mozc)  時間が合う | 時間が | 次官が | …
+  変換 (Mozc)  [時間が | 次官が | …] [合う | 会う | あう | …]
 kyouhaiitenkidane → きょうはいいてんきだね
-  live  今日はいい天気だね | …
-  変換  [今日はいい天気だね | …]
+  live (Mozc)  今日はいい天気だね | …
+  変換 (Mozc)  [今日はいい天気だね | …]
 ```
 
 ## AppImage

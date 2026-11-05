@@ -28,7 +28,11 @@ bool mozc_running();
 bool mozc_learned(const std::filesystem::path& profile);
 void clear_mozc_learning(const std::filesystem::path& profile);
 // A converter using that server, and `fallback`'s converter, made on first
-// need, for any conversion Mozc can't make.
+// need, for any conversion Mozc can't make. With `patience`, as the
+// simulator and its candidates report have, a conversion Mozc can't make
+// waits that long for the server, started again if it went, before the
+// fallback converts; the keyboard doesn't wait.
 std::unique_ptr<JapaneseConverter>
-mozc_converter(std::function<std::unique_ptr<JapaneseConverter>()> fallback);
+mozc_converter(std::function<std::unique_ptr<JapaneseConverter>()> fallback,
+               std::chrono::milliseconds patience = {});
 } // namespace framekeyboard

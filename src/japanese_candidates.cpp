@@ -59,7 +59,8 @@ void report_japanese_candidates(std::istream& phrases, std::ostream& report,
         if (!wait_for_mozc(std::chrono::seconds(10))) {
             throw std::runtime_error("Mozc did not start");
         }
-        converter = [] { return mozc_converter(anthy_converter); };
+        // As in the simulator, Mozc is waited for rather than left to Anthy.
+        converter = [] { return mozc_converter(anthy_converter, std::chrono::seconds(3)); };
     }
     JapaneseComposer composer(converter);
     composer.set_word_forms(options.word_forms);
@@ -75,12 +76,20 @@ void report_japanese_candidates(std::istream& phrases, std::ostream& report,
             continue;
         }
         composer.cancel();
-        type(composer, phrase);
+        // Which engine converted each: Mozc, or Anthy without Mozc or while
+        // it couldn't answer.
+        const auto engine = [&] {
+            return !options.mozc_server.empty() && !composer.fell_back() ? "(Mozc)" : "(Anthy)";
+        };
         std::string offers;
         try {
+            // Typing too may refuse a phrase, as one past the reading's
+            // length limit: it gets an error line, and the next one goes on.
+            type(composer, phrase);
             composer.prepare_live();
-            offers = "  live  " + listed(composer.live(), options.live) + "\n  変換 ";
+            offers = std::string("  live ") + engine() + "  " + listed(composer.live(), options.live);
             composer.convert();
+            offers += std::string("\n  変換 ") + engine() + " ";
             for (int i = 0; i < composer.segment_count(); ++i) {
                 offers += " [" + listed(composer.candidates(), options.segment) + ']';
                 composer.segment(1);

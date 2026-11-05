@@ -26,6 +26,9 @@ struct CandidateStripView {
     std::vector<Chip> chips;   // Only those at least partly in view.
     // For a reading typed since: dimmed, and a release picks nothing.
     bool stale{};
+    // Anthy converted the reading while Mozc couldn't, in the simulator
+    // (Options::mark_fallback): the chips have an orange border.
+    bool fallback{};
 };
 
 // Japanese candidates in one row of chips (docs/japanese.md). A laser drag

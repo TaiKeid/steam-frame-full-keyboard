@@ -474,6 +474,7 @@ void learned(bool on) {
 }
 class MozcConverter final : public JapaneseConverter {
   public:
+    explicit MozcConverter(std::chrono::milliseconds patience) : patience_(patience) {}
     ~MozcConverter() override {
         try {
             if (session_) {
@@ -485,8 +486,9 @@ class MozcConverter final : public JapaneseConverter {
     std::vector<Segment> convert(const std::string& reading) override {
         if (!session_) {
             // After a crash, the restarted server answers within a moment;
-            // until it does, this throws at once and Anthy converts.
-            address_ = ready(std::chrono::milliseconds(0));
+            // until it does, this throws once its patience runs out (at once
+            // on the keyboard), and Anthy converts.
+            address_ = ready(patience_);
             call(address_, config_input()); // Again after a restart: a new server.
             session_ = parse(call(address_, input(create_session, 0, nullptr))).session;
             last_ = {};
@@ -636,6 +638,7 @@ class MozcConverter final : public JapaneseConverter {
         move_to(0);
         return result;
     }
+    std::chrono::milliseconds patience_;
     std::string address_, reading_;
     std::uint64_t session_{};
     // Each segment's candidates with Mozc's ids, to select them.
@@ -645,25 +648,29 @@ class MozcConverter final : public JapaneseConverter {
 };
 // Mozc while it answers, Anthy (or another fallback) meanwhile: a conversion
 // Mozc can't make goes to the fallback, and the next one tries Mozc again.
-// Resizing and learning go to whichever made the last conversion.
+// With patience, a failed one is tried once more, waiting that long for the
+// server started again. Resizing and learning go to whichever made the last
+// conversion.
 class FallbackConverter final : public JapaneseConverter {
   public:
-    explicit FallbackConverter(std::function<std::unique_ptr<JapaneseConverter>()> fallback)
-        : make_fallback_(std::move(fallback)) {}
+    FallbackConverter(std::function<std::unique_ptr<JapaneseConverter>()> fallback,
+                      std::chrono::milliseconds patience)
+        : make_fallback_(std::move(fallback)), mozc_(patience), tries_(patience.count() > 0 ? 2 : 1) {}
     std::vector<Segment> convert(const std::string& reading) override {
-        try {
-            auto result = mozc_.convert(reading);
-            if (result.empty()) {
+        for (int i = 0; i < tries_; ++i) {
+            try {
+                auto result = mozc_.convert(reading);
                 // A new server not yet in hiragana mode, or another answer
-                // without segments: Anthy converts this one.
-                throw std::runtime_error("Mozc converted nothing");
+                // without segments, is no conversion.
+                if (!result.empty()) {
+                    last_ = &mozc_;
+                    return result;
+                }
+            } catch (const std::exception&) {
             }
-            last_ = &mozc_;
-            return result;
-        } catch (const std::exception&) {
-            last_ = &fallback();
-            return last_->convert(reading);
         }
+        last_ = &fallback();
+        return last_->convert(reading);
     }
     std::vector<Segment> resize(int index, int delta) override {
         if (!last_) {
@@ -686,6 +693,7 @@ class FallbackConverter final : public JapaneseConverter {
         }
     }
     bool weighs_context() const override { return last_ && last_->weighs_context(); }
+    bool fell_back() const override { return last_ && last_ == fallback_.get(); }
     // Words committed before, as Anthy learned them.
     std::vector<std::string> predict(const std::string& reading) override {
         return fallback().predict(reading);
@@ -704,6 +712,7 @@ class FallbackConverter final : public JapaneseConverter {
     std::function<std::unique_ptr<JapaneseConverter>()> make_fallback_;
     std::unique_ptr<JapaneseConverter> fallback_;
     MozcConverter mozc_;
+    int tries_;
     JapaneseConverter* last_{};
 };
 } // namespace
@@ -792,7 +801,8 @@ void clear_mozc_learning(const std::filesystem::path& profile) {
     std::filesystem::remove(learned_mark(profile), ignored);
 }
 std::unique_ptr<JapaneseConverter>
-mozc_converter(std::function<std::unique_ptr<JapaneseConverter>()> fallback) {
-    return std::make_unique<FallbackConverter>(std::move(fallback));
+mozc_converter(std::function<std::unique_ptr<JapaneseConverter>()> fallback,
+               std::chrono::milliseconds patience) {
+    return std::make_unique<FallbackConverter>(std::move(fallback), patience);
 }
 } // namespace framekeyboard

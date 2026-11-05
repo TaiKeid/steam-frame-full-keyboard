@@ -20,6 +20,7 @@
 #include "shell_sink.hpp"
 #include "swipe.hpp"
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <deque>
 #include <future>
@@ -71,6 +72,12 @@ struct Options {
     // keyboard and the simulator give the installed one (mozc_engine()).
     // Empty is Anthy alone.
     fs::path mozc_server;
+    // For testing conversion, as in the simulator: a conversion waits this
+    // long for a Mozc server that isn't answering before Anthy converts it,
+    // and candidates Anthy converted anyway have an orange border. The
+    // keyboard waits for nothing and marks nothing.
+    std::chrono::milliseconds mozc_patience{};
+    bool mark_fallback{};
     // Where Anthy keeps what it learns. Empty is the user's home with the
     // default config folder, and any other config folder itself.
     fs::path anthy_home;
@@ -568,6 +575,9 @@ class App {
     // The active layout, or its English page in English mode.
     const Layout& shown_layout() const;
     bool band_more() const;
+    // The shown Japanese candidates came from Anthy while Mozc couldn't, and
+    // Options::mark_fallback marks them.
+    bool candidates_fell_back() const;
     // The layout has the 「あA1」 key, which replaces the toolbar's A / あ.
     bool has_mode_key() const;
     // The reading stays open across the modes, as on a phone.

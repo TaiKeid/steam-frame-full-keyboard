@@ -1965,6 +1965,16 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
                 continue;
             }
             draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
+            if (strip.fallback) {
+                // The simulator's mark for Anthy's conversions, there to be
+                // seen rather than to match the theme.
+                const Rect inner{chip.bounds.x + 1, chip.bounds.y + 1, chip.bounds.width - 2,
+                                 chip.bounds.height - 2};
+                rounded(cr, inner, std::max(0.0, t.radius - 1));
+                cairo_set_source_rgb(cr, 0.96, 0.55, 0.13);
+                cairo_set_line_width(cr, 2);
+                cairo_stroke(cr);
+            }
             const auto legend = strip.stale     ? disabled_legend(t)
                                 : chip.selected ? t.latched_legend
                                                 : t.legend;

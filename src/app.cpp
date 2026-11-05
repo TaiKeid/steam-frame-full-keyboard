@@ -121,7 +121,7 @@ JapaneseComposer::Factory japanese_factory(const Options& options) {
     if (options.mozc_server.empty()) {
         return {};
     }
-    return [] { return mozc_converter(anthy_converter); };
+    return [patience = options.mozc_patience] { return mozc_converter(anthy_converter, patience); };
 }
 } // namespace
 App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences,
@@ -1034,6 +1034,7 @@ PanelView App::build_view(bool picker) const {
         }
         if (candidates_.shown()) {
             v.candidates = candidates_.view();
+            v.candidates->fallback = candidates_fell_back();
         }
     }
     if (v.composing) {
@@ -1195,6 +1196,7 @@ PanelView App::build_view(bool picker) const {
         set_dictation_view(v);
         if (candidates_.shown()) {
             v.candidates = candidates_.view(); // Japanese, over the editor's foot
+            v.candidates->fallback = candidates_fell_back();
         }
         if (!can_send()) {
             v.disabled_keys.insert("Dictation-send");
@@ -3726,6 +3728,10 @@ App::FlickMode App::flick_mode() const {
 const std::map<std::string, FlickKey>& App::flick_keys() const {
     const auto& language = profiles_.languages.at(settings_.active.language);
     return flick_mode() == FlickMode::Digits ? language.flick_digits : language.flick;
+}
+bool App::candidates_fell_back() const {
+    return options_.mark_fallback && japanese_typing() && !composition_.empty() &&
+           composition_.fell_back();
 }
 bool App::band_more() const {
     return ime_band_shown();
