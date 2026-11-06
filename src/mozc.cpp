@@ -201,9 +201,12 @@ std::string config_input() {
     return message;
 }
 // What Mozc shows after a command: the session, the preedit's segments with
-// the focused one, and that one's candidates.
+// the focused one, and that one's candidates. A command for a session Mozc
+// no longer has, as one it dropped after an hour unused, fails: its answer
+// has no session and an error.
 struct Output {
     std::uint64_t session{};
+    bool failed = false;
     struct Piece {
         std::string key, value;
     };
@@ -217,6 +220,8 @@ Output parse(std::string_view data) {
     for (const auto& field : fields(data)) {
         if (field.number == 1) {
             result.session = field.value;
+        } else if (field.number == 11) { // error_code
+            result.failed = field.value != 0;
         } else if (field.number == 5) { // Preedit
             for (const auto& part : fields(field.bytes)) {
                 if (part.number != 2) { // Segment group
@@ -517,6 +522,11 @@ void learned(bool on) {
         std::filesystem::remove(learned_mark(base), ignored);
     }
 }
+// Mozc answered, but without our session: it dropped it, and the server is
+// fine.
+struct LostSession : std::runtime_error {
+    LostSession() : std::runtime_error("Mozc lost the session") {}
+};
 class MozcConverter final : public JapaneseConverter {
   public:
     explicit MozcConverter(std::chrono::milliseconds patience) : patience_(patience) {}
@@ -528,30 +538,13 @@ class MozcConverter final : public JapaneseConverter {
         } catch (const std::exception&) {
         }
     }
+    // A session Mozc dropped is made again, and the conversion made in it.
     std::vector<Segment> convert(const std::string& reading) override {
-        if (!session_) {
-            // After a crash, the restarted server answers within a moment;
-            // until it does, this throws once its patience runs out (at once
-            // on the keyboard), and Anthy converts.
-            address_ = ready(patience_);
-            call(address_, config_input()); // Again after a restart: a new server.
-            session_ = parse(call(address_, input(create_session, 0, nullptr))).session;
-            last_ = {};
-            count_ = focus_ = 0;
+        try {
+            return convert_once(reading);
+        } catch (const LostSession&) {
+            return convert_once(reading);
         }
-        reset();
-        reading_ = reading;
-        for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
-            const std::string character(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
-            Key key;
-            if (character.size() == 1) {
-                key.code = static_cast<unsigned char>(character[0]);
-            } else {
-                key.text = character;
-            }
-            send(key);
-        }
-        return collect(send({0, space, false, {}}));
     }
     std::vector<Segment> resize(int index, int delta) override {
         if (!session_ || index < 0 || index >= count_ || delta == 0) {
@@ -595,8 +588,39 @@ class MozcConverter final : public JapaneseConverter {
     bool weighs_context() const override { return true; }
 
   private:
+    std::vector<Segment> convert_once(const std::string& reading) {
+        if (!session_) {
+            // After a crash, the restarted server answers within a moment;
+            // until it does, this throws once its patience runs out (at once
+            // on the keyboard), and Anthy converts.
+            address_ = ready(patience_);
+            call(address_, config_input()); // Again after a restart: a new server.
+            session_ = parse(call(address_, input(create_session, 0, nullptr))).session;
+            last_ = {};
+            count_ = focus_ = 0;
+            if (!session_) {
+                throw std::runtime_error("Mozc made no session");
+            }
+        }
+        reset();
+        reading_ = reading;
+        for (const char* p = reading.c_str(); *p; p = g_utf8_next_char(p)) {
+            const std::string character(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+            Key key;
+            if (character.size() == 1) {
+                key.code = static_cast<unsigned char>(character[0]);
+            } else {
+                key.text = character;
+            }
+            send(key);
+        }
+        return collect(send({0, space, false, {}}));
+    }
     // A failed request means the server is gone or stuck: the session goes
-    // with it, and the server is started again for the next conversion.
+    // with it, and the server is started again for the next conversion. One
+    // Mozc answers without the session also drops it, the segments and what
+    // they offered with it, so resizing and learning wait for a conversion
+    // in a new one.
     Output send(const Key& key) { return request(input(send_key, session_, &key)); }
     Output request(const std::string& message) {
         try {
@@ -607,6 +631,13 @@ class MozcConverter final : public JapaneseConverter {
             std::lock_guard guard(state.lock);
             spawn(state);
             throw;
+        }
+        if (last_.failed || last_.session != session_) {
+            session_ = 0;
+            last_ = {};
+            count_ = focus_ = 0;
+            ids_.clear();
+            throw LostSession();
         }
         if (last_.focused >= 0) {
             focus_ = last_.focused;

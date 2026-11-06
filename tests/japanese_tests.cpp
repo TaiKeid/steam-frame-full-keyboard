@@ -1392,6 +1392,63 @@ void mozc_lifecycle() {
     stop_mozc();
     require(!mozc_running(), "stopped on request");
 }
+// The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
+// does, in a profile of its own; the files it reads and writes there steer
+// and show it.
+struct FakeMozc {
+    fs::path directory, config, profile;
+    FakeMozc() {
+        char name[] = "/tmp/framekeyboard-fake-mozc-XXXXXX";
+        require(mkdtemp(name), "temporary Mozc profile");
+        directory = name;
+        config = directory / "config";
+        profile = config / "mozc";
+    }
+    ~FakeMozc() {
+        stop_mozc();
+        fs::remove_all(directory);
+    }
+    void start() { start_mozc(FRAMEKEYBOARD_FAKE_MOZC, config); }
+    // Lines in one of its files.
+    int count(const char* name) const {
+        std::ifstream file(profile / name);
+        int lines = 0;
+        for (std::string line; std::getline(file, line);) {
+            ++lines;
+        }
+        return lines;
+    }
+    pid_t pid() const {
+        std::string text;
+        std::getline(std::ifstream(profile / "fake-pid"), text);
+        return text.empty() ? -1 : std::stoi(text);
+    }
+    static auto converter(int* conversions) {
+        return mozc_converter([conversions] { return fake_converter(conversions)(); });
+    }
+};
+// Mozc drops a session unused for an hour, though it keeps running, and
+// answers its commands with an error: a new session converts at once.
+void mozc_lost_session() {
+    FakeMozc mozc;
+    mozc.start();
+    require(wait_for_mozc(std::chrono::seconds(5)), "the stand-in answers");
+    int conversions = 0;
+    const auto converter = FakeMozc::converter(&conversions);
+    require(converter->convert("あい").front().candidates.front() == "MOZC" && !converter->fell_back(),
+            "Mozc converts");
+    const int sessions = mozc.count("fake-creates");
+    std::ofstream(mozc.profile / "fake-expire").close();
+    const auto again = converter->convert("あい");
+    require(!again.empty() && again.front().candidates.front() == "MOZC" && !converter->fell_back() &&
+                conversions == 0,
+            "after Mozc dropped the session, the next conversion is still Mozc's");
+    const int renewed = mozc.count("fake-creates");
+    require(renewed > sessions, "in a new session");
+    require(converter->convert("あい").front().candidates.front() == "MOZC" &&
+                mozc.count("fake-creates") == renewed,
+            "which is kept");
+}
 // The object decides a verb Mozc reads otherwise, from its own candidates:
 // 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
 void object_verbs() {
@@ -3591,6 +3648,7 @@ int main() {
         carried_conversion();
         context_converter();
         mozc_lifecycle();
+        mozc_lost_session();
         word_forms();
         emoji_candidates();
         learning_calls();
