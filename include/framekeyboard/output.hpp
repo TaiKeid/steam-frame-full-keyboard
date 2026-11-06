@@ -80,6 +80,7 @@ class OutputController : public KeySink, public TextOutput {
     bool tap(const std::vector<int>& codes);
     bool single_line_target() const override { return target_.single_line_target(); }
     bool steam_field_target() const override { return target_.steam_field_target(); }
+    std::uint32_t focused_window() const override { return target_.focused_window(); }
     void set_character_gap(double seconds) override { target_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { target_.set_desktop_paste(clipboard); }
     bool text_pending() const override { return !queue_.empty(); }
@@ -107,6 +108,7 @@ class OutputController : public KeySink, public TextOutput {
     bool enqueue_text(const std::string& text, std::shared_ptr<Entry> entry = {});
     static bool sendable(const std::string& text);
     bool settling() const;
+    bool window_moved();
     void note_text_time(bool paced, bool fresh_tick);
     void drain(bool fresh_tick = false);
     // `delivered` characters at the start of the front text entry are known
@@ -125,6 +127,11 @@ class OutputController : public KeySink, public TextOutput {
     // between chunks. Keep this debt across cancellation and explicit retries.
     double last_text_at_{-1}, text_ready_at_{-1};
     bool text_time_pending_{}, paced_time_pending_{};
+    // Gamescope's focused window when the queue's current run of output
+    // began. Text accepted for one window never goes on into another, which
+    // a click or a closing dashboard can focus mid-run; the rest is kept for
+    // a retry, which belongs to the window focused then.
+    std::uint32_t window_{};
     bool enabled_{}, failed_{};
     std::uint64_t failures_{}, completed_{}, queued_{}, cancels_{};
     std::string status_;

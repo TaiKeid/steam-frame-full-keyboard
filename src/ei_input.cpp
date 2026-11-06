@@ -149,7 +149,16 @@ bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
            text_->commit(text, delete_before, on_keymap(text));
 }
 std::size_t EiSink::delivered_characters() const {
+    if (last_entry_ && entering()) {
+        return entered(*entry_); // Asked before a cancel cuts the entry short.
+    }
     return last_entry_ ? entry_delivered_ : text_ ? text_->acknowledged() : 0;
+}
+// Whole characters count as delivered.
+std::size_t EiSink::entered(const Entry& entry) {
+    return static_cast<std::size_t>(std::count_if(entry.character_ends.begin(),
+                                                  entry.character_ends.end(),
+                                                  [&](auto end) { return end <= entry.next; }));
 }
 void EiSink::cancel_text() {
     if (text_) {
@@ -275,10 +284,7 @@ void EiSink::advance_entry() {
     if (disconnected_ || !resumed_ || input_reset_ || !keyboard_ || !desktop_now_) {
         release_entry_keys();
         entry.failed = true;
-        // Whole characters count as delivered.
-        entry_delivered_ = static_cast<std::size_t>(
-            std::count_if(entry.character_ends.begin(), entry.character_ends.end(),
-                          [&](auto end) { return end <= entry.next; }));
+        entry_delivered_ = entered(entry);
         return;
     }
     if (entry.write && entry.next == entry.keys.size()) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -59,6 +60,9 @@ class KeySink {
     // The target is a Steam field reached through Steam itself, not the
     // compositor's focused application, so the clipboard cannot reach it.
     virtual bool steam_field_target() const { return false; }
+    // Gamescope's focused window, which typed text reaches; 0 when unknown or
+    // when text goes elsewhere, such as a Steam field or the shell. Never blocks.
+    virtual std::uint32_t focused_window() const { return 0; }
     // The minimum gap between characters typed one at a time, for transports
     // that pace them (GamescopeText::set_character_gap).
     virtual void set_character_gap(double) {}

@@ -17,6 +17,7 @@ struct Transport : KeySink {
     bool native_success{true}, barrier{};
     bool refuse{};           // Rejects new text before submitting it, as an unready transport does.
     std::size_t delivered{}; // Characters of a failed commit already acknowledged.
+    std::uint32_t window{};  // Gamescope's focused window; 0 names none.
     std::string text;
     void send(int code, int value) override {
         events.push_back(std::to_string(code) + ":" + std::to_string(value));
@@ -72,6 +73,7 @@ struct Transport : KeySink {
     bool output_blocked() const override { return barrier || pending; }
     void cancel_text() override { pending = false; }
     void cancel_delivery() override { pending = native_pending = false; }
+    std::uint32_t focused_window() const override { return window; }
 };
 void character(OutputController& output, unsigned pointer, const std::string& text, double now = 1) {
     require(output.admit(true), "character admitted");
@@ -497,6 +499,56 @@ void release_keeps_accepted_output() {
                 sink.events.size() == 4,
             "the composition completes without a repeat of the released key");
 }
+// Another window takes focus while a run of output goes out (R19, R44): the
+// rest would reach it, so delivery stops there. The unacknowledged rest is
+// kept for a retry, which goes where focus is then; so does a new run.
+void focus_change() {
+    for (const std::uint32_t moved : {9u, 0u}) {
+        Transport sink;
+        sink.window = 7;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text(repeated("a", 40)), "a 40-character composition is accepted");
+        require(sink.events == std::vector<std::string>{repeated("a", 32)}, "its first chunk goes out");
+        sink.delivered = 5; // five of its characters were acknowledged
+        sink.window = moved;
+        output.tick(1);
+        require(!sink.pending && output.failures() == 1 && output.retry_text() == repeated("a", 35),
+                moved ? "a click on another window stops the chunk in flight and keeps the rest"
+                      : "focus that is no longer known stops it too");
+        sink.done = true;
+        output.tick(2);
+        output.tick(3);
+        require(sink.events.size() == 1, "nothing more goes out unasked");
+        sink.window = 9;
+        sink.delivered = 0;
+        require(output.retry(), "Enter retries the rest");
+        sink.done = true;
+        output.tick(4);
+        output.tick(4.2);
+        sink.done = true;
+        output.tick(5);
+        require(sink.events == std::vector<std::string>{repeated("a", 32), repeated("a", 27),
+                                                        repeated("a", 8)} &&
+                    !output.text_pending() && output.failures() == 1,
+                "the retry belongs to the window focused when Enter was pressed");
+    }
+    {
+        Transport sink;
+        sink.window = 7;
+        OutputController output(sink);
+        output.set_enabled(true);
+        character(output, 0, "a");
+        sink.done = true;
+        output.tick(1);
+        sink.window = 9;
+        character(output, 0, "b", 1.1);
+        sink.done = true;
+        output.tick(2);
+        require(sink.events == std::vector<std::string>{"a", "b"} && output.failures() == 0,
+                "a key typed after the click is for the window clicked");
+    }
+}
 void out_of_tick_composition_clock() {
     struct Immediate : KeySink {
         std::vector<std::string> events;
@@ -606,6 +658,7 @@ int main() {
         synchronous_composition_refusal();
         long_composition_cancellation();
         release_keeps_accepted_output();
+        focus_change();
         out_of_tick_composition_clock();
         cancellation();
         std::cout << "Ordered output, retries, cancellation, bounds and held-key cleanup passed.\n";

@@ -329,8 +329,22 @@ void OutputController::release_holds() {
         std::rethrow_exception(error);
     }
 }
+// A run of output is for the window focused when it began (0: none named).
+// Unknown since then counts as moved, so nothing goes out unchecked.
+bool OutputController::window_moved() {
+    if (queue_.empty()) {
+        window_ = 0;
+        return false;
+    }
+    if (!window_) {
+        window_ = target_.focused_window();
+        return false;
+    }
+    return target_.focused_window() != window_;
+}
 void OutputController::cancel() {
     ++cancels_;
+    window_ = 0;
     queue_.clear();
     retry_.clear();
     failed_ = false;
@@ -370,6 +384,7 @@ void OutputController::fail(std::size_t delivered) {
         }
     }
     queue_.clear();
+    window_ = 0; // A retry is for the window focused then.
     failed_ = true;
     drop_holds();
     status(retry_.empty() ? "Input not sent. Queued input was discarded."
@@ -400,6 +415,16 @@ void OutputController::note_text_time(bool paced, bool fresh_tick) {
 }
 void OutputController::drain(bool fresh_tick) {
     if (!enabled_ || failed_) {
+        return;
+    }
+    if (window_moved()) {
+        // Another window took focus while this run went out, so the rest
+        // would reach it. The front text's acknowledged characters arrived;
+        // the one in flight may have. Read the count before the cancel ends it.
+        const auto& front = queue_.front();
+        const auto delivered = front->submitted ? target_.delivered_characters() : 0;
+        target_.cancel_delivery();
+        fail(delivered);
         return;
     }
     while (!queue_.empty()) {
@@ -477,6 +502,7 @@ void OutputController::drain(bool fresh_tick) {
             owner->repeat_at = now_ + .04;
         }
     }
+    window_ = 0; // The run is out; the next one belongs to the window then.
     if (status_ != waiting_status || !target_.output_blocked()) {
         status("");
     }

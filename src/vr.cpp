@@ -1960,6 +1960,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // later ones only when they change something.
     double trace_samples_until = 0, traced_sample = 0;
     bool traced_block = false, traced_on_panel = false;
+    std::uint32_t traced_window = 0;
     std::string traced_keys;
     // A hand whose laser is on the keyboard presses keys there; the other
     // hand is still watched, as its pull may choose an app window.
@@ -3249,6 +3250,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             scene_input = scene;
             std::cout << (scene ? "Passthrough pointer active.\n" : "Dashboard laser active.\n")
                       << std::flush;
+        }
+        if constexpr (trace_focus) {
+            // Where typed text goes (OutputController's window check), in
+            // passthrough too, so a dashboard close that moves it shows. Ids only.
+            const auto window = replacement.focused_window();
+            if (lifecycle.visible() && window != traced_window) {
+                traced_window = window;
+                std::cout << "focus-trace window " << trace_window(window) << " " << trace_time(now)
+                          << (scene_input ? " passthrough" : " dashboard") << "\n"
+                          << std::flush;
+            }
         }
         // Disable after this frame's dashboard/scene/forwarded mode is known.
         // Only fresh presentation below may re-enable the SDK mouse path.

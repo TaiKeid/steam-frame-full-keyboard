@@ -107,6 +107,15 @@ let go, so accepted text and taps still arrive in order: a tap or flick that
 types on release types then. A swipe still being drawn and a held ↶ are
 dropped. A press also first types what the other hand holds, before the mic,
 Esc or Enter's retry acts on it.
+A kept target is checked, not assumed: each run of queued output belongs to
+Gamescope's focused window when it began (`KeySink::focused_window`, which the
+libei backend reads from its desktop focus watcher without blocking). If
+another window takes focus mid-run, by a click or a dashboard close, or focus
+becomes unknown, `OutputController` cancels the text in flight and fails the
+run: the unacknowledged rest waits for an explicit retry, which, like any new
+run, belongs to the window focused then. Send and Type as I speak keep their
+window across pieces and phrases. Steam fields and the shell's sink name no
+window and keep their request and context checks.
 Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.

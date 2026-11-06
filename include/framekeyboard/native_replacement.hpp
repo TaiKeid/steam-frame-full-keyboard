@@ -38,6 +38,8 @@ class NativeReplacement : public KeySink {
     void route(bool remote) { remote_ = remote; }
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool steam_field_target() const override { return remote_ && state_.active; }
+    // A Steam field is no window of Gamescope's.
+    std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { local_.set_desktop_paste(clipboard); }
     bool remote() const { return remote_; }

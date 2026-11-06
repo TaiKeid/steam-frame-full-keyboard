@@ -2376,8 +2376,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     double marquee_shift = 0;
     std::optional<double> marquee_due;
     const bool in_editor = view.dictation && !view.settings;
-    const bool status_shown =
-        in_editor && !view.status.empty() && dictation_status_line(view).width >= min_status_width;
+    const bool status_shown = in_editor && !view.status_card && !view.status.empty() &&
+                              dictation_status_line(view).width >= min_status_width;
     {
         const Control* choice = nullptr;
         for (const auto& control : view.controls) {
@@ -3129,7 +3129,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
         draw_focus_tooltip(cr, view);
-        if (!view.status.empty() && !view.settings && !in_editor) {
+        if (!view.status.empty() && !view.settings && (!in_editor || view.status_card)) {
             draw_status_card(cr, view);
         }
         if (view.ime_band && !view.settings) {

@@ -75,6 +75,7 @@ class ShellRouter : public KeySink {
     }
     bool single_line_target() const override { return !on_ && inner_.single_line_target(); }
     bool steam_field_target() const override { return !on_ && inner_.steam_field_target(); }
+    std::uint32_t focused_window() const override { return on_ ? 0 : inner_.focused_window(); }
     void set_character_gap(double seconds) override { inner_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { inner_.set_desktop_paste(clipboard); }
     std::optional<bool> num_lock_state() override {

@@ -33,6 +33,15 @@ constexpr const char* editor_full_notice = "The editor is full. Send or shorten 
 // Refused while Steam's dashboard has the keys and no Focus mode button can
 // shake to say so, as with replacement off.
 constexpr const char* dashboard_keys_status = "Click the window you want to type into first.";
+// Every message for output stopped because another window took focus starts so.
+constexpr std::string_view window_moved_status = "Another window took focus.";
+// Type as I speak, when another window took focus mid-session (App::direct_window_).
+constexpr const char* window_status =
+    "Another window took focus. Click where the rest should go and press Enter, or Esc to drop it.";
+constexpr const char* window_paste_status =
+    "Another window took focus. Nothing was pasted; the text stays here.";
+static_assert(std::string_view(window_status).starts_with(window_moved_status) &&
+              std::string_view(window_paste_status).starts_with(window_moved_status));
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -971,6 +980,7 @@ PanelView App::build_view(bool picker) const {
                                                                          : host_.sink_client)
                : !debug_status_.empty() ? debug_status_
                                         : startup_status_;
+    v.status_card = !v.status.empty() && v.status == send_status_;
     // The context's Enter hint is a legend only; the key still sends Enter.
     if (host_.context && host_.hints.enter != "enter") {
         static const std::map<std::string, std::string> legends{
@@ -1564,6 +1574,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
             return false;
         }
         direct_blocked_ = false;
+        direct_window_ = output_.focused_window(); // The user chose where the rest goes.
         status_.clear();
         flush_direct(now);
         return true;
@@ -2971,6 +2982,9 @@ void App::update_output_status() {
     }
 }
 bool App::retry_output() {
+    if (direct_) {
+        direct_window_ = output_.focused_window(); // The user chose where the rest goes.
+    }
     const bool accepted = output_.retry();
     update_output_status();
     return accepted;
@@ -5645,6 +5659,7 @@ void App::dictation_key_up(const Key& key) {
             start_capture();
         }
     } else if (key.action == "send") {
+        send_window_ = output_.focused_window();
         if (capturing_ || phrases_pending()) {
             // Phrases still being spoken or recognized go in first.
             pause_capture();
@@ -5710,6 +5725,7 @@ bool App::start_capture() {
         direct_context_.clear();
         direct_typed_ = false;
         direct_request_ = native_request_;
+        direct_window_ = output_.focused_window();
         direct_failures_ = output_.failures();
         direct_wait_reason_.clear();
         direct_type_only_ = false;
@@ -5843,6 +5859,14 @@ void App::set_native_request(std::uint64_t request) {
         stop_send(sending_->in_flight);
     }
     send_wait_since_.reset();
+}
+
+void App::block_direct_for_window() {
+    std::cout << "Type as I speak: another window took focus; listening paused.\n" << std::flush;
+    direct_blocked_ = true;
+    pause_capture();
+    status_ = window_status;
+    dirty = true;
 }
 
 void App::stop_direct(std::string status) {
@@ -6048,6 +6072,11 @@ void App::flush_direct(double now) {
     const bool reading = composing_text() || reopening_;
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
                        !output_.steam_field_target() && !sink_on();
+    // A queue retry already holds the session's text; Enter retries it.
+    if (!direct_blocked_ && !direct_waiting_.empty() && !output_.retry_available() &&
+        window_moved(direct_window_)) {
+        block_direct_for_window();
+    }
     if (direct_paste_) {
         tick_direct_paste(now);
     } else if (paste && !direct_waiting_.empty() && !direct_blocked_ && !reading && output_.enabled() &&
@@ -6148,6 +6177,13 @@ void App::tick_direct_paste(double now) {
         if (now - p.at < .15) {
             return;
         }
+        if (window_moved(direct_window_)) {
+            // Nothing pasted yet: the phrase waits in front for Enter.
+            direct_waiting_.push_front(std::move(p.text));
+            direct_paste_.reset();
+            block_direct_for_window();
+            return;
+        }
         p.served = clipboard()->served();
         p.failures = output_.failures();
         const int v = output_.shortcut_code(XKB_KEY_v, KEY_V);
@@ -6198,6 +6234,12 @@ void App::tick_direct(double now) {
             direct_failures_ = output_.failures();
             std::cout << "Type as I speak: output failure; listening paused.\n" << std::flush;
             pause_capture();
+            if (window_moved(direct_window_)) {
+                // The queue stopped the phrase for it; Enter retries the rest.
+                output_.take_status();
+                status_ = window_status;
+                dirty = true;
+            }
         }
         flush_direct(now);
         if (!direct_active()) {
@@ -6732,6 +6774,11 @@ void App::start_send() {
     for (const auto& piece : send.pieces) {
         send.total += counted(piece);
     }
+    // A Send that waited for phrases checks this before its first piece.
+    send.window = send_window_;
+    std::cout << "Send started: " << send.total << " characters in " << send.pieces.size()
+              << " pieces.\n"
+              << std::flush;
     keymap_->cancel_compose();
     editor_repeat_.reset();
     editor_.mark_uncertain(0);
@@ -6765,6 +6812,11 @@ bool App::tick_send(double now) {
             stop_send(false);
             return true;
         }
+        // Another window took focus: the rest was for the one before.
+        if (window_moved(s.window)) {
+            stop_send(false, true);
+            return true;
+        }
         if (s.next == 0 && output_.retry_available()) {
             output_.cancel(); // text the main keyboard failed to send stays unsent
         }
@@ -6794,8 +6846,9 @@ bool App::tick_send(double now) {
         }
         s.in_flight = true;
     }
+    // The queue stops a piece itself when another window takes focus.
     if (output_.failures() != s.failures) {
-        stop_send(true);
+        stop_send(true, window_moved(s.window));
         return true;
     }
     if (output_.completed() != s.completed) {
@@ -6805,7 +6858,7 @@ bool App::tick_send(double now) {
     // Hiding the panel or losing the target cancels the queue without a
     // failure; a target that never answers is given up the same way.
     if (!output_.text_pending() || now - s.since > 5) {
-        stop_send(true);
+        stop_send(true, window_moved(s.window));
         return true;
     }
     return false;
@@ -6852,6 +6905,7 @@ bool App::tick_paste(double now) {
     auto give_up = [&](const char* why) {
         stop_send(false);
         status_ = why;
+        send_status_ = status_;
         return true;
     };
     switch (s.paste_stage) {
@@ -6884,6 +6938,9 @@ bool App::tick_paste(double now) {
         // next request is the application's paste.
         if (now - s.paste_at < .15) {
             return false;
+        }
+        if (window_moved(s.window)) {
+            return give_up(window_paste_status);
         }
         s.paste_served = clipboard()->served();
         s.completed = output_.completed();
@@ -6921,7 +6978,7 @@ bool App::tick_paste(double now) {
     }
 }
 
-void App::stop_send(bool attempted) {
+void App::stop_send(bool attempted, bool moved) {
     const auto s = std::move(*sending_);
     sending_.reset();
     const auto& piece = s.pieces[s.next];
@@ -6944,6 +7001,14 @@ void App::stop_send(bool attempted) {
     status_ = uncertain > keep
                   ? "Sending stopped. The rest stays here; the marked start may already have arrived."
                   : "Sending stopped. The rest stays here; Send continues.";
+    if (moved) {
+        // Counts only, never text.
+        std::cout << "Send stopped: another window took focus, " << s.done << " of " << s.total
+                  << " characters sent.\n"
+                  << std::flush;
+        status_.insert(0, std::string(window_moved_status) + " ");
+    }
+    send_status_ = status_;
     follow_cursor();
     dirty = true;
 }

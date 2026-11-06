@@ -35,6 +35,8 @@ class EiSink : public KeySink {
     void cancel_text() override;
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
     std::optional<bool> num_lock_state() override { return num_lock_; }
+    // The desktop focus watcher's window, an atomic read; it starts with the text path.
+    std::uint32_t focused_window() const override { return desktop_ ? desktop_->window().id : 0; }
     // Measurement only: forces every multi-character commit to go whole (false)
     // or per character (true) instead of the on_keymap() choice.
     void force_per_character(std::optional<bool> value) { per_character_ = value; }
@@ -72,6 +74,7 @@ class EiSink : public KeySink {
         std::optional<double> clipboard_since; // When Ctrl+V first waited for the clipboard.
         bool taken{};
     };
+    static std::size_t entered(const Entry& entry);
     bool desktop_target();
     bool needs_entry(const std::string& text);
     bool enter(const std::string& text, std::size_t deletions);

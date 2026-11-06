@@ -1117,6 +1117,8 @@ class App {
         int paste_stage{};
         std::uint64_t paste_write{}, paste_served{};
         double paste_at{};
+        // Gamescope's focused window when Send was pressed: every piece is for it.
+        std::uint32_t window{};
     };
     bool tick_paste(double now);
     // Erases a delivered piece from the editor and moves on; after the last,
@@ -1128,9 +1130,18 @@ class App {
     void start_send();
     bool tick_send(double now);
     // Ends a send that has not finished. With `attempted`, the piece in flight
-    // may have arrived, so the editor marks it.
-    void stop_send(bool attempted);
+    // may have arrived, so the editor marks it. `moved`: another window took focus.
+    void stop_send(bool attempted, bool moved = false);
     std::optional<Sending> sending_;
+    std::uint32_t send_window_{}; // Focused when Send was pressed, for a Send that waits.
+    // The status a stopped Send set; while it shows, it shows on the card
+    // above the case (PanelView::status_card), whichever check stopped it.
+    std::string send_status_;
+    // Whether Gamescope's focus left `window`, the one output was accepted
+    // for; never for 0, a target that names no window (KeySink::focused_window).
+    bool window_moved(std::uint32_t window) const {
+        return window && output_.focused_window() != window;
+    }
     // Live dictation (docs/dictation.md, Capturing). The helper starts on the
     // first capture and stays until the keyboard exits.
     bool start_capture();
@@ -1220,6 +1231,12 @@ class App {
     // The last reason waiting phrases could not go out, logged once per change.
     std::string direct_wait_reason_;
     std::uint64_t direct_request_{}, native_request_{};
+    // The window the session types into: focused at the mic tap, or when
+    // Enter continued after another window took focus.
+    std::uint32_t direct_window_{};
+    // Another window took focus before the front phrase went out: it waits
+    // for Enter, as a refused phrase does.
+    void block_direct_for_window();
     std::uint64_t direct_failures_{}; // output failures seen when the session started
     std::unique_ptr<Dictation> dictation_;
     // Starts the helper object on first use; the process starts on demand.

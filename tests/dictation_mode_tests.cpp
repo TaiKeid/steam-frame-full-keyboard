@@ -45,6 +45,8 @@ struct Sink : KeySink {
     int commits_before_failure{-1}; // -1 never fails
     std::size_t acknowledged{};     // characters of a failed commit that arrived
     std::size_t commit_attempts{};
+    std::uint32_t window{}; // Gamescope's focused window; 0 names none.
+    std::uint32_t focused_window() const override { return window; }
     void send(int code, int value) override { keys.emplace_back(code, value); }
     Delivery deliver_key(int code, int value) override {
         send(code, value);
@@ -1272,6 +1274,22 @@ void direct_tests() {
         wait_until(app, [&] { return sink.text.size() == 2; });
         require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
                 "Enter retries the phrase, then the next follows");
+    }
+    {
+        // Another window takes focus mid-session (R19, R44): its phrases wait,
+        // listening paused, until Enter types them where focus is then.
+        Sink sink;
+        sink.window = 7;
+        App app(options, sink);
+        press(app, "Dictation");
+        sink.window = 9;
+        wait_until(app, [&] { return !sink.text.empty() || !app.view().dictation_capturing; });
+        require(sink.text.empty() && app.view().status.starts_with("Another window took focus."),
+                "a phrase for the window before never reaches the one clicked");
+        press(app, "Enter");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
+                "Enter types it, and the next phrase, into the window focused now");
     }
     {
         // Live words: typed once two guesses agree, the rest with the final text.
@@ -3354,6 +3372,36 @@ void send_tests() {
             require(sink.text.size() == 1 && app.dictation_open() && !app.view().dictation->sending &&
                         editor_text(app) == std::string(8, 'a'),
                     "nothing more reaches the new target; the rest stays in the editor");
+            require(app.view().status.starts_with("Sending stopped.") && app.view().status_card,
+                    "its message shows on the card above the keyboard, as every Send stop's does");
+        }
+    }
+    {
+        // Another window takes focus mid-Send (R19, R44), between pieces or
+        // while one goes out: nothing more reaches it, and the rest stays in
+        // the editor, its start marked when that may have arrived.
+        for (const bool in_flight : {false, true}) {
+            Sink sink;
+            sink.window = 7;
+            sink.busy = in_flight; // still typing the first piece
+            sink.acknowledged = in_flight ? 5 : 0;
+            App app(options, sink);
+            open_editor(app);
+            type_text(app, std::string(40, 'a'));
+            press(app, "Dictation-send");
+            require(sink.text.size() == (in_flight ? 0u : 1u) && app.view().dictation->sending,
+                    "the first piece is out or going out");
+            sink.window = 9;
+            settle(app);
+            sink.busy = false;
+            settle(app);
+            require(sink.text.size() == (in_flight ? 0u : 1u) && app.dictation_open() &&
+                        !app.view().dictation->sending &&
+                        editor_text(app) == std::string(in_flight ? 35 : 8, 'a') &&
+                        app.view().status.starts_with("Another window took focus.") &&
+                        app.view().status_card,
+                    in_flight ? "a click mid-piece stops it; the rest stays, its start marked"
+                              : "a click between pieces stops Send; the rest stays in the editor");
         }
     }
     {

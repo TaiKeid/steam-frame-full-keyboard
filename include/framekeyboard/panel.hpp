@@ -196,6 +196,10 @@ struct PanelView {
     std::vector<FieldLabel> field_labels;
     std::optional<Rect> popup;
     std::string status;
+    // The status shows on the card above the case in dictation mode too,
+    // not on its toolbar line: Send stopped, often because another window
+    // or field took over, so the user may be looking away from the keys.
+    bool status_card{};
     std::string version; // Shown in Settings; empty without an installed updater.
     bool settings{};
     bool composing{}; // The composing layout and its preedit are showing.
