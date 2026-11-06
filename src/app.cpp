@@ -800,12 +800,7 @@ void App::update_settings_ui() {
               checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
         field(ControlKind::AutoLeveling,
               checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))};
-    std::vector<SettingField> typing_fields{
-        field(ControlKind::ExtendedKeyCollision,
-              checkbox("extended-key-collision", "Extended key collision",
-                       pending_extended_key_collision_, true,
-                       "A press between keys goes to the nearest one")),
-        haptic_sounds};
+    std::vector<SettingField> typing_fields{haptic_sounds};
     if (pending_haptic_sounds_ != "off") {
         typing_fields.push_back(haptic_effect);
         typing_fields.push_back(haptic_volume);
@@ -814,7 +809,11 @@ void App::update_settings_ui() {
                          {field(ControlKind::EmojiCloseOnSelect,
                                 checkbox("emoji-close-on-select", "Close emoji picker after choosing",
                                          pending_emoji_close_on_select_)),
-                          desktop_unicode, desktop_unicode_note});
+                          desktop_unicode, desktop_unicode_note,
+                          field(ControlKind::ExtendedKeyCollision,
+                                checkbox("extended-key-collision", "Extended key collision",
+                                         pending_extended_key_collision_, true,
+                                         "A press between keys goes to the nearest one"))});
     // The popup edits the same main language as the two dropdowns.
     const auto additional = additional_pairs().size();
     auto languages =

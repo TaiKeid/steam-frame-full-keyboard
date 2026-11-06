@@ -1442,14 +1442,14 @@ void extended_key_collision_setting() {
             "Extended key collision starts on");
     app.show_settings();
     const auto row = control(app.view(), "extended-key-collision");
-    const auto sounds = control(app.view(), "haptic-sounds");
+    const auto unicode = control(app.view(), "desktop-unicode");
     const auto labels = app.view().field_labels;
     const auto label = std::find_if(labels.begin(), labels.end(), [](const FieldLabel& l) {
         return l.text == "Extended key collision";
     });
-    require(row.selected && row.bounds.y < sounds.bounds.y && label != labels.end() &&
-                label->bounds.y < sounds.bounds.y,
-            "it heads the Typing card, checked");
+    require(row.selected && row.bounds.y > unicode.bounds.y && label != labels.end() &&
+                label->bounds.y > unicode.bounds.y,
+            "it ends the Typing card, checked");
     click(app, "extended-key-collision");
     require(!control(app.view(), "extended-key-collision").selected && saved(app).extended_key_collision,
             "it stays pending until Apply");
