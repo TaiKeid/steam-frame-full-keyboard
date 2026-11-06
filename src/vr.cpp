@@ -281,9 +281,10 @@ constexpr bool trace_focus = true;
 constexpr bool trace_focus = false;
 #endif
 // Measuring: once a second while the panel is worn, the journal gets the
-// loop's frames, its longest gap between frame starts and how many gaps
-// missed a 60 Hz period, for comparing typing with and without conversion
-// in the way. Times only. Built only with CMake's FRAMEKEYBOARD_FRAME_TRACE;
+// loop's frames, its longest gap between frame starts, how many gaps came
+// late (over 1.25 of its 60 Hz period, 20.8 ms) and how many missed a
+// whole frame (over two periods), for comparing typing with and without
+// conversion in the way. Times only. Built only with CMake's FRAMEKEYBOARD_FRAME_TRACE;
 // off in releases. The conversion worker logs each conversion's time.
 #ifdef FRAMEKEYBOARD_FRAME_TRACE
 constexpr bool trace_frames = true;
@@ -294,13 +295,14 @@ constexpr bool trace_frames = false;
 struct FrameTrace {
     std::chrono::steady_clock::time_point started, last;
     std::chrono::steady_clock::duration longest{};
-    int frames{}, missed{};
+    int frames{}, late{}, missed{};
     void frame(std::chrono::steady_clock::time_point at) {
         using std::chrono::steady_clock;
         if (last != steady_clock::time_point{}) {
             const auto gap = at - last;
             longest = std::max(longest, gap);
-            missed += gap > std::chrono::microseconds(25000); // A 60 Hz frame skipped.
+            late += gap > std::chrono::microseconds(20833);
+            missed += gap > std::chrono::microseconds(33333);
         } else {
             started = at;
         }
@@ -309,7 +311,7 @@ struct FrameTrace {
         if (at - started >= std::chrono::seconds(1)) {
             std::cout << "frame-trace frames=" << frames << " longest="
                       << std::chrono::duration<double, std::milli>(longest).count()
-                      << "ms missed=" << missed << std::endl;
+                      << "ms late=" << late << " missed=" << missed << std::endl;
             *this = {};
             started = last = at;
         }
