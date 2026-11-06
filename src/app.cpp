@@ -1638,6 +1638,12 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
             return false;
         }
+        // The click that stopped the phrases can also have stopped text
+        // queued before them: its rest goes first, and they follow it. Until
+        // it can go, as while Steam's page has the keys, they wait with it.
+        if (output_.retry_available() && !retry_output()) {
+            return true;
+        }
         direct_blocked_ = false;
         direct_window_ = output_.focused_window(); // The user chose where the rest goes.
         status_.clear();

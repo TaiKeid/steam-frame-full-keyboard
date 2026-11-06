@@ -1407,6 +1407,45 @@ void direct_tests() {
                 "Enter types the rest alone");
     }
     {
+        // A phrase waiting behind text still being typed, here a full queue
+        // of keys: one click stops both. One Enter types the text's rest,
+        // then the phrase, into the window focused then; while Steam's page
+        // has the keys, it types neither.
+        Sink sink;
+        sink.window = 7;
+        App app(options, sink);
+        const auto asked = prompts_sent(directory.path).size();
+        press(app, "Dictation");
+        wait_until(app, [&] { return !sink.text.empty(); });
+        sink.busy = true; // the first key's text is still being typed
+        for (std::size_t i = 0; i < OutputController::capacity; ++i) {
+            press(app, "KeyA");
+        }
+        press(app, "Dictation");
+        wait_until(app, [&] {
+            return prompts_sent(directory.path).size() == asked + 2 && !app.view().dictation_recognizing;
+        });
+        sink.window = 9;
+        settle(app);
+        sink.busy = false;
+        const auto card = app.view().status;
+        require(sink.text == std::vector<std::string>{"Hello there."} &&
+                    card.starts_with("Another window took focus."),
+                "the click stops the keys' text and the phrase behind it");
+        app.set_dashboard_focus(true);
+        press(app, "Enter");
+        settle(app);
+        require(sink.text.size() == 1 && app.view().status == card,
+                "while Steam's page has the keys, Enter types nothing and the card stays");
+        app.set_dashboard_focus(false);
+        press(app, "Enter");
+        settle(app);
+        require(sink.text.size() == OutputController::capacity + 2 &&
+                    std::count(sink.text.begin(), sink.text.end(), "a") == OutputController::capacity &&
+                    sink.text.back() == " Again." && sink.keys.empty(),
+                "one Enter types the rest, then the phrase");
+    }
+    {
         // Live words: typed once two guesses agree, the rest with the final text.
         options.dictation_arguments = {"--scenario", "live"};
         Sink sink;
