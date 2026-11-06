@@ -70,6 +70,11 @@ class JapaneseWorker {
     void finish(std::function<void()> last = {});
     // The times the thread woke to run something, for tests of its idling.
     std::uint64_t wakeups() const { return wakeups_.load(); }
+    // Whether the thread was started, by a request or a finish with work.
+    bool started() const {
+        std::lock_guard guard(lock_);
+        return thread_.joinable();
+    }
 
   private:
     struct Job {

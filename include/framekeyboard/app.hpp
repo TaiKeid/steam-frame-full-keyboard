@@ -150,6 +150,8 @@ class App {
     // the dictation editor or the address popup. It stays held after the
     // laser leaves the panel, until the trigger's release
     // (docs/architecture.md, Input and focus).
+    // Tests: whether the conversion worker's thread was ever started.
+    bool japanese_worker_started() const { return japanese_worker_.started(); }
     bool holds_repeat(unsigned pointer) const {
         return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer) ||
                (address_repeat_ && address_repeat_->pointer == pointer) ||
@@ -812,7 +814,7 @@ class App {
     void sync_mozc();
     // The server's state last asked of the worker, and whether that start
     // or stop is still under way there.
-    std::optional<bool> mozc_wanted_;
+    std::optional<bool> mozc_wanted_ = false;
     bool mozc_starting_{};
     fs::path mozc_server_; // Empty without Mozc: Anthy converts.
     // When tick() last made sure the server runs: one that died starts again

@@ -321,12 +321,12 @@ App::~App() {
     // Engine work ends first, before the lists and callbacks it reads go
     // with App: learning still waiting runs, the converter and its Mozc
     // session go, then Mozc stops, all on the worker.
-    const bool mozc = owns_anthy() && !mozc_server_.empty();
-    japanese_worker_.finish([mozc] {
-        if (mozc) {
-            stop_mozc();
-        }
-    });
+    // Without Mozc started, nothing starts the worker's thread only to end.
+    if (owns_anthy() && !mozc_server_.empty() && mozc_wanted_.value_or(false)) {
+        japanese_worker_.finish([] { stop_mozc(); });
+    } else {
+        japanese_worker_.finish();
+    }
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
     next_words_.save();
     japanese_choices_.save();
@@ -2652,6 +2652,7 @@ void App::sync_mozc() {
     // Starting and stopping go to the worker, and only when the wish
     // changed or a server that went may start again: the check itself
     // waits for nothing. Another start or stop waits for one under way.
+    // Without Japanese, nothing was started: no thread is started either.
     const bool wanted = japanese_added();
     if (mozc_starting_ || (mozc_wanted_ == wanted && !(wanted && mozc_needs_start()))) {
         return;

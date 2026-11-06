@@ -1517,6 +1517,30 @@ void preview_converts() {
                 "〈にほ〉〈んご〉",
             "the preview's sample is converted when it paints");
 }
+// The conversion worker's thread starts only once Japanese is among the
+// languages, or a conversion is asked for.
+void worker_waits_for_japanese() {
+    char directory[] = "/tmp/framekeyboard-idle-XXXXXX";
+    require(mkdtemp(directory), "temporary idle profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC;
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "en-us", "graphite"});
+    for (double now = 1; now < 6; now += .5) {
+        app.tick(now);
+    }
+    require(!app.japanese_worker_started(), "no thread while no Japanese is added");
+}
 // Options::live_candidate_pause switches live candidates to come only once
 // typing pauses, as before, for comparing the two; still never dimmed.
 void live_candidate_pause() {
@@ -4842,6 +4866,7 @@ int main() {
         live_candidate_pause();
         earlier_live_picks();
         preview_converts();
+        worker_waits_for_japanese();
         mozc_lifecycle();
         mozc_lost_session();
         mozc_stuck_server();
