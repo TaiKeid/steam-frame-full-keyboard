@@ -2699,6 +2699,31 @@ void fractional_dropdown_scroll() {
     ui.up(0);
     require(!scroll(.5), "scrollbar capture discards wheel remainder");
 }
+// A drag on an open list scrolls it a row at a time, as one on the cards
+// scrolls them, and its release chooses nothing.
+void drag_dropdown() {
+    SettingsUi ui;
+    SettingField field{"field", "Field", "c0"};
+    for (int i = 0; i < 20; ++i) {
+        field.choices.push_back({"c" + std::to_string(i), "Choice " + std::to_string(i)});
+    }
+    ui.set_cards({{"card", "Card", {field}}});
+    auto snapshot = [&] {
+        PanelView view;
+        ui.append(view);
+        return view;
+    };
+    ui.toggle("field");
+    const auto popup = *snapshot().popup;
+    const double x = popup.x + 40, y = popup.y + popup.height - 20;
+    require(!ui.down(0, x, y), "a press on the list leaves its choice the press");
+    require(!ui.move(0, x, y - 8), "a small move is still a tap");
+    require(ui.move(0, x, y - 3 * 52), "past the dead zone, the rows follow the laser");
+    require(has(snapshot(), "choose:field:c3") && !has(snapshot(), "choose:field:c2"),
+            "dragged up three rows, the list shows from the fourth");
+    require(ui.move(0, x, y + 600) && has(snapshot(), "choose:field:c0"), "and stops at its top");
+    require(ui.up(0) && ui.popup_open(), "the release chooses nothing, and the list stays open");
+}
 void scroll_cards() {
     SettingsUi ui;
     std::vector<SettingsCard> cards;
@@ -2871,6 +2896,7 @@ int main() {
         keep_open_setting();
         favorite_schema();
         fractional_dropdown_scroll();
+        drag_dropdown();
         scroll_cards();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";

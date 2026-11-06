@@ -93,6 +93,9 @@ class SettingsUi {
         double x{}, y{}, horizontal{}, vertical{};
         std::optional<std::size_t> card; // the card under the press, if it scrolls
         bool active{}, sideways{};
+        // On an open list: it scrolls a row at a time from its first row then.
+        bool menu{};
+        int first{};
     };
     std::optional<Drag> drag_;
     std::string open_field_;

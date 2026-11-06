@@ -382,6 +382,20 @@ bool SettingsUi::down(unsigned pointer, double x, double y) {
             return true;
         }
     }
+    if (popup_open() && !drag_ && !capture_) {
+        // A drag on an open list scrolls it, as one on the cards scrolls
+        // them; a tap still chooses.
+        if (const auto popup = popup_bounds(); popup && popup->contains(x, y)) {
+            Drag drag;
+            drag.pointer = pointer;
+            drag.x = x;
+            drag.y = y;
+            drag.menu = true;
+            drag.first = first_choice_;
+            drag_ = drag;
+        }
+        return false;
+    }
     if (!popup_open() && !drag_ && !capture_ && viewport.contains(x, y)) {
         Drag drag;
         drag.pointer = pointer;
@@ -406,10 +420,20 @@ bool SettingsUi::move(unsigned pointer, double x, double y) {
             drag.active = true;
             // Up and down scroll the card under the press when it can;
             // otherwise the row follows the laser sideways.
-            drag.sideways = std::abs(dx) > std::abs(dy) || !drag.card;
+            drag.sideways = !drag.menu && (std::abs(dx) > std::abs(dy) || !drag.card);
         }
         if (!drag.active) {
             return false;
+        }
+        if (drag.menu) {
+            // The rows follow the laser, as a touch list follows a finger.
+            const auto* field = open_field_definition();
+            const int limit =
+                field ? std::max(0, static_cast<int>(field->choices.size()) - visible_choices) : 0;
+            choice_remainder_ = 0;
+            first_choice_ =
+                std::clamp(drag.first + static_cast<int>(std::lround(-dy / menu_row_height)), 0, limit);
+            return true;
         }
         if (drag.sideways) {
             horizontal_ = horizontal_target_ = std::clamp(drag.horizontal - dx, 0.0, horizontal_limit());
