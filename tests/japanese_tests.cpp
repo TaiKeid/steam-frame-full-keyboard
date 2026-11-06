@@ -1490,6 +1490,33 @@ void earlier_live_picks() {
     composer.kana("ね");
     require(!composer.split_live(index("おめでとう")), "one that no longer fits waits");
 }
+// A preview paints once, without ticks: its Japanese sample is converted
+// before it does (--render-dictation, the shell's dictation preview).
+void preview_converts() {
+    char directory[] = "/tmp/framekeyboard-preview-XXXXXX";
+    require(mkdtemp(directory), "temporary preview profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Settings settings;
+    settings.active = {"en-us-full", "ja-romaji", "graphite"};
+    save_settings(directory, settings);
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::RenderDictation;
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.show_dictation();
+    const auto view = app.view();
+    require(view.dictation.has_value(), "the dictation editor shows");
+    const auto& editor = *view.dictation;
+    require(editor.text.substr(editor.preedit_begin, editor.preedit_end - editor.preedit_begin) ==
+                "〈にほ〉〈んご〉",
+            "the preview's sample is converted when it paints");
+}
 // Options::live_candidate_pause switches live candidates to come only once
 // typing pauses, as before, for comparing the two; still never dimmed.
 void live_candidate_pause() {
@@ -4719,6 +4746,7 @@ int main() {
         conversion_off_the_vr_thread();
         live_candidate_pause();
         earlier_live_picks();
+        preview_converts();
         mozc_lifecycle();
         mozc_lost_session();
         mozc_stuck_server();

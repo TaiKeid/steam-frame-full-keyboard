@@ -171,6 +171,11 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       keyboard_(output_) {
     // The worker converts, with the converter japanese_factory() makes.
     composition_.defer_conversion();
+    if (!owns_anthy()) {
+        // A preview paints once, with no tick to take an answer: it waits
+        // for its sample's conversion. Previews never run in VR.
+        options_.wait_for_japanese = true;
+    }
     mozc_server_ = options.mozc_server;
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
