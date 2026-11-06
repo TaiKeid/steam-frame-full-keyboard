@@ -3797,6 +3797,49 @@ void text_output_capture() {
             "Romaji and flick commits use the text output");
     require(sink.text.empty() && sink.keys.empty(), "nothing reaches the target past the text output");
 }
+void anthy_initialization_retry() {
+    const auto* dictionary = std::getenv("FRAMEKEYBOARD_TEST_ANTHY_DICTIONARY");
+    if (!dictionary) {
+        return;
+    }
+    void* library = dlopen("libanthy.so.0", RTLD_NOW | RTLD_LOCAL);
+    require(library, "test Anthy library missing");
+    dlclose(library);
+    const auto missing = default_anthy_home() / "missing-anthy.dic";
+    const auto resident = [] {
+        void* handle = dlopen("libanthy.so.0", RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD);
+        if (handle) {
+            dlclose(handle);
+        }
+        return handle != nullptr;
+    };
+    const auto fails = [](auto&& conversion) {
+        try {
+            conversion();
+        } catch (const std::runtime_error& error) {
+            return std::string(error.what()) == "Cannot initialize the Anthy dictionary";
+        }
+        return false;
+    };
+    set_anthy_dictionary(missing);
+    for (int i = 0; i < 3; ++i) {
+        require(fails([] { anthy_converter(); }), "a failed Anthy start retries initialization");
+        require(resident(), "a failed Anthy start keeps the library loaded");
+    }
+    set_anthy_dictionary(dictionary);
+    auto converter = anthy_converter();
+    require(!converter->convert("にほん").empty(), "Anthy recovers when its dictionary is restored");
+    set_anthy_dictionary(missing);
+    for (int i = 0; i < 3; ++i) {
+        restart_anthy(false);
+        require(resident(), "a failed Anthy restart keeps the library loaded");
+        require(fails([&] { converter->convert("にほん"); }),
+                "conversion retries initialization after a failed restart");
+    }
+    set_anthy_dictionary(dictionary);
+    require(!converter->convert("にほん").empty(),
+            "an existing converter recovers after a failed Anthy restart");
+}
 int main() {
     // Anthy keeps what it learns, and its lock file, under a home of the tests' own.
     char anthy_home[] = "/tmp/framekeyboard-anthy-XXXXXX";
@@ -3815,6 +3858,7 @@ int main() {
         completion_reopen();
         live_without_predictions();
         carried_number_boundaries();
+        anthy_initialization_retry();
         symbols_as_typed();
         word_completion();
         flick_katakana();

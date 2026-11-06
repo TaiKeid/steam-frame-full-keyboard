@@ -257,6 +257,13 @@ file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dictation")
 configure_file(dictation/dictation_helper.py dictation/dictation_helper.py COPYONLY)
 include(CTest)
 if(BUILD_TESTING)
+    # LeakSanitizer accepts one suppression file; keep each filter's source separate.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        tests/lsan-fontconfig.supp tests/lsan-anthy.supp)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/tests/lsan-fontconfig.supp" fontconfig_suppressions)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/tests/lsan-anthy.supp" anthy_suppressions)
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/lsan-third-party.supp"
+        CONTENT "${fontconfig_suppressions}\n${anthy_suppressions}")
     add_executable(key-sound-activity-tests tests/key_sound_activity_tests.cpp)
     target_include_directories(key-sound-activity-tests PRIVATE include)
     target_compile_options(key-sound-activity-tests PRIVATE -Wall -Wextra -Wpedantic)

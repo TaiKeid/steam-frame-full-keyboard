@@ -1,0 +1,8 @@
+# Opt-in filter for Anthy's one-off initialization and prediction allocations.
+# anthy_conf_override/anthy_init and prediction retain storage after anthy_quit.
+# A direct probe retained 116 bytes after both 10 and 2,000 prediction calls.
+# Anthy stays loaded even after failed starts; libanthy matches both libanthy.so
+# and libanthydic.so in exit-time stacks, including their versioned names.
+# This also hides application-caused leaks allocated inside either library; keep
+# raw logs and investigate ownership or growth without this filter.
+leak:libanthy

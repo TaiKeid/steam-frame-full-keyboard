@@ -157,8 +157,12 @@ is a cache. Investigate application growth with unsuppressed measurements across
 increasing workload counts after warm-up. Resident memory alone is insufficient:
 allocator caching can keep freed pages resident.
 
-An opt-in secondary run filters Fontconfig allocation stacks using the checked-in
-[`tests/lsan-fontconfig.supp`](../tests/lsan-fontconfig.supp):
+An opt-in secondary run filters Fontconfig allocation stacks using
+[`tests/lsan-fontconfig.supp`](../tests/lsan-fontconfig.supp) and Anthy's
+initialization and prediction stacks using
+[`tests/lsan-anthy.supp`](../tests/lsan-anthy.supp).
+Configuration combines the two into `build/sanitized/lsan-third-party.supp`.
+The preset keeps its existing name:
 
 ```sh
 ctest --preset sanitized-fontconfig-filtered \
@@ -168,6 +172,18 @@ ctest --preset sanitized-fontconfig-filtered \
 Keep this log separate from the raw run. The filter can hide application-caused
 leaks allocated inside Fontconfig; a filtered pass is not a zero-leak result. No
 font-library teardown is added just to silence these reports.
+
+Anthy's `anthy_conf_override`, `anthy_init` and prediction retain allocations after
+`anthy_quit`. A direct probe retained 116 bytes after both 10 and 2,000 prediction
+calls; that supports fixed retained storage in that probe, not a general
+claim about application leaks. Anthy is shut down after successful initialization
+but stays loaded, including after failed initialization and restart attempts.
+Retries reuse the loaded API and attempt initialization again. The Anthy filter
+matches `libanthy`, covering both `libanthy.so` and `libanthydic.so` in exit-time
+stacks, including their versioned names. It can also hide application-caused
+leaks allocated inside either library.
+Keep unsuppressed logs when investigating Anthy ownership or growth; a filtered
+pass is not a zero-leak result. The raw `sanitized` preset remains unsuppressed.
 
 The configure preset inherits `FRAMEKEYBOARD_EXECUTORCH_HOST` and
 `FRAMEKEYBOARD_WHISPER_HOST` from the ordinary host setup. Set them before fresh

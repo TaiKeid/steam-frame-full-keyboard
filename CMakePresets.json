@@ -70,10 +70,10 @@
     },
     {
       "name": "sanitized-fontconfig-filtered",
-      "displayName": "Host sanitizers, Fontconfig allocations filtered",
+      "displayName": "Host sanitizers, Fontconfig and Anthy allocations filtered",
       "inherits": "sanitized",
       "environment": {
-        "LSAN_OPTIONS": "suppressions=${sourceDir}/tests/lsan-fontconfig.supp:print_suppressions=1"
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/build/sanitized/lsan-third-party.supp:print_suppressions=1"
       }
     }
   ]

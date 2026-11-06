@@ -118,6 +118,9 @@ struct Anthy {
     };
     std::mutex calls;
     std::optional<Api> api;
+    // Keep a resolved API mapped for leak diagnostics, even after failed starts.
+    // Under `calls`: a loaded library may still need initialization on retry.
+    bool initialized{};
     std::set<AnthyConverter*> converters;
     std::mutex settings;
     AnthyLearning learning;
@@ -125,9 +128,8 @@ struct Anthy {
     std::optional<AnthyLearning> started; // What the running Anthy learns with.
     bool configured{};
     ~Anthy() {
-        if (api) {
+        if (initialized) {
             api->quit();
-            dlclose(api->handle);
         }
     }
 };
@@ -167,6 +169,7 @@ void start(Anthy& state) {
     if (api.init() != 0) {
         throw std::runtime_error("Cannot initialize the Anthy dictionary");
     }
+    state.initialized = true;
     // Off, an anonymous personality keeps no record and reads none, not even
     // the stock keyboard's.
     if (api.personality) {
@@ -179,6 +182,9 @@ void start(Anthy& state) {
 Anthy::Api& loaded() {
     auto& state = anthy();
     if (state.api) {
+        if (!state.initialized) {
+            start(state);
+        }
         return *state.api;
     }
     Anthy::Api api;
@@ -210,13 +216,12 @@ Anthy::Api& loaded() {
         symbol(api.prediction_stat, "anthy_get_prediction_stat", false);
         symbol(api.prediction, "anthy_get_prediction", false);
         symbol(api.commit_prediction, "anthy_commit_prediction", false);
-        state.api = api;
-        start(state);
     } catch (...) {
-        state.api.reset();
         dlclose(api.handle);
         throw;
     }
+    state.api = api;
+    start(state);
     return *state.api;
 }
 // The VR thread never waits for a restart on the worker: a conversion asked
@@ -1116,7 +1121,10 @@ void restart_anthy(bool clear) {
         for (auto* converter : state.converters) {
             converter->release();
         }
-        state.api->quit();
+        if (state.initialized) {
+            state.api->quit();
+            state.initialized = false;
+        }
         std::lock_guard settings(state.settings);
         state.started.reset();
     }
@@ -1140,9 +1148,8 @@ void restart_anthy(bool clear) {
         try {
             start(state);
         } catch (const std::exception&) {
-            // The next conversion loads it again and reports why it cannot.
-            dlclose(state.api->handle);
-            state.api.reset();
+            // Keep the API mapped; the next conversion retries initialization
+            // and reports why it cannot start.
         }
     }
 }
