@@ -23,6 +23,9 @@ struct DesktopFocus::State {
     std::atomic<std::uint64_t> window{}; // X window << 32 | Steam app ID
     mutable std::mutex mutex;
     std::string title; // the focused window's, for Keep open's cue and tooltip
+    // The focusable list's windows, under mutex, and how often it changed.
+    std::vector<std::uint32_t> windows;
+    std::atomic<std::uint64_t> windows_changed{};
     int wake{eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
     ~State() {
         if (wake >= 0) {
@@ -136,6 +139,18 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             }
             state.focused = focused;
             state.window = packed;
+            // Keep open's cue forgets the titles of windows no longer listed.
+            std::vector<std::uint32_t> windows;
+            for (std::size_t i = 0; i + 2 < list.size(); i += 3) {
+                windows.push_back(list[i]);
+            }
+            {
+                std::lock_guard lock(state.mutex);
+                if (windows != state.windows) {
+                    state.windows = std::move(windows);
+                    ++state.windows_changed;
+                }
+            }
             const auto now_focused = static_cast<std::uint32_t>(packed >> 32);
             if (now_focused != titled) {
                 // Only the focused window is watched: a background window's
@@ -204,6 +219,13 @@ DesktopFocus::~DesktopFocus() {
 std::string DesktopFocus::title() const {
     std::lock_guard lock(state_->mutex);
     return state_->title;
+}
+std::vector<std::uint32_t> DesktopFocus::windows() const {
+    std::lock_guard lock(state_->mutex);
+    return state_->windows;
+}
+std::uint64_t DesktopFocus::windows_changed() const {
+    return state_->windows_changed.load();
 }
 bool DesktopFocus::focused() const {
     return state_->focused.load();

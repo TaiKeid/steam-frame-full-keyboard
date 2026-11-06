@@ -347,6 +347,7 @@ struct HiddenFocusCue {
     WindowOverlays overlays;
     FocusVisibility visibility;
     std::uint32_t last_window{};
+    std::uint64_t windows_changed{}; // DesktopFocus's list, as last given to visibility
     // Sampled only while the panel shows; hidden, it costs nothing and keeps
     // what it found and learned.
     // `ray`: the dashboard laser, read only to learn which window overlay was clicked.
@@ -366,6 +367,11 @@ struct HiddenFocusCue {
             // Gamescope publishes its focus on its first X display, where Steam runs.
             const char* display = std::getenv("DISPLAY");
             focus = std::make_unique<DesktopFocus>(display && *display ? display : ":0");
+        }
+        // Copied only when Gamescope's window list changed, as windows come and go.
+        if (const auto changed = focus->windows_changed(); changed != windows_changed) {
+            windows_changed = changed;
+            visibility.windows(focus->windows());
         }
         const auto window = focus->window();
         FocusVisibility::Sample sample{window.id, {}, overlays.visible(now)};

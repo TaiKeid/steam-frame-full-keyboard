@@ -672,6 +672,15 @@ void a_hidden_focused_window_is_flagged() {
         t.update({first, {}, {1}, {}, 1, "Notes again — Editor", 7, 6.5});
         require(!t.hidden(), "a title of its own, once its overlay has it, names it again");
     }
+    // While the panel is hidden, the first window closes and a new one opens
+    // with focus and the same title: the closed window's title names nothing.
+    FocusVisibility c;
+    c.update({first, {}, {1}, {}, 1, "Untitled — Editor", 1, .5});
+    c.pause();
+    c.windows({second});
+    c.update({second, {}, {1, 2}, {}, 2, "Untitled — Editor", 5, 4.5});
+    c.update({second, {}, {1}, {}, {}, "Untitled — Editor", 6, 5.5});
+    require(c.hidden(), "a new window takes a closed window's title as its own");
 
     Headset h(false);
     h.request(70, false);

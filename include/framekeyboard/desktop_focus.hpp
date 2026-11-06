@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace framekeyboard {
 // Whether Gamescope's focused window belongs to a nested desktop compositor,
@@ -34,6 +35,11 @@ class DesktopFocus {
     // Never blocks: that window's title, kept current as it changes; empty
     // until known. Gamescope names the window's SteamVR overlay after it.
     std::string title() const;
+    // Never blocks: Gamescope's focusable X windows, the app windows that
+    // still exist, as last read, and how often that list has changed: 0
+    // until it is known. Kept as it was across a lost connection.
+    std::vector<std::uint32_t> windows() const;
+    std::uint64_t windows_changed() const;
     // Whether this process is a nested desktop compositor (exposed for tests).
     static bool nested_compositor(std::uint32_t pid);
     // Shared with the watcher thread; defined in desktop_focus.cpp.

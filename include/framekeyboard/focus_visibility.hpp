@@ -69,6 +69,13 @@ class FocusVisibility {
         }
     }
     void reset() { *this = {}; }
+    // Gamescope's windows that still exist (GAMESCOPE_FOCUSABLE_WINDOWS):
+    // a closed window's title no longer makes another window's ambiguous.
+    void windows(const std::vector<std::uint32_t>& open) {
+        std::erase_if(titles_, [&](const auto& entry) {
+            return std::find(open.begin(), open.end(), entry.first) == open.end();
+        });
+    }
     // Not sampled while the panel is hidden: the next sample is a baseline,
     // and learned links and titles stay.
     void pause() {

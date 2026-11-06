@@ -563,6 +563,8 @@ int main() {
         waitpid(nested, nullptr, 0);
         require(answering.property_queries == 4 && !moving.focused(),
                 "the queued focus change is read at once: no longer the Desktop");
+        require(moving.windows() == std::vector<std::uint32_t>{10, 20} && moving.windows_changed() == 1,
+                "Gamescope's focusable windows are listed, once for the same list");
         for (int i = 0; i < 100 && answering.first_watched; ++i) {
             std::this_thread::sleep_for(10ms);
         }
