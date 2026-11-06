@@ -2799,6 +2799,12 @@ void App::japanese_step(JapaneseWorker::Step step, std::function<void(bool)> the
         then(result);
     }
 }
+void App::drop_live_requests() {
+    // Live candidates still waiting for a committed reading are for no one:
+    // the worker drops them. Its learning goes on.
+    japanese_worker_.drop_waiting();
+    live_asked_.clear();
+}
 void App::learn_japanese() {
     try {
         composition_.learn(); // Nothing to learn, or nothing the converter learns.
@@ -3092,11 +3098,13 @@ void App::commit_japanese() {
     const auto words = composition_.word_choices();
     if (preview_output()) {
         composition_.cancel();
+        drop_live_requests();
         status_ = "Preview: composition committed locally.";
     } else if (const auto queued = output_.queued(); text_output_->commit_text(text)) {
         composition_.set_learning(learning_allowed());
         learn_japanese();
         composition_.cancel();
+        drop_live_requests();
         status_.clear();
         follow_commit(text, queued);
         follow_up_ = text;

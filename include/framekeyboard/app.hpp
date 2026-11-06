@@ -508,6 +508,7 @@ class App {
     // own: the learning permission now, and a snapshot of the choices.
     JapaneseComposer japanese_copy();
     void learn_japanese();
+    void drop_live_requests();
     // Whether every request to the worker has its answer taken, so the
     // composer's record of what was last converted is the worker's.
     bool japanese_settled() const { return japanese_worker_.outstanding() == 0; }

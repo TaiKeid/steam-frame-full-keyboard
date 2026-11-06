@@ -1894,6 +1894,29 @@ void conversion_off_the_vr_thread() {
     require(until([&] { return preedit() == "ね"; }) && sink.text.back() == "〈ほ〉",
             "〈ほ〉 is committed and ね typed after a move");
     click_key(app, "Backspace");
+    // A commit drops the live requests still waiting for its reading:
+    // nobody sees them.
+    hold();
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for か is out");
+    click_key(app, "KeyK");
+    click_key(app, "KeyI");
+    app.tick(now += .01); // かき waits behind it.
+    click_key(app, "Enter");
+    require(sink.text.back() == "かき" && preedit().empty(), "Enter commits the reading as typed");
+    {
+        std::size_t conversions = 0;
+        {
+            std::lock_guard guard(gate.lock);
+            conversions = gate.threads.size();
+        }
+        release();
+        until([] { return false; });
+        std::lock_guard guard(gate.lock);
+        require(gate.threads.size() == conversions, "かき's live request was never converted");
+    }
     // A reading given up meanwhile takes what waited with it.
     hold();
     click_key(app, "KeyN");
@@ -1907,7 +1930,7 @@ void conversion_off_the_vr_thread() {
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 8, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == 9, "nothing that waited goes in after a cancel");
     // A tap in the dictation editor while 変換 waits commits what 変換
     // makes of the reading, in its turn.
     {
