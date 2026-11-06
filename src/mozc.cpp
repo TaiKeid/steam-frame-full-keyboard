@@ -142,11 +142,20 @@ struct Key {
     bool shifted{};
     std::string text; // Kana typed as such.
 };
-std::string input(Command type, std::uint64_t session, const Key* key) {
+// A key replayed into the composition: Mozc needn't work out suggestions
+// for it, which only the candidate window shows (Input.context,
+// Context.suppress_suggestion).
+constexpr int input_context = 6, suppress_suggestion = 3;
+std::string input(Command type, std::uint64_t session, const Key* key, bool quiet = false) {
     std::string message;
     put_number(message, 1, type);
     if (session) {
         put_number(message, 2, session);
+    }
+    if (quiet) {
+        std::string context;
+        put_number(context, suppress_suggestion, 1);
+        put_bytes(message, input_context, context);
     }
     if (key) {
         std::string event;
@@ -862,7 +871,7 @@ class MozcConverter final : public JapaneseConverter {
             } else {
                 key.text = character;
             }
-            send(key);
+            send(key, true); // Typing the reading: nothing to suggest.
         }
         return collect(send({0, space, false, {}}));
     }
@@ -871,7 +880,9 @@ class MozcConverter final : public JapaneseConverter {
     // Mozc answers without the session also drops it, the segments and what
     // they offered with it, so resizing and learning wait for a conversion
     // in a new one.
-    Output send(const Key& key) { return request(input(send_key, session_, &key)); }
+    Output send(const Key& key, bool quiet = false) {
+        return request(input(send_key, session_, &key, quiet));
+    }
     Output request(const std::string& message) {
         try {
             last_ = parse(call(address_, message, deadline_));
