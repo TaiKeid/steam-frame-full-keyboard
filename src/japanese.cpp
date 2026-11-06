@@ -1233,10 +1233,56 @@ JapaneseComposer::JapaneseComposer(Factory factory) : factory_(std::move(factory
 }
 JapaneseComposer::~JapaneseComposer() = default;
 JapaneseConverter& JapaneseComposer::converter() {
-    if (!converter_) {
-        converter_ = factory_ ? factory_() : anthy_converter();
+    if (deferred_) {
+        throw Deferred();
     }
-    return *converter_;
+    if (auto* converter = converter_.get()) {
+        return *converter;
+    }
+    converter_.owned = factory_ ? factory_() : anthy_converter();
+    return *converter_.owned;
+}
+JapaneseComposer::Record JapaneseComposer::record() const {
+    return {converted_, converted_as_, alternative_, stretch_, resized_, fell_back(), conversion_};
+}
+void JapaneseComposer::set_record(const Record& record) {
+    converted_ = record.converted;
+    converted_as_ = record.converted_as;
+    alternative_ = record.alternative;
+    stretch_ = record.stretch;
+    resized_ = record.resized;
+    fell_back_ = record.fell_back;
+    conversion_ = record.conversion;
+}
+bool JapaneseComposer::reconvert() {
+    if (resized_) {
+        return false;
+    }
+    if (!converted_.empty()) {
+        const auto reading = converted_; // fresh() clears converted_ first.
+        fresh(reading);                  // The same reading converts the same way.
+    }
+    return true;
+}
+void JapaneseComposer::adopt(JapaneseComposer done) {
+    done.factory_ = std::move(factory_);
+    done.converter_ = std::move(converter_);
+    done.deferred_ = deferred_;
+    done.learning_ = learning_;
+    done.emoji_ = std::move(emoji_);
+    done.words_ = words_;
+    done.kaomoji_ = kaomoji_;
+    done.phrases_ = phrases_;
+    done.preferred_ = std::move(preferred_);
+    done.word_pick_ = std::move(word_pick_);
+    done.word_forms_ = word_forms_;
+    *this = std::move(done);
+}
+void JapaneseComposer::adopt_live(const JapaneseComposer& done) {
+    set_record(done.record());
+    if (done.cleared_ == cleared_) {
+        live_ = done.live_;
+    }
 }
 namespace {
 // Particles a word's usual form may come before, kept as typed: いくね as
@@ -1516,7 +1562,7 @@ std::vector<JapaneseComposer::Segment>
 JapaneseComposer::imported(std::vector<JapaneseConverter::Segment> segments) const {
     std::vector<Segment> result;
     Place place; // Where the segment stands, for a word's context.
-    place.context = converter_ && converter_->weighs_context();
+    place.context = converter_.get() && converter_.get()->weighs_context();
     for (auto& from : segments) {
         place.last = &from == &segments.back();
         if (from.candidates.empty()) {
@@ -2241,6 +2287,7 @@ void JapaneseComposer::erase_before_cursor() {
     cursor_ -= size;
 }
 bool JapaneseComposer::move(int direction) {
+    ++edits_;
     if (converting() || (direction != 1 && direction != -1)) {
         return false;
     }
@@ -2315,6 +2362,7 @@ void JapaneseComposer::drain(bool finish) {
     }
 }
 void JapaneseComposer::roman(char key) {
+    ++edits_;
     if (g_utf8_strlen(reading_.c_str(), -1) >= 30) {
         throw std::runtime_error("Commit this phrase before typing more");
     }
@@ -2324,6 +2372,7 @@ void JapaneseComposer::roman(char key) {
     drain(false);
 }
 void JapaneseComposer::kana(const std::string& text) {
+    ++edits_;
     if (g_utf8_strlen(reading_.c_str(), -1) >= 30) {
         throw std::runtime_error("Commit this phrase before typing more");
     }
@@ -2358,6 +2407,7 @@ std::string JapaneseComposer::last_kana() const {
     return before_cursor();
 }
 bool JapaneseComposer::mark(const std::string& mark) {
+    ++edits_;
     drain(true);
     // The kana before the cursor, also while converting: the conversion is
     // only given up below if the mark actually changes it.
@@ -2399,6 +2449,7 @@ bool JapaneseComposer::mark(const std::string& mark) {
     return true;
 }
 void JapaneseComposer::backspace() {
+    ++edits_;
     if (converting()) {
         unconvert();
         return;
@@ -2410,12 +2461,14 @@ void JapaneseComposer::backspace() {
     }
     if (empty()) {
         live_ = {}; // Nothing left to stand for.
+        ++cleared_;
     }
 }
 void JapaneseComposer::convert() {
     convert(true);
 }
 void JapaneseComposer::convert(bool preferring) {
+    ++edits_;
     if (converting()) {
         cycle(1);
         return;
@@ -2462,6 +2515,7 @@ void JapaneseComposer::convert(bool preferring) {
     }
 }
 void JapaneseComposer::cycle(int direction) {
+    ++edits_;
     if (!converting()) {
         return;
     }
@@ -2470,11 +2524,13 @@ void JapaneseComposer::cycle(int direction) {
     s.selected = (s.selected + direction + count) % count;
 }
 void JapaneseComposer::segment(int direction) {
+    ++edits_;
     if (converting()) {
         active_ = std::clamp(active_ + direction, 0, segment_count() - 1);
     }
 }
 void JapaneseComposer::resize(int direction) {
+    ++edits_;
     if (!converting() || (direction != 1 && direction != -1)) {
         return;
     }
@@ -2535,6 +2591,7 @@ void JapaneseComposer::resize(int direction) {
     segments_ = std::move(resized);
 }
 bool JapaneseComposer::choose(int index) {
+    ++edits_;
     if (!converting() || index < 0 ||
         index >= static_cast<int>(segments_[static_cast<std::size_t>(active_)].candidates.size())) {
         return false;
@@ -2755,6 +2812,7 @@ void JapaneseComposer::prepare_live() {
     live_ = std::move(live);
 }
 bool JapaneseComposer::choose_live(int index) {
+    ++edits_;
     if (!live_current() || index < 0 || index >= static_cast<int>(live_.texts.size())) {
         return false;
     }
@@ -2789,6 +2847,7 @@ bool JapaneseComposer::choose_live(int index) {
     return choose(found != candidates.end() ? static_cast<int>(found - candidates.begin()) : at);
 }
 void JapaneseComposer::script(bool katakana) {
+    ++edits_;
     drain(true);
     unconvert();
     const auto before = in_script(reading_.substr(0, cursor_), katakana);
@@ -2796,6 +2855,7 @@ void JapaneseComposer::script(bool katakana) {
     cursor_ = before.size();
 }
 void JapaneseComposer::unconvert() {
+    ++edits_;
     segments_.clear();
     active_ = 0;
     phrase_.reset();
@@ -2862,12 +2922,14 @@ bool JapaneseComposer::resize_phrase(int direction) {
     return true;
 }
 void JapaneseComposer::cancel() {
+    ++edits_;
     unconvert();
     reading_.clear();
     pending_.clear();
     romaji_ = false;
     cursor_ = 0;
     live_ = {};
+    ++cleared_;
     predicted_.reset();
     emoji_choice_.reset();
 }

@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -127,12 +128,48 @@ class JapaneseWords {
     mutable std::vector<Entry> entries_; // By reading, as the file is.
 };
 // Pure local preedit state. Nothing reaches an application until explicit commit.
+// A copy has the reading, the conversion and the candidates, but not the
+// converter: the conversion worker gives its copies its own (use_converter()).
 class JapaneseComposer {
   public:
     using Factory = std::function<std::unique_ptr<JapaneseConverter>()>;
     // Without a factory, conversion loads Anthy.
     explicit JapaneseComposer(Factory factory = {});
     ~JapaneseComposer();
+    // The keyboard's composer converts nothing itself: a step that would
+    // call the converter throws Deferred, and the keyboard takes it to the
+    // conversion worker, running it on a copy of the composer as it was
+    // before the step (adopt()).
+    struct Deferred : std::runtime_error {
+        Deferred() : std::runtime_error("Conversion runs on the conversion worker") {}
+    };
+    void defer_conversion() { deferred_ = true; }
+    // The converter this copy converts with, which the worker owns; with
+    // none, the copy converts nothing, as the keyboard's composer.
+    void use_converter(JapaneseConverter* converter) {
+        converter_.borrowed = converter;
+        deferred_ = converter == nullptr;
+    }
+    // What the converter last converted, as fresh() and resize() leave it,
+    // which resizing and learning continue from. The worker's is the true
+    // one: it gives it to every copy it converts and takes it back with
+    // the answer, and the keyboard's composer keeps a copy.
+    struct Record;
+    Record record() const;
+    void set_record(const Record& record);
+    // Makes the converter's last conversion this record's again, for a
+    // converter that converted another reading since: converted again, as
+    // it was before a resize. False when it was resized, which converting
+    // again can't restore.
+    bool reconvert();
+    // Takes the answer of a copy the worker ran a step on, keeping this
+    // composer's converter and lists. adopt() takes all of it, for a step
+    // while this one stayed as it was (edits()); adopt_live() its live
+    // candidates, unless they were cleared since, and its record.
+    void adopt(JapaneseComposer done);
+    void adopt_live(const JapaneseComposer& done);
+    // Counts the steps that change the reading or conversion.
+    std::uint64_t edits() const { return edits_; }
     void roman(char key);
     void kana(const std::string& text);
     // Changes the last kana: ゛ voices it, ゜ makes it semi-voiced, 小 makes it
@@ -168,7 +205,10 @@ class JapaneseComposer {
     bool live_current() const;
     // Whether the last conversion, for the live candidates or 変換, came
     // from the converter's fallback (JapaneseConverter::fell_back()).
-    bool fell_back() const { return converter_ && converter_->fell_back(); }
+    bool fell_back() const {
+        const auto* converter = converter_.get();
+        return converter ? converter->fell_back() : fell_back_;
+    }
     // Picks a live candidate of the current list. True when the phrase is
     // ready to commit; a first segment's candidate of a longer phrase instead
     // starts conversion at the second segment.
@@ -250,8 +290,36 @@ class JapaneseComposer {
         std::vector<std::string> texts;
         std::vector<std::pair<Source, int>> sources;
     };
+    // The converter: made by the factory on first need, or the worker's
+    // (use_converter()). A copy of the composer starts without either, so
+    // copies never share one; a move takes it along.
+    struct ConverterSlot {
+        std::unique_ptr<JapaneseConverter> owned;
+        JapaneseConverter* borrowed{};
+        ConverterSlot() = default;
+        ConverterSlot(const ConverterSlot&) {}
+        ConverterSlot& operator=(const ConverterSlot&) {
+            owned.reset();
+            borrowed = nullptr;
+            return *this;
+        }
+        ConverterSlot(ConverterSlot&&) noexcept = default;
+        ConverterSlot& operator=(ConverterSlot&&) noexcept = default;
+        JapaneseConverter* get() const { return borrowed ? borrowed : owned.get(); }
+    };
+    // adopt() keeps the converter and factory, deferred_, learning_ and
+    // what the set_*() calls gave, the composer's own, and takes the rest
+    // from the copy: a member of that kind added must be kept there too.
     Factory factory_;
-    std::unique_ptr<JapaneseConverter> converter_;
+    ConverterSlot converter_;
+    bool deferred_{};
+    // The keyboard's composer's copies of the worker's (record()).
+    bool fell_back_{};
+    std::uint64_t conversion_{};
+    std::uint64_t edits_{};
+    // Counts the times live_ was cleared, so that an answer made before
+    // cannot bring its candidates back (adopt_live()).
+    std::uint64_t cleared_{};
     std::vector<Segment> segments_;
     std::string reading_, pending_;
     // Where in reading_ typing goes, a byte offset; pending_ waits there.
@@ -385,5 +453,12 @@ class JapaneseComposer {
     std::vector<Segment> imported(std::vector<JapaneseConverter::Segment> segments) const;
     // The reading as conversion would see it, if no romaji letter still waits.
     bool settled(std::string& reading) const;
+};
+struct JapaneseComposer::Record {
+    std::string converted, converted_as, alternative;
+    Stretch stretch;
+    bool resized{}, fell_back{};
+    // The worker's count of the conversions it made, its last one's.
+    std::uint64_t conversion{};
 };
 } // namespace framekeyboard
