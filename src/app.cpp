@@ -2730,7 +2730,19 @@ void App::refresh_typing() {
     if (output_.enabled() && !(interaction_active_ && typing_ready_ && !target_missing())) {
         // Transport loss ends key ownership, but unsent composition stays for
         // an explicit retry once text delivery is available again.
-        cancel(false);
+        const auto stop = [&] {
+            cancel(false);
+            output_.set_enabled(false);
+        };
+        if (direct_) {
+            // So does the rest of a Type as I speak phrase another window
+            // stopped: its card asks for Enter, which stays local and retries
+            // it once a window has the keys, as when the dashboard is opened
+            // to pick that window. Disabling cancels too, so it goes inside.
+            output_.keeping_retry(stop);
+        } else {
+            stop();
+        }
     }
     // A panel held open for dictation without a Steam field sends nothing:
     // the focused application did not ask for this text.

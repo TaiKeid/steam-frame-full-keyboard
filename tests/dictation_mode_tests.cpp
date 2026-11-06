@@ -1302,6 +1302,44 @@ void direct_tests() {
                 "Enter types it, and the next phrase, into the window focused now");
     }
     {
+        // The dashboard opened to pick the window after a phrase was stopped
+        // midway: Steam's page has the keys meanwhile, so nothing goes out
+        // and Enter stays local; the rest waits for Enter once a window has them.
+        options.dictation_arguments = {"--scenario", "long"};
+        Sink sink;
+        sink.window = 7;
+        App app(options, sink);
+        sink.busy = true; // its first 32 characters are still being typed
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.commit_attempts > 0; });
+        sink.window = 9;
+        sink.acknowledged = 5; // "This " reached the window
+        wait_until(app, [&] { return app.view().status.starts_with("Another window took focus."); });
+        sink.busy = false;
+        const auto card = app.view().status;
+        app.set_dashboard_focus(true);
+        press(app, "Enter");
+        settle(app);
+        require(sink.text.empty() && sink.keys.empty() && app.view().status == card,
+                "while Steam's page has the keys nothing goes out, Enter stays local, the card stays");
+        sink.window = 7;
+        app.set_dashboard_focus(false);
+        settle(app);
+        require(sink.text.empty() && app.view().status == card,
+                "the rest waits for Enter once the window has the keys");
+        press(app, "Enter");
+        settle(app);
+        std::string typed;
+        for (const auto& piece : sink.text) {
+            typed += piece;
+        }
+        require(typed == "phrase is much longer than thirty-two characters, so it goes out in pieces." &&
+                    sink.keys.empty(),
+                "Enter types the rest into the window picked");
+        options.dictation_arguments = {"--scenario", "direct"};
+    }
+    {
         // Live words: typed once two guesses agree, the rest with the final text.
         options.dictation_arguments = {"--scenario", "live"};
         Sink sink;

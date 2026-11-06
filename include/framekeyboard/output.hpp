@@ -3,6 +3,8 @@
 #include "input.hpp"
 #include <cstdint>
 #include <deque>
+#include <tuple>
+#include <utility>
 
 namespace framekeyboard {
 // Where App sends typed text. OutputController delivers it to the target; a
@@ -52,6 +54,19 @@ class OutputController : public KeySink, public TextOutput {
     // in order. cancel() also abandons them, for a target that is gone.
     void release_holds();
     void cancel();
+    // Runs `stop`, which cancels output, keeping a rest kept for an explicit
+    // retry and the status that asks for it: a gate that only pauses output
+    // leaves the retry for once it opens. cancel() itself still drops both.
+    template <class Stop> void keeping_retry(Stop&& stop) {
+        auto kept = std::exchange(retry_, {});
+        auto shown = std::pair{status_, status_changed_};
+        stop();
+        if (!kept.empty()) {
+            retry_ = std::move(kept);
+            failed_ = true;
+            std::tie(status_, status_changed_) = std::move(shown);
+        }
+    }
     bool tick(double now);
     bool retry();
     bool retry_available() const { return !retry_.empty(); }
