@@ -234,7 +234,9 @@ void key_flicks() {
             }
             throw std::runtime_error("no key flick switch");
         };
+        require(app.view().key_flick_hints, "with flicks on, keys show their flick hints");
         toggle();
+        require(!app.view().key_flick_hints, "paused, the hints go, as ㅃ over ㅂ would");
         sink.events.clear();
         const auto [x, y] = centre("Digit6");
         app.down(0, x, y, now);

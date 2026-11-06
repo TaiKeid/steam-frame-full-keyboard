@@ -1152,7 +1152,7 @@ PanelView App::build_view(bool picker) const {
             }
         }
     }
-    v.key_flick_hints = settings_.key_flicks;
+    v.key_flick_hints = settings_.key_flicks && settings_.key_flicks_switch; // not while paused
     if (key_flick_ && key_flick_->shifts && key_flick_->pull > 0) {
         const auto& keys = v.layout->keys;
         if (const auto key = std::find_if(keys.begin(), keys.end(),
