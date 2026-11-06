@@ -15,6 +15,7 @@
 #include <iostream>
 #include <iterator>
 #include <mutex>
+#include <sched.h>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -504,8 +505,49 @@ void make_profile(const Server& state) {
 // when we do. PR_SET_PDEATHSIG follows the thread that forked, not the
 // process: on the keyboard the conversion worker, which ends only after
 // stopping the server.
+//
+// The child shares our memory until it executes, as posix_spawn()'s does,
+// rather than copying it as fork() would: copying the page tables of a
+// process the keyboard's size held up the other threads' page faults, the
+// VR thread's too, for milliseconds. posix_spawn() itself can't set the
+// parent-death signal.
+struct Spawn {
+    char** argv;
+    char** envp;
+    sigset_t mask; // The caller's, which the program gets back.
+};
+// The child's side, on a stack of its own: system calls only, writing
+// nothing of ours.
+int spawn_child(void* data) {
+    const auto& spawn = *static_cast<const Spawn*>(data);
+    // Our handlers would run in our memory: the child's are the defaults.
+    // Signals stay blocked until then.
+    for (int number = 1; number < NSIG; ++number) {
+        struct sigaction action{};
+        if (sigaction(number, nullptr, &action) != 0) {
+            continue;
+        }
+        const bool handled = (action.sa_flags & SA_SIGINFO)
+                                 ? action.sa_sigaction != nullptr
+                                 : action.sa_handler != SIG_DFL && action.sa_handler != SIG_IGN;
+        if (handled) {
+            struct sigaction reset{};
+            reset.sa_handler = SIG_DFL;
+            sigaction(number, &reset, nullptr);
+        }
+    }
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
+    setpgid(0, 0);
+    const int null = open("/dev/null", O_RDWR);
+    dup2(null, 0);
+    dup2(null, 1);
+    dup2(null, 2);
+    sigprocmask(SIG_SETMASK, &spawn.mask, nullptr);
+    execve(spawn.argv[0], spawn.argv, spawn.envp);
+    _exit(127);
+}
 pid_t launch(std::vector<std::string> arguments, std::vector<std::string> variables) {
-    // Built before fork(): the child only calls async-signal-safe functions.
+    // Built before the child starts: it only makes system calls.
     std::vector<char*> argv, envp;
     for (auto& argument : arguments) {
         argv.push_back(argument.data());
@@ -515,17 +557,16 @@ pid_t launch(std::vector<std::string> arguments, std::vector<std::string> variab
         envp.push_back(variable.data());
     }
     envp.push_back(nullptr);
-    const pid_t child = fork();
-    if (child == 0) {
-        prctl(PR_SET_PDEATHSIG, SIGTERM);
-        setpgid(0, 0);
-        const int null = open("/dev/null", O_RDWR);
-        dup2(null, 0);
-        dup2(null, 1);
-        dup2(null, 2);
-        execve(argv[0], argv.data(), envp.data());
-        _exit(127);
-    }
+    Spawn spawn{argv.data(), envp.data(), {}};
+    std::vector<char> stack(64 * 1024);
+    // This thread waits until the child executes (CLONE_VFORK); no signal
+    // reaches a handler of ours in the child before it resets them.
+    sigset_t all;
+    sigfillset(&all);
+    pthread_sigmask(SIG_SETMASK, &all, &spawn.mask);
+    const pid_t child = clone(spawn_child, stack.data() + stack.size(), CLONE_VM | CLONE_VFORK | SIGCHLD,
+                              &spawn);
+    pthread_sigmask(SIG_SETMASK, &spawn.mask, nullptr);
     if (child > 0) {
         setpgid(child, child); // As the child does, whichever runs first.
     }
