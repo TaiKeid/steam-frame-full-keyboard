@@ -387,6 +387,7 @@ void OutputController::fail(std::size_t delivered, bool uncertain) {
     queue_.clear();
     window_ = 0; // A retry is for the window focused then.
     failed_ = true;
+    discarded_ = discarded;
     drop_holds();
     status(retry_.empty() ? "Input not sent. Queued input was discarded."
            : discarded    ? "Text not sent. Check the target, then press Enter to retry. "

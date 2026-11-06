@@ -70,6 +70,9 @@ class OutputController : public KeySink, public TextOutput {
     bool tick(double now);
     bool retry();
     bool retry_available() const { return !retry_.empty(); }
+    // Whether the last failure also dropped queued input that no retry
+    // repeats: a key, or anything queued after one.
+    bool discarded() const { return discarded_; }
     // Whether a sequence of this many entries fits now, so it is never cut short.
     bool can_queue(std::size_t entries) const {
         return enabled_ && !failed_ && queue_.size() + entries <= capacity;
@@ -154,6 +157,7 @@ class OutputController : public KeySink, public TextOutput {
     std::uint32_t window_{};
     bool retry_uncertain_{true}; // Set by every fail(), which also fills the retry.
     bool enabled_{}, failed_{};
+    bool discarded_{}; // by the last fail()
     std::uint64_t failures_{}, completed_{}, queued_{}, cancels_{};
     std::string status_;
     bool status_changed_{};

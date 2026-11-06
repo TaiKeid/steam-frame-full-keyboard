@@ -1377,6 +1377,36 @@ void direct_tests() {
         options.dictation_arguments = {"--scenario", "direct"};
     }
     {
+        // An Enter to send the message, and the next phrase, queued behind
+        // the phrase being typed: the click drops both, and the card says so.
+        Sink sink;
+        sink.window = 7;
+        App app(options, sink);
+        const auto asked = prompts_sent(directory.path).size();
+        sink.busy = true; // "Hello there." is still being typed
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.commit_attempts > 0; });
+        press(app, "Enter");
+        press(app, "Dictation");
+        wait_until(app, [&] {
+            return prompts_sent(directory.path).size() == asked + 2 && !app.view().dictation_recognizing;
+        });
+        sink.window = 9;
+        sink.acknowledged = 6; // "Hello " reached the window
+        wait_until(app, [&] { return app.view().status.starts_with("Another window took focus."); });
+        sink.busy = false;
+        const auto card = app.view().status;
+        require(card.ends_with("Queued actions and later text were discarded."),
+                "the card says the queued Enter and the next phrase were dropped");
+        // Measured larger than the card draws it: it fits with room to spare.
+        require(candidate_text_width(card, app.view().language->font) + 40 <= panel_width - 16,
+                "and it fits on the card");
+        press(app, "Enter");
+        settle(app);
+        require(sink.text == std::vector<std::string>{"there."} && sink.keys.empty(),
+                "Enter types the rest alone");
+    }
+    {
         // Live words: typed once two guesses agree, the rest with the final text.
         options.dictation_arguments = {"--scenario", "live"};
         Sink sink;

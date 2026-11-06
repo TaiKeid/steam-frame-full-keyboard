@@ -38,9 +38,15 @@ constexpr std::string_view window_moved_status = "Another window took focus.";
 // Type as I speak, when another window took focus mid-session (App::direct_window_).
 constexpr const char* window_status =
     "Another window took focus. Click where the rest should go and press Enter, or Esc to drop it.";
+// The same, when the stop also dropped keys or text queued after the rest
+// (OutputController::discarded), in the queue's own words.
+constexpr const char* window_discarded_status =
+    "Another window took focus. Click where the rest should go and press Enter, or Esc to drop it. "
+    "Queued actions and later text were discarded.";
 constexpr const char* window_paste_status =
     "Another window took focus. Nothing was pasted; the text stays here.";
 static_assert(std::string_view(window_status).starts_with(window_moved_status) &&
+              std::string_view(window_discarded_status).starts_with(window_status) &&
               std::string_view(window_paste_status).starts_with(window_moved_status));
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
@@ -6337,8 +6343,9 @@ void App::tick_direct(double now) {
             pause_capture();
             if (window_moved(direct_window_)) {
                 // The queue stopped the phrase for it; Enter retries the rest.
+                // A key or phrase queued behind it is gone, and the card says so.
                 output_.take_status();
-                status_ = window_status;
+                status_ = output_.discarded() ? window_discarded_status : window_status;
                 dirty = true;
             }
         }
