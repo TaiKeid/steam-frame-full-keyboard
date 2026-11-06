@@ -1608,6 +1608,16 @@ void mozc_clear_learning() {
             "Settings says Mozc's weren't cleared, and still offers Clear");
     fs::permissions(mozc.profile, fs::perms::owner_all);
 }
+// In bubblewrap, Mozc can write its profile, which it finds where its home
+// and its config folder are ours, but nothing else in our config folder.
+void mozc_sandbox_profile() {
+    FakeMozc mozc;
+    mozc.start();
+    require(wait_for_mozc(std::chrono::seconds(5)) && fs::exists(mozc.profile / "fake-starts"),
+            "the stand-in starts, with its profile in our config folder");
+    require(access("/usr/bin/bwrap", X_OK) != 0 || !fs::exists(mozc.config / "fake-outside"),
+            "and in bubblewrap it can't write beside it");
+}
 // The object decides a verb Mozc reads otherwise, from its own candidates:
 // 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
 void object_verbs() {
@@ -3811,6 +3821,7 @@ int main() {
         mozc_stuck_server();
         mozc_restarts();
         mozc_clear_learning();
+        mozc_sandbox_profile();
         word_forms();
         emoji_candidates();
         learning_calls();

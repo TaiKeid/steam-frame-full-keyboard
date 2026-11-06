@@ -10,6 +10,7 @@
 //   fake-starts   a line per start: the path it was started as.
 //   fake-creates  a line per session created.
 //   fake-cleared  written when asked to clear what it learned.
+// It also tries to write fake-outside beside its profile, as Mozc mustn't.
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -123,6 +124,7 @@ int main(int, char** argv) {
     }
     const fs::path profile = fs::path(config) / "mozc";
     note(profile / "fake-starts", argv[0]);
+    note(fs::path(config) / "fake-outside", "written"); // Where a sandboxed one can't.
     if (fs::exists(profile / "fake-exit")) {
         return 1;
     }

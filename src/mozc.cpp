@@ -419,10 +419,11 @@ std::string bubblewrap() {
 // which accepts only a server whose /proc/<pid>/exe is the path Mozc was
 // built for, /usr/lib/mozc/mozc_server, and aborts it every three minutes
 // otherwise. In bubblewrap the server is at that path, over a throwaway
-// overlay of /usr/lib, with the system read-only but for its profile; the
+// overlay of /usr/lib, with the system read-only but for its profile,
+// `base`/mozc (make_profile()), not the rest of our config folder; the
 // network stays shared, as its socket is an abstract one.
 std::vector<std::string> sandbox_command(const std::string& bwrap, const Server& state) {
-    const auto profile = state.base.string();
+    const auto profile = (state.base / "mozc").string();
     std::vector<std::string> command{bwrap, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"};
     command.insert(command.end(), {"--bind", profile, profile});
     command.insert(command.end(),
@@ -472,6 +473,13 @@ void write_dictionary(const Server& state) {
     std::error_code ignored;
     std::filesystem::rename(part, file, ignored);
 }
+// The server's profile, which must be there for the sandbox to bind it.
+void make_profile(const Server& state) {
+    std::error_code error;
+    std::filesystem::create_directories(state.base / "mozc", error);
+    std::filesystem::permissions(state.base / "mozc", std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, error);
+}
 // Runs `arguments` with `variables` as its environment and nothing on its
 // standard streams, in a process group of its own (kill_server()), going
 // when we do.
@@ -516,6 +524,7 @@ bool bubblewrap_runs(const Server& state) {
     if (bwrap.empty()) {
         return false;
     }
+    make_profile(state);
     auto arguments = sandbox_command(bwrap, state);
     arguments.back() = "true";
     const pid_t child = launch(std::move(arguments), environment());
@@ -594,10 +603,7 @@ void spawn(Server& state) {
     if (!state.wanted || alive(state) || state.deaths >= tries || Clock::now() < state.next_start) {
         return;
     }
-    std::error_code error;
-    std::filesystem::create_directories(state.base / "mozc", error);
-    std::filesystem::permissions(state.base / "mozc", std::filesystem::perms::owner_all,
-                                 std::filesystem::perm_options::replace, error);
+    make_profile(state);
     write_dictionary(state);
     auto variables = environment();
     std::erase_if(variables, [](const std::string& text) {
