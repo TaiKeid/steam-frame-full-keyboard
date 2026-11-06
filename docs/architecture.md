@@ -103,7 +103,10 @@ sleep and shutdown. `App::release_input()` keeps it, for a change that keeps
 the target: dashboard/passthrough or forwarded pointer switches, moving and
 resizing, Pin, Recenter, Settings, the emoji picker, dictation's editor, the
 swipe switch and profile changes. It releases every hold as if each pointer
-let go, so accepted text and taps still arrive in order.
+let go, so accepted text and taps still arrive in order: a tap or flick that
+types on release types then. A swipe still being drawn and a held ↶ are
+dropped. A press also first types what the other hand holds, before the mic,
+Esc or Enter's retry acts on it.
 Releases do not require queue space. A queued click sends a balanced down/up;
 already-delivered keys release immediately, including while another result waits.
 Repeats begin only after initial delivery completes and never catch up after a stall.

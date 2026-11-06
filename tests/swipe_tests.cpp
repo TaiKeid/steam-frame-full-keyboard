@@ -248,7 +248,11 @@ struct TextSink : KeySink {
         return Delivery::Waiting;
     }
     bool text_available() override { return true; }
+    bool refuse{}; // The target refuses text, as a full field does.
     bool commit_text(const std::string& value) override {
+        if (refuse) {
+            return false;
+        }
         text.push_back(value);
         return true;
     }
@@ -1502,6 +1506,121 @@ while True:
     require(!app.view().dictation->text.empty(), "a swipe types once listening has stopped");
 }
 
+// A tap the other hand holds types before the mic, Type as I speak's Esc or
+// Enter's retry acts on this press, as it was pressed first.
+void held_tap_before_dictation_keys() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    // A stand-in microphone: one phrase as listening starts, then quiet.
+    std::ofstream(directory.path / "helper.py") << R"PY(
+import json, socket
+peer = socket.socket(fileno=3)
+def send(**m):
+    peer.send(json.dumps(m).encode())
+while True:
+    data = peer.recv(65536)
+    if not data:
+        break
+    message = json.loads(data)
+    if message["op"] == "capture" and message["on"]:
+        send(op="phrase", id=1)
+        send(op="ready", id=1)
+    elif message["op"] == "capture":
+        send(op="paused")
+    elif message["op"] == "prompt":
+        send(op="text", id=message["id"], text="Hello there.")
+)PY";
+    for (const auto* order : {"release", "mic", "esc", "retry"}) {
+        const std::string which = order;
+        Settings settings;
+        settings.swipe_typing = true;
+        settings.hide_numpad = true;
+        settings.dictation = "server";
+        settings.dictation_server = "127.0.0.1";
+        settings.dictation_direct = which != "mic";
+        save_settings(directory.path, settings);
+        auto path = std::make_shared<std::vector<int>>();
+        auto calls = std::make_shared<int>(0);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        options.dictation_helper = directory.path / "helper.py";
+        options.swipe_encoder = [path, calls] {
+            auto encoder = std::make_unique<FakeEncoder>();
+            encoder->path = path;
+            encoder->calls = calls;
+            return encoder;
+        };
+        TextSink sink;
+        App app(options, sink);
+        settle(app, [&] { return app.swipe_ready(); });
+        const auto tap = [&](const char* id) {
+            const auto view = app.view();
+            const auto key = std::find_if(view.layout->keys.begin(), view.layout->keys.end(),
+                                          [&](const Key& item) { return item.id == id; });
+            require(key != view.layout->keys.end(), std::string("the key shows: ") + id);
+            const auto r = panel_rect(view, key->bounds);
+            app.down(0, r.x + r.width / 2, r.y + r.height / 2, monotonic_seconds());
+            app.up(0, r.x + r.width / 2, r.y + r.height / 2);
+        };
+        const auto [ox, oy] = key_point(app, "KeyO");
+        if (which == "release") {
+            // A change that keeps the target lets a held tap go as its
+            // release would; one that gives the target up drops it.
+            app.down(1, ox, oy, monotonic_seconds());
+            app.show_settings();
+            app.up(1, ox, oy);
+            require(sink.text == std::vector<std::string>{"o"}, "opening Settings types a held tap");
+            app.back();
+            app.down(1, ox, oy, monotonic_seconds());
+            app.cancel();
+            app.up(1, ox, oy);
+            app.down(1, ox, oy, monotonic_seconds());
+            app.suspend_input();
+            app.up(1, ox, oy);
+            require(sink.text.size() == 1, "a cancel or a sleep drops it");
+            continue;
+        }
+        if (which == "mic") {
+            app.down(1, ox, oy, monotonic_seconds());
+            tap("Dictation");
+            require(sink.text == std::vector<std::string>{"o"} && app.dictation_open(),
+                    "a held tap types into the app before the mic opens the editor");
+            app.up(1, ox, oy);
+            require(app.view().dictation->text.empty(), "and not into the editor");
+            continue;
+        }
+        if (which == "esc") {
+            tap("Dictation");
+            require(app.listening(), "Type as I speak listens");
+            settle(app, [&] { return !sink.text.empty(); });
+            sink.text.clear();
+            app.down(1, ox, oy, monotonic_seconds());
+            tap("Escape");
+            require(sink.text == std::vector<std::string>{"o"} && !app.listening(),
+                    "a held tap types before Esc stops Type as I speak");
+            app.up(1, ox, oy);
+            require(sink.text.size() == 1, "and only once");
+            continue;
+        }
+        sink.refuse = true;
+        tap("Dictation");
+        settle(app, [&] { return app.view().status.find("Enter") != std::string::npos; });
+        require(sink.text.empty() && app.view().status.find("Enter") != std::string::npos,
+                "a refused phrase waits for Enter");
+        sink.refuse = false;
+        app.down(1, ox, oy, monotonic_seconds());
+        tap("Enter");
+        settle(app, [&] { return sink.text.size() >= 2; });
+        app.up(1, ox, oy);
+        require(sink.text == std::vector<std::string>{"o", "Hello there."},
+                "a held tap types before Enter's retried phrase");
+    }
+}
+
 // A launch that cannot type still has the local editor.
 void editor_in_preview() {
     TemporaryDirectory directory;
@@ -1864,6 +1983,7 @@ int main(int argc, char** argv) {
         swiping_over_a_selection();
         swipes_after_listening();
         swipes_wait_for_recognition();
+        held_tap_before_dictation_keys();
         editor_in_preview();
         service_reuse();
         encoder_release();

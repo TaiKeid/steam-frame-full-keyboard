@@ -145,7 +145,8 @@ class App {
     }
     void cancel(bool discard_composition = true);
     // As cancel(), for a change of pointer, view or placement that keeps the
-    // target: presses end, but text and keys already accepted still arrive.
+    // target: presses end, but text and keys already accepted still arrive,
+    // and a held tap or flick types as if let go.
     void release_input(bool discard_composition = true);
     // Sleep ends active delivery and capture, but keeps editor/configuration
     // drafts. No Send or queued key may continue merely because input resumes.
@@ -1039,6 +1040,10 @@ class App {
     bool editor_editable() const;
     std::string test_address() const;
     void end_input(bool discard_composition, bool cancel_delivery);
+    // Types what a pointer other than `keep` holds that types on release: a
+    // kana flick, a key flick, or a tap that never became a swipe. A swipe
+    // stays; so does a held ↶ unless `undo`, as its Backspaces need the reading.
+    void finish_held_taps(std::optional<unsigned> keep, bool undo = true);
     void open_dictation();
     void close_dictation();
     // Rebuilds the mode's keys when the layout or the hidden numpad changed.

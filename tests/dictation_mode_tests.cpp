@@ -489,6 +489,30 @@ void key_flick_tests() {
     require(editor_text(app) == "^" && sink.text.size() == 1,
             "a flick types its Shift character into the editor");
 }
+// A kana the other hand holds as the mic opens the editor joins the reading,
+// which goes into the app first.
+void held_kana_mic_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.models_dir = directory.path / "models";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    use_fake_helper(options, directory.path, "silent");
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")", "ja-flick",
+                 "ja-flick-12");
+    Sink sink;
+    App app(options, sink);
+    press(app, "Flick-ka");
+    const auto [ax, ay] = key_center(app, "Flick-a");
+    app.down(1, ax, ay, clock);
+    press(app, "Dictation");
+    app.up(1, ax, ay);
+    require(app.dictation_open() && sink.text == std::vector<std::string>{"かあ"} &&
+                editor_text(app).empty(),
+            "the held kana joins the reading, which types into the app before the mic opens the editor");
+}
 void mode_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -3705,6 +3729,7 @@ int main() {
         layout_tests();
         mode_tests();
         key_flick_tests();
+        held_kana_mic_tests();
         modal_repeat_tests();
         send_tests();
         suspend_input_tests();

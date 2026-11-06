@@ -1542,11 +1542,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     if (sink_on() && !host_.context) {
         return false; // the sink types only into a field the shell named
     }
-    if (key_flick_ && key_flick_->pointer != pointer) {
-        // A character the other hand holds types first, before anything this
-        // press opens or sends, such as dictation or a retried phrase.
-        finish_key_flick();
-    }
+    // Taps and flicks type on release, so the other hand often presses
+    // before this one lets go. A character it holds types first, in press
+    // order, before anything this press opens or sends, such as dictation or
+    // a retried phrase.
+    finish_held_taps(pointer);
     if (direct_active() && key->action_kind == ActionKind::Key && key->action == "Escape") {
         // Esc stops Type as I speak, dropping what is not yet typed, and
         // is not sent.
@@ -1575,16 +1575,6 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         dictation_key_pointer_ = pointer;
         dirty = true;
         return true;
-    }
-    // Taps and flicks type on release, so the other hand often presses
-    // before this one lets go. Type the held one first to keep press order.
-    if (flick_track_ && flick_track_->pointer != pointer) {
-        finish_flick();
-    }
-    if (swipe_track_ && swipe_track_->pointer != pointer && !swipe_track_->swiping) {
-        const auto track = std::move(*swipe_track_);
-        swipe_track_.reset();
-        type_swipe_tap(track);
     }
     if (key->action_kind == ActionKind::Flick) {
         return !v.disabled_keys.contains(key->id) && flick_down(pointer, *key, x, y, now);
@@ -1902,7 +1892,26 @@ void App::cancel(bool discard_composition) {
 void App::release_input(bool discard_composition) {
     end_input(discard_composition, false);
 }
+void App::finish_held_taps(std::optional<unsigned> keep, bool undo) {
+    if (key_flick_ && key_flick_->pointer != keep) {
+        finish_key_flick();
+    }
+    if (flick_track_ && flick_track_->pointer != keep &&
+        (undo || flick_track_->slot != flick_undo_slot)) {
+        finish_flick();
+    }
+    if (swipe_track_ && swipe_track_->pointer != keep && !swipe_track_->swiping) {
+        const auto track = std::move(*swipe_track_);
+        swipe_track_.reset();
+        type_swipe_tap(track);
+    }
+}
 void App::end_input(bool discard_composition, bool cancel_delivery) {
+    if (!cancel_delivery) {
+        // The target stays, so a held tap or flick types as if let go, in
+        // order. ↶ is dropped: its Backspaces could outlive the reading.
+        finish_held_taps(std::nullopt, false);
+    }
     settings_ui_.cancel();
     if (languages_) {
         languages_->drag.reset();
@@ -4916,6 +4925,7 @@ void App::open_emoji() {
     // A swiped word or composition still in progress goes to the target
     // first; if it can't, the picker stays closed rather than losing it.
     finish_swipe(true);
+    finish_held_taps(std::nullopt, false); // a held kana joins the reading
     try {
         commit_japanese();
         commit_cjk();
@@ -5139,7 +5149,9 @@ void App::open_dictation() {
         return;
     }
     // A reading in progress goes to the target first, as before any other
-    // key; one that cannot stays, and the mode does not open.
+    // key, with a kana still held; one that cannot stays, and the mode does
+    // not open.
+    finish_held_taps(std::nullopt, false);
     if (!commit_composition()) {
         return;
     }
@@ -5184,11 +5196,12 @@ void App::close_dictation() {
     confirm_discard_ = false;
     notice_.clear();
     notice_error_ = false;
+    // Held editor keys must not turn into presses on the keyboard's keys, and
+    // a held tap types into the editor, not the app. The text stays in memory
+    // until the mode opens again.
+    release_input();
     dictation_open_ = false;
     text_output_ = options_.text_output ? options_.text_output : &output_;
-    // Held editor keys must not turn into presses on the keyboard's keys. The
-    // text stays in memory until the mode opens again.
-    release_input();
     dirty = true;
 }
 
