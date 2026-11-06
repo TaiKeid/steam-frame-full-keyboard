@@ -1673,6 +1673,8 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
             return false; // Failed commit must not lose text or change the target.
         }
+        // This key follows the phrase, so nothing offered after it applies.
+        follow_up_.reset();
         if (!output_.admit(!local || sends_text, now)) {
             update_output_status();
             return false; // The preedit commit may have filled the final queue slot.
@@ -1866,7 +1868,11 @@ void App::cancel_pointer(unsigned pointer) {
     swipe_detached_ = swipe_waiting_;
     settings_ui_.cancel_pointer(pointer);
     candidates_.cancel_pointer(pointer);
-    reopen_.reset(); // The laser may click into the field next.
+    // The laser may click into the field next, moving the cursor: ↶, what
+    // may follow the phrase and the next phrase's pair all end.
+    reopen_.reset();
+    follow_up_.reset();
+    last_commit_.reset();
     if (languages_ && languages_->drag && languages_->drag->pointer == pointer) {
         languages_->drag.reset();
     }
@@ -1920,6 +1926,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     candidates_.cancel();
     reopen_.reset();
     follow_up_.reset();
+    last_commit_.reset(); // a pair is learned within one field session
     // Backspaces still being delivered come back as the reading, unless the
     // composition or the delivery itself is given up.
     if (discard_composition || cancel_delivery) {
@@ -4423,6 +4430,7 @@ void App::finish_key_flick() {
                 if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
                     return;
                 }
+                follow_up_.reset(); // the character follows the phrase
             }
             const auto symbol =
                 track.flicked ? keymap_->symbol(*key, shift, false, keyboard_.num()) : track.symbol;

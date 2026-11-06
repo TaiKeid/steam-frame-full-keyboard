@@ -857,14 +857,16 @@ class App {
     std::optional<Reopen> reopen_;
     // The phrase a Japanese commit typed, while the strip offers what may
     // come next, as a phone does: punctuation (docs/japanese.md,
-    // Prediction). A press anywhere but the candidates, or the keyboard
-    // hiding, ends it; a choice types at once.
+    // Prediction). A press anywhere but the candidates, a key after the
+    // commit, the laser leaving or the keyboard hiding ends it; a choice
+    // types at once.
     std::optional<std::string> follow_up_;
     std::vector<std::string> follow_ups() const;
     void type_follow_up(const std::string& text);
     // Phrases committed straight after one another, offered first after the
     // phrase before them (NextWords), and the last commit with the output's
-    // count right after it: a commit with nothing sent since follows it.
+    // count right after it: a commit with nothing sent since follows it. The
+    // laser leaving or the input ending starts a new run.
     NextWords next_words_;
     struct LastCommit {
         std::string text;

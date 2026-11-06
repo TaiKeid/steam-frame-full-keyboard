@@ -2429,6 +2429,74 @@ void progressive_conversion() {
             "converting again after a resize starts from Anthy's own split");
     composer.cancel();
 }
+// What may follow a phrase ends once the field's cursor may have moved: a key
+// that commits the reading and goes on to the field, or the laser leaving.
+// Phrases are learned to follow one another only within one visit.
+void follow_ups_end_with_the_field() {
+    char directory[] = "/tmp/framekeyboard-follow-XXXXXX";
+    require(mkdtemp(directory), "temporary follow-up profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    const auto chips = [](App& app) {
+        std::vector<std::string> result;
+        if (const auto strip = app.view().candidates) {
+            for (const auto& chip : strip->chips) {
+                result.push_back(chip.text);
+            }
+        }
+        return result;
+    };
+    const std::vector<std::string> marks{"。", "、", "！", "？"};
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    double now = 1;
+    const auto read = [&](const char* key) {
+        click_key(app, key);
+        app.tick(now += .01);
+    };
+    read("KeyA");
+    read("Tab");
+    require(sink.text == std::vector<std::string>{"あ"} && sink.delivery.size() > 1 &&
+                sink.delivery.front() == "commit" && sink.delivery[1] == "key",
+            "Tab commits the reading, then goes to the field");
+    require(chips(app).empty(), "and nothing is offered after the phrase, now behind the cursor");
+    read("KeyI");
+    read("Enter");
+    require(chips(app) == marks, "a commit offers what may follow");
+    app.cancel_pointer(0);
+    app.tick(now += .01);
+    require(chips(app).empty(), "the laser leaving ends the offer");
+    // い, then the laser leaves and う: not learned to follow い.
+    read("KeyU");
+    read("Enter");
+    read("KeyI");
+    read("Enter");
+    require(chips(app) == marks, "a phrase after the laser left isn't learned to follow");
+    // Nor across a hide: お after え.
+    read("KeyE");
+    read("Enter");
+    app.cancel();
+    read("KeyO");
+    read("Enter");
+    read("KeyE");
+    read("Enter");
+    require(chips(app) == marks, "nor one after the keyboard hid");
+    // Straight after one another, え after お is.
+    read("KeyO");
+    read("Enter");
+    require(chips(app).front() == "え", "a phrase straight after another is learned");
+}
 // The band and its candidates, with the fake converter: live candidates after
 // a pause, a tap moving on through the segments, the arrows resizing, a drag
 // scrolling without picking, and the keys keeping their size across A / あ.
@@ -3888,6 +3956,7 @@ int main() {
         jis_symbols();
         flick_width();
         next_words();
+        follow_ups_end_with_the_field();
         candidate_list();
         learning_settings();
         stock_learning_import();
