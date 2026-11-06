@@ -2705,8 +2705,14 @@ void App::take_japanese_answers() {
         case JapaneseWorker::Kind::Learn:
             break;
         case JapaneseWorker::Kind::Live:
-            composition_.adopt_live(std::move(*answer.composer));
-            dirty = true;
+            if (answer.error.empty()) {
+                composition_.adopt_live(std::move(*answer.composer));
+                dirty = true;
+            } else {
+                // A failed conversion brings back no row: its copy holds an
+                // older one. What the converter now holds still counts.
+                composition_.set_record(answer.composer->record());
+            }
             break;
         case JapaneseWorker::Kind::Step:
             if (!japanese_wait_ || japanese_wait_->id != answer.id) {

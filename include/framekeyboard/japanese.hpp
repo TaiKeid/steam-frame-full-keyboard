@@ -167,8 +167,9 @@ class JapaneseComposer {
     bool reconvert();
     // Takes the answer of a copy the worker ran a step on, keeping this
     // composer's converter and lists. adopt() takes all of it, for a step
-    // while this one stayed as it was (edits()); adopt_live() its live
-    // candidates, unless they were cleared since, and its record.
+    // while this one stayed as it was (edits()); adopt_live() its record,
+    // and its live candidates unless they were cleared since or this
+    // composer's are already for the reading as it is.
     void adopt(JapaneseComposer done);
     void adopt_live(JapaneseComposer done);
     // Counts the steps that change the reading or conversion, and the

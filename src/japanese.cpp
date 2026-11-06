@@ -1282,9 +1282,12 @@ void JapaneseComposer::adopt(JapaneseComposer done) {
 }
 void JapaneseComposer::adopt_live(JapaneseComposer done) {
     set_record(done.record());
-    if (done.cleared_ == cleared_) {
-        live_ = std::move(done.live_);
+    // Candidates for the reading as it is stay: an answer for one typed
+    // before it, as after a Backspace, would show a row a kana ahead.
+    if (done.cleared_ != cleared_ || (live_current() && done.live_.reading != live_.reading)) {
+        return;
     }
+    live_ = std::move(done.live_);
 }
 namespace {
 // Particles a word's usual form may come before, kept as typed: いくね as

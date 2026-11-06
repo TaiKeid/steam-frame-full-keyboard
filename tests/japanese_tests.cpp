@@ -1551,6 +1551,9 @@ struct GatedConverter : JapaneseConverter {
         gate->changed.notify_all();
         gate->changed.wait(guard, [&] { return !gate->held; });
         --gate->waiting;
+        if (reading.find("ぬ") != std::string::npos) {
+            throw std::runtime_error("No conversion for ぬ"); // As a failing engine.
+        }
         return {{reading, {"〈" + reading + "〉", reading}}};
     }
     std::vector<Segment> resize(int, int) override { return {}; }
@@ -1742,6 +1745,58 @@ void conversion_off_the_vr_thread() {
             }),
             "then の gets its own row");
     click_key(app, "Backspace");
+    // An answer for a reading typed before the one shown keeps the row
+    // that is for the reading as it is: no flicker a kana ahead.
+    const auto first_chip = [&] {
+        const auto view = app.view();
+        return view.candidates && !view.candidates->chips.empty() ? view.candidates->chips.front().text
+                                                                   : std::string{};
+    };
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    require(until([&] { return first_chip() == "〈か〉"; }), "the row for か");
+    hold();
+    click_key(app, "KeyK");
+    click_key(app, "KeyI");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for かき is out");
+    click_key(app, "Backspace");
+    require(preedit() == "か" && first_chip() == "〈か〉", "back to か, whose row is current");
+    {
+        std::size_t conversions = 0;
+        {
+            std::lock_guard guard(gate.lock);
+            conversions = gate.threads.size();
+        }
+        release();
+        bool ahead = false;
+        until([&] {
+            ahead |= first_chip() == "〈かき〉";
+            return false; // Every answer in, each frame watched.
+        });
+        std::lock_guard guard(gate.lock);
+        require(!ahead && first_chip() == "〈か〉" && gate.threads.size() == conversions,
+                "the late answer for かき never replaces it, nor makes か convert again");
+    }
+    click_key(app, "Backspace");
+    // A failed live answer brings back no older row.
+    click_key(app, "KeyN");
+    click_key(app, "KeyA");
+    require(until([&] { return first_chip() == "〈な〉"; }), "the row for な");
+    hold();
+    click_key(app, "KeyM");
+    click_key(app, "KeyA");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for なま is out");
+    click_key(app, "KeyN");
+    click_key(app, "KeyU");
+    app.tick(now += .01); // なまぬ waits behind it, and fails.
+    release();
+    until([] { return false; });
+    require(preedit() == "なまぬ" && first_chip() == "〈なま〉", "the row stays the last that converted");
+    for (int i = 0; i < 3; ++i) {
+        click_key(app, "Backspace");
+    }
     // A reading given up meanwhile takes what waited with it.
     hold();
     click_key(app, "KeyN");
