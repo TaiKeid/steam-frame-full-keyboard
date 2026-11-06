@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -82,9 +83,13 @@ void set_anthy_dictionary(const std::filesystem::path& dictionary);
 std::string kana_in_script(const std::string& text, bool katakana);
 // The common words a partly typed reading completes to (japanese/words.tsv;
 // docs/japanese.md, Prediction), read on first use. An empty path has none.
+// The conversion worker and the VR thread both read it: it is read in once,
+// and only read after that.
 class JapaneseWords {
   public:
     explicit JapaneseWords(std::filesystem::path file = {}) : file_(std::move(file)) {}
+    // Reads the list in now, as the conversion worker does ahead of need.
+    void preload() const { load(); }
     // Up to `most` words whose reading begins with `reading` and is longer,
     // commonest first, never one turning its last kana into another sound
     // with a small kana (きみょう for きみ). `first` says whether they come
@@ -114,8 +119,10 @@ class JapaneseWords {
         std::uint16_t reading_size{}, word_size{}, cost{};
     };
     void load() const;
+    void read() const;
     std::filesystem::path file_;
-    mutable bool loaded_{};
+    // Movable, as App assigns its lists; a copy would read the file again.
+    std::unique_ptr<std::once_flag> loaded_ = std::make_unique<std::once_flag>();
     mutable std::string text_;
     mutable std::vector<Entry> entries_; // By reading, as the file is.
 };

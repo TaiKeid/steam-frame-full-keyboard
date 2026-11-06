@@ -2942,10 +2942,11 @@ int JapaneseComposer::selected() const {
     return converting() ? segments_[static_cast<std::size_t>(active_)].selected : 0;
 }
 void JapaneseWords::load() const {
-    if (loaded_) {
-        return;
-    }
-    loaded_ = true;
+    // Whichever thread asks first reads it; another asking meanwhile waits
+    // for that read, no longer than reading it itself would take.
+    std::call_once(*loaded_, [this] { read(); });
+}
+void JapaneseWords::read() const {
     if (file_.empty()) {
         return;
     }
