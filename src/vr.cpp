@@ -27,6 +27,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <sstream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -309,9 +310,13 @@ struct FrameTrace {
         last = at;
         ++frames;
         if (at - started >= std::chrono::seconds(1)) {
-            std::cout << "frame-trace frames=" << frames << " longest="
-                      << std::chrono::duration<double, std::milli>(longest).count()
-                      << "ms late=" << late << " missed=" << missed << std::endl;
+            // One write, so the worker's conversion-trace lines never land
+            // inside this one.
+            std::ostringstream line;
+            line << "frame-trace frames=" << frames << " longest="
+                 << std::chrono::duration<double, std::milli>(longest).count() << "ms late=" << late
+                 << " missed=" << missed << '\n';
+            std::cout << line.str() << std::flush;
             *this = {};
             started = last = at;
         }
