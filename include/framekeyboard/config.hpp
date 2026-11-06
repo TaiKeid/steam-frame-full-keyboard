@@ -60,6 +60,10 @@ struct Language {
     std::string input_method{"xkb"};
     std::map<std::string, std::string> kana, kana_shift;
     std::map<std::string, std::string> composition_keys, composition_shift;
+    // The key that switches composition to the layout's own letters and
+    // back, as Korean's 한/영 does in right Alt's place; its legend comes
+    // from overrides. Empty for none.
+    std::string latin_toggle;
     std::map<std::string, std::string> overrides;
     // Flick slot -> kana. A flick language needs every slot and a flick layout
     // serves only flick languages.

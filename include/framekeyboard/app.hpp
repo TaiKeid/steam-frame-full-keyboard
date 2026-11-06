@@ -584,6 +584,10 @@ class App {
     bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
     // Two-set Hangul letters, which send each syllable as the next one starts.
     bool hangul_key(const Key& key, const std::set<int>& mods);
+    bool latin_toggle(const Key& key) const;
+    // What a local IME press tells the keyboard state: 한/영 stands in right
+    // Alt's place but must not latch as a modifier.
+    int ime_press_code(const Key& key) const;
     void commit_cjk();
     void send_finished_syllables();
     void choose_cjk(int index);
@@ -981,6 +985,9 @@ class App {
     JapaneseWords japanese_preferred_;
     NextWords japanese_choices_;
     std::unique_ptr<CjkComposer> cjk_;
+    // 한/영 switched two-set Korean to the layout's own letters. Never saved,
+    // and a change of language or layout returns it to Hangul.
+    bool hangul_latin_{};
     bool japanese_latin_{};
     bool flick_digits_{}; // With japanese_latin_: the flick digits.
     // The flick kana are katakana (the script key, Flick Katakana (JP)).

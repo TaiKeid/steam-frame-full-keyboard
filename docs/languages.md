@@ -208,9 +208,15 @@ the shifted vowels. Caps Lock does not double jamo. Backspace takes back one jam
 of the open syllable (값 → 갑), then deletes whole syllables in the field as the
 app does. Enter types the open syllable and sends Enter in the same press. Esc
 goes to the app at once and drops the open syllable. Space and other ordinary
-keys type it before sending the key. Chinese and Korean type their own script only, as their keyboards do; for
-English, add an English layout as an additional language and switch with the
-language button. Punctuation uses ordinary US keys.
+keys type it before sending the key. The 한/영 key, in right Alt's place as on a
+Korean PC keyboard, types the open syllable and switches the keys between Hangul
+and the layout's Latin letters, whether or not English is added; the language
+button still shows 한국어 and moves through your languages. Korean starts in
+Hangul, and returns to it when you change language or layout. Punctuation uses
+ordinary US keys.
+
+Chinese types its own script only, as its keyboards do; for English, add an
+English layout as an additional language and switch with the language button.
 
 Pinyin and Zhuyin keep a bounded preedit. Commit before the
 30-input-character limit; Cangjie and Quick use the retained-text bound above.

@@ -362,6 +362,24 @@ void profile_tests(const fk::Profiles& defaults) {
             "reject missing language key");
     require(german.legend(key(layout, "KeyQ"), {KEY_RIGHTALT}, false, false) == "@",
             "German AltGr legend");
+    // Korean's 한/영 stands in right Alt's place; only two-set Korean, with a
+    // real key, has a Latin toggle.
+    fk::LanguageMap korean(defaults.languages.at("ko-kr"));
+    require(defaults.languages.at("ko-kr").latin_toggle == "AltRight" &&
+                korean.legend(key(layout, "AltRight"), {}, false, false) == "한/영",
+            "Korean right Alt is 한/영");
+    const auto toggle_profile = [](const std::string& method, const std::string& toggle) {
+        return R"({"schema_version":1,"id":"xx","name":"X","locale":"ko-KR","input_method":")" + method +
+               R"(","latin_toggle":")" + toggle +
+               R"(","keymap":{"rules":"evdev","model":"pc105","layout":"us","variant":"","options":[]},)"
+               R"("legends":{"source":"keymap","overrides":{}},"font_families":["sans-serif"]})";
+    };
+    require(fk::parse_language(toggle_profile("korean-2set", "AltRight")).latin_toggle == "AltRight",
+            "two-set Korean takes a Latin toggle");
+    rejects([&] { fk::parse_language(toggle_profile("xkb", "AltRight")); },
+            "only two-set Korean has a Latin toggle");
+    rejects([&] { fk::parse_language(toggle_profile("korean-2set", "Hangul")); },
+            "the Latin toggle names a key action");
 }
 // The key whose area holds a point, or "" between blocks. Throws where two do.
 std::string area_key(const fk::Layout& layout, const std::vector<fk::KeyArea>& areas, double x,

@@ -353,6 +353,10 @@ Language parse_language(const std::string& json) {
     read_kana("kana_shift", l.kana_shift);
     read_kana("composition_keys", l.composition_keys);
     read_kana("composition_shift", l.composition_shift);
+    l.latin_toggle = text(o, "latin_toggle", "", true);
+    if (!l.latin_toggle.empty() && (l.input_method != "korean-2set" || !key_code(l.latin_toggle))) {
+        throw std::runtime_error("latin_toggle needs two-set Korean and a key action name");
+    }
     if (l.input_method == "japanese-kana" && l.kana.empty()) {
         throw std::runtime_error("direct Kana needs a kana mapping");
     }

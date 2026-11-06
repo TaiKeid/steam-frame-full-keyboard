@@ -1138,6 +1138,8 @@ PanelView App::build_view(bool picker) const {
     if (cjk_) {
         v.composing = true;
         v.preedit = cjk_->preedit();
+    }
+    if (cjk_ && !hangul_latin_) {
         const auto mods = keyboard_.modifiers();
         const bool shifted =
             mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
@@ -1787,8 +1789,8 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     const auto symbol = text_local ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
                                    : XKB_KEY_NoSymbol;
     const bool old_num = keyboard_.num();
-    const bool accepted =
-        keyboard_.down(pointer, *key, now, local, local ? 0 : native_code(*key, modifiers));
+    const bool accepted = keyboard_.down(pointer, *key, now, local,
+                                         local ? ime_press_code(*key) : native_code(*key, modifiers));
     if (accepted) {
         try {
             if (retry_text) {
@@ -2374,7 +2376,8 @@ void App::activate(Selection selection, bool keep_reading) {
     japanese_latin_ = false;
     flick_digits_ = false;
     if (selection.layout != settings_.active.layout || selection.language != settings_.active.language) {
-        katakana_ = false; // Each language and layout starts in hiragana.
+        katakana_ = false;     // Each language and layout starts in hiragana,
+        hangul_latin_ = false; // and in Hangul.
     }
     cjk_ = std::move(cjk);
     settings_.active = std::move(selection);
@@ -3531,6 +3534,13 @@ bool App::hangul_key(const Key& key, const std::set<int>& mods) {
     return cjk_ && !cjk_->chinese() && key.action_kind == ActionKind::Key &&
            key.action.starts_with("Key") && key.action.size() == 4 && cjk_key(key, false, mods);
 }
+bool App::latin_toggle(const Key& key) const {
+    const auto& toggle = profiles_.languages.at(settings_.active.language).latin_toggle;
+    return cjk_ && !toggle.empty() && key.action_kind == ActionKind::Key && key.action == toggle;
+}
+int App::ime_press_code(const Key& key) const {
+    return latin_toggle(key) ? KEY_HANGEUL : 0;
+}
 void App::tick_japanese(double now) {
     dirty |= candidates_.tick(now).redraw;
     finish_reopen();
@@ -3816,6 +3826,18 @@ void App::commit_failed() {
 bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     if (!cjk_ || key.action_kind != ActionKind::Key) {
         return false;
+    }
+    if (latin_toggle(key)) {
+        if (execute) {
+            commit_cjk(); // as the language button does
+            if (cjk_->empty()) {
+                hangul_latin_ = !hangul_latin_;
+            }
+        }
+        return true;
+    }
+    if (hangul_latin_) {
+        return false; // The keys type the layout's own letters.
     }
     for (const auto* name :
          {"ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"}) {
@@ -4957,7 +4979,7 @@ bool App::key_flick_shifts(const Key& key) const {
     if (kana_key(key)) {
         return differs(language.kana, language.kana_shift);
     }
-    if (cjk_ && !cjk_->chinese() && language.composition_keys.contains(key.action)) {
+    if (cjk_ && !cjk_->chinese() && !hangul_latin_ && language.composition_keys.contains(key.action)) {
         return differs(language.composition_keys, language.composition_shift); // ㅂ ㅃ
     }
     const std::set<int> shift{key_code("ShiftLeft")};
@@ -4976,9 +4998,10 @@ bool App::key_flick_shifts(const Key& key) const {
 }
 std::string App::key_flick_legend(const Key& key) const {
     const auto& language = profiles_.languages.at(settings_.active.language);
-    const auto& shifted = kana_key(key)              ? language.kana_shift
-                          : cjk_ && !cjk_->chinese() ? language.composition_shift
-                                                     : std::map<std::string, std::string>{};
+    const auto& shifted = kana_key(key) ? language.kana_shift
+                          : cjk_ && !cjk_->chinese() && !hangul_latin_
+                              ? language.composition_shift
+                              : std::map<std::string, std::string>{};
     if (const auto found = shifted.find(key.action); found != shifted.end()) {
         return found->second;
     }
@@ -6103,7 +6126,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     const bool ime = editable && (japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers));
     const bool old_num = keyboard_.num();
     // Every key is local here: it shows as pressed and latches, but sends nothing.
-    if (!keyboard_.down(pointer, key, now, true, 0)) {
+    if (!keyboard_.down(pointer, key, now, true, ime ? ime_press_code(key) : 0)) {
         return false;
     }
     dirty = true;

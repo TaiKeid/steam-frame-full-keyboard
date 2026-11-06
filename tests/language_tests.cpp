@@ -1213,6 +1213,22 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             click(app, "Space");
             require(sink.events == std::vector<std::string>{"한ㄱ", " "} && app.view().preedit.empty(),
                     "the refused syllable goes in with the open one");
+            // 한/영, in right Alt's place, types the open syllable and switches
+            // to the layout's own letters, without latching Alt; again, back.
+            sink.events.clear();
+            click(app, "KeyR");
+            click(app, "AltRight");
+            require(sink.events == std::vector<std::string>{"ㄱ"} && app.view().preedit.empty(),
+                    "한/영 types the open syllable first");
+            click(app, "KeyG");
+            require(sink.events == std::vector<std::string>{"ㄱ", "g"} &&
+                        !app.view().key_labels.contains("KeyG"),
+                    "then the keys type Latin letters, which they show");
+            click(app, "AltRight");
+            click(app, "KeyG");
+            require(app.view().preedit == "ㅎ" && app.view().key_labels.at("KeyG") == "ㅎ",
+                    "and 한/영 again goes back to Hangul");
+            click(app, "Space");
         } else {
             for (const auto* action :
                  {"Comma", "Period", "Digit0", "Digit6", "Digit7", "Digit8", "Digit9"}) {

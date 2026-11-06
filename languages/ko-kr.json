@@ -14,8 +14,11 @@
   },
   "legends": {
     "source": "keymap",
-    "overrides": {}
+    "overrides": {
+      "AltRight": "한/영"
+    }
   },
+  "latin_toggle": "AltRight",
   "font_families": [
     "Noto Sans CJK KR",
     "Noto Sans",
