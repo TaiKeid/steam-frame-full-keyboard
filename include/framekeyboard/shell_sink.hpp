@@ -67,6 +67,9 @@ class ShellRouter : public KeySink {
     bool text_pending() const override { return on_ ? in_flight_.has_value() : inner_.text_pending(); }
     void cancel_text() override;
     std::size_t delivered_characters() const override { return on_ ? 0 : inner_.delivered_characters(); }
+    bool character_in_flight() const override {
+        return on_ ? text_pending() : inner_.character_in_flight();
+    }
     bool output_blocked() const override { return !on_ && inner_.output_blocked(); }
     // A shortcut keeps the keyboard's own key ID; the target app's
     // physical keymap applies only to normal output.

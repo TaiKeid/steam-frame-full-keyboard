@@ -296,14 +296,16 @@ void asynchronous_text() {
     for (int i = 0; i < 5; ++i) {
         text.pump(); // The compositor acknowledges, but our side has not read it.
     }
-    require(text.commits == std::vector<std::string>{"s", "r"},
-            "the next character waits for the previous acknowledgement");
+    require(text.commits == std::vector<std::string>{"s", "r"} && wrapper.character_in_flight(),
+            "the next character waits for the previous acknowledgement, still in flight");
     for (int i = 0; i < 5; ++i) {
         text.pump();
         sink->pump(); // Acknowledged, but still within the gap.
     }
     require(text.commits == std::vector<std::string>{"s", "r"},
             "the next character also waits for the minimum gap");
+    require(wrapper.text_pending() && !wrapper.character_in_flight(),
+            "between characters, none is in flight");
     now += .02;
     server.until([&] {
         text.pump();
@@ -426,8 +428,19 @@ void desktop_entry() {
     sink->pump();
     server.pump();
     require(server.keys.size() == 1, "one key event per gap");
+    // A character is in flight from its first key to its last: あ's 16.
+    require(sink->character_in_flight(), "あ is partway");
+    for (int i = 0; i < 15; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    require(!sink->character_in_flight(), "あ is in and the space not begun: none in flight");
+    now += EiSink::entry_gap;
+    sink->pump();
+    require(sink->character_in_flight(), "the space's key is down");
     sink->send(30, 1);
     finish();
+    require(!sink->character_in_flight(), "a finished entry has none in flight");
     require(sink->commit_text("あ 😀") && !sink->text_pending(), "the same call reports success");
     using Keys = std::vector<std::pair<unsigned, bool>>;
     const auto tap = [](unsigned code) { return Keys{{code, true}, {code, false}}; };
@@ -563,7 +576,8 @@ void desktop_entry() {
         sink->pump();
     }
     server.pump();
-    require(server.keys.empty() && sink->output_blocked(), "Ctrl+V waits for the clipboard");
+    require(server.keys.empty() && sink->output_blocked() && !sink->character_in_flight(),
+            "Ctrl+V waits for the clipboard, so nothing can have arrived");
     clipboard.owned = true;
     for (int i = 0; i < 10; ++i) {
         now += EiSink::entry_gap;
@@ -571,7 +585,8 @@ void desktop_entry() {
     }
     server.until([&] { return server.keys.size() == 4; });
     require(server.keys == Keys{{29, true}, {47, true}, {47, false}, {29, false}}, "then Ctrl+V");
-    require(sink->output_blocked() && !sink->commit_text("😀"), "waiting for an application");
+    require(sink->output_blocked() && !sink->commit_text("😀") && sink->character_in_flight(),
+            "waiting for an application, which may take the text any time");
     ++clipboard.taken;
     sink->pump();
     require(!sink->output_blocked() && sink->commit_text("😀"), "taken: the paste succeeded");

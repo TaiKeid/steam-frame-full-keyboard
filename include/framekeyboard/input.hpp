@@ -50,6 +50,10 @@ class KeySink {
     // acknowledged before it failed, so a retry can skip them. Zero when the
     // commit went out as one request, whose delivery is unknown as a whole.
     virtual std::size_t delivered_characters() const { return 0; }
+    // Whether part of the text commit going out was sent and not yet
+    // acknowledged, so it may have arrived; none is between the characters
+    // of a commit sent one at a time. Asked before a cancel ends the commit.
+    virtual bool character_in_flight() const { return text_pending(); }
     // An outstanding text request can still order native downs after the caller
     // cancels or consumes a timeout. Releases remain allowed through this barrier.
     virtual bool output_blocked() const { return false; }

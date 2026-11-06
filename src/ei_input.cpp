@@ -154,6 +154,25 @@ std::size_t EiSink::delivered_characters() const {
     }
     return last_entry_ ? entry_delivered_ : text_ ? text_->acknowledged() : 0;
 }
+// An entry's character is in flight from its first key to its last, whose
+// press already types it; a paste may come any time after Ctrl+V. A
+// finished entry, or one between characters, has none.
+bool EiSink::character_in_flight() const {
+    if (!entry_) {
+        return text_ && text_->in_flight();
+    }
+    if (!entering()) {
+        return false;
+    }
+    const auto& entry = *entry_;
+    if (entry.write) {
+        return entry.next > entry.paste_at;
+    }
+    // The deletions' taps come before the first character.
+    return entry.next > 2 * entry.deletions &&
+           std::find(entry.character_ends.begin(), entry.character_ends.end(), entry.next) ==
+               entry.character_ends.end();
+}
 // Whole characters count as delivered.
 std::size_t EiSink::entered(const Entry& entry) {
     return static_cast<std::size_t>(std::count_if(entry.character_ends.begin(),

@@ -7066,11 +7066,17 @@ void App::stop_send(bool attempted, bool moved) {
     std::size_t keep = piece.begin, uncertain = attempted ? piece.end : piece.begin;
     if (attempted && piece.kind == SendPiece::Kind::Text) {
         // A text sent one character at a time reports which characters were
-        // acknowledged: only the one that timed out may have arrived.
+        // acknowledged: only one in flight, such as one that timed out, may
+        // have arrived. None is between characters, or before the piece went out.
         const auto rest = output_.retry_text();
-        if (!rest.empty() && rest.size() < piece.text.size() && piece.text.ends_with(rest)) {
+        if (!rest.empty() && piece.text.ends_with(rest)) {
             keep = piece.end - rest.size();
-            uncertain = keep + static_cast<std::size_t>(g_utf8_next_char(rest.c_str()) - rest.c_str());
+            if (!output_.retry_uncertain()) {
+                uncertain = keep;
+            } else if (keep > piece.begin) {
+                uncertain =
+                    keep + static_cast<std::size_t>(g_utf8_next_char(rest.c_str()) - rest.c_str());
+            }
         }
     }
     // The editor keeps what is left, so the queue must not retry it as well.

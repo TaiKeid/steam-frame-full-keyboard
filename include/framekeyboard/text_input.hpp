@@ -28,6 +28,9 @@ class GamescopeText {
     // Characters of the most recent commit that Gamescope acknowledged. Only a
     // per-character commit can end with part of its text acknowledged.
     std::size_t acknowledged() const;
+    // Text was sent and its acknowledgement has not arrived, so it may have
+    // been typed; false between the characters of a per-character commit.
+    bool in_flight() const;
     // Cancellation/timeout cannot undo an already submitted Wayland request.
     // Keep its ordering barrier until the sync arrives, even if the caller stops waiting.
     bool busy() const;

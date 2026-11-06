@@ -76,6 +76,9 @@ struct Sink : KeySink {
     // A busy target holds the text being delivered, so later entries queue.
     bool busy{}, failing{};
     bool text_pending() const override { return busy || failing; }
+    // A busy per-character commit waits to send its next character.
+    bool between_characters{};
+    bool character_in_flight() const override { return text_pending() && !between_characters; }
     bool single_line_target() const override { return single_line; }
     bool steam_field{};
     bool steam_field_target() const override { return steam_field; }
@@ -3421,6 +3424,32 @@ void send_tests() {
                     editor_text(app) == std::string(8, 'a') && app.view().dictation->uncertain == 0 &&
                     app.view().status.starts_with("Another window took focus."),
                 "only the piece not yet sent stays, unmarked");
+    }
+    {
+        // Another window takes focus as Send types a piece one character at
+        // a time. Between two of them, after an acknowledgement and before
+        // the next goes out, none can have arrived, so none is marked; a
+        // character sent and not yet acknowledged is.
+        for (const bool between : {true, false}) {
+            Sink sink;
+            sink.window = 7;
+            sink.busy = true;
+            sink.acknowledged = 5;
+            sink.between_characters = between;
+            App app(options, sink);
+            open_editor(app);
+            type_text(app, std::string(40, 'a'));
+            press(app, "Dictation-send");
+            sink.window = 9;
+            settle(app);
+            const auto view = app.view();
+            require(editor_text(app) == std::string(35, 'a') &&
+                        view.dictation->uncertain == (between ? 0u : 1u) &&
+                        view.status.ends_with(between ? "Send continues."
+                                                      : "the marked start may already have arrived."),
+                    between ? "a stop between characters marks nothing"
+                            : "a stop with a character in flight marks it");
+        }
     }
     {
         // A commit sent one character at a time fails after three of them.

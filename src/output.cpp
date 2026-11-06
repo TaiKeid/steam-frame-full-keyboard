@@ -352,9 +352,10 @@ void OutputController::cancel() {
     drop_holds();
     status("");
 }
-void OutputController::fail(std::size_t delivered) {
+void OutputController::fail(std::size_t delivered, bool uncertain) {
     ++failures_;
     retry_.clear();
+    retry_uncertain_ = uncertain;
     bool boundary = false, discarded = false;
     for (auto& entry : queue_) {
         // A replacement deletes before it inserts, which is not safe to repeat:
@@ -425,7 +426,7 @@ void OutputController::drain(bool fresh_tick) {
         auto entry = queue_.front();
         if (moved && !entry->submitted) {
             target_.cancel_delivery(); // ends a native key waiting for its result
-            fail();
+            fail(0, false);            // no text of it went out
             return;
         }
         if (!entry->started && entry->repeat) {
@@ -455,20 +456,21 @@ void OutputController::drain(bool fresh_tick) {
                 if (target_.text_pending()) {
                     if (moved) {
                         // Still going out: its acknowledged characters arrived,
-                        // the one in flight may have. Read the count before the
-                        // cancel ends it.
+                        // and one in flight may have; between characters, none
+                        // is. Read both before the cancel ends the commit.
                         const auto delivered = target_.delivered_characters();
+                        const bool uncertain = target_.character_in_flight();
                         target_.cancel_delivery();
-                        fail(delivered);
+                        fail(delivered, uncertain);
                         return;
                     }
                     entry->submitted = true;
                     return;
                 }
                 note_text_time(entry->paced, fresh_tick);
-                // A refusal before submission delivered nothing; the target may
+                // A refusal before submission sent nothing; the target may
                 // still report the count of an earlier, finished commit.
-                fail(entry->submitted ? target_.delivered_characters() : 0);
+                fail(entry->submitted ? target_.delivered_characters() : 0, entry->submitted);
                 return;
             }
             note_text_time(entry->paced, fresh_tick);

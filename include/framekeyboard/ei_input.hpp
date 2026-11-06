@@ -31,6 +31,7 @@ class EiSink : public KeySink {
     bool replace_text(std::size_t delete_before, const std::string& text) override;
     bool text_pending() const override { return (text_ && text_->pending()) || entry_; }
     std::size_t delivered_characters() const override;
+    bool character_in_flight() const override;
     bool output_blocked() const override { return (text_ && text_->busy()) || entering(); }
     void cancel_text() override;
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;

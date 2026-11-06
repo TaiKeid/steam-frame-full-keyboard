@@ -18,6 +18,7 @@ struct Transport : KeySink {
     bool refuse{};           // Rejects new text before submitting it, as an unready transport does.
     std::size_t delivered{}; // Characters of a failed commit already acknowledged.
     std::uint32_t window{};  // Gamescope's focused window; 0 names none.
+    bool between{};          // A per-character commit waits to send its next character.
     std::string text;
     void send(int code, int value) override {
         events.push_back(std::to_string(code) + ":" + std::to_string(value));
@@ -70,6 +71,7 @@ struct Transport : KeySink {
     }
     bool text_pending() const override { return pending; }
     std::size_t delivered_characters() const override { return delivered; }
+    bool character_in_flight() const override { return pending && !between; }
     bool output_blocked() const override { return barrier || pending; }
     void cancel_text() override { pending = false; }
     void cancel_delivery() override { pending = native_pending = false; }
@@ -584,6 +586,61 @@ void focus_change_after_delivery() {
                 sink.events == std::vector<std::string>{repeated("a", 32)},
             "only the chunk not yet sent is kept for a retry");
 }
+// Whether the retry's first character may already have arrived. Another
+// window taking focus between the characters of a commit sent one at a
+// time, or before a text went out, leaves none in flight; a character sent
+// and not yet acknowledged, or one that timed out, may have arrived.
+void retry_uncertainty() {
+    for (const bool between : {true, false}) {
+        Transport sink;
+        sink.window = 7;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text("hello"), "a word goes out one character at a time");
+        sink.delivered = 2;
+        sink.between = between;
+        sink.window = 9;
+        output.tick(1);
+        require(output.retry_text() == "llo" && output.retry_uncertain() == !between,
+                between ? "stopped between characters: none may have arrived"
+                        : "stopped with a character in flight: it may have arrived");
+    }
+    {
+        Transport sink;
+        sink.window = 7;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text(repeated("a", 40)), "a 40-character composition is accepted");
+        sink.done = true;
+        sink.window = 9;
+        output.tick(1);
+        require(output.retry_text() == repeated("a", 8) && !output.retry_uncertain(),
+                "a chunk that never went out cannot have arrived");
+    }
+    {
+        Transport sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text("hello"), "a word goes out");
+        sink.delivered = 2;
+        sink.done = true;
+        sink.success = false; // its acknowledgement did not come in time
+        output.tick(1);
+        require(output.retry_text() == "llo" && output.retry_uncertain(),
+                "a character that timed out may still have arrived");
+    }
+    {
+        Transport sink;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text("first") && output.commit_text("second"), "two words queued");
+        sink.done = true;
+        sink.refuse = true;
+        output.tick(1);
+        require(output.retry_text() == "second" && !output.retry_uncertain(),
+                "a word refused before it went out cannot have arrived");
+    }
+}
 void out_of_tick_composition_clock() {
     struct Immediate : KeySink {
         std::vector<std::string> events;
@@ -695,6 +752,7 @@ int main() {
         release_keeps_accepted_output();
         focus_change();
         focus_change_after_delivery();
+        retry_uncertainty();
         out_of_tick_composition_clock();
         cancellation();
         std::cout << "Ordered output, retries, cancellation, bounds and held-key cleanup passed.\n";

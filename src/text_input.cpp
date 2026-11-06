@@ -208,6 +208,10 @@ void GamescopeText::set_character_gap(double seconds) {
 std::size_t GamescopeText::acknowledged() const {
     return state_->acknowledged;
 }
+bool GamescopeText::in_flight() const {
+    // Once ready, every sync follows text sent; ready() ends it on the acknowledgement.
+    return state_->phase == State::Phase::Ready && state_->sync;
+}
 bool GamescopeText::busy() const {
     return state_->phase == State::Phase::Ready && (state_->sync || pending());
 }

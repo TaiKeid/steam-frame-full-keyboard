@@ -92,6 +92,9 @@ class NativeReplacement : public KeySink {
     std::size_t delivered_characters() const override {
         return remote_ ? 0 : local_.delivered_characters();
     }
+    bool character_in_flight() const override {
+        return remote_ ? text_pending() : local_.character_in_flight();
+    }
     void cancel_text() override;
     bool output_blocked() const override { return !remote_ && local_.output_blocked(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {

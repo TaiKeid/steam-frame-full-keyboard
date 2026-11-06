@@ -38,6 +38,10 @@ class OutputController : public KeySink, public TextOutput {
     std::uint64_t queued() const { return queued_; }
     // Counts cancels, each of which drops whatever was still queued.
     std::uint64_t cancels() const { return cancels_; }
+    // Whether the retry's first character may already have arrived: it was
+    // sent when delivery stopped. Not when another window took focus between
+    // the characters of a commit, or before the text went out.
+    bool retry_uncertain() const { return retry_uncertain_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
     void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now);
     bool text_press(unsigned pointer, const std::string& text, double now) override;
@@ -112,8 +116,9 @@ class OutputController : public KeySink, public TextOutput {
     void note_text_time(bool paced, bool fresh_tick);
     void drain(bool fresh_tick = false);
     // `delivered` characters at the start of the front text entry are known
-    // to have reached the target; the retry keeps only the rest.
-    void fail(std::size_t delivered = 0);
+    // to have reached the target; the retry keeps only the rest, whose first
+    // character may have arrived too unless `uncertain` is false.
+    void fail(std::size_t delivered = 0, bool uncertain = true);
     void drop_holds();
     void release_codes(Entry& entry, std::optional<int> only = {});
     void status(std::string message);
@@ -132,6 +137,7 @@ class OutputController : public KeySink, public TextOutput {
     // a click or a closing dashboard can focus mid-run; the rest is kept for
     // a retry, which belongs to the window focused then.
     std::uint32_t window_{};
+    bool retry_uncertain_{true}; // Set by every fail(), which also fills the retry.
     bool enabled_{}, failed_{};
     std::uint64_t failures_{}, completed_{}, queued_{}, cancels_{};
     std::string status_;
