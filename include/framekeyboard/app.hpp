@@ -524,11 +524,12 @@ class App {
     };
     std::optional<JapaneseWait> japanese_wait_;
     struct HeldInput {
-        enum class Kind { Key, Pick, Down, Move, Up, Cancel } kind{};
+        enum class Kind { Key, Pick, Down, Move, Up, Cancel, Control } kind{};
         Key key;
         std::set<int> modifiers;
         int index{};
         std::vector<std::string> row; // A pick's candidates, as tapped.
+        ControlAction control;        // A toolbar button's, as pressed.
         unsigned pointer{};
         double x{}, y{}, now{};
         static HeldInput pointer_event(Kind kind, unsigned pointer, double x = 0, double y = 0,

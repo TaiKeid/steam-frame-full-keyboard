@@ -1797,6 +1797,49 @@ void conversion_off_the_vr_thread() {
     for (int i = 0; i < 3; ++i) {
         click_key(app, "Backspace");
     }
+    // Buttons pressed while input waits go in their turn: Settings after
+    // 変換 and Enter, and Recenter after the next kana, lose nothing.
+    hold();
+    click_key(app, "KeyH");
+    click_key(app, "KeyA");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for は is out");
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    control(app, "settings");
+    require(!app.view().settings && preedit() == "は", "Settings waits behind 変換 and Enter");
+    release();
+    require(until([&] { return app.view().settings; }) && sink.text.back() == "〈は〉",
+            "〈は〉 is committed, then Settings opens");
+    app.back();
+    hold();
+    click_key(app, "KeyH");
+    click_key(app, "KeyE");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for へ is out");
+    click_key(app, "Space");
+    click_key(app, "KeyN");
+    click_key(app, "KeyI");
+    control(app, "recenter");
+    release();
+    require(until([&] { return preedit() == "に"; }) && sink.text.back() == "〈へ〉" && app.take_recenter(),
+            "〈へ〉 is committed, に is typed, then the panel recentres");
+    click_key(app, "Backspace");
+    // Moving the panel meanwhile, which keeps the reading, keeps what waits.
+    hold();
+    click_key(app, "KeyH");
+    click_key(app, "KeyO");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for ほ is out");
+    click_key(app, "Space");
+    click_key(app, "KeyN");
+    click_key(app, "KeyE");
+    app.set_dragging(true);
+    app.set_dragging(false);
+    release();
+    require(until([&] { return preedit() == "ね"; }) && sink.text.back() == "〈ほ〉",
+            "〈ほ〉 is committed and ね typed after a move");
+    click_key(app, "Backspace");
     // A reading given up meanwhile takes what waited with it.
     hold();
     click_key(app, "KeyN");
@@ -1810,7 +1853,7 @@ void conversion_off_the_vr_thread() {
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 4, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == 7, "nothing that waited goes in after a cancel");
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
 // does, in a profile of its own; the files it reads and writes there steer

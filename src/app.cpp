@@ -2857,6 +2857,9 @@ void App::replay_input() {
             case HeldInput::Kind::Cancel:
                 cancel_pointer(input.pointer);
                 break;
+            case HeldInput::Kind::Control:
+                action(input.control);
+                break;
             }
         } catch (const std::exception& error) {
             status_ = error.what();
@@ -2869,18 +2872,17 @@ void App::replay_input() {
     }
 }
 void App::drop_held_input(bool discard_composition) {
-    // Pointer state is reset: their held presses go. So does everything
-    // else waiting with a discarded reading, and what the worker has yet
-    // to start for it.
-    std::erase_if(held_input_, [&](const HeldInput& input) {
-        return discard_composition || (input.kind != HeldInput::Kind::Key &&
-                                       input.kind != HeldInput::Kind::Pick);
-    });
-    held_pointers_.clear();
-    if (discard_composition) {
-        japanese_wait_.reset();
-        japanese_worker_.drop_waiting();
+    // Input ending with the reading kept, as for Recenter or a drag, keeps
+    // what waits too: those presses never reached the keys, and go in
+    // order once the answer is in. A discarded reading takes it all with
+    // it, and what the worker has yet to start for it.
+    if (!discard_composition) {
+        return;
     }
+    held_input_.clear();
+    held_pointers_.clear();
+    japanese_wait_.reset();
+    japanese_worker_.drop_waiting();
 }
 std::vector<std::string> App::japanese_row() const {
     if (composition_.converting()) {
@@ -3886,6 +3888,17 @@ void App::apply_settings() {
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
+    if (japanese_holding() && !replaying_input_) {
+        // A button pressed while Japanese input waits goes in its turn:
+        // the language button or Settings after a 変換 and Enter still
+        // pressed before it, which would otherwise type or drop the reading.
+        HeldInput button;
+        button.kind = HeldInput::Kind::Control;
+        button.control = command;
+        hold_input(std::move(button));
+        dirty = true;
+        return;
+    }
     const auto kind = command.kind;
     // A / あ and another language commit a reading first. Text already on its
     // way still finishes, and the reading queues behind it, as any commit.
