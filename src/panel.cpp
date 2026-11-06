@@ -115,13 +115,14 @@ constexpr double normal_toolbar_height = 96;
 // phone's, gives the candidates a row of the band.
 constexpr double ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 106,
                  ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
-// The flick band's top, its reading row level with the second row's switches.
-constexpr double flick_band_top = 58;
-// The second toolbar row the reading line replaced: the case of a composing
-// layout, in every view of it, is at most that much shorter.
+// The reading line's top, in the flick band and on full layouts: the second
+// toolbar row's 42-pixel switches centred on its 44 pixels.
+constexpr double reading_line_top = second_row_top - 1;
+// The second toolbar row the reading line replaced: the case of a layout,
+// in every view of it, is at most that much shorter.
 constexpr double second_row_room = 50;
 double case_height(const PanelView& view) {
-    return panel_height - (view.reading_case && !view.settings ? view.reading_room : 0);
+    return view.settings ? settings_height : panel_height - view.reading_room;
 }
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
@@ -1363,16 +1364,6 @@ double unbanded_layout_height(const PanelView& view) {
         case_height(view) - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
     return std::max(view.layout->height, room / placement(view).scale);
 }
-namespace {
-// The reading line's top: the flick band's fixed row, or on full layouts
-// halfway between the toolbar's first row and the keys.
-double reading_line_top(const PanelView& view) {
-    if (two_row_band(view)) {
-        return flick_band_top;
-    }
-    return std::round((54 + placement(view).y - ime_band_height) / 2);
-}
-} // namespace
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick) {
     if (flick) {
         return second_row_room;
@@ -1386,11 +1377,6 @@ double reading_case_room(const Layout& layout, const Theme& theme, bool flick) {
                  (panel_height - normal_toolbar_height - 2 * margin - theme.depth) / layout.height);
     const double needed = ime_toolbar_height + 2 * margin + theme.depth + layout.height * scale;
     return std::clamp(std::floor(panel_height - needed), 0.0, second_row_room);
-}
-double second_row_top(const PanelView& banded) {
-    // Centred on the line: 42-pixel buttons on a 44-pixel line.
-    return banded.reading_case && (banded.ime_band || banded.ime_room) ? reading_line_top(banded) + 1
-                                                                       : 62;
 }
 ImeBand ime_band(const PanelView& view) {
     const auto body = panel_case_bounds(view);
@@ -1423,7 +1409,7 @@ ImeBand ime_band(const PanelView& view) {
             break;
         }
     }
-    const double top = reading_line_top(view), right = body.x + body.width - 20;
+    const double top = reading_line_top, right = body.x + body.width - 20;
     const Rect reading{line, top, right - line, ime_band_height};
     if (two_row_band(view)) {
         const Rect candidates{body.x + 20, top + ime_band_height + ime_band_gap, body.width - 40,
@@ -2585,7 +2571,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
-        previous_->view.reading_case != view.reading_case ||
         previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the focus tooltip.
         (!view.status.empty() && previous_->view.focus_tooltip != view.focus_tooltip) ||
@@ -3243,7 +3228,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
         draw_focus_tooltip(cr, view);
-        if (!view.status.empty() && !view.settings && (!in_editor || view.status_card)) {
+        if (!view.status.empty() && (!in_editor || view.status_card)) {
             draw_status_card(cr, view);
         }
         if (view.ime_band && !view.settings) {
@@ -3511,10 +3496,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
                       true);
             }
-        } else if (!view.status.empty() && view.settings) {
-            const Rect line{30, 574, 1540, 24};
-            case_plate(cr, view, line, view.status, 17, PANGO_ALIGN_CENTER);
-            label(cr, view.status, line, 17, view.language->font, t.legend);
         }
         if (preview_image) {
             // Above the keys, the reading band and the toolbar, which a

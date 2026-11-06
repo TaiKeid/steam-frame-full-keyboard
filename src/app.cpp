@@ -345,7 +345,6 @@ std::vector<Control> App::controls() const {
     geometry.settings = settings_open_;
     geometry.ime_band = ime_band_shown();
     geometry.ime_room = ime_room_kept();
-    geometry.reading_case = reading_case();
     geometry.reading_room = reading_room();
     geometry.ime_more = band_more();
     // The mic key shows as in geometry(): a hidden one could narrow the case
@@ -469,17 +468,9 @@ std::vector<Control> App::controls() const {
     const bool compact = compact_toolbar(geometry);
     const double x = body.x + 18;
     // A composing layout's reading line takes the second row's place, its
-    // switches at the line's left, in every view of the layout: placed as
-    // the page with the line places them.
-    PanelView banded = geometry;
-    banded.layout = &shown_layout();
-    banded.dictation.reset();
-    banded.emoji.reset();
-    banded.ime_band = japanese() || cjk_;
-    banded.ime_room = !banded.ime_band && reading_line_shared();
-    const double second_row = second_row_top(banded);
+    // switches at the line's left, in every view of the layout.
     auto slot = [&](int row_one, int compact_column, int compact_row) {
-        return compact ? std::pair{x + compact_column * 70.0, compact_row ? second_row : 12.0}
+        return compact ? std::pair{x + compact_column * 70.0, compact_row ? second_row_top : 12.0}
                        : std::pair{x + row_one * 70.0, 12.0};
     };
     auto button = [&](int row_one, int compact_column, int compact_row, double width = 60) {
@@ -968,7 +959,6 @@ PanelView App::geometry() const {
     v.composing = (japanese_typing() && (!japanese_latin_ || !composition_.empty())) || cjk_;
     v.ime_band = ime_band_shown();
     v.ime_room = ime_room_kept();
-    v.reading_case = reading_case();
     v.reading_room = reading_room();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
@@ -1079,7 +1069,6 @@ PanelView App::build_view(bool picker) const {
     v.composing = japanese_typing() && (!japanese_latin_ || !composition_.empty());
     v.ime_band = ime_band_shown();
     v.ime_room = ime_room_kept();
-    v.reading_case = reading_case();
     v.reading_room = reading_room();
     v.ime_more = band_more();
     v.flick_latin = flick_mode() == FlickMode::Latin;
@@ -3027,13 +3016,6 @@ void App::learning_restarted() {
 bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
 }
-bool App::reading_line_shared() const {
-    return std::any_of(cycle_entries_.begin(), cycle_entries_.end(), [&](const Selection& entry) {
-        const auto language = profiles_.languages.find(entry.language);
-        return entry.layout == settings_.active.layout && language != profiles_.languages.end() &&
-               language->second.input_method != "xkb";
-    });
-}
 void App::refresh_typing() {
     const bool ready = output_.pump();
     const bool reset = output_.take_input_reset();
@@ -4382,9 +4364,6 @@ bool App::band_more() const {
     return ime_band_shown();
 }
 double App::reading_room() const {
-    if (!reading_case()) {
-        return 0;
-    }
     return reading_case_room(
         profiles_.layouts.at(settings_.active.layout), profiles_.themes.at(settings_.active.theme),
         profiles_.languages.at(settings_.active.language).input_method == "japanese-flick");
@@ -5883,11 +5862,10 @@ void App::refresh_dictation_layout() {
     main.language = &profiles_.languages.at(settings_.active.language);
     main.hide_numpad = numpad_hidden();
     main.dictation_available = true; // The mode shows the mic key.
-    main.reading_case = reading_case();
     main.reading_room = reading_room();
     PanelView banded = main;
     banded.ime_band = japanese() || cjk_;
-    banded.ime_room = !banded.ime_band && reading_line_shared();
+    banded.ime_room = !banded.ime_band;
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
                                          unbanded_layout_height(banded) - main.layout->height);
     ++layouts_rebuilt_;

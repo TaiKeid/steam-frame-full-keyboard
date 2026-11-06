@@ -13,6 +13,9 @@ namespace framekeyboard {
 class EmojiGlyphs;
 constexpr int panel_width = 1600;
 constexpr int panel_height = 600;
+// Settings' case: as tall as a full-size layout's (reading_case_room()), its
+// cards' scrollbar as far above its foot as the cards are from its sides.
+constexpr int settings_height = 588;
 // Transparent space above/below the case lets dropdowns escape its border.
 // Logical UI and placement coordinates still describe the 1600 x 600 case.
 constexpr int popup_margin = 200;
@@ -178,13 +181,13 @@ constexpr Rect address_popup_bounds{300, 36, 1000, 508};
 constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
 // The Additional languages popup covers Settings. One well holds three
 // columns, as the emoji picker's sections share one.
-constexpr Rect languages_popup_bounds{14, 8, 1572, 584};
-constexpr Rect languages_well_bounds{30, 72, 1540, 504};
-constexpr Rect languages_layouts_bounds{38, 116, 270, 452};
-constexpr Rect languages_list_bounds{338, 116, 760, 452};
+constexpr Rect languages_popup_bounds{14, 8, 1572, 572};
+constexpr Rect languages_well_bounds{30, 72, 1540, 492};
+constexpr Rect languages_layouts_bounds{38, 116, 270, 440};
+constexpr Rect languages_list_bounds{338, 116, 760, 440};
 constexpr double languages_list_gap = 8;
 constexpr Rect languages_main_bounds{1130, 116, 424, 56};
-constexpr Rect additional_list_bounds{1130, 226, 424, 342};
+constexpr Rect additional_list_bounds{1130, 226, 424, 330};
 constexpr double languages_row_height = 56, additional_row_height = 62;
 // The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
@@ -218,17 +221,15 @@ struct PanelView {
     // (ime_band() says where). The converting segment is a byte range of
     // `preedit`.
     bool ime_band{};
-    // A language among the user's composes on this layout while the shown
-    // one doesn't: the keys keep the scale and place the reading line gives
-    // them, a compact toolbar's second row where the line would be, so
-    // switching between them moves neither keys nor toolbar.
+    // The shown language doesn't compose (outside the emoji picker and
+    // dictation mode): the keys keep the scale and place the reading line
+    // gives them, so every layout's keys sit where a composing language's
+    // do, and switching between them moves neither keys nor toolbar.
     bool ime_room{};
-    // The layout composes, or shares its layout with a language that does:
-    // in every view of it but Settings (the emoji picker and dictation mode
-    // too) the case lacks the second toolbar row the reading line replaces,
-    // and ends `reading_room` sooner (reading_case_room(), from the main
-    // layout, so the views' own layouts don't change it).
-    bool reading_case{};
+    // In every view but Settings (the emoji picker and dictation mode too)
+    // the case ends `reading_room` sooner: reading_case_room(), from the main
+    // layout, so the views' own layouts don't change it. Every layout's case
+    // ends so, the same distance under its keys.
     double reading_room{};
     // The candidate row ends with ∨, which opens the whole list over the
     // keys, as a phone's does.
@@ -390,14 +391,14 @@ Rect panel_case_bounds(const PanelView& view);
 // main toolbar and swipe suggestions in one row; the zoom and passthrough
 // buttons then form a second row under Settings.
 bool compact_toolbar(const PanelView& view);
-// Where a compact toolbar's second row goes: on a composing layout's reading
-// line, its switches at the line's left, in every view of the layout.
-// `banded` is the layout's view with the band (or its room) shown.
-double second_row_top(const PanelView& banded);
-// How much sooner a composing layout's case ends (PanelView::reading_room).
-// A full layout's keys keep the size they have under the normal toolbar, as
-// in a language without the reading line, so its case loses only the height
-// they leave spare; the flick layout, as short as a phone's, loses the whole
+// A compact toolbar's second row, 8 px under the first, in every layout: on
+// a composing layout it sits on the reading line, its switches at the line's
+// left, in every view of the layout.
+constexpr double second_row_top = 62;
+// How much sooner a layout's case ends (PanelView::reading_room). A full
+// layout's keys keep the size they have under the normal toolbar, so its
+// case loses only the height they leave spare under the reading line's
+// taller one; the flick layout, as short as a phone's, loses the whole
 // second row.
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick);
 // This is the complete hit region, including transparent padding around the line.

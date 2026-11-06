@@ -1922,7 +1922,9 @@ void behavior_settings() {
                 !app.allows_movement(MoveSource::Grip),
             "missing preference defaults to laser movement with grip disabled");
     const auto handle = panel_move_handle_bounds(app.view());
-    require(handle && handle->y > panel_height && handle->x + handle->width / 2 == panel_width / 2,
+    const auto body = panel_case_bounds(app.view());
+    require(handle && handle->y > body.y + body.height &&
+                handle->x + handle->width / 2 == panel_width / 2,
             "default movement handle is centered below the keyboard");
     const int x = static_cast<int>(handle->x + handle->width / 2);
     const int y = static_cast<int>(handle->y + handle->height / 2);
@@ -2182,7 +2184,10 @@ void languages_popup() {
             "a vertical drag scrolls");
     // A row reorders, and dropped outside goes.
     view = app.view();
-    drag(view.languages->additional[5].bounds, list.x + 100, list.y + 5);
+    // The last row shows only in part, and is held by that part.
+    auto last = view.languages->additional[5].bounds;
+    last.height = std::min(last.height, list.y + list.height - last.y);
+    drag(last, list.x + 100, list.y + 5);
     require(additional().front() == "Czech, QWERTZ", "the additional list sorts");
     view = app.view();
     drag(view.languages->additional[0].bounds, 500, 300);

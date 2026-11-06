@@ -30,6 +30,9 @@ void require(bool value, const char* message) {
         throw std::runtime_error(message);
     }
 }
+void require(bool value, const std::string& message) {
+    require(value, message.c_str());
+}
 struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
     std::vector<std::string> text;
@@ -3670,75 +3673,133 @@ void flick_width() {
     require(std::abs(flick.width - romaji.width) < 1.5 && std::abs(flick.x - romaji.x) < 1,
             "the flick case is as wide as a full keyboard's without its numpad");
 }
-// With a composing language among the user's languages on the same layout,
-// every page keeps the scale and place the reading line gives the keys, its
-// line in the second toolbar row's place, so switching to it from English
-// moves nothing; without one, English keeps the whole height. Either way the
-// keys have the same size: the reading line only shortens the case.
+// Every layout keeps the reading line's room, composing or not: its case ends
+// as far under its keys as every other layout's, the flick layout's too; a
+// compact toolbar's second row, or the reading line in its place, sits at the
+// same height; Settings is as tall as a full layout's case; and switching
+// from English to romaji on one layout moves neither keys, case nor toolbar.
 void reading_room() {
-    double pitch = 0; // From Q to W, with English alone.
-    for (const bool shared : {false, true}) {
-        char directory[] = "/tmp/framekeyboard-room-XXXXXX";
-        require(mkdtemp(directory), "temporary room profile");
-        struct Cleanup {
-            fs::path path;
-            ~Cleanup() { fs::remove_all(path); }
-        } cleanup{directory};
-        Settings settings;
-        settings.active = {"en-us-full", "en-us", "graphite"};
-        settings.favorites = {
-            shared ? Favorite{"ja", "Japanese", {"en-us-full", "ja-romaji", "graphite"}}
-                   : Favorite{"de", "German", {"international-full", "de-de", "graphite"}}};
-        // Narrow, so the toolbar has the second row the reading line takes.
-        settings.hide_numpad = true;
-        save_settings(directory, settings);
-        int conversions = 0;
-        Options options;
-        options.wait_for_japanese = true; // Answers as the step that asks.
-        options.config_dir = directory;
-        options.mode = Mode::Vr;
-        options.input = InputBackend::Ei;
-        options.start_enabled = true;
-        options.target_language = "en-us";
-        options.japanese_converter = fake_converter(&conversions);
-        Sink sink;
-        App app(options, sink);
-        const auto english = app.view();
-        const auto q = key_centre(app, "KeyQ");
-        const double q_to_w = key_centre(app, "KeyW").first - q.first;
-        auto bounds_of = [&](const std::string& id) {
-            for (const auto& c : app.view().controls) {
-                if (c.id == id) {
-                    return c.bounds;
+    const std::vector<Selection> selections{
+        {"en-us-full", "en-us", "graphite"},      {"international-full", "fr-fr", "graphite"},
+        {"ja-jis-full", "ja-romaji", "graphite"}, {"en-us-full", "ja-romaji", "graphite"},
+        {"br-abnt2-full", "pt-br", "graphite"},   {"ja-flick-12", "ja-flick", "graphite"}};
+    std::optional<double> foot;     // From the case's foot up to the keys'.
+    std::optional<double> full_top; // The full layouts' keys' top.
+    std::optional<Rect> full_case;  // The full layouts' case, numpad shown.
+    for (const bool narrow : {false, true}) {
+        for (const auto& selection : selections) {
+            char directory[] = "/tmp/framekeyboard-room-XXXXXX";
+            require(mkdtemp(directory), "temporary room profile");
+            struct Cleanup {
+                fs::path path;
+                ~Cleanup() { fs::remove_all(path); }
+            } cleanup{directory};
+            Settings settings;
+            settings.active = selection;
+            settings.hide_numpad = narrow;
+            save_settings(directory, settings);
+            int conversions = 0;
+            Options options;
+            options.wait_for_japanese = true; // Answers as the step that asks.
+            options.config_dir = directory;
+            options.mode = Mode::Vr;
+            options.input = InputBackend::Ei;
+            options.start_enabled = true;
+            options.target_language = "en-us";
+            options.japanese_converter = fake_converter(&conversions);
+            Sink sink;
+            App app(options, sink);
+            const auto view = app.view();
+            const auto body = panel_case_bounds(view);
+            const auto keys = panel_rect(view, {0, 0, view.layout->width, view.layout->height});
+            const double gap = body.y + body.height - (keys.y + keys.height);
+            const auto name = selection.layout + " " + selection.language + (narrow ? " narrow" : "");
+            if (!foot) {
+                foot = gap;
+            }
+            require(std::abs(gap - *foot) < .5, (name + " ends its case as far under the keys").c_str());
+            const bool flick = selection.layout == "ja-flick-12";
+            if (!flick) {
+                if (!full_top) {
+                    full_top = keys.y;
+                }
+                require(std::abs(keys.y - *full_top) < .5,
+                        (name + " puts its keys where the others do").c_str());
+                if (!narrow) {
+                    if (!full_case) {
+                        full_case = body;
+                    }
+                    require(body == *full_case && body.height < panel_height,
+                            name + " has the full layouts' shorter case");
                 }
             }
-            throw std::runtime_error("no " + id + " button");
-        };
-        const auto button = bounds_of("settings");
-        if (!shared) {
-            require(!english.ime_room && !english.ime_band, "English alone keeps the whole height");
-            pitch = q_to_w;
-            continue;
+            if (narrow) {
+                const auto stay = std::find_if(view.controls.begin(), view.controls.end(),
+                                               [](const Control& c) { return c.id == "passthrough"; });
+                require(stay != view.controls.end() && stay->bounds.y == second_row_top,
+                        name + " has the second row at its height");
+            }
+            if (view.ime_band) {
+                require(ime_band(view).reading.y + 1 == second_row_top,
+                        name + " has its reading line in the second row's place");
+            }
+            if (!flick && !narrow) {
+                control(app, "settings");
+                require(app.view().settings && panel_case_bounds(app.view()).height == settings_height &&
+                            settings_height == full_case->height,
+                        name + " opens Settings as tall as its case");
+            }
         }
-        require(english.ime_room && !english.ime_band && english.reading_case,
-                "English keeps the reading line's scale");
-        require(q_to_w == pitch, "the reading line's room keeps the keys at their size");
-        const auto stay = bounds_of("passthrough");
-        control(app, "language-cycle");
-        require(app.selection().language == "ja-romaji" && app.view().ime_band,
-                "the language button switches to romaji");
-        const auto romaji = panel_case_bounds(app.view());
-        const auto line = ime_band(app.view()).reading;
-        require(key_centre(app, "KeyQ") == q && bounds_of("settings") == button &&
-                    bounds_of("passthrough") == stay && romaji == panel_case_bounds(english) &&
-                    romaji.height < panel_height,
-                "switching to romaji moves neither keys, case nor toolbar, in a case without "
-                "the second toolbar row");
-        require(line.x >= stay.x + stay.width + 10 && stay.y == line.y + 1 && stay.y > 54,
-                "the reading line takes the second row's place, its switch at the line's left");
-        control(app, "language-cycle");
-        require(key_centre(app, "KeyQ") == q, "and back again");
     }
+    // English and romaji on one layout: the keys keep their size and place.
+    char directory[] = "/tmp/framekeyboard-room-XXXXXX";
+    require(mkdtemp(directory), "temporary room profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Settings settings;
+    settings.active = {"en-us-full", "en-us", "graphite"};
+    settings.favorites = {Favorite{"ja", "Japanese", {"en-us-full", "ja-romaji", "graphite"}}};
+    // Narrow, so the toolbar has the second row the reading line takes.
+    settings.hide_numpad = true;
+    save_settings(directory, settings);
+    int conversions = 0;
+    Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    const auto english = app.view();
+    const auto q = key_centre(app, "KeyQ");
+    auto bounds_of = [&](const std::string& id) {
+        for (const auto& c : app.view().controls) {
+            if (c.id == id) {
+                return c.bounds;
+            }
+        }
+        throw std::runtime_error("no " + id + " button");
+    };
+    const auto button = bounds_of("settings");
+    require(english.ime_room && !english.ime_band, "English keeps the reading line's scale");
+    const auto stay = bounds_of("passthrough");
+    control(app, "language-cycle");
+    require(app.selection().language == "ja-romaji" && app.view().ime_band,
+            "the language button switches to romaji");
+    const auto romaji = panel_case_bounds(app.view());
+    const auto line = ime_band(app.view()).reading;
+    require(key_centre(app, "KeyQ") == q && bounds_of("settings") == button &&
+                bounds_of("passthrough") == stay && romaji == panel_case_bounds(english),
+            "switching to romaji moves neither keys, case nor toolbar");
+    require(line.x >= stay.x + stay.width + 10 && stay.y == line.y + 1,
+            "the reading line takes the second row's place, its switch at the line's left");
+    control(app, "language-cycle");
+    require(key_centre(app, "KeyQ") == q, "and back again");
 }
 // The language button types a reading as it stands before switching, as
 // 半/全 does; a reading the target refuses keeps its language.
