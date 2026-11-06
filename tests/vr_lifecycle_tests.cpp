@@ -645,6 +645,34 @@ void a_hidden_focused_window_is_flagged() {
     u.update({editor, {}, {265}});
     require(!u.hidden(), "the learned window in sight");
 
+    // Two windows of one editor can carry the same title, such as two empty
+    // documents, and Gamescope names their overlays alike. The dashboard
+    // shows one at a time; the other's overlay is hidden behind it.
+    constexpr std::uint32_t first = 0x4400007, second = 0x4600007;
+    for (const bool seen : {true, false}) {
+        FocusVisibility t;
+        t.update({first, {}, {1}, {}, 1, "Notes — Editor", 1, .5});
+        if (seen) {
+            // Clicks between them: each title is known with its window.
+            t.update({second, {}, {2}, {}, {}, "Untitled — Editor", 2, 1.5});
+            t.update({first, {}, {1}, {}, {}, "Notes — Editor", 3, 2.5});
+        }
+        require(!t.hidden(), "the clicked window is in sight");
+        // The first window's text is deleted: its title becomes the second's.
+        // Names read before Gamescope renamed its overlay list that title for
+        // the second window's overlay alone: just before, or, with a slow
+        // rename, after the wait.
+        t.update({first, {}, {1}, {}, 2, "Untitled — Editor", 4, seen ? 4.5 : 3.5});
+        require(!t.hidden(), seen ? "a title another window has names neither window's overlay"
+                                  : "a name read before the overlay was renamed teaches nothing");
+        // Renamed, both overlays have the title: the name matches none.
+        t.update({first, {}, {1}, {}, {}, "Untitled — Editor", 4.6, 4.5});
+        require(!t.hidden(), "the window keeps the link it had");
+        t.update({first, {}, {1}, {}, 1, "Notes again — Editor", 6, 5.5});
+        t.update({first, {}, {1}, {}, 1, "Notes again — Editor", 7, 6.5});
+        require(!t.hidden(), "a title of its own, once its overlay has it, names it again");
+    }
+
     Headset h(false);
     h.request(70, false);
     h.display();

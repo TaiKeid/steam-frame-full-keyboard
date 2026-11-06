@@ -112,6 +112,7 @@ class WindowOverlays {
     std::vector<std::uint32_t> visible(double now) {
         if (now >= next_scan_) {
             scan();
+            names_read_ = now;
             next_scan_ = now + 1;
         }
         std::vector<std::uint32_t> result;
@@ -226,6 +227,8 @@ class WindowOverlays {
     std::map<std::uint32_t, std::string> names_;
 
   public:
+    // When named() last read the overlay names; -1 before the first scan.
+    double names_read() const { return names_read_; }
     // The one window overlay named `title`, as of the last scan; none when
     // several share it.
     std::optional<std::uint32_t> named(const std::string& title) const {
@@ -242,7 +245,7 @@ class WindowOverlays {
     }
     std::map<std::uint32_t, vr::VROverlayHandle_t> known_;
     std::uint32_t sweep_{};
-    double next_scan_{};
+    double next_scan_{}, names_read_{-1};
     bool started_{};
 };
 // Debugging: the status line shows where typing goes, and which window had
@@ -350,7 +353,10 @@ struct HiddenFocusCue {
         }
         const auto window = focus->window();
         FocusVisibility::Sample sample{window.id, {}, overlays.visible(now)};
-        sample.named = overlays.named(focus->title());
+        sample.title = focus->title();
+        sample.named = overlays.named(sample.title);
+        sample.now = now;
+        sample.names_read = overlays.names_read();
         // Read only when focus just moved: the click that moved it is under the laser.
         if (window.id != last_window && sample.visible.size() > 1) {
             if (const auto laser = ray()) {

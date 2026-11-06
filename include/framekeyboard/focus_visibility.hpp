@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace framekeyboard {
@@ -26,7 +27,14 @@ class FocusVisibility {
         // N of the one window overlay named after the focused window's title:
         // Gamescope's own link, which takes precedence over a learned one.
         std::optional<std::uint32_t> named{};
+        // That title, and when (monotonic seconds) it was sampled and the
+        // overlay names were last read. Kept in memory only, never logged.
+        std::string title{};
+        double now{}, names_read{};
     };
+    // Gamescope renames a window's overlay soon after its title changes:
+    // names read sooner may still list the old one.
+    static constexpr double rename_wait = .3;
     void update(const Sample& sample) {
         if (sample.window != focused_) {
             // Only a move between two known windows is a click. Focus first
@@ -41,7 +49,10 @@ class FocusVisibility {
             }
             focused_ = sample.window;
         }
-        if (sample.window && sample.named) {
+        if (sample.window) {
+            note_title(sample);
+        }
+        if (sample.window && sample.named && names_tell(sample)) {
             learn(sample.window, *sample.named);
         }
         if (!sample.window) {
@@ -59,7 +70,7 @@ class FocusVisibility {
     }
     void reset() { *this = {}; }
     // Not sampled while the panel is hidden: the next sample is a baseline,
-    // and learned links stay.
+    // and learned links and titles stay.
     void pause() {
         focused_ = 0;
         hidden_ = false;
@@ -68,16 +79,54 @@ class FocusVisibility {
     std::size_t links() const { return learned_.size(); } // for tests
 
   private:
-    // At most 16 links, as windows come and go: the lowest X window id goes,
-    // an older window, but never the one just learned.
-    void learn(std::uint32_t window, std::uint32_t overlay) {
-        learned_[window] = overlay;
-        if (learned_.size() > 16) {
-            const auto oldest = learned_.begin();
-            learned_.erase(oldest->first != window ? oldest : std::next(oldest));
+    struct Title {
+        std::string text;
+        double changed{-1}; // when it last changed while known, -1 never
+    };
+    // Whether the overlay name matched tells which overlay is the focused
+    // window's. Overlays are named by title alone, so a title another window
+    // also has, such as two empty documents of one editor, names either. And
+    // just after the window's own title changed, its overlay may still carry
+    // the old one, so a name read then can belong to another window that had
+    // the new title already. Empty titles are not compared: they name nothing.
+    bool names_tell(const Sample& sample) const {
+        if (sample.title.empty()) {
+            return true;
+        }
+        const auto& seen = titles_.at(sample.window);
+        if (seen.changed >= 0 && sample.names_read < seen.changed + rename_wait) {
+            return false;
+        }
+        return std::none_of(titles_.begin(), titles_.end(), [&](const auto& entry) {
+            return entry.first != sample.window && entry.second.text == sample.title;
+        });
+    }
+    void note_title(const Sample& sample) {
+        auto& seen = titles_[sample.window];
+        if (seen.text != sample.title) {
+            if (!seen.text.empty()) {
+                seen.changed = sample.now;
+            }
+            seen.text = sample.title;
+        }
+        bound(titles_, sample.window);
+    }
+    // At most 16 entries, as windows come and go: the lowest X window id goes,
+    // an older window, but never `keep`, the one just updated.
+    template <class Map> static void bound(Map& map, std::uint32_t keep) {
+        if (map.size() > 16) {
+            const auto oldest = map.begin();
+            map.erase(oldest->first != keep ? oldest : std::next(oldest));
         }
     }
+    void learn(std::uint32_t window, std::uint32_t overlay) {
+        learned_[window] = overlay;
+        bound(learned_, window);
+    }
     std::map<std::uint32_t, std::uint32_t> learned_;
+    // Each window's last title by X window id: Gamescope's overlay names
+    // carry no window id, so this tells when a name could be another's.
+    std::map<std::uint32_t, Title> titles_;
     std::uint32_t focused_{};
     bool hidden_{};
 };
