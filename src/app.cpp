@@ -2105,6 +2105,7 @@ bool App::paint(double now) {
     if (!dirty && renderer.animating() && now < renderer.next_change()) {
         return false; // between the steps of a 30 fps animation
     }
+    frames_ += dirty;
     dirty = false;
     return renderer.paint(view(), now);
 }
@@ -2678,19 +2679,25 @@ bool punctuation_only(const std::string& text) {
     return true;
 }
 } // namespace
-std::vector<std::string> App::follow_ups() const {
+const std::vector<std::string>& App::follow_ups() const {
+    const auto after = follow_up_.value_or("");
+    const bool learning = follow_up_ && learning_allowed();
+    if (follow_ups_ && follow_ups_->after == after && follow_ups_->learning == learning) {
+        return follow_ups_->texts; // Scanning the pairs at every tick would cost.
+    }
     // What followed this phrase before, then the punctuation that most
     // often follows a phrase, as phones offer it.
     std::vector<std::string> result;
-    if (follow_up_ && learning_allowed()) {
-        result = next_words_.after(*follow_up_, 3);
+    if (learning) {
+        result = next_words_.after(after, 3);
     }
     for (const auto* mark : {"。", "、", "！", "？"}) {
         if (std::find(result.begin(), result.end(), mark) == result.end()) {
             result.emplace_back(mark);
         }
     }
-    return result;
+    follow_ups_ = FollowUps{after, learning, std::move(result)};
+    return follow_ups_->texts;
 }
 void App::type_follow_up(const std::string& text) {
     reopen_.reset();
@@ -2708,6 +2715,7 @@ void App::type_follow_up(const std::string& text) {
     }
 }
 void App::follow_commit(const std::string& text, std::uint64_t queued_before) {
+    follow_ups_.reset(); // A new pair may change what follows a phrase.
     // The editor's text isn't the field's, and punctuation follows anything.
     if (dictation_open_ || punctuation_only(text)) {
         last_commit_.reset();
@@ -3056,30 +3064,50 @@ std::optional<Rect> App::candidate_area(const PanelView& v) const {
     return ime_band(v).candidates;
 }
 void App::sync_candidates() {
-    std::vector<std::string> texts;
-    int selected = -1;
+    std::vector<std::string> owned;
+    const std::vector<std::string>* texts = &owned; // The composer's own, where it has them.
+    int source = 0, selected = -1;
     bool stale = false;
     const bool shown = (japanese() || cjk_) && !emoji_open_ && !settings_open_;
     if (shown && cjk_) {
-        texts = cjk_->candidates();
+        source = 1;
+        owned = cjk_->candidates();
         selected = cjk_->selected();
         if (cjk_->chinese() && !cjk_->phonetic_keys()) {
             // 1–5 pick from the five around the selection, as numbered.
             const auto page = static_cast<std::size_t>(std::max(0, selected) / 5 * 5);
-            for (std::size_t i = page; i < std::min(page + 5, texts.size()); ++i) {
-                texts[i] = std::to_string(i - page + 1) + " " + texts[i];
+            for (std::size_t i = page; i < std::min(page + 5, owned.size()); ++i) {
+                owned[i] = std::to_string(i - page + 1) + " " + owned[i];
             }
         }
     } else if (shown && composition_.converting()) {
-        texts = composition_.candidates();
+        source = 2;
+        owned = composition_.candidates();
         selected = composition_.selected();
     } else if (shown && japanese_typing() && !composition_.empty()) {
         // Live candidates; a stale list stays until the next one is ready.
-        texts = composition_.live();
+        source = 3;
+        texts = &composition_.live();
         stale = !composition_.live_current();
     } else if (shown && japanese_typing() && follow_up_) {
-        texts = follow_ups();
+        source = 4;
+        texts = &follow_ups();
     }
+    // The band's place comes from the layout, the panel and the toolbar's
+    // buttons, and any change to them paints a frame: without one, and with
+    // the same candidates, the strip already shows them.
+    if (candidate_sync_ && !dirty && candidate_sync_->frames == frames_ &&
+        candidate_sync_->source == source && candidate_sync_->selected == selected &&
+        candidate_sync_->stale == stale && candidate_sync_->list == candidate_list_ &&
+        candidate_sync_->shown == candidates_.shown() && candidate_sync_->texts == *texts) {
+        return;
+    }
+    auto given = *texts;
+    place_candidates(texts == &owned ? std::move(owned) : *texts, selected, stale);
+    candidate_sync_ = CandidateSync{source,          std::move(given),    selected, stale,
+                                    candidate_list_, candidates_.shown(), frames_};
+}
+void App::place_candidates(std::vector<std::string> texts, int selected, bool stale) {
     if (texts.empty()) {
         if (candidate_more_) {
             candidate_more_.reset();

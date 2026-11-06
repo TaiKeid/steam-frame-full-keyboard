@@ -621,7 +621,23 @@ class App {
     // and symbols join the reading as on a phone (3, じに → 3時に), or the
     // English page while a reading is open, whose letters join it as typed.
     bool japanese_typing() const;
+    // Builds the strip from the composer or the follow-ups, every tick: a
+    // tick with the same candidates and no frame since the last build, which
+    // a change to the layout, panel or toolbar would need, does nothing.
     void sync_candidates();
+    // Places `texts` in the band, with ∨ and the open list.
+    void place_candidates(std::vector<std::string> texts, int selected, bool stale);
+    struct CandidateSync {
+        int source{};                   // What texts came from: none, CJK, 変換, live, follow-ups.
+        std::vector<std::string> texts; // As given, before placing.
+        int selected{};
+        bool stale{}, list{}, shown{};
+        std::uint64_t frames{}; // frames_ at the build.
+        bool operator==(const CandidateSync&) const = default;
+    };
+    std::optional<CandidateSync> candidate_sync_;
+    // Frames painted with `dirty` set: something on the panel changed.
+    std::uint64_t frames_{};
     // Live candidates after a pause in typing.
     void tick_japanese(double now);
     void pick_candidate(int index);
@@ -861,7 +877,14 @@ class App {
     // commit, the laser leaving or the keyboard hiding ends it; a choice
     // types at once.
     std::optional<std::string> follow_up_;
-    std::vector<std::string> follow_ups() const;
+    // Kept for follow_up_ until the next commit learns a pair.
+    const std::vector<std::string>& follow_ups() const;
+    struct FollowUps {
+        std::string after;
+        bool learning{};
+        std::vector<std::string> texts;
+    };
+    mutable std::optional<FollowUps> follow_ups_;
     void type_follow_up(const std::string& text);
     // Phrases committed straight after one another, offered first after the
     // phrase before them (NextWords), and the last commit with the output's

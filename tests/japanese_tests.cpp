@@ -2497,6 +2497,76 @@ void follow_ups_end_with_the_field() {
     read("Enter");
     require(chips(app).front() == "え", "a phrase straight after another is learned");
 }
+// As the headset draws it, a frame after each tick: the strip, built only
+// when something changed, still follows every change.
+void candidates_between_frames() {
+    char directory[] = "/tmp/framekeyboard-frames-XXXXXX";
+    require(mkdtemp(directory), "temporary frames profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    double now = 1;
+    const auto frames = [&](int count) {
+        for (int i = 0; i < count; ++i) {
+            app.tick(now += 1.0 / 60);
+            app.paint(now);
+        }
+    };
+    const auto strip = [&] {
+        std::vector<std::string> texts;
+        int selected = -1;
+        if (const auto view = app.view().candidates) {
+            for (const auto& chip : view->chips) {
+                if (chip.selected) {
+                    selected = static_cast<int>(texts.size());
+                }
+                texts.push_back(chip.text);
+            }
+        }
+        return std::pair{texts, selected};
+    };
+    frames(5);
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    frames(60);
+    const auto live = strip().first;
+    require(!live.empty() && live.front() == "〈か〉", "live candidates come after a pause");
+    click_key(app, "KeyI");
+    frames(60);
+    require(strip().first.front() == "〈かい〉", "and follow the reading");
+    click_key(app, "Space");
+    frames(5);
+    const auto converting = strip();
+    click_key(app, "Space");
+    frames(5);
+    require(strip().first == converting.first && strip().second != converting.second,
+            "converting, the next choice is marked");
+    click_key(app, "Enter");
+    frames(5);
+    require(strip().first == std::vector<std::string>{"。", "、", "！", "？"},
+            "a commit offers what may follow");
+    app.show_settings();
+    frames(5);
+    require(strip().first.empty(), "Settings covers the strip");
+    app.back();
+    frames(5);
+    require(strip().first.empty(), "and ended the offer, as any change of view does");
+    click_key(app, "KeyA");
+    frames(60);
+    require(strip().first.front() == "〈あ〉", "a new reading replaces the offer");
+}
 // The band and its candidates, with the fake converter: live candidates after
 // a pause, a tap moving on through the segments, the arrows resizing, a drag
 // scrolling without picking, and the keys keeping their size across A / あ.
@@ -4002,6 +4072,7 @@ int main() {
         flick_width();
         next_words();
         follow_ups_end_with_the_field();
+        candidates_between_frames();
         candidate_list();
         learning_settings();
         stock_learning_import();
