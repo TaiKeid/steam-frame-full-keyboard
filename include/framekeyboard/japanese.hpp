@@ -139,6 +139,12 @@ class JapaneseComposer {
     // Without a factory, conversion loads Anthy.
     explicit JapaneseComposer(Factory factory = {});
     ~JapaneseComposer();
+    // Declared, as the destructor would otherwise make every move a copy:
+    // a move takes the converter along, a copy starts without one.
+    JapaneseComposer(const JapaneseComposer&) = default;
+    JapaneseComposer& operator=(const JapaneseComposer&) = default;
+    JapaneseComposer(JapaneseComposer&&) = default;
+    JapaneseComposer& operator=(JapaneseComposer&&) = default;
     // The keyboard's composer converts nothing itself: a step that would
     // call the converter throws Deferred, and the keyboard takes it to the
     // conversion worker, running it on a copy of the composer as it was

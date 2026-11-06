@@ -1541,6 +1541,35 @@ void worker_waits_for_japanese() {
     }
     require(!app.japanese_worker_started(), "no thread while no Japanese is added");
 }
+// A composer's own converter stays with it through adopt() and moves; a
+// copy starts without one.
+void composer_moves() {
+    int made = 0, conversions = 0;
+    JapaneseComposer composer([&] {
+        ++made;
+        return std::make_unique<FakeConverter>(&conversions);
+    });
+    composer.kana("あ");
+    composer.prepare_live();
+    require(made == 1, "the converter is made once");
+    auto copy = composer;
+    composer.adopt(std::move(copy));
+    composer.cancel();
+    composer.kana("い");
+    composer.prepare_live();
+    require(made == 1, "adopting a copy keeps it");
+    JapaneseComposer moved = std::move(composer);
+    moved.cancel();
+    moved.kana("う");
+    moved.prepare_live();
+    require(made == 1, "a move takes it along");
+    JapaneseComposer assigned;
+    assigned = std::move(moved);
+    assigned.cancel();
+    assigned.kana("え");
+    assigned.prepare_live();
+    require(made == 1 && conversions == 4, "so does a move assignment");
+}
 // Options::live_candidate_pause switches live candidates to come only once
 // typing pauses, as before, for comparing the two; still never dimmed.
 void live_candidate_pause() {
@@ -4866,6 +4895,7 @@ int main() {
         live_candidate_pause();
         earlier_live_picks();
         preview_converts();
+        composer_moves();
         worker_waits_for_japanese();
         mozc_lifecycle();
         mozc_lost_session();
