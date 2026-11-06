@@ -205,7 +205,9 @@ bool EiSink::desktop_target() {
     return desktop_->focused();
 }
 bool EiSink::needs_entry(const std::string& text) {
-    return desktop_now_ &&
+    // A Gamescope commit already out reports its result to the same call,
+    // even once the Desktop has taken focus.
+    return desktop_now_ && !(text_ && text_->pending()) &&
            std::any_of(text.begin(), text.end(), [](char c) { return c < 0x20 || c > 0x7e; });
 }
 bool EiSink::enter(const std::string& text, std::size_t deletions) {

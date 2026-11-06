@@ -417,18 +417,17 @@ void OutputController::drain(bool fresh_tick) {
     if (!enabled_ || failed_) {
         return;
     }
-    if (window_moved()) {
-        // Another window took focus while this run went out, so the rest
-        // would reach it. The front text's acknowledged characters arrived;
-        // the one in flight may have. Read the count before the cancel ends it.
-        const auto& front = queue_.front();
-        const auto delivered = front->submitted ? target_.delivered_characters() : 0;
-        target_.cancel_delivery();
-        fail(delivered);
-        return;
-    }
+    // Another window took focus while this run went out, so the rest would
+    // reach it. Text the target finished before then arrived in the window
+    // before: the loop still collects its result, and stops what follows.
+    const bool moved = window_moved();
     while (!queue_.empty()) {
         auto entry = queue_.front();
+        if (moved && !entry->submitted) {
+            target_.cancel_delivery(); // ends a native key waiting for its result
+            fail();
+            return;
+        }
         if (!entry->started && entry->repeat) {
             auto owner = entry->owner.lock();
             if (!owner || !owner->held) {
@@ -454,6 +453,15 @@ void OutputController::drain(bool fresh_tick) {
             if (!(entry->delete_before ? target_.replace_text(entry->delete_before, entry->text)
                                        : target_.commit_text(entry->text))) {
                 if (target_.text_pending()) {
+                    if (moved) {
+                        // Still going out: its acknowledged characters arrived,
+                        // the one in flight may have. Read the count before the
+                        // cancel ends it.
+                        const auto delivered = target_.delivered_characters();
+                        target_.cancel_delivery();
+                        fail(delivered);
+                        return;
+                    }
                     entry->submitted = true;
                     return;
                 }

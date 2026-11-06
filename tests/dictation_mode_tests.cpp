@@ -3405,6 +3405,24 @@ void send_tests() {
         }
     }
     {
+        // The piece going out finishes in the frame another window takes
+        // focus: it arrived, so it leaves the editor instead of being sent again.
+        Sink sink;
+        sink.window = 7;
+        sink.busy = true;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, std::string(40, 'a'));
+        press(app, "Dictation-send");
+        sink.busy = false;
+        sink.window = 9;
+        settle(app);
+        require(sink.text == std::vector<std::string>{std::string(32, 'a')} &&
+                    editor_text(app) == std::string(8, 'a') && app.view().dictation->uncertain == 0 &&
+                    app.view().status.starts_with("Another window took focus."),
+                "only the piece not yet sent stays, unmarked");
+    }
+    {
         // A commit sent one character at a time fails after three of them.
         Sink sink;
         App app(options, sink);

@@ -549,6 +549,41 @@ void focus_change() {
                 "a key typed after the click is for the window clicked");
     }
 }
+// The target finished the front text in the frame another window took
+// focus: it arrived in the window before, so it is delivered rather than
+// kept and typed again. A whole commit and a finished Unicode entry report
+// no acknowledged characters then, and a per-character commit one fewer
+// than it has.
+void focus_change_after_delivery() {
+    for (const auto& [text, acknowledged] :
+         {std::pair<std::string, std::size_t>{"ありがとう", 0}, {"hello", 4}}) {
+        Transport sink;
+        sink.window = 7;
+        OutputController output(sink);
+        output.set_enabled(true);
+        require(output.commit_text(text), "the text goes out");
+        sink.delivered = acknowledged;
+        sink.done = true; // its result came with this frame's pump
+        sink.window = 9;
+        output.tick(1);
+        require(output.completed() == 1 && output.failures() == 0 && !output.retry_available() &&
+                    !output.text_pending() && sink.events == std::vector<std::string>{text},
+                acknowledged ? "a finished per-character commit counts as delivered"
+                             : "a finished whole commit counts as delivered");
+    }
+    Transport sink;
+    sink.window = 7;
+    OutputController output(sink);
+    output.set_enabled(true);
+    require(output.commit_text(repeated("a", 40)), "a 40-character composition is accepted");
+    sink.done = true; // its first chunk finished
+    sink.window = 9;
+    output.tick(1);
+    require(output.completed() == 1 && output.failures() == 1 &&
+                output.retry_text() == repeated("a", 8) &&
+                sink.events == std::vector<std::string>{repeated("a", 32)},
+            "only the chunk not yet sent is kept for a retry");
+}
 void out_of_tick_composition_clock() {
     struct Immediate : KeySink {
         std::vector<std::string> events;
@@ -659,6 +694,7 @@ int main() {
         long_composition_cancellation();
         release_keeps_accepted_output();
         focus_change();
+        focus_change_after_delivery();
         out_of_tick_composition_clock();
         cancellation();
         std::cout << "Ordered output, retries, cancellation, bounds and held-key cleanup passed.\n";

@@ -624,6 +624,17 @@ void desktop_entry() {
         return text.commits.size() == 2;
     });
     require(text.commits.back() == "日本", "outside the Desktop, the temporary keymap as before");
+    // The Desktop taking focus as it finishes leaves its result to the same
+    // call, so it counts as delivered instead of being entered again.
+    desktop = true;
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return sink->commit_text("日本");
+    });
+    server.pump();
+    require(text.commits.size() == 2 && !sink->text_pending() && server.keys.empty(),
+            "the commit reports its own result, and nothing is entered");
 }
 void app_ordering_barrier() {
     Server server;
