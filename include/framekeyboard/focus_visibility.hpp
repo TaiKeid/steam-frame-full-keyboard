@@ -202,11 +202,41 @@ class DashboardFocus {
             app_ = app;
         }
     }
-    // A trigger pull while the laser was off our keyboard, and what it began on.
-    void click(double now, Target target = Target::other) {
+    // A trigger pull while the laser was off our keyboard, what it began on,
+    // and the hand that pulled. False when it leaves the click waiting: a
+    // pull that can choose no app, such as a twitch of one trigger while its
+    // laser is nowhere or on Steam's page, keeps the other hand's bar or
+    // window click waiting for the app it chose. Steam's page seen after the
+    // app was chosen still blocks typing again.
+    bool click(double now, Target target = Target::other, unsigned hand = 0) {
+        const auto chooses = [](Target kind) { return kind == Target::bar || kind == Target::window; };
+        if (clicked_ && hand != hand_ && chooses(target_) && !chooses(target) && !expired(now)) {
+            return false;
+        }
         clicked_ = now;
         target_ = target;
+        hand_ = hand;
         left_page_ = false;
+        return true;
+    }
+    // What a pull by a hand that is not SteamVR's dashboard pointer begins
+    // on, as SteamVR's hover target follows the pointer: the nearest of the
+    // window overlays and Steam's bar and page that its own ray meets, by
+    // distance along it.
+    static Target nearest(std::optional<double> window, std::optional<double> bar,
+                          std::optional<double> page) {
+        auto target = Target::other;
+        std::optional<double> best;
+        const auto meets = [&](Target kind, std::optional<double> distance) {
+            if (distance && (!best || *distance < *best)) {
+                target = kind;
+                best = distance;
+            }
+        };
+        meets(Target::window, window);
+        meets(Target::bar, bar);
+        meets(Target::page, page);
+        return target;
     }
     void reset() { *this = {}; }
     // Keep the dashboard's ownership decision, but not a pre-sleep click's
@@ -290,6 +320,7 @@ class DashboardFocus {
     }
     std::optional<double> clicked_;
     Target target_{};
+    unsigned hand_{};
     std::uint32_t app_{};
     bool focused_{}, left_page_{};
 };

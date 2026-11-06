@@ -980,6 +980,50 @@ void bar_clicks_choose_only_a_shown_app() {
     require(!e.focused(), "Kate's icon right after Steam's chooses Kate");
 }
 
+void the_other_hands_twitch_keeps_a_click() {
+    constexpr std::uint32_t kate = 0x4400007;
+    constexpr auto page = DashboardFocus::Keys::page, steam = DashboardFocus::Keys::steam,
+                   app = DashboardFocus::Keys::app;
+    using Target = DashboardFocus::Target;
+    constexpr unsigned left = 0, right = 1;
+    DashboardFocus d;
+    // Kate's icon with the right hand, then the left trigger twitches 1° with
+    // its laser on nothing known: Kate is chosen as after a lone pull.
+    d.update(true, page, kate, 10, 10);
+    d.click(10.05, Target::bar, right);
+    d.click(10.1, Target::other, left);
+    d.update(true, page, kate, 10.15, 10.12);
+    d.update(true, steam, kate, 10.25, 10.2);
+    d.update(true, app, kate, 10.35, 10.3, true);
+    require(!d.focused(), "the other hand's twitch after Kate's icon still lets Kate be chosen");
+    // A click into Kate's window, then the left laser on Steam's page.
+    d.update(true, page, kate, 20, 20);
+    d.click(20.05, Target::window, right);
+    require(!d.click(20.1, Target::page, left),
+            "a pull that can choose nothing leaves the click waiting");
+    d.update(true, page, kate, 20.15, 20.12);
+    d.update(true, app, kate, 20.4, 20.35, true);
+    require(!d.focused(), "the window click into Kate still chooses it");
+
+    // The same hand pulling again replaces its click, as before.
+    d.update(true, page, kate, 30, 30);
+    d.click(30.05, Target::bar, right);
+    require(d.click(30.1, Target::other, right), "the same hand's next pull replaces its click");
+    d.update(true, page, kate, 30.2, 30.15);
+    d.update(true, app, kate, 30.5, 30.45, true);
+    require(d.focused(), "and Steam's page after it ends it");
+    d.click(31.05, Target::bar, right);
+    require(d.click(31.1, Target::window, left), "the other hand's pull on a window replaces it");
+    d.click(40.05, Target::bar, right);
+    require(d.click(42.1, Target::other, left), "and any pull replaces an expired click");
+
+    // The other hand's pull, placed by its own ray: the nearest overlay it meets.
+    require(DashboardFocus::nearest({}, {}, {}) == Target::other, "a ray that meets nothing");
+    require(DashboardFocus::nearest(2.0, {}, 1.5) == Target::page, "Steam's page in front of a window");
+    require(DashboardFocus::nearest(1.2, 1.4, 1.5) == Target::window, "a window floating in front");
+    require(DashboardFocus::nearest({}, 1.4, 1.5) == Target::bar, "the bar in front of Steam's page");
+}
+
 void late_work_cannot_cross_targets() {
     Headset h;
     h.request(20);
@@ -1545,6 +1589,7 @@ int main() {
         stale_focus_samples_cannot_erase_app_clicks();
         window_clicks_outlast_the_steam_page();
         bar_clicks_choose_only_a_shown_app();
+        the_other_hands_twitch_keeps_a_click();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

@@ -102,6 +102,16 @@ auto vr_models() {
 auto vr_compositor() {
     return RuntimeInterface<vr::IVRCompositor>(vr::VRCompositor);
 }
+// OpenVR's intersection query for a laser in the standing universe.
+vr::VROverlayIntersectionParams_t intersection_params(const Ray& ray) {
+    vr::VROverlayIntersectionParams_t params{};
+    params.eOrigin = vr::TrackingUniverseStanding;
+    for (std::size_t i = 0; i < 3; ++i) {
+        params.vSource.v[i] = static_cast<float>(ray.origin[i]);
+        params.vDirection.v[i] = static_cast<float>(ray.direction[i]);
+    }
+    return params;
+}
 // Gamescope's per-window SteamVR overlays, gamescope.gamescope-0.window.<N>.
 // OpenVR cannot list overlays and Gamescope numbers windows in creation order,
 // so known ones are rechecked, the range above the highest is probed each
@@ -124,28 +134,31 @@ class WindowOverlays {
         return result;
     }
     void reset() { *this = {}; }
-    // Which of these window overlays a laser meets, if exactly one.
-    std::optional<std::uint32_t> pointed(const Ray& ray,
-                                         const std::vector<std::uint32_t>& numbers) const {
-        vr::VROverlayIntersectionParams_t params{};
-        params.eOrigin = vr::TrackingUniverseStanding;
-        for (std::size_t i = 0; i < 3; ++i) {
-            params.vSource.v[i] = static_cast<float>(ray.origin[i]);
-            params.vDirection.v[i] = static_cast<float>(ray.direction[i]);
-        }
-        std::optional<std::uint32_t> hit;
-        float nearest = std::numeric_limits<float>::max();
+    // Which of these window overlays a laser meets, the nearest, and how far
+    // along the laser.
+    struct Hit {
+        std::uint32_t number{};
+        float distance{};
+    };
+    std::optional<Hit> hit(const Ray& ray, const std::vector<std::uint32_t>& numbers) const {
+        const auto params = intersection_params(ray);
+        std::optional<Hit> hit;
         for (const auto number : numbers) {
             const auto it = known_.find(number);
             vr::VROverlayIntersectionResults_t result{};
             if (it != known_.end() &&
                 vr_overlay()->ComputeOverlayIntersection(it->second, &params, &result) &&
-                result.fDistance < nearest) {
-                nearest = result.fDistance; // The nearest, as SteamVR's laser stops there.
-                hit = number;
+                (!hit || result.fDistance < hit->distance)) {
+                hit = Hit{number, result.fDistance}; // The nearest, as SteamVR's laser stops there.
             }
         }
         return hit;
+    }
+    // Only which one.
+    std::optional<std::uint32_t> pointed(const Ray& ray,
+                                         const std::vector<std::uint32_t>& numbers) const {
+        const auto found = hit(ray, numbers);
+        return found ? std::optional(found->number) : std::nullopt;
     }
     // Whether SteamVR's laser is on this window overlay. Its hover target is
     // the last overlay the laser moved over, wherever it is now, so ask only
@@ -284,6 +297,21 @@ bool steam_hover_target(const char* key) {
     vr::VROverlayHandle_t handle{};
     return vr_overlay()->FindOverlay(key, &handle) == vr::VROverlayError_None && handle &&
            vr_overlay()->IsHoverTargetOverlay(handle);
+}
+// How far along a laser it meets one of Steam's dashboard overlays, if that
+// overlay shows and the laser meets it.
+std::optional<double> steam_ray_hit(const char* key, const Ray& ray) {
+    vr::VROverlayHandle_t handle{};
+    if (vr_overlay()->FindOverlay(key, &handle) != vr::VROverlayError_None || !handle ||
+        !vr_overlay()->IsOverlayVisible(handle)) {
+        return {};
+    }
+    const auto params = intersection_params(ray);
+    vr::VROverlayIntersectionResults_t result{};
+    if (!vr_overlay()->ComputeOverlayIntersection(handle, &params, &result)) {
+        return {};
+    }
+    return result.fDistance;
 }
 // "12.345", as trace_focus logs monotonic times and windows.
 [[maybe_unused]] std::string trace_time(double seconds) {
@@ -1946,25 +1974,42 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     const char* shown_by = "";                 // trace_focus
     double visibility_sample = 0;
     std::optional<bool> app_visible;
-    // What a pull off the keyboard begins on (DashboardFocus::Target). Only
-    // the primary dashboard device's laser clicks. An app window counts only
-    // while the ray meets it, as the hover target may be an overlay the laser
-    // has since left; with the ray on a window behind Steam's page, the hover
-    // target is the page.
+    // What a pull off the keyboard begins on (DashboardFocus::Target), and
+    // the window overlays in sight then. The primary dashboard device's laser
+    // clicks, and SteamVR's hover target is the last overlay it moved over.
+    // An app window counts only while the ray meets it, as the hover target
+    // may be an overlay the laser has since left; with the ray on a window
+    // behind Steam's page, the hover target is the page. A pull by another
+    // hand, which may take the laser over, is placed by its own ray instead:
+    // read only at the pull, never each frame.
+    struct Pull {
+        DashboardFocus::Target target{};
+        std::vector<std::uint32_t> windows;
+        std::optional<std::uint32_t> pointed; // a window click's overlay
+    };
     auto pull_target = [&](vr::TrackedDeviceIndex_t device, double now) {
         using Target = DashboardFocus::Target;
         const bool primary = device == vr_overlay()->GetPrimaryDashboardDevice();
-        const auto ray = primary ? laser_rays.read(device) : std::nullopt;
-        const auto visible = hidden_focus.overlays.visible(now);
-        const auto pointed = ray ? hidden_focus.overlays.pointed(*ray, visible) : std::nullopt;
-        pull_windows = visible;
-        pull_pointed.reset();
-        auto target = Target::other;
+        const auto ray = laser_rays.read(device);
+        Pull pull{Target::other, hidden_focus.overlays.visible(now), {}};
+        const auto hit = ray ? hidden_focus.overlays.hit(*ray, pull.windows) : std::nullopt;
+        const auto pointed = hit ? std::optional(hit->number) : std::nullopt;
+        auto& target = pull.target;
         const char* steam = nullptr;
         if (!primary) {
+            if (ray) {
+                const auto bar = steam_ray_hit("valve.steam.gamepadui.bar", *ray);
+                const auto popup = steam_ray_hit("valve.steam.gamepadui.barpopup", *ray);
+                const auto page = steam_ray_hit("valve.steam.gamepadui.main", *ray);
+                const auto bars = bar && popup ? std::min(bar, popup) : bar ? bar : popup;
+                target = DashboardFocus::nearest(
+                    hit ? std::optional<double>(hit->distance) : std::nullopt, bars, page);
+                steam = target == Target::bar    ? (bars == bar ? "bar" : "barpopup")
+                        : target == Target::page ? "page"
+                                                 : nullptr;
+            }
         } else if (pointed && hidden_focus.overlays.hover_target(*pointed)) {
             target = Target::window;
-            pull_pointed = pointed;
         } else if (steam_hover_target("valve.steam.gamepadui.bar")) {
             target = Target::bar;
             steam = "bar";
@@ -1975,18 +2020,21 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             target = Target::page;
             steam = "page";
         }
+        if (target == Target::window) {
+            pull.pointed = pointed;
+        }
         if constexpr (trace_focus) {
             std::cout << "focus-trace pull target="
                       << (target == Target::window ? "window:" + std::to_string(*pointed)
                           : steam                  ? std::string(steam)
                                                    : std::string("none"))
                       << " primary=" << (primary ? "yes" : "no") << " ray=" << (ray ? "yes" : "no")
-                      << " windows=" << visible.size() << "/" << hidden_focus.overlays.known()
+                      << " windows=" << pull.windows.size() << "/" << hidden_focus.overlays.known()
                       << " ray-hits=" << (pointed ? std::to_string(*pointed) : std::string("none"))
                       << "\n"
                       << std::flush;
         }
-        return target;
+        return pull;
     };
     // trace_focus: every focus sample begun before this time gets a line,
     // later ones only when they change something.
@@ -2039,7 +2087,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     trace_samples_until = at + 2;
                     click.reported = true;
                 }
-                dashboard_focus.click(at, pull_target(device, now));
+                auto pull = pull_target(device, now);
+                if (dashboard_focus.click(at, pull.target, static_cast<unsigned>(hand))) {
+                    pull_windows = std::move(pull.windows);
+                    pull_pointed = pull.pointed;
+                } else if constexpr (trace_focus) {
+                    std::cout << "focus-trace pull ignored: the other hand's click waits\n"
+                              << std::flush;
+                }
                 click.rest.reset();
             }
         }
