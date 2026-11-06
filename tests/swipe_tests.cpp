@@ -118,24 +118,24 @@ void keyboard_geometry() {
             "accents without their own key fold onto the base letter");
 
     const auto de = keyboard_for("international-full", "de-de");
-    for (const auto c : std::u32string(U"äöüß")) {
-        require(de.index_of(c) >= 0, "German letters have their own keys");
-    }
+    require(letter(de, U'ä') != letter(de, U'a') && letter(de, U'ö') != letter(de, U'o') &&
+                letter(de, U'ü') != letter(de, U'u'),
+            "German umlauts have their own keys");
+    require(letter(de, U'ß') == letter(de, U's') && !de.key_index.contains("Minus"),
+            "ß on the number row is no swipe key: it is swiped on S, as on a phone");
     require(de.centers[static_cast<std::size_t>(letter(de, U'z'))].x ==
                 us.centers[static_cast<std::size_t>(letter(us, U'y'))].x,
             "German keymap places Z on the QWERTZ key");
     require(letter(de, U'Ä') == letter(de, U'ä'), "German uppercase umlauts map to their key");
 
     const auto fr = keyboard_for("international-full", "fr-fr");
-    const int e_acute = letter(fr, U'é');
-    require(e_acute != letter(fr, U'e') && fr.centers[static_cast<std::size_t>(e_acute)].y < fr.frame.y,
-            "AZERTY é is its own key on the number row");
-    require(fr.alternate[static_cast<std::size_t>(e_acute)] == letter(fr, U'e'),
-            "a number-row accent also accepts its plain letter");
-    require(fr.alternate[static_cast<std::size_t>(letter(fr, U'ù'))] == -1,
-            "accents inside the letter block stay single keys");
-    require(fr.alternate[static_cast<std::size_t>(letter(fr, U'a'))] == -1,
-            "plain letters have one path");
+    require(letter(fr, U'é') == letter(fr, U'e') && letter(fr, U'à') == letter(fr, U'a') &&
+                !fr.key_index.contains("Digit2") && !fr.key_index.contains("Digit0"),
+            "AZERTY é and à on the number row are no swipe keys: swiped on E and A");
+    require(letter(fr, U'ù') != letter(fr, U'u'), "accents inside the letter block keep their key");
+    const auto it = keyboard_for("international-full", "it-it");
+    require(letter(it, U'ì') == letter(it, U'i') && letter(it, U'ò') != letter(it, U'o'),
+            "Italian ì on the number row is swiped on I; ò keeps its key");
     const auto uk = keyboard_for("en-us-full", "uk-ua");
     require(letter(uk, U'ґ') != letter(uk, U'г'), "Ukrainian ґ has its own key");
     require(letter(uk, U'ё') == letter(uk, U'е'), "an AltGr letter is swiped on the key that types it");
@@ -148,8 +148,8 @@ void keyboard_geometry() {
     require(letter(nl, U'ë') == letter(nl, U'e') && letter(nl, U'ö') == letter(nl, U'o'),
             "Dutch ë folds to E, not AltGr+R on US international");
     const auto ru = keyboard_for("en-us-full", "ru-ru");
-    require(ru.alternate[static_cast<std::size_t>(letter(ru, U'ё'))] == letter(ru, U'е'),
-            "Russian ё on the number row also accepts е");
+    require(letter(ru, U'ё') == letter(ru, U'е') && !ru.key_index.contains("Backquote"),
+            "Russian ё on the number row is swiped on е");
     const auto es = keyboard_for("international-full", "es-es");
     require(es.index_of(U'ñ') >= 0 && es.index_of(U'ñ') != es.index_of(U'n'),
             "Spanish ñ has its own key");
@@ -186,14 +186,18 @@ void lexicon_paths() {
     const auto fr = keyboard_for("international-full", "fr-fr");
     std::istringstream french("été\t150\nêtes\t140\n");
     const auto accents = SwipeLexicon::parse(french, fr);
-    for (const auto* path : {U"été", U"ete"}) {
-        log_probs = emissions(path_of(fr, path), steps);
-        words = accents.decode(log_probs, steps, swipe_max_keys + 1, 5);
-        require(!words.empty() && words[0].word == "été" &&
-                    std::count_if(words.begin(), words.end(),
-                                  [](const auto& c) { return c.word == "été"; }) == 1,
-                "a number-row accent decodes from either path, listed once");
-    }
+    log_probs = emissions(path_of(fr, U"ete"), steps);
+    words = accents.decode(log_probs, steps, swipe_max_keys + 1, 5);
+    require(!words.empty() && words[0].word == "été" &&
+                std::count_if(words.begin(), words.end(),
+                              [](const auto& c) { return c.word == "été"; }) == 1,
+            "a number-row accent decodes from its plain letter, listed once");
+    const auto de = keyboard_for("international-full", "de-de");
+    std::istringstream sharp_words("straße\t150\n");
+    const auto sharp = SwipeLexicon::parse(sharp_words, de);
+    log_probs = emissions(path_of(de, U"strase"), steps);
+    words = sharp.decode(log_probs, steps, swipe_max_keys + 1, 5);
+    require(!words.empty() && words[0].word == "straße", "ß decodes from S");
 }
 
 void features() {

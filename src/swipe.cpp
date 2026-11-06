@@ -39,6 +39,9 @@ bool apostrophe(char32_t c) {
     return c == U'\'' || c == U'’';
 }
 char32_t base_letter(char32_t c) {
+    if (c == U'ß') {
+        return U's'; // No decomposition; phones offer it on S.
+    }
     gunichar decomposed[8];
     if (g_unichar_fully_decompose(c, FALSE, decomposed, 8) > 0) {
         return static_cast<char32_t>(g_unichar_tolower(decomposed[0]));
@@ -134,15 +137,24 @@ int SwipeKeyboard::index_of(char32_t character) const {
     if (const auto shifted = shifted_letters.find(lower); shifted != shifted_letters.end()) {
         return shifted->second;
     }
-    // Letters typed through dead keys are swiped on their base key (é -> e).
+    // Letters typed through dead keys or on the number row are swiped on
+    // their base key (é -> e, ß -> s).
     return find(base_letter(lower));
 }
 
 std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const LanguageMap& keymap) {
     SwipeKeyboard keyboard;
     double width = 0, height = 0;
+    // Swipes are words in the letter rows, as on a phone, which has no number
+    // row: keys above Q's row never swipe, and their letters (AZERTY é,
+    // Italian ì, German ß, Russian ё) are swiped on the plain letter, as
+    // FUTO's swipes were recorded.
+    const auto q_key = std::find_if(layout.keys.begin(), layout.keys.end(),
+                                    [](const Key& key) { return key.id == "KeyQ"; });
+    const double letters_top =
+        q_key != layout.keys.end() ? q_key->bounds.y : std::numeric_limits<double>::lowest();
     for (const auto& key : layout.keys) {
-        if (key.action_kind != ActionKind::Key ||
+        if (key.action_kind != ActionKind::Key || key.bounds.y + key.bounds.height / 2 < letters_top ||
             keyboard.letters.size() >= static_cast<std::size_t>(swipe_max_keys)) {
             continue;
         }
@@ -189,9 +201,9 @@ std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const La
     keyboard.key_width = width / count;
     // The encoder was trained on a letter-block frame and encodes key positions
     // with a cosine basis, which mirrors positions past the frame edge. Span
-    // every letter key in the three main letter rows (ü, ñ, à beside them), but
-    // not number-row letters, which would squeeze the rows. The rows are found
-    // by physical position, so Cyrillic layouts work the same way. Measured on
+    // every letter key in the three main letter rows (ü, ñ, à beside them).
+    // The rows are found by physical position, so Cyrillic layouts work the
+    // same way. Measured on
     // held-out swipes: German 84.5% top-1 (83.7% for a-z only), Spanish unchanged.
     std::vector<SwipePoint> frame_centers;
     const auto q = keyboard.key_index.find("KeyQ"), z = keyboard.key_index.find("KeyZ");
@@ -218,18 +230,6 @@ std::optional<SwipeKeyboard> build_swipe_keyboard(const Layout& layout, const La
     const double half_width = keyboard.key_width / 2 + 3, half_height = height / count / 2 + 5;
     keyboard.frame = {left - half_width, top - half_height, right - left + 2 * half_width,
                       bottom - top + 2 * half_height};
-    // People often swipe an accented letter through its plain letter, and phone
-    // keyboards train that habit. Keys above the letter block accept both.
-    keyboard.alternate.assign(keyboard.letters.size(), -1);
-    for (std::size_t i = 0; i < keyboard.letters.size(); ++i) {
-        if (keyboard.centers[i].y < keyboard.frame.y) {
-            const auto base = base_letter(keyboard.letters[i]);
-            const auto it = std::find(keyboard.letters.begin(), keyboard.letters.end(), base);
-            if (base != keyboard.letters[i] && it != keyboard.letters.end()) {
-                keyboard.alternate[i] = static_cast<int>(it - keyboard.letters.begin());
-            }
-        }
-    }
     for (const auto& key : layout.keys) {
         if (keyboard.key_index.contains(key.id)) {
             keyboard.reach[key.id] = swipe_reach(layout, key);
@@ -308,17 +308,6 @@ SwipeLexicon SwipeLexicon::parse(std::istream& input, const SwipeKeyboard& keybo
             words[node].push_back(static_cast<std::uint32_t>(lexicon.words_.size()));
         };
         insert(path);
-        std::vector<std::uint8_t> alternate;
-        for (const auto key : path) {
-            const int other = key < keyboard.alternate.size() ? keyboard.alternate[key] : -1;
-            const auto next = static_cast<std::uint8_t>(other >= 0 ? other : key);
-            if (alternate.empty() || alternate.back() != next) {
-                alternate.push_back(next);
-            }
-        }
-        if (alternate != path) {
-            insert(alternate);
-        }
         lexicon.words_.push_back(word);
         lexicon.log_frequency_.push_back(static_cast<float>((frequency - 255) / frequency_scale));
         lexicon.path_length_.push_back(static_cast<std::uint8_t>(std::min<std::size_t>(length, 255)));

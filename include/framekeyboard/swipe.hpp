@@ -51,9 +51,6 @@ struct SwipeKeyboard {
     // AltGr letters without a plain-letter key (Polish ł on l) are swiped on
     // the key that types them; accented ones fold to their plain letter.
     std::map<char32_t, int> shifted_letters;
-    // For a letter key outside the letter block (AZERTY é on the number row),
-    // the base letter key a swipe may cross instead; -1 otherwise.
-    std::vector<int> alternate;
     // Word list spelling for this language; see Language::swipe_replace.
     std::map<std::string, std::string> spelling;
     // A letter, its lowercase form, its key's AltGr letter or its accent-free base; -1 if none.

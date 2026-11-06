@@ -81,6 +81,7 @@ Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shippe
 
 - Word lists: HeliBoard/Leipzig CC BY lists for English UK, French, Italian, Ukrainian and Russian; Brazilian Portuguese built from Leipzig `por-br_newscrawl_2011_1M` (HeliBoard's Brazilian list has no stated licence); Chinese as toneless Pinyin from jieba (MIT) and pypinyin (MIT).
 - French on real FUTO AZERTY swipes, top-1: accent keys only 72.0%, plain letters only 78.7%, both accepted 77.8%. Number-row accent keys therefore accept both paths; accents inside the letter rows keep their own key.
+- Since 2026-11-06 the number row has no swipe keys at all, as on a phone: its letters (AZERTY é è ç à, Italian ì, German ß, Russian ё) are swiped on the plain letter, the path that scored best above. Accents inside the letter rows keep their own key.
 - The normalization frame now spans every letter key in the three main letter rows, found by physical position. German 84.5% top-1 (83.7% with a–z only), Spanish unchanged at 92.5%; it also keeps keys such as Italian à inside the encoder's range, where they no longer mirror onto inner keys.
 - Chinese: a swipe decodes toneless Pinyin and types it into the existing composer, which offers characters. Its accuracy is not measured beyond fixed checks; it needs fluent review.
 - Not measured on real swipes: English UK, Italian, Brazilian Portuguese, Ukrainian, Russian (FUTO reports 83–86% for Russian on its own setup).
