@@ -2739,6 +2739,50 @@ void jis_symbols() {
     require(sink.text == std::vector<std::string>{"￥＼", "¥", "\\"},
             "半/全 types the reading, then Latin ¥ and \\");
 }
+// While earlier text is still being typed, the language button queues the
+// reading behind it and switches.
+void language_behind_pending_text() {
+    struct BusySink : Sink {
+        bool busy = false; // the target is still taking earlier text
+        bool commit_text(const std::string& value) override { return !busy && Sink::commit_text(value); }
+        bool text_pending() const override { return busy; }
+    };
+    char directory[] = "/tmp/framekeyboard-busy-XXXXXX";
+    require(mkdtemp(directory), "temporary busy profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Settings settings;
+    settings.active = {"en-us-full", "ja-romaji", "graphite"};
+    settings.favorites = {Favorite{"en", "English", {"en-us-full", "en-us", "graphite"}}};
+    save_settings(directory, settings);
+    int conversions = 0;
+    Options options;
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    BusySink sink;
+    App app(options, sink);
+    sink.busy = true;
+    click_key(app, "KeyA");
+    click_key(app, "Enter");
+    app.tick(1);
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    require(sink.text.empty() && app.view().preedit == "か", "あ is still on its way, か is read");
+    control(app, "language-cycle");
+    require(app.selection().language == "en-us" && app.view().preedit.empty(),
+            "the language button switches, the reading queued");
+    sink.busy = false;
+    for (double now = 2; now < 3 && sink.text.size() < 2; now += .05) {
+        app.tick(now);
+    }
+    require(sink.text == std::vector<std::string>{"あ", "か"}, "and both arrive in order");
+}
 void candidate_band() {
     char directory[] = "/tmp/framekeyboard-band-XXXXXX";
     require(mkdtemp(directory), "temporary band profile");
@@ -3953,6 +3997,7 @@ int main() {
         candidate_band();
         reading_room();
         language_commits_reading();
+        language_behind_pending_text();
         jis_symbols();
         flick_width();
         next_words();

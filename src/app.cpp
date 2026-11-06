@@ -3362,14 +3362,8 @@ void App::apply_settings() {
 }
 void App::action(const ControlAction& command) {
     const auto kind = command.kind;
-    if (output_.text_pending() &&
-        (kind == ControlKind::ImeToggle || kind == ControlKind::LanguageCycle)) {
-        // A / あ and another language commit a reading first, which waits
-        // like any commit. Text already on its way still finishes.
-        if (composing_text()) {
-            return;
-        }
-    }
+    // A / あ and another language commit a reading first. Text already on its
+    // way still finishes, and the reading queues behind it, as any commit.
     if (reopening_ && (kind == ControlKind::ImeToggle || kind == ControlKind::Settings ||
                        kind == ControlKind::LanguageCycle)) {
         // A reading is coming back; switch once it has. Settings and another
