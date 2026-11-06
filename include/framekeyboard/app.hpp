@@ -569,7 +569,7 @@ class App {
     // Whether a press waits, held: one on a key while input waits.
     bool hold_press(unsigned pointer, double x, double y, double now);
     void replay_input();
-    void drop_held_input(bool discard_composition);
+    void drop_held_input(bool discard_composition, bool cancel_delivery);
     // The candidates shown for Japanese, as a held pick checks them.
     std::vector<std::string> japanese_row() const;
     // The choices the worker's copies read, made again after each change.

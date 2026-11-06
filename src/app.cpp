@@ -2065,7 +2065,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     ++swipe_request_;
     discard_swipe();
     swipe_space_ = false;
-    drop_held_input(discard_composition);
+    drop_held_input(discard_composition, cancel_delivery);
     if (discard_composition) {
         if (keymap_) {
             keymap_->cancel_compose();
@@ -2901,12 +2901,30 @@ void App::replay_input() {
         held_pointers_.clear(); // What they do now acts at once.
     }
 }
-void App::drop_held_input(bool discard_composition) {
+void App::drop_held_input(bool discard_composition, bool cancel_delivery) {
     // Input ending with the reading kept, as for Recenter or a drag, keeps
     // what waits too: those presses never reached the keys, and go in
     // order once the answer is in. A discarded reading takes it all with
     // it, and what the worker has yet to start for it.
     if (!discard_composition) {
+        // A key still held may never see its release now: the pointer
+        // switched, the headset came off or a grab took it. It ends behind
+        // its press where it was last, let go or cancelled as the presses
+        // that reached the keys, so it never stays down.
+        for (const auto pointer : held_pointers_) {
+            auto end = HeldInput::pointer_event(
+                cancel_delivery ? HeldInput::Kind::Cancel : HeldInput::Kind::Up, pointer);
+            for (auto at = held_input_.rbegin(); at != held_input_.rend(); ++at) {
+                if (at->pointer == pointer &&
+                    (at->kind == HeldInput::Kind::Down || at->kind == HeldInput::Kind::Move)) {
+                    end.x = at->x;
+                    end.y = at->y;
+                    break;
+                }
+            }
+            held_input_.push_back(end);
+        }
+        held_pointers_.clear();
         return;
     }
     held_input_.clear();

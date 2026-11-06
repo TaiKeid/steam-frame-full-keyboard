@@ -1968,6 +1968,37 @@ void conversion_off_the_vr_thread() {
     require(until([&] { return preedit() == "ね"; }) && sink.text.back() == "〈ほ〉",
             "〈ほ〉 is committed and ね typed after a move");
     click_key(app, "Backspace");
+    // A key still held down when input ends that way, as on a change of
+    // pointer, may never see its release: it ends behind its press, let go
+    // or cancelled, and never stays down. A ⌫ left down would repeat.
+    for (const bool cancelled : {false, true}) {
+        hold();
+        click_key(app, "KeyS");
+        click_key(app, "KeyA");
+        app.tick(now += .01);
+        require(converting_held(), "the live request for さ is out");
+        click_key(app, "Space");
+        for (const auto* key : {"KeyN", "KeyO", "KeyK", "KeyO"}) {
+            click_key(app, key);
+        }
+        const auto [x, y] = key_centre(app, "Backspace");
+        app.down(1, x, y, now);
+        if (cancelled) {
+            app.cancel(false);
+        } else {
+            app.release_input(false);
+        }
+        release();
+        require(until([&] { return preedit() == "の"; }) && sink.text.back() == "〈さ〉",
+                "〈さ〉 is committed, then the held ⌫ deletes once");
+        for (int i = 0; i < 30; ++i) {
+            app.tick(now += .05);
+        }
+        require(preedit() == "の" && !app.holds_repeat(1) && !app.pointer_pressed(1),
+                cancelled ? "a cancelled ⌫ held behind 変換 stays up"
+                          : "a released ⌫ held behind 変換 stays up");
+        click_key(app, "Backspace");
+    }
     // A commit drops the live requests still waiting for its reading:
     // nobody sees them.
     hold();
@@ -2037,10 +2068,12 @@ void conversion_off_the_vr_thread() {
     require(converting_held(), "a third live request");
     click_key(app, "Space");
     click_key(app, "Enter");
+    const auto committed = sink.text.size();
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 10, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == committed,
+            "nothing that waited goes in after a cancel");
     // A tap in the dictation editor while 変換 waits commits what 変換
     // makes of the reading, in its turn.
     {
