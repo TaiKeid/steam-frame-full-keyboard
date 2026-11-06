@@ -2538,7 +2538,9 @@ void App::tick_learning() {
     }
     anthy_restart_.get();
     if (std::exchange(clearing_learning_, false)) {
-        report_status("Learned words cleared.");
+        report_status(std::exchange(mozc_clear_failed_, false)
+                          ? "Mozc's learned words could not be cleared."
+                          : "Learned words cleared.");
     }
     if (std::exchange(clear_queued_, false)) {
         restart_learning(true);
@@ -3644,7 +3646,7 @@ void App::action(const ControlAction& command) {
         next_words_.clear();
         japanese_choices_.clear();
         if (!mozc_server_.empty() && !options_.config_dir.empty()) {
-            clear_mozc_learning(options_.config_dir);
+            mozc_clear_failed_ = !clear_mozc_learning(options_.config_dir);
         }
         last_commit_.reset();
         follow_up_.reset();

@@ -1052,29 +1052,31 @@ bool mozc_learned(const std::filesystem::path& profile) {
     std::error_code error;
     return std::filesystem::exists(learned_mark(profile), error);
 }
-void clear_mozc_learning(const std::filesystem::path& profile) {
-    std::error_code ignored;
-    bool cleared = false;
-    {
-        auto& state = server();
-        std::lock_guard guard(state.lock);
-        if (state.base == profile && alive(state)) {
-            try {
-                const auto at = address(state.base);
-                const auto by = Clock::now() + answer_time;
-                call(at, input(clear_user_history, 0, nullptr), by);
-                call(at, input(clear_user_prediction, 0, nullptr), by);
-                call(at, input(sync_data, 0, nullptr), by);
-                cleared = true;
-            } catch (const std::exception&) {
-            }
+bool clear_mozc_learning(const std::filesystem::path& profile) {
+    auto& state = server();
+    std::lock_guard guard(state.lock); // No start meanwhile (spawn()).
+    std::error_code error;
+    if (state.base == profile && alive(state)) {
+        try {
+            const auto at = address(state.base);
+            const auto by = Clock::now() + answer_time;
+            call(at, input(clear_user_history, 0, nullptr), by);
+            call(at, input(clear_user_prediction, 0, nullptr), by);
+            call(at, input(sync_data, 0, nullptr), by);
+            std::filesystem::remove(learned_mark(profile), error);
+            return true;
+        } catch (const std::exception&) {
+            // Starting, or stuck: it goes, to start again with a new profile.
+            kill_server(state);
         }
     }
-    if (!cleared && !mozc_running()) {
-        // Not running: its profile goes whole, and starts over on next start.
-        std::filesystem::remove_all(profile / "mozc", ignored);
+    // Not running: its profile goes whole, and starts over on next start.
+    std::filesystem::remove_all(profile / "mozc", error);
+    if (error && std::filesystem::exists(profile / "mozc")) {
+        std::ofstream(learned_mark(profile)).close(); // Whatever was left may hold some.
+        return false;
     }
-    std::filesystem::remove(learned_mark(profile), ignored);
+    return true;
 }
 std::unique_ptr<JapaneseConverter>
 mozc_converter(std::function<std::unique_ptr<JapaneseConverter>()> fallback,

@@ -1525,6 +1525,89 @@ void mozc_restarts() {
     mozc.start();
     require(wait_for_mozc(std::chrono::seconds(5)), "but one after stopping does");
 }
+// Clear learned words forgets what Mozc learned: Mozc is asked to, or one
+// that doesn't answer is stopped and its profile removed. It says so only
+// once it did, and the learned mark, which offers Clear, stays until then.
+void mozc_clear_learning() {
+    FakeMozc mozc;
+    mozc.start();
+    require(wait_for_mozc(std::chrono::seconds(5)), "the stand-in answers");
+    const auto mark = mozc.profile / ".framekeyboard-learned";
+    std::ofstream(mark).close();
+    const pid_t first = mozc.pid();
+    require(mozc_learned(mozc.config) && clear_mozc_learning(mozc.config) &&
+                fs::exists(mozc.profile / "fake-cleared") && !mozc_learned(mozc.config) &&
+                mozc_running() && mozc.pid() == first,
+            "a Mozc that answers clears what it learned, and keeps running");
+    std::ofstream(mark).close();
+    fs::remove(mozc.profile / "fake-cleared");
+    kill(first, SIGSTOP);
+    const auto start = std::chrono::steady_clock::now();
+    require(clear_mozc_learning(mozc.config) &&
+                std::chrono::steady_clock::now() - start < std::chrono::milliseconds(500),
+            "a stuck one doesn't hold Clear up");
+    require(!fs::exists(mozc.profile) && !mozc_learned(mozc.config) && !mozc_running(),
+            "it is stopped, and its profile goes with what it learned");
+    mozc.start();
+    require(wait_for_mozc(std::chrono::seconds(5)) && mozc.pid() != first, "it starts again anew");
+    // One whose profile can't go stays learned, and Settings says so.
+    stop_mozc();
+    std::ofstream(mark).close();
+    fs::permissions(mozc.profile, fs::perms::owner_read | fs::perms::owner_exec);
+    require(!clear_mozc_learning(mozc.config) && mozc_learned(mozc.config),
+            "a profile that can't be removed stays learned");
+    fs::permissions(mozc.profile, fs::perms::owner_all);
+    Sink sink;
+    Options options;
+    options.config_dir = mozc.config;
+    options.anthy_home = mozc.directory / "home";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    int conversions = 0;
+    options.japanese_converter = fake_converter(&conversions);
+    options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    require(wait_for_mozc(std::chrono::seconds(5)), "adding Japanese starts it");
+    kill(mozc.pid(), SIGSTOP);
+    fs::permissions(mozc.profile, fs::perms::owner_read | fs::perms::owner_exec);
+    app.show_settings();
+    // Scrolls the Languages card until Clear shows.
+    double now = 200;
+    const auto clear = [&] {
+        for (int step = 0; step < 20; ++step) {
+            const auto controls = app.view().controls;
+            for (const auto& c : controls) {
+                if (c.id == "clear-learning") {
+                    return c;
+                }
+            }
+            const auto row = std::find_if(controls.begin(), controls.end(), [](const Control& c) {
+                return c.id == "flick-only" || c.id == "key-flicks" || c.id == "swipe-typing" ||
+                       c.id == "language";
+            });
+            require(row != controls.end(), "the Languages card shows");
+            app.move(9, row->bounds.x + 20, row->bounds.y + 20);
+            app.scroll(9, 0, 1);
+            for (int i = 0; i < 10; ++i) {
+                app.tick(now += .05);
+            }
+        }
+        throw std::runtime_error("Missing control clear-learning");
+    };
+    require(clear().enabled, "Clear is offered");
+    control(app, "clear-learning");
+    control(app, "confirm-accept");
+    for (int i = 0; i < 400 && clear().busy; ++i) {
+        app.tick(now += .01);
+        usleep(5000);
+    }
+    require(app.view().status == "Mozc's learned words could not be cleared." && clear().enabled,
+            "Settings says Mozc's weren't cleared, and still offers Clear");
+    fs::permissions(mozc.profile, fs::perms::owner_all);
+}
 // The object decides a verb Mozc reads otherwise, from its own candidates:
 // 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
 void object_verbs() {
@@ -3727,6 +3810,7 @@ int main() {
         mozc_lost_session();
         mozc_stuck_server();
         mozc_restarts();
+        mozc_clear_learning();
         word_forms();
         emoji_candidates();
         learning_calls();

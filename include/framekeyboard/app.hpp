@@ -682,6 +682,7 @@ class App {
     // what it learned (docs/japanese.md, Learning); live candidates wait.
     std::future<void> anthy_restart_;
     bool clearing_learning_{};
+    bool mozc_clear_failed_{}; // Its profile stayed (clear_mozc_learning()).
     bool clear_queued_{};
     bool learned_{}; // Something to clear, as of Settings opening or a restart.
     void apply_learning();

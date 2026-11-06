@@ -29,9 +29,11 @@ bool wait_for_mozc(std::chrono::milliseconds patience);
 // Stops the server, saving what it learned; it isn't started again.
 void stop_mozc();
 bool mozc_running();
-// Whether Mozc learned a phrase in `profile`, and forgetting all it learned.
+// Whether Mozc learned a phrase in `profile`, and forgetting all it learned:
+// Mozc is asked to, or, one that doesn't answer stopped, its profile is
+// removed, to start over. False if that failed, still learned.
 bool mozc_learned(const std::filesystem::path& profile);
-void clear_mozc_learning(const std::filesystem::path& profile);
+bool clear_mozc_learning(const std::filesystem::path& profile);
 // A converter using that server, and `fallback`'s converter, made on first
 // need, for any conversion Mozc can't make. With `patience`, as the
 // simulator and its candidates report have, a conversion Mozc can't make
