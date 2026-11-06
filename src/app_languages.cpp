@@ -412,10 +412,13 @@ bool App::languages_release(unsigned pointer) {
                                   [&](const Selection& pair) { return same_pair(pair, drag.pair); });
     if (drag.over_main) {
         if (!same_pair(drag.pair, pending_) && fits(profiles_, drag.pair)) {
-            // A language from the list replaces the main one, as the dropdowns
-            // do. From the additional list the two trade places.
+            // From the additional list the two trade places. From the list of
+            // all, the old main language becomes the first additional one, so
+            // making Korean main keeps English a tap away.
             if (was != pairs.end()) {
                 *was = pending_;
+            } else if (pairs.size() < 32) {
+                pairs.insert(pairs.begin(), pending_);
             }
             set_main_language(drag.pair, pairs);
         }

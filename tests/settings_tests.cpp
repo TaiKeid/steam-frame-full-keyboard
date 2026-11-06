@@ -2250,7 +2250,8 @@ void languages_popup() {
     click(app, "languages-close");
     app.back();
     require(!app.view().settings && !app.view().confirm, "no question without a change");
-    // A language dropped on main replaces it, and its layout follows.
+    // A language dropped on main replaces it, and its layout follows; the old
+    // main one stays among the additional languages.
     app.show_settings();
     click(app, "additional-languages");
     tap_row(app, "International");
@@ -2258,8 +2259,9 @@ void languages_popup() {
     view = app.view();
     drag(languages_row(view, "German, QWERTZ").bounds, languages_main_bounds.x + 50,
          languages_main_bounds.y + 20);
-    require(app.view().languages->main.title == "German, QWERTZ" && additional().empty(),
-            "a language from the list replaces main");
+    require(app.view().languages->main.title == "German, QWERTZ" &&
+                additional() == std::vector<std::string>{"English (US)"},
+            "a language from the list replaces main, which becomes an additional one");
     require(control(app.view(), "layout").label == "International", "and the layout goes with it");
     app.back();
     click(app, "apply");
