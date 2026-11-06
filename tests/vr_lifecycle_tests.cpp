@@ -1,9 +1,11 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/focus_visibility.hpp"
+#include "framekeyboard/overlay_discovery.hpp"
 #include "framekeyboard/vr_lifecycle.hpp"
 #include <algorithm>
 #include <iostream>
 #include <linux/input-event-codes.h>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -1024,6 +1026,58 @@ void the_other_hands_twitch_keeps_a_click() {
     require(DashboardFocus::nearest({}, 1.4, 1.5) == Target::bar, "the bar in front of Steam's page");
 }
 
+void overlay_discovery_spreads_its_lookups() {
+    // Gamescope's window overlays: two low ones, and 9000, above the first
+    // round's range and the range above the highest.
+    std::set<std::uint32_t> overlays{3, 300, 9000};
+    std::size_t lookups = 0;
+    const auto find = [&](std::uint32_t number) -> OverlayDiscovery::Handle {
+        ++lookups;
+        return overlays.contains(number) ? number + 1000 : 0;
+    };
+    OverlayDiscovery d;
+    double now = 10;
+    // Runs a round frame by frame at 90 Hz; the most lookups in one frame.
+    const auto round = [&] {
+        std::size_t most = 0, frames = 0;
+        for (bool done = false; !done; now += 1. / 90) {
+            lookups = 0;
+            done = d.advance(now, find);
+            const auto first = lookups;
+            require(!d.advance(now, find) && lookups == first,
+                    "a second caller in a frame looks up nothing");
+            most = std::max(most, first);
+            require(++frames < 200, "a round ends");
+        }
+        return std::pair{most, frames};
+    };
+    require(!d.ready(), "nothing is found before a round");
+    const auto [most, frames] = round();
+    // A lookup costs about a microsecond: no frame spends more than about 1 ms.
+    require(most <= 1000, "no frame looks up more than about 1 ms's worth");
+    require(frames == 20, "the first round's 10k lookups are spread over frames");
+    require(d.ready() &&
+                d.known() == std::map<std::uint32_t, OverlayDiscovery::Handle>{{3, 1003}, {300, 1300}},
+            "the first round finds the low windows");
+    lookups = 0;
+    d.advance(now, find);
+    require(lookups == 0, "between rounds a frame looks up nothing");
+    // A window closes and a new one opens above the highest.
+    overlays.erase(3);
+    overlays.insert(301);
+    now = 11;
+    const auto [next_most, next_frames] = round();
+    require(next_most <= 1000 && next_frames == 5,
+            "each round a second rechecks the known, the range above them and a sweep");
+    require(d.known() == std::map<std::uint32_t, OverlayDiscovery::Handle>{{300, 1300}, {301, 1301}},
+            "it forgets the closed window and finds the new one");
+    for (int second = 12; !d.known().contains(9000); ++second) {
+        now = second;
+        round();
+        require(second < 20, "the slow sweep finds an older window");
+    }
+}
+
 void late_work_cannot_cross_targets() {
     Headset h;
     h.request(20);
@@ -1590,6 +1644,7 @@ int main() {
         window_clicks_outlast_the_steam_page();
         bar_clicks_choose_only_a_shown_app();
         the_other_hands_twitch_keeps_a_click();
+        overlay_discovery_spreads_its_lookups();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

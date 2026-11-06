@@ -5,6 +5,7 @@
 #include "framekeyboard/held_keys.hpp"
 #include "framekeyboard/key_sounds.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/overlay_discovery.hpp"
 #include "framekeyboard/panel_motion.hpp"
 #include "framekeyboard/placement_store.hpp"
 #include "framekeyboard/resizer.hpp"
@@ -18,6 +19,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -31,6 +33,7 @@
 #include <optional>
 #include <poll.h>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <time.h>
 
@@ -112,28 +115,32 @@ vr::VROverlayIntersectionParams_t intersection_params(const Ray& ray) {
     }
     return params;
 }
-// Gamescope's per-window SteamVR overlays, gamescope.gamescope-0.window.<N>.
-// OpenVR cannot list overlays and Gamescope numbers windows in creation order,
-// so known ones are rechecked, the range above the highest is probed each
-// second, and a slow sweep finds older ones. A lookup costs about a
-// microsecond; this stays near 2 ms a second. Only Keep open uses it.
+// Gamescope's per-window SteamVR overlays, gamescope.gamescope-0.window.<N>,
+// found a share each frame by OverlayDiscovery while something needs them:
+// Focus mode's out-of-sight cue, the passthrough window laser and pulls in
+// the dashboard (DashboardFocus). A round's lookups stay near 2 ms a second.
 class WindowOverlays {
   public:
-    std::vector<std::uint32_t> visible(double now) {
-        if (now >= next_scan_) {
-            scan();
+    // This frame's share of finding them. Each user calls it every frame it
+    // needs them; only a frame's first call looks anything up.
+    void discover(double now) {
+        if (discovery_.advance(now, find)) {
+            read_names();
             names_read_ = now;
-            next_scan_ = now + 1;
         }
+    }
+    // Whether a first round finished: until then visible() may leave some out.
+    bool ready() const { return discovery_.ready(); }
+    // The known ones that show now. It finds none: discover() does.
+    std::vector<std::uint32_t> visible() const {
         std::vector<std::uint32_t> result;
-        for (const auto& [number, handle] : known_) {
+        for (const auto& [number, handle] : known()) {
             if (vr_overlay()->IsOverlayVisible(handle)) {
                 result.push_back(number);
             }
         }
         return result;
     }
-    void reset() { *this = {}; }
     // Which of these window overlays a laser meets, the nearest, and how far
     // along the laser.
     struct Hit {
@@ -144,9 +151,9 @@ class WindowOverlays {
         const auto params = intersection_params(ray);
         std::optional<Hit> hit;
         for (const auto number : numbers) {
-            const auto it = known_.find(number);
+            const auto it = known().find(number);
             vr::VROverlayIntersectionResults_t result{};
-            if (it != known_.end() &&
+            if (it != known().end() &&
                 vr_overlay()->ComputeOverlayIntersection(it->second, &params, &result) &&
                 (!hit || result.fDistance < hit->distance)) {
                 hit = Hit{number, result.fDistance}; // The nearest, as SteamVR's laser stops there.
@@ -164,27 +171,27 @@ class WindowOverlays {
     // the last overlay the laser moved over, wherever it is now, so ask only
     // about one the laser meets; it is also the overlay in front.
     bool hover_target(std::uint32_t number) const {
-        const auto it = known_.find(number);
-        return it != known_.end() && vr_overlay()->IsHoverTargetOverlay(it->second);
+        const auto it = known().find(number);
+        return it != known().end() && vr_overlay()->IsHoverTargetOverlay(it->second);
     }
     // For trace_focus: the known window overlay that is the hover target,
     // whether or not the laser meets it now, and how many are known.
     std::optional<std::uint32_t> hover_target() const {
-        for (const auto& [number, handle] : known_) {
+        for (const auto& [number, handle] : known()) {
             if (vr_overlay()->IsHoverTargetOverlay(handle)) {
                 return number;
             }
         }
         return {};
     }
-    std::size_t known() const { return known_.size(); }
+    std::size_t count() const { return known().size(); }
     // Whether the one window overlay Gamescope names after `title` shows, in
     // the dashboard or floating in the world; none when no known overlay, or
     // several, have that name. Names are read now: a title follows its
     // window's contents.
     std::optional<bool> shows(const std::string& title) const {
         std::optional<bool> shown;
-        for (const auto& [number, handle] : known_) {
+        for (const auto& [number, handle] : known()) {
             char name[256]{};
             vr::EVROverlayError error{};
             vr_overlay()->GetOverlayName(handle, name, sizeof(name), &error);
@@ -204,8 +211,8 @@ class WindowOverlays {
         bool shows{}, named{};
     };
     Seen seen(std::uint32_t number, const std::string& title) const {
-        const auto it = known_.find(number);
-        if (it == known_.end()) {
+        const auto it = known().find(number);
+        if (it == known().end()) {
             return {};
         }
         char name[256]{};
@@ -216,35 +223,20 @@ class WindowOverlays {
     }
 
   private:
-    static constexpr std::uint32_t step = 1024, sweep_end = 65536;
-    void probe(std::uint32_t from, std::uint32_t to) {
-        for (auto number = from; number < to; ++number) {
-            const auto key = "gamescope.gamescope-0.window." + std::to_string(number);
-            vr::VROverlayHandle_t handle{};
-            if (vr_overlay()->FindOverlay(key.c_str(), &handle) == vr::VROverlayError_None && handle) {
-                known_[number] = handle;
-            }
-        }
+    const std::map<std::uint32_t, OverlayDiscovery::Handle>& known() const { return discovery_.known(); }
+    static OverlayDiscovery::Handle find(std::uint32_t number) {
+        // Built in place, as a round makes thousands of lookups.
+        constexpr std::string_view prefix = "gamescope.gamescope-0.window.";
+        char key[48];
+        prefix.copy(key, prefix.size());
+        *std::to_chars(key + prefix.size(), key + sizeof(key) - 1, number).ptr = '\0';
+        vr::VROverlayHandle_t handle{};
+        return vr_overlay()->FindOverlay(key, &handle) == vr::VROverlayError_None ? handle : 0;
     }
-    void scan() {
-        for (auto it = known_.begin(); it != known_.end();) {
-            const auto key = "gamescope.gamescope-0.window." + std::to_string(it->first);
-            vr::VROverlayHandle_t handle{};
-            const bool kept =
-                vr_overlay()->FindOverlay(key.c_str(), &handle) == vr::VROverlayError_None && handle;
-            it = kept ? std::next(it) : known_.erase(it);
-        }
-        if (!started_) {
-            probe(0, 8 * step); // Most sessions number their windows below this.
-            started_ = true;
-        }
-        const auto top = known_.empty() ? 0 : known_.rbegin()->first + 1;
-        probe(top, top + step);
-        probe(sweep_, sweep_ + step);
-        sweep_ = sweep_ + step >= sweep_end ? 0 : sweep_ + step;
-        // Gamescope names each window's overlay after its window's title.
+    // Gamescope names each window's overlay after its window's title.
+    void read_names() {
         names_.clear();
-        for (const auto& [number, handle] : known_) {
+        for (const auto& [number, handle] : known()) {
             char name[256]{};
             vr::EVROverlayError error{};
             vr_overlay()->GetOverlayName(handle, name, sizeof(name), &error);
@@ -256,9 +248,9 @@ class WindowOverlays {
     std::map<std::uint32_t, std::string> names_;
 
   public:
-    // When named() last read the overlay names; -1 before the first scan.
+    // When named() last read the overlay names; -1 before the first round.
     double names_read() const { return names_read_; }
-    // The one window overlay named `title`, as of the last scan; none when
+    // The one window overlay named `title`, as of the last round; none when
     // several share it.
     std::optional<std::uint32_t> named(const std::string& title) const {
         std::optional<std::uint32_t> found;
@@ -272,10 +264,8 @@ class WindowOverlays {
         }
         return found;
     }
-    std::map<std::uint32_t, vr::VROverlayHandle_t> known_;
-    std::uint32_t sweep_{};
-    double next_scan_{}, names_read_{-1};
-    bool started_{};
+    OverlayDiscovery discovery_;
+    double names_read_{-1};
 };
 // Debugging: the status line shows where typing goes, and which window had
 // Gamescope's keys when the laser last came onto the keyboard. Code-only;
@@ -383,7 +373,7 @@ struct HiddenFocusCue {
                 const std::function<std::optional<Ray>()>& ray) {
         if (!enabled) {
             // The overlay cache stays: the window laser reads it with Focus
-            // mode off too, and a reset would repeat the first full scan.
+            // mode off too, and a reset would repeat the first full round.
             visibility.reset();
             return false;
         }
@@ -401,8 +391,14 @@ struct HiddenFocusCue {
             windows_changed = changed;
             visibility.windows(focus->windows());
         }
+        overlays.discover(now);
+        if (!overlays.ready()) {
+            // A partial list could leave the focused window's overlay out.
+            visibility.pause();
+            return false;
+        }
         const auto window = focus->window();
-        FocusVisibility::Sample sample{window.id, {}, overlays.visible(now)};
+        FocusVisibility::Sample sample{window.id, {}, overlays.visible()};
         sample.title = focus->title();
         sample.named = overlays.named(sample.title);
         sample.now = now;
@@ -1969,7 +1965,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // for a bar click a window overlay that did not show at the last pull
     // shows now, as the dashboard switched to an app; for a window click the
     // overlay it began on shows, named like the app.
+    // Before a first round of discovery finished, an overlay found after the
+    // pull may have shown at it already: none counts as new then.
     std::vector<std::uint32_t> pull_windows;
+    bool pull_complete = false;
     std::optional<std::uint32_t> pull_pointed; // a window click's overlay
     const char* shown_by = "";                 // trace_focus
     double visibility_sample = 0;
@@ -1986,12 +1985,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         DashboardFocus::Target target{};
         std::vector<std::uint32_t> windows;
         std::optional<std::uint32_t> pointed; // a window click's overlay
+        bool complete{};                      // windows lists every window overlay
     };
-    auto pull_target = [&](vr::TrackedDeviceIndex_t device, double now) {
+    auto pull_target = [&](vr::TrackedDeviceIndex_t device) {
         using Target = DashboardFocus::Target;
         const bool primary = device == vr_overlay()->GetPrimaryDashboardDevice();
         const auto ray = laser_rays.read(device);
-        Pull pull{Target::other, hidden_focus.overlays.visible(now), {}};
+        Pull pull{Target::other, hidden_focus.overlays.visible(), {}, hidden_focus.overlays.ready()};
         const auto hit = ray ? hidden_focus.overlays.hit(*ray, pull.windows) : std::nullopt;
         const auto pointed = hit ? std::optional(hit->number) : std::nullopt;
         auto& target = pull.target;
@@ -2029,7 +2029,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                           : steam                  ? std::string(steam)
                                                    : std::string("none"))
                       << " primary=" << (primary ? "yes" : "no") << " ray=" << (ray ? "yes" : "no")
-                      << " windows=" << pull.windows.size() << "/" << hidden_focus.overlays.known()
+                      << " windows=" << pull.windows.size() << "/" << hidden_focus.overlays.count()
                       << " ray-hits=" << (pointed ? std::to_string(*pointed) : std::string("none"))
                       << "\n"
                       << std::flush;
@@ -2087,10 +2087,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     trace_samples_until = at + 2;
                     click.reported = true;
                 }
-                auto pull = pull_target(device, now);
+                auto pull = pull_target(device);
                 if (dashboard_focus.click(at, pull.target, static_cast<unsigned>(hand))) {
                     pull_windows = std::move(pull.windows);
                     pull_pointed = pull.pointed;
+                    pull_complete = pull.complete;
                 } else if constexpr (trace_focus) {
                     std::cout << "focus-trace pull ignored: the other hand's click waits\n"
                               << std::flush;
@@ -3203,6 +3204,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             focus_probe->set_active(true);
         }
         if (sample_focus) {
+            // Pulls only read what is found: discovery never runs at a pull.
+            hidden_focus.overlays.discover(now);
             watch_clicks(now);
             // Only the dashboard's own page window: hovering its bottom bar
             // gives the bar and its popups ("X Close") the keys for a moment,
@@ -3219,11 +3222,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 } else if (focus.started != visibility_sample) {
                     visibility_sample = focus.started;
                     const auto& title = focus.app.title;
-                    const auto visible = hidden_focus.overlays.visible(now);
+                    const auto visible = hidden_focus.overlays.visible();
                     DashboardFocus::Sight sight;
                     sight.named = hidden_focus.overlays.shows(title);
                     sight.titled = !title.empty() && title.size() < vr::k_unVROverlayMaxNameLength;
                     sight.new_window =
+                        pull_complete &&
                         std::any_of(visible.begin(), visible.end(), [&](std::uint32_t number) {
                             return std::find(pull_windows.begin(), pull_windows.end(), number) ==
                                    pull_windows.end();
@@ -3811,7 +3815,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             for (std::size_t hand = 0; hand < samples.size() && !on_window; ++hand) {
                 const auto& sample = samples[hand];
                 if (sample.ray && !sample.lost && !inside[hand] && !on_resizer[hand]) {
-                    const auto visible = hidden_focus.overlays.visible(now);
+                    hidden_focus.overlays.discover(now);
+                    const auto visible = hidden_focus.overlays.visible();
                     if (!visible.empty()) {
                         on_window = hidden_focus.overlays.pointed(*sample.ray, visible).has_value();
                         // SteamVR shows a pinned window's controls (Return to
