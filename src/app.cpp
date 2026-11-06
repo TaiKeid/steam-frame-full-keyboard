@@ -2827,10 +2827,13 @@ bool App::hold_press(unsigned pointer, double x, double y, double now) {
         }
     }
     const auto* key = renderer.hit_key(v, x, y);
-    if (candidates_.contains(x, y) || !key) {
+    // A tap in the dictation editor's text commits the reading where it
+    // was typed: it waits, so it commits what 変換 makes of it.
+    const bool editor = dictation_open_ && editor_text_area(v).contains(x, y);
+    if (candidates_.contains(x, y) || (!key && !editor)) {
         return false;
     }
-    if (conversion_pending_last()) {
+    if (key && conversion_pending_last()) {
         // ⌫ and Esc go on to leave it (japanese_key()), so a held ⌫ still
         // repeats on the reading after; ↶ leaves it here, as its press.
         if (key->action_kind == ActionKind::Flick && key->action == flick_undo_slot) {

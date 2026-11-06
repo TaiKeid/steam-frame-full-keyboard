@@ -1908,10 +1908,45 @@ void conversion_off_the_vr_thread() {
     release();
     until([] { return false; }); // Every answer in.
     require(preedit().empty() && sink.text.size() == 8, "nothing that waited goes in after a cancel");
+    // A tap in the dictation editor while 変換 waits commits what 変換
+    // makes of the reading, in its turn.
+    {
+        // Dictation opens with a speech server set, which this never asks.
+        const auto editor_dir = fs::path(directory) / "editor";
+        fs::create_directories(editor_dir);
+        Settings editor_settings;
+        editor_settings.active = {"en-us-full", "ja-romaji", "graphite"};
+        editor_settings.dictation = "server";
+        editor_settings.dictation_server = "speech.local:8031";
+        save_settings(editor_dir, editor_settings);
+        auto editor_options = options;
+        editor_options.config_dir = editor_dir;
+        Sink editor_sink;
+        App editor_app(editor_options, editor_sink);
+        Opened reopened{release}; // Before this App ends, should a check fail.
+        hold();
+        editor_app.show_dictation(); // Types にほんご and converts it.
+        require(converting_held(), "the dictation sample's 変換 is out");
+        const auto view = editor_app.view();
+        require(view.dictation.has_value(), "the dictation editor shows");
+        const auto area = editor_text_area(view);
+        editor_app.down(1, area.x + 1, area.y + 4, now += .01);
+        editor_app.up(1, area.x + 1, area.y + 4);
+        release();
+        for (int i = 0; i < 100; ++i) {
+            editor_app.tick(now += .01);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto editor = editor_app.view().dictation;
+        require(editor && editor->text.find("〈にほんご〉") != std::string::npos &&
+                    editor->text.find("にほんご") == editor->text.find("〈にほんご〉") + std::string("〈").size(),
+                "the tap committed the conversion, not the reading");
+    }
     // On the flick layout ↶ straight after 変換 leaves it at once too.
     {
         Sink flick_sink;
         App flick_app(options, flick_sink);
+        Opened reopened{release};
         flick_app.apply({"ja-flick-12", "ja-flick", "graphite"});
         const auto reading = [&] { return flick_app.view().preedit; };
         hold();
