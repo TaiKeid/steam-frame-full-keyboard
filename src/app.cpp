@@ -220,6 +220,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
+    pending_extended_key_collision_ = settings_.extended_key_collision;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     japanese_words_ = JapaneseWords(data_resource(options_.data_dir, "japanese/words.tsv"));
@@ -788,7 +789,12 @@ void App::update_settings_ui() {
               checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
         field(ControlKind::AutoLeveling,
               checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))};
-    std::vector<SettingField> typing_fields{haptic_sounds};
+    std::vector<SettingField> typing_fields{
+        field(ControlKind::ExtendedKeyCollision,
+              checkbox("extended-key-collision", "Extended key collision",
+                       pending_extended_key_collision_, true,
+                       "A press between keys goes to the nearest one")),
+        haptic_sounds};
     if (pending_haptic_sounds_ != "off") {
         typing_fields.push_back(haptic_effect);
         typing_fields.push_back(haptic_volume);
@@ -1278,12 +1284,41 @@ PanelView App::build_view(bool picker) const {
             v.hovered_controls.insert(target.id);
         }
     }
-    // Between letters a press can start a swipe whenever one on a letter would.
-    if (swipe_starts(keyboard_.modifiers()) &&
+    v.key_areas = key_areas(v);
+    // Between letters a press can start a swipe whenever one on a letter
+    // would. With Extended key collision the letters' areas already reach
+    // there, and a swipe starts where a press does.
+    if (!v.key_areas && swipe_starts(keyboard_.modifiers()) &&
         (!dictation_open_ || (editor_editable() && !phrases_pending()))) {
         v.swipe_reach = &swipe_keyboard_->reach;
     }
     return v;
+}
+const std::vector<KeyArea>* App::key_areas(const PanelView& view) const {
+    // The flick page keeps its gaps, and so do its picker and dictation mode.
+    if (!settings_.extended_key_collision || flick_page(shown_layout())) {
+        return nullptr;
+    }
+    // Hidden keys take no area, as if absent; Settings, which covers the
+    // keys, does not count (hidden_key).
+    const bool numpad = view.hide_numpad;
+    const bool mic = !view.dictation_available && !view.dictation && !view.dictation_download;
+    const bool script = !view.flick_script_key;
+    if (!key_areas_ || key_areas_->layout != view.layout || key_areas_->rebuilt != layouts_rebuilt_ ||
+        key_areas_->numpad_hidden != numpad || key_areas_->mic_hidden != mic ||
+        key_areas_->script_hidden != script) {
+        auto probe = view;
+        probe.settings = false;
+        std::vector<bool> absent;
+        absent.reserve(view.layout->keys.size());
+        for (const auto& key : view.layout->keys) {
+            absent.push_back(hidden_key(probe, key));
+        }
+        key_areas_ =
+            KeyAreasFor{view.layout, layouts_rebuilt_, numpad,
+                        mic,         script,           framekeyboard::key_areas(*view.layout, absent)};
+    }
+    return &key_areas_->areas;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
     if (address_ || confirm_ != Confirm::None) {
@@ -2191,6 +2226,7 @@ void App::show_settings() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
+    pending_extended_key_collision_ = settings_.extended_key_collision;
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
                (!mozc_server_.empty() && mozc_learned(options_.config_dir));
     pending_focus_tooltip_ = settings_.focus_tooltip;
@@ -2412,6 +2448,7 @@ void App::reload() {
     pause_capture();
     cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
+    ++layouts_rebuilt_;
     dictation_layout_for_.reset(); // An edited layout or theme keeps its ID.
     keymap_ = std::move(keymap);
     std::vector<std::string> config_errors, field_errors;
@@ -2442,6 +2479,7 @@ void App::reload() {
         settings_.emoji_close_on_select = updated_settings.emoji_close_on_select;
         settings_.flick_only = updated_settings.flick_only;
         settings_.flick_katakana = updated_settings.flick_katakana;
+        settings_.extended_key_collision = updated_settings.extended_key_collision;
         katakana_ = katakana_ && settings_.flick_katakana;
         apply_learning();
         sync_mozc();
@@ -2481,6 +2519,7 @@ void App::reload() {
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
+    pending_extended_key_collision_ = settings_.extended_key_collision;
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -3406,6 +3445,7 @@ void App::apply_settings() {
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
     settings_.flick_only = pending_flick_only_;
     settings_.flick_katakana = pending_flick_katakana_;
+    settings_.extended_key_collision = pending_extended_key_collision_;
     katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
     apply_learning();
     sync_mozc();
@@ -3800,6 +3840,9 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::EmojiCloseOnSelect) {
         pending_emoji_close_on_select_ = !pending_emoji_close_on_select_;
+        update_settings_ui();
+    } else if (kind == ControlKind::ExtendedKeyCollision) {
+        pending_extended_key_collision_ = !pending_extended_key_collision_;
         update_settings_ui();
     } else if (kind == ControlKind::FocusTooltip) {
         pending_focus_tooltip_ = !pending_focus_tooltip_;
@@ -5024,6 +5067,7 @@ void App::open_emoji() {
     // Over the Japanese band it opens in the same case, at the same scale,
     // taking the band's room for its grid.
     emoji_layout_ = emoji_layout(*main.layout, emoji_width_, unbanded_layout_height(main));
+    ++layouts_rebuilt_;
     emoji_open_ = true;
     const auto picker = geometry();
     emoji_.set_geometry(panel_rect(picker, emoji_layout_.tabs), panel_rect(picker, emoji_layout_.grid));
@@ -5337,6 +5381,7 @@ void App::refresh_dictation_layout() {
     banded.ime_room = !banded.ime_band && reading_line_shared();
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
                                          unbanded_layout_height(banded) - main.layout->height);
+    ++layouts_rebuilt_;
     // Placed as the mode shows it: a layout without a function-key row grows
     // taller for the editor.
     main.layout = &dictation_layout_.layout;

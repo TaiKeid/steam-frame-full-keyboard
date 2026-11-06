@@ -363,6 +363,137 @@ void profile_tests(const fk::Profiles& defaults) {
     require(german.legend(key(layout, "KeyQ"), {KEY_RIGHTALT}, false, false) == "@",
             "German AltGr legend");
 }
+// The key whose area holds a point, or "" between blocks. Throws where two do.
+std::string area_key(const fk::Layout& layout, const std::vector<fk::KeyArea>& areas, double x,
+                     double y) {
+    std::string found;
+    for (const auto& area : areas) {
+        if (area.bounds.contains(x, y)) {
+            require(found.empty() || found == layout.keys[area.key].id, "areas never overlap");
+            found = layout.keys[area.key].id;
+        }
+    }
+    return found;
+}
+// Extended key collision (key_areas.hpp).
+void key_area_tests(const fk::Profiles& defaults) {
+    for (const auto& [id, layout] : defaults.layouts) {
+        const auto areas = fk::key_areas(layout);
+        for (std::size_t i = 0; i < areas.size(); ++i) {
+            for (std::size_t j = i + 1; j < areas.size(); ++j) {
+                const auto &a = areas[i].bounds, &b = areas[j].bounds;
+                const double across = std::min(a.x + a.width, b.x + b.width) - std::max(a.x, b.x);
+                const double down = std::min(a.y + a.height, b.y + b.height) - std::max(a.y, b.y);
+                require(across <= 1e-6 || down <= 1e-6, "no two areas overlap, in any bundled layout");
+            }
+        }
+        for (std::size_t k = 0; k < layout.keys.size(); ++k) {
+            const auto& r = layout.keys[k].bounds;
+            require(std::any_of(areas.begin(), areas.end(),
+                                [&](const fk::KeyArea& area) {
+                                    const auto& b = area.bounds;
+                                    return area.key == k && b.x <= r.x && b.y <= r.y &&
+                                           b.x + b.width >= r.x + r.width &&
+                                           b.y + b.height >= r.y + r.height;
+                                }),
+                    "every key lies inside its own area");
+        }
+    }
+    const auto& us = defaults.layouts.at("en-us-full");
+    const auto areas = fk::key_areas(us);
+    auto at = [&](double x, double y) { return area_key(us, areas, x, y); };
+    // Keys of a block split the gaps between them in the middle.
+    require(at(266.5, 170) == "KeyQ" && at(269.5, 170) == "KeyW", "Q and W share their gap");
+    require(at(250, 202) == "KeyQ" && at(250, 208) == "KeyA", "rows share the gap between them");
+    require(at(267, 203) == "KeyQ" && at(269, 207) == "KeyA", "and the corners where gaps cross");
+    require(at(221, 240) == "CapsLock" && at(224, 240) == "KeyA", "Caps Lock and A share theirs");
+    require(at(130, 275) == "CapsLock" && at(130, 279) == "ShiftLeft", "so do Caps Lock and Shift");
+    require(at(298, 20) == "F1" && at(1438, 131) == "NumpadSubtract",
+            "within the function keys and numpad");
+    // Wider gaps separate blocks and stay empty, and blocks don't grow outward.
+    require(at(260, 55).empty(), "nothing between the number row and the function keys");
+    require(at(1033, 100).empty(), "nothing between Backspace and Insert");
+    require(at(200, 20).empty() && at(495, 20).empty(), "nor between Esc and F1 or the F-key groups");
+    require(at(100, 100).empty() && at(1233, 200).empty(), "nor beside the side column or numpad");
+    require(at(118, 100).empty() && at(200, 64).empty(), "a block's outer edge stays where it is");
+    // A hidden key takes no area, and its neighbour does not grow toward it.
+    std::vector<bool> absent(us.keys.size());
+    for (std::size_t k = 0; k < us.keys.size(); ++k) {
+        absent[k] = us.keys[k].id == "Dictation";
+    }
+    require(at(40, 299) == "Paste" && area_key(us, fk::key_areas(us, absent), 40, 299).empty(),
+            "Paste reaches toward the mic key only while it shows");
+    // ISO and JIS Enter: the pocket beside it is split with ].
+    for (const char* id : {"en-gb-full", "ja-jis-full"}) {
+        const auto& layout = defaults.layouts.at(id);
+        const auto pocket = fk::key_areas(layout);
+        require(area_key(layout, pocket, 935, 170) == "BracketRight" &&
+                    area_key(layout, pocket, 945, 170) == "Enter" &&
+                    area_key(layout, pocket, 945, 135) == "Enter" &&
+                    area_key(layout, pocket, 935, 204) == "BracketRight",
+                "the pocket beside a tall Enter is split between ] and Enter");
+        require(std::count_if(
+                    pocket.begin(), pocket.end(),
+                    [&](const fk::KeyArea& area) { return layout.keys[area.key].id == "Enter"; }) == 2,
+                "which makes Enter's area an L");
+    }
+    // The emoji picker's and dictation mode's own few keys share only their
+    // gaps, never reaching into the grid, its tabs or the editor.
+    auto clear_of = [](const std::vector<fk::KeyArea>& list, const fk::Rect& r) {
+        return std::none_of(list.begin(), list.end(), [&](const fk::KeyArea& area) {
+            const auto& b = area.bounds;
+            return b.x < r.x + r.width && r.x < b.x + b.width && b.y < r.y + r.height &&
+                   r.y < b.y + b.height;
+        });
+    };
+    const auto picker = fk::emoji_layout(us, us.width);
+    const auto picker_areas = fk::key_areas(picker.layout);
+    require(clear_of(picker_areas, picker.grid) && clear_of(picker_areas, picker.tabs) &&
+                area_key(picker.layout, picker_areas, 1362, 380) == "ArrowLeft" &&
+                area_key(picker.layout, picker_areas, 1365, 380) == "ArrowDown",
+            "the picker's keys share their gaps, clear of its grid and tabs");
+    const auto dictation = fk::dictation_layout(us, us.width);
+    require(clear_of(fk::key_areas(dictation.layout), dictation.editor),
+            "dictation mode's keys stay clear of the editor");
+    require(fk::flick_page(defaults.layouts.at("ja-flick-12")) &&
+                !fk::flick_page(defaults.layouts.at("ja-flick-qwerty")) && !fk::flick_page(us),
+            "the 12-key page is a flick page; its English page is not");
+}
+// A panel point for a layout point, in the view's placement.
+std::pair<double, double> panel_point(fk::App& app, const fk::PanelView& view, double x, double y) {
+    const auto [left, top] = app.renderer.layout_point(view, 0, 0);
+    const auto [right, bottom] = app.renderer.layout_point(view, 1000, 1000);
+    const double scale = 1000 / (right - left);
+    return {(x - left) * scale, (y - top) * 1000 / (bottom - top)};
+}
+void app_key_area_tests() {
+    TemporaryDirectory directory;
+    fk::Options options;
+    options.config_dir = directory.path;
+    Capture sink;
+    auto hit = [](fk::App& app, double x, double y) -> std::string {
+        const auto view = app.input_view();
+        const auto [px, py] = panel_point(app, view, x, y);
+        const auto* key = app.renderer.hit_key(view, px, py);
+        return key ? key->id : "";
+    };
+    {
+        fk::App app(options, sink);
+        require(app.input_view().key_areas && hit(app, 266.5, 170) == "KeyQ" &&
+                    hit(app, 269.5, 170) == "KeyW" && hit(app, 260, 55).empty(),
+                "by default a press between keys of a block reaches the nearer key");
+        app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        require(!app.input_view().key_areas && hit(app, 465.5, 30).empty(),
+                "the flick page keeps its gaps");
+    }
+    fk::Settings settings;
+    settings.extended_key_collision = false;
+    fk::save_settings(directory.path, settings);
+    fk::App app(options, sink);
+    require(!app.input_view().key_areas && hit(app, 266.5, 170).empty(),
+            "with Extended key collision off, a gap is no key");
+    require(sink.events.empty(), "hit tests send nothing");
+}
 void app_tests() {
     TemporaryDirectory directory;
     fk::Options options;
@@ -424,6 +555,8 @@ int main() {
         }
         state_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
+        key_area_tests(defaults);
+        app_key_area_tests();
         app_tests();
         std::cout << "Key sequences, cancellation, repeat, profiles, persistence, language legends and "
                      "rendering passed.\n";

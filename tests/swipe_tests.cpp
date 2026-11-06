@@ -592,12 +592,14 @@ std::pair<double, double> gap_between(App& app, const std::string& from, const s
     const double t = (first + last) / 2;
     return {ax + (bx - ax) * t, ay + (by - ay) * t};
 }
+// With Extended key collision off, a gap between letters only starts swipes.
 void swipes_between_keys() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
     std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
     Settings settings;
     settings.swipe_typing = true;
+    settings.extended_key_collision = false;
     save_settings(directory.path, settings);
     auto path = std::make_shared<std::vector<int>>();
     auto calls = std::make_shared<int>(0);
@@ -685,6 +687,57 @@ void swipes_between_keys() {
     const auto typed = sink.text;
     require(!app.renderer.swipe_key(app.view(), gx, gy) && !tap(gx, gy, 6) && sink.text == typed,
             "with swipe off a gap starts nothing");
+}
+// With it on, as by default, half the gap is the letter's own: a tap there
+// types it, and a swipe starts there as on the key.
+void swipes_from_key_areas() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    auto calls = std::make_shared<int>(0);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path, calls] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = calls;
+        return encoder;
+    };
+    TextSink sink;
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    const auto view = app.input_view();
+    const auto [left, top] = app.renderer.layout_point(view, 0, 0);
+    const auto [right, bottom] = app.renderer.layout_point(view, 1000, 1000);
+    // G ends at 521.7 and H starts at 527.7: 523 is in G's half of the gap.
+    const double gx = (523 - left) * 1000 / (right - left), gy = (240 - top) * 1000 / (bottom - top);
+    const auto* key = app.renderer.hit_key(view, gx, gy);
+    require(key && key->id == "KeyG" && !view.swipe_reach, "G's half of the gap is G's");
+    app.down(0, gx, gy, 1);
+    app.up(0, gx, gy);
+    settle(app, [&] { return !sink.text.empty(); });
+    require(sink.text == std::vector<std::string>{"g"} && *calls == 0, "a tap there types G");
+    double x = gx, y = gy;
+    app.down(0, x, y, 2);
+    for (const auto* action : {"KeyE", "KeyL", "KeyO"}) {
+        const auto [nx, ny] = key_point(app, action);
+        for (int step = 1; step <= 4; ++step) {
+            app.move(0, x + (nx - x) * step / 4, y + (ny - y) * step / 4);
+        }
+        x = nx;
+        y = ny;
+    }
+    app.up(0, x, y);
+    settle(app, [&] { return sink.text.size() == 2; });
+    require(sink.text.back() == "hello" && *calls == 1, "and a swipe starts there as on G");
 }
 void trail_repaint() {
     TemporaryDirectory directory;
@@ -1999,6 +2052,7 @@ int main(int argc, char** argv) {
         app_flow(true);
         text_output_capture();
         swipes_between_keys();
+        swipes_from_key_areas();
         trail_repaint();
         std::cout << "swipe tests passed\n";
         return 0;

@@ -3,6 +3,7 @@
 #include "candidates.hpp"
 #include "emoji.hpp"
 #include "input.hpp"
+#include "key_areas.hpp"
 #include <array>
 #include <cairo.h>
 #include <map>
@@ -101,9 +102,10 @@ enum class ControlKind {
     SwipeTyping,
     KeyFlicks, // Settings: flick a key down for its Shift character
     SwipeCandidate,
-    FlickOnly,     // Settings: Japanese flick taps never cycle
-    FlickKatakana, // Settings: show the flick script key
-    ClearLearning  // asks first
+    FlickOnly,            // Settings: Japanese flick taps never cycle
+    FlickKatakana,        // Settings: show the flick script key
+    ClearLearning,        // asks first
+    ExtendedKeyCollision  // Settings: presses between keys reach the nearest one
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -276,6 +278,9 @@ struct PanelView {
     // layout coordinates (SwipeKeyboard::reach), where a press between keys
     // can start one too (PanelRenderer::swipe_key).
     const std::map<std::string, Rect>* swipe_reach{};
+    // With Extended key collision, where each key of `layout` takes the
+    // laser (key_areas.hpp); null leaves each key its own bounds.
+    const std::vector<KeyArea>* key_areas{};
     // Keys drawn dimmed, which ignore the laser.
     std::set<std::string> disabled_keys;
     // The emoji picker's grid and tabs; its keys are in `layout`.

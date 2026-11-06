@@ -2339,7 +2339,30 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
             return &key;
         }
     }
-    return nullptr;
+    if (!view.key_areas) {
+        return nullptr;
+    }
+    // Between keys, the key whose area holds the point. Areas never
+    // overlap; should a custom layout's ever do, the nearer key wins.
+    const Key* nearest = nullptr;
+    double nearest_distance = std::numeric_limits<double>::max();
+    for (const auto& area : *view.key_areas) {
+        if (area.key >= view.layout->keys.size() || !area.bounds.contains(x, y)) {
+            continue;
+        }
+        const auto& key = view.layout->keys[area.key];
+        if (covered_key(view, key)) {
+            continue;
+        }
+        const auto& b = key.bounds;
+        const double dx = std::max({b.x - x, 0.0, x - (b.x + b.width)});
+        const double dy = std::max({b.y - y, 0.0, y - (b.y + b.height)});
+        if (const double distance = std::hypot(dx, dy); distance < nearest_distance) {
+            nearest = &key;
+            nearest_distance = distance;
+        }
+    }
+    return nearest;
 }
 const Key* PanelRenderer::swipe_key(const PanelView& view, double x, double y) const {
     if (!view.swipe_reach || view.settings || list_open(view)) {

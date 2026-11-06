@@ -695,6 +695,7 @@ class App {
     bool pending_emoji_close_on_select_{};
     bool pending_flick_only_{};
     bool pending_flick_katakana_{};
+    bool pending_extended_key_collision_{true};
     // Anthy restarts on a worker for learning turned on or off, or to clear
     // what it learned (docs/japanese.md, Learning); live candidates wait.
     std::future<void> anthy_restart_;
@@ -962,6 +963,20 @@ class App {
     std::optional<bool> native_num_requested_;
     std::unique_ptr<SwipeService> swipe_;
     std::shared_ptr<const SwipeKeyboard> swipe_keyboard_; // Set only while swipe is active.
+    // Where each shown key takes the laser with Extended key collision,
+    // worked out again only when the keys shown change: another layout or
+    // page, the picker or dictation mode, a key hidden or shown, or a
+    // layout rebuilt in place, which bumps layouts_rebuilt_.
+    struct KeyAreasFor {
+        const Layout* layout{};
+        std::uint64_t rebuilt{};
+        bool numpad_hidden{}, mic_hidden{}, script_hidden{};
+        std::vector<KeyArea> areas;
+    };
+    mutable std::optional<KeyAreasFor> key_areas_;
+    std::uint64_t layouts_rebuilt_{};
+    // Null without Extended key collision, and on a flick page.
+    const std::vector<KeyArea>* key_areas(const PanelView& view) const;
     std::string swipe_prepared_;                          // Layout, language and word list in swipe_.
     struct SwipeTrack {
         unsigned pointer{};

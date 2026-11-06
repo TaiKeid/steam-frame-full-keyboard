@@ -147,11 +147,14 @@ Settings saved(App& app) {
     app.flush_settings();
     return saved(app.config_dir());
 }
+// A point on the key itself, not in the gap its area reaches into.
 std::pair<double, double> key_point(App& app, const std::string& action) {
     const auto view = app.view();
     for (double y = 96; y < panel_height; y += 4) {
         for (double x = 0; x < panel_width; x += 4) {
-            if (const auto* key = app.renderer.hit_key(view, x, y); key && key->action == action) {
+            const auto* key = app.renderer.hit_key(view, x, y);
+            const auto [lx, ly] = app.renderer.layout_point(view, x, y);
+            if (key && key->action == action && key->bounds.contains(lx, ly)) {
                 return {x, y};
             }
         }
@@ -1427,6 +1430,38 @@ void key_flicks_setting() {
     require(std::none_of(controls.begin(), controls.end(),
                          [](const Control& c) { return c.id == "key-flicks-toggle"; }),
             "with the option off, the switch is gone");
+}
+void extended_key_collision_setting() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(saved(app).extended_key_collision && app.input_view().key_areas,
+            "Extended key collision starts on");
+    app.show_settings();
+    const auto row = control(app.view(), "extended-key-collision");
+    const auto sounds = control(app.view(), "haptic-sounds");
+    const auto labels = app.view().field_labels;
+    const auto label = std::find_if(labels.begin(), labels.end(), [](const FieldLabel& l) {
+        return l.text == "Extended key collision";
+    });
+    require(row.selected && row.bounds.y < sounds.bounds.y && label != labels.end() &&
+                label->bounds.y < sounds.bounds.y,
+            "it heads the Typing card, checked");
+    click(app, "extended-key-collision");
+    require(!control(app.view(), "extended-key-collision").selected && saved(app).extended_key_collision,
+            "it stays pending until Apply");
+    app.back();
+    app.show_settings();
+    require(control(app.view(), "extended-key-collision").selected, "Back discards it");
+    click(app, "extended-key-collision");
+    click(app, "apply");
+    require(!saved(app).extended_key_collision && !app.input_view().key_areas,
+            "Apply saves it and gaps are no keys again");
+    App restarted(options, sink);
+    require(!restarted.input_view().key_areas, "it stays off after a restart");
 }
 void haptic_sounds_setting() {
     TemporaryDirectory directory;
@@ -2743,6 +2778,7 @@ int main() {
         legacy_background_surface_tests();
         background_surface_setting();
         key_flicks_setting();
+        extended_key_collision_setting();
         haptic_sounds_setting();
         app_settings();
         dictation_settings();
