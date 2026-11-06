@@ -2278,7 +2278,13 @@ void App::report_status(const std::string& message) {
 }
 void App::show_settings() {
     close_emoji(); // Settings returns to the keyboard, not the picker.
-    release_input();
+    // An unfinished reading is in no field yet and the target keeps its
+    // focus: it waits, out of sight, for the user to come back and go on.
+    release_input(false);
+    // Presses held behind a pending 変換 were aimed at the keys, which
+    // Settings now covers: replayed, they would land on its controls.
+    held_input_.clear();
+    held_pointers_.clear();
     address_.reset();
     confirm_ = Confirm::None;
     languages_.reset();
@@ -2341,7 +2347,7 @@ void App::back() {
     dirty = true;
 }
 void App::leave_settings() {
-    release_input();
+    release_input(false); // The reading comes back with the keys.
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
@@ -2359,13 +2365,16 @@ void App::summon() {
     recenter_ = true;
     status_.clear();
 }
-void App::activate(Selection selection) {
+void App::activate(Selection selection, bool keep_reading) {
     allow_slow_work();
     validate_selection_profiles(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
     close_emoji();
-    release_input();
+    release_input(!keep_reading);
+    if (keep_reading && cjk_) {
+        cjk = std::move(cjk_); // The same language's composer, with its reading.
+    }
     japanese_latin_ = false;
     flick_digits_ = false;
     if (selection.layout != settings_.active.layout || selection.language != settings_.active.language) {
@@ -3904,7 +3913,10 @@ void App::apply_settings() {
         pause_capture();
     }
     // Prepare/activate first. A failed candidate must leave all saved state intact.
-    activate(typing);
+    // A reading typed before Settings stays while its language and layout
+    // do. Another one discards it rather than type a phrase left unfinished.
+    activate(typing,
+             typing.language == settings_.active.language && typing.layout == settings_.active.layout);
     pending_.layout = main.layout;
     pending_.language = main.language;
     // Legacy entries that repeat a pair or hold the main language go here.
@@ -3977,8 +3989,9 @@ void App::action(const ControlAction& command) {
     // way still finishes, and the reading queues behind it, as any commit.
     if (reopening_ && (kind == ControlKind::ImeToggle || kind == ControlKind::Settings ||
                        kind == ControlKind::LanguageCycle)) {
-        // A reading is coming back; switch once it has. Settings and another
-        // language give up input, which would leave the phrase deleted.
+        // A reading is coming back; switch once it has. Another language
+        // gives up input, which would leave the phrase deleted, and Settings
+        // would hide the reading as it comes back.
         return;
     }
     if (kind == ControlKind::CandidateList) {

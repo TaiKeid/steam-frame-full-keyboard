@@ -488,7 +488,9 @@ class App {
         bool download_reported{};
     } host_;
     void update_settings_ui();
-    void activate(Selection selection);
+    // `keep_reading`: the selection's language and layout are the ones
+    // typing already, and an unfinished reading stays (Apply in Settings).
+    void activate(Selection selection, bool keep_reading = false);
     void save();
     void update_save_status();
     void allow_slow_work();

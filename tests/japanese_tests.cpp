@@ -1939,7 +1939,50 @@ void conversion_off_the_vr_thread() {
     release();
     require(until([&] { return app.view().settings; }) && sink.text.back() == "〈は〉",
             "〈は〉 is committed, then Settings opens");
+    // A tap after Settings was aimed at a key, never at the checkbox that
+    // Settings shows there once it opens; the conversion stays for later.
+    const auto checkbox = [&] {
+        for (const auto& c : app.view().controls) {
+            const double x = c.bounds.x + c.bounds.width / 2, y = c.bounds.y + c.bounds.height / 2;
+            if (c.style == ControlStyle::Checkbox && c.hit(x, y)) {
+                app.back();
+                const bool on_key = app.renderer.hit_key(app.view(), x, y);
+                app.show_settings();
+                if (on_key) {
+                    return c;
+                }
+            }
+        }
+        throw std::runtime_error("no Settings checkbox over a key");
+    }();
     app.back();
+    const auto [cx, cy] = std::pair{checkbox.bounds.x + checkbox.bounds.width / 2,
+                                    checkbox.bounds.y + checkbox.bounds.height / 2};
+    hold();
+    click_key(app, "KeyH");
+    click_key(app, "KeyA");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for は is out");
+    click_key(app, "Space");
+    control(app, "settings");
+    require(app.down(0, cx, cy, now), "a key tap after it waits too");
+    app.up(0, cx, cy);
+    release();
+    require(until([&] { return app.view().settings; }), "Settings opens once 変換 is in");
+    const auto now_checked = [&] {
+        for (const auto& c : app.view().controls) {
+            if (c.id == checkbox.id) {
+                return c.selected;
+            }
+        }
+        throw std::runtime_error("the checkbox went");
+    };
+    require(now_checked() == checkbox.selected, "and the tap held behind it is dropped");
+    app.back();
+    require(preedit() == "〈は〉", "the conversion waits through Settings");
+    click_key(app, "Escape");
+    click_key(app, "Escape");
+    require(preedit().empty(), "Esc twice clears it");
     hold();
     click_key(app, "KeyH");
     click_key(app, "KeyE");
@@ -3735,6 +3778,55 @@ void language_commits_reading() {
                 sink.text == std::vector<std::string>{"か"},
             "the language button types the reading before switching");
 }
+// Settings keeps an unfinished reading for the user to go on with, and Apply
+// does while the language and layout typing it stay. Another one discards
+// it: a phrase left unfinished is never typed.
+void settings_keep_reading() {
+    char directory[] = "/tmp/framekeyboard-settings-reading-XXXXXX";
+    require(mkdtemp(directory), "temporary settings profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    auto preedit = [&] { return app.view().preedit; };
+    for (const auto* id : {"KeyK", "KeyA", "KeyN", "KeyA"}) {
+        click_key(app, id);
+    }
+    app.show_settings();
+    app.back();
+    require(!app.view().settings && preedit() == "かな" && sink.text.empty(),
+            "← from Settings brings the reading back, typed nowhere");
+    click_key(app, "KeyO");
+    require(preedit() == "かなお", "and typing goes on");
+    click_key(app, "Space");
+    const auto converting = preedit();
+    require(converting != "かなお", "変換 converts it");
+    app.show_settings();
+    control(app, "apply");
+    require(!app.view().settings && preedit() == converting && sink.text.empty(),
+            "Apply keeps the conversion too");
+    click_key(app, "Enter");
+    require(preedit().empty() && sink.text.size() == 1, "which commits as before");
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    app.show_settings();
+    choose(app, "language", "en-us");
+    control(app, "apply");
+    require(app.selection().language == "en-us" && preedit().empty() && sink.text.size() == 1,
+            "another language discards the reading without typing it");
+}
 // On JIS, romaji takes the ¥ key's ¥ into the reading, as it takes \ from
 // the ろ key, and Latin mode types both.
 void jis_symbols() {
@@ -4655,8 +4747,7 @@ void slow_reopen() {
         require(app.view().preedit == (delayed ? "あ" : "あか"), "the reading comes back first");
         clear_reading(app);
     }
-    // Settings waits too, as opening it would give up input with the phrase
-    // already deleted.
+    // Settings waits too, so the reading comes back where it can be seen.
     flick(app, "a", 24);
     click_key(app, "Enter");
     sink.hold = true;
@@ -5036,6 +5127,7 @@ int main() {
         candidate_band();
         reading_room();
         language_commits_reading();
+        settings_keep_reading();
         language_behind_pending_text();
         jis_symbols();
         flick_width();

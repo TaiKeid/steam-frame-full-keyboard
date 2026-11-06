@@ -922,6 +922,16 @@ void app_traditional() {
         }
         require(app.view().preedit == test.preedit, "keys compose into the reading");
         require(sink.events.empty(), "nothing is typed while composing");
+        // Settings, left with Apply in the same language, keeps the reading.
+        app.show_settings();
+        for (const auto& c : app.view().controls) {
+            if (c.id == "apply") {
+                app.down(9, c.bounds.x + 2, c.bounds.y + 2, 1);
+                app.up(9, c.bounds.x + 2, c.bounds.y + 2);
+            }
+        }
+        require(!app.view().settings && app.view().preedit == test.preedit && sink.events.empty(),
+                "the reading waits through Settings");
         click(app, test.finish);
         for (int i = 0; i < 40 && sink.events.empty(); ++i) {
             app.tick(1 + i * .05);

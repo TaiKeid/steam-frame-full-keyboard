@@ -26,7 +26,7 @@ On full layouts the reading shows centred in a line of its own under the toolbar
 - Full layouts type kana only, as Japanese keyboards do: for English, add an English layout as an additional language and switch with the language button, which types any reading first. On a JIS keyboard, 半/全 and かな still switch between kana composition and Latin keys, typing any reading first. In Latin mode the ¥ key types ¥ (Shift |) and the ろ key \ (Shift _), as a JIS keyboard's do, and shows both; with romaji they join the reading, ¥ \ and | full-width. The flick layout has its own mode key instead; see below.
 - Starting another word while converting commits the chosen phrase first. Tab, Delete, Home/End, Copy/Paste, and Ctrl/Alt/Meta shortcuts first commit unfinished composition, then send their physical key events. If committing fails, the text remains and the key or shortcut is not sent. Escape still cancels deliberately.
 
-The preedit stays in the keyboard until committed. Moving the laser off the keyboard keeps it. Opening Settings, dragging, hiding, recentering, changing profiles or losing input focus discards it. This avoids committing an old phrase after a focus transition. Input routing follows compositor focus, just like the ordinary keyboard.
+The preedit stays in the keyboard until committed. Moving the laser off the keyboard, moving or recentering the panel, and opening Settings keep it, so you can go on typing when you come back. Applying another language or layout in Settings, hiding, changing profiles or losing input focus discards it. An unfinished phrase is never typed for you: that avoids committing an old phrase after a focus transition. Input routing follows compositor focus, just like the ordinary keyboard.
 
 ## Flick input
 
