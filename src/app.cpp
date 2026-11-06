@@ -154,7 +154,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       profiles_(load_profiles(options.data_dir, options.config_dir)),
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
-      output_(sink), text_output_(options.text_output ? options.text_output : &output_),
+      japanese_worker_(japanese_factory(options)), output_(sink), text_output_(options.text_output ? options.text_output : &output_),
       keyboard_(output_), composition_(japanese_factory(options)) {
     mozc_server_ = options.mozc_server;
     std::vector<std::string> settings_errors;
@@ -308,9 +308,15 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     }
 }
 App::~App() {
-    if (owns_anthy() && !mozc_server_.empty()) {
-        stop_mozc();
-    }
+    // Engine work ends first, before the lists and callbacks it reads go
+    // with App: learning still waiting runs, the converter and its Mozc
+    // session go, then Mozc stops, all on the worker.
+    const bool mozc = owns_anthy() && !mozc_server_.empty();
+    japanese_worker_.finish([mozc] {
+        if (mozc) {
+            stop_mozc();
+        }
+    });
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
     next_words_.save();
     japanese_choices_.save();
@@ -2094,6 +2100,7 @@ bool App::tick(double now) {
             updates_->check_periodically(static_cast<double>(boot.tv_sec));
         }
     }
+    take_japanese_answers();
     if (now - mozc_checked_ >= 2) {
         mozc_checked_ = now;
         sync_mozc();
@@ -2110,7 +2117,6 @@ bool App::tick(double now) {
     }
     refresh_typing();
     update_emoji(now);
-    tick_learning();
     tick_next_words();
     tick_japanese(now);
     if (dictation_open_) {
@@ -2216,7 +2222,7 @@ void App::set_interaction_active(bool active) {
     } else {
         output_.set_enabled(false);
         if (owns_anthy() && !mozc_server_.empty()) {
-            save_mozc_learning(); // Hidden, whatever Mozc learned is saved.
+            save_mozc(); // Hidden, whatever Mozc learned is saved.
         }
     }
 }
@@ -2611,12 +2617,26 @@ void App::sync_mozc() {
     if (!owns_anthy() || mozc_server_.empty() || options_.config_dir.empty()) {
         return;
     }
-    if (japanese_added()) {
-        start_mozc(mozc_server_, options_.config_dir,
-                   data_resource(options_.data_dir, "japanese/mozc-words.tsv"));
-    } else {
-        stop_mozc();
+    // Starting and stopping go to the worker, and only when the wish
+    // changed or a server that went may start again: the check itself
+    // waits for nothing. Another start or stop waits for one under way.
+    const bool wanted = japanese_added();
+    if (mozc_starting_ || (mozc_wanted_ == wanted && !(wanted && mozc_needs_start()))) {
+        return;
     }
+    mozc_wanted_ = wanted;
+    mozc_starting_ = true;
+    std::function<void()> work = [] { stop_mozc(); };
+    if (wanted) {
+        work = [server = mozc_server_, profile = options_.config_dir,
+                words = data_resource(options_.data_dir, "japanese/mozc-words.tsv")] {
+            start_mozc(server, profile, words);
+        };
+    }
+    post_japanese_task(std::move(work), [this] {
+        mozc_starting_ = false;
+        sync_mozc(); // The wish may have changed meanwhile.
+    });
 }
 void App::tick_mozc_save(double now) {
     mozc_clock_ = now;
@@ -2629,7 +2649,29 @@ void App::tick_mozc_save(double now) {
         active_at_ = std::max(active_at_, now); // Learned since: the pause starts again.
     }
     if (unsaved && now - active_at_ >= 3) {
-        save_mozc_learning();
+        save_mozc();
+    }
+}
+void App::save_mozc() {
+    const auto unsaved = mozc_unsaved_learning();
+    if (!unsaved || unsaved == mozc_save_asked_) {
+        return;
+    }
+    mozc_save_asked_ = unsaved;
+    post_japanese_task([] { save_mozc_learning(); });
+}
+void App::post_japanese_task(std::function<void()> work, std::function<void()> done) {
+    japanese_worker_.post_task(std::move(work), std::move(done));
+    if (options_.wait_for_japanese) {
+        japanese_worker_.wait();
+        take_japanese_answers();
+    }
+}
+void App::take_japanese_answers() {
+    for (auto& answer : japanese_worker_.take()) {
+        if (answer.done) {
+            answer.done();
+        }
     }
 }
 // A laser aimed over the panel, as from one key to another, is the user
@@ -2671,16 +2713,29 @@ void App::restart_learning(bool clear) {
         return;
     }
     clearing_learning_ = clear;
-    anthy_restart_ = std::async(std::launch::async, [clear] { restart_anthy(clear); });
+    anthy_restarting_ = true;
+    // On the worker, between conversions, never in the middle of one: a
+    // restart can't take Anthy away between a conversion and its learning.
+    // Mozc forgets what it learned there too, after any phrase still being
+    // learned.
+    const bool mozc = clear && !mozc_server_.empty() && !options_.config_dir.empty();
+    auto mozc_failed = std::make_shared<bool>(false);
+    post_japanese_task(
+        [clear, mozc, mozc_failed, profile = options_.config_dir] {
+            if (mozc) {
+                *mozc_failed = !clear_mozc_learning(profile);
+            }
+            restart_anthy(clear);
+        },
+        [this, mozc_failed] {
+            mozc_clear_failed_ = *mozc_failed;
+            learning_restarted();
+        });
     update_settings_ui();
     dirty = true;
 }
-void App::tick_learning() {
-    if (!restarting_anthy() ||
-        anthy_restart_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-        return;
-    }
-    anthy_restart_.get();
+void App::learning_restarted() {
+    anthy_restarting_ = false;
     if (std::exchange(clearing_learning_, false)) {
         report_status(std::exchange(mozc_clear_failed_, false)
                           ? "Mozc's learned words could not be cleared."
@@ -3828,9 +3883,6 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
         next_words_.clear();
         japanese_choices_.clear();
-        if (!mozc_server_.empty() && !options_.config_dir.empty()) {
-            mozc_clear_failed_ = !clear_mozc_learning(options_.config_dir);
-        }
         last_commit_.reset();
         follow_up_.reset();
         restart_learning(true);

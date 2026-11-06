@@ -1,4 +1,5 @@
 #include "framekeyboard/mozc.hpp"
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -285,14 +286,14 @@ struct Server {
     // Phrases learned, and as many as were saved: Mozc saves on its own
     // only every few minutes (save_mozc_learning()). `saving` is the save
     // under way, on a thread of its own that touches nothing here.
-    std::uint64_t learning = 0, saved = 0;
+    std::atomic<std::uint64_t> learning = 0, saved = 0;
     std::future<void> saving;
-    ~Server() {
-        if (pid > 0) {
-            kill(pid, SIGTERM);
-            waitpid(pid, nullptr, 0);
-        }
-    }
+    // What the VR thread reads without the lock (mozc_needs_start()), which
+    // whoever changes it publishes (publish()).
+    std::atomic<pid_t> published_pid = -1;
+    std::atomic<bool> may_start = false;
+    std::atomic<Clock::rep> start_after = 0;
+    ~Server();
 };
 Server& server() {
     static Server instance;
@@ -491,7 +492,9 @@ void make_profile(const Server& state) {
 }
 // Runs `arguments` with `variables` as its environment and nothing on its
 // standard streams, in a process group of its own (kill_server()), going
-// when we do.
+// when we do. PR_SET_PDEATHSIG follows the thread that forked, not the
+// process: on the keyboard the conversion worker, which ends only after
+// stopping the server.
 pid_t launch(std::vector<std::string> arguments, std::vector<std::string> variables) {
     // Built before fork(): the child only calls async-signal-safe functions.
     std::vector<char*> argv, envp;
@@ -556,6 +559,13 @@ bool bubblewrap_runs(const Server& state) {
 constexpr auto quick_death = std::chrono::minutes(1);
 constexpr int tries = 5;
 constexpr auto backoff = std::chrono::milliseconds(500);
+// Publishes what mozc_needs_start() reads. Called with the server's lock
+// held, after changing any of it.
+void publish(Server& state) {
+    state.published_pid.store(state.pid);
+    state.may_start.store(state.wanted && state.deaths < tries);
+    state.start_after.store(state.next_start.time_since_epoch().count());
+}
 // The server went. One that ran a while is started again at once. One that
 // went soon, as one that can't start or keeps crashing, is started again
 // later each time, and after a few times not at all, until start_mozc()
@@ -571,18 +581,21 @@ void gone(Server& state) {
             std::cerr << "Mozc's sandbox failed; starting it without bubblewrap.\n";
             state.sandbox = false;
             state.next_start = now;
+            publish(state);
             return;
         }
     }
     if (now - state.started >= quick_death) {
         state.deaths = 0;
         state.next_start = now;
+        publish(state);
         return;
     }
     if (++state.deaths == tries) {
         std::cerr << "Mozc keeps stopping; Japanese is converted by Anthy alone.\n";
     }
     state.next_start = state.deaths > 1 ? now + backoff * (1 << (state.deaths - 2)) : now;
+    publish(state);
 }
 // Whether the server runs; one found gone is reaped, and its going noted.
 // Called with the server's lock held.
@@ -605,6 +618,28 @@ void kill_server(Server& state) {
         waitpid(state.pid, nullptr, 0);
         state.pid = -1;
     }
+    publish(state);
+}
+// Asks the server to go, and kills it if it hasn't within a second, so
+// that one ignoring SIGTERM can't hold up the keyboard's end. Called with
+// the server's lock held.
+void end_server(Server& state) {
+    if (state.pid <= 0) {
+        return;
+    }
+    kill(state.pid, SIGTERM);
+    for (int i = 0; i < 100; ++i) {
+        if (waitpid(state.pid, nullptr, WNOHANG) == state.pid) {
+            state.pid = -1;
+            publish(state);
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    kill_server(state);
+}
+Server::~Server() {
+    end_server(*this);
 }
 // Starts the server unless it is running or waits to be started again
 // (gone()); it gets ready on its own. Called with the server's lock held.
@@ -626,7 +661,8 @@ void spawn(Server& state) {
                        std::move(variables));
     state.sandboxed = !bwrap.empty();
     state.started = Clock::now();
-    state.saved = state.learning; // A new server has nothing of ours to save.
+    state.saved.store(state.learning.load()); // A new server has nothing of ours to save.
+    publish(state);
 }
 // The server's address once it answers: waiting up to `patience` for it,
 // starting it if need be, or not at all, as on the keyboard, whose tick
@@ -668,7 +704,7 @@ void learned() {
         auto& state = server();
         std::lock_guard guard(state.lock);
         base = state.base;
-        ++state.learning;
+        state.learning.fetch_add(1);
     }
     std::error_code ignored;
     if (!std::filesystem::exists(learned_mark(base), ignored)) {
@@ -1031,16 +1067,13 @@ void start_mozc(const std::filesystem::path& path, const std::filesystem::path& 
         spawn(state); // Started again if it went.
         return;
     }
-    if (state.pid > 0) {
-        kill(state.pid, SIGTERM); // Another server or profile: this one goes.
-        waitpid(state.pid, nullptr, 0);
-        state.pid = -1;
-    }
+    end_server(state); // Another server or profile: this one goes.
     state.path = path;
     state.base = profile;
     state.wanted = true;
     state.deaths = 0; // Tried anew, as when Japanese is added again.
     state.next_start = {};
+    publish(state);
     spawn(state);
 }
 bool wait_for_mozc(std::chrono::milliseconds patience) {
@@ -1055,7 +1088,8 @@ void stop_mozc() {
     auto& state = server();
     std::lock_guard guard(state.lock);
     state.wanted = false;
-    state.saved = state.learning; // Saved below, or gone with it.
+    state.saved.store(state.learning.load()); // Saved below, or gone with it.
+    publish(state);
     if (state.saving.valid()) {
         state.saving.wait(); // Within its save_time.
     }
@@ -1069,25 +1103,37 @@ void stop_mozc() {
             return;
         } catch (const std::exception&) {
         }
-        kill(state.pid, SIGTERM);
-        waitpid(state.pid, nullptr, 0);
-        state.pid = -1;
+        end_server(state);
     }
 }
 std::uint64_t mozc_unsaved_learning() {
-    auto& state = server();
-    std::lock_guard guard(state.lock);
-    return state.learning != state.saved ? state.learning : 0;
+    const auto& state = server();
+    const auto learning = state.learning.load();
+    return learning != state.saved.load() ? learning : 0;
+}
+bool mozc_needs_start() {
+    const auto& state = server();
+    if (!state.may_start.load()) {
+        return false; // Not wanted, or given up on.
+    }
+    if (const pid_t pid = state.published_pid.load(); pid > 0) {
+        // Gone, but left for alive() to reap: start_mozc() reaps it and
+        // starts another.
+        siginfo_t info{};
+        return waitid(P_PID, static_cast<id_t>(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0 &&
+               info.si_pid == pid;
+    }
+    return Clock::now().time_since_epoch().count() >= state.start_after.load();
 }
 void save_mozc_learning() {
     auto& state = server();
     std::lock_guard guard(state.lock);
-    if (state.learning == state.saved || saving(state) || !alive(state)) {
+    if (state.learning.load() == state.saved.load() || saving(state) || !alive(state)) {
         return;
     }
     // A failed save isn't tried again: the server is gone or stuck, and
     // what it learned goes with it.
-    state.saved = state.learning;
+    state.saved.store(state.learning.load());
     state.saving = std::async(std::launch::async, [at = address(state.base)] {
         try {
             call(at, input(sync_data, 0, nullptr), Clock::now() + save_time);
@@ -1107,7 +1153,7 @@ bool mozc_learned(const std::filesystem::path& profile) {
 bool clear_mozc_learning(const std::filesystem::path& profile) {
     auto& state = server();
     std::lock_guard guard(state.lock); // No start meanwhile (spawn()).
-    state.saved = state.learning;      // Nothing left to save, either way.
+    state.saved.store(state.learning.load()); // Nothing left to save, either way.
     std::error_code error;
     if (state.base == profile && alive(state)) {
         try {

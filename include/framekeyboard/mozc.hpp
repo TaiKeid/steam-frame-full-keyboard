@@ -23,16 +23,26 @@ std::filesystem::path mozc_engine();
 // Calling this again while it runs starts it again if it went. `words`, a
 // reading<TAB>word list such as japanese/mozc-words.tsv, becomes its user
 // dictionary.
+//
+// The keyboard makes these calls, and any conversion, on its conversion
+// worker (JapaneseWorker): they talk to the server and wait for processes.
+// The VR thread calls only mozc_needs_start(), mozc_unsaved_learning() and
+// mozc_learned(), which do neither.
 void start_mozc(const std::filesystem::path& path, const std::filesystem::path& profile,
                 const std::filesystem::path& words = {});
 // Waits up to `patience` for the server to answer; false if it doesn't.
 bool wait_for_mozc(std::chrono::milliseconds patience);
-// Stops the server, saving what it learned; it isn't started again.
+// Stops the server, saving what it learned; it isn't started again. One
+// that doesn't go within a second of being asked is killed.
 void stop_mozc();
 bool mozc_running();
+// Whether start_mozc() has work: the server is wanted, but it went, or it
+// waits to be started again and may be by now. Without locks or waiting,
+// for the VR thread's periodic check.
+bool mozc_needs_start();
 // Mozc doesn't save a phrase it learns at once, but every few minutes on its
 // own. Until it is saved, here a count that grows with each one; 0 once
-// saved, or when nothing was learned.
+// saved, or when nothing was learned. Without locks, for the VR thread.
 std::uint64_t mozc_unsaved_learning();
 // Saves it on a thread of its own, so a slow save holds up no conversion
 // or frame; nothing without anything to save.

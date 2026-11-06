@@ -1324,6 +1324,7 @@ void mozc_lifecycle() {
     options.target_language = "en-us";
     options.japanese_converter = fake_converter(&conversions);
     options.mozc_server = server;
+    options.wait_for_japanese = true; // Mozc starts and stops on the worker.
     Sink sink;
     {
         App app(options, sink);
@@ -1338,7 +1339,14 @@ void mozc_lifecycle() {
         // One that dies starts again within the tick's check, not at the
         // next conversion.
         const int first = std::stoi(noted("pid"));
+        require(!mozc_needs_start(), "a running server needs nothing");
         kill(first, SIGKILL);
+        // The VR thread's check sees it gone without reaping it.
+        bool noticed = false;
+        for (int i = 0; i < 200 && !(noticed = mozc_needs_start()); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        require(noticed, "the check notices a server that went");
         for (int i = 0; i < 200 && mozc_running(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -1400,6 +1408,20 @@ void mozc_lifecycle() {
     }
     stop_mozc();
     require(!mozc_running(), "stopped on request");
+    // One that ignores SIGTERM is killed within about a second, so the
+    // keyboard's end never hangs on it. In bubblewrap, bubblewrap itself
+    // goes on SIGTERM and takes the server with it; only an unsandboxed
+    // server needs the kill.
+    const auto deaf = fs::path(directory) / "deaf_server";
+    std::ofstream(deaf) << "#!/bin/sh\ntrap '' TERM\nexec sleep 600\n";
+    fs::permissions(deaf, fs::perms::owner_all);
+    start_mozc(deaf, fs::path(directory) / "config");
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    require(mozc_running(), "the deaf stand-in runs");
+    const auto asked = std::chrono::steady_clock::now();
+    stop_mozc();
+    require(!mozc_running() && std::chrono::steady_clock::now() - asked < std::chrono::seconds(3),
+            "a server ignoring SIGTERM is killed soon after");
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
 // does, in a profile of its own; the files it reads and writes there steer
@@ -1589,6 +1611,7 @@ void mozc_clear_learning() {
     int conversions = 0;
     options.japanese_converter = fake_converter(&conversions);
     options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC;
+    options.wait_for_japanese = true; // Mozc starts and stops on the worker.
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     require(wait_for_mozc(std::chrono::seconds(5)), "adding Japanese starts it");
@@ -1652,6 +1675,7 @@ void mozc_learning_saves() {
     options.start_enabled = true;
     options.target_language = "en-us";
     options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC; // Mozc converts, Anthy meanwhile.
+    options.wait_for_japanese = true; // Mozc starts and stops on the worker.
     Sink sink;
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});

@@ -10,6 +10,7 @@
 #include "feedback.hpp"
 #include "instance.hpp"
 #include "japanese.hpp"
+#include "japanese_worker.hpp"
 #include "next_words.hpp"
 #include "output.hpp"
 #include "panel.hpp"
@@ -76,6 +77,10 @@ struct Options {
     // long for a Mozc server that isn't answering before Anthy converts it.
     // The keyboard waits for nothing.
     std::chrono::milliseconds mozc_patience{};
+    // Tests: after each request to the conversion worker, wait for its
+    // answer, as when conversion ran on the VR thread. The keyboard never
+    // waits for the worker.
+    bool wait_for_japanese{};
     // Debug mode: Settings has a Debug card, whose Mark Anthy suggestions
     // gives candidates Anthy converted an orange border. Only builds with
     // FRAMEKEYBOARD_DEBUG_MODE have the card; the others ignore this.
@@ -704,9 +709,10 @@ class App {
     // as for every other card.
     bool debug_mark_anthy_{true}, pending_debug_mark_anthy_{true};
     bool debug_key_outlines_{}, pending_debug_key_outlines_{};
-    // Anthy restarts on a worker for learning turned on or off, or to clear
-    // what it learned (docs/japanese.md, Learning); live candidates wait.
-    std::future<void> anthy_restart_;
+    // Anthy restarts on the conversion worker for learning turned on or
+    // off, or to clear what it learned (docs/japanese.md, Learning), and
+    // Mozc's learning is cleared with it; live candidates wait.
+    bool anthy_restarting_{};
     bool clearing_learning_{};
     bool mozc_clear_failed_{}; // Its profile stayed (clear_mozc_learning()).
     bool clear_queued_{};
@@ -719,6 +725,10 @@ class App {
     // Mozc's server runs only while Japanese is added: started when it is,
     // kept running, and stopped when it is removed, not to use its memory.
     void sync_mozc();
+    // The server's state last asked of the worker, and whether that start
+    // or stop is still under way there.
+    std::optional<bool> mozc_wanted_;
+    bool mozc_starting_{};
     fs::path mozc_server_; // Empty without Mozc: Anthy converts.
     // When tick() last made sure the server runs: one that died starts again
     // within seconds, not at the next conversion.
@@ -727,6 +737,10 @@ class App {
     // phrase it learned, key press or laser aimed over the panel, as long
     // as nothing more happens, and as the panel hides.
     void tick_mozc_save(double now);
+    // Saves on the worker what Mozc learned, once for each count of phrases
+    // learned: a save that found the server gone isn't asked for again.
+    void save_mozc();
+    std::uint64_t mozc_save_asked_{};
     void note_aiming(unsigned pointer, double x, double y);
     double mozc_clock_{}; // tick()'s last time, for moves, which come without one
     double active_at_{};
@@ -737,8 +751,15 @@ class App {
     std::map<unsigned, Aim> aims_;
     bool learning_allowed() const;
     void restart_learning(bool clear);
-    void tick_learning();
-    bool restarting_anthy() const { return anthy_restart_.valid(); }
+    void learning_restarted();
+    bool restarting_anthy() const { return anthy_restarting_; }
+    // Every call to Mozc and Anthy runs on the conversion worker, whose
+    // answers tick() takes each frame (docs/architecture.md, Japanese
+    // conversion). With Options::wait_for_japanese, a request waits for
+    // its answer.
+    JapaneseWorker japanese_worker_;
+    void post_japanese_task(std::function<void()> work, std::function<void()> done = {});
+    void take_japanese_answers();
     bool pending_focus_tooltip_{};
     bool pending_desktop_unicode_paste_{};
     int pending_dictation_send_gap_{20};
