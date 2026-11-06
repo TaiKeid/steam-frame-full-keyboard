@@ -16,6 +16,9 @@ struct Setup {
     bool slow{};
     // Tests replace Japanese conversion; empty loads Anthy, as the keyboard does.
     JapaneseComposer::Factory japanese_converter;
+    // The tour: each conversion's answer is in before the next step, so a
+    // picture never catches one on its way (Options::wait_for_japanese).
+    bool wait_for_japanese{};
 };
 
 // The simulator's window contents, without the window: the keyboard's own

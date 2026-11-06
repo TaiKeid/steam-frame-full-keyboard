@@ -1255,13 +1255,15 @@ void JapaneseComposer::set_record(const Record& record) {
     conversion_ = record.conversion;
 }
 bool JapaneseComposer::reconvert() {
+    // As learn() decides what it learns from.
+    if (!learning_ || predicted_ || !converting() || converted_ != reading_) {
+        return true;
+    }
     if (resized_) {
         return false;
     }
-    if (!converted_.empty()) {
-        const auto reading = converted_; // fresh() clears converted_ first.
-        fresh(reading);                  // The same reading converts the same way.
-    }
+    const auto reading = converted_; // fresh() clears converted_ first.
+    fresh(reading);                  // The same reading converts the same way.
     return true;
 }
 void JapaneseComposer::adopt(JapaneseComposer done) {
@@ -1278,10 +1280,10 @@ void JapaneseComposer::adopt(JapaneseComposer done) {
     done.word_forms_ = word_forms_;
     *this = std::move(done);
 }
-void JapaneseComposer::adopt_live(const JapaneseComposer& done) {
+void JapaneseComposer::adopt_live(JapaneseComposer done) {
     set_record(done.record());
     if (done.cleared_ == cleared_) {
-        live_ = done.live_;
+        live_ = std::move(done.live_);
     }
 }
 namespace {

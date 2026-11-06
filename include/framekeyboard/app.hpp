@@ -493,6 +493,76 @@ class App {
     bool japanese_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_japanese();
     void convert_japanese();
+    // Conversion on the worker (docs/architecture.md, Japanese conversion).
+    // A step of the composer's runs here when it converts nothing, as
+    // cycling candidates does; one that converts goes to the worker, on a
+    // copy of the composer as it was, and Japanese input waits for its
+    // answer. `then` gets the step's result, here or once answered.
+    void japanese_step(JapaneseWorker::Step step, std::function<void(bool)> then = {});
+    // A copy of the composer for the worker, with what it reads of App's
+    // own: the learning permission now, and a snapshot of the choices.
+    JapaneseComposer japanese_copy();
+    void learn_japanese();
+    // Whether every request to the worker has its answer taken, so the
+    // composer's record of what was last converted is the worker's.
+    bool japanese_settled() const { return japanese_worker_.outstanding() == 0; }
+    // With Options::wait_for_japanese, waits for the worker's answers.
+    void settle_japanese();
+    // Japanese input waits, in the order it came, while a step waits for
+    // its answer, or until every answer is in for one that reads what was
+    // last converted: 変換 after a live request, as typed this quickly.
+    // Typing alone never waits.
+    struct JapaneseWait {
+        std::uint64_t id{}; // 0: every answer.
+        std::uint64_t edits{};
+        std::function<void(bool)> then;
+    };
+    std::optional<JapaneseWait> japanese_wait_;
+    struct HeldInput {
+        enum class Kind { Key, Pick, Down, Move, Up, Cancel } kind{};
+        Key key;
+        std::set<int> modifiers;
+        int index{};
+        std::vector<std::string> row; // A pick's candidates, as tapped.
+        unsigned pointer{};
+        double x{}, y{}, now{};
+        static HeldInput pointer_event(Kind kind, unsigned pointer, double x = 0, double y = 0,
+                                       double now = 0) {
+            HeldInput input;
+            input.kind = kind;
+            input.pointer = pointer;
+            input.x = x;
+            input.y = y;
+            input.now = now;
+            return input;
+        }
+        static HeldInput key_press(const Key& key, const std::set<int>& modifiers) {
+            HeldInput input;
+            input.key = key;
+            input.modifiers = modifiers;
+            return input;
+        }
+    };
+    std::deque<HeldInput> held_input_;
+    // Pointers pressed on keys while input waits, until their release.
+    std::set<unsigned> held_pointers_;
+    bool replaying_input_{};
+    bool japanese_holding() const { return japanese_wait_ || !held_input_.empty(); }
+    // Holds what came while input waits; a held action replayed that has
+    // to wait again goes back to the front.
+    void hold_input(HeldInput input);
+    // Whether a press waits, held: one on a key while input waits.
+    bool hold_press(unsigned pointer, double x, double y, double now);
+    void replay_input();
+    void drop_held_input(bool discard_composition);
+    // The candidates shown for Japanese, as a held pick checks them.
+    std::vector<std::string> japanese_row() const;
+    // The choices the worker's copies read, made again after each change.
+    std::shared_ptr<const NextWords> choices_snapshot_;
+    // What live candidates were last asked of the worker for.
+    std::string live_asked_;
+    std::uint64_t live_asked_clears_{};
+    bool japanese_lists_preloaded_{};
     bool japanese() const;
     bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
     void commit_cjk();

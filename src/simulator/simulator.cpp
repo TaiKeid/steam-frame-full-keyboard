@@ -118,6 +118,7 @@ Simulator::Simulator(const Setup& setup)
     // Dictation's paste Send writes the field's own clipboard.
     options.clipboard = &sink_;
     options.japanese_converter = setup.japanese_converter;
+    options.wait_for_japanese = setup.wait_for_japanese;
     app_ = std::make_unique<App>(options, sink_);
     // The window is the keyboard's place: nothing moves or resizes it. The ×
     // shows, so the toolbar lays out as on the headset, but closes nothing

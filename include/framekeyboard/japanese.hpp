@@ -157,19 +157,24 @@ class JapaneseComposer {
     struct Record;
     Record record() const;
     void set_record(const Record& record);
-    // Makes the converter's last conversion this record's again, for a
-    // converter that converted another reading since: converted again, as
-    // it was before a resize. False when it was resized, which converting
-    // again can't restore.
+    // Before learn(), for a converter that converted another reading since:
+    // makes its last conversion this phrase's again, converting it again.
+    // Nothing for a phrase learn() doesn't learn from the conversion; false
+    // for one resized, which converting again can't restore.
     bool reconvert();
     // Takes the answer of a copy the worker ran a step on, keeping this
     // composer's converter and lists. adopt() takes all of it, for a step
     // while this one stayed as it was (edits()); adopt_live() its live
     // candidates, unless they were cleared since, and its record.
     void adopt(JapaneseComposer done);
-    void adopt_live(const JapaneseComposer& done);
-    // Counts the steps that change the reading or conversion.
+    void adopt_live(JapaneseComposer done);
+    // Counts the steps that change the reading or conversion, and the
+    // times the live candidates were cleared.
     std::uint64_t edits() const { return edits_; }
+    std::uint64_t clears() const { return cleared_; }
+    // The reading live candidates would be for; false while a romaji letter
+    // still waits that could change it.
+    bool live_reading(std::string& reading) const { return settled(reading); }
     void roman(char key);
     void kana(const std::string& text);
     // Changes the last kana: ゛ voices it, ゜ makes it semi-voiced, 小 makes it

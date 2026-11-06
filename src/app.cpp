@@ -128,6 +128,20 @@ std::string language_short_name(const Language& language) {
 }
 } // namespace
 namespace {
+// A listed phrase's usual conversions, the user's own most frequent
+// choice for the reading first, the usual one next.
+std::vector<std::string> preferred_phrases(const JapaneseWords& preferred, const NextWords& choices,
+                                           bool learning, const std::string& reading) {
+    auto phrases = preferred.exact(reading, 1);
+    if (!phrases.empty() && learning) {
+        for (auto& chosen : choices.after(reading, 1)) {
+            if (chosen != phrases.front()) {
+                phrases.insert(phrases.begin(), std::move(chosen));
+            }
+        }
+    }
+    return phrases;
+}
 // Mozc converts where it is installed, Anthy otherwise and meanwhile.
 JapaneseComposer::Factory japanese_factory(const Options& options) {
     if (options.japanese_converter) {
@@ -155,7 +169,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
       japanese_worker_(japanese_factory(options)), output_(sink), text_output_(options.text_output ? options.text_output : &output_),
-      keyboard_(output_), composition_(japanese_factory(options)) {
+      keyboard_(output_) {
+    // The worker converts, with the converter japanese_factory() makes.
+    composition_.defer_conversion();
     mozc_server_ = options.mozc_server;
     std::vector<std::string> settings_errors;
     settings_ = load_settings(options.config_dir, settings_errors);
@@ -252,17 +268,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         return learning_allowed() ? japanese_choices_.latest(reading) : std::string{};
     });
     composition_.set_preferred([this](const std::string& reading) {
-        auto phrases = japanese_preferred_.exact(reading, 1);
-        // The user's own most frequent choice for the reading wins; the
-        // usual one stays next.
-        if (!phrases.empty() && learning_allowed()) {
-            for (auto& chosen : japanese_choices_.after(reading, 1)) {
-                if (chosen != phrases.front()) {
-                    phrases.insert(phrases.begin(), std::move(chosen));
-                }
-            }
-        }
-        return phrases;
+        return preferred_phrases(japanese_preferred_, japanese_choices_, learning_allowed(), reading);
     });
     if (owns_anthy()) {
         configure_anthy({true, anthy_home()});
@@ -1412,6 +1418,10 @@ bool App::move(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
         return false;
     }
+    if (!replaying_input_ && held_pointers_.contains(pointer)) {
+        hold_input(HeldInput::pointer_event(HeldInput::Kind::Move, pointer, x, y));
+        return false;
+    }
     note_aiming(pointer, x, y);
     pointer_positions_[pointer] = {x, y};
     if (editor_drag_ && editor_drag_->pointer == pointer) {
@@ -1497,6 +1507,9 @@ bool App::move(unsigned pointer, double x, double y) {
 bool App::down(unsigned pointer, double x, double y, double now) {
     if (dragging_ || !interaction_active_) {
         return false;
+    }
+    if (hold_press(pointer, x, y, now)) {
+        return true; // It goes in order once Japanese input stops waiting.
     }
     active_at_ = mozc_clock_;
     move(pointer, x, y);
@@ -1818,6 +1831,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     return false;
 }
 bool App::up(unsigned pointer, double x, double y) {
+    if (!replaying_input_ && held_pointers_.contains(pointer)) {
+        hold_input(HeldInput::pointer_event(HeldInput::Kind::Up, pointer, x, y));
+        held_pointers_.erase(pointer);
+        return true;
+    }
     if (address_repeat_ && address_repeat_->pointer == pointer) {
         address_repeat_.reset();
     }
@@ -1932,6 +1950,11 @@ bool App::up(unsigned pointer, double x, double y) {
 }
 
 void App::cancel_pointer(unsigned pointer) {
+    if (!replaying_input_ && held_pointers_.contains(pointer)) {
+        hold_input(HeldInput::pointer_event(HeldInput::Kind::Cancel, pointer));
+        held_pointers_.erase(pointer);
+        return;
+    }
     if (editor_drag_ && editor_drag_->pointer == pointer) {
         editor_drag_.reset();
     }
@@ -2038,6 +2061,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     ++swipe_request_;
     discard_swipe();
     swipe_space_ = false;
+    drop_held_input(discard_composition);
     if (discard_composition) {
         if (keymap_) {
             keymap_->cancel_compose();
@@ -2145,7 +2169,7 @@ bool App::tick(double now) {
             dirty = true;
         }
     }
-    if (reading_repeat_ && now >= reading_repeat_->next) {
+    if (reading_repeat_ && now >= reading_repeat_->next && !japanese_holding()) {
         if (!keyboard_.pointer_pressed(reading_repeat_->pointer) || !reading_open()) {
             reading_repeat_.reset();
         } else {
@@ -2669,10 +2693,191 @@ void App::post_japanese_task(std::function<void()> work, std::function<void()> d
 }
 void App::take_japanese_answers() {
     for (auto& answer : japanese_worker_.take()) {
-        if (answer.done) {
-            answer.done();
+        switch (answer.kind) {
+        case JapaneseWorker::Kind::Task:
+            if (answer.done) {
+                answer.done();
+            }
+            break;
+        case JapaneseWorker::Kind::Learn:
+            break;
+        case JapaneseWorker::Kind::Live:
+            composition_.adopt_live(std::move(*answer.composer));
+            dirty = true;
+            break;
+        case JapaneseWorker::Kind::Step:
+            if (!japanese_wait_ || japanese_wait_->id != answer.id) {
+                // One given up on, as for a discarded reading: only what
+                // the converter now holds still counts.
+                composition_.set_record(answer.composer->record());
+                break;
+            }
+            auto wait = std::move(*japanese_wait_);
+            japanese_wait_.reset();
+            if (composition_.edits() == wait.edits) {
+                composition_.adopt(std::move(*answer.composer));
+            } else {
+                composition_.set_record(answer.composer->record());
+            }
+            dirty = true;
+            try {
+                if (!answer.error.empty()) {
+                    status_ = answer.error;
+                } else if (wait.then) {
+                    wait.then(answer.result);
+                }
+            } catch (const std::exception& error) {
+                status_ = error.what();
+            }
+            break;
         }
     }
+    if (japanese_wait_ && japanese_wait_->id == 0 && japanese_settled()) {
+        japanese_wait_.reset();
+    }
+    replay_input();
+}
+void App::settle_japanese() {
+    if (options_.wait_for_japanese) {
+        japanese_worker_.wait();
+        take_japanese_answers();
+    }
+}
+JapaneseComposer App::japanese_copy() {
+    auto copy = composition_;
+    // The worker can't read App's own choices, which the VR thread changes
+    // as phrases are committed: it reads a snapshot, made again after each
+    // change, and the learning permission as it is now.
+    if (!choices_snapshot_) {
+        japanese_choices_.empty(); // Read in, so the copy reads nothing.
+        choices_snapshot_ = std::make_shared<const NextWords>(japanese_choices_);
+    }
+    const bool learning = learning_allowed();
+    copy.set_word_pick([choices = choices_snapshot_, learning](const std::string& reading) {
+        return learning ? choices->latest(reading) : std::string{};
+    });
+    copy.set_preferred([choices = choices_snapshot_, learning,
+                        preferred = &japanese_preferred_](const std::string& reading) {
+        return preferred_phrases(*preferred, *choices, learning, reading);
+    });
+    return copy;
+}
+void App::japanese_step(JapaneseWorker::Step step, std::function<void(bool)> then) {
+    auto before = composition_;
+    bool result = false;
+    try {
+        result = step(composition_);
+    } catch (const JapaneseComposer::Deferred&) {
+        // It converts: on the worker, from the composer as it was.
+        composition_.adopt(std::move(before));
+        const auto edits = composition_.edits();
+        const auto id = japanese_worker_.post(JapaneseWorker::Kind::Step, japanese_copy(), std::move(step));
+        if (id) {
+            japanese_wait_ = JapaneseWait{id, edits, std::move(then)};
+        }
+        settle_japanese();
+        return;
+    }
+    if (then) {
+        then(result);
+    }
+}
+void App::learn_japanese() {
+    try {
+        composition_.learn(); // Nothing to learn, or nothing the converter learns.
+    } catch (const JapaneseComposer::Deferred&) {
+        // learn() changes nothing before it calls the converter.
+        japanese_worker_.post(JapaneseWorker::Kind::Learn, japanese_copy(), [](JapaneseComposer& copy) {
+            copy.learn();
+            return true;
+        });
+        settle_japanese();
+    }
+}
+void App::hold_input(HeldInput input) {
+    if (replaying_input_) {
+        held_input_.push_front(std::move(input)); // It waits again, still first.
+    } else {
+        held_input_.push_back(std::move(input));
+    }
+}
+bool App::hold_press(unsigned pointer, double x, double y, double now) {
+    if (replaying_input_ || !japanese_holding()) {
+        return false;
+    }
+    // Controls and the candidates act at once; only keys wait.
+    const auto v = input_view();
+    for (const auto& control : v.controls) {
+        if (control.hit(x, y)) {
+            return false;
+        }
+    }
+    if (candidates_.contains(x, y) || !renderer.hit_key(v, x, y)) {
+        return false;
+    }
+    hold_input(HeldInput::pointer_event(HeldInput::Kind::Down, pointer, x, y, now));
+    held_pointers_.insert(pointer);
+    return true;
+}
+void App::replay_input() {
+    while (!held_input_.empty() && !japanese_wait_) {
+        auto input = std::move(held_input_.front());
+        held_input_.pop_front();
+        replaying_input_ = true;
+        try {
+            switch (input.kind) {
+            case HeldInput::Kind::Key:
+                japanese_key(input.key, true, input.modifiers);
+                break;
+            case HeldInput::Kind::Pick:
+                // Only on the candidates it was for: never another word in
+                // the same place, which the user never saw.
+                if (japanese_row() == input.row) {
+                    pick_candidate(input.index);
+                }
+                break;
+            case HeldInput::Kind::Down:
+                down(input.pointer, input.x, input.y, input.now);
+                break;
+            case HeldInput::Kind::Move:
+                move(input.pointer, input.x, input.y);
+                break;
+            case HeldInput::Kind::Up:
+                up(input.pointer, input.x, input.y);
+                break;
+            case HeldInput::Kind::Cancel:
+                cancel_pointer(input.pointer);
+                break;
+            }
+        } catch (const std::exception& error) {
+            status_ = error.what();
+        }
+        replaying_input_ = false;
+        dirty = true;
+    }
+    if (held_input_.empty()) {
+        held_pointers_.clear(); // What they do now acts at once.
+    }
+}
+void App::drop_held_input(bool discard_composition) {
+    // Pointer state is reset: their held presses go. So does everything
+    // else waiting with a discarded reading, and what the worker has yet
+    // to start for it.
+    std::erase_if(held_input_, [&](const HeldInput& input) {
+        return discard_composition || (input.kind != HeldInput::Kind::Key &&
+                                       input.kind != HeldInput::Kind::Pick);
+    });
+    held_pointers_.clear();
+    if (discard_composition) {
+        japanese_wait_.reset();
+        japanese_worker_.drop_waiting();
+    }
+}
+std::vector<std::string> App::japanese_row() const {
+    if (composition_.converting()) {
+        return composition_.candidates();
+    }
+    return composition_.live();
 }
 // A laser aimed over the panel, as from one key to another, is the user
 // at work: it moved 60 px, about half a key, within 0.4 s, so at 150 px/s or
@@ -2816,9 +3021,10 @@ void App::refresh_typing() {
     output_.set_enabled(interaction_active_ && typing_ready_ && !target_missing());
 }
 void App::convert_japanese() {
-    // Anthy loads its library and dictionary lazily on first conversion.
-    allow_slow_work();
-    composition_.convert();
+    japanese_step([](JapaneseComposer& composer) {
+        composer.convert();
+        return true;
+    });
 }
 void App::commit_japanese() {
     flick_toggle_.reset();
@@ -2835,7 +3041,7 @@ void App::commit_japanese() {
         status_ = "Preview: composition committed locally.";
     } else if (const auto queued = output_.queued(); text_output_->commit_text(text)) {
         composition_.set_learning(learning_allowed());
-        composition_.learn();
+        learn_japanese();
         composition_.cancel();
         status_.clear();
         follow_commit(text, queued);
@@ -2852,6 +3058,7 @@ void App::commit_japanese() {
                 japanese_choices_.record(word, form);
             }
             if (listed || !words.empty()) {
+                choices_snapshot_.reset(); // The worker's copies read the new ones.
                 japanese_choices_.touch(monotonic_seconds());
             }
         }
@@ -2968,6 +3175,14 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
         flick_toggle_.reset();
     }
     if (code == "Convert" || (code == "Space" && composing)) {
+        if (execute && !composition_.converting() && !japanese_settled()) {
+            // A live request still out may change what 変換 would use: this
+            // and what follows wait for every answer, then go in order.
+            hold_input(HeldInput::key_press(key, mods));
+            japanese_wait_ = JapaneseWait{};
+            settle_japanese();
+            return true;
+        }
         if (execute) {
             if (shift && composition_.converting()) {
                 composition_.cycle(-1);
@@ -3009,7 +3224,10 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                 if (!composition_.converting()) {
                     composition_.move(direction);
                 } else if (flick != shift) {
-                    composition_.resize(direction);
+                    japanese_step([direction](JapaneseComposer& composer) {
+                        composer.resize(direction);
+                        return true;
+                    });
                 } else {
                     composition_.segment(direction);
                 }
@@ -3222,22 +3440,40 @@ void App::tick_japanese(double now) {
         return;
     }
     composition_.set_learning(learning_allowed());
-    // While Anthy restarts, live candidates wait; typing goes on.
+    if (!japanese_lists_preloaded_ && owns_anthy()) {
+        // The worker reads the lists in before it first needs them, and
+        // the emoji with them, so no conversion waits for that.
+        japanese_lists_preloaded_ = true;
+        japanese_worker_.post_task([this] {
+            japanese_words_.preload();
+            japanese_kaomoji_.preload();
+            japanese_preferred_.preload();
+            emoji_for({}, 0);
+        });
+    }
+    // While Anthy restarts, or Japanese input waits, live candidates wait;
+    // typing goes on. The worker converts: without Anthy, the reading still
+    // commits as typed, and 変換 says why.
+    std::string reading;
     if (japanese_typing() && !composition_.empty() && !composition_.converting() &&
-        !composition_.live_current() && !restarting_anthy()) {
+        !composition_.live_current() && !restarting_anthy() && !japanese_holding() &&
+        composition_.live_reading(reading)) {
         const auto typed = composition_.preedit();
         if (typed != live_typed_) {
             live_typed_ = typed;
             live_due_ = now + live_candidate_delay;
         } else if (now >= live_due_) {
             live_due_ = std::numeric_limits<double>::infinity(); // Once for each reading.
-            allow_slow_work(); // Anthy loads its dictionary on first use.
-            try {
-                composition_.prepare_live();
-            } catch (const std::exception&) {
-                // Without Anthy the reading still commits as typed; 変換 says why.
+            if (reading != live_asked_ || composition_.clears() != live_asked_clears_) {
+                live_asked_ = reading;
+                live_asked_clears_ = composition_.clears();
+                japanese_worker_.post(JapaneseWorker::Kind::Live, japanese_copy(),
+                                      [](JapaneseComposer& copy) {
+                                          copy.prepare_live();
+                                          return true;
+                                      });
+                settle_japanese();
             }
-            dirty = true;
         }
     } else {
         live_typed_.clear();
@@ -3385,11 +3621,36 @@ void App::pick_candidate(int index) {
             dirty = true;
             return;
         }
+        if ((japanese_holding() && !replaying_input_) ||
+            (!composition_.converting() && !japanese_settled())) {
+            // After what waits, or after the answers a live pick may
+            // convert from: in order, on these same candidates.
+            HeldInput pick;
+            pick.kind = HeldInput::Kind::Pick;
+            pick.index = index;
+            pick.row = japanese_row();
+            hold_input(std::move(pick));
+            if (!japanese_wait_) {
+                japanese_wait_ = JapaneseWait{};
+            }
+            settle_japanese();
+            candidate_list_ = false;
+            dirty = true;
+            return;
+        }
         // A choice in the last segment, or one that completes the phrase, commits it.
-        const bool complete =
-            composition_.converting() ? composition_.choose(index) : composition_.choose_live(index);
-        if (complete) {
-            commit_japanese();
+        const auto commit = [this](bool complete) {
+            if (complete) {
+                commit_japanese();
+                follow_cursor();
+                sync_candidates();
+            }
+        };
+        if (composition_.converting()) {
+            commit(composition_.choose(index));
+        } else {
+            japanese_step([index](JapaneseComposer& composer) { return composer.choose_live(index); },
+                          commit);
         }
     } catch (const std::exception& error) {
         status_ = error.what();
@@ -3883,6 +4144,7 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
         next_words_.clear();
         japanese_choices_.clear();
+        choices_snapshot_.reset();
         last_commit_.reset();
         follow_up_.reset();
         restart_learning(true);

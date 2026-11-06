@@ -4,6 +4,7 @@
 #include "framekeyboard/mozc.hpp"
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <cstdlib>
 #include <dlfcn.h>
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -183,6 +185,7 @@ void flick_input() {
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{directory};
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -714,6 +717,7 @@ void completion_reopen() {
     } cleanup{directory};
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -800,6 +804,7 @@ void flick_katakana() {
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{directory};
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -1165,6 +1170,7 @@ void preferred_phrases() {
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{directory};
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -1317,6 +1323,7 @@ void mozc_lifecycle() {
     };
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = fs::path(directory) / "config";
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -1324,7 +1331,6 @@ void mozc_lifecycle() {
     options.target_language = "en-us";
     options.japanese_converter = fake_converter(&conversions);
     options.mozc_server = server;
-    options.wait_for_japanese = true; // Mozc starts and stops on the worker.
     Sink sink;
     {
         App app(options, sink);
@@ -1422,6 +1428,165 @@ void mozc_lifecycle() {
     stop_mozc();
     require(!mozc_running() && std::chrono::steady_clock::now() - asked < std::chrono::seconds(3),
             "a server ignoring SIGTERM is killed soon after");
+}
+// Conversion runs on the worker (docs/architecture.md, Japanese conversion):
+// a slow one holds up no tick and no typing, and what is pressed after 変換
+// before its answer goes in once the answer is in, in order.
+struct GatedConverter : JapaneseConverter {
+    struct Gate {
+        std::mutex lock;
+        std::condition_variable changed;
+        bool held = false;
+        int waiting = 0;
+        std::vector<std::thread::id> threads;
+    };
+    Gate* gate;
+    explicit GatedConverter(Gate* to) : gate(to) {}
+    std::vector<Segment> convert(const std::string& reading) override {
+        std::unique_lock guard(gate->lock);
+        gate->threads.push_back(std::this_thread::get_id());
+        ++gate->waiting;
+        gate->changed.notify_all();
+        gate->changed.wait(guard, [&] { return !gate->held; });
+        --gate->waiting;
+        return {{reading, {"〈" + reading + "〉", reading}}};
+    }
+    std::vector<Segment> resize(int, int) override { return {}; }
+};
+void conversion_off_the_vr_thread() {
+    char directory[] = "/tmp/framekeyboard-worker-XXXXXX";
+    require(mkdtemp(directory), "temporary worker profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    GatedConverter::Gate gate;
+    Options options; // Not waiting: as the keyboard.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = [&gate] { return std::make_unique<GatedConverter>(&gate); };
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    const auto hold = [&] {
+        std::lock_guard guard(gate.lock);
+        gate.held = true;
+    };
+    const auto release = [&] {
+        std::lock_guard guard(gate.lock);
+        gate.held = false;
+        gate.changed.notify_all();
+    };
+    // A failed check still lets the worker finish, so App's end can join it.
+    struct Opened {
+        const decltype(release)& open;
+        ~Opened() { open(); }
+    } opened{release};
+    const auto converting_held = [&] {
+        std::unique_lock guard(gate.lock);
+        return gate.changed.wait_for(guard, std::chrono::seconds(5), [&] { return gate.waiting > 0; });
+    };
+    double now = 1;
+    // Ticks until `done`, as frames do, while the worker answers.
+    const auto until = [&](const auto& done) {
+        for (int i = 0; i < 400; ++i) {
+            app.tick(now += .01);
+            if (done()) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return false;
+    };
+    const auto preedit = [&] { return app.view().preedit; };
+    const auto timed = [](const auto& step) {
+        const auto start = std::chrono::steady_clock::now();
+        step();
+        return std::chrono::steady_clock::now() - start;
+    };
+
+    hold();
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
+    app.tick(now += .01);
+    app.tick(now += .2); // After the pause: the live request goes out.
+    require(converting_held(), "the live request converts on the worker");
+    require(timed([&] { app.tick(now += .01); }) < std::chrono::milliseconds(50),
+            "a tick doesn't wait for a conversion under way");
+    {
+        // Found first: finding a key scans the whole panel.
+        const auto n = key_centre(app, "KeyN"), i = key_centre(app, "KeyI");
+        const auto typing = timed([&] {
+            for (const auto& [x, y] : {n, i}) {
+                app.down(0, x, y, now);
+                app.up(0, x, y);
+            }
+        });
+        require(typing < std::chrono::milliseconds(50) && preedit() == "かに", "typing goes on meanwhile");
+    }
+    // 変換 and Enter before the answer go in once it is in, in order.
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    require(preedit() == "かに" && sink.text.empty(), "変換 and Enter wait for the answer");
+    release();
+    require(until([&] { return !sink.text.empty(); }) && sink.text.back() == "〈かに〉" && preedit().empty(),
+            "then 変換 converts the whole reading and Enter commits that");
+    {
+        std::lock_guard guard(gate.lock);
+        require(!gate.threads.empty() &&
+                    std::none_of(gate.threads.begin(), gate.threads.end(),
+                                 [](std::thread::id id) { return id == std::this_thread::get_id(); }),
+                "the converter never runs on the VR thread");
+    }
+    // 変換 pressed while the live request for this very reading is out
+    // waits for it and converts from its answer, without converting again.
+    hold();
+    click_key(app, "KeyT");
+    click_key(app, "KeyE");
+    app.tick(now += .01);
+    app.tick(now += .2);
+    require(converting_held(), "the live request for て");
+    const auto conversions = [&] {
+        std::lock_guard guard(gate.lock);
+        return gate.threads.size();
+    };
+    const auto before = conversions();
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    release();
+    require(until([&] { return sink.text.size() == 2; }) && sink.text.back() == "〈て〉" &&
+                conversions() == before,
+            "変換 uses the live answer it waited for");
+    // After 変換, Backspace waits its turn too: back to the reading.
+    hold();
+    click_key(app, "KeyS");
+    click_key(app, "KeyA");
+    app.tick(now += .01);
+    app.tick(now += .2);
+    require(converting_held(), "another live request");
+    click_key(app, "Space");
+    click_key(app, "Backspace");
+    release();
+    require(until([&] { return app.view().candidates && !app.view().candidates->chips.empty(); }),
+            "candidates once the answers are in");
+    require(preedit() == "さ" && sink.text.size() == 2, "Backspace after 変換 returns to the reading");
+    // A reading given up meanwhile takes what waited with it.
+    hold();
+    click_key(app, "KeyN");
+    app.tick(now += .01);
+    click_key(app, "KeyO");
+    app.tick(now += .01);
+    app.tick(now += .2);
+    require(converting_held(), "a third live request");
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    app.cancel();
+    release();
+    until([] { return false; }); // Every answer in.
+    require(preedit().empty() && sink.text.size() == 2, "nothing that waited goes in after a cancel");
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
 // does, in a profile of its own; the files it reads and writes there steer
@@ -1602,6 +1767,7 @@ void mozc_clear_learning() {
     fs::permissions(mozc.profile, fs::perms::owner_all);
     Sink sink;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = mozc.config;
     options.anthy_home = mozc.directory / "home";
     options.mode = Mode::Vr;
@@ -1611,7 +1777,6 @@ void mozc_clear_learning() {
     int conversions = 0;
     options.japanese_converter = fake_converter(&conversions);
     options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC;
-    options.wait_for_japanese = true; // Mozc starts and stops on the worker.
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     require(wait_for_mozc(std::chrono::seconds(5)), "adding Japanese starts it");
@@ -1668,6 +1833,7 @@ void mozc_sandbox_profile() {
 void mozc_learning_saves() {
     FakeMozc mozc;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = mozc.config;
     options.anthy_home = mozc.directory / "home";
     options.mode = Mode::Vr;
@@ -1675,7 +1841,6 @@ void mozc_learning_saves() {
     options.start_enabled = true;
     options.target_language = "en-us";
     options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC; // Mozc converts, Anthy meanwhile.
-    options.wait_for_japanese = true; // Mozc starts and stops on the worker.
     Sink sink;
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
@@ -2560,6 +2725,7 @@ void follow_ups_end_with_the_field() {
     } cleanup{directory};
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -2627,6 +2793,7 @@ void candidates_between_frames() {
     } cleanup{directory};
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -2752,6 +2919,7 @@ void next_words() {
     } cleanup{directory};
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -2829,6 +2997,7 @@ void flick_width() {
     save_settings(directory, settings);
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -2867,6 +3036,7 @@ void reading_room() {
         save_settings(directory, settings);
         int conversions = 0;
         Options options;
+        options.wait_for_japanese = true; // Answers as the step that asks.
         options.config_dir = directory;
         options.mode = Mode::Vr;
         options.input = InputBackend::Ei;
@@ -2927,6 +3097,7 @@ void language_commits_reading() {
     save_settings(directory, settings);
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -2960,6 +3131,7 @@ void jis_symbols() {
     } cleanup{directory};
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -2999,6 +3171,7 @@ void language_behind_pending_text() {
     save_settings(directory, settings);
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -3032,6 +3205,7 @@ void candidate_band() {
     } cleanup{directory};
     int conversions = 0;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -3341,6 +3515,7 @@ void learning_settings() {
     std::vector<std::vector<std::string>> learned;
     std::vector<std::pair<std::string, std::string>> picked;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.anthy_home = fs::path(directory) / "home";
     options.mode = Mode::Vr;
@@ -3543,6 +3718,7 @@ void candidate_list() {
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{directory};
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -3692,6 +3868,7 @@ void reopen_counts() {
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{directory};
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -3757,6 +3934,7 @@ void slow_reopen() {
         << R"({"schema_version":1,"active":{"layout":"ja-flick-12","language":"ja-flick",)"
         << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"})";
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -3943,6 +4121,7 @@ void flick_pages_keep_toolbar() {
         << R"("theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031",)"
         << R"("hide_numpad":true})"; // Without the numpad, romaji's keys fit by height.
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -4080,6 +4259,7 @@ void romaji_legends() {
         for (bool caps : {false, true}) {
             for (bool shift : {false, true}) {
                 Options options;
+                options.wait_for_japanese = true; // Answers as the step that asks.
                 options.config_dir = directory;
                 options.mode = Mode::Vr;
                 options.input = InputBackend::Ei;
@@ -4130,6 +4310,7 @@ void text_output_capture() {
     } cleanup{directory};
     RecordedText recorded;
     Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
     options.config_dir = directory;
     options.mode = Mode::Vr;
     options.input = InputBackend::Ei;
@@ -4224,6 +4405,7 @@ int main() {
         spelled_numbers();
         carried_conversion();
         context_converter();
+        conversion_off_the_vr_thread();
         mozc_lifecycle();
         mozc_lost_session();
         mozc_stuck_server();
@@ -4439,6 +4621,7 @@ int main() {
             ~Cleanup() { fs::remove_all(path); }
         } cleanup{directory};
         Options options;
+        options.wait_for_japanese = true; // Answers as the step that asks.
         options.config_dir = directory;
         options.mode = Mode::Vr;
         options.input = InputBackend::Ei;

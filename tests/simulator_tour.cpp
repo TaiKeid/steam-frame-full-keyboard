@@ -86,6 +86,7 @@ Setup setup(const fs::path& config, const char* layout, const char* language) {
     result.models_dir = config / "models";
     result.layout = layout;
     result.language = language;
+    result.wait_for_japanese = true;
     return result;
 }
 } // namespace

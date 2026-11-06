@@ -1,5 +1,6 @@
 #include "framekeyboard/japanese_candidates.hpp"
 #include "framekeyboard/emoji_words.hpp"
+#include "framekeyboard/japanese_worker.hpp"
 #include "framekeyboard/mozc.hpp"
 #include "framekeyboard/swipe.hpp"
 #include <glib.h>
@@ -20,6 +21,31 @@ std::string listed(const std::vector<std::string>& texts, std::size_t count) {
         result += " | … " + std::to_string(texts.size() - count) + " more";
     }
     return result;
+}
+// A step of the composer's as the keyboard takes it: here if it converts
+// nothing, else on the worker, from the composer as it was, waiting for the
+// answer as only the report does. An error comes back as the step's own.
+void run_step(JapaneseWorker& worker, JapaneseComposer& composer, JapaneseWorker::Kind kind,
+              const JapaneseWorker::Step& step) {
+    auto before = composer;
+    try {
+        step(composer);
+        return;
+    } catch (const JapaneseComposer::Deferred&) {
+        composer.adopt(std::move(before));
+    }
+    worker.post(kind, composer, step);
+    worker.wait();
+    for (auto& answer : worker.take()) {
+        if (kind == JapaneseWorker::Kind::Live) {
+            composer.adopt_live(std::move(*answer.composer));
+        } else {
+            composer.adopt(std::move(*answer.composer));
+        }
+        if (!answer.error.empty()) {
+            throw std::runtime_error(answer.error);
+        }
+    }
 }
 // Types a phrase as the keyboard would: romaji letter by letter, kana at once.
 void type(JapaneseComposer& composer, const std::string& phrase) {
@@ -63,7 +89,11 @@ void report_japanese_candidates(std::istream& phrases, std::ostream& report,
         // As in the simulator, Mozc is waited for rather than left to Anthy.
         converter = [] { return mozc_converter(anthy_converter, std::chrono::seconds(3)); };
     }
-    JapaneseComposer composer(converter);
+    // The worker converts, as on the keyboard (docs/architecture.md,
+    // Japanese conversion), each step waited for.
+    JapaneseWorker worker(converter);
+    JapaneseComposer composer;
+    composer.defer_conversion();
     composer.set_word_forms(options.word_forms);
     composer.set_emoji([](const std::vector<std::string>& found) { return emoji_for(found, 4); });
     composer.set_words(&words);
@@ -87,9 +117,15 @@ void report_japanese_candidates(std::istream& phrases, std::ostream& report,
             // Typing too may refuse a phrase, as one past the reading's
             // length limit: it gets an error line, and the next one goes on.
             type(composer, phrase);
-            composer.prepare_live();
+            run_step(worker, composer, JapaneseWorker::Kind::Live, [](JapaneseComposer& copy) {
+                copy.prepare_live();
+                return true;
+            });
             offers = std::string("  live ") + engine() + "  " + listed(composer.live(), options.live);
-            composer.convert();
+            run_step(worker, composer, JapaneseWorker::Kind::Step, [](JapaneseComposer& copy) {
+                copy.convert();
+                return true;
+            });
             offers += std::string("\n  変換 ") + engine() + " ";
             for (int i = 0; i < composer.segment_count(); ++i) {
                 offers += " [" + listed(composer.candidates(), options.segment) + ']';
