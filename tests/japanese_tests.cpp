@@ -1449,6 +1449,47 @@ void mozc_lost_session() {
                 mozc.count("fake-creates") == renewed,
             "which is kept");
 }
+// A Mozc that stops answering, as one stopped or stuck, holds the keyboard
+// up only a moment: Anthy converts meanwhile, and the second time it is
+// killed, to be started again. One that answers again is kept.
+void mozc_stuck_server() {
+    FakeMozc mozc;
+    mozc.start();
+    require(wait_for_mozc(std::chrono::seconds(5)), "the stand-in answers");
+    int conversions = 0;
+    const auto converter = FakeMozc::converter(&conversions);
+    require(converter->convert("あい").front().candidates.front() == "MOZC", "Mozc converts");
+    const auto timed = [&] {
+        const auto start = std::chrono::steady_clock::now();
+        converter->convert("あい");
+        return std::chrono::steady_clock::now() - start;
+    };
+    const pid_t first = mozc.pid();
+    kill(first, SIGSTOP);
+    require(timed() < std::chrono::milliseconds(500) && converter->fell_back(),
+            "a stuck Mozc holds a conversion up a moment, and Anthy converts");
+    require(timed() < std::chrono::milliseconds(50) && converter->fell_back(),
+            "the next conversion doesn't wait for it");
+    kill(first, SIGCONT);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    require(converter->convert("あい").front().candidates.front() == "MOZC" && !converter->fell_back() &&
+                kill(first, 0) == 0,
+            "one that answers again converts, and is kept");
+    kill(first, SIGSTOP);
+    timed();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    require(timed() < std::chrono::milliseconds(500) && converter->fell_back(),
+            "a conversion is held up a moment again");
+    for (int i = 0; i < 200 && kill(first, 0) == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(kill(first, 0) != 0, "and the server, stuck, is killed");
+    mozc.start(); // The keyboard's tick
+    require(wait_for_mozc(std::chrono::seconds(5)) && mozc.pid() != first, "and started again");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    require(converter->convert("あい").front().candidates.front() == "MOZC" && !converter->fell_back(),
+            "which converts");
+}
 // The object decides a verb Mozc reads otherwise, from its own candidates:
 // 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
 void object_verbs() {
@@ -3649,6 +3690,7 @@ int main() {
         context_converter();
         mozc_lifecycle();
         mozc_lost_session();
+        mozc_stuck_server();
         word_forms();
         emoji_candidates();
         learning_calls();

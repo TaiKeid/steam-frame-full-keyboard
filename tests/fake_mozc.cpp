@@ -186,7 +186,8 @@ int main(int, char** argv) {
             }
             put_number(out, 1, 0);
         }
-        (void)!write(connection, out.data(), out.size());
+        // A keyboard that stopped waiting has closed its end.
+        (void)!send(connection, out.data(), out.size(), MSG_NOSIGNAL);
         close(connection);
     }
 }

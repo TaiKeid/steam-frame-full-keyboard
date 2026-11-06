@@ -259,6 +259,7 @@ Output parse(std::string_view data) {
     }
     return result;
 }
+using Clock = std::chrono::steady_clock;
 // The server, started once per process and kept running as long as it is:
 // started again whenever it is found gone, and stopped only with us. Its
 // profile is `base`/mozc: Mozc keeps it in $XDG_CONFIG_HOME/mozc, which must
@@ -272,6 +273,10 @@ struct Server {
     bool sandbox = true, sandboxed = false, answered = false;
     std::filesystem::path path, base;
     std::filesystem::path words; // Our words for its user dictionary (write_dictionary()).
+    // Requests it didn't answer in time, with none answered since; Anthy
+    // converts until `quiet_until` after each (MozcConverter::stalled()).
+    int stalls = 0;
+    Clock::time_point quiet_until;
     ~Server() {
         if (pid > 0) {
             kill(pid, SIGTERM);
@@ -298,9 +303,30 @@ std::string address(const std::filesystem::path& base) {
     }
     return {};
 }
-// One request and its answer: Mozc reads until the request's write side
-// closes, then answers and closes.
-std::string call(const std::string& at, const std::string& request) {
+// How long Mozc may take to answer all of one conversion, resize or learned
+// phrase. It answers in milliseconds, and its work is on the VR thread,
+// whose watchdog gives way to Steam's keyboard after 0.7 s.
+constexpr auto answer_time = std::chrono::milliseconds(300);
+// After Mozc didn't answer in time, how long Anthy converts before it is
+// asked again (MozcConverter::stalled()).
+constexpr auto quiet_time = std::chrono::seconds(1);
+// Mozc didn't answer in time: stuck, or still slow after it started.
+struct Stalled : std::runtime_error {
+    Stalled() : std::runtime_error("Mozc did not answer in time") {}
+};
+// Sets the socket's send or receive timeout to what is left until `deadline`.
+void time_out(int socket_fd, int option, Clock::time_point deadline) {
+    const auto left = std::chrono::duration_cast<std::chrono::microseconds>(deadline - Clock::now());
+    if (left.count() <= 0) {
+        throw Stalled();
+    }
+    const timeval wait{static_cast<time_t>(left.count() / 1000000),
+                       static_cast<suseconds_t>(left.count() % 1000000)};
+    setsockopt(socket_fd, SOL_SOCKET, option, &wait, sizeof wait);
+}
+// One request and its answer by `deadline`: Mozc reads until the request's
+// write side closes, then answers and closes.
+std::string call(const std::string& at, const std::string& request, Clock::time_point deadline) {
     if (at.empty() || at.size() >= sizeof(sockaddr_un::sun_path)) {
         throw std::runtime_error("Mozc is not running");
     }
@@ -315,16 +341,27 @@ std::string call(const std::string& at, const std::string& request) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::memcpy(address.sun_path, at.data(), at.size());
-    const timeval wait{2, 0};
-    setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &wait, sizeof wait);
-    setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &wait, sizeof wait);
+    // A timeout fails with EAGAIN: a connection waits while the server's
+    // backlog is full, as it is once it stopped taking them.
+    const auto timed_out = [] { return errno == EAGAIN || errno == EWOULDBLOCK; };
+    time_out(socket_fd, SO_SNDTIMEO, deadline);
     if (connect(socket_fd, reinterpret_cast<const sockaddr*>(&address),
                 static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + at.size())) != 0) {
+        if (timed_out()) {
+            throw Stalled();
+        }
         throw std::runtime_error("Mozc is not running");
     }
     for (std::size_t sent = 0; sent < request.size();) {
+        time_out(socket_fd, SO_SNDTIMEO, deadline);
         const auto n = send(socket_fd, request.data() + sent, request.size() - sent, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
         if (n <= 0) {
+            if (n < 0 && timed_out()) {
+                throw Stalled();
+            }
             throw std::runtime_error("Mozc did not answer");
         }
         sent += static_cast<std::size_t>(n);
@@ -333,11 +370,18 @@ std::string call(const std::string& at, const std::string& request) {
     std::string response;
     char buffer[65536];
     for (;;) {
+        time_out(socket_fd, SO_RCVTIMEO, deadline);
         const auto n = recv(socket_fd, buffer, sizeof buffer, 0);
         if (n == 0) {
             return response;
         }
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
         if (n < 0) {
+            if (timed_out()) {
+                throw Stalled();
+            }
             throw std::runtime_error("Mozc did not answer");
         }
         response.append(buffer, static_cast<std::size_t>(n));
@@ -420,6 +464,16 @@ void write_dictionary(const Server& state) {
     std::error_code ignored;
     std::filesystem::rename(part, file, ignored);
 }
+// Kills the server, bubblewrap and Mozc, as one that is stuck can't be asked
+// to go. Called with the server's lock held.
+void kill_server(Server& state) {
+    if (state.pid > 0) {
+        kill(-state.pid, SIGKILL); // Its process group (spawn()).
+        kill(state.pid, SIGKILL);
+        waitpid(state.pid, nullptr, 0);
+        state.pid = -1;
+    }
+}
 // Starts the server unless it is running; it gets ready on its own. Called
 // with the server's lock held.
 void spawn(Server& state) {
@@ -467,6 +521,7 @@ void spawn(Server& state) {
     const pid_t child = fork();
     if (child == 0) {
         prctl(PR_SET_PDEATHSIG, SIGTERM); // It goes when we do.
+        setpgid(0, 0);                    // With Mozc, for kill_server().
         const int null = open("/dev/null", O_RDWR);
         dup2(null, 0);
         dup2(null, 1);
@@ -474,27 +529,32 @@ void spawn(Server& state) {
         execve(argv[0], argv.data(), envp.data());
         _exit(127);
     }
+    if (child > 0) {
+        setpgid(child, child); // As the child does, whichever runs first.
+    }
     state.pid = child > 0 ? child : -1;
     state.sandboxed = !bwrap.empty();
     state.answered = false;
 }
 // The server's address once it answers, starting it if need be: waiting up to
-// `patience` for it, or not at all.
-std::string ready(std::chrono::milliseconds patience) {
+// `patience` for it, or not at all, each try answered by `deadline` or in
+// answer_time.
+std::string ready(std::chrono::milliseconds patience, Clock::time_point deadline = {}) {
     auto& state = server();
     std::lock_guard guard(state.lock);
     spawn(state);
     const auto probe = input(create_session, 0, nullptr);
-    const auto until = std::chrono::steady_clock::now() + patience;
+    const auto until = Clock::now() + patience;
     for (;;) {
         try {
+            const auto by = deadline == Clock::time_point{} ? Clock::now() + answer_time : deadline;
             const auto at = address(state.base);
-            const auto session = parse(call(at, probe)).session;
-            call(at, input(delete_session, session, nullptr));
+            const auto session = parse(call(at, probe, by)).session;
+            call(at, input(delete_session, session, nullptr), by);
             state.answered = true;
             return at;
         } catch (const std::exception&) {
-            if (std::chrono::steady_clock::now() >= until) {
+            if (Clock::now() >= until) {
                 throw;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -533,29 +593,41 @@ class MozcConverter final : public JapaneseConverter {
     ~MozcConverter() override {
         try {
             if (session_) {
-                call(address_, input(delete_session, session_, nullptr));
+                call(address_, input(delete_session, session_, nullptr), Clock::now() + answer_time);
             }
         } catch (const std::exception&) {
         }
     }
     // A session Mozc dropped is made again, and the conversion made in it.
     std::vector<Segment> convert(const std::string& reading) override {
+        begin();
         try {
-            return convert_once(reading);
-        } catch (const LostSession&) {
-            return convert_once(reading);
+            try {
+                return convert_once(reading);
+            } catch (const LostSession&) {
+                return convert_once(reading);
+            }
+        } catch (const Stalled&) {
+            stalled();
+            throw;
         }
     }
     std::vector<Segment> resize(int index, int delta) override {
         if (!session_ || index < 0 || index >= count_ || delta == 0) {
             return {};
         }
-        move_to(index);
-        Output last = last_;
-        for (int i = 0; i < std::abs(delta); ++i) {
-            last = send({0, delta < 0 ? left : right, true, {}});
+        begin();
+        try {
+            move_to(index);
+            Output last = last_;
+            for (int i = 0; i < std::abs(delta); ++i) {
+                last = send({0, delta < 0 ? left : right, true, {}});
+            }
+            return collect(std::move(last));
+        } catch (const Stalled&) {
+            stalled();
+            throw;
         }
-        return collect(std::move(last));
     }
     // Mozc learns a phrase submitted to it: each segment's choice is
     // selected, then the phrase submitted, and its history saved. A choice
@@ -575,27 +647,63 @@ class MozcConverter final : public JapaneseConverter {
             }
             picks.push_back(found->second);
         }
-        for (std::size_t i = 0; i < picks.size(); ++i) {
-            move_to(static_cast<int>(i));
-            request(command_input(session_, select_candidate, picks[i]));
+        begin();
+        try {
+            for (std::size_t i = 0; i < picks.size(); ++i) {
+                move_to(static_cast<int>(i));
+                request(command_input(session_, select_candidate, picks[i]));
+            }
+            request(command_input(session_, submit));
+            count_ = 0;
+            last_ = {};
+            call(address_, input(sync_data, 0, nullptr), deadline_);
+        } catch (const Stalled&) {
+            stalled();
+            throw;
         }
-        request(command_input(session_, submit));
-        count_ = 0;
-        last_ = {};
-        call(address_, input(sync_data, 0, nullptr));
         learned(true);
     }
     bool weighs_context() const override { return true; }
 
   private:
+    // Each conversion, resize or learned phrase has answer_time, after the
+    // patience to wait for a server starting; none while Mozc rests after
+    // one it didn't answer in time.
+    void begin() {
+        {
+            auto& state = server();
+            std::lock_guard guard(state.lock);
+            if (Clock::now() < state.quiet_until) {
+                throw std::runtime_error("Mozc is not answering");
+            }
+        }
+        deadline_ = Clock::now() + patience_ + answer_time;
+    }
+    // Mozc didn't answer in time, and may still be at the request: the
+    // session goes, and Anthy converts for quiet_time. A slow Mozc, as the
+    // first conversion after it starts may find it while it reads its
+    // dictionary in, has answered by then. A second request it doesn't
+    // answer, with none answered between, means it's stuck: it is killed,
+    // and started again (spawn()).
+    void stalled() {
+        session_ = 0;
+        auto& state = server();
+        std::lock_guard guard(state.lock);
+        state.quiet_until = Clock::now() + quiet_time;
+        if (++state.stalls >= 2) {
+            state.stalls = 0;
+            std::cerr << "Mozc stopped answering; starting it again.\n";
+            kill_server(state);
+        }
+    }
     std::vector<Segment> convert_once(const std::string& reading) {
         if (!session_) {
             // After a crash, the restarted server answers within a moment;
             // until it does, this throws once its patience runs out (at once
             // on the keyboard), and Anthy converts.
-            address_ = ready(patience_);
-            call(address_, config_input()); // Again after a restart: a new server.
-            session_ = parse(call(address_, input(create_session, 0, nullptr))).session;
+            address_ = ready(patience_, deadline_);
+            call(address_, config_input(), deadline_); // Again after a restart: a new server.
+            session_ = parse(call(address_, input(create_session, 0, nullptr), deadline_)).session;
             last_ = {};
             count_ = focus_ = 0;
             if (!session_) {
@@ -624,13 +732,18 @@ class MozcConverter final : public JapaneseConverter {
     Output send(const Key& key) { return request(input(send_key, session_, &key)); }
     Output request(const std::string& message) {
         try {
-            last_ = parse(call(address_, message));
+            last_ = parse(call(address_, message, deadline_));
         } catch (const std::exception&) {
             session_ = 0;
             auto& state = server();
             std::lock_guard guard(state.lock);
             spawn(state);
             throw;
+        }
+        {
+            auto& state = server();
+            std::lock_guard guard(state.lock);
+            state.stalls = 0; // It answers.
         }
         if (last_.failed || last_.session != session_) {
             session_ = 0;
@@ -715,6 +828,7 @@ class MozcConverter final : public JapaneseConverter {
         return result;
     }
     std::chrono::milliseconds patience_;
+    Clock::time_point deadline_; // The current conversion's (begin()).
     std::string address_, reading_;
     std::uint64_t session_{};
     // Each segment's candidates with Mozc's ids, to select them.
@@ -838,7 +952,11 @@ void stop_mozc() {
     state.wanted = false;
     if (state.pid > 0) {
         try {
-            call(address(state.base), input(sync_data, 0, nullptr)); // What it learned is saved.
+            // What it learned is saved.
+            call(address(state.base), input(sync_data, 0, nullptr), Clock::now() + answer_time);
+        } catch (const Stalled&) {
+            kill_server(state); // Stuck, it wouldn't go on being asked.
+            return;
         } catch (const std::exception&) {
         }
         kill(state.pid, SIGTERM);
@@ -864,9 +982,10 @@ void clear_mozc_learning(const std::filesystem::path& profile) {
         if (state.pid > 0 && state.base == profile && waitpid(state.pid, nullptr, WNOHANG) == 0) {
             try {
                 const auto at = address(state.base);
-                call(at, input(clear_user_history, 0, nullptr));
-                call(at, input(clear_user_prediction, 0, nullptr));
-                call(at, input(sync_data, 0, nullptr));
+                const auto by = Clock::now() + answer_time;
+                call(at, input(clear_user_history, 0, nullptr), by);
+                call(at, input(clear_user_prediction, 0, nullptr), by);
+                call(at, input(sync_data, 0, nullptr), by);
                 cleared = true;
             } catch (const std::exception&) {
             }
