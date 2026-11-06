@@ -33,7 +33,8 @@ class JapaneseWorker {
     struct Answer {
         std::uint64_t id{};
         Kind kind{};
-        // The copy after the step, without the worker's converter; none for tasks.
+        // The copy after the step, without the worker's converter; none for
+        // tasks and learning.
         std::optional<JapaneseComposer> composer;
         bool result{};
         std::string error; // What the step threw, if it did.

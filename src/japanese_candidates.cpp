@@ -37,7 +37,9 @@ void run_step(JapaneseWorker& worker, JapaneseComposer& composer, JapaneseWorker
     worker.post(kind, composer, step);
     worker.wait();
     for (auto& answer : worker.take()) {
-        if (kind == JapaneseWorker::Kind::Live) {
+        if (!answer.composer) {
+            // Learning's answer carries nothing back.
+        } else if (kind == JapaneseWorker::Kind::Live) {
             composer.adopt_live(std::move(*answer.composer));
         } else {
             composer.adopt(std::move(*answer.composer));

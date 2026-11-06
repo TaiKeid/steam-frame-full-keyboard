@@ -227,7 +227,9 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
     }
     copy.set_record(record);
     copy.use_converter(nullptr); // The copy goes to another thread.
-    result.composer = std::move(copy);
+    if (job.kind != Kind::Learn) {
+        result.composer = std::move(copy); // Learning's: nobody reads it.
+    }
     return result;
 }
 } // namespace framekeyboard
