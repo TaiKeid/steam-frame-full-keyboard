@@ -179,7 +179,7 @@ text that was already submitted is never replayed automatically.
 
 Chinese and Korean show the reading centred in a line of its own under the
 toolbar, in the place of a narrow keyboard's second toolbar row, whose buttons
-sit at the line's left, with a hint while nothing is typed, and the case fits
+sit at the line's left, with a hint for Chinese while nothing is typed, and the case fits
 the keys with no empty space at the sides. Other languages on the same layout
 among your languages keep the keys at that size and place, the second toolbar
 row where the line would be, so switching between them moves nothing.
@@ -200,16 +200,21 @@ the remaining reading stays available for the next selection. Enter submits the
 current conversion; Escape discards it. A second Enter sends an ordinary Enter.
 Both script profiles use Pinyin; Traditional here does not mean a Zhuyin layout.
 
-For Korean, type the displayed two-set jamo. Shift selects doubled consonants and
-the shifted vowels. Caps Lock does not double jamo. Backspace undoes one typed
-jamo, including changes across syllable boundaries. Enter submits the
-composition. Space and other ordinary keys commit the word before sending the
-key. Chinese and Korean type their own script only, as their keyboards do; for
+For Korean, type the displayed two-set jamo. As on a PC, each syllable goes into
+the field as soon as the next one starts, so only the syllable being typed waits
+in the reading line, and there is no length limit. A final consonant still moves
+on: 간 then ㅏ types 가 and leaves 나 open. Shift selects doubled consonants and
+the shifted vowels. Caps Lock does not double jamo. Backspace takes back one jamo
+of the open syllable (값 → 갑), then deletes whole syllables in the field as the
+app does. Enter types the open syllable and sends Enter in the same press. Esc
+goes to the app at once and drops the open syllable. Space and other ordinary
+keys type it before sending the key. Chinese and Korean type their own script only, as their keyboards do; for
 English, add an English layout as an additional language and switch with the
 language button. Punctuation uses ordinary US keys.
 
-Pinyin, Zhuyin and Korean keep a bounded preedit. Commit before the
+Pinyin and Zhuyin keep a bounded preedit. Commit before the
 30-input-character limit; Cangjie and Quick use the retained-text bound above.
+Korean's only waits while the app can't take its syllables.
 Shortcuts and navigation that leave composition commit first; if output refuses
 the composition before admission, the preedit stays visible and the forwarding
 action is blocked. An admitted long batch uses the output retry behavior above.

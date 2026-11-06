@@ -301,11 +301,13 @@ Adapters and host are built together; engine objects are destroyed before their
 module is unloaded. A missing engine rejects Apply, or falls back to English at
 startup without overwriting the saved profile.
 
-The engine keeps bounded Pinyin or two-set Hangul state. PyZy supplies Chinese
-candidates and script conversion; libhangul supplies Korean syllable assembly.
+The engine keeps bounded Pinyin state, or two-set Hangul's open syllable. PyZy
+supplies Chinese candidates and script conversion; libhangul supplies Korean
+syllable assembly and finishes a syllable once the next one starts, which the app
+sends at once, as a PC's Korean IME does.
 The app releases physical holds and gates commits using the same transport rules
 as Japanese. Failed commits retain preedit. Space or a candidate selection commits
-a completed Pinyin reading; Hangul word boundaries commit before forwarding keys.
+a completed Pinyin reading; an open Hangul syllable commits before forwarding keys, Esc excepted, which drops it.
 Profile Apply prepares engines before changing the active model. Missing build
 support or dictionaries leaves the prior profile usable.
 
@@ -318,8 +320,8 @@ directory before creating any typing context. The special-phrase configuration p
 non-directory, and native learning APIs are not called, so personal history is
 neither read nor persisted. No persistent filesystem fallback is allowed. This
 avoids the installed library's failed-open SQLite-handle leak without retaining
-its dictionary after the last context is destroyed. Shell previews build their own engine on a worker thread, so one process-wide lock serializes every engine creation, call and destruction across the module map, the cached Pinyin library and PyZy's shared database. Korean Backspace rebuilds
-from the bounded key sequence, preserving jamo-level undo across resyllabification. Neither engine
+its dictionary after the last context is destroyed. Shell previews build their own engine on a worker thread, so one process-wide lock serializes every engine creation, call and destruction across the module map, the cached Pinyin library and PyZy's shared database. Korean Backspace takes a jamo
+of the open syllable through libhangul; sent syllables are the target's to delete. Neither engine
 changes the system IBus selection. See [language setup](languages.md).
 
 ## Independent Unicode character output

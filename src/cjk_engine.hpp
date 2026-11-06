@@ -20,6 +20,10 @@ class CjkEngine {
     virtual bool empty() const = 0;
     virtual bool has_reading() const = 0;
     virtual bool chinese() const = 0;
+    // Text two-set Hangul has finished, a syllable at a time, for the app to
+    // send at once; it stays part of text() until dropped after delivery.
+    virtual std::string finished() const { return {}; }
+    virtual void drop_finished() {}
 };
 using CreateCjkEngine = CjkEngine* (*)(const char*);
 } // namespace framekeyboard

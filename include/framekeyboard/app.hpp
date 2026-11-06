@@ -582,7 +582,10 @@ class App {
     bool japanese_lists_preloaded_{};
     bool japanese() const;
     bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
+    // Two-set Hangul letters, which send each syllable as the next one starts.
+    bool hangul_key(const Key& key, const std::set<int>& mods);
     void commit_cjk();
+    void send_finished_syllables();
     void choose_cjk(int index);
     // Either composer has a reading in progress.
     bool composing_text() const;

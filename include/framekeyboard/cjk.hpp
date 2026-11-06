@@ -28,6 +28,10 @@ class CjkComposer {
     bool phonetic_keys() const;
     // A quote separates syllables (Pinyin).
     bool syllables() const;
+    // Two-set Hangul finishes a syllable once the next one starts. The app
+    // sends it at once and drops it; until then it stays part of text().
+    std::string finished() const;
+    void drop_finished();
     static bool supported(const std::string& method);
 
   private:

@@ -1995,7 +1995,8 @@ std::string composition_hint(const PanelView& view) {
         return view.flick_digits ? "数字入力 · あA1: かな入力に戻る"
                                  : "英字入力 · あA1を左にフリック: かな入力に戻る";
     }
-    return method == "korean-2set"          ? "Type → Space/Enter: commit · Esc: cancel"
+    // Two-set Korean has nothing to explain: only its open syllable waits.
+    return method == "korean-2set"          ? ""
            : method == "chinese-zhuyin"     ? "注音 → Space: select · Enter: commit · Esc: cancel"
            : method == "chinese-cangjie"    ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
            : method == "chinese-quick"      ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"

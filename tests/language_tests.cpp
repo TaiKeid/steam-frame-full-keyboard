@@ -780,14 +780,22 @@ void engines(const std::string& group = "") {
         if (CjkComposer::supported("korean-2set")) {
             CjkComposer korean("korean-2set");
             type(korean, "gksrmf");
-            require(korean.text() == "한글", "two-set Korean syllables");
+            require(korean.text() == "한글" && korean.finished() == "한",
+                    "two-set Korean finishes 한 as 글 starts");
+            korean.drop_finished();
+            require(korean.text() == "글", "a sent syllable leaves only the open one");
             korean.backspace();
-            require(korean.text() == "한그", "Korean final-consonant backspace");
+            require(korean.text() == "그", "Korean final-consonant backspace");
             korean.cancel();
             type(korean, "rkrk");
-            require(korean.text() == "가가", "Korean trailing consonant moves to next syllable");
+            require(korean.text() == "가가" && korean.finished() == "가",
+                    "Korean trailing consonant moves to next syllable");
             korean.backspace();
-            require(korean.text() == "각", "Korean undo preserves resyllabification");
+            require(korean.text() == "가ㄱ", "Backspace edits only the open syllable");
+            korean.cancel();
+            type(korean, "ekfr");
+            korean.backspace();
+            require(korean.text() == "달", "Backspace takes one jamo of a double final");
             korean.cancel();
             type(korean, "Rk");
             require(korean.text() == "까", "Korean Shift doubles consonant");
@@ -1152,6 +1160,59 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             require(sink.events ==
                         std::vector<std::string>{"한", " ", "ㄱ", "1", "ㅡ", ",", "28:1", "28:0"},
                     "Korean composition precedes space, digit, punctuation and Enter");
+            // As on a PC, a syllable goes in as the next one starts; only the
+            // open one waits, and Backspace takes its jamo before the target's.
+            sink.events.clear();
+            for (const auto* action : {"KeyG", "KeyK", "KeyS", "KeyR", "KeyM", "KeyF"}) {
+                click(app, action);
+            }
+            require(sink.events == std::vector<std::string>{"한"} && app.view().preedit == "글",
+                    "a finished syllable goes in at once");
+            for (int i = 0; i < 3; ++i) {
+                click(app, "Backspace");
+            }
+            require(sink.events.size() == 1 && app.view().preedit.empty(),
+                    "Backspace takes the open syllable's jamo");
+            click(app, "Backspace");
+            require(sink.events == std::vector<std::string>{"한", "14:1", "14:0"},
+                    "then the target's Backspace deletes the sent syllable");
+            sink.events.clear();
+            click(app, "KeyE");
+            click(app, "KeyK");
+            click(app, "Enter");
+            require(sink.events == std::vector<std::string>{"다", "28:1", "28:0"} &&
+                        app.view().preedit.empty(),
+                    "Enter commits the open syllable and goes on, in one press");
+            sink.events.clear();
+            for (const auto* action : {"KeyW", "KeyJ", "KeyS", "KeyG", "KeyH", "KeyK"}) {
+                click(app, action);
+            }
+            require(sink.events == std::vector<std::string>{"전"} && app.view().preedit == "화",
+                    "전 goes in as 화 starts");
+            click(app, "Escape");
+            require(sink.events == std::vector<std::string>{"전", "1:1", "1:0"} &&
+                        app.view().preedit.empty(),
+                    "Esc reaches the target at once, dropping only the open syllable");
+            sink.events.clear();
+            for (int i = 0; i < 40; ++i) {
+                click(app, "KeyZ");
+            }
+            require(sink.events.size() == 39 && app.view().preedit == "ㅋ",
+                    "a run of 40 ㅋ goes in as it is typed, with no limit");
+            click(app, "Space");
+            // A syllable the target refuses waits ahead of the open one and
+            // goes with the next commit, in order.
+            sink.events.clear();
+            sink.accept = false;
+            for (const auto* action : {"KeyG", "KeyK", "KeyS", "KeyR"}) {
+                click(app, action);
+            }
+            require(sink.events.empty() && app.view().preedit == "한ㄱ",
+                    "a refused syllable stays in the reading line");
+            sink.accept = true;
+            click(app, "Space");
+            require(sink.events == std::vector<std::string>{"한ㄱ", " "} && app.view().preedit.empty(),
+                    "the refused syllable goes in with the open one");
         } else {
             for (const auto* action :
                  {"Comma", "Period", "Digit0", "Digit6", "Digit7", "Digit8", "Digit9"}) {

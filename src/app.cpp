@@ -1714,7 +1714,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     }
     const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
     const bool text_local = !ime_local && text_key(*key, modifiers);
-    const bool sends_text = text_local && key->action != "CapsLock" && key->action != "NumLock";
+    // A Hangul letter may finish a syllable, which goes to the target at once.
+    const bool sends_text = (text_local && key->action != "CapsLock" && key->action != "NumLock") ||
+                            hangul_key(*key, modifiers);
     const bool cancel_accent = unicode_mode() && keymap_->composing() &&
                                (key->action == "Escape" || key->action == "Backspace");
     const bool retry_text = output_.retry_available() && key->action == "Enter";
@@ -1756,6 +1758,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     }
     const bool sends_action =
         key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)) || !key->sticky;
+    if (key->action == "Escape" && cjk_ && !cjk_->chinese()) {
+        // Esc goes to the target, which may close a chat with it. The open
+        // syllable, unfinished, is dropped rather than typed for the user.
+        cjk_->cancel();
+    }
     if (!ime_local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
         // Commit before either native events or ordinary Unicode text. Spaces,
         // digits and punctuation must not overtake the unfinished IME word.
@@ -3508,6 +3515,22 @@ void App::commit_cjk() {
         commit_failed();
     }
 }
+void App::send_finished_syllables() {
+    const auto text = cjk_->finished();
+    if (text.empty()) {
+        return;
+    }
+    // Refused, it stays ahead of the open syllable, to go with the next commit.
+    if (preview_output() || text_output_->commit_text(text)) {
+        cjk_->drop_finished();
+    } else {
+        commit_failed();
+    }
+}
+bool App::hangul_key(const Key& key, const std::set<int>& mods) {
+    return cjk_ && !cjk_->chinese() && key.action_kind == ActionKind::Key &&
+           key.action.starts_with("Key") && key.action.size() == 4 && cjk_key(key, false, mods);
+}
 void App::tick_japanese(double now) {
     dirty |= candidates_.tick(now).redraw;
     finish_reopen();
@@ -3830,9 +3853,12 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         }
         return true;
     }
-    if (composing &&
-        (code == "Enter" || code == "NumpadEnter" || code == "Escape" || code == "Backspace" ||
-         (cjk_->chinese() && (code == "Space" || code == "ArrowUp" || code == "ArrowDown")))) {
+    // Hangul's Enter commits and goes on, in one press, as on a PC. So does
+    // Esc, which only the dictation editor keeps for the open syllable.
+    const bool confirms = cjk_->chinese() || dictation_open_;
+    if (composing && ((confirms && code == "Escape") || code == "Backspace" ||
+                      (cjk_->chinese() && (code == "Enter" || code == "NumpadEnter" || code == "Space" ||
+                                           code == "ArrowUp" || code == "ArrowDown")))) {
         if (execute) {
             if (code == "Backspace") {
                 cjk_->backspace();
@@ -3858,6 +3884,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         }
         if (execute) {
             cjk_->type(ch);
+            send_finished_syllables();
         }
         return true;
     }

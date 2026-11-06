@@ -34,7 +34,7 @@ struct Module {
         if (!handle) {
             throw std::runtime_error(name + " engine unavailable. Choose another language.");
         }
-        create = reinterpret_cast<CreateCjkEngine>(dlsym(handle, "framekeyboard_create_cjk_v1"));
+        create = reinterpret_cast<CreateCjkEngine>(dlsym(handle, "framekeyboard_create_cjk_v2"));
         if (!create) {
             dlclose(handle);
             throw std::runtime_error(name + " engine module is incompatible. Reinstall this release.");
@@ -152,6 +152,16 @@ bool CjkComposer::has_reading() const {
 bool CjkComposer::chinese() const {
     std::lock_guard lock(engine_mutex());
     return state_->engine && state_->engine->chinese();
+}
+std::string CjkComposer::finished() const {
+    std::lock_guard lock(engine_mutex());
+    return state_->engine ? state_->engine->finished() : std::string{};
+}
+void CjkComposer::drop_finished() {
+    std::lock_guard lock(engine_mutex());
+    if (state_->engine) {
+        state_->engine->drop_finished();
+    }
 }
 bool CjkComposer::phonetic_keys() const {
     return phonetic_keys_;

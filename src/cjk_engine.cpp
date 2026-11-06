@@ -31,6 +31,8 @@ class Engine final : public CjkEngine {
     bool empty() const override;
     bool has_reading() const override;
     bool chinese() const override;
+    std::string finished() const override;
+    void drop_finished() override;
     static bool supported(const std::string& method);
 
   private:
@@ -103,7 +105,9 @@ std::string utf8(const ucschar* text) {
 } // namespace
 struct Engine::State {
     bool pinyin{}, zhuyin{};
-    std::string keys, prefix, korean_text;
+    // Pinyin and Zhuyin keep the whole reading's keys; Hangul keeps only its
+    // open syllable, in the context, and what it finished before the app sent it.
+    std::string keys, prefix, finished;
     // Undo a selected Pinyin segment without guessing syllable boundaries.
     std::vector<std::pair<std::string, std::string>> history;
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
@@ -137,17 +141,7 @@ struct Engine::State {
 #endif
 #ifdef FRAMEKEYBOARD_HAVE_HANGUL
     std::unique_ptr<HangulInputContext, decltype(&hangul_ic_delete)> hangul{nullptr, hangul_ic_delete};
-    void rebuild_hangul() {
-        // Replaying a bounded reading makes Backspace undo one physical jamo,
-        // including a final consonant that moved into the following syllable.
-        hangul_ic_reset(hangul.get());
-        korean_text.clear();
-        for (char ch : keys) {
-            hangul_ic_process(hangul.get(), ch);
-            korean_text += utf8(hangul_ic_get_commit_string(hangul.get()));
-        }
-        korean_text += utf8(hangul_ic_get_preedit_string(hangul.get()));
-    }
+    std::string open_syllable() const { return utf8(hangul_ic_get_preedit_string(hangul.get())); }
 #endif
 };
 bool Engine::supported(const std::string& method) {
@@ -211,14 +205,23 @@ bool Engine::chinese() const {
     return state_->pinyin;
 }
 bool Engine::has_reading() const {
-    return !state_->keys.empty();
+    return state_->pinyin ? !state_->keys.empty() : !empty();
 }
 bool Engine::empty() const {
-    return state_->keys.empty() && state_->prefix.empty();
+    const auto& s = *state_;
+#ifdef FRAMEKEYBOARD_HAVE_HANGUL
+    if (s.hangul && !hangul_ic_is_empty(s.hangul.get())) {
+        return false;
+    }
+#endif
+    return s.keys.empty() && s.prefix.empty() && s.finished.empty();
 }
 void Engine::type(char key) {
     auto& s = *state_;
-    if (s.keys.size() + static_cast<std::size_t>(g_utf8_strlen(s.prefix.c_str(), -1)) >= 30) {
+    // Hangul's finished text only builds up while the app can't send it.
+    if (s.keys.size() + static_cast<std::size_t>(g_utf8_strlen(s.prefix.c_str(), -1)) +
+            static_cast<std::size_t>(g_utf8_strlen(s.finished.c_str(), -1)) >=
+        30) {
         throw std::runtime_error("Commit this composition before typing more");
     }
     if (s.pinyin) {
@@ -229,9 +232,11 @@ void Engine::type(char key) {
         }
 #endif
     } else {
-        s.keys += key;
 #ifdef FRAMEKEYBOARD_HAVE_HANGUL
-        s.rebuild_hangul();
+        // A jamo that starts the next syllable finishes the open one, as on
+        // a PC: 간 + ㅏ finishes 가 and leaves 나 open.
+        hangul_ic_process(s.hangul.get(), key);
+        s.finished += utf8(hangul_ic_get_commit_string(s.hangul.get()));
 #endif
     }
 }
@@ -250,10 +255,15 @@ void Engine::backspace() {
             s.rebuild_pinyin();
         }
 #endif
-    } else if (!s.keys.empty()) {
-        s.keys.pop_back();
+    } else {
 #ifdef FRAMEKEYBOARD_HAVE_HANGUL
-        s.rebuild_hangul();
+        // A jamo of the open syllable (값 → 갑), else a character the app
+        // hasn't sent yet. Sent syllables are the target's to delete.
+        if (!hangul_ic_backspace(s.hangul.get()) && !s.finished.empty()) {
+            s.finished.erase(static_cast<std::size_t>(
+                g_utf8_find_prev_char(s.finished.c_str(), s.finished.c_str() + s.finished.size()) -
+                s.finished.c_str()));
+        }
 #endif
     }
 }
@@ -262,7 +272,7 @@ void Engine::cancel() {
     s.keys.clear();
     s.prefix.clear();
     s.history.clear();
-    s.korean_text.clear();
+    s.finished.clear();
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
     if (s.context) {
         s.context->reset();
@@ -336,7 +346,12 @@ std::string Engine::preedit() const {
         return state_->prefix + zhuyin_text(state_->keys);
     }
 #endif
-    return state_->pinyin ? state_->prefix + state_->keys : state_->korean_text;
+#ifdef FRAMEKEYBOARD_HAVE_HANGUL
+    if (!state_->pinyin) {
+        return state_->finished + state_->open_syllable();
+    }
+#endif
+    return state_->prefix + state_->keys;
 }
 std::string Engine::text() const {
 #ifdef FRAMEKEYBOARD_HAVE_PYZY
@@ -344,13 +359,19 @@ std::string Engine::text() const {
         return state_->prefix + state_->context->conversionText() + state_->context->restText();
     }
 #endif
-    return state_->korean_text;
+    return preedit();
+}
+std::string Engine::finished() const {
+    return state_->finished;
+}
+void Engine::drop_finished() {
+    state_->finished.clear();
 }
 } // namespace framekeyboard
 
 // This factory is the only exported entry point. The module and host ship in
 // the same release and share this internal C++ interface, not PyZy's ABI.
 extern "C" __attribute__((visibility("default"))) framekeyboard::CjkEngine*
-framekeyboard_create_cjk_v1(const char* method) {
+framekeyboard_create_cjk_v2(const char* method) {
     return new framekeyboard::Engine(method);
 }
