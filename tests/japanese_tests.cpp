@@ -1687,11 +1687,32 @@ void conversion_off_the_vr_thread() {
         return false;
     };
     const auto preedit = [&] { return app.view().preedit; };
-    const auto timed = [](const auto& step) {
+    // How long `step` takes while the conversion is held. Should it wait
+    // for that conversion, a rescue opens the gate after 2 s, so the check
+    // fails instead of hanging; the bound is that loose, as the step only
+    // has to not wait, also under sanitizers.
+    const auto timed = [&](const auto& step) {
+        std::mutex done_lock;
+        std::condition_variable done_changed;
+        bool done = false;
+        std::thread rescue([&] {
+            std::unique_lock guard(done_lock);
+            if (!done_changed.wait_for(guard, std::chrono::seconds(2), [&] { return done; })) {
+                release();
+            }
+        });
         const auto start = std::chrono::steady_clock::now();
         step();
-        return std::chrono::steady_clock::now() - start;
+        const auto took = std::chrono::steady_clock::now() - start;
+        {
+            std::lock_guard guard(done_lock);
+            done = true;
+        }
+        done_changed.notify_all();
+        rescue.join();
+        return took;
     };
+    constexpr auto at_once = std::chrono::seconds(1);
 
     hold();
     click_key(app, "KeyK");
@@ -1699,7 +1720,7 @@ void conversion_off_the_vr_thread() {
     app.tick(now += .01);
     app.tick(now += .2); // The live request is out.
     require(converting_held(), "the live request converts on the worker");
-    require(timed([&] { app.tick(now += .01); }) < std::chrono::milliseconds(50),
+    require(timed([&] { app.tick(now += .01); }) < at_once,
             "a tick doesn't wait for a conversion under way");
     {
         // Found first: finding a key scans the whole panel.
@@ -1710,7 +1731,7 @@ void conversion_off_the_vr_thread() {
                 app.up(0, x, y);
             }
         });
-        require(typing < std::chrono::milliseconds(50) && preedit() == "かに", "typing goes on meanwhile");
+        require(typing < at_once && preedit() == "かに", "typing goes on meanwhile");
     }
     // 変換 and Enter before the answer go in once it is in, in order.
     click_key(app, "Space");
@@ -1970,6 +1991,42 @@ void conversion_off_the_vr_thread() {
         std::lock_guard guard(gate.lock);
         require(gate.threads.size() == conversions, "かき's live request was never converted");
     }
+    // Held input replays as it came: 変換 twice picks candidate 2.
+    hold();
+    click_key(app, "KeyM");
+    click_key(app, "KeyU");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for む is out");
+    click_key(app, "Space");
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    release();
+    require(until([&] { return !sink.text.empty() && sink.text.back() == "む"; }) && preedit().empty(),
+            "変換 twice before the answer picks its second candidate");
+    // A tap held behind 変換 is given up if, by its turn, the row it was
+    // tapped on has gone: 変換 shows the segment's candidates instead.
+    click_key(app, "KeyN");
+    click_key(app, "KeyE");
+    require(until([&] { return first_chip() == "〈ね〉"; }), "the row for ね");
+    hold();
+    click_key(app, "KeyK");
+    click_key(app, "KeyO");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for ねこ is out");
+    click_key(app, "Space");
+    {
+        const auto chips = app.view().candidates->chips;
+        require(chips.front().text == "〈ね〉", "the row tapped is ね's");
+        const auto& chip = chips.front();
+        app.down(7, chip.bounds.x + chip.bounds.width / 2, chip.bounds.y + chip.bounds.height / 2, now += .01);
+        app.up(7, chip.bounds.x + chip.bounds.width / 2, chip.bounds.y + chip.bounds.height / 2);
+    }
+    const auto commits = sink.text.size();
+    release();
+    require(until([&] { return preedit() == "〈ねこ〉"; }) && sink.text.size() == commits,
+            "変換 converts ねこ, and the tap on ね's row picks nothing");
+    click_key(app, "Escape");
+    click_key(app, "Escape");
     // A reading given up meanwhile takes what waited with it.
     hold();
     click_key(app, "KeyN");
@@ -1983,7 +2040,7 @@ void conversion_off_the_vr_thread() {
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 9, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == 10, "nothing that waited goes in after a cancel");
     // A tap in the dictation editor while 変換 waits commits what 変換
     // makes of the reading, in its turn.
     {
@@ -2039,6 +2096,41 @@ void conversion_off_the_vr_thread() {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         require(reading() == "かさ" && flick_sink.text.empty(), "nothing was converted or committed");
+        // A flick held behind 変換 replays with its drag: 〈かさま〉 goes in,
+        // then the flick's left kana.
+        hold();
+        flick(flick_app, "ma", now += .01);
+        flick_app.tick(now += .01);
+        require(converting_held(), "the live request for かさま is out");
+        click_key(flick_app, "Space");
+        flick(flick_app, "ta", now += .01, -60, 0);
+        require(reading() == "かさま", "the flick waits behind 変換");
+        release();
+        for (int i = 0; i < 100 && reading() != "ち"; ++i) {
+            flick_app.tick(now += .01);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(flick_sink.text == std::vector<std::string>{"〈かさま〉"} && reading() == "ち",
+                "〈かさま〉 is committed, then the flick types ち, its left kana");
+        // A flick, which types on release, held behind 変換 while its
+        // pointer leaves the keyboard is cancelled in its turn.
+        hold();
+        flick(flick_app, "na", now += .01);
+        flick_app.tick(now += .01);
+        require(converting_held(), "the live request for ちな is out");
+        click_key(flick_app, "Space");
+        {
+            const auto [x, y] = key_centre(flick_app, "Flick-ha");
+            flick_app.down(0, x, y, now += .01);
+            flick_app.cancel_pointer(0);
+        }
+        release();
+        for (int i = 0; i < 100 && reading() != "〈ちな〉"; ++i) {
+            flick_app.tick(now += .01);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(reading() == "〈ちな〉" && flick_sink.text.size() == 1,
+                "変換 converts ちな, and the cancelled flick types nothing");
     }
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
