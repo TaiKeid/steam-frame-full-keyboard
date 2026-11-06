@@ -280,6 +280,41 @@ constexpr bool trace_focus = true;
 #else
 constexpr bool trace_focus = false;
 #endif
+// Measuring: once a second while the panel is worn, the journal gets the
+// loop's frames, its longest gap between frame starts and how many gaps
+// missed a 60 Hz period, for comparing typing with and without conversion
+// in the way. Times only. Built only with CMake's FRAMEKEYBOARD_FRAME_TRACE;
+// off in releases. The conversion worker logs each conversion's time.
+#ifdef FRAMEKEYBOARD_FRAME_TRACE
+constexpr bool trace_frames = true;
+#else
+constexpr bool trace_frames = false;
+#endif
+// trace_frames' count for one second of smooth frames.
+struct FrameTrace {
+    std::chrono::steady_clock::time_point started, last;
+    std::chrono::steady_clock::duration longest{};
+    int frames{}, missed{};
+    void frame(std::chrono::steady_clock::time_point at) {
+        using std::chrono::steady_clock;
+        if (last != steady_clock::time_point{}) {
+            const auto gap = at - last;
+            longest = std::max(longest, gap);
+            missed += gap > std::chrono::microseconds(25000); // A 60 Hz frame skipped.
+        } else {
+            started = at;
+        }
+        last = at;
+        ++frames;
+        if (at - started >= std::chrono::seconds(1)) {
+            std::cout << "frame-trace frames=" << frames << " longest="
+                      << std::chrono::duration<double, std::milli>(longest).count()
+                      << "ms missed=" << missed << std::endl;
+            *this = {};
+            started = last = at;
+        }
+    }
+};
 // Whether SteamVR's laser is on one of Steam's dashboard overlays, such as
 // valve.steam.gamepadui.bar: its hover target is the last overlay the laser
 // moved over.
@@ -4575,6 +4610,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // frame that sees it worn again is already smooth.
         const bool smooth = (lifecycle.visible() && worn) || motion.leaving();
         const auto period = std::chrono::microseconds(smooth ? 16667 : 250000);
+        if constexpr (trace_frames) {
+            static FrameTrace trace;
+            if (smooth) {
+                trace.frame(frame_started);
+            } else {
+                trace = {}; // A pause in wearing isn't a slow frame.
+            }
+        }
         if (smooth) {
             std::this_thread::sleep_until(frame_started + period);
         } else if (shell && shell->fd() >= 0) {

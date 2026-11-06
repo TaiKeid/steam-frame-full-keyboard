@@ -1,5 +1,9 @@
 #include "framekeyboard/japanese_worker.hpp"
 #include <algorithm>
+#include <chrono>
+#include <glib.h>
+#include <iostream>
+#include <sstream>
 
 namespace framekeyboard {
 JapaneseConverter& JapaneseWorker::Counted::inner() {
@@ -186,6 +190,7 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
         }
     }
     const auto restored = converter_.changes;
+    const auto started = std::chrono::steady_clock::now();
     if (run_step) {
         try {
             result.result = job.step(copy);
@@ -193,6 +198,21 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
             result.error = error.what(); // The copy stays as the throw left it.
         }
     }
+#ifdef FRAMEKEYBOARD_FRAME_TRACE
+    // Measuring (FRAMEKEYBOARD_FRAME_TRACE): how long each conversion took,
+    // and the reading's length. Never its text.
+    if (converter_.changes != before) {
+        std::ostringstream line;
+        line << "conversion-trace kind="
+             << (job.kind == Kind::Live ? "live" : job.kind == Kind::Learn ? "learn" : "step")
+             << " ms=" << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()
+             << " kana=" << g_utf8_strlen(copy.reading().c_str(), -1)
+             << " conversions=" << converter_.changes - before << '\n';
+        std::cout << line.str() << std::flush;
+    }
+#else
+    (void)started;
+#endif
     auto record = copy.record(); // fell_back() while the converter is still attached.
     if (converter_.changes != restored) {
         record.conversion = ++conversions_;

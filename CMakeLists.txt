@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(FRAMEKEYBOARD_VR "Build the VR keyboard, which needs OpenVR and Vulkan" ON)
 # Development builds only: dashboard focus timing in the journal (src/vr.cpp's trace_focus).
 option(FRAMEKEYBOARD_FOCUS_TRACE "Log dashboard focus clicks, samples and decisions" OFF)
+option(FRAMEKEYBOARD_FRAME_TRACE "Log the VR loop's slowest frames and each Japanese conversion's time" OFF)
 # Local builds have debug mode: a Debug card in Settings, always on, also in
 # the simulator. Releases (the frame-arm64-release preset, scripts/package.sh)
 # turn it off, which leaves its code out and --debug unread.
@@ -68,6 +69,9 @@ add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+if(FRAMEKEYBOARD_FRAME_TRACE)
+    target_compile_definitions(keyboard_core PUBLIC FRAMEKEYBOARD_FRAME_TRACE)
+endif()
 if(FRAMEKEYBOARD_DEBUG_MODE)
     target_compile_definitions(keyboard_core PUBLIC FRAMEKEYBOARD_DEBUG_MODE)
 endif()
