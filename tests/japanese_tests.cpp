@@ -16,6 +16,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
 #include <tuple>
@@ -2573,6 +2575,57 @@ void candidates_between_frames() {
 // Phrases committed straight after one another come back first after the
 // one before them, also once the keyboard restarts; something sent between
 // them breaks the run. Clearing forgets them.
+// A store is written beside its file and put in its place: the temporary
+// file is the owner's alone, a failed save leaves none behind, and Clear
+// removes one that a save cut short left.
+void next_words_temporary() {
+    char directory[] = "/tmp/framekeyboard-next-tmp-XXXXXX";
+    require(mkdtemp(directory), "temporary next words folder");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    const auto file = fs::path(directory) / "japanese-next-words.tsv";
+    const auto temporary = fs::path(directory) / "japanese-next-words.tsv.tmp";
+    {
+        std::ofstream(temporary) << "あ\tか\t1\t1\n";
+        NextWords store(file);
+        store.record("あ", "か");
+        store.clear();
+        require(!fs::exists(temporary), "Clear removes a temporary file left behind");
+    }
+    {
+        NextWords store(file);
+        for (int i = 0; i < 200; ++i) {
+            store.record("あ", "word" + std::to_string(i));
+        }
+        // A file size limit cuts the write short, as a full disk would.
+        rlimit before{};
+        require(getrlimit(RLIMIT_FSIZE, &before) == 0, "the file size limit");
+        const auto handler = std::signal(SIGXFSZ, SIG_IGN);
+        rlimit small = before;
+        small.rlim_cur = 64;
+        require(setrlimit(RLIMIT_FSIZE, &small) == 0, "a small file size limit");
+        const bool saved = store.save();
+        setrlimit(RLIMIT_FSIZE, &before);
+        std::signal(SIGXFSZ, handler);
+        require(!saved && !fs::exists(temporary) && !fs::exists(file),
+                "a failed save leaves no temporary file");
+        require(store.save() && !fs::exists(temporary) &&
+                    NextWords(file).after("あ", 1) == std::vector<std::string>{"word199"},
+                "and the next one writes the file whole");
+    }
+    {
+        const auto mask = umask(0);
+        NextWords store(file);
+        store.record("か", "さ");
+        const bool saved = store.save();
+        umask(mask);
+        require(saved && (fs::status(file).permissions() &
+                          (fs::perms::group_all | fs::perms::others_all)) == fs::perms::none,
+                "the file is the owner's alone, whatever the umask");
+    }
+}
 void next_words() {
     char directory[] = "/tmp/framekeyboard-next-XXXXXX";
     require(mkdtemp(directory), "temporary next words profile");
@@ -4071,6 +4124,7 @@ int main() {
         jis_symbols();
         flick_width();
         next_words();
+        next_words_temporary();
         follow_ups_end_with_the_field();
         candidates_between_frames();
         candidate_list();

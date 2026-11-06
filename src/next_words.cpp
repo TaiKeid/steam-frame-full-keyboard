@@ -1,14 +1,37 @@
 #include "framekeyboard/next_words.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <fcntl.h>
 #include <fstream>
 #include <glib.h>
 #include <sstream>
 #include <system_error>
+#include <unistd.h>
 
 namespace framekeyboard {
 namespace {
 namespace fs = std::filesystem;
+// Where save() writes before putting the file in its place.
+fs::path temporary_of(const fs::path& file) {
+    auto temporary = file;
+    temporary += ".tmp";
+    return temporary;
+}
+// Writes all of `data` to `fd`, retrying interrupted and partial writes.
+bool write_all(int fd, const std::string& data) {
+    for (std::size_t offset = 0; offset < data.size();) {
+        const auto written = write(fd, data.data() + offset, data.size() - offset);
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written <= 0) {
+            return false;
+        }
+        offset += static_cast<std::size_t>(written);
+    }
+    return true;
+}
 // One phrase as kept: valid UTF-8, without the file's separators.
 bool keepable(const std::string& text) {
     return !text.empty() && g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr) &&
@@ -107,31 +130,36 @@ void NextWords::clear() {
     if (!file_.empty()) {
         std::error_code error;
         fs::remove(file_, error);
+        fs::remove(temporary_of(file_), error); // left by a save cut short
     }
 }
 bool NextWords::save() {
     if (!dirty_ || file_.empty()) {
         return true;
     }
-    // Written whole beside it, then put in its place.
-    auto temporary = file_;
-    temporary += ".tmp";
-    {
-        std::ofstream output(temporary, std::ios::trunc);
-        for (const auto& pair : pairs_) {
-            output << pair.previous << '\t' << pair.next << '\t' << pair.count << '\t' << pair.stamp
-                   << '\n';
-        }
-        if (!output.flush()) {
-            return false;
-        }
+    // Written whole beside it, then put in its place. The phrases are the
+    // user's own: the file is the owner's alone from its creation, and a
+    // failed write leaves nothing behind. One left by a crash goes first.
+    std::ostringstream text;
+    for (const auto& pair : pairs_) {
+        text << pair.previous << '\t' << pair.next << '\t' << pair.count << '\t' << pair.stamp << '\n';
+    }
+    const auto temporary = temporary_of(file_);
+    unlink(temporary.c_str());
+    const int fd = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return false;
     }
     std::error_code error;
-    fs::permissions(temporary, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace,
-                    error);
+    // No fsync: this runs on the VR thread, and a sync could stall a frame.
+    const bool written = write_all(fd, text.str());
+    if (close(fd) != 0 || !written) {
+        unlink(temporary.c_str());
+        return false;
+    }
     fs::rename(temporary, file_, error);
     if (error) {
-        fs::remove(temporary, error);
+        unlink(temporary.c_str());
         return false;
     }
     dirty_ = false;
