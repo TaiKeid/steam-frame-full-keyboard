@@ -63,6 +63,10 @@ The preview uses the same renderer, key state, and settings as VR but never inje
 
 The [desktop simulator](simulator.md) types into a text field of its own, for trying the keyboard without a Steam Frame. `cmake --preset simulator` builds only it, without SteamVR or Vulkan (`-DFRAMEKEYBOARD_VR=OFF`).
 
+## Debug mode
+
+Builds other than releases have debug mode (CMake option `FRAMEKEYBOARD_DEBUG_MODE`, on by default), always on, also on the Frame and in the simulator: Settings ends with a **Debug** card, whose switches are never saved. Releases build with the `frame-arm64-release` preset, which leaves it out and never reads `--debug`.
+
 ## ARM64 sysroot
 
 The repository includes `cmake/steam-frame-aarch64.cmake`. It uses host Clang/LLD and target headers, GCC C++ runtime files, and libraries copied from a matching Frame system. A sysroot is not included in Git or the release archive. Recheck compatibility after Frame updates.
@@ -99,6 +103,8 @@ export FRAMEKEYBOARD_SYSROOT=/absolute/path/to/frame-sysroot
 file build/frame-arm64/framekeyboard
 ./scripts/package.sh
 ```
+
+`scripts/package.sh` builds the release in `build/frame-arm64-release`, without [debug mode](#debug-mode).
 
 The generated Wayland protocol is compiled as C. GCC and Clang builds use the same warning flags; check clean builds of both before claiming a warning-free release.
 

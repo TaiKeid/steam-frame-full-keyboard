@@ -73,11 +73,13 @@ struct Options {
     // Empty is Anthy alone.
     fs::path mozc_server;
     // For testing conversion, as in the simulator: a conversion waits this
-    // long for a Mozc server that isn't answering before Anthy converts it,
-    // and candidates Anthy converted anyway have an orange border. The
-    // keyboard waits for nothing and marks nothing.
+    // long for a Mozc server that isn't answering before Anthy converts it.
+    // The keyboard waits for nothing.
     std::chrono::milliseconds mozc_patience{};
-    bool mark_fallback{};
+    // Debug mode: Settings has a Debug card, whose Mark Anthy suggestions
+    // gives candidates Anthy converted an orange border. Only builds with
+    // FRAMEKEYBOARD_DEBUG_MODE have the card; the others ignore this.
+    bool debug{};
     // Where Anthy keeps what it learns. Empty is the user's home with the
     // default config folder, and any other config folder itself.
     fs::path anthy_home;
@@ -577,7 +579,7 @@ class App {
     const Layout& shown_layout() const;
     bool band_more() const;
     // The shown Japanese candidates came from Anthy while Mozc couldn't, and
-    // Options::mark_fallback marks them.
+    // the Debug card's Mark Anthy suggestions marks them.
     bool candidates_fell_back() const;
     // The layout has the 「あA1」 key, which replaces the toolbar's A / あ.
     bool has_mode_key() const;
@@ -696,6 +698,12 @@ class App {
     bool pending_flick_only_{};
     bool pending_flick_katakana_{};
     bool pending_extended_key_collision_{true};
+    // The Debug card (FRAMEKEYBOARD_DEBUG_MODE builds with Options::debug).
+    // Its switches stay in memory, never in config.json, so a restart starts
+    // from these defaults; Apply and save takes them and Back discards them,
+    // as for every other card.
+    bool debug_mark_anthy_{true}, pending_debug_mark_anthy_{true};
+    bool debug_key_outlines_{}, pending_debug_key_outlines_{};
     // Anthy restarts on a worker for learning turned on or off, or to clear
     // what it learned (docs/japanese.md, Learning); live candidates wait.
     std::future<void> anthy_restart_;

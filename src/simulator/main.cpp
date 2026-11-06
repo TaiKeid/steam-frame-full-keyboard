@@ -44,6 +44,9 @@ void help() {
               << "  --candidates N            How many candidates it lists, 12 live and 6 a segment\n"
               << "  --mozc-server PATH        Convert with this mozc_server, not the bundled one\n"
               << "  --anthy-only              Convert with Anthy alone, to compare\n"
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+              << "  --debug                   Debug card in Settings, always on in this build\n"
+#endif
               << "  --version                 Print the version\n\n"
               << "The selection is saved, so later runs start with it.\n";
 }
@@ -112,6 +115,10 @@ int main(int argc, char** argv) {
                 list = true;
             } else if (argument == "--slow-field") {
                 setup.slow = true;
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+            } else if (argument == "--debug") {
+                // Always on in the simulator (Options::debug); accepted to match the keyboard.
+#endif
             } else if (argument == "--anthy-dictionary") {
                 dictionary = value();
             } else if (argument == "--config-dir") {

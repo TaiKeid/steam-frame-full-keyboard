@@ -132,6 +132,9 @@ int main(int argc, char** argv) {
                     std::vector<std::string>({"--vr", "--input", "ei", "--start-enabled", "--config-dir",
                                               "--autostart", "--data-dir", "profiles"}),
                 "update and fallback restarts omit only the boot option, preserving option values");
+        require(update_restart_arguments({"--vr", "--debug", "--config-dir", "--debug"}) ==
+                    std::vector<std::string>({"--vr", "--config-dir", "--debug"}),
+                "they omit --debug too, which a release does not read");
         // Used only by the ARM64 integration test in a disposable installation.
         if (argc == 4 && std::string(argv[1]) == "--handoff-fixture") {
             const std::string helper = argv[2], config = argv[3];

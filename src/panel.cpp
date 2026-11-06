@@ -11,6 +11,7 @@
 #include <memory>
 #include <pango/pangocairo.h>
 #include <stdexcept>
+#include <tuple>
 #include <unordered_map>
 
 namespace framekeyboard {
@@ -1975,7 +1976,7 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
             }
             draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
             if (strip.fallback) {
-                // The simulator's mark for Anthy's conversions, there to be
+                // Debug mode's mark for Anthy's conversions, there to be
                 // seen rather than to match the theme.
                 const Rect inner{chip.bounds.x + 1, chip.bounds.y + 1, chip.bounds.width - 2,
                                  chip.bounds.height - 2};
@@ -2267,6 +2268,95 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         }
     }
 }
+// Display key collision (PanelView::key_outlines): a green square around
+// where each key takes the laser, in layout coordinates. A key whose area is
+// an L, beside a split pocket, gets one outline around the whole L: an edge
+// another of its own areas continues across is left out. A debug view, so
+// its colour is fixed rather than the theme's.
+void draw_key_outlines(cairo_t* cr, const PanelView& view, double scale) {
+    cairo_save(cr);
+    cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
+    cairo_set_line_width(cr, 2 / scale);
+    cairo_set_source_rgb(cr, .15, .95, .35);
+    if (!view.key_areas) {
+        for (const auto& key : view.layout->keys) {
+            if (!covered_key(view, key)) {
+                const auto& r = key.bounds;
+                cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+            }
+        }
+        cairo_stroke(cr);
+        cairo_restore(cr);
+        return;
+    }
+    constexpr double slack = 1e-6;
+    const auto& areas = *view.key_areas;
+    for (std::size_t i = 0; i < areas.size(); ++i) {
+        const auto& area = areas[i];
+        if (area.key >= view.layout->keys.size() || covered_key(view, view.layout->keys[area.key])) {
+            continue;
+        }
+        // The key's other areas: one or two at most.
+        std::array<const Rect*, 3> others{};
+        std::size_t count = 0;
+        for (std::size_t j = 0; j < areas.size() && count < others.size(); ++j) {
+            if (j != i && areas[j].key == area.key) {
+                others[count++] = &areas[j].bounds;
+            }
+        }
+        const auto& r = area.bounds;
+        // Each edge: fixed coordinate, span, and whether it runs across.
+        const std::array<std::tuple<double, double, double, bool>, 4> edges{
+            std::tuple{r.y, r.x, r.x + r.width, true},
+            std::tuple{r.y + r.height, r.x, r.x + r.width, true},
+            std::tuple{r.x, r.y, r.y + r.height, false},
+            std::tuple{r.x + r.width, r.y, r.y + r.height, false}};
+        for (std::size_t e = 0; e < edges.size(); ++e) {
+            const auto [at, from, to, across] = edges[e];
+            std::array<std::pair<double, double>, 4> pieces{std::pair{from, to}};
+            std::size_t pieces_count = 1;
+            for (std::size_t o = 0; o < count; ++o) {
+                const auto& other = *others[o];
+                // The other area's edge facing this one, on the far side.
+                const double facing = across ? (e == 0 ? other.y + other.height : other.y)
+                                             : (e == 2 ? other.x + other.width : other.x);
+                if (std::abs(facing - at) > slack) {
+                    continue;
+                }
+                const double cut_from = across ? other.x : other.y;
+                const double cut_to = across ? other.x + other.width : other.y + other.height;
+                std::array<std::pair<double, double>, 4> kept{};
+                std::size_t kept_count = 0;
+                for (std::size_t p = 0; p < pieces_count; ++p) {
+                    const auto [a, b] = pieces[p];
+                    if (cut_from > a + slack && kept_count < kept.size()) {
+                        kept[kept_count++] = {a, std::min(b, cut_from)};
+                    }
+                    if (cut_to < b - slack && kept_count < kept.size()) {
+                        kept[kept_count++] = {std::max(a, cut_to), b};
+                    }
+                }
+                pieces = kept;
+                pieces_count = kept_count;
+            }
+            for (std::size_t p = 0; p < pieces_count; ++p) {
+                const auto [a, b] = pieces[p];
+                if (b - a <= slack) {
+                    continue;
+                }
+                if (across) {
+                    cairo_move_to(cr, a, at);
+                    cairo_line_to(cr, b, at);
+                } else {
+                    cairo_move_to(cr, at, a);
+                    cairo_line_to(cr, at, b);
+                }
+            }
+        }
+    }
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
 // The flick preview (PanelView::flick_preview), in panel coordinates.
 void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rect, 5>& cells) {
     const auto& t = *view.theme;
@@ -2508,6 +2598,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.flick_script_key != view.flick_script_key ||
         previous_->view.flick_katakana != view.flick_katakana ||
         previous_->view.hide_numpad != view.hide_numpad ||
+        previous_->view.key_outlines != view.key_outlines ||
         previous_->view.case_opacity != view.case_opacity ||
         previous_->view.key_labels != view.key_labels ||
         previous_->view.disabled_keys != view.disabled_keys ||
@@ -3040,6 +3131,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 if (intersects) {
                     draw_key(cr, view, key, animations_.at(key.id).amount, mic_phase_, ring_time_);
                 }
+            }
+            if (view.key_outlines) {
+                draw_key_outlines(cr, view, p.scale);
             }
             cairo_restore(cr);
         }

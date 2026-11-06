@@ -3,13 +3,19 @@
 set -euo pipefail
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$project_dir"
-./scripts/build.sh frame-arm64
+# Its own build tree, with debug mode off: a release has no Debug card and
+# never reads --debug. Development builds of the frame-arm64 preset keep it.
+./scripts/build.sh frame-arm64-release
 version=$(sed -n 's/^project(framekeyboard VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)
 package_dir="$project_dir/out/framekeyboard-$version-aarch64"
 # A rebuild must not retain resources removed from the install rules.
 rm -rf -- "$package_dir"
 mkdir -p "$package_dir"
-cmake --install build/frame-arm64 --prefix "$package_dir" --strip
+cmake --install build/frame-arm64-release --prefix "$package_dir" --strip
+if grep -q -a -e 'Display key collision' -e 'Mark Anthy suggestions' "$package_dir/bin/framekeyboard"; then
+    echo 'The release contains debug mode: build it with FRAMEKEYBOARD_DEBUG_MODE=OFF.' >&2
+    exit 1
+fi
 python3 tools/check_release_binary.py "$package_dir/bin/framekeyboard" \
     "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
 # The two adapters are release assets even though their system dependencies

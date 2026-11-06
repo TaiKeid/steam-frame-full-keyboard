@@ -26,8 +26,9 @@ struct CandidateStripView {
     std::vector<Chip> chips;   // Only those at least partly in view.
     // For a reading typed since: dimmed, and a release picks nothing.
     bool stale{};
-    // Anthy converted the reading while Mozc couldn't, in the simulator
-    // (Options::mark_fallback): the chips have an orange border.
+    // Anthy converted the reading while Mozc couldn't, and debug mode marks
+    // that (Settings → Debug, Mark Anthy suggestions): the chips have an
+    // orange border.
     bool fallback{};
 };
 

@@ -10,6 +10,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(FRAMEKEYBOARD_VR "Build the VR keyboard, which needs OpenVR and Vulkan" ON)
 # Development builds only: dashboard focus timing in the journal (src/vr.cpp's trace_focus).
 option(FRAMEKEYBOARD_FOCUS_TRACE "Log dashboard focus clicks, samples and decisions" OFF)
+# Local builds have debug mode: a Debug card in Settings, always on, also in
+# the simulator. Releases (the frame-arm64-release preset, scripts/package.sh)
+# turn it off, which leaves its code out and --debug unread.
+option(FRAMEKEYBOARD_DEBUG_MODE "Debug card in Settings and --debug" ON)
 # Keep build-machine directories out of __FILE__, assertions and debug paths.
 # RelWithDebInfo remains useful locally; packaging strips only its installed copy.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -64,6 +68,9 @@ add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+if(FRAMEKEYBOARD_DEBUG_MODE)
+    target_compile_definitions(keyboard_core PUBLIC FRAMEKEYBOARD_DEBUG_MODE)
+endif()
 # Haptic sounds load PipeWire at run time, so its headers are all the build needs.
 pkg_check_modules(PIPEWIRE QUIET libpipewire-0.3)
 if(PIPEWIRE_FOUND)

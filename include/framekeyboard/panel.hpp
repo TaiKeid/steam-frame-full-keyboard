@@ -105,7 +105,10 @@ enum class ControlKind {
     FlickOnly,            // Settings: Japanese flick taps never cycle
     FlickKatakana,        // Settings: show the flick script key
     ClearLearning,        // asks first
-    ExtendedKeyCollision  // Settings: presses between keys reach the nearest one
+    ExtendedKeyCollision, // Settings: presses between keys reach the nearest one
+    // The Debug card, only in debug builds (FRAMEKEYBOARD_DEBUG_MODE).
+    DebugMarkAnthy,
+    DebugKeyCollision
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -281,6 +284,9 @@ struct PanelView {
     // With Extended key collision, where each key of `layout` takes the
     // laser (key_areas.hpp); null leaves each key its own bounds.
     const std::vector<KeyArea>* key_areas{};
+    // Debug card's Display key collision: a green square outline around
+    // where each key takes the laser.
+    bool key_outlines{};
     // Keys drawn dimmed, which ignore the laser.
     std::set<std::string> disabled_keys;
     // The emoji picker's grid and tabs; its keys are in `layout`.

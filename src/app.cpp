@@ -132,6 +132,15 @@ JapaneseComposer::Factory japanese_factory(const Options& options) {
     }
     return [patience = options.mozc_patience] { return mozc_converter(anthy_converter, patience); };
 }
+// The Debug card and what it switches on: only in debug builds, and there
+// only with Options::debug. Release builds leave its code out.
+bool debug_card([[maybe_unused]] const Options& options) {
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+    return options.debug;
+#else
+    return false;
+#endif
+}
 } // namespace
 App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_preferences,
          Updates* updates, SettingsWriter::Write reconcile_preferences)
@@ -221,6 +230,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_extended_key_collision_ = settings_.extended_key_collision;
+    pending_debug_mark_anthy_ = debug_mark_anthy_;
+    pending_debug_key_outlines_ = debug_key_outlines_;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     japanese_words_ = JapaneseWords(data_resource(options_.data_dir, "japanese/words.tsv"));
@@ -895,6 +906,19 @@ void App::update_settings_ui() {
         // shell they are unavailable, and their saved values stay as they are.
         cards.pop_back();
     }
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+    // Last, after everything a release shows. Not saved (App::debug_mark_anthy_).
+    if (debug_card(options_)) {
+        cards.push_back(
+            {"debug",
+             "Debug",
+             {field(ControlKind::DebugMarkAnthy,
+                    checkbox("debug-mark-anthy", "Mark Anthy suggestions", pending_debug_mark_anthy_)),
+              field(ControlKind::DebugKeyCollision,
+                    checkbox("debug-key-collision", "Display key collision",
+                             pending_debug_key_outlines_))}});
+    }
+#endif
     settings_ui_.set_cards(std::move(cards));
     if (languages_) {
         // Removing rows shortens the list; keep its end in place.
@@ -1285,6 +1309,7 @@ PanelView App::build_view(bool picker) const {
         }
     }
     v.key_areas = key_areas(v);
+    v.key_outlines = debug_card(options_) && debug_key_outlines_;
     // Between letters a press can start a swipe whenever one on a letter
     // would. With Extended key collision the letters' areas already reach
     // there, and a swipe starts where a press does.
@@ -2227,6 +2252,8 @@ void App::show_settings() {
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_extended_key_collision_ = settings_.extended_key_collision;
+    pending_debug_mark_anthy_ = debug_mark_anthy_;
+    pending_debug_key_outlines_ = debug_key_outlines_;
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
                (!mozc_server_.empty() && mozc_learned(options_.config_dir));
     pending_focus_tooltip_ = settings_.focus_tooltip;
@@ -2520,6 +2547,8 @@ void App::reload() {
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_extended_key_collision_ = settings_.extended_key_collision;
+    pending_debug_mark_anthy_ = debug_mark_anthy_;
+    pending_debug_key_outlines_ = debug_key_outlines_;
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -3446,6 +3475,8 @@ void App::apply_settings() {
     settings_.flick_only = pending_flick_only_;
     settings_.flick_katakana = pending_flick_katakana_;
     settings_.extended_key_collision = pending_extended_key_collision_;
+    debug_mark_anthy_ = pending_debug_mark_anthy_;
+    debug_key_outlines_ = pending_debug_key_outlines_;
     katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
     apply_learning();
     sync_mozc();
@@ -3844,6 +3875,12 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::ExtendedKeyCollision) {
         pending_extended_key_collision_ = !pending_extended_key_collision_;
         update_settings_ui();
+    } else if (kind == ControlKind::DebugMarkAnthy && debug_card(options_)) {
+        pending_debug_mark_anthy_ = !pending_debug_mark_anthy_;
+        update_settings_ui();
+    } else if (kind == ControlKind::DebugKeyCollision && debug_card(options_)) {
+        pending_debug_key_outlines_ = !pending_debug_key_outlines_;
+        update_settings_ui();
     } else if (kind == ControlKind::FocusTooltip) {
         pending_focus_tooltip_ = !pending_focus_tooltip_;
         update_settings_ui();
@@ -3866,7 +3903,7 @@ const std::map<std::string, FlickKey>& App::flick_keys() const {
     return flick_mode() == FlickMode::Digits ? language.flick_digits : language.flick;
 }
 bool App::candidates_fell_back() const {
-    return options_.mark_fallback && japanese_typing() && !composition_.empty() &&
+    return debug_card(options_) && debug_mark_anthy_ && japanese_typing() && !composition_.empty() &&
            composition_.fell_back();
 }
 bool App::band_more() const {

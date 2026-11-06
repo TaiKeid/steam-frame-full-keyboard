@@ -1372,10 +1372,17 @@ void mozc_lifecycle() {
     composer.convert();
     require(composer.commit_text() == "〈にほ〉〈んご〉" && composer.fell_back(),
             "Anthy, here the fake, converts meanwhile, and says so");
-    // The simulator's mark for that is on the live candidates, and only there.
-    for (const bool mark : {false, true}) {
+    // Debug mode's mark for that (Settings → Debug, on by default) is on the
+    // live candidates, and only there; a release build never marks them.
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+    constexpr bool debug_build = true;
+#else
+    constexpr bool debug_build = false;
+#endif
+    for (const bool debug : {false, true}) {
+        const bool mark = debug && debug_build;
         Options marked = options;
-        marked.mark_fallback = mark;
+        marked.debug = debug;
         marked.mozc_server.clear(); // The stand-in above stays the server.
         marked.japanese_converter = [&] {
             return mozc_converter([&] { return fake_converter(&conversions)(); },

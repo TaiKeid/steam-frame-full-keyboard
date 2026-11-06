@@ -110,10 +110,11 @@ Simulator::Simulator(const Setup& setup)
     if (!setup.japanese_converter) {
         options.mozc_server = mozc_engine(); // As the keyboard: Mozc where it is bundled.
     }
-    // For testing conversion: Mozc is waited for rather than left to Anthy,
-    // and what Anthy converts anyway has an orange border.
+    // For testing conversion: Mozc is waited for rather than left to Anthy.
     options.mozc_patience = std::chrono::seconds(3);
-    options.mark_fallback = true;
+    // Debug mode is always on here, in builds that have it: what Anthy
+    // converts anyway has an orange border (Settings → Debug).
+    options.debug = true;
     // Dictation's paste Send writes the field's own clipboard.
     options.clipboard = &sink_;
     options.japanese_converter = setup.japanese_converter;

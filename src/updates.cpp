@@ -85,7 +85,8 @@ std::vector<std::string> update_restart_arguments(const std::vector<std::string>
         if (value) {
             result.push_back(argument);
             value = false;
-        } else if (argument != "--autostart") {
+        } else if (argument != "--autostart" && argument != "--debug") {
+            // A release, which an update may install, does not read --debug.
             result.push_back(argument);
             value = argument == "--config-dir" || argument == "--data-dir" ||
                     argument == "--ei-socket" || argument == "--text-socket" || argument == "--input" ||

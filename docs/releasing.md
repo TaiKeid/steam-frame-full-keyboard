@@ -27,7 +27,7 @@ export FRAMEKEYBOARD_WHISPER_FRAME=/absolute/path/to/whisper-arm64
 ./scripts/package.sh
 ```
 
-The script configures the ARM64 preset from these variables, so an unset ExecuTorch or whisper.cpp path leaves its engine out of the package. It refuses to package without the dictation engine; see [building](building.md).
+The script configures the ARM64 release preset, `frame-arm64-release`, from these variables, so an unset ExecuTorch or whisper.cpp path leaves its engine out of the package. That preset leaves out [debug mode](building.md#debug-mode). It refuses to package without the dictation engine; see [building](building.md).
 
 Upload the generated `out/framekeyboard-VERSION-aarch64.tar.gz` and `out/SHA256SUMS` as assets for the matching tag. Use the archive basename from `SHA256SUMS`; do not rename it after hashing. The checksum file covers that release's install archive, not GitHub's generated source archives.
 

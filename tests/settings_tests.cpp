@@ -1463,6 +1463,76 @@ void extended_key_collision_setting() {
     App restarted(options, sink);
     require(!restarted.input_view().key_areas, "it stays off after a restart");
 }
+// Whether Display key collision drew its green line at a layout point.
+bool green_at(App& app, double x, double y) {
+    const auto view = app.view();
+    const auto [left, top] = app.renderer.layout_point(view, 0, 0);
+    const auto [right, bottom] = app.renderer.layout_point(view, 1000, 1000);
+    const int px = static_cast<int>((x - left) * 1000 / (right - left));
+    const int py = static_cast<int>((y - top) * 1000 / (bottom - top)) + popup_margin;
+    const auto pixels = app.renderer.rgba();
+    for (int dx = -2; dx <= 2; ++dx) {
+        const auto at =
+            (static_cast<std::size_t>(py) * panel_width + static_cast<std::size_t>(px + dx)) * 4;
+        if (pixels[at + 1] > 200 && pixels[at] < 100 && pixels[at + 2] < 150) {
+            return true;
+        }
+    }
+    return false;
+}
+void debug_card_setting() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    // Cards past the right edge are left out of the view until scrolled to.
+    auto last_card = [](App& app) {
+        app.move(0, 800, 300);
+        app.scroll(0, 1000, 0);
+        static double now = 300;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+        return app.view().cards.back().title;
+    };
+    {
+        App app(options, sink);
+        app.show_settings();
+        require(last_card(app) == "Integration" && !has(app.view(), "debug-key-collision"),
+                "without debug mode Settings has no Debug card");
+    }
+    options.debug = true;
+    App app(options, sink);
+    app.show_settings();
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+    require(last_card(app) == "Debug", "debug mode adds a Debug card, last");
+    require(control(app.view(), "debug-mark-anthy").selected &&
+                !control(app.view(), "debug-key-collision").selected,
+            "Mark Anthy suggestions starts on, Display key collision off");
+    click(app, "debug-key-collision");
+    app.back();
+    require(!app.view().key_outlines, "Back discards a Debug switch");
+    app.show_settings();
+    last_card(app);
+    require(!control(app.view(), "debug-key-collision").selected, "and shows it as it was");
+    click(app, "debug-key-collision");
+    click(app, "apply");
+    require(app.view().key_outlines, "Apply turns it on");
+    app.paint(10);
+    // Q and W meet 3 units right of Q, which ends at 265.
+    require(green_at(app, 268, 170) && !green_at(app, 240, 170),
+            "a green line runs between Q and W, not across them");
+    std::ifstream file(directory.path / "config.json");
+    const std::string text{std::istreambuf_iterator<char>(file), {}};
+    require(text.find("debug") == std::string::npos && text.find("outline") == std::string::npos,
+            "the Debug card saves nothing");
+    App restarted(options, sink);
+    require(!restarted.view().key_outlines, "a restart turns it off again");
+#else
+    require(last_card(app) == "Integration", "a release build has no Debug card at all");
+#endif
+}
 void haptic_sounds_setting() {
     TemporaryDirectory directory;
     Options options;
@@ -2779,6 +2849,7 @@ int main() {
         background_surface_setting();
         key_flicks_setting();
         extended_key_collision_setting();
+        debug_card_setting();
         haptic_sounds_setting();
         app_settings();
         dictation_settings();

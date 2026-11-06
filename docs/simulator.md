@@ -41,6 +41,7 @@ With `FRAMEKEYBOARD_SIMULATOR_TRACE=1` set, the simulator writes the window's po
 | `--theme ID` | Start with this theme |
 | `--list` | List the layout, language and theme IDs |
 | `--slow-field` | Start with the slow field on |
+| `--debug` | Accepted; [debug mode](building.md#debug-mode) is always on in the simulator |
 | `--anthy-dictionary FILE` | Use this Anthy dictionary; see [Japanese](#japanese) |
 | `--config-dir PATH` | Keep settings here instead |
 | `--data-dir PATH` | Read extra profiles from here |
@@ -59,7 +60,7 @@ Steam's own text fields confirm each key the keyboard sends before taking the ne
 
 ## Japanese
 
-Kanji conversion uses [Mozc](japanese.md#mozc) where the build has its server (`FRAMEKEYBOARD_MOZC_HOST`, [building](building.md)), keeping its profile in the simulator's config folder, and Anthy otherwise, as on the headset. Unlike the headset, which converts with Anthy at once while Mozc isn't answering, the simulator waits up to 3 seconds for Mozc, started again if it went, so a test sees what Mozc offers. Candidates Anthy converted anyway have an orange border. Anthy is the library `libanthy.so.0` and its dictionary. Install your distribution's Anthy package, or point the simulator at an Anthy unpacked somewhere else:
+Kanji conversion uses [Mozc](japanese.md#mozc) where the build has its server (`FRAMEKEYBOARD_MOZC_HOST`, [building](building.md)), keeping its profile in the simulator's config folder, and Anthy otherwise, as on the headset. Unlike the headset, which converts with Anthy at once while Mozc isn't answering, the simulator waits up to 3 seconds for Mozc, started again if it went, so a test sees what Mozc offers. Candidates Anthy converted anyway have an orange border (Settings → Debug → **Mark Anthy suggestions**). Anthy is the library `libanthy.so.0` and its dictionary. Install your distribution's Anthy package, or point the simulator at an Anthy unpacked somewhere else:
 
 ```sh
 A=/path/to/unpacked/anthy

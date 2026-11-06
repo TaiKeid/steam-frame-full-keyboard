@@ -38,7 +38,11 @@ void help() {
               << "  --data-dir PATH           Extra bundled profile directory\n"
               << "  --duration SECONDS        Exit a preview/VR smoke test after this time\n"
               << "  --hosted FD               Run under a shell over an inherited connection\n"
-              << "  --protocols               List the shell protocol versions supported\n\n"
+              << "  --protocols               List the shell protocol versions supported\n"
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+              << "  --debug                   Debug card in Settings, always on in this build\n"
+#endif
+              << "\n"
               << "Typing stays disabled unless --start-enabled is supplied.\n"
               << "Native replacement and SteamOS startup are optional in Settings.\n";
 }
@@ -54,6 +58,12 @@ int main(int argc, char** argv) {
         fk::Updates updates(FRAMEKEYBOARD_VERSION, std::vector<std::string>(argv + 1, argv + argc));
         fk::Options options;
         options.config_dir = fk::default_config_dir();
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+        // Every debug build has debug mode on, also launched from the
+        // dashboard, whose launcher passes no --debug. Release builds leave
+        // it out and never read --debug.
+        options.debug = true;
+#endif
         bool mode_set = false;
         std::optional<fk::InputBackend> input = fk::InputBackend::None;
         for (int i = 1; i < argc; ++i) {
@@ -94,6 +104,10 @@ int main(int argc, char** argv) {
                     return fk::hosted_exit::invalid_descriptor;
                 }
                 options.hosted_fd = fd;
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+            } else if (argument == "--debug") {
+                options.debug = true;
+#endif
             } else if (argument == "--preview") {
                 mode(fk::Mode::Preview);
             } else if (argument == "--vr") {
