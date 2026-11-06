@@ -931,8 +931,9 @@ class MozcConverter final : public JapaneseConverter {
             }
         }
     }
-    // Every segment with its candidates, visiting each to have them; the
-    // focus goes back to the first.
+    // Every segment with its candidates, visiting each to have them. The
+    // focus stays on the last: resizing and learning move it where they
+    // need it, so moving it back would only cost a request a segment.
     std::vector<Segment> collect(Output output) {
         count_ = static_cast<int>(output.segments.size());
         if (output.segments.empty()) {
@@ -974,7 +975,6 @@ class MozcConverter final : public JapaneseConverter {
                 }
             }
         }
-        move_to(0);
         return result;
     }
     std::chrono::milliseconds patience_;
