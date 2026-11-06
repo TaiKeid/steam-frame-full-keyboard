@@ -348,6 +348,12 @@ class JapaneseComposer {
     // What the converter last converted, unchanged since: live segments can
     // stand for a conversion of it, and resizing continues from it.
     std::string converted_;
+    // The reading converted_ was converted as, which the converter must
+    // convert again before resizing or learning: fresh() leaves it holding
+    // the typed reading it compared, and converts this again only when
+    // that is needed (restore()). Empty when it holds it already.
+    std::string restore_;
+    void restore();
     bool resized_{};
     // A preferred phrase 変換 made one segment of, and how many kana ← cut
     // from its end into segments of their own, the phrase's text cut so.
@@ -474,7 +480,7 @@ class JapaneseComposer {
     bool settled(std::string& reading) const;
 };
 struct JapaneseComposer::Record {
-    std::string converted, converted_as, alternative;
+    std::string converted, converted_as, alternative, restore;
     Stretch stretch;
     bool resized{}, fell_back{};
     // The worker's count of the conversions it made, its last one's.

@@ -2650,7 +2650,21 @@ void numeral_digits() {
 // 民|亜. On a tie the reading stays as typed: gennin is げんいん.
 void carried_conversion() {
     struct Carried : JapaneseConverter {
+        // What it was asked to convert, and what it last converted when
+        // asked to learn.
+        std::vector<std::string>* calls{};
+        std::vector<std::string>* learned_from{};
+        std::string last;
+        void learn(const std::vector<std::string>&) override {
+            if (learned_from) {
+                learned_from->push_back(last);
+            }
+        }
         std::vector<Segment> convert(const std::string& reading) override {
+            if (calls) {
+                calls->push_back(reading);
+            }
+            last = reading;
             if (reading == "みんあ") {
                 return {{"みん", {"民"}}, {"あ", {"亜"}}};
             }
@@ -2713,6 +2727,29 @@ void carried_conversion() {
     composer.kana("みんあ");
     composer.convert();
     require(composer.commit_text() == "民亜", "kana typed so are meant so");
+    // The carried reading wins after two conversions, not three: the
+    // converter converts it again only before resizing or learning.
+    std::vector<std::string> calls, learned_from;
+    JapaneseComposer tracked([&] {
+        auto converter = std::make_unique<Carried>();
+        converter->calls = &calls;
+        converter->learned_from = &learned_from;
+        return converter;
+    });
+    tracked.set_words(&words);
+    tracked.set_learning(true);
+    for (const char c : std::string("minna")) {
+        tracked.roman(c);
+    }
+    tracked.prepare_live();
+    require(calls == std::vector<std::string>{"みんな", "みんあ"} && tracked.live().front() == "皆",
+            "the live candidates take two conversions");
+    tracked.convert();
+    require(tracked.commit_text() == "皆" && calls.size() == 2, "変換 uses them");
+    tracked.learn();
+    require(calls.size() == 3 && calls.back() == "みんな" &&
+                learned_from == std::vector<std::string>{"みんな"},
+            "learning converts the carried reading again first, and learns from it");
 }
 // Number rewriting changes character offsets before carried-n word checks.
 void carried_number_boundaries() {

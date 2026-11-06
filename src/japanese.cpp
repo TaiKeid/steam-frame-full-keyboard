@@ -1243,12 +1243,13 @@ JapaneseConverter& JapaneseComposer::converter() {
     return *converter_.owned;
 }
 JapaneseComposer::Record JapaneseComposer::record() const {
-    return {converted_, converted_as_, alternative_, stretch_, resized_, fell_back(), conversion_};
+    return {converted_, converted_as_, alternative_, restore_, stretch_, resized_, fell_back(), conversion_};
 }
 void JapaneseComposer::set_record(const Record& record) {
     converted_ = record.converted;
     converted_as_ = record.converted_as;
     alternative_ = record.alternative;
+    restore_ = record.restore;
     stretch_ = record.stretch;
     resized_ = record.resized;
     fell_back_ = record.fell_back;
@@ -2081,9 +2082,16 @@ void JapaneseComposer::chat_kana(std::vector<Segment>& segments) {
         }
     }
 }
+void JapaneseComposer::restore() {
+    if (!restore_.empty()) {
+        const auto reading = std::exchange(restore_, {});
+        converter().convert(reading); // As it converted before: the same segments.
+    }
+}
 std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string& reading) {
     converted_.clear();
     converted_as_.clear();
+    restore_.clear();
     stretch_ = {};
     alternative_.clear();
     // A word stretched with ー, as chat writes it, converts as the word with
@@ -2152,7 +2160,10 @@ std::vector<JapaneseComposer::Segment> JapaneseComposer::fresh(const std::string
         auto typed = imported(converter().convert(base));
         if (result.size() < typed.size() &&
             carried_words(result, numbered_from.empty() ? base : numbered_from, converted)) {
-            result = imported(converter().convert(converted));
+            // The converter last converted the typed reading. It converts
+            // this one again only for resizing or learning, which the live
+            // candidates, asked for after every kana, mostly never need.
+            restore_ = converted;
         } else {
             if (result.size() == typed.size()) {
                 std::string other, own;
@@ -2561,6 +2572,7 @@ void JapaneseComposer::resize(int direction) {
             return;
         }
     }
+    restore();
     auto resized = imported(converter().resize(active_, direction));
     resized_ = true;
     if (resized.empty() || static_cast<int>(resized.size()) <= active_) {
@@ -2974,6 +2986,7 @@ bool JapaneseComposer::resize_phrase(int direction) {
     }
     offer(in_script(tail, true));
     converted_ = tail;
+    restore_.clear(); // The converter now holds the tail's.
     resized_ = true;
     segments_ = {std::move(first), std::move(last)};
     phrase.cut = cut;
@@ -3052,6 +3065,7 @@ void JapaneseComposer::learn() {
         for (const auto& segment : segments_) {
             chosen.push_back(segment.candidates[static_cast<std::size_t>(segment.selected)]);
         }
+        restore();
         converter().learn(chosen);
     }
 }
