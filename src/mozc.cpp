@@ -1044,8 +1044,10 @@ void stop_mozc() {
     state.wanted = false;
     if (state.pid > 0) {
         try {
-            // What it learned is saved.
-            call(address(state.base), input(sync_data, 0, nullptr), Clock::now() + answer_time);
+            // What it learned is saved, which may take longer than a
+            // conversion and is rare: when Japanese is removed, or we end.
+            call(address(state.base), input(sync_data, 0, nullptr),
+                 Clock::now() + std::chrono::seconds(1));
         } catch (const Stalled&) {
             kill_server(state); // Stuck, it wouldn't go on being asked.
             return;
