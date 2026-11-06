@@ -1448,6 +1448,18 @@ void mozc_lost_session() {
     require(converter->convert("あい").front().candidates.front() == "MOZC" &&
                 mozc.count("fake-creates") == renewed,
             "which is kept");
+    // So does one started again, as after a crash.
+    const pid_t first = mozc.pid();
+    kill(first, SIGKILL);
+    for (int i = 0; i < 200 && mozc_running(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    mozc.start(); // The keyboard's tick
+    require(wait_for_mozc(std::chrono::seconds(5)) && mozc.pid() != first, "it starts again");
+    const auto restarted = converter->convert("あい");
+    require(!restarted.empty() && restarted.front().candidates.front() == "MOZC" &&
+                !converter->fell_back(),
+            "and the next conversion is Mozc's, in a new session");
 }
 // A Mozc that stops answering, as one stopped or stuck, holds the keyboard
 // up only a moment: Anthy converts meanwhile, and the second time it is

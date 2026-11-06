@@ -683,13 +683,20 @@ class MozcConverter final : public JapaneseConverter {
         } catch (const std::exception&) {
         }
     }
-    // A session Mozc dropped is made again, and the conversion made in it.
+    // A session Mozc dropped, or lost as it was started again, is made
+    // again, and the conversion made in it.
     std::vector<Segment> convert(const std::string& reading) override {
         begin();
         try {
+            const bool resumed = session_ != 0;
             try {
                 return convert_once(reading);
-            } catch (const LostSession&) {
+            } catch (const Stalled&) {
+                throw;
+            } catch (const std::exception&) {
+                if (!resumed) {
+                    throw;
+                }
                 return convert_once(reading);
             }
         } catch (const Stalled&) {
