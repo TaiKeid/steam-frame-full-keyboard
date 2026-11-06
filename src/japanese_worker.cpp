@@ -176,6 +176,10 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
     auto& copy = *job.composer;
     copy.use_converter(&converter_);
     const auto before = converter_.changes;
+#ifdef FRAMEKEYBOARD_FRAME_TRACE
+    // From here: a learning step's converting its phrase again counts too.
+    const auto started = std::chrono::steady_clock::now();
+#endif
     bool run_step = true;
     if (job.kind != Kind::Learn) {
         copy.set_record(record_);
@@ -190,7 +194,6 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
         }
     }
     const auto restored = converter_.changes;
-    const auto started = std::chrono::steady_clock::now();
     if (run_step) {
         try {
             result.result = job.step(copy);
@@ -210,8 +213,6 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
              << " conversions=" << converter_.changes - before << '\n';
         std::cout << line.str() << std::flush;
     }
-#else
-    (void)started;
 #endif
     auto record = copy.record(); // fell_back() while the converter is still attached.
     if (converter_.changes != restored) {
