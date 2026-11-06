@@ -1490,6 +1490,41 @@ void mozc_stuck_server() {
     require(converter->convert("あい").front().candidates.front() == "MOZC" && !converter->fell_back(),
             "which converts");
 }
+// A Mozc that keeps dying soon after it starts is started again later each
+// time, then not at all, until it is started anew, as when Japanese is
+// added again; it stays in bubblewrap, which works.
+void mozc_restarts() {
+    FakeMozc mozc;
+    fs::create_directories(mozc.profile);
+    std::ofstream(mozc.profile / "fake-exit").close(); // It exits as it starts.
+    std::vector<std::chrono::steady_clock::time_point> starts;
+    const auto begin = std::chrono::steady_clock::now();
+    mozc.start();
+    while (std::chrono::steady_clock::now() - begin < std::chrono::milliseconds(5000)) {
+        mozc_running();
+        mozc.start(); // The keyboard's tick, more often.
+        for (int count = mozc.count("fake-starts"); static_cast<int>(starts.size()) < count;) {
+            starts.push_back(std::chrono::steady_clock::now());
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    require(starts.size() == 5, "a server that keeps dying is started a few times, then left");
+    for (std::size_t i = 2; i < starts.size(); ++i) {
+        require(starts[i] - starts[i - 1] >= std::chrono::milliseconds(400) * (1 << (i - 2)),
+                "each time later");
+    }
+    std::ifstream file(mozc.profile / "fake-starts");
+    for (std::string path; std::getline(file, path);) {
+        require(access("/usr/bin/bwrap", X_OK) != 0 || path == "/usr/lib/mozc/mozc_server",
+                "every time in bubblewrap");
+    }
+    fs::remove(mozc.profile / "fake-exit");
+    mozc.start();
+    require(!wait_for_mozc(std::chrono::milliseconds(200)), "a repeated start doesn't try it again");
+    stop_mozc();
+    mozc.start();
+    require(wait_for_mozc(std::chrono::seconds(5)), "but one after stopping does");
+}
 // The object decides a verb Mozc reads otherwise, from its own candidates:
 // 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
 void object_verbs() {
@@ -3691,6 +3726,7 @@ int main() {
         mozc_lifecycle();
         mozc_lost_session();
         mozc_stuck_server();
+        mozc_restarts();
         word_forms();
         emoji_candidates();
         learning_calls();

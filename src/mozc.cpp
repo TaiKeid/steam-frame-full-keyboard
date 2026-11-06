@@ -261,16 +261,20 @@ Output parse(std::string_view data) {
 }
 using Clock = std::chrono::steady_clock;
 // The server, started once per process and kept running as long as it is:
-// started again whenever it is found gone, and stopped only with us. Its
-// profile is `base`/mozc: Mozc keeps it in $XDG_CONFIG_HOME/mozc, which must
-// exist.
+// started again when it is found gone, unless it keeps dying soon after
+// it starts (gone()), and stopped only with us. Its profile is `base`/mozc: Mozc keeps it in
+// $XDG_CONFIG_HOME/mozc, which must exist.
 struct Server {
     std::mutex lock;
     pid_t pid = -1;
     bool wanted = false; // Between start_mozc() and stop_mozc().
-    // Started in bubblewrap (sandbox_command()); a sandboxed start that dies
-    // before it ever answers turns it off, and the server runs as it is.
-    bool sandbox = true, sandboxed = false, answered = false;
+    // Started in bubblewrap (sandbox_command()) unless bubblewrap itself
+    // fails; `confined` once the sandbox is seen to work.
+    bool sandbox = true, sandboxed = false, confined = false;
+    // When the running one started; quick deaths in a row, and when the
+    // next start may be (gone()).
+    Clock::time_point started, next_start;
+    int deaths = 0;
     std::filesystem::path path, base;
     std::filesystem::path words; // Our words for its user dictionary (write_dictionary()).
     // Requests it didn't answer in time, with none answered since; Anthy
@@ -389,8 +393,12 @@ std::string call(const std::string& at, const std::string& request, Clock::time_
 }
 // Where Mozc's own client expects its server (sandbox_command()).
 constexpr const char* mozc_install_path = "/usr/lib/mozc/mozc_server";
-// bubblewrap, from PATH or where distributions put it; empty without it.
+// bubblewrap where distributions put it, or else from PATH; empty without
+// it.
 std::string bubblewrap() {
+    if (access("/usr/bin/bwrap", X_OK) == 0) {
+        return "/usr/bin/bwrap";
+    }
     if (const char* path = std::getenv("PATH")) {
         std::string_view rest(path);
         while (!rest.empty()) {
@@ -405,7 +413,7 @@ std::string bubblewrap() {
             rest = end == std::string_view::npos ? std::string_view{} : rest.substr(end + 1);
         }
     }
-    return access("/usr/bin/bwrap", X_OK) == 0 ? "/usr/bin/bwrap" : "";
+    return "";
 }
 // Mozc's session watchdog checks its own server through Mozc's client,
 // which accepts only a server whose /proc/<pid>/exe is the path Mozc was
@@ -464,64 +472,24 @@ void write_dictionary(const Server& state) {
     std::error_code ignored;
     std::filesystem::rename(part, file, ignored);
 }
-// Kills the server, bubblewrap and Mozc, as one that is stuck can't be asked
-// to go. Called with the server's lock held.
-void kill_server(Server& state) {
-    if (state.pid > 0) {
-        kill(-state.pid, SIGKILL); // Its process group (spawn()).
-        kill(state.pid, SIGKILL);
-        waitpid(state.pid, nullptr, 0);
-        state.pid = -1;
-    }
-}
-// Starts the server unless it is running; it gets ready on its own. Called
-// with the server's lock held.
-void spawn(Server& state) {
-    if (!state.wanted) {
-        return;
-    }
-    if (state.pid > 0) {
-        if (waitpid(state.pid, nullptr, WNOHANG) == 0) {
-            return; // Still running.
-        }
-        state.pid = -1; // Gone: reaped, started again below.
-        if (state.sandboxed && !state.answered) {
-            std::cerr << "Mozc did not start in bubblewrap; starting it without.\n";
-            state.sandbox = false;
-        }
-    }
-    std::error_code error;
-    std::filesystem::create_directories(state.base / "mozc", error);
-    std::filesystem::permissions(state.base / "mozc", std::filesystem::perms::owner_all,
-                                 std::filesystem::perm_options::replace, error);
-    write_dictionary(state);
+// Runs `arguments` with `variables` as its environment and nothing on its
+// standard streams, in a process group of its own (kill_server()), going
+// when we do.
+pid_t launch(std::vector<std::string> arguments, std::vector<std::string> variables) {
     // Built before fork(): the child only calls async-signal-safe functions.
-    std::vector<std::string> variables;
-    for (char** variable = environ; *variable; ++variable) {
-        const std::string_view text(*variable);
-        if (!text.starts_with("HOME=") && !text.starts_with("XDG_CONFIG_HOME=")) {
-            variables.emplace_back(text);
-        }
-    }
-    variables.push_back("HOME=" + state.base.string());
-    variables.push_back("XDG_CONFIG_HOME=" + state.base.string());
-    std::vector<char*> envp;
-    for (auto& variable : variables) {
-        envp.push_back(variable.data());
-    }
-    envp.push_back(nullptr);
-    const auto bwrap = state.sandbox ? bubblewrap() : std::string();
-    auto arguments =
-        bwrap.empty() ? std::vector<std::string>{state.path.string()} : sandbox_command(bwrap, state);
-    std::vector<char*> argv;
+    std::vector<char*> argv, envp;
     for (auto& argument : arguments) {
         argv.push_back(argument.data());
     }
     argv.push_back(nullptr);
+    for (auto& variable : variables) {
+        envp.push_back(variable.data());
+    }
+    envp.push_back(nullptr);
     const pid_t child = fork();
     if (child == 0) {
-        prctl(PR_SET_PDEATHSIG, SIGTERM); // It goes when we do.
-        setpgid(0, 0);                    // With Mozc, for kill_server().
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        setpgid(0, 0);
         const int null = open("/dev/null", O_RDWR);
         dup2(null, 0);
         dup2(null, 1);
@@ -532,17 +500,128 @@ void spawn(Server& state) {
     if (child > 0) {
         setpgid(child, child); // As the child does, whichever runs first.
     }
-    state.pid = child > 0 ? child : -1;
-    state.sandboxed = !bwrap.empty();
-    state.answered = false;
+    return child > 0 ? child : -1;
 }
-// The server's address once it answers, starting it if need be: waiting up to
-// `patience` for it, or not at all, each try answered by `deadline` or in
+std::vector<std::string> environment() {
+    std::vector<std::string> variables;
+    for (char** variable = environ; *variable; ++variable) {
+        variables.emplace_back(*variable);
+    }
+    return variables;
+}
+// Whether bubblewrap sets the server's sandbox up: it runs true there in
+// place of the server, briefly.
+bool bubblewrap_runs(const Server& state) {
+    const auto bwrap = bubblewrap();
+    if (bwrap.empty()) {
+        return false;
+    }
+    auto arguments = sandbox_command(bwrap, state);
+    arguments.back() = "true";
+    const pid_t child = launch(std::move(arguments), environment());
+    int status = 0;
+    for (int i = 0; child > 0 && i < 400; ++i) {
+        if (waitpid(child, &status, WNOHANG) == child) {
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    if (child > 0) {
+        kill(-child, SIGKILL);
+        waitpid(child, nullptr, 0);
+    }
+    return false;
+}
+// A server going within this of its start went quickly; after `tries` in a
+// row it is left stopped. The first is started again at once, the next
+// ones after `backoff`, doubled each time.
+constexpr auto quick_death = std::chrono::minutes(1);
+constexpr int tries = 5;
+constexpr auto backoff = std::chrono::milliseconds(500);
+// The server went. One that ran a while is started again at once. One that
+// went soon, as one that can't start or keeps crashing, is started again
+// later each time, and after a few times not at all, until start_mozc()
+// starts it anew: Anthy converts. A sandboxed one that never answered may
+// be bubblewrap failing, which bubblewrap run alone shows; only then does
+// the server run without it. Called with the server's lock held.
+void gone(Server& state) {
+    state.pid = -1;
+    const auto now = Clock::now();
+    if (state.sandboxed && !state.confined) {
+        state.confined = bubblewrap_runs(state);
+        if (!state.confined) {
+            std::cerr << "Mozc's sandbox failed; starting it without bubblewrap.\n";
+            state.sandbox = false;
+            state.next_start = now;
+            return;
+        }
+    }
+    if (now - state.started >= quick_death) {
+        state.deaths = 0;
+        state.next_start = now;
+        return;
+    }
+    if (++state.deaths == tries) {
+        std::cerr << "Mozc keeps stopping; Japanese is converted by Anthy alone.\n";
+    }
+    state.next_start = state.deaths > 1 ? now + backoff * (1 << (state.deaths - 2)) : now;
+}
+// Whether the server runs; one found gone is reaped, and its going noted.
+// Called with the server's lock held.
+bool alive(Server& state) {
+    if (state.pid <= 0) {
+        return false;
+    }
+    if (waitpid(state.pid, nullptr, WNOHANG) == 0) {
+        return true;
+    }
+    gone(state);
+    return false;
+}
+// Kills the server, bubblewrap and Mozc, as one that is stuck can't be asked
+// to go. Called with the server's lock held.
+void kill_server(Server& state) {
+    if (state.pid > 0) {
+        kill(-state.pid, SIGKILL); // Its process group (launch()).
+        kill(state.pid, SIGKILL);
+        waitpid(state.pid, nullptr, 0);
+        state.pid = -1;
+    }
+}
+// Starts the server unless it is running or waits to be started again
+// (gone()); it gets ready on its own. Called with the server's lock held.
+void spawn(Server& state) {
+    if (!state.wanted || alive(state) || state.deaths >= tries || Clock::now() < state.next_start) {
+        return;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(state.base / "mozc", error);
+    std::filesystem::permissions(state.base / "mozc", std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, error);
+    write_dictionary(state);
+    auto variables = environment();
+    std::erase_if(variables, [](const std::string& text) {
+        return text.starts_with("HOME=") || text.starts_with("XDG_CONFIG_HOME=");
+    });
+    variables.push_back("HOME=" + state.base.string());
+    variables.push_back("XDG_CONFIG_HOME=" + state.base.string());
+    const auto bwrap = state.sandbox ? bubblewrap() : std::string();
+    state.pid = launch(bwrap.empty() ? std::vector<std::string>{state.path.string()}
+                                     : sandbox_command(bwrap, state),
+                       std::move(variables));
+    state.sandboxed = !bwrap.empty();
+    state.started = Clock::now();
+}
+// The server's address once it answers: waiting up to `patience` for it,
+// starting it if need be, or not at all, as on the keyboard, whose tick
+// starts it (App::sync_mozc()). Each try is answered by `deadline` or in
 // answer_time.
 std::string ready(std::chrono::milliseconds patience, Clock::time_point deadline = {}) {
     auto& state = server();
     std::lock_guard guard(state.lock);
-    spawn(state);
+    if (patience.count() > 0) {
+        spawn(state);
+    }
     const auto probe = input(create_session, 0, nullptr);
     const auto until = Clock::now() + patience;
     for (;;) {
@@ -551,7 +630,7 @@ std::string ready(std::chrono::milliseconds patience, Clock::time_point deadline
             const auto at = address(state.base);
             const auto session = parse(call(at, probe, by)).session;
             call(at, input(delete_session, session, nullptr), by);
-            state.answered = true;
+            state.confined = state.confined || state.sandboxed;
             return at;
         } catch (const std::exception&) {
             if (Clock::now() >= until) {
@@ -694,6 +773,7 @@ class MozcConverter final : public JapaneseConverter {
             state.stalls = 0;
             std::cerr << "Mozc stopped answering; starting it again.\n";
             kill_server(state);
+            gone(state);
         }
     }
     std::vector<Segment> convert_once(const std::string& reading) {
@@ -725,7 +805,7 @@ class MozcConverter final : public JapaneseConverter {
         return collect(send({0, space, false, {}}));
     }
     // A failed request means the server is gone or stuck: the session goes
-    // with it, and the server is started again for the next conversion. One
+    // with it, and the keyboard's tick starts the server again. One
     // Mozc answers without the session also drops it, the segments and what
     // they offered with it, so resizing and learning wait for a conversion
     // in a new one.
@@ -735,9 +815,6 @@ class MozcConverter final : public JapaneseConverter {
             last_ = parse(call(address_, message, deadline_));
         } catch (const std::exception&) {
             session_ = 0;
-            auto& state = server();
-            std::lock_guard guard(state.lock);
-            spawn(state);
             throw;
         }
         {
@@ -936,6 +1013,8 @@ void start_mozc(const std::filesystem::path& path, const std::filesystem::path& 
     state.path = path;
     state.base = profile;
     state.wanted = true;
+    state.deaths = 0; // Tried anew, as when Japanese is added again.
+    state.next_start = {};
     spawn(state);
 }
 bool wait_for_mozc(std::chrono::milliseconds patience) {
@@ -967,7 +1046,7 @@ void stop_mozc() {
 bool mozc_running() {
     auto& state = server();
     std::lock_guard guard(state.lock);
-    return state.pid > 0 && waitpid(state.pid, nullptr, WNOHANG) == 0;
+    return alive(state);
 }
 bool mozc_learned(const std::filesystem::path& profile) {
     std::error_code error;
@@ -979,7 +1058,7 @@ void clear_mozc_learning(const std::filesystem::path& profile) {
     {
         auto& state = server();
         std::lock_guard guard(state.lock);
-        if (state.pid > 0 && state.base == profile && waitpid(state.pid, nullptr, WNOHANG) == 0) {
+        if (state.base == profile && alive(state)) {
             try {
                 const auto at = address(state.base);
                 const auto by = Clock::now() + answer_time;
