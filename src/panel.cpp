@@ -68,18 +68,12 @@ std::optional<Rect> candidate_menu(const PanelView& view) {
     const auto& list = *view.candidates->list;
     return Rect{list.x - 8, list.y, list.width + 16, list.height + 8};
 }
-// Hidden keys, and those the open candidate list covers, which are then
-// neither drawn nor pressed but keep their place.
+// Hidden keys, and every key while the flick layout's open candidate list
+// takes their place, are neither drawn nor pressed but keep their place. A
+// full layout's list is a menu over the keys, drawn whole under it; no key
+// takes a press while either is open (PanelRenderer::hit_key()).
 bool covered_key(const PanelView& view, const Key& key) {
-    if (const auto menu = candidate_menu(view)) {
-        const auto r = panel_rect(view, key.bounds);
-        if (r.x < menu->x + menu->width && menu->x < r.x + r.width && r.y < menu->y + menu->height &&
-            menu->y < r.y + r.height) {
-            return true;
-        }
-        return hidden_key(view, key);
-    }
-    return list_open(view) || hidden_key(view, key);
+    return (list_open(view) && !candidate_menu(view)) || hidden_key(view, key);
 }
 // How far the flick preview's caps and the skin tone menu raise their soft
 // shadows; repaints cover them.
@@ -2086,12 +2080,18 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
     }
     if (const auto menu = candidate_menu(view);
         menu && overlaps(pixel_bounds(*menu, tone_shadow), clip)) {
-        // A raised menu, like the dropdowns: its edge drawn by light and
-        // shadow rather than an outline.
+        // A raised menu, like the dropdowns, over keys drawn whole under it:
+        // a faint rim of the legend's colour keeps its edge apart from theirs.
+        // The rim is the menu filled, then filled again a pixel inside: a
+        // stroke would antialias differently under each repaint's clip.
         const double radius = t.radius + 2;
         soft_shadow(cr, *menu, radius, tone_shadow);
+        const Color fill = mix(t.bottom, t.surface, .25);
         rounded(cr, *menu, radius);
-        source(cr, mix(t.bottom, t.surface, .25));
+        source(cr, mix(fill, t.legend, .14));
+        cairo_fill(cr);
+        rounded(cr, {menu->x + 1, menu->y + 1, menu->width - 2, menu->height - 2}, radius - 1);
+        source(cr, fill);
         cairo_fill(cr);
     }
     if (view.candidates) {
@@ -2588,7 +2588,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.dictation.has_value() != view.dictation.has_value() ||
         previous_->view.dictation_available != view.dictation_available ||
         list_open(previous_->view) != list_open(view) ||
-        // A resized menu covers different keys, whose ink bounds must be rebuilt.
+        // A resized menu uncovers keys it was drawn over.
         candidate_menu(previous_->view) != candidate_menu(view);
     // A row carried over the popup's lists moves alone, and repaints alone.
     const bool only_lifted_moved = [&] {
@@ -2747,12 +2747,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // through the gaps between keys or along key bounds, and nothing chains
     // across the keyboard the way one bounding rectangle would.
     std::vector<Rect> areas;
+    const auto contains = [](const Rect& outer, const Rect& inner) {
+        return outer.x <= inner.x && outer.y <= inner.y &&
+               outer.x + outer.width >= inner.x + inner.width &&
+               outer.y + outer.height >= inner.y + inner.height;
+    };
     auto damage_area = [&](Rect r) {
-        const auto contains = [](const Rect& outer, const Rect& inner) {
-            return outer.x <= inner.x && outer.y <= inner.y &&
-                   outer.x + outer.width >= inner.x + inner.width &&
-                   outer.y + outer.height >= inner.y + inner.height;
-        };
         if (std::none_of(areas.begin(), areas.end(),
                          [&](const Rect& area) { return contains(area, r); })) {
             std::erase_if(areas, [&](const Rect& area) { return contains(r, area); });
@@ -3008,9 +3008,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // key is painted over by that key's exact pass.
     std::vector<Rect> passes;
     if (!full) {
+        // A key whole inside a changed area, as under the open candidate
+        // menu, repaints with that area.
         passes = areas;
         for (const auto& r : damage) {
-            if (std::find(passes.begin(), passes.end(), r) == passes.end()) {
+            if (std::none_of(passes.begin(), passes.end(),
+                             [&](const Rect& pass) { return contains(pass, r); })) {
+                std::erase_if(passes, [&](const Rect& pass) { return contains(r, pass); });
                 passes.push_back(r);
             }
         }
