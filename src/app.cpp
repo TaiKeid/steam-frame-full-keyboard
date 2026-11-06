@@ -106,7 +106,6 @@ constexpr double flick_distance = 24;
 // A repeated tap within this time cycles the toggle kana instead of adding one.
 constexpr double flick_toggle_seconds = 1.0;
 // Live Japanese candidates wait for this long a pause in typing.
-constexpr double live_candidate_delay = .15;
 // How long ↶ waits for its Backspaces to be acknowledged before giving up.
 constexpr double reopen_patience = 3;
 // A swipe longer than this many samples (over 30 s of motion) is not a word,
@@ -3458,11 +3457,13 @@ void App::tick_japanese(double now) {
     if (japanese_typing() && !composition_.empty() && !composition_.converting() &&
         !composition_.live_current() && !restarting_anthy() && !japanese_holding() &&
         composition_.live_reading(reading)) {
+        // After every kana, or once typing pauses (Options::live_candidate_pause).
         const auto typed = composition_.preedit();
         if (typed != live_typed_) {
             live_typed_ = typed;
-            live_due_ = now + live_candidate_delay;
-        } else if (now >= live_due_) {
+            live_due_ = now + options_.live_candidate_pause;
+        }
+        if (now >= live_due_) {
             live_due_ = std::numeric_limits<double>::infinity(); // Once for each reading.
             if (reading != live_asked_ || composition_.clears() != live_asked_clears_) {
                 live_asked_ = reading;
@@ -3518,10 +3519,10 @@ void App::sync_candidates() {
         owned = composition_.candidates();
         selected = composition_.selected();
     } else if (shown && japanese_typing() && !composition_.empty()) {
-        // Live candidates; a stale list stays until the next one is ready.
+        // Live candidates. An out-of-date list stays as it is, never dimmed,
+        // until the next one replaces it, as on a phone.
         source = 3;
         texts = &composition_.live();
-        stale = !composition_.live_current();
     } else if (shown && japanese_typing() && follow_up_) {
         source = 4;
         texts = &follow_ups();

@@ -43,6 +43,10 @@ enum class Mode {
     Describe
 };
 enum class InputBackend { None, Ei, Uinput };
+// How long typing pauses before live candidates come: 0, after every kana,
+// as on a phone; 0.15 s, after a pause, as before, to compare the two. An
+// out-of-date list is never dimmed either way.
+constexpr double default_live_candidate_pause = 0;
 struct Options {
     fs::path data_dir, config_dir, ei_socket, text_socket;
     Mode mode{Mode::Help};
@@ -81,6 +85,7 @@ struct Options {
     // answer, as when conversion ran on the VR thread. The keyboard never
     // waits for the worker.
     bool wait_for_japanese{};
+    double live_candidate_pause = default_live_candidate_pause;
     // Debug mode: Settings has a Debug card, whose Mark Anthy suggestions
     // gives candidates Anthy converted an orange border. Only builds with
     // FRAMEKEYBOARD_DEBUG_MODE have the card; the others ignore this.

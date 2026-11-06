@@ -1429,6 +1429,47 @@ void mozc_lifecycle() {
     require(!mozc_running() && std::chrono::steady_clock::now() - asked < std::chrono::seconds(3),
             "a server ignoring SIGTERM is killed soon after");
 }
+// Options::live_candidate_pause switches live candidates to come only once
+// typing pauses, as before, for comparing the two; still never dimmed.
+void live_candidate_pause() {
+    char directory[] = "/tmp/framekeyboard-pause-XXXXXX";
+    require(mkdtemp(directory), "temporary pause profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    options.live_candidate_pause = .15;
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    for (const auto* key : {"KeyK", "KeyA", "KeyN", "KeyI"}) {
+        click_key(app, key);
+    }
+    app.tick(1);
+    app.tick(1.1);
+    require(!app.view().candidates && conversions == 0, "no candidates before the pause");
+    app.tick(1.2);
+    require(app.view().candidates && app.view().candidates->chips.front().text == "〈かに〉" &&
+                conversions == 1,
+            "then the reading's");
+    click_key(app, "KeyO");
+    app.tick(1.3);
+    require(app.view().candidates && !app.view().candidates->stale &&
+                app.view().candidates->chips.front().text == "〈かに〉" && conversions == 1,
+            "typing on keeps the old list as it is, undimmed, until the next pause");
+    app.tick(1.5);
+    require(app.view().candidates->chips.front().text == "〈かに〉〈お〉" && conversions == 2,
+            "which converts the longer reading");
+}
 // Conversion runs on the worker (docs/architecture.md, Japanese conversion):
 // a slow one holds up no tick and no typing, and what is pressed after 変換
 // before its answer goes in once the answer is in, in order.
@@ -1512,7 +1553,7 @@ void conversion_off_the_vr_thread() {
     click_key(app, "KeyK");
     click_key(app, "KeyA");
     app.tick(now += .01);
-    app.tick(now += .2); // After the pause: the live request goes out.
+    app.tick(now += .2); // The live request is out.
     require(converting_held(), "the live request converts on the worker");
     require(timed([&] { app.tick(now += .01); }) < std::chrono::milliseconds(50),
             "a tick doesn't wait for a conversion under way");
@@ -3257,24 +3298,20 @@ void candidate_band() {
     flick(app, "ha", 10.2);
     flick(app, "na", 10.4);
     flick(app, "ka", 10.6, 0, 60);
-    require(app.view().preedit == "にはなこ", "a reading");
+    require(app.view().preedit == "にはなこ" && conversions == 0, "a reading, typed between frames");
     app.tick(10.65);
-    app.tick(10.7);
-    require(!app.view().candidates && conversions == 0, "no candidates while typing");
-    app.tick(10.9);
     const auto live = chips();
     require(conversions == 1 && live.size() >= 4 && live.front() == "〈には〉〈なこ〉" &&
-                live[1] == "〈には〉",
-            "live candidates after a pause: the whole phrase, then the first segment's");
+                live[1] == "〈には〉" && !app.view().candidates->stale,
+            "the next frame's live candidates, without a pause: the whole phrase, then the first segment's");
+    // As on a phone, the row follows every kana, never dimmed.
     flick(app, "ma", 11);
     app.tick(11.01);
-    require(app.view().candidates && app.view().candidates->stale, "typing on leaves a stale list");
-    require(click_candidate(app, "〈には〉", 11.02) && app.view().preedit == "にはなこま" &&
-                app.view().candidates->stale,
-            "a stale chip is shown but picks nothing");
+    require(chips().front() == "〈には〉〈なこ〉〈ま〉" && !app.view().candidates->stale,
+            "typing on converts the longer reading");
     click_key(app, "Backspace");
     app.tick(11.1);
-    require(!app.view().candidates->stale, "the list is current again for its reading");
+    require(chips().front() == "〈には〉〈なこ〉" && conversions == 3, "and the shorter one again");
     require(click_candidate(app, "〈には〉", 11.2) && app.view().preedit == "〈には〉〈なこ〉" &&
                 app.view().preedit_active_begin == std::string("〈には〉").size(),
             "a first segment's live candidate moves on to the second segment");
@@ -4406,6 +4443,7 @@ int main() {
         carried_conversion();
         context_converter();
         conversion_off_the_vr_thread();
+        live_candidate_pause();
         mozc_lifecycle();
         mozc_lost_session();
         mozc_stuck_server();
@@ -4779,11 +4817,8 @@ int main() {
                 click_key(converted, id);
             }
             converted.tick(3);
-            converted.tick(3.1);
-            require(!converted.view().candidates, "no live candidates before the pause");
-            converted.tick(3.3);
             const auto live = converted.view().candidates;
-            require(live && !live->stale && live->chips.size() > 2, "live candidates after a pause");
+            require(live && !live->stale && live->chips.size() > 2, "live candidates as it is typed");
             require(click_candidate(converted, "日本語", 3.4),
                     "the whole phrase is a live candidate and commits at once");
             require(sink.text.back() == "日本語" && converted.view().preedit.empty(),
