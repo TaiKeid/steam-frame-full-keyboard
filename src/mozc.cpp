@@ -908,8 +908,10 @@ class MozcConverter final : public JapaneseConverter {
         return last_;
     }
     void reset() {
+        // Quiet too: leaving a conversion returns to its composition, for
+        // which Mozc would otherwise work out suggestions.
         for (int i = 0; i < 3 && (count_ > 0 || !last_.segments.empty()); ++i) {
-            send({0, escape, false, {}});
+            send({0, escape, false, {}}, true);
             count_ = static_cast<int>(last_.segments.size());
         }
         count_ = 0;
