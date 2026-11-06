@@ -564,8 +564,17 @@ pid_t launch(std::vector<std::string> arguments, std::vector<std::string> variab
     sigset_t all;
     sigfillset(&all);
     pthread_sigmask(SIG_SETMASK, &all, &spawn.mask);
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    // The sanitizers can't follow a child sharing our memory, their shadow
+    // of it included: their builds fork, as before.
+    const pid_t child = fork();
+    if (child == 0) {
+        spawn_child(&spawn);
+    }
+#else
     const pid_t child = clone(spawn_child, stack.data() + stack.size(), CLONE_VM | CLONE_VFORK | SIGCHLD,
                               &spawn);
+#endif
     pthread_sigmask(SIG_SETMASK, &spawn.mask, nullptr);
     if (child > 0) {
         setpgid(child, child); // As the child does, whichever runs first.
