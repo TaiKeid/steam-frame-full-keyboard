@@ -2728,12 +2728,15 @@ void App::take_japanese_answers() {
             }
             auto wait = std::move(*japanese_wait_);
             japanese_wait_.reset();
-            if (composition_.edits() == wait.edits) {
-                composition_.adopt(std::move(*answer.composer));
-            } else {
-                composition_.set_record(answer.composer->record());
-            }
             dirty = true;
+            if (composition_.edits() != wait.edits) {
+                // The reading changed meanwhile, as a tap in the dictation
+                // editor commits it: the answer, its follow-up and its
+                // error belong to a reading that is gone.
+                composition_.set_record(answer.composer->record());
+                break;
+            }
+            composition_.adopt(std::move(*answer.composer));
             try {
                 if (!answer.error.empty()) {
                     status_ = answer.error;
