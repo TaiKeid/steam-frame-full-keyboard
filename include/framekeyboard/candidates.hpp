@@ -77,6 +77,7 @@ class CandidateStrip {
     void cancel_pointer(unsigned pointer);
     void cancel();
     bool pressed(unsigned pointer) const { return press_ && press_->pointer == pointer; }
+    bool pressing() const { return press_.has_value(); }
     bool gliding() const { return glide_.active(); }
     CandidateStripView view() const;
     double scroll_offset() const { return scroll_; }

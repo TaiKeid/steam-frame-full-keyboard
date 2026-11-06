@@ -2123,7 +2123,11 @@ bool App::tick(double now) {
             updates_->check_periodically(static_cast<double>(boot.tv_sec));
         }
     }
-    take_japanese_answers();
+    // A candidate being pressed keeps its row until it is let go, so the
+    // release picks from the row the press began on: answers wait.
+    if (!candidates_.pressing()) {
+        take_japanese_answers();
+    }
     if (now - mozc_checked_ >= 2) {
         mozc_checked_ = now;
         sync_mozc();

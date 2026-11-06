@@ -1701,6 +1701,47 @@ void conversion_off_the_vr_thread() {
             }),
             "then え gets its own row");
     click_key(app, "Backspace");
+    // A candidate held down keeps its row while the next kana's answer
+    // lands: its release picks from the row it was pressed on.
+    click_key(app, "Backspace");
+    require(preedit().empty(), "an empty reading for the press");
+    click_key(app, "KeyM");
+    click_key(app, "KeyO");
+    require(until([&] {
+                const auto view = app.view();
+                return view.candidates && !view.candidates->chips.empty() &&
+                       view.candidates->chips.front().text == "〈も〉";
+            }),
+            "the row for も");
+    hold();
+    click_key(app, "KeyN");
+    click_key(app, "KeyO");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for もの is out");
+    {
+        const auto chips = app.view().candidates->chips;
+        const auto chip = std::find_if(chips.begin(), chips.end(),
+                                       [](const auto& c) { return c.text == "〈も〉"; });
+        require(chip != chips.end(), "〈も〉 is in the row");
+        const double x = chip->bounds.x + chip->bounds.width / 2, y = chip->bounds.y + chip->bounds.height / 2;
+        app.down(7, x, y, now += .01);
+        release();
+        for (int i = 0; i < 20; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            app.tick(now += .01); // The answer for もの is in, but waits.
+        }
+        app.up(7, x, y);
+        app.tick(now += .01);
+    }
+    require(sink.text.back() == "〈も〉" && preedit() == "の",
+            "the release picks 〈も〉 from the row it was pressed on, and の stays");
+    require(until([&] {
+                const auto view = app.view();
+                return view.candidates && !view.candidates->chips.empty() &&
+                       view.candidates->chips.front().text == "〈の〉";
+            }),
+            "then の gets its own row");
+    click_key(app, "Backspace");
     // A reading given up meanwhile takes what waited with it.
     hold();
     click_key(app, "KeyN");
@@ -1714,7 +1755,7 @@ void conversion_off_the_vr_thread() {
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 3, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == 4, "nothing that waited goes in after a cancel");
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
 // does, in a profile of its own; the files it reads and writes there steer
