@@ -718,12 +718,12 @@ class App {
     // a change to the layout, panel or toolbar would need, does nothing.
     void sync_candidates();
     // Places `texts` in the band, with ∨ and the open list.
-    void place_candidates(std::vector<std::string> texts, int selected, bool stale);
+    void place_candidates(std::vector<std::string> texts, int selected);
     struct CandidateSync {
         int source{};                   // What texts came from: none, CJK, 変換, live, follow-ups.
         std::vector<std::string> texts; // As given, before placing.
         int selected{};
-        bool stale{}, list{}, shown{};
+        bool list{}, shown{};
         std::uint64_t frames{}; // frames_ at the build.
         bool operator==(const CandidateSync&) const = default;
     };

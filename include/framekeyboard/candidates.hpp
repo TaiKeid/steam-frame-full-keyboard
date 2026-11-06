@@ -24,8 +24,6 @@ struct CandidateStripView {
     std::optional<Rect> list;  // While the list is open.
     std::optional<Rect> thumb; // The open list's scrollbar, while it scrolls.
     std::vector<Chip> chips;   // Only those at least partly in view.
-    // For a reading typed since: dimmed, and a release picks nothing.
-    bool stale{};
     // Anthy converted the reading while Mozc couldn't, and debug mode marks
     // that (Settings → Debug, Mark Anthy suggestions): the chips have an
     // orange border.
@@ -59,7 +57,7 @@ class CandidateStrip {
     // brings a newly selected chip into view. Opening or closing starts again.
     // `list` is the most room the open list may take; with `fit` it ends
     // after its last line when that comes sooner.
-    void set(Rect area, std::vector<std::string> texts, int selected, bool stale, const Measure& measure,
+    void set(Rect area, std::vector<std::string> texts, int selected, const Measure& measure,
              std::optional<Rect> list = {}, bool fit = false);
     void clear();
     bool shown() const { return !texts_.empty(); }
@@ -120,7 +118,6 @@ class CandidateStrip {
     std::vector<double> starts_, widths_; // Strip x of each chip.
     double width_{};                      // The whole row.
     int selected_{-1};
-    bool stale_{};
     double scroll_{};
     std::optional<Press> press_;
     Glide glide_;

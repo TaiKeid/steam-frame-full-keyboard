@@ -1604,7 +1604,7 @@ void live_candidate_pause() {
             "then the reading's");
     click_key(app, "KeyO");
     app.tick(1.3);
-    require(app.view().candidates && !app.view().candidates->stale &&
+    require(app.view().candidates &&
                 app.view().candidates->chips.front().text == "〈かに〉" && conversions == 1,
             "typing on keeps the old list as it is, undimmed, until the next pause");
     app.tick(1.5);
@@ -3751,12 +3751,12 @@ void candidate_band() {
     app.tick(10.65);
     const auto live = chips();
     require(conversions == 1 && live.size() >= 4 && live.front() == "〈には〉〈なこ〉" &&
-                live[1] == "〈には〉" && !app.view().candidates->stale,
+                live[1] == "〈には〉",
             "the next frame's live candidates, without a pause: the whole phrase, then the first segment's");
     // As on a phone, the row follows every kana, never dimmed.
     flick(app, "ma", 11);
     app.tick(11.01);
-    require(chips().front() == "〈には〉〈なこ〉〈ま〉" && !app.view().candidates->stale,
+    require(chips().front() == "〈には〉〈なこ〉〈ま〉",
             "typing on converts the longer reading");
     click_key(app, "Backspace");
     app.tick(11.1);
@@ -3805,7 +3805,7 @@ void candidate_band() {
     click_key(app, "Space");
     require(app.view().preedit == "〈に〉〈はな〉〈こ〉", "and wraps back to the first");
     flick(app, "undo", 12.8);
-    require(app.view().preedit == "にはなこ" && !app.view().candidates->stale,
+    require(app.view().preedit == "にはなこ" && app.view().candidates,
             "↶ returns to the reading");
     for (int i = 0; i < 4; ++i) {
         click_key(app, "Backspace");
@@ -5271,7 +5271,7 @@ int main() {
             }
             converted.tick(3);
             const auto live = converted.view().candidates;
-            require(live && !live->stale && live->chips.size() > 2, "live candidates as it is typed");
+            require(live && live->chips.size() > 2, "live candidates as it is typed");
             require(click_candidate(converted, "日本語", 3.4),
                     "the whole phrase is a live candidate and commits at once");
             require(sink.text.back() == "日本語" && converted.view().preedit.empty(),

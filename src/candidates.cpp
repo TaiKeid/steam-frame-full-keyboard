@@ -21,15 +21,14 @@ double CandidateStrip::row_width(const std::vector<std::string>& texts, const Me
     }
     return texts.empty() ? 0 : width - chip_spacing;
 }
-void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected, bool stale,
-                         const Measure& measure, std::optional<Rect> list, bool fit) {
+void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected, const Measure& measure,
+                         std::optional<Rect> list, bool fit) {
     if (texts.empty()) {
         clear();
         return;
     }
     const bool same = texts == texts_;
     if (same && area == area_ && list == requested_list_ && fit == fit_) {
-        stale_ = stale;
         if (selected != selected_) {
             selected_ = selected;
             reveal(selected);
@@ -61,7 +60,6 @@ void CandidateStrip::set(Rect area, std::vector<std::string> texts, int selected
     list_ = requested_list_ = list;
     fit_ = fit;
     place();
-    stale_ = stale;
     selected_ = selected;
     scroll_ = std::clamp(scroll_, 0.0, scroll_limit());
     reveal(selected);
@@ -107,7 +105,6 @@ void CandidateStrip::clear() {
     line_starts_.clear();
     line_count_ = 0;
     selected_ = -1;
-    stale_ = false;
     scroll_ = 0;
     press_.reset();
     glide_.stop();
@@ -237,7 +234,7 @@ CandidateStrip::Event CandidateStrip::up(unsigned pointer, double x, double y, d
     event.redraw = true;
     if (press.dragging) {
         glide_.release(now, scroll_);
-    } else if (!press.caught && !stale_ && press.chip >= 0 && chip_at(x, y) == press.chip) {
+    } else if (!press.caught && press.chip >= 0 && chip_at(x, y) == press.chip) {
         event.chosen = press.chip;
     }
     hovered_[pointer] = chip_at(x, y);
@@ -303,7 +300,6 @@ CandidateStripView CandidateStrip::view() const {
     CandidateStripView result;
     result.area = area_;
     result.list = list_;
-    result.stale = stale_;
     if (const double limit = scroll_limit(); list_ && limit > 0) {
         // In the margin right of the lines, its length the share in view.
         const Rect track{list_->x + list_->width + 1, list_->y + 6, 5, list_->height - 12};
@@ -320,10 +316,9 @@ CandidateStripView CandidateStrip::view() const {
                 : bounds.x + bounds.width <= area_.x || bounds.x >= area_.x + area_.width || !shows(i)) {
             continue;
         }
-        // Stale chips take no press, so they show no hover either.
-        const bool hovered =
-            !stale_ && std::any_of(hovered_.begin(), hovered_.end(),
-                                   [&](const auto& item) { return item.second == static_cast<int>(i); });
+        const bool hovered = std::any_of(hovered_.begin(), hovered_.end(), [&](const auto& item) {
+            return item.second == static_cast<int>(i);
+        });
         result.chips.push_back({texts_[i], bounds, static_cast<int>(i) == selected_, hovered, listed});
     }
     return result;

@@ -142,7 +142,7 @@ void candidate_menu_resize() {
             for (int i = 0; i < count; ++i) {
                 texts.push_back("候補" + std::to_string(i));
             }
-            strip.set(row, texts, -1, false, measure, open ? std::optional{list} : std::nullopt, true);
+            strip.set(row, texts, -1, measure, open ? std::optional{list} : std::nullopt, true);
             view.candidates = strip.view();
         };
         Comparison compare;
@@ -196,7 +196,7 @@ void candidate_scrolling() {
             CandidateStrip strip;
             Comparison compare;
             for (bool open : {false, true}) {
-                strip.set(row, texts, -1, false, measure,
+                strip.set(row, texts, -1, measure,
                           open ? std::optional{candidate_list_area(view)} : std::nullopt, !flick);
                 view.candidates = strip.view();
                 compare.frame(view, "candidate scrolling starts");

@@ -3569,7 +3569,6 @@ void App::sync_candidates() {
     std::vector<std::string> owned;
     const std::vector<std::string>* texts = &owned; // The composer's own, where it has them.
     int source = 0, selected = -1;
-    bool stale = false;
     const bool shown = (japanese() || cjk_) && !emoji_open_ && !settings_open_;
     if (shown && cjk_) {
         source = 1;
@@ -3600,16 +3599,16 @@ void App::sync_candidates() {
     // the same candidates, the strip already shows them.
     if (candidate_sync_ && !dirty && candidate_sync_->frames == frames_ &&
         candidate_sync_->source == source && candidate_sync_->selected == selected &&
-        candidate_sync_->stale == stale && candidate_sync_->list == candidate_list_ &&
+        candidate_sync_->list == candidate_list_ &&
         candidate_sync_->shown == candidates_.shown() && candidate_sync_->texts == *texts) {
         return;
     }
     auto given = *texts;
-    place_candidates(texts == &owned ? std::move(owned) : *texts, selected, stale);
-    candidate_sync_ = CandidateSync{source,          std::move(given),    selected, stale,
-                                    candidate_list_, candidates_.shown(), frames_};
+    place_candidates(texts == &owned ? std::move(owned) : *texts, selected);
+    candidate_sync_ =
+        CandidateSync{source, std::move(given), selected, candidate_list_, candidates_.shown(), frames_};
 }
-void App::place_candidates(std::vector<std::string> texts, int selected, bool stale) {
+void App::place_candidates(std::vector<std::string> texts, int selected) {
     if (texts.empty()) {
         if (candidate_more_) {
             candidate_more_.reset();
@@ -3664,7 +3663,7 @@ void App::place_candidates(std::vector<std::string> texts, int selected, bool st
     }
     // A full layout's list ends after its last line; the flick band's
     // takes the keys' place whole.
-    candidates_.set(*row, std::move(texts), selected, stale, measure, list,
+    candidates_.set(*row, std::move(texts), selected, measure, list,
                     geometry.language->input_method != "japanese-flick");
     dirty |= candidates_.view() != before;
 }

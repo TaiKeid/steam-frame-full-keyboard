@@ -1953,8 +1953,7 @@ void case_plate(cairo_t* cr, const PanelView& view, const Rect& area, const std:
 Rect emoji_well(const Rect& grid) {
     return {grid.x - 6, grid.y - 6, grid.width + 12, grid.height + 12};
 }
-// Candidates as caps like the toolbar's buttons, clipped to their strip;
-// stale ones dimmed, as a disabled button is.
+// Candidates as caps like the toolbar's buttons, clipped to their strip.
 void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripView& strip) {
     const auto& t = *view.theme;
     // The row's chips within the row, an open list's within the list.
@@ -1974,7 +1973,7 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
             if (chip.listed != listed || !overlaps(pixel_bounds(chip.bounds, 1), pass)) {
                 continue;
             }
-            draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, !strip.stale);
+            draw_cap(cr, t, chip.bounds, chip.hovered, chip.selected, true);
             if (strip.fallback) {
                 // Debug mode's mark for Anthy's conversions, there to be
                 // seen rather than to match the theme.
@@ -1985,9 +1984,7 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
                 cairo_set_line_width(cr, 2);
                 cairo_stroke(cr);
             }
-            const auto legend = strip.stale     ? disabled_legend(t)
-                                : chip.selected ? t.latched_legend
-                                                : t.legend;
+            const auto legend = chip.selected ? t.latched_legend : t.legend;
             // Within its cap: a kaomoji's stacked marks (tears of ̥) reach far below.
             cairo_save(cr);
             const auto face = pixel_bounds(chip.bounds);
