@@ -14,6 +14,7 @@
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -133,6 +134,12 @@ std::string editor_text(App& app) {
     require(view.dictation.has_value(), "dictation mode shows its editor");
     return view.dictation->text;
 }
+// Sends what the app logs to `out` while it lives.
+struct CaptureLog {
+    std::streambuf* previous;
+    explicit CaptureLog(std::ostream& out) : previous(std::cout.rdbuf(out.rdbuf())) {}
+    ~CaptureLog() { std::cout.rdbuf(previous); }
+};
 
 void settings_tests() {
     TemporaryDirectory directory;
@@ -3441,7 +3448,11 @@ void send_tests() {
             type_text(app, std::string(40, 'a'));
             press(app, "Dictation-send");
             sink.window = 9;
-            settle(app);
+            std::ostringstream log;
+            {
+                CaptureLog capture(log);
+                settle(app);
+            }
             const auto view = app.view();
             require(editor_text(app) == std::string(35, 'a') &&
                         view.dictation->uncertain == (between ? 0u : 1u) &&
@@ -3449,7 +3460,36 @@ void send_tests() {
                                                       : "the marked start may already have arrived."),
                     between ? "a stop between characters marks nothing"
                             : "a stop with a character in flight marks it");
+            // The log counts the piece's acknowledged characters, as the editor erased them.
+            require(log.str().find(between ? "took focus, 5 of 40 characters sent.\n"
+                                           : "took focus, 5 of 40 characters sent, 1 uncertain.\n") !=
+                        std::string::npos,
+                    "the log counts what the editor erased and marked");
         }
+    }
+    {
+        // The same with a piece already sent: the log adds the one in flight.
+        Sink sink;
+        sink.window = 7;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, std::string(40, 'a'));
+        press(app, "Dictation-send");
+        sink.busy = true;
+        sink.acknowledged = 3;
+        app.tick(clock += .02);
+        require(sink.text.size() == 1 && sink.commit_attempts == 2 && app.view().dictation->sending,
+                "the first piece is out and the second going out");
+        sink.window = 9;
+        std::ostringstream log;
+        {
+            CaptureLog capture(log);
+            settle(app);
+        }
+        require(editor_text(app) == std::string(5, 'a') &&
+                    log.str().find("took focus, 35 of 40 characters sent, 1 uncertain.\n") !=
+                        std::string::npos,
+                "the log counts the sent piece and the acknowledged start of the next");
     }
     {
         // A commit sent one character at a time fails after three of them.

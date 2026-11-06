@@ -7089,10 +7089,24 @@ void App::stop_send(bool attempted, bool moved) {
                   ? "Sending stopped. The rest stays here; the marked start may already have arrived."
                   : "Sending stopped. The rest stays here; Send continues.";
     if (moved) {
-        // Counts only, never text.
-        std::cout << "Send stopped: another window took focus, " << s.done << " of " << s.total
-                  << " characters sent.\n"
-                  << std::flush;
+        // Counts only, never text: what the editor erased, including the
+        // piece's acknowledged characters, and what it marked.
+        const auto characters = [&](std::size_t from, std::size_t to) -> std::size_t {
+            if (from == to) {
+                return 0;
+            }
+            if (piece.kind != SendPiece::Kind::Text) {
+                return counted(piece); // only ever whole
+            }
+            return static_cast<std::size_t>(g_utf8_strlen(piece.text.c_str() + (from - piece.begin),
+                                                          static_cast<gssize>(to - from)));
+        };
+        std::cout << "Send stopped: another window took focus, "
+                  << s.done + characters(piece.begin, keep) << " of " << s.total << " characters sent";
+        if (uncertain > keep) {
+            std::cout << ", " << characters(keep, uncertain) << " uncertain";
+        }
+        std::cout << ".\n" << std::flush;
         status_.insert(0, std::string(window_moved_status) + " ");
     }
     send_status_ = status_;
