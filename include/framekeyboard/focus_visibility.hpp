@@ -85,15 +85,35 @@ class FocusVisibility {
 // (docs/configuration.md). Gamescope's keyboard focus follows SteamVR's
 // overlay input focus: a click on the dashboard gives it a Steam window, but
 // using our keyboard soon moves it on to the focused app, as if that app had
-// been chosen. So a Steam window sets this, and only something the user did
+// been chosen. So Steam's page sets this, and only something the user did
 // elsewhere clears it: a trigger pull off the keyboard that leaves another
 // window focused, or another app taking focus. Pure logic; the VR loop samples.
+//
+// A pull is seen as the trigger starts to rise, but SteamVR clicks only deep
+// in the pull, so Steam's page can keep the keys for a moment after it. What
+// the pull began on (SteamVR's hover target) says whether that is left over.
 class DashboardFocus {
   public:
     static constexpr double settle = .3; // for a click to move Gamescope's focus
-    // `steam`: the keyboard focus is a Steam window; `app`: Gamescope's
-    // focused app window (GAMESCOPE_FOCUSED_WINDOW), 0 when unknown.
-    void update(bool dashboard_visible, bool steam, std::uint32_t app, double now, double sampled_at) {
+    // A pull on an app window: Steam's page seen this long after it means
+    // the click moved nothing.
+    static constexpr double window_click = 1;
+    // A pull on the dashboard's bar waits this long for the app it chose to show.
+    static constexpr double bar_click = 2;
+    enum class Target {
+        other,  // nothing known, as before targets were read
+        page,   // Steam's page
+        window, // an app window's overlay: the click chooses that window
+        bar,    // the dashboard's bar or its popups: an app's icon, Steam's, or another button
+    };
+    // Who has Gamescope's keys: Steam's page; another Steam window, such as
+    // the bar while it is pointed at or clicked, which is no choice made; or an app.
+    enum class Keys { page, steam, app };
+    // `app`: Gamescope's focused app window (GAMESCOPE_FOCUSED_WINDOW), 0
+    // when unknown. `app_shown`: whether that app's window is in sight, in
+    // the dashboard or floating in the world, read only while wants_visibility().
+    void update(bool dashboard_visible, Keys keys, std::uint32_t app, double now, double sampled_at,
+                std::optional<bool> app_shown = {}) {
         if (!dashboard_visible) {
             *this = {};
             return;
@@ -101,36 +121,70 @@ class DashboardFocus {
         if (sampled_at <= 0) {
             return; // Unknown focus is not evidence that another app was chosen.
         }
-        if (steam) {
+        if (clicked_ && target_ == Target::bar && sampled_at > *clicked_ + bar_click) {
+            clicked_.reset(); // The bar's click showed no app.
+        }
+        const bool after = clicked_ && sampled_at > *clicked_;
+        if (keys == Keys::page) {
             focused_ = true;
-            if (!clicked_ || sampled_at > *clicked_) {
-                clicked_.reset();
+            if (after && !left_over(sampled_at)) {
+                clicked_.reset(); // The click stayed in the dashboard.
             }
+        } else if (keys == Keys::steam) {
+            left_page_ |= after;
         } else if (app && app != app_ && app_) {
             focused_ = false; // Another app took focus, such as one just launched.
-        } else if (app && clicked_ && sampled_at > *clicked_ && now - *clicked_ >= settle) {
-            focused_ = false; // The click landed on an app window.
+        } else if (app && after && chose(now, app_shown)) {
+            focused_ = false; // The click chose the app with the keys.
             clicked_.reset();
+        } else if (app && after) {
+            left_page_ = true;
         }
-        if (app) {
+        // A Steam window's sample leaves the app for the next app sample to
+        // compare, as the bar may have the keys while another app takes focus.
+        if (app && keys != Keys::steam) {
             app_ = app;
         }
     }
-    // A trigger pull while the laser was off our keyboard.
-    void click(double now) {
-        if (focused_) {
-            clicked_ = now;
-        }
+    // A trigger pull while the laser was off our keyboard, and what it began on.
+    void click(double now, Target target = Target::other) {
+        clicked_ = now;
+        target_ = target;
+        left_page_ = false;
     }
     void reset() { *this = {}; }
     // Keep the dashboard's ownership decision, but not a pre-sleep click's
     // permission to clear it after wake.
     void suspend() { clicked_.reset(); }
     bool focused() const { return focused_; }
+    bool click_pending() const { return clicked_.has_value(); } // for tests and tracing
+    // A bar click chooses an app only while that app's window is in sight.
+    bool wants_visibility() const { return focused_ && clicked_ && target_ == Target::bar; }
 
   private:
+    // Steam's page after the pull, still there from before SteamVR clicked.
+    bool left_over(double sampled_at) const {
+        switch (target_) {
+        case Target::window:
+            return sampled_at <= *clicked_ + window_click;
+        case Target::bar:
+            return !left_page_; // The bar takes the keys first when SteamVR clicks it.
+        default:
+            return false;
+        }
+    }
+    bool chose(double now, std::optional<bool> app_shown) const {
+        if (target_ == Target::bar) {
+            // Steam's icon or the bar's keyboard button leave the app hidden
+            // behind Steam's page, where the keys fall back to it unseen.
+            // Another app's icon moves Gamescope's focus too (above).
+            return app_shown == true;
+        }
+        return now - *clicked_ >= settle;
+    }
     std::optional<double> clicked_;
+    Target target_{};
     std::uint32_t app_{};
-    bool focused_{};
+    bool focused_{}, left_page_{};
 };
 } // namespace framekeyboard

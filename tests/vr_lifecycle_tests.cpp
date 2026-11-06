@@ -690,29 +690,30 @@ void a_hidden_focused_window_is_flagged() {
 void the_dashboard_with_the_keys_types_nothing() {
     constexpr std::uint32_t kate = 0x4400007, brave = 0x4600001;
     DashboardFocus d;
-    d.update(true, false, kate, 1, 1);
+    constexpr auto page = DashboardFocus::Keys::page, app = DashboardFocus::Keys::app;
+    d.update(true, app, kate, 1, 1);
     require(!d.focused(), "an app with Gamescope's keys is typed into");
-    d.update(true, true, kate, 2, 2);
+    d.update(true, page, kate, 2, 2);
     require(d.focused(), "a click on the dashboard gives a Steam window the keys");
-    d.update(true, false, kate, 3, 3);
+    d.update(true, app, kate, 3, 3);
     require(d.focused(), "using our keyboard moves the keys on to the app: not the user's choice");
     d.click(4);
-    d.update(true, true, kate, 4.1, 4.1);
-    d.update(true, false, kate, 4.5, 4.5);
+    d.update(true, page, kate, 4.1, 4.1);
+    d.update(true, app, kate, 4.5, 4.5);
     require(d.focused(), "a click elsewhere in the dashboard keeps it; the fallback after it too");
     d.click(5);
-    d.update(true, false, kate, 5.1, 5.1);
+    d.update(true, app, kate, 5.1, 5.1);
     require(d.focused(), "a click waits for Gamescope to move the keys");
-    d.update(true, false, kate, 5.1 + DashboardFocus::settle, 5.1 + DashboardFocus::settle);
+    d.update(true, app, kate, 5.1 + DashboardFocus::settle, 5.1 + DashboardFocus::settle);
     require(!d.focused(), "a click that leaves an app with the keys chose that app");
     d.click(6);
-    d.update(true, false, kate, 7, 7);
+    d.update(true, app, kate, 7, 7);
     require(!d.focused(), "a click without the dashboard changes nothing");
-    d.update(true, true, kate, 8, 8);
-    d.update(true, false, brave, 8.5, 8.5);
+    d.update(true, page, kate, 8, 8);
+    d.update(true, app, brave, 8.5, 8.5);
     require(!d.focused(), "another app taking focus, such as one just launched, has the keys");
-    d.update(true, true, brave, 9, 9);
-    d.update(false, true, brave, 10, 10);
+    d.update(true, page, brave, 9, 9);
+    d.update(false, page, brave, 10, 10);
     require(!d.focused(), "a closed dashboard has no keys");
 
     // A local app's field stays open while the dashboard is chosen: its keys
@@ -754,48 +755,159 @@ void the_dashboard_with_the_keys_types_nothing() {
 void stale_focus_samples_cannot_erase_app_clicks() {
     constexpr std::uint32_t kate = 0x4400007, brave = 0x4600001;
     DashboardFocus d;
-    d.update(true, true, kate, 10, 10);
+    constexpr auto page = DashboardFocus::Keys::page, app = DashboardFocus::Keys::app;
+    d.update(true, page, kate, 10, 10);
     d.click(10.05);
     // This query started before the click, even if its reply arrives later.
-    d.update(true, true, kate, 10.1, 10);
-    d.update(true, true, kate, 10.2, 10);
+    d.update(true, page, kate, 10.1, 10);
+    d.update(true, page, kate, 10.2, 10);
     require(d.focused(), "the app click still waits for focus to settle");
-    d.update(true, false, kate, 10.4, 10.3);
+    d.update(true, app, kate, 10.4, 10.3);
     require(!d.focused(), "a pre-click dashboard sample cannot erase the later app click");
 
-    d.update(true, true, kate, 20, 20);
+    d.update(true, page, kate, 20, 20);
     d.click(20.05);
-    d.update(true, true, kate, 20.2, 20.1);
-    d.update(true, false, kate, 20.5, 20.4);
+    d.update(true, page, kate, 20.2, 20.1);
+    d.update(true, app, kate, 20.5, 20.4);
     require(d.focused(), "fresh dashboard evidence cancels a click before app fallback");
 
     d.click(21);
-    d.update(true, false, kate, 21.5, 20.9);
+    d.update(true, app, kate, 21.5, 20.9);
     require(d.focused(), "a pre-click app sample cannot authorize typing after a stall");
-    d.update(true, false, 0, 21.6, 0);
+    d.update(true, app, 0, 21.6, 0);
     require(d.focused(), "an invalidated probe sample cannot clear the dashboard block");
-    d.update(true, false, 0, 21.7, 21.7);
+    d.update(true, app, 0, 21.7, 21.7);
     require(d.focused(), "an unknown app is not a newly selected app or a settled click");
-    d.update(true, false, kate, 21.8, 21.8);
+    d.update(true, app, kate, 21.8, 21.8);
     require(!d.focused(), "fresh known app focus completes the deliberate click");
 
-    d.update(true, true, kate, 30, 30);
+    d.update(true, page, kate, 30, 30);
     d.click(30.05);
     d.suspend();
-    d.update(true, false, kate, 31, 31);
+    d.update(true, app, kate, 31, 31);
     require(d.focused(), "sleep discards old click intent while retaining dashboard protection");
     d.click(31.1);
-    d.update(true, false, kate, 31.2, 31.2);
+    d.update(true, app, kate, 31.2, 31.2);
     require(d.focused(), "the new wake click still observes the settling period");
-    d.update(true, false, kate, 31.5, 31.4);
+    d.update(true, app, kate, 31.5, 31.4);
     require(!d.focused(), "a new deliberate click into the same app recovers after wake");
 
-    d.update(true, true, kate, 40, 40);
-    d.update(true, false, 0, 41, 41);
-    d.update(true, false, kate, 42, 42);
+    d.update(true, page, kate, 40, 40);
+    d.update(true, app, 0, 41, 41);
+    d.update(true, app, kate, 42, 42);
     require(d.focused(), "unknown app IDs cannot turn fallback into an app selection");
-    d.update(true, false, brave, 43, 43);
+    d.update(true, app, brave, 43, 43);
     require(!d.focused(), "a known different app can still take focus without a sampled click");
+}
+
+void window_clicks_outlast_the_steam_page() {
+    constexpr std::uint32_t kate = 0x4400007;
+    DashboardFocus d;
+    constexpr auto page = DashboardFocus::Keys::page, app = DashboardFocus::Keys::app;
+    constexpr auto window = DashboardFocus::Target::window;
+    // The pull is seen as the trigger starts to rise, before SteamVR clicks
+    // the window and Gamescope moves the keys: Steam's page until then.
+    d.update(true, page, kate, 10, 10);
+    d.click(10.05, window);
+    d.update(true, page, kate, 10.15, 10.1);
+    require(d.focused() && d.click_pending(), "Steam's page before the keys move keeps a window click");
+    d.update(true, app, kate, 10.4, 10.3);
+    require(!d.focused(), "the window click into the app that had focus chose it");
+
+    // The same samples after a pull anywhere else stay blocked.
+    d.update(true, page, kate, 20, 20);
+    d.click(20.05);
+    d.update(true, page, kate, 20.15, 20.1);
+    d.update(true, app, kate, 20.4, 20.3);
+    require(d.focused(), "Steam's page after a pull on the dashboard cancels it");
+
+    d.update(true, page, kate, 30, 30);
+    d.click(30.05, window);
+    for (int step = 1; step < 10; ++step) {
+        d.update(true, page, kate, 30 + step * .1 + .01, 30 + step * .1);
+    }
+    d.update(true, app, kate, 31.1, 31);
+    require(!d.focused(), "a slow squeeze on the window still chooses it");
+
+    d.update(true, page, kate, 40, 40);
+    d.click(40.05, window);
+    d.update(true, page, kate, 41.2, 41.1);
+    require(!d.click_pending(), "a window click that never moved the keys expires");
+    d.update(true, app, kate, 41.5, 41.4);
+    require(d.focused(), "the fallback after an expired window click stays blocked");
+
+    d.click(50.05, window);
+    d.update(true, app, kate, 50.15, 50.1);
+    require(d.focused(), "a window click still waits for Gamescope to move the keys");
+    d.update(true, app, kate, 50.4, 50.35);
+    require(!d.focused(), "and then chose the app");
+}
+
+void bar_clicks_choose_only_a_shown_app() {
+    constexpr std::uint32_t kate = 0x4400007, brave = 0x4600001;
+    constexpr auto page = DashboardFocus::Keys::page, steam = DashboardFocus::Keys::steam,
+                   app = DashboardFocus::Keys::app;
+    constexpr auto bar = DashboardFocus::Target::bar;
+    DashboardFocus d;
+    // Kate's icon on the dashboard's bar, as seen on the headset: Steam's page
+    // until SteamVR clicks, the bar, then Kate once the dashboard shows it.
+    d.update(true, page, kate, 10, 10);
+    d.click(10.05, bar);
+    require(d.wants_visibility(), "a bar click asks whether the app shows");
+    d.update(true, page, kate, 10.1, 10.08);
+    require(d.focused() && d.click_pending(), "Steam's page before the bar takes the keys is left over");
+    d.update(true, steam, kate, 10.2, 10.15);
+    d.update(true, app, kate, 10.3, 10.25, true);
+    require(!d.focused(), "the app a bar click showed has the keys, however soon the laser is back");
+
+    // Steam's icon: the bar, then Steam's page.
+    d.update(true, page, kate, 20, 20);
+    d.click(20.05, bar);
+    d.update(true, page, kate, 20.1, 20.08);
+    d.update(true, steam, kate, 20.2, 20.15);
+    d.update(true, page, kate, 20.3, 20.25);
+    require(d.focused() && !d.click_pending(), "Steam's page after the bar ends the click");
+    d.update(true, app, kate, 20.6, 20.55, false);
+    require(d.focused(), "the fallback after Steam's icon stays blocked");
+
+    // The bar's keyboard button, then our keyboard: the keys fall back to an
+    // app hidden behind Steam's page.
+    d.click(30.05, bar);
+    d.update(true, steam, kate, 30.15, 30.1);
+    d.update(true, app, kate, 30.3, 30.25, false);
+    d.update(true, app, kate, 30.6, 30.55, false);
+    require(d.focused() && d.click_pending(), "a hidden app is not chosen");
+    d.update(true, app, kate, 32.2, 32.1, false);
+    require(!d.click_pending(), "a bar click that showed no app expires");
+    d.update(true, app, kate, 32.4, 32.3, true);
+    require(d.focused(), "and later sights of the app need a click of their own");
+
+    d.click(40.05, bar);
+    d.update(true, steam, kate, 40.15, 40.1);
+    d.update(true, app, kate, 40.3, 40.25);
+    require(d.focused(), "a bar click with no word of a shown app chooses nothing");
+
+    // The bar having the keys is no choice, nor is another app's focus behind it.
+    d.update(true, page, kate, 50, 50);
+    d.click(50.05);
+    d.update(true, steam, kate, 50.5, 50.4);
+    require(d.focused(), "the bar with the keys chose nothing");
+    d.update(true, steam, brave, 51, 51);
+    d.update(true, app, brave, 51.2, 51.2);
+    require(!d.focused(), "another app that took focus while the bar had the keys");
+
+    // Steam's icon then Kate's, both pulls seen even while typing was allowed.
+    DashboardFocus e;
+    e.update(true, app, kate, 1, 1);
+    e.click(1.05, bar);
+    e.update(true, steam, kate, 1.15, 1.1);
+    e.update(true, page, kate, 1.3, 1.25);
+    require(e.focused() && !e.click_pending(), "Steam's icon blocks typing");
+    e.click(1.35, bar);
+    e.update(true, page, kate, 1.45, 1.4);
+    e.update(true, steam, kate, 1.55, 1.5);
+    e.update(true, app, kate, 1.7, 1.65, true);
+    require(!e.focused(), "Kate's icon right after Steam's chooses Kate");
 }
 
 void late_work_cannot_cross_targets() {
@@ -1361,6 +1473,8 @@ int main() {
         a_hidden_focused_window_is_flagged();
         the_dashboard_with_the_keys_types_nothing();
         stale_focus_samples_cannot_erase_app_clicks();
+        window_clicks_outlast_the_steam_page();
+        bar_clicks_choose_only_a_shown_app();
         closing_and_native_fallback_have_different_meanings();
         success_requires_real_presentation_and_takeover();
         pending_shows_survive_runtime_obstacles();

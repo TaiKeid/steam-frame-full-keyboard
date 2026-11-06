@@ -8,6 +8,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Off builds only the keyboard's core and the desktop simulator
 # (docs/simulator.md), for a computer without SteamVR or Vulkan.
 option(FRAMEKEYBOARD_VR "Build the VR keyboard, which needs OpenVR and Vulkan" ON)
+# Development builds only: dashboard focus timing in the journal (src/vr.cpp's trace_focus).
+option(FRAMEKEYBOARD_FOCUS_TRACE "Log dashboard focus clicks, samples and decisions" OFF)
 # Keep build-machine directories out of __FILE__, assertions and debug paths.
 # RelWithDebInfo remains useful locally; packaging strips only its installed copy.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -224,6 +226,9 @@ if(FRAMEKEYBOARD_VR)
     target_link_libraries(framekeyboard PRIVATE keyboard_core overlay_texture PkgConfig::SDL)
     target_compile_options(framekeyboard PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
     target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+    if(FRAMEKEYBOARD_FOCUS_TRACE)
+        target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_FOCUS_TRACE)
+    endif()
     # Development binaries find these beside themselves; packages use share/framekeyboard.
     # Do not embed an absolute source-tree path in the executable for this fallback.
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vr")

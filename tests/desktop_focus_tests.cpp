@@ -234,9 +234,12 @@ struct AnsweringServer {
 };
 // A scoped fake for KeyboardFocusProbe. Each GetInputFocus reply waits for an
 // explicit permit, so pause/resume races do not depend on scheduler sleeps.
+// The focused app changes with each query, or with `steady_app` stays one
+// window whose title still does, as a document's name follows its contents.
 class ProbeServer {
   public:
-    explicit ProbeServer(int listener) : listener_(listener), worker_([this] { serve(); }) {}
+    explicit ProbeServer(int listener, bool steady_app = false)
+        : listener_(listener), steady_app_(steady_app), worker_([this] { serve(); }) {}
     ~ProbeServer() {
         {
             std::lock_guard lock(mutex_);
@@ -376,7 +379,7 @@ class ProbeServer {
                     reply[1] = 32;
                     type = 6;
                     items = 1;
-                    AnsweringServer::put32(value, 100 + query * 10);
+                    AnsweringServer::put32(value, steady_app_ ? 110 : 100 + query * 10);
                 } else if (property == name_atom) {
                     reply[1] = 8;
                     type = 31;
@@ -429,6 +432,7 @@ class ProbeServer {
         client_ = -1;
     }
     int listener_, client_{-1};
+    bool steady_app_;
     std::atomic<bool> stopping_{};
     std::mutex mutex_, client_mutex_;
     std::condition_variable changed_;
@@ -481,6 +485,25 @@ void probe_epoch_tests(int number) {
     probe.set_active(false);
     require(probe.sample().started == 0 && probe.sample().window.id == 0 && probe.sample().app.id == 0,
             "pausing a fresh sample invalidates it again");
+}
+// DashboardFocus matches the focused app's title to Gamescope's overlay
+// names, so the probe reads it again while the same app keeps focus.
+void probe_title_tests(int number) {
+    int listener;
+    while ((listener = abstract_listener(number)) < 0) {
+        ++number;
+    }
+    ProbeServer server(listener, true);
+    KeyboardFocusProbe probe(":" + std::to_string(number));
+    server.permit(3);
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (probe.sample().window.id != 30 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(1ms);
+    }
+    const auto sample = probe.sample();
+    require(sample.window.id == 30 && sample.app.id == 110 && sample.app.title == "app-3" &&
+                sample.app.steam,
+            "the same app's title is read again at each poll, keeping what describe found");
 }
 template <class Call> std::chrono::steady_clock::duration timed(Call call) {
     const auto start = std::chrono::steady_clock::now();
@@ -546,6 +569,7 @@ int main() {
         require(!answering.first_watched,
                 "the window that lost focus is no longer watched for its title");
         probe_epoch_tests(answering_number + 1);
+        probe_title_tests(answering_number + 10);
     } catch (const std::exception& error) {
         std::cerr << "desktop focus test failed: " << error.what() << '\n';
         return 1;

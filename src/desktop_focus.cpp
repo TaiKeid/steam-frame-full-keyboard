@@ -277,7 +277,9 @@ void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
         const auto root = xcb_connection_has_error(connection)
                               ? xcb_window_t{}
                               : xcb_setup_roots_iterator(xcb_get_setup(connection)).data->root;
-        // Two round trips a poll; a window is described again only when it changes.
+        // Three round trips a poll; a window is described again only when it
+        // changes, but the app's title is read each time: it follows the app's
+        // contents, and DashboardFocus matches it to Gamescope's overlay names.
         KeyboardFocusProbe::Window window, app;
         std::optional<std::uint64_t> epoch;
         while (!state->stop && !xcb_connection_has_error(connection)) {
@@ -306,6 +308,14 @@ void probe(const std::shared_ptr<KeyboardFocusProbe::State>& state) {
             const std::uint32_t app_id = app_window.empty() ? 0 : app_window[0];
             if (app_id != app.id) {
                 app = app_id ? describe(connection, app_id, name, target) : KeyboardFocusProbe::Window{};
+            } else if (app_id) {
+                auto title = text(connection, app_id, name);
+                if (title.empty()) {
+                    title = text(connection, app_id, XCB_ATOM_WM_NAME);
+                }
+                if (!title.empty()) { // Else it came from a parent window, which keeps it.
+                    app.title = std::move(title);
+                }
             }
             if (focus && focus->focus != window.id) {
                 window = describe(connection, focus->focus, name, target);
