@@ -6581,6 +6581,14 @@ bool App::tick_dictation(double now) {
     while (const auto event = dictation_->next()) {
         dictation_event(*event, now);
     }
+    // Turned off, the helper need not stay resident: it exits once Settings,
+    // where Test may still use it, has closed and nothing it does is under
+    // way. The next use starts it again.
+    if (settings_.dictation == "off" && dictation_->running() && !settings_open_ && !capturing_ &&
+        !phrases_pending() && !send_wait_since_ && !testing_server_ && !download_ && !direct_) {
+        std::cout << "Dictation is off: stopping its helper.\n" << std::flush;
+        dictation_->stop();
+    }
     if (helper_ready != dictation_->ready_to_start()) {
         // EOF reports the failure at once, but Test waits until the old child
         // has actually exited. Re-enable it when normal ticks reap that child.

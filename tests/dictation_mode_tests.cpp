@@ -2008,6 +2008,54 @@ void settings_and_update_tests() {
     require(sink.text.empty() && sink.keys.empty(), "nothing reached the target");
 }
 
+bool field_label(App& app, const std::string& text);
+// Turned off, the helper exits once Settings has closed and nothing it does
+// is under way, and turned back on it starts again.
+void helper_off_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
+    use_fake_helper(options, directory.path, "slowtest");
+    Sink sink;
+    App app(options, sink);
+    open_editor(app);
+    wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+    require(app.dictation_helper_running(), "dictating starts the helper");
+    const auto turn = [&](const char* to) {
+        open_settings(app);
+        click(app, "dictation");
+        click(app, std::string("choose:dictation:") + to);
+        click(app, "apply");
+        settle(app);
+    };
+    turn("off");
+    require(!app.dictation_open() && !app.dictation_helper_running(),
+            "turning dictation off stops the helper");
+    // Test, before Apply, starts it; it stays while Settings is open.
+    open_settings(app);
+    click(app, "dictation");
+    click(app, "choose:dictation:server");
+    wait_until(app, [&] { return control_enabled(app, "dictation-test"); });
+    click(app, "dictation-test");
+    wait_until(app, [&] { return !field_label(app, "Testing…"); });
+    settle(app);
+    require(app.dictation_helper_running(), "a Test keeps it while Settings is open");
+    app.back();
+    settle(app);
+    require(!app.dictation_helper_running(), "and leaving with dictation off stops it");
+    turn("server");
+    press(app, "Dictation");
+    require(app.dictation_open() && app.listening() && app.dictation_helper_running(),
+            "turned back on, the mic starts it again");
+    const auto before = editor_text(app);
+    press(app, "Dictation");
+    wait_until(app, [&] { return editor_text(app).size() > before.size(); });
+    require(editor_text(app).size() > before.size(), "and it recognizes again");
+}
 bool field_label(App& app, const std::string& text) {
     const auto view = app.view();
     return std::any_of(view.field_labels.begin(), view.field_labels.end(),
@@ -3767,6 +3815,7 @@ int main() {
         direct_pace_tests();
         send_wait_tests();
         download_helper_exit_tests();
+        helper_off_tests();
         std::cout << "Dictation mode tests passed\n";
         return 0;
     } catch (const std::exception& error) {

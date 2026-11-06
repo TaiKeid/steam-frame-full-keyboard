@@ -87,6 +87,7 @@
 - Added reproducible host ASan/UBSan presets for C and C++, with unsuppressed leak checks by default and an explicitly selected Fontconfig filter for secondary diagnostic runs.
 - Fixed leaked server-client resources in the isolated clipboard test fixture, including cleanup during exception unwinding.
 - A letter or kana held with one hand now types when the other hand presses the mic key, Esc while Type as I speak runs, or Enter to retry a refused phrase, before those act. Before, the mic dropped it, and a retried phrase went ahead of it. Opening Settings, moving or pinning the keyboard, or opening the emoji picker while one is held types it too, as letting go would.
+- With dictation turned off, its helper no longer stays in memory for the rest of the session once dictation, Test or a model download had used it; it starts again when dictation is next used.
 - Added isolated regression coverage for dictation editing, helper cleanup and cancellation, pointer-controlled sound playback and shutdown, and Cangjie/Quick text recovery, pacing and cancellation.
 - Fixed ARM64 linking and a C-linkage declaration in the sound test library.
 - The release archive no longer carries the documentation folder and contributing guide, which nothing on the headset reads: about 4.7 MB less on each install. The README and changelog in it link to the documentation online, at the release's version.
