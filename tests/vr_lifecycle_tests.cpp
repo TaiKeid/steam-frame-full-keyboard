@@ -837,9 +837,10 @@ void window_clicks_outlast_the_steam_page() {
     // the window and Gamescope moves the keys: Steam's page until then.
     d.update(true, page, kate, 10, 10);
     d.click(10.05, window);
+    require(d.wants_visibility(), "a window click asks whether the app shows");
     d.update(true, page, kate, 10.15, 10.1);
     require(d.focused() && d.click_pending(), "Steam's page before the keys move keeps a window click");
-    d.update(true, app, kate, 10.4, 10.3);
+    d.update(true, app, kate, 10.4, 10.3, true);
     require(!d.focused(), "the window click into the app that had focus chose it");
 
     // The same samples after a pull anywhere else stay blocked.
@@ -854,21 +855,53 @@ void window_clicks_outlast_the_steam_page() {
     for (int step = 1; step < 10; ++step) {
         d.update(true, page, kate, 30 + step * .1 + .01, 30 + step * .1);
     }
-    d.update(true, app, kate, 31.1, 31);
+    d.update(true, app, kate, 31.1, 31, true);
     require(!d.focused(), "a slow squeeze on the window still chooses it");
 
     d.update(true, page, kate, 40, 40);
     d.click(40.05, window);
     d.update(true, page, kate, 41.2, 41.1);
     require(!d.click_pending(), "a window click that never moved the keys expires");
-    d.update(true, app, kate, 41.5, 41.4);
+    d.update(true, app, kate, 41.5, 41.4, true);
     require(d.focused(), "the fallback after an expired window click stays blocked");
 
     d.click(50.05, window);
-    d.update(true, app, kate, 50.15, 50.1);
+    d.update(true, app, kate, 50.15, 50.1, true);
     require(d.focused(), "a window click still waits for Gamescope to move the keys");
-    d.update(true, app, kate, 50.4, 50.35);
+    d.update(true, app, kate, 50.4, 50.35, true);
     require(!d.focused(), "and then chose the app");
+
+    // A light pull on a window W floating in sight clicks nothing. Once the
+    // laser is on our keyboard, the keys fall back to Kate, hidden behind
+    // Steam's page.
+    d.update(true, page, kate, 60, 60);
+    d.click(60.05, window);
+    d.update(true, page, kate, 60.15, 60.1);
+    d.update(true, app, kate, 60.5, 60.45, false);
+    d.update(true, app, kate, 60.9, 60.85, false);
+    require(d.focused() && d.click_pending(), "a hidden app is not chosen by a pull on another window");
+    d.update(true, app, kate, 61.5, 61.45, false);
+    require(!d.click_pending(), "a window click that chose nothing expires");
+    d.update(true, app, kate, 61.6, 61.55, true);
+    require(d.focused(), "and later sights of the app need a click of their own");
+
+    // Whether the app is in sight, from what the VR loop reads.
+    DashboardFocus s;
+    s.click(1, window);
+    require(!s.shown({.named = false, .titled = true, .pulled_shows = true, .pulled_named = true}),
+            "the overlay named after the app decides: hidden");
+    require(s.shown({.named = true, .titled = true}), "or in sight");
+    require(s.shown({.titled = true, .pulled_shows = true, .pulled_named = true}),
+            "with several overlays of that title, the window pulled on is one of them");
+    require(!s.shown({.titled = true, .new_window = true, .pulled_shows = true}),
+            "another window pulled on is not the app, nor is a window just shown");
+    require(!s.shown({.titled = true, .pulled_named = true}), "the window pulled on, now hidden");
+    require(s.shown({.pulled_shows = true}),
+            "a title no overlay name can tell: the window pulled on, in sight, counts");
+    s.click(2, DashboardFocus::Target::bar);
+    require(s.shown({.titled = true, .new_window = true}) &&
+                !s.shown({.titled = true, .pulled_shows = true, .pulled_named = true}),
+            "a bar click: a window shown since the pull");
 }
 
 void bar_clicks_choose_only_a_shown_app() {

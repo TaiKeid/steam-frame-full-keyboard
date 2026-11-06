@@ -185,6 +185,22 @@ class WindowOverlays {
         }
         return shown;
     }
+    // Whether this known window overlay shows now, and whether its name is
+    // `title` now.
+    struct Seen {
+        bool shows{}, named{};
+    };
+    Seen seen(std::uint32_t number, const std::string& title) const {
+        const auto it = known_.find(number);
+        if (it == known_.end()) {
+            return {};
+        }
+        char name[256]{};
+        vr::EVROverlayError error{};
+        vr_overlay()->GetOverlayName(it->second, name, sizeof(name), &error);
+        return {vr_overlay()->IsOverlayVisible(it->second),
+                error == vr::VROverlayError_None && title == name};
+    }
 
   private:
     static constexpr std::uint32_t step = 1024, sweep_end = 65536;
@@ -1914,12 +1930,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool hidden_window_shown = false; // Keep open's amber cue
     double clicks_checked = -1;
     // Whether the focused app's window is in sight, read once per focus sample
-    // while a bar click waits on it (DashboardFocus::wants_visibility): its
+    // while a bar or window click waits on it (DashboardFocus::Sight): its
     // overlay, by the app's title, shows. Without one overlay of that name,
-    // a window overlay that did not show at the last pull shows now: the
-    // dashboard switched to an app.
+    // for a bar click a window overlay that did not show at the last pull
+    // shows now, as the dashboard switched to an app; for a window click the
+    // overlay it began on shows, named like the app.
     std::vector<std::uint32_t> pull_windows;
-    bool shown_by_title = false; // trace_focus
+    std::optional<std::uint32_t> pull_pointed; // a window click's overlay
+    const char* shown_by = "";                 // trace_focus
     double visibility_sample = 0;
     std::optional<bool> app_visible;
     // What a pull off the keyboard begins on (DashboardFocus::Target). Only
@@ -1934,11 +1952,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const auto visible = hidden_focus.overlays.visible(now);
         const auto pointed = ray ? hidden_focus.overlays.pointed(*ray, visible) : std::nullopt;
         pull_windows = visible;
+        pull_pointed.reset();
         auto target = Target::other;
         const char* steam = nullptr;
         if (!primary) {
         } else if (pointed && hidden_focus.overlays.hover_target(*pointed)) {
             target = Target::window;
+            pull_pointed = pointed;
         } else if (steam_hover_target("valve.steam.gamepadui.bar")) {
             target = Target::bar;
             steam = "bar";
@@ -3137,16 +3157,25 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     app_visible.reset();
                 } else if (focus.started != visibility_sample) {
                     visibility_sample = focus.started;
+                    const auto& title = focus.app.title;
                     const auto visible = hidden_focus.overlays.visible(now);
-                    app_visible = hidden_focus.overlays.shows(focus.app.title);
-                    shown_by_title = app_visible.has_value();
-                    if (!app_visible) {
-                        app_visible =
-                            std::any_of(visible.begin(), visible.end(), [&](std::uint32_t number) {
-                                return std::find(pull_windows.begin(), pull_windows.end(), number) ==
-                                       pull_windows.end();
-                            });
+                    DashboardFocus::Sight sight;
+                    sight.named = hidden_focus.overlays.shows(title);
+                    sight.titled = !title.empty() && title.size() < vr::k_unVROverlayMaxNameLength;
+                    sight.new_window =
+                        std::any_of(visible.begin(), visible.end(), [&](std::uint32_t number) {
+                            return std::find(pull_windows.begin(), pull_windows.end(), number) ==
+                                   pull_windows.end();
+                        });
+                    if (pull_pointed) {
+                        const auto pulled = hidden_focus.overlays.seen(*pull_pointed, title);
+                        sight.pulled_shows = pulled.shows;
+                        sight.pulled_named = pulled.named;
                     }
+                    app_visible = dashboard_focus.shown(sight);
+                    shown_by = sight.named    ? "by title"
+                               : pull_pointed ? "window pulled on"
+                                              : "new window";
                 }
                 const bool was_focused = dashboard_focus.focused();
                 const bool was_pending = dashboard_focus.click_pending();
@@ -3166,9 +3195,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                   << (!asks          ? ""
                                       : *app_visible ? " app-shown=yes"
                                                      : " app-shown=no")
-                                  << (!asks            ? ""
-                                      : shown_by_title ? " (by title)"
-                                                       : " (new window)")
+                                  << (asks ? std::string(" (") + shown_by + ")" : std::string())
                                   << " -> " << trace_decision(was_focused, was_pending, dashboard_focus)
                                   << "\n"
                                   << std::flush;

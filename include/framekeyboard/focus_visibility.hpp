@@ -170,8 +170,8 @@ class DashboardFocus {
         if (sampled_at <= 0) {
             return; // Unknown focus is not evidence that another app was chosen.
         }
-        if (clicked_ && target_ == Target::bar && sampled_at > *clicked_ + bar_click) {
-            clicked_.reset(); // The bar's click showed no app.
+        if (clicked_ && expired(sampled_at)) {
+            clicked_.reset(); // The click showed no app, or gave it no keys.
         }
         const bool after = clicked_ && sampled_at > *clicked_;
         if (keys == Keys::page) {
@@ -207,10 +207,53 @@ class DashboardFocus {
     void suspend() { clicked_.reset(); }
     bool focused() const { return focused_; }
     bool click_pending() const { return clicked_.has_value(); } // for tests and tracing
-    // A bar click chooses an app only while that app's window is in sight.
-    bool wants_visibility() const { return focused_ && clicked_ && target_ == Target::bar; }
+    // A bar or window click chooses an app only while that app's window is in sight.
+    bool wants_visibility() const {
+        return focused_ && clicked_ && (target_ == Target::bar || target_ == Target::window);
+    }
+    // What the VR loop reads of Gamescope's window overlays, while
+    // wants_visibility(), to tell whether the focused app's window is in sight.
+    struct Sight {
+        // Whether the one window overlay named after the app's title shows;
+        // none when no known overlay, or several, have that name.
+        std::optional<bool> named{};
+        // Whether that title can name an overlay at all: not empty, and short
+        // enough for an overlay name.
+        bool titled{};
+        // A window overlay shows that did not show at the pull.
+        bool new_window{};
+        // Whether the overlay a window click began on still shows, and whether
+        // its name is the app's title.
+        bool pulled_shows{}, pulled_named{};
+    };
+    // update()'s `app_shown`.
+    bool shown(const Sight& sight) const {
+        if (sight.named) {
+            return *sight.named;
+        }
+        if (clicked_ && target_ == Target::window) {
+            // Several overlays have the title, or none has it yet: the window
+            // pulled on is the app's if it has that name too. With a title no
+            // name can tell, the window pulled on, still in sight, counts.
+            return sight.pulled_shows && (sight.pulled_named || !sight.titled);
+        }
+        return sight.new_window; // The dashboard switched to an app.
+    }
 
   private:
+    // How long a click waits for the app it chose: a window click, for the
+    // keys to move after even the slowest squeeze; a bar click, for the app
+    // to show.
+    bool expired(double sampled_at) const {
+        switch (target_) {
+        case Target::window:
+            return sampled_at > *clicked_ + window_click + settle;
+        case Target::bar:
+            return sampled_at > *clicked_ + bar_click;
+        default:
+            return false;
+        }
+    }
     // Steam's page after the pull, still there from before SteamVR clicked.
     bool left_over(double sampled_at) const {
         switch (target_) {
@@ -223,13 +266,20 @@ class DashboardFocus {
         }
     }
     bool chose(double now, std::optional<bool> app_shown) const {
-        if (target_ == Target::bar) {
+        switch (target_) {
+        case Target::bar:
             // Steam's icon or the bar's keyboard button leave the app hidden
             // behind Steam's page, where the keys fall back to it unseen.
             // Another app's icon moves Gamescope's focus too (above).
             return app_shown == true;
+        case Target::window:
+            // A light pull clicks nothing, and the keys fall back to the
+            // focused app wherever it is. Another window clicked moves
+            // Gamescope's focus (above).
+            return app_shown == true && now - *clicked_ >= settle;
+        default:
+            return now - *clicked_ >= settle;
         }
-        return now - *clicked_ >= settle;
     }
     std::optional<double> clicked_;
     Target target_{};
