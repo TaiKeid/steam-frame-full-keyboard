@@ -5818,7 +5818,7 @@ bool App::start_capture() {
         direct_context_.clear();
         direct_typed_ = false;
         direct_request_ = native_request_;
-        direct_window_ = output_.focused_window();
+        direct_window_ = 0; // Chosen when its first text goes out (flush_direct).
         direct_failures_ = output_.failures();
         direct_wait_reason_.clear();
         direct_type_only_ = false;
@@ -6166,8 +6166,10 @@ void App::flush_direct(double now) {
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
                        !output_.steam_field_target() && !sink_on();
     // A queue retry already holds the session's text; Enter retries it.
-    if (!direct_blocked_ && !direct_waiting_.empty() && !output_.retry_available() &&
-        window_moved(direct_window_)) {
+    // While output is off nothing goes out, so a focus change then is no
+    // stop: Steam's page has the keys, and the window picked next decides.
+    if (output_.enabled() && !direct_blocked_ && !direct_waiting_.empty() &&
+        !output_.retry_available() && window_moved(direct_window_)) {
         block_direct_for_window();
     }
     if (direct_paste_) {
@@ -6193,6 +6195,9 @@ void App::flush_direct(double now) {
             direct_gap_ = true;
         }
         discard_swipe();
+        if (!direct_window_) {
+            direct_window_ = output_.focused_window(); // the session's first text
+        }
         if (!output_.commit_text(commit)) {
             std::cout << "Type as I speak: the target refused a phrase.\n" << std::flush;
             direct_blocked_ = true;
@@ -6276,6 +6281,9 @@ void App::tick_direct_paste(double now) {
             direct_paste_.reset();
             block_direct_for_window();
             return;
+        }
+        if (!direct_window_) {
+            direct_window_ = output_.focused_window(); // the session's first text
         }
         p.served = clipboard()->served();
         p.failures = output_.failures();

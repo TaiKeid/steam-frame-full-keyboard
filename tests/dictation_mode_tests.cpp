@@ -1292,14 +1292,51 @@ void direct_tests() {
         sink.window = 7;
         App app(options, sink);
         press(app, "Dictation");
+        wait_until(app, [&] { return !sink.text.empty(); });
         sink.window = 9;
-        wait_until(app, [&] { return !sink.text.empty() || !app.view().dictation_capturing; });
-        require(sink.text.empty() && app.view().status.starts_with("Another window took focus."),
-                "a phrase for the window before never reaches the one clicked");
+        press(app, "Dictation");
+        wait_until(app, [&] {
+            return sink.text.size() > 1 || app.view().status.starts_with("Another window took focus.");
+        });
+        require(sink.text == std::vector<std::string>{"Hello there."},
+                "once the session typed into a window, a phrase for it never reaches the one clicked");
         press(app, "Enter");
         wait_until(app, [&] { return sink.text.size() == 2; });
         require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
-                "Enter types it, and the next phrase, into the window focused now");
+                "Enter types it into the window focused now");
+    }
+    {
+        // A mic tap before the window is chosen, as Steam's page asks while
+        // it has the keys: the session is for the window focused when its
+        // first phrase goes out. Focus that moves while the page has the
+        // keys stops nothing either; the window picked next decides.
+        Sink sink;
+        sink.window = 7;
+        App app(options, sink);
+        const auto asked = prompts_sent(directory.path).size();
+        const auto recognized = [&](std::size_t phrases) {
+            return prompts_sent(directory.path).size() == asked + phrases &&
+                   !app.view().dictation_recognizing;
+        };
+        app.set_dashboard_focus(true);
+        press(app, "Dictation");
+        wait_until(app, [&] { return recognized(1); });
+        sink.window = 9; // the window clicked as asked
+        app.set_dashboard_focus(false);
+        settle(app);
+        require(sink.text == std::vector<std::string>{"Hello there."} &&
+                    app.view().dictation_capturing && app.view().status.empty(),
+                "the first phrase goes to the window clicked after the mic tap");
+        app.set_dashboard_focus(true);
+        sink.window = 7; // opening the dashboard moved the focus by itself
+        press(app, "Dictation");
+        wait_until(app, [&] { return recognized(2); });
+        sink.window = 9; // back to the session's window
+        app.set_dashboard_focus(false);
+        settle(app);
+        require(sink.text == std::vector<std::string>{"Hello there.", " Again."} &&
+                    app.view().status.empty(),
+                "a focus change while the page had the keys stops nothing");
     }
     {
         // The dashboard opened to pick the window after a phrase was stopped

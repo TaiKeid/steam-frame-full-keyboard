@@ -1254,8 +1254,9 @@ class App {
     // The last reason waiting phrases could not go out, logged once per change.
     std::string direct_wait_reason_;
     std::uint64_t direct_request_{}, native_request_{};
-    // The window the session types into: focused at the mic tap, or when
-    // Enter continued after another window took focus.
+    // The window the session types into: focused when its first text went
+    // out, or when Enter continued after another window took focus. 0 until
+    // then, so a mic tap before the window is chosen stops nothing.
     std::uint32_t direct_window_{};
     // Another window took focus before the front phrase went out: it waits
     // for Enter, as a refused phrase does.
