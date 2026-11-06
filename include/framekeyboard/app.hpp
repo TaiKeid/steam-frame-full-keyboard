@@ -723,6 +723,8 @@ class App {
     // Live candidates after a pause in typing.
     void tick_japanese(double now);
     void pick_candidate(int index);
+    // A pick from live candidates for an earlier reading (split_live()).
+    void pick_earlier_candidate(int index);
     bool flick_down(unsigned pointer, const Key& key, double x, double y, double now);
     void flick_move(double x, double y);
     bool flick_up(unsigned pointer, double x, double y);

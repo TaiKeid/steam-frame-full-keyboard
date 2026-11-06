@@ -1429,6 +1429,67 @@ void mozc_lifecycle() {
     require(!mozc_running() && std::chrono::steady_clock::now() - asked < std::chrono::seconds(3),
             "a server ignoring SIGTERM is killed soon after");
 }
+// A tap on live candidates made for an earlier reading (split_live()), as a
+// phone takes one on a row a kana behind: the candidate commits for the
+// part it fits, and what was typed after it stays composing.
+void earlier_live_picks() {
+    char directory[] = "/tmp/framekeyboard-earlier-XXXXXX";
+    require(mkdtemp(directory), "temporary word list");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::ofstream(fs::path(directory) / "words.tsv") << "おめでとう\tおめでとう\t100\n";
+    const JapaneseWords words(fs::path(directory) / "words.tsv");
+    int conversions = 0;
+    JapaneseComposer composer(fake_converter(&conversions));
+    composer.set_words(&words);
+    const auto index = [&](const std::string& text) {
+        const auto& live = composer.live();
+        const auto found = std::find(live.begin(), live.end(), text);
+        require(found != live.end(), "the candidate is offered");
+        return static_cast<int>(found - live.begin());
+    };
+    const auto row = [&](const std::string& reading) {
+        composer.cancel();
+        composer.kana(reading);
+        composer.prepare_live();
+    };
+    row("きょう");
+    composer.kana("は");
+    require(!composer.live_current(), "the row is a kana behind");
+    auto phrase = composer.split_live(index("〈きょ〉〈う〉"));
+    require(phrase && phrase->commit_text() == "〈きょ〉〈う〉" && composer.reading() == "は" &&
+                composer.live().empty(),
+            "the whole phrase commits for きょう, and は stays composing");
+    row("きょう");
+    composer.kana("は");
+    phrase = composer.split_live(index("キョウ"));
+    require(phrase && phrase->commit_text() == "キョウ" && composer.reading() == "は",
+            "so does the reading in katakana");
+    row("かきく");
+    composer.kana("け");
+    require(!composer.split_live(index("〈かき〉")) && composer.reading() == "かきくけ",
+            "a first segment's candidate of a longer phrase waits for the fresh row");
+    row("か");
+    composer.mark("゛");
+    require(!composer.split_live(index("〈か〉")) && composer.reading() == "が", "not after ゛ changed the kana");
+    row("かき");
+    composer.backspace();
+    require(!composer.split_live(index("〈かき〉")) && composer.reading() == "か", "nor after a Backspace");
+    for (const auto& [typed, rest] : std::vector<std::pair<std::string, std::string>>{
+             {"う", ""}, {"うご", "ご"}}) {
+        row("おめでと");
+        composer.kana(typed);
+        phrase = composer.split_live(index("おめでとう"));
+        require(phrase && phrase->commit_text() == "おめでとう" && composer.reading() == rest,
+                "a completion covers what it completes, and what was typed after it stays");
+    }
+    row("おめでと");
+    composer.backspace();
+    composer.kana("ね");
+    require(!composer.split_live(index("おめでとう")), "one that no longer fits waits");
+}
 // Options::live_candidate_pause switches live candidates to come only once
 // typing pauses, as before, for comparing the two; still never dimmed.
 void live_candidate_pause() {
@@ -1614,6 +1675,32 @@ void conversion_off_the_vr_thread() {
     require(until([&] { return app.view().candidates && !app.view().candidates->chips.empty(); }),
             "candidates once the answers are in");
     require(preedit() == "さ" && sink.text.size() == 2, "Backspace after 変換 returns to the reading");
+    // A tap on the row a kana behind applies to the part it fits, at once,
+    // and what was typed after stays composing (split_live()).
+    click_key(app, "Backspace");
+    require(preedit().empty(), "an empty reading again");
+    click_key(app, "KeyM");
+    click_key(app, "KeyI");
+    require(until([&] {
+                const auto view = app.view();
+                return view.candidates && !view.candidates->chips.empty() &&
+                       view.candidates->chips.front().text == "〈み〉";
+            }),
+            "the row for み");
+    hold();
+    click_key(app, "KeyE");
+    app.tick(now += .01);
+    require(converting_held(), "the live request for みえ is out");
+    require(click_candidate(app, "〈み〉", now += .01) && sink.text.back() == "〈み〉" && preedit() == "え",
+            "a tap on the row for み commits it, and え stays");
+    release();
+    require(until([&] {
+                const auto view = app.view();
+                return view.candidates && !view.candidates->chips.empty() &&
+                       view.candidates->chips.front().text == "〈え〉";
+            }),
+            "then え gets its own row");
+    click_key(app, "Backspace");
     // A reading given up meanwhile takes what waited with it.
     hold();
     click_key(app, "KeyN");
@@ -1627,7 +1714,7 @@ void conversion_off_the_vr_thread() {
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 2, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == 3, "nothing that waited goes in after a cancel");
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
 // does, in a profile of its own; the files it reads and writes there steer
@@ -4444,6 +4531,7 @@ int main() {
         context_converter();
         conversion_off_the_vr_thread();
         live_candidate_pause();
+        earlier_live_picks();
         mozc_lifecycle();
         mozc_lost_session();
         mozc_stuck_server();

@@ -3622,6 +3622,18 @@ void App::pick_candidate(int index) {
             dirty = true;
             return;
         }
+        if ((!japanese_holding() || replaying_input_) && !composition_.converting() &&
+            !composition_.live_current()) {
+            // A row made for an earlier reading, a kana behind: the pick
+            // applies to the part it fits, as on a phone, or waits for the
+            // fresh row, which takes the next tap; it never moves to that row.
+            pick_earlier_candidate(index);
+            candidate_list_ = false;
+            follow_cursor();
+            sync_candidates();
+            dirty = true;
+            return;
+        }
         if ((japanese_holding() && !replaying_input_) ||
             (!composition_.converting() && !japanese_settled())) {
             // After what waits, or after the answers a live pick may
@@ -3660,6 +3672,19 @@ void App::pick_candidate(int index) {
     follow_cursor();         // In dictation mode the reading sits at the cursor.
     sync_candidates();
     dirty = true;
+}
+void App::pick_earlier_candidate(int index) {
+    const auto before = composition_;
+    auto phrase = composition_.split_live(index);
+    if (!phrase) {
+        return;
+    }
+    // What was typed after the phrase stays composing once it is committed;
+    // a refused commit keeps everything as it was.
+    auto rest = composition_;
+    composition_.adopt(std::move(*phrase));
+    commit_japanese();
+    composition_.adopt(composition_.empty() ? std::move(rest) : before);
 }
 bool App::composing_text() const {
     return !composition_.empty() || (cjk_ && !cjk_->empty());

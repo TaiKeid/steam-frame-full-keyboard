@@ -113,6 +113,9 @@ class JapaneseWords {
     bool word_and_particle(const std::string& reading) const;
     // Up to `most` words of exactly this reading, lowest cost first.
     std::vector<std::string> exact(const std::string& reading, std::size_t most) const;
+    // The longer reading `word` completes `reading` to, as complete() finds
+    // it, the commonest one's; empty for no such word.
+    std::string completed_reading(const std::string& reading, const std::string& word) const;
 
   private:
     struct Entry {
@@ -218,6 +221,16 @@ class JapaneseComposer {
     // ready to commit; a first segment's candidate of a longer phrase instead
     // starts conversion at the second segment.
     bool choose_live(int index);
+    // A pick from live candidates made for an earlier reading, as a phone
+    // takes a tap on a row a kana behind: when the candidate's own reading,
+    // for a completion the completed one, and the reading as typed begin
+    // alike, the candidate commits for their overlap and what was typed
+    // after it stays composing. Returns a composer holding that phrase,
+    // ready to commit, and leaves this one with the rest. None when they
+    // don't fit, as after ゛ or a Backspace, for a learned word, whose
+    // reading isn't known, and for a first segment's candidate of a longer
+    // phrase, which the fresh candidates answer.
+    std::optional<JapaneseComposer> split_live(int index);
     void script(bool katakana);
     void cancel();
     void unconvert();

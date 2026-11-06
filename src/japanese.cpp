@@ -2848,6 +2848,60 @@ bool JapaneseComposer::choose_live(int index) {
     const auto found = std::find(candidates.begin(), candidates.end(), text);
     return choose(found != candidates.end() ? static_cast<int>(found - candidates.begin()) : at);
 }
+std::optional<JapaneseComposer> JapaneseComposer::split_live(int index) {
+    if (converting() || live_.reading.empty() || index < 0 ||
+        index >= static_cast<int>(live_.texts.size()) || cursor_ != reading_.size()) {
+        return {};
+    }
+    const auto [source, at] = live_.sources[static_cast<std::size_t>(index)];
+    const auto& text = live_.texts[static_cast<std::size_t>(index)];
+    if (source == Live::Source::Prediction ||
+        (source == Live::Source::First && live_.segments.size() > 1)) {
+        return {};
+    }
+    // What the candidate stands for: the row's reading, or for a word or
+    // phrase completing it, the completed reading.
+    std::string covers = live_.reading;
+    if (source == Live::Source::Completion) {
+        for (const auto* list : {words_, phrases_}) {
+            if (const auto completed = list ? list->completed_reading(live_.reading, text) : std::string{};
+                !completed.empty()) {
+                covers = completed;
+                break;
+            }
+        }
+    }
+    std::string rest;
+    if (std::string_view(reading_).starts_with(covers)) {
+        rest = reading_.substr(covers.size());
+    } else if (covers != live_.reading && std::string_view(covers).starts_with(reading_) &&
+               pending_.empty()) {
+        // A completion already covers all that was typed.
+    } else {
+        return {};
+    }
+    // The pick as it was made, on the reading the row was for.
+    auto phrase = *this;
+    phrase.reading_ = live_.reading;
+    phrase.pending_.clear();
+    phrase.cursor_ = phrase.reading_.size();
+    try {
+        if (!phrase.choose_live(index)) {
+            return {}; // Nothing to commit yet.
+        }
+    } catch (const Deferred&) {
+        return {}; // It would convert again: the fresh candidates come first.
+    }
+    ++edits_;
+    reading_ = std::move(rest);
+    cursor_ = reading_.size();
+    // The row was for the phrase, not for what stays.
+    live_ = {};
+    ++cleared_;
+    predicted_.reset();
+    emoji_choice_.reset();
+    return phrase;
+}
 void JapaneseComposer::script(bool katakana) {
     ++edits_;
     drain(true);
@@ -3152,6 +3206,24 @@ JapaneseWords::completions(const std::string& reading, std::size_t most, bool& f
         }
     }
     return result;
+}
+std::string JapaneseWords::completed_reading(const std::string& reading, const std::string& word) const {
+    load();
+    const auto reading_of = [&](const Entry& entry) {
+        return std::string_view(text_.data() + entry.reading, entry.reading_size);
+    };
+    auto it = std::lower_bound(
+        entries_.begin(), entries_.end(), std::string_view(reading),
+        [&](const Entry& entry, std::string_view key) { return reading_of(entry) < key; });
+    const Entry* best = nullptr;
+    for (; it != entries_.end() && reading_of(*it).starts_with(reading); ++it) {
+        if (reading_of(*it).size() > reading.size() &&
+            std::string_view(text_.data() + it->word, it->word_size) == word &&
+            (!best || it->cost < best->cost)) {
+            best = &*it;
+        }
+    }
+    return best ? std::string(reading_of(*best)) : std::string{};
 }
 std::vector<std::string> JapaneseWords::complete(const std::string& reading, std::size_t most,
                                                  bool& first) const {
