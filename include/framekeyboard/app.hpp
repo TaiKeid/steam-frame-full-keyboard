@@ -714,6 +714,18 @@ class App {
     // When tick() last made sure the server runs: one that died starts again
     // within seconds, not at the next conversion.
     double mozc_checked_{};
+    // What Mozc learned is saved once the user pauses: 3 s after the last
+    // phrase it learned, key press or laser aimed over the panel, as long
+    // as nothing more happens, and as the panel hides.
+    void tick_mozc_save(double now);
+    void note_aiming(unsigned pointer, double x, double y);
+    double mozc_clock_{}; // tick()'s last time, for moves, which come without one
+    double active_at_{};
+    std::uint64_t mozc_unsaved_{};
+    struct Aim {
+        double x, y, at; // Where a laser was, and when, as its motion began.
+    };
+    std::map<unsigned, Aim> aims_;
     bool learning_allowed() const;
     void restart_learning(bool clear);
     void tick_learning();

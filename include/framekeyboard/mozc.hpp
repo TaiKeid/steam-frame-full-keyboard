@@ -5,6 +5,7 @@
 // Anthy's, and Anthy converts whenever Mozc can't, as while it starts.
 #include "framekeyboard/japanese.hpp"
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -29,6 +30,13 @@ bool wait_for_mozc(std::chrono::milliseconds patience);
 // Stops the server, saving what it learned; it isn't started again.
 void stop_mozc();
 bool mozc_running();
+// Mozc doesn't save a phrase it learns at once, but every few minutes on its
+// own. Until it is saved, here a count that grows with each one; 0 once
+// saved, or when nothing was learned.
+std::uint64_t mozc_unsaved_learning();
+// Saves it on a thread of its own, so a slow save holds up no conversion
+// or frame; nothing without anything to save.
+void save_mozc_learning();
 // Whether Mozc learned a phrase in `profile`, and forgetting all it learned:
 // Mozc is asked to, or, one that doesn't answer stopped, its profile is
 // removed, to start over. False if that failed, still learned.

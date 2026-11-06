@@ -1331,6 +1331,7 @@ bool App::move(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
         return false;
     }
+    note_aiming(pointer, x, y);
     pointer_positions_[pointer] = {x, y};
     if (editor_drag_ && editor_drag_->pointer == pointer) {
         // Past a small dead zone the text follows the laser.
@@ -1416,6 +1417,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (dragging_ || !interaction_active_) {
         return false;
     }
+    active_at_ = mozc_clock_;
     move(pointer, x, y);
     const auto v = input_view();
     const auto* hit = renderer.hit_key(v, x, y);
@@ -2014,6 +2016,7 @@ bool App::tick(double now) {
         mozc_checked_ = now;
         sync_mozc();
     }
+    tick_mozc_save(now);
     update_save_status();
     if (reload_requested_ && !quit_ && settings_writer_.idle()) {
         try {
@@ -2130,6 +2133,9 @@ void App::set_interaction_active(bool active) {
         refresh_typing();
     } else {
         output_.set_enabled(false);
+        if (owns_anthy() && !mozc_server_.empty()) {
+            save_mozc_learning(); // Hidden, whatever Mozc learned is saved.
+        }
     }
 }
 void App::set_dragging(bool dragging, bool resizing) {
@@ -2520,6 +2526,37 @@ void App::sync_mozc() {
                    data_resource(options_.data_dir, "japanese/mozc-words.tsv"));
     } else {
         stop_mozc();
+    }
+}
+void App::tick_mozc_save(double now) {
+    mozc_clock_ = now;
+    if (!owns_anthy() || mozc_server_.empty()) {
+        return;
+    }
+    const auto unsaved = mozc_unsaved_learning();
+    if (unsaved != mozc_unsaved_) {
+        mozc_unsaved_ = unsaved;
+        active_at_ = std::max(active_at_, now); // Learned since: the pause starts again.
+    }
+    if (unsaved && now - active_at_ >= 3) {
+        save_mozc_learning();
+    }
+}
+// A laser aimed over the panel, as from one key to another, is the user
+// at work: it moved 60 px, about half a key, within 0.4 s, so at 150 px/s or
+// more. A hand's tremor shakes a laser by a few pixels, at most a tenth of
+// that, back and forth, and a resting hand's drift is slower.
+void App::note_aiming(unsigned pointer, double x, double y) {
+    constexpr double distance = 60, time = 0.4;
+    const auto [aim, added] = aims_.try_emplace(pointer, Aim{x, y, mozc_clock_});
+    if (added) {
+        return;
+    }
+    if (mozc_clock_ - aim->second.at > time) {
+        aim->second = {x, y, mozc_clock_};
+    } else if (std::hypot(x - aim->second.x, y - aim->second.y) >= distance) {
+        active_at_ = mozc_clock_;
+        aim->second = {x, y, mozc_clock_};
     }
 }
 bool App::owns_anthy() const {

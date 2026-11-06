@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <glib.h>
 #include <iostream>
 #include <iterator>
@@ -281,6 +282,11 @@ struct Server {
     // converts until `quiet_until` after each (MozcConverter::stalled()).
     int stalls = 0;
     Clock::time_point quiet_until;
+    // Phrases learned, and as many as were saved: Mozc saves on its own
+    // only every few minutes (save_mozc_learning()). `saving` is the save
+    // under way, on a thread of its own that touches nothing here.
+    std::uint64_t learning = 0, saved = 0;
+    std::future<void> saving;
     ~Server() {
         if (pid > 0) {
             kill(pid, SIGTERM);
@@ -314,6 +320,9 @@ constexpr auto answer_time = std::chrono::milliseconds(300);
 // After Mozc didn't answer in time, how long Anthy converts before it is
 // asked again (MozcConverter::stalled()).
 constexpr auto quiet_time = std::chrono::seconds(1);
+// How long Mozc may take to save what it learned: longer than a conversion,
+// and it holds up no frame (save_mozc_learning(), stop_mozc()).
+constexpr auto save_time = std::chrono::seconds(1);
 // Mozc didn't answer in time: stuck, or still slow after it started.
 struct Stalled : std::runtime_error {
     Stalled() : std::runtime_error("Mozc did not answer in time") {}
@@ -617,6 +626,7 @@ void spawn(Server& state) {
                        std::move(variables));
     state.sandboxed = !bwrap.empty();
     state.started = Clock::now();
+    state.saved = state.learning; // A new server has nothing of ours to save.
 }
 // The server's address once it answers: waiting up to `patience` for it,
 // starting it if need be, or not at all, as on the keyboard, whose tick
@@ -651,21 +661,24 @@ std::string ready(std::chrono::milliseconds patience, Clock::time_point deadline
 std::filesystem::path learned_mark(const std::filesystem::path& base) {
     return base / "mozc" / ".framekeyboard-learned";
 }
-void learned(bool on) {
+// Mozc learned a phrase, to be saved later (save_mozc_learning()).
+void learned() {
     std::filesystem::path base;
     {
         auto& state = server();
         std::lock_guard guard(state.lock);
         base = state.base;
+        ++state.learning;
     }
     std::error_code ignored;
-    if (on) {
-        if (!std::filesystem::exists(learned_mark(base), ignored)) {
-            std::ofstream(learned_mark(base)).close();
-        }
-    } else {
-        std::filesystem::remove(learned_mark(base), ignored);
+    if (!std::filesystem::exists(learned_mark(base), ignored)) {
+        std::ofstream(learned_mark(base)).close();
     }
+}
+// Whether a save is under way. Called with the server's lock held.
+bool saving(const Server& state) {
+    return state.saving.valid() &&
+           state.saving.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
 }
 // Mozc answered, but without our session: it dropped it, and the server is
 // fine.
@@ -722,8 +735,9 @@ class MozcConverter final : public JapaneseConverter {
         }
     }
     // Mozc learns a phrase submitted to it: each segment's choice is
-    // selected, then the phrase submitted, and its history saved. A choice
-    // it didn't offer, as a usual form of ours, leaves the phrase unlearned.
+    // selected, then the phrase submitted; its history is saved later. A
+    // choice it didn't offer, as a usual form of ours, leaves the phrase
+    // unlearned.
     void learn(const std::vector<std::string>& chosen) override {
         if (!session_ || chosen.size() != static_cast<std::size_t>(count_) ||
             ids_.size() != chosen.size()) {
@@ -748,12 +762,11 @@ class MozcConverter final : public JapaneseConverter {
             request(command_input(session_, submit));
             count_ = 0;
             last_ = {};
-            call(address_, input(sync_data, 0, nullptr), deadline_);
         } catch (const Stalled&) {
             stalled();
             throw;
         }
-        learned(true);
+        learned();
     }
     bool weighs_context() const override { return true; }
 
@@ -776,13 +789,13 @@ class MozcConverter final : public JapaneseConverter {
     // first conversion after it starts may find it while it reads its
     // dictionary in, has answered by then. A second request it doesn't
     // answer, with none answered between, means it's stuck: it is killed,
-    // and started again (spawn()).
+    // and started again (spawn()). One busy saving isn't.
     void stalled() {
         session_ = 0;
         auto& state = server();
         std::lock_guard guard(state.lock);
         state.quiet_until = Clock::now() + quiet_time;
-        if (++state.stalls >= 2) {
+        if (!saving(state) && ++state.stalls >= 2) {
             state.stalls = 0;
             std::cerr << "Mozc stopped answering; starting it again.\n";
             kill_server(state);
@@ -1042,12 +1055,15 @@ void stop_mozc() {
     auto& state = server();
     std::lock_guard guard(state.lock);
     state.wanted = false;
+    state.saved = state.learning; // Saved below, or gone with it.
+    if (state.saving.valid()) {
+        state.saving.wait(); // Within its save_time.
+    }
     if (state.pid > 0) {
         try {
-            // What it learned is saved, which may take longer than a
-            // conversion and is rare: when Japanese is removed, or we end.
-            call(address(state.base), input(sync_data, 0, nullptr),
-                 Clock::now() + std::chrono::seconds(1));
+            // What it learned is saved, on this thread: this is rare, when
+            // Japanese is removed, or we end.
+            call(address(state.base), input(sync_data, 0, nullptr), Clock::now() + save_time);
         } catch (const Stalled&) {
             kill_server(state); // Stuck, it wouldn't go on being asked.
             return;
@@ -1057,6 +1073,27 @@ void stop_mozc() {
         waitpid(state.pid, nullptr, 0);
         state.pid = -1;
     }
+}
+std::uint64_t mozc_unsaved_learning() {
+    auto& state = server();
+    std::lock_guard guard(state.lock);
+    return state.learning != state.saved ? state.learning : 0;
+}
+void save_mozc_learning() {
+    auto& state = server();
+    std::lock_guard guard(state.lock);
+    if (state.learning == state.saved || saving(state) || !alive(state)) {
+        return;
+    }
+    // A failed save isn't tried again: the server is gone or stuck, and
+    // what it learned goes with it.
+    state.saved = state.learning;
+    state.saving = std::async(std::launch::async, [at = address(state.base)] {
+        try {
+            call(at, input(sync_data, 0, nullptr), Clock::now() + save_time);
+        } catch (const std::exception&) {
+        }
+    });
 }
 bool mozc_running() {
     auto& state = server();
@@ -1070,6 +1107,7 @@ bool mozc_learned(const std::filesystem::path& profile) {
 bool clear_mozc_learning(const std::filesystem::path& profile) {
     auto& state = server();
     std::lock_guard guard(state.lock); // No start meanwhile (spawn()).
+    state.saved = state.learning;      // Nothing left to save, either way.
     std::error_code error;
     if (state.base == profile && alive(state)) {
         try {

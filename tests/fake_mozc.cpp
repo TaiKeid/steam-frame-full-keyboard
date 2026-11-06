@@ -10,6 +10,8 @@
 //   fake-starts   a line per start: the path it was started as.
 //   fake-creates  a line per session created.
 //   fake-cleared  written when asked to clear what it learned.
+//   fake-submits  a line per phrase submitted, which Mozc learns.
+//   fake-syncs    a line per save of what it learned.
 // It also tries to write fake-outside beside its profile, as Mozc mustn't.
 #include <cstdint>
 #include <cstdlib>
@@ -69,7 +71,8 @@ template <typename Each> void fields(std::string_view data, Each each) {
     }
 }
 struct Request {
-    std::uint64_t type{}, session{}, code{}, special{};
+    std::uint64_t type{}, session{}, special{};
+    std::uint64_t code{}; // A key's character, or a session command's type.
     std::string text;
 };
 Request parse(std::string_view data) {
@@ -79,6 +82,12 @@ Request parse(std::string_view data) {
             request.type = number;
         } else if (field == 2) {
             request.session = number;
+        } else if (field == 4) { // SessionCommand
+            fields(bytes, [&](int command, std::uint64_t value, std::string_view) {
+                if (command == 1) {
+                    request.code = value;
+                }
+            });
         } else if (field == 3) { // KeyEvent
             fields(bytes, [&](int key, std::uint64_t value, std::string_view text) {
                 if (key == 1) {
@@ -177,6 +186,8 @@ int main(int, char** argv) {
                     reading.clear();
                 } else if (request.type == 3 && request.special) {
                     out += converted(reading); // SPACE, and moving among the segments
+                } else if (request.type == 5 && request.code == 2) {
+                    note(profile / "fake-submits", "phrase");
                 } else if (request.type == 3) {
                     reading += request.text.empty() ? std::string(1, static_cast<char>(request.code))
                                                     : request.text;
@@ -185,6 +196,8 @@ int main(int, char** argv) {
         } else {
             if (request.type == 11) { // CLEAR_USER_HISTORY
                 note(profile / "fake-cleared", "history");
+            } else if (request.type == 8) { // SYNC_DATA
+                note(profile / "fake-syncs", "saved");
             }
             put_number(out, 1, 0);
         }

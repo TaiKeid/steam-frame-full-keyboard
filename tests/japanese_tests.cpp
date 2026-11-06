@@ -1632,6 +1632,92 @@ void mozc_sandbox_profile() {
     require(access("/usr/bin/bwrap", X_OK) != 0 || !fs::exists(mozc.config / "fake-outside"),
             "and in bubblewrap it can't write beside it");
 }
+// What Mozc learns is saved once the user pauses, not at each phrase: 3 s
+// after the last unless a key is pressed or the laser aimed meanwhile, which
+// a hand's tremor isn't, and as the panel hides; nothing unlearned is.
+void mozc_learning_saves() {
+    FakeMozc mozc;
+    Options options;
+    options.config_dir = mozc.config;
+    options.anthy_home = mozc.directory / "home";
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC; // Mozc converts, Anthy meanwhile.
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    require(wait_for_mozc(std::chrono::seconds(5)), "adding Japanese starts it");
+    double now = 100;
+    app.tick(now);
+    // A phrase Mozc converts and learns, committed at `now`.
+    const auto commit = [&] {
+        const int learned = mozc.count("fake-submits");
+        flick(app, "a", now);
+        click_key(app, "Space");
+        click_key(app, "Enter");
+        app.tick(now);
+        require(sink.text.back() == "MOZC" && mozc.count("fake-submits") == learned + 1,
+                "Mozc learns the phrase");
+    };
+    // Saves so far, once a save under way would have reached the stand-in.
+    const auto saves = [&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        return mozc.count("fake-syncs");
+    };
+    commit();
+    require(saves() == 0, "a learned phrase isn't saved at once");
+    const double committed = now;
+    app.tick(now = committed + 2.9);
+    require(saves() == 0, "nor while the user may go on");
+    app.tick(now = committed + 3.1);
+    require(saves() == 1, "but 3 s after it, with nothing else done");
+
+    // The laser aimed from key to key, at 500 px/s, postpones it.
+    commit();
+    const double aimed = now;
+    for (int step = 1; now < aimed + 4; ++step) {
+        app.tick(now = aimed + step * .05);
+        app.move(5, 300 + (step % 20) * 25, 400);
+    }
+    require(saves() == 1, "a laser aimed about postpones the save");
+    const double still = now;
+    app.tick(now = still + 2.9);
+    require(saves() == 1, "until 3 s after it stopped");
+    app.tick(now = still + 3.1);
+    require(saves() == 2, "then it is saved");
+
+    // A hand's tremor, shaking the laser 10 px about one spot, doesn't.
+    commit();
+    const double shaking = now;
+    for (int step = 1; now < shaking + 3.5; ++step) {
+        app.tick(now = shaking + step * .011);
+        app.move(5, 800 + (step % 2 ? 5 : -5), 400 + (step % 3) * 3);
+    }
+    require(saves() == 3, "a laser shaking in place doesn't postpone it");
+
+    // Hiding saves at once.
+    commit();
+    app.set_interaction_active(false);
+    require(saves() == 4, "the panel hiding saves what was learned");
+    app.set_interaction_active(true);
+    app.tick(now += 10);
+    require(saves() == 4, "and nothing is left to save after");
+
+    // With learning off, as in a password field, nothing is learned, and
+    // nothing saved.
+    int conversions = 0;
+    JapaneseComposer composer([&] { return FakeMozc::converter(&conversions); });
+    composer.set_learning(false);
+    composer.kana("あい");
+    composer.convert();
+    composer.learn();
+    require(mozc_unsaved_learning() == 0, "learning off, Mozc learns nothing");
+    app.set_interaction_active(false);
+    app.tick(now += 10);
+    require(saves() == 4, "so nothing is saved");
+}
 // The object decides a verb Mozc reads otherwise, from its own candidates:
 // 雪|振ってきた is 雪降ってきた, 風|引いた 風邪引いた; elsewhere 振って stays.
 void object_verbs() {
@@ -4113,6 +4199,7 @@ int main() {
         mozc_restarts();
         mozc_clear_learning();
         mozc_sandbox_profile();
+        mozc_learning_saves();
         word_forms();
         emoji_candidates();
         learning_calls();
