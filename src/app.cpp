@@ -2821,8 +2821,20 @@ bool App::hold_press(unsigned pointer, double x, double y, double now) {
             return false;
         }
     }
-    if (candidates_.contains(x, y) || !renderer.hit_key(v, x, y)) {
+    const auto* key = renderer.hit_key(v, x, y);
+    if (candidates_.contains(x, y) || !key) {
         return false;
+    }
+    if (conversion_pending_last()) {
+        // ⌫ and Esc go on to leave it (japanese_key()), so a held ⌫ still
+        // repeats on the reading after; ↶ leaves it here, as its press.
+        if (key->action_kind == ActionKind::Flick && key->action == flick_undo_slot) {
+            leave_pending_conversion();
+            return true;
+        }
+        if (key->action == "Backspace" || key->action == "Escape") {
+            return false;
+        }
     }
     hold_input(HeldInput::pointer_event(HeldInput::Kind::Down, pointer, x, y, now));
     held_pointers_.insert(pointer);
@@ -3036,6 +3048,26 @@ void App::convert_japanese() {
         composer.convert();
         return true;
     });
+    if (japanese_wait_ && japanese_wait_->id) {
+        japanese_wait_->convert = true;
+    }
+}
+bool App::conversion_pending_last() const {
+    if (!japanese_wait_) {
+        return false;
+    }
+    if (japanese_wait_->convert) {
+        return held_input_.empty();
+    }
+    // 変換 waiting for the answers already out before it.
+    return japanese_wait_->id == 0 && held_input_.size() == 1 &&
+           held_input_.front().kind == HeldInput::Kind::Key;
+}
+void App::leave_pending_conversion() {
+    // Its answer comes back to no one; the reading stays as typed.
+    held_input_.clear();
+    japanese_wait_.reset();
+    dirty = true;
 }
 void App::commit_japanese() {
     flick_toggle_.reset();
@@ -3214,6 +3246,10 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
     if (composing && (code == "Enter" || code == "NumpadEnter" || code == "Backspace" ||
                       code == "Escape" || code == "ArrowLeft" || code == "ArrowRight" ||
                       ((code == "ArrowUp" || code == "ArrowDown") && composition_.converting()))) {
+        if (execute && (code == "Backspace" || code == "Escape") && conversion_pending_last()) {
+            leave_pending_conversion(); // As it would leave the conversion.
+            return true;
+        }
         if (execute) {
             if (code == "Enter" || code == "NumpadEnter") {
                 commit_japanese();

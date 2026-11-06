@@ -1665,19 +1665,46 @@ void conversion_off_the_vr_thread() {
     require(until([&] { return sink.text.size() == 2; }) && sink.text.back() == "〈て〉" &&
                 conversions() == before,
             "変換 uses the live answer it waited for");
-    // After 変換, Backspace waits its turn too: back to the reading.
+    // ⌫ or Esc straight after 変換 leaves it at once, as on a phone: the
+    // keys after it act at once too, and 変換's answer is given up.
+    for (const auto* leave : {"Backspace", "Escape"}) {
+        hold();
+        click_key(app, "KeyS");
+        click_key(app, "KeyA");
+        app.tick(now += .01);
+        app.tick(now += .2);
+        require(converting_held(), "another live request");
+        click_key(app, "Space");
+        click_key(app, leave);
+        click_key(app, "KeyK");
+        click_key(app, "KeyO");
+        require(preedit() == "さこ", "after ⌫ or Esc, typing goes on at once");
+        release();
+        require(until([&] {
+                    const auto view = app.view();
+                    return view.candidates && !view.candidates->chips.empty() &&
+                           view.candidates->chips.front().text == "〈さこ〉";
+                }),
+                "the reading gets its row");
+        require(preedit() == "さこ" && sink.text.size() == 2, "and nothing was converted or committed");
+        click_key(app, "Backspace");
+        click_key(app, "Backspace");
+    }
+    // After another key, ⌫ waits its turn: 変換, か, ⌫ commits the
+    // conversion, types か and takes it back, as before.
     hold();
     click_key(app, "KeyS");
-    click_key(app, "KeyA");
+    click_key(app, "KeyU");
     app.tick(now += .01);
-    app.tick(now += .2);
-    require(converting_held(), "another live request");
+    require(converting_held(), "the live request for す is out");
     click_key(app, "Space");
+    click_key(app, "KeyK");
+    click_key(app, "KeyA");
     click_key(app, "Backspace");
     release();
-    require(until([&] { return app.view().candidates && !app.view().candidates->chips.empty(); }),
-            "candidates once the answers are in");
-    require(preedit() == "さ" && sink.text.size() == 2, "Backspace after 変換 returns to the reading");
+    require(until([&] { return sink.text.size() == 3; }) && sink.text.back() == "〈す〉" &&
+                until([&] { return preedit().empty(); }),
+            "〈す〉 committed, か typed and taken back");
     // A tap on the row a kana behind applies to the part it fits, at once,
     // and what was typed after stays composing (split_live()).
     click_key(app, "Backspace");
@@ -1853,7 +1880,28 @@ void conversion_off_the_vr_thread() {
     app.cancel();
     release();
     until([] { return false; }); // Every answer in.
-    require(preedit().empty() && sink.text.size() == 7, "nothing that waited goes in after a cancel");
+    require(preedit().empty() && sink.text.size() == 8, "nothing that waited goes in after a cancel");
+    // On the flick layout ↶ straight after 変換 leaves it at once too.
+    {
+        Sink flick_sink;
+        App flick_app(options, flick_sink);
+        flick_app.apply({"ja-flick-12", "ja-flick", "graphite"});
+        const auto reading = [&] { return flick_app.view().preedit; };
+        hold();
+        flick(flick_app, "ka", now += .01);
+        flick_app.tick(now += .01);
+        require(converting_held(), "the flick reading's live request is out");
+        click_key(flick_app, "Space");
+        flick(flick_app, "undo", now += .01);
+        flick(flick_app, "sa", now += .01);
+        require(reading() == "かさ", "after ↶, typing goes on at once");
+        release();
+        for (int i = 0; i < 100; ++i) {
+            flick_app.tick(now += .01);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(reading() == "かさ" && flick_sink.text.empty(), "nothing was converted or committed");
+    }
 }
 // The stand-in Mozc server of tests/fake_mozc.cpp, which answers as Mozc
 // does, in a profile of its own; the files it reads and writes there steer

@@ -521,6 +521,7 @@ class App {
         std::uint64_t id{}; // 0: every answer.
         std::uint64_t edits{};
         std::function<void(bool)> then;
+        bool convert{}; // The step is 変換.
     };
     std::optional<JapaneseWait> japanese_wait_;
     struct HeldInput {
@@ -554,6 +555,11 @@ class App {
     std::set<unsigned> held_pointers_;
     bool replaying_input_{};
     bool japanese_holding() const { return japanese_wait_ || !held_input_.empty(); }
+    // Whether 変換 waits for its answer with nothing pressed after it. ⌫,
+    // Esc and ↶ then leave it at once, as on a phone, and its answer is
+    // given up; after other keys they wait their turn.
+    bool conversion_pending_last() const;
+    void leave_pending_conversion();
     // Holds what came while input waits; a held action replayed that has
     // to wait again goes back to the front.
     void hold_input(HeldInput input);
