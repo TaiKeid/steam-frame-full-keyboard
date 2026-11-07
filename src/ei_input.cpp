@@ -223,7 +223,8 @@ DesktopFocus* EiSink::desktop_focus() const {
     if (!desktop_) {
         // Gamescope publishes its focus on its first X display, where Steam runs.
         const char* display = std::getenv("DISPLAY");
-        desktop_ = std::make_unique<DesktopFocus>(display && *display ? display : ":0");
+        // The input's watcher alone follows the Desktop's apps, for the keys.
+        desktop_ = std::make_unique<DesktopFocus>(display && *display ? display : ":0", true);
     }
     return desktop_.get();
 }

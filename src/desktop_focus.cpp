@@ -20,6 +20,7 @@
 namespace framekeyboard {
 struct DesktopFocus::State {
     std::string display;
+    bool desktop_apps{}; // Follows the Desktop's active app (DesktopTerminal).
     std::atomic<bool> focused{}, stop{};
     // The focused program's Cut/Copy/Paste keys; only the kind is kept.
     std::atomic<EditKeys> edit_keys{EditKeys::Standard};
@@ -146,7 +147,8 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                         const auto name = DesktopFocus::program(pid);
                         nested = name == "kwin_wayland";
                         edit_keys = terminal_edit_keys(name);
-                        desktop_bus = nested ? DesktopTerminal::bus_address(pid) : std::string();
+                        desktop_bus = nested && state.desktop_apps ? DesktopTerminal::bus_address(pid)
+                                                                   : std::string();
                     }
                     focused = nested;
                     keys = edit_keys;
@@ -232,8 +234,9 @@ void watch(const std::shared_ptr<DesktopFocus::State>& state) {
 }
 } // namespace
 
-DesktopFocus::DesktopFocus(std::string display) : state_(std::make_shared<State>()) {
+DesktopFocus::DesktopFocus(std::string display, bool desktop_apps) : state_(std::make_shared<State>()) {
     state_->display = std::move(display);
+    state_->desktop_apps = desktop_apps;
     // The thread keeps its own share of the state, so it may outlive this object.
     std::thread([state = state_] { watch(state); }).detach();
 }

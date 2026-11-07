@@ -22,7 +22,10 @@ namespace framekeyboard {
 // waits for it either.
 class DesktopFocus {
   public:
-    explicit DesktopFocus(std::string display);
+    // `desktop_apps`: also follow the active app inside SteamOS's Desktop
+    // (DesktopTerminal), for Cut, Copy and Paste. Only one watcher may: the
+    // Desktop's bus has one name for it.
+    explicit DesktopFocus(std::string display, bool desktop_apps = false);
     ~DesktopFocus();
     DesktopFocus(const DesktopFocus&) = delete;
     DesktopFocus& operator=(const DesktopFocus&) = delete;
