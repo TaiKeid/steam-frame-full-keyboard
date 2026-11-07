@@ -3,6 +3,7 @@
 #include "layout.hpp"
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,13 @@ struct Theme {
     // tube, also drawn on pressed keys).
     Color latched_top, latched_bottom, latched_legend;
     std::string latched_finish{"flat"};
+    // Optional, for a high-contrast theme: a bright line inside every keycap
+    // and button face, `edge_hover` while the laser is on it or it is
+    // pressed; and a face filled with `pressed`, its legend `pressed_legend`,
+    // while a key is held down. Without them keys have no edge and a pressed
+    // key keeps its face.
+    std::optional<Color> edge, edge_hover, pressed;
+    Color pressed_legend;
     double surface_radius{}, radius{}, depth{}, travel{}, duration_ms{};
     double font_size{20}, small_font_size{13}, padding{20};
 };

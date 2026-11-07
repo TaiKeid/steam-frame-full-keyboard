@@ -22,7 +22,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Controller laser typing with haptic clicks and hover feedback, plus optional key sounds with six effects.
 - Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
-- Twelve themes, light and dark, with a see-through Background option. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
+- Thirteen themes, light and dark and one high-contrast, with a see-through Background option. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
 - Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
 - An experimental integration protocol that lets alternative Steam Frame shells host the keyboard: launching, placing, styling and updating it. See [shell integration](docs/integration.md).
 - English, Spanish, Simplified and Traditional Chinese, Japanese, German, French, Portuguese, Korean, Arabic, Italian, Hindi, Russian, Turkish, Indonesian, Polish, Dutch, Vietnamese, Thai, Ukrainian, Swedish, Finnish, Danish, Norwegian, Czech, Hungarian, Romanian, Greek, Slovak, Hebrew, Croatian, Slovenian, Malay, Estonian, Latvian, Lithuanian, Bulgarian, Catalan, Serbian, Persian, Filipino, Icelandic, Georgian, Armenian, Kazakh, Azerbaijani, Macedonian and Albanian, each on its standard national layout, with regional and alternative keyboards for many of them. Chinese has Simplified and Traditional Pinyin, and Traditional also has Zhuyin, Cangjie and Quick; Korean uses two-set Hangul.

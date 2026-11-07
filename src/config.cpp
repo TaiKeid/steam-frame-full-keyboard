@@ -309,6 +309,16 @@ Theme parse_theme(const std::string& json) {
     if (t.latched_finish != "flat" && t.latched_finish != "neon") {
         throw std::runtime_error("latched_finish must be flat or neon");
     }
+    if (field(o, "edge", json_type_string, true)) {
+        t.edge = color(o, "edge");
+    }
+    if (t.edge || field(o, "edge_hover", json_type_string, true)) {
+        t.edge_hover = optional_color("edge_hover", t.edge.value_or(t.legend));
+    }
+    if (field(o, "pressed", json_type_string, true)) {
+        t.pressed = color(o, "pressed");
+    }
+    t.pressed_legend = optional_color("pressed_legend", t.legend);
     t.surface_radius = number(o, "surface_radius", 0, 40);
     t.radius = number(o, "key_radius", 0, 25);
     t.depth = number(o, "key_depth", 0, 15);

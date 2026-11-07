@@ -281,6 +281,39 @@ void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
         gradient(cr, r, t.latched_top, t.latched, t.latched_bottom);
     }
 }
+// A high-contrast theme's edge just inside a keycap or button face:
+// `edge_hover` and wider while the laser is on it or it is pressed, dimmed
+// on a disabled one. Other themes have none.
+void draw_edge(cairo_t* cr, const Theme& t, const Rect& face, double radius, bool lit, bool enabled) {
+    lit = lit && enabled && t.edge_hover;
+    if (!t.edge && !lit) {
+        return;
+    }
+    const double width = lit ? 3 : 2;
+    const Color color = lit ? *t.edge_hover : enabled ? *t.edge : mix(*t.edge, t.surface, .55);
+    cairo_save(cr);
+    rounded(cr, {face.x + width / 2, face.y + width / 2, face.width - width, face.height - width},
+            std::max(1.0, radius - width / 2));
+    source(cr, color);
+    cairo_set_line_width(cr, width);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+// The rim of a recessed well or a raised card on a theme with edges: the
+// edge colour, dimmed by `dim` toward the case, so a black case still shows
+// where they are. Other themes keep their own faint rims.
+bool edge_rim(cairo_t* cr, const Theme& t, const Rect& r, double radius, double dim) {
+    if (!t.edge) {
+        return false;
+    }
+    cairo_save(cr);
+    rounded(cr, {r.x + .75, r.y + .75, r.width - 1.5, r.height - 1.5}, std::max(1.0, radius - .75));
+    source(cr, mix(*t.edge, t.surface, dim));
+    cairo_set_line_width(cr, 1.5);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+    return true;
+}
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
            Color color, bool fit = false, PangoAlignment alignment = PANGO_ALIGN_CENTER,
            bool wrap = false, bool right_to_left = false) {
@@ -1017,12 +1050,17 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
     const bool latched = latched_key(view, key, modifiers) && !listening;
     const bool disabled = view.disabled_keys.contains(key.id);
-    // A latched face carries its own legend colour; everything below draws
-    // with this theme so every mark on the face follows it.
+    // A theme with a pressed colour fills a key held halfway down or more.
+    const bool pressing = view.theme->pressed && amount >= .5 && !latched && !listening && !disabled;
+    // A latched or pressed face carries its own legend colour; everything
+    // below draws with this theme so every mark on the face follows it.
     std::optional<Theme> inked;
     if ((latched || listening) && view.theme->latched_legend != view.theme->legend) {
         inked = *view.theme;
         inked->legend = inked->latched_legend;
+    } else if (pressing && view.theme->pressed_legend != view.theme->legend) {
+        inked = *view.theme;
+        inked->legend = inked->pressed_legend;
     }
     const auto& t = inked ? *inked : *view.theme;
     const auto r = key.bounds;
@@ -1044,6 +1082,10 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         cairo_fill(cr);
     } else if (latched || listening) {
         fill_latched(cr, t, face, t.radius);
+    } else if (pressing) {
+        rounded(cr, face, t.radius);
+        source(cr, *t.pressed);
+        cairo_fill(cr);
     } else if (view.hovered_keys.contains(key.id) && !disabled) {
         rounded(cr, face, t.radius);
         if (light_theme(t)) {
@@ -1064,6 +1106,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         // A pressed key lights the same tube, as far as it has travelled.
         neon_tube(cr, t, face, t.radius, amount);
     }
+    draw_edge(cr, t, face, t.radius, view.hovered_keys.contains(key.id) || amount > 0, !disabled);
     if (listening) {
         // Five bars that stay in place; each eases from its old height to its
         // new one as a level passes from right to left, fading toward the
@@ -1718,6 +1761,7 @@ void draw_card(cairo_t* cr, const Theme& t, const Rect& card) {
     rounded(cr, card, card_radius(t));
     source(cr, mix(t.surface, t.bottom, .45));
     cairo_fill(cr);
+    edge_rim(cr, t, card, card_radius(t), .6);
     cairo_move_to(cr, card.x + card_radius(t), card.y + 1.5);
     cairo_line_to(cr, card.x + card.width - card_radius(t), card.y + 1.5);
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
@@ -1796,6 +1840,7 @@ void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
     rounded(cr, r, radius);
     source(cr, mix(t.surface, t.bottom, .45));
     cairo_fill(cr);
+    edge_rim(cr, t, r, radius, .6);
     // A faint light along the top edge, as on the keycaps.
     cairo_move_to(cr, r.x + radius, r.y + 1.5);
     cairo_line_to(cr, r.x + r.width - radius, r.y + 1.5);
@@ -1804,7 +1849,8 @@ void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_stroke(cr);
 }
 // A keycap face for buttons and dropdowns: the keys' own gradient and hover.
-void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool selected, bool enabled) {
+void draw_cap_face(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool selected,
+                   bool enabled) {
     if (selected && enabled) {
         fill_latched(cr, t, r, t.radius);
         return;
@@ -1822,6 +1868,11 @@ void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool sel
             gradient(cr, r, hovered ? t.hover : t.top, t.middle, t.bottom);
         }
     }
+}
+// The cap with its edge, on a theme that has edges.
+void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool selected, bool enabled) {
+    draw_cap_face(cr, t, r, hovered, selected, enabled);
+    draw_edge(cr, t, r, t.radius, hovered, enabled);
 }
 // A switch in place of a checkbox: a recessed track and a keycap knob that
 // moves right, over the latched colour, when on.
@@ -1845,10 +1896,12 @@ void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hover
         cairo_pattern_destroy(shade);
         cairo_restore(cr);
         // The well's rim, so the track reads on a dark card.
-        rounded(cr, {track.x + .5, track.y + .5, track.width - 1, track.height - 1}, height / 2);
-        source(cr, mix(t.surface, t.bottom, .8));
-        cairo_set_line_width(cr, 1);
-        cairo_stroke(cr);
+        if (!edge_rim(cr, t, track, height / 2, .3)) {
+            rounded(cr, {track.x + .5, track.y + .5, track.width - 1, track.height - 1}, height / 2);
+            source(cr, mix(t.surface, t.bottom, .8));
+            cairo_set_line_width(cr, 1);
+            cairo_stroke(cr);
+        }
     }
     const double knob = height - 6;
     const Rect cap{on ? track.x + track.width - knob - 3 : track.x + 3, track.y + 3, knob, knob};
@@ -1886,12 +1939,14 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_restore(cr);
     // The rim takes most of its colour from the keys, so it reads as an edge
     // even on a case too dark for the well itself to show.
-    rounded(cr, {r.x + .5, r.y + .5, r.width - 1, r.height - 1}, radius);
-    cairo_set_source_rgba(cr, t.surface.r + (t.bottom.r - t.surface.r) * .8,
-                          t.surface.g + (t.bottom.g - t.surface.g) * .8,
-                          t.surface.b + (t.bottom.b - t.surface.b) * .8, 1);
-    cairo_set_line_width(cr, 1);
-    cairo_stroke(cr);
+    if (!edge_rim(cr, t, r, radius, .3)) {
+        rounded(cr, {r.x + .5, r.y + .5, r.width - 1, r.height - 1}, radius);
+        cairo_set_source_rgba(cr, t.surface.r + (t.bottom.r - t.surface.r) * .8,
+                              t.surface.g + (t.bottom.g - t.surface.g) * .8,
+                              t.surface.b + (t.bottom.b - t.surface.b) * .8, 1);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+    }
     // The light catch: a hairline just inside the bottom edge.
     cairo_move_to(cr, r.x + radius, r.y + r.height - 1.5);
     cairo_line_to(cr, r.x + r.width - radius, r.y + r.height - 1.5);
@@ -3160,6 +3215,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     source(cr, tab.pressed || tab.hovered ? t.hover : t.bottom);
                     cairo_fill(cr);
                 }
+                draw_edge(cr, t, tab.bounds, t.radius, tab.pressed || tab.hovered, true);
                 draw_icon(cr, tab.icon, tab.bounds, tab.active ? t.latched_legend : t.legend, 24);
                 cairo_restore(cr);
             }
@@ -3211,6 +3267,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     rounded(cr, face, t.radius);
                     source(cr, t.hover);
                     cairo_fill(cr);
+                    draw_edge(cr, t, face, t.radius, true, true); // Only a theme with edges.
                 }
                 emoji_image(cell.text, cell.bounds);
             }
@@ -3427,6 +3484,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_stroke(cr);
             } else {
                 cairo_new_path(cr);
+                if (control.style != ControlStyle::MenuItem) {
+                    draw_edge(cr, t, r, radius, hovered, control.enabled); // A toolbar button's.
+                }
             }
             if (control.style == ControlStyle::Scrollbar) {
             } else if (control.style == ControlStyle::Dropdown) {

@@ -895,6 +895,39 @@ int main() {
               lit.latched_finish == "neon")) {
             throw std::runtime_error("latched tokens default to a flat fill under the legend");
         }
+        // Edges and a pressed fill come only from a theme that sets them.
+        const auto edged =
+            parse_theme(base + R"("legend":"#ffffff","edge":"#ffffff","pressed":"#ffff00",)"
+                               R"("pressed_legend":"#000000"})");
+        if (!(!dark.edge && !dark.edge_hover && !dark.pressed && dark.pressed_legend == dark.legend &&
+              edged.edge == Color{1, 1, 1} && edged.edge_hover == edged.edge &&
+              edged.pressed == Color{1, 1, 0} && edged.pressed_legend == Color{})) {
+            throw std::runtime_error(
+                "edge and pressed tokens are optional, and edge_hover follows edge");
+        }
+        // High Contrast's text reaches 7:1 (WCAG AAA) on every face it sits on:
+        // idle, hovered, pressed, latched and disabled.
+        const auto& high = profiles.themes.at("contrast");
+        const Color dimmed{(high.legend.r + high.disabled.r) / 2, (high.legend.g + high.disabled.g) / 2,
+                           (high.legend.b + high.disabled.b) / 2};
+        const Color sunk{high.bottom.r * .6 + high.surface.r * .4,
+                         high.bottom.g * .6 + high.surface.g * .4,
+                         high.bottom.b * .6 + high.surface.b * .4};
+        for (const auto& [ink, face] :
+             std::initializer_list<std::pair<Color, Color>>{{high.legend, high.top},
+                                                            {high.legend, high.bottom},
+                                                            {high.legend, high.hover},
+                                                            {high.pressed_legend, *high.pressed},
+                                                            {high.latched_legend, high.latched},
+                                                            {dimmed, sunk}}) {
+            if (contrast(ink, face) < 7) {
+                throw std::runtime_error("High Contrast text is under 7:1 on one of its faces");
+            }
+        }
+        if (!high.edge || contrast(*high.edge, high.surface) < 7 || !high.edge_hover ||
+            contrast(*high.edge_hover, high.top) < 7) {
+            throw std::runtime_error("High Contrast key edges must stand out from the case and keys");
+        }
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
