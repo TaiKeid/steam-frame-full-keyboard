@@ -45,6 +45,7 @@ Matching is on the file name of the focused process's program (`argv[0]`), exact
 | Alacritty | `alacritty` | Ctrl+Shift+C | Ctrl+Shift+V | alacritty-bindings(5), Linux/BSD: Copy `Control+Shift+C`, Paste `Control+Shift+V` |
 | WezTerm | `wezterm-gui`, `wezterm` | Ctrl+Shift+C | Ctrl+Shift+V | WezTerm default keys: `CTRL+SHIFT c` `CopyTo Clipboard`, `CTRL+SHIFT v` `PasteFrom Clipboard` |
 | LXTerminal | `lxterminal` | Ctrl+Shift+C | Ctrl+Shift+V | `src/setting.h`: `COPY_ACCEL_DEF` `<Primary><Shift>c`, `PASTE_ACCEL_DEF` `<Primary><Shift>v` |
+| Ghostty | `ghostty` | Ctrl+Shift+C | Ctrl+Shift+V | `src/config/Config.zig`: on Linux `.{ .ctrl = true, .shift = true }` with `c` `copy_to_clipboard` and `v` `paste_from_clipboard`, performable, so Copy with nothing selected reaches the program, as in Konsole |
 | st | `st` | Ctrl+Shift+C | Ctrl+Shift+V | `config.def.h`: `TERMMOD` (Control+Shift) + C `clipcopy`, + V `clippaste` |
 | rxvt-unicode | `urxvt`, `urxvtd`, `rxvt-unicode` | Ctrl+Alt+C | Ctrl+Alt+V | rxvt(1): "Ctrl-Meta-c and Ctrl-Meta-v to interact with the CLIPBOARD selection"; Meta is Alt by default |
 | xterm | `xterm`, `uxterm`, `koi8rxterm` | nothing | nothing | xterm(1): selecting copies to PRIMARY (`selectToClipboard` defaults to false); no key pastes the clipboard; `modifyOtherKeys` defaults to 0, so Ctrl+Shift+C sends the same ^C as Ctrl+C |
@@ -75,7 +76,7 @@ Inside the Desktop, Gamescope's focus only shows `kwin_wayland`, and the Desktop
 
 - **Finding the bus:** while Gamescope's focus is the Desktop, its address is read from the environment of the process that started `kwin_wayland` (whose own is unreadable, as it has capabilities); only `DBUS_SESSION_BUS_ADDRESS` is kept.
 - **The script:** the keyboard writes a few lines of KWin script to `/run/user/<uid>/framekeyboard/kwin-desktop-focus.js` and loads it with `org.kde.kwin.Scripting.loadScript` as `framekeyboard-desktop-focus`, after unloading any copy a crashed keyboard left. On each `workspace.windowActivated`, and once as it starts, it calls `Active(resourceClass)` on `org.framekeyboard.DesktopFocus`, a name the keyboard owns on the Desktop's bus. It sends the app ID only (`org.kde.konsole`, `lxterminal`, an X11 window's class such as `XTerm`), never the caption. It takes KWin 6's names, else KWin 5's.
-- **Matching:** `app_edit_keys` matches the app ID, case-insensitively, against the same terminal list, also by the last part of a reverse-DNS ID, with GNOME Console and Terminal named apart.
+- **Matching:** `app_edit_keys` matches the app ID, case-insensitively, against the same terminal list, also by the last part of a reverse-DNS ID (`com.mitchellh.ghostty` → `ghostty`), with GNOME Console and Terminal named apart.
 - **Cost:** no polling. The watcher thread waits on the bus's descriptor with Gamescope's and wakes when KWin reports a change. Attaching makes a few calls, each bounded to 250 ms, once per Desktop session.
 - **Session only:** nothing is written to KWin's settings. Detaching, or the keyboard quitting, unloads the script; a Desktop that closes takes it along.
 - **Failure:** without `libsystemd.so.0` (loaded at runtime, never linked), when the script fails to load or never reports, or when KWin changes its scripting API, the Desktop's keys stay Ctrl+X, Ctrl+C and Ctrl+V, as before.

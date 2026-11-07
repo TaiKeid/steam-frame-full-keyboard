@@ -22,7 +22,7 @@ void require(bool condition, const char* message) {
 void classification_tests() {
     for (const auto* name :
          {"konsole", "gnome-terminal-server", "gnome-terminal", "ptyxis", "kgx", "kitty", "foot",
-          "footclient", "alacritty", "wezterm-gui", "wezterm", "lxterminal", "st"}) {
+          "footclient", "alacritty", "wezterm-gui", "wezterm", "lxterminal", "ghostty", "st"}) {
         require(fk::terminal_edit_keys(name) == EditKeys::CtrlShift, "known terminals use Ctrl+Shift");
     }
     for (const auto* name : {"urxvt", "urxvtd", "rxvt-unicode"}) {
@@ -41,7 +41,7 @@ void classification_tests() {
     // App IDs as KWin reports them inside SteamOS's Desktop.
     for (const auto* id :
          {"org.kde.konsole", "lxterminal", "kitty", "foot", "Alacritty", "org.wezfurlong.wezterm",
-          "org.gnome.Ptyxis", "org.gnome.Console", "org.gnome.Terminal"}) {
+          "org.gnome.Ptyxis", "org.gnome.Console", "org.gnome.Terminal", "com.mitchellh.ghostty"}) {
         require(fk::app_edit_keys(id) == EditKeys::CtrlShift,
                 "Desktop terminals by app ID use Ctrl+Shift");
     }

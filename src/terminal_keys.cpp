@@ -8,7 +8,7 @@
 namespace framekeyboard {
 namespace {
 // Each terminal's own defaults; sources in docs/terminal-edit-keys-design.md.
-constexpr std::array<std::pair<std::string_view, EditKeys>, 19> terminals{{
+constexpr std::array<std::pair<std::string_view, EditKeys>, 20> terminals{{
     {"konsole", EditKeys::CtrlShift},
     {"gnome-terminal-server", EditKeys::CtrlShift},
     {"gnome-terminal", EditKeys::CtrlShift},
@@ -21,6 +21,7 @@ constexpr std::array<std::pair<std::string_view, EditKeys>, 19> terminals{{
     {"wezterm-gui", EditKeys::CtrlShift},
     {"wezterm", EditKeys::CtrlShift},
     {"lxterminal", EditKeys::CtrlShift},
+    {"ghostty", EditKeys::CtrlShift},
     {"st", EditKeys::CtrlShift},
     {"urxvt", EditKeys::CtrlAlt},
     {"urxvtd", EditKeys::CtrlAlt},
