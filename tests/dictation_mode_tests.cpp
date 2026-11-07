@@ -988,6 +988,20 @@ void language_tests() {
         type_text(app, "ks");
         press(app, "Space");
         require(editor_text(app) == "Hello 한 ", "and the syllable goes where it was");
+        // A held Backspace that took the open syllable edits nothing behind
+        // the discard question the other hand opens.
+        type_text(app, "g");
+        const auto [bx, by] = key_center(app, "Backspace");
+        app.down(0, bx, by, clock);
+        app.tick(clock += .05);
+        require(editor_text(app) == "Hello 한 ", "the held Backspace takes ㅎ");
+        press(app, "Escape", 1);
+        for (int i = 0; i < 30; ++i) {
+            app.tick(clock += .05);
+        }
+        app.up(0, bx, by);
+        app.tick(clock += .05);
+        require(editor_text(app) == "Hello 한 ", "and edits nothing behind the discard question");
     }
     if (!CjkComposer::supported("chinese-pinyin-simplified")) {
         std::cout << "Pinyin in dictation mode skipped: engine absent.\n";

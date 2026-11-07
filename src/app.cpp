@@ -2185,6 +2185,11 @@ bool App::tick(double now) {
             dirty = true;
         }
     }
+    if (reading_repeat_ && dictation_open_ && !editor_editable()) {
+        // A locked editor (listening, sending, the discard question) takes no
+        // edits from a key held since before it locked, nor after it unlocks.
+        reading_repeat_.reset();
+    }
     if (reading_repeat_ && now >= reading_repeat_->next && !japanese_holding()) {
         if (!keyboard_.pointer_pressed(reading_repeat_->pointer) ||
             (!reading_open() && !reading_repeat_->continues)) {
@@ -7164,6 +7169,9 @@ void App::reading_replaces_selection(bool was_open) {
 }
 void App::continue_held_backspace(double now) {
     const auto pointer = reading_repeat_->pointer;
+    if (dictation_open_ && !editor_editable()) {
+        return;
+    }
     if (dictation_open_) {
         clear_editor_error();
         run_editor_command(EditorCommand::Backspace, false);
