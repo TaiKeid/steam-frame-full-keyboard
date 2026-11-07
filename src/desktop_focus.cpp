@@ -1,4 +1,5 @@
 #include "framekeyboard/desktop_focus.hpp"
+#include "framekeyboard/desktop_terminal.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -79,9 +80,10 @@ std::string text(xcb_connection_t* connection, xcb_window_t window, xcb_atom_t p
     return value;
 }
 // Waits for the server or a stop request; false once the object is gone.
-bool wait(DesktopFocus::State& state, int fd, int milliseconds) {
-    pollfd fds[2]{{state.wake, POLLIN, 0}, {fd, POLLIN, 0}};
-    poll(fds, fd >= 0 ? 2 : 1, milliseconds);
+bool wait(DesktopFocus::State& state, int fd, int milliseconds, int other = -1, short other_events = 0) {
+    pollfd fds[3]{{state.wake, POLLIN, 0}, {fd, POLLIN, 0}, {other, other_events, 0}};
+    // A negative descriptor is skipped by poll().
+    poll(fds, other >= 0 ? 3 : fd >= 0 ? 2 : 1, milliseconds);
     return !state.stop;
 }
 // One connection's life: reads the focus, then again on every change, until
@@ -107,6 +109,11 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     std::uint32_t pid = 0;
     bool nested = false, stale = true;
     auto edit_keys = EditKeys::Standard;
+    // The Desktop's own bus, found once per compositor; its KWin reports the
+    // app active there (DesktopTerminal).
+    DesktopTerminal terminal;
+    std::string desktop_bus;
+    bool desktop = false;
     while (!state.stop && !xcb_connection_has_error(connection)) {
         // XCB reads events that arrive while it waits for a reply into its own
         // queue, not the socket: take them before sleeping on the socket.
@@ -139,6 +146,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                         const auto name = DesktopFocus::program(pid);
                         nested = name == "kwin_wayland";
                         edit_keys = terminal_edit_keys(name);
+                        desktop_bus = nested ? DesktopTerminal::bus_address(pid) : std::string();
                     }
                     focused = nested;
                     keys = edit_keys;
@@ -146,8 +154,13 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                 }
             }
             state.focused = focused;
-            state.edit_keys = keys;
             state.window = packed;
+            desktop = focused && !desktop_bus.empty();
+            if (desktop && terminal.attach(desktop_bus)) {
+                terminal.process(); // The script reports the active window as it starts.
+                keys = terminal.edit_keys();
+            }
+            state.edit_keys = keys;
             // Keep open's cue forgets the titles of windows no longer listed.
             std::vector<std::uint32_t> windows;
             for (std::size_t i = 0; i + 2 < list.size(); i += 3) {
@@ -189,7 +202,12 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             }
             continue; // The reads may have queued events, taken above.
         }
-        if (!wait(state, xcb_get_file_descriptor(connection), -1)) {
+        // The Desktop's KWin says when another app became active there; the
+        // keys change only while the Desktop itself has the focus.
+        if (terminal.process() && desktop) {
+            state.edit_keys = terminal.edit_keys();
+        }
+        if (!wait(state, xcb_get_file_descriptor(connection), -1, terminal.fd(), terminal.events())) {
             return;
         }
     }

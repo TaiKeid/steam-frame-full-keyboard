@@ -38,6 +38,20 @@ void classification_tests() {
         require(fk::terminal_edit_keys(name) == EditKeys::Standard,
                 "anything else, paths and other spellings included, is no terminal");
     }
+    // App IDs as KWin reports them inside SteamOS's Desktop.
+    for (const auto* id :
+         {"org.kde.konsole", "lxterminal", "kitty", "foot", "Alacritty", "org.wezfurlong.wezterm",
+          "org.gnome.Ptyxis", "org.gnome.Console", "org.gnome.Terminal"}) {
+        require(fk::app_edit_keys(id) == EditKeys::CtrlShift,
+                "Desktop terminals by app ID use Ctrl+Shift");
+    }
+    require(fk::app_edit_keys("XTerm") == EditKeys::SelectionOnly &&
+                fk::app_edit_keys("URxvt") == EditKeys::CtrlAlt,
+            "X11 window classes match whatever their case");
+    for (const auto* id : {"", "org.kde.dolphin", "org.kde.kate", "firefox", "org.kde.plasmashell",
+                           "org.gnome.Nautilus", "org.kde.konsole.desktop.extra", "terminal"}) {
+        require(fk::app_edit_keys(id) == EditKeys::Standard, "other apps keep Ctrl+X/C/V");
+    }
 }
 void combine_tests() {
     require(fk::combine_edit_keys(EditKeys::Standard, false) == EditKeys::Standard,

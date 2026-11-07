@@ -74,6 +74,7 @@ Nothing pins these. Each one is feature-checked at runtime and fails safe, but a
 | SteamOS microphone filters (WirePlumber smart filters in `/etc/pipewire/pipewire.conf.d/`) and the `pipewire-0-manager` socket | Dictation records the raw microphone | Dictate with and without a game; the log shows "recording the microphone without the game's voice filters" only with a game. See [microphone](dictation.md#microphone) |
 | Gamescope's text and keymap behavior | Typing and Send's pace | If text arrives scrambled: send a 900-character text to a disposable receiver with `text-replace-probe`'s `whole` and `paced` commands, idle and under load, and count wrong characters (see [Send](dictation.md#send)) |
 | Steam app IDs as window names for local games | Native replacement over local games | A local game's keyboard button with replacement on |
+| KWin scripting in SteamOS's Desktop (`org.kde.kwin.Scripting`, `workspace.windowActivated`, `resourceClass`) and `libsystemd.so.0` | Terminal Cut, Copy and Paste inside the Desktop ([design](terminal-edit-keys-design.md#steamoss-desktop)) | Open the Desktop with Konsole and Dolphin: Cut shows disabled in Konsole and not in Dolphin, and Copy and Paste work in both |
 
 ## Integration tests
 

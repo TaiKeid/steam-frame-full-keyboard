@@ -2,6 +2,7 @@
 
 #include <array>
 #include <linux/input-event-codes.h>
+#include <string>
 #include <utility>
 
 namespace framekeyboard {
@@ -37,6 +38,26 @@ EditKeys terminal_edit_keys(std::string_view program) {
         }
     }
     return EditKeys::Standard;
+}
+EditKeys app_edit_keys(std::string_view app_id) {
+    std::string id(app_id);
+    for (auto& c : id) {
+        c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+    // GNOME names its apps apart from their programs.
+    if (id == "org.gnome.console") {
+        return terminal_edit_keys("kgx");
+    }
+    if (id == "org.gnome.terminal") {
+        return terminal_edit_keys("gnome-terminal");
+    }
+    if (const auto keys = terminal_edit_keys(id); keys != EditKeys::Standard) {
+        return keys;
+    }
+    // A reverse-DNS app ID ends in the program's name: org.kde.konsole.
+    const auto dot = id.rfind('.');
+    return dot == std::string::npos ? EditKeys::Standard
+                                    : terminal_edit_keys(std::string_view(id).substr(dot + 1));
 }
 EditKeys combine_edit_keys(EditKeys detected, bool terminal_hint) {
     return detected == EditKeys::Standard && terminal_hint ? EditKeys::CtrlShift : detected;

@@ -71,13 +71,15 @@ The keys are chosen when the key goes down and released exactly as pressed, so a
 
 ## SteamOS's Desktop
 
-Inside the Desktop, Gamescope's focus only shows `kwin_wayland`. Which Desktop window has focus is not visible from outside: the Desktop runs its own session bus under `dbus-run-session`, KWin exposes its active window only to its own privileged clients and scripts, and AT-SPI is ruled out above. So in the Desktop:
+Inside the Desktop, Gamescope's focus only shows `kwin_wayland`, and the Desktop runs its own session bus under `dbus-run-session`. AT-SPI is off there as well (its registry does not start), and KWin's D-Bus interface has no call for the active window. KWin does load scripts over that bus, so the Desktop's own KWin reports the active app (`DesktopTerminal`, owner's decision, 2026-11-07):
 
-- Cut, Copy and Paste keep Ctrl+X, Ctrl+C and Ctrl+V, also in Konsole there.
-- KDE Desktop Unicode set to Paste keeps Ctrl+V.
-- A hosted shell's `terminal` hint still applies there, including to the Unicode paste.
-
-There the user can still type Konsole's own keys: tap Ctrl and Shift, which latch, then C or V. Documented in the runtime notes and troubleshooting table.
+- **Finding the bus:** while Gamescope's focus is the Desktop, its address is read from the environment of the process that started `kwin_wayland` (whose own is unreadable, as it has capabilities); only `DBUS_SESSION_BUS_ADDRESS` is kept.
+- **The script:** the keyboard writes a few lines of KWin script to `/run/user/<uid>/framekeyboard/kwin-desktop-focus.js` and loads it with `org.kde.kwin.Scripting.loadScript` as `framekeyboard-desktop-focus`, after unloading any copy a crashed keyboard left. On each `workspace.windowActivated`, and once as it starts, it calls `Active(resourceClass)` on `org.framekeyboard.DesktopFocus`, a name the keyboard owns on the Desktop's bus. It sends the app ID only (`org.kde.konsole`, `lxterminal`, an X11 window's class such as `XTerm`), never the caption. It takes KWin 6's names, else KWin 5's.
+- **Matching:** `app_edit_keys` matches the app ID, case-insensitively, against the same terminal list, also by the last part of a reverse-DNS ID, with GNOME Console and Terminal named apart.
+- **Cost:** no polling. The watcher thread waits on the bus's descriptor with Gamescope's and wakes when KWin reports a change. Attaching makes a few calls, each bounded to 250 ms, once per Desktop session.
+- **Session only:** nothing is written to KWin's settings. Detaching, or the keyboard quitting, unloads the script; a Desktop that closes takes it along.
+- **Failure:** without `libsystemd.so.0` (loaded at runtime, never linked), when the script fails to load or never reports, or when KWin changes its scripting API, the Desktop's keys stay Ctrl+X, Ctrl+C and Ctrl+V, as before.
+- KDE Desktop Unicode set to Paste and dictation's paste take the detected keys too. A hosted shell's `terminal` hint still applies where nothing is detected.
 
 ## Steam fields and the shell sink
 
