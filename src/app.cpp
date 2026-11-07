@@ -2176,8 +2176,18 @@ bool App::tick(double now) {
         }
     }
     if (reading_repeat_ && now >= reading_repeat_->next && !japanese_holding()) {
-        if (!keyboard_.pointer_pressed(reading_repeat_->pointer) || !reading_open()) {
+        if (!keyboard_.pointer_pressed(reading_repeat_->pointer) ||
+            (!reading_open() && !reading_repeat_->continues)) {
             reading_repeat_.reset();
+        } else if (reading_repeat_->continues) {
+            // The syllable's end paused it; now it deletes in the field, as a
+            // PC's Backspace does once its IME has nothing left. A reading
+            // another pointer started meanwhile stops it instead.
+            if (!reading_open()) {
+                continue_held_backspace(now);
+            }
+            reading_repeat_.reset();
+            dirty = true;
         } else {
             try {
                 japanese_key(reading_repeat_->key, true, reading_repeat_->modifiers);
@@ -2190,6 +2200,10 @@ bool App::tick(double now) {
                 follow_cursor();
             }
             reading_repeat_->next = now + .04; // no catching up, as in the editor
+            if (!reading_open() && cjk_ && !cjk_->chinese()) {
+                reading_repeat_->continues = true;
+                reading_repeat_->next = now + .5; // a fresh delay at the syllable's end
+            }
             dirty = true;
         }
     }
@@ -7113,9 +7127,27 @@ void App::finish_reveal() {
 
 void App::start_reading_repeat(unsigned pointer, const Key& key, const std::set<int>& modifiers,
                                double now) {
-    if (key.action_kind == ActionKind::Key && key.action == "Backspace" && reading_open()) {
-        reading_repeat_ = ReadingRepeat{pointer, key, modifiers, now + .5};
+    if (key.action_kind != ActionKind::Key || key.action != "Backspace") {
+        return;
     }
+    if (reading_open()) {
+        reading_repeat_ = ReadingRepeat{pointer, key, modifiers, now + .5};
+    } else if (cjk_ && !cjk_->chinese()) {
+        // It took the open syllable's last jamo: held on, it goes on.
+        reading_repeat_ = ReadingRepeat{pointer, key, modifiers, now + .5, true};
+    }
+}
+void App::continue_held_backspace(double now) {
+    const auto pointer = reading_repeat_->pointer;
+    if (dictation_open_) {
+        clear_editor_error();
+        run_editor_command(EditorCommand::Backspace, false);
+        follow_cursor();
+        editor_repeat_ = EditorRepeat{pointer, EditorCommand::Backspace, {}, now + .04};
+    } else if (output_.admit(true, now)) {
+        keyboard_.continue_native(pointer, KEY_BACKSPACE, now);
+    }
+    update_output_status();
 }
 
 void App::address_key(const std::string& key) {

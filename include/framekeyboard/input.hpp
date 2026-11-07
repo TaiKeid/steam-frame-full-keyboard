@@ -128,6 +128,9 @@ class KeyboardState {
     explicit KeyboardState(OutputController& output);
     ~KeyboardState();
     bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0);
+    // A local press, still held, goes on as a native one already past its
+    // repeat delay: `code` goes down now and repeats from the next step.
+    bool continue_native(unsigned pointer, int code, double now);
     bool up(unsigned pointer);
     bool pointer_pressed(unsigned pointer) const { return presses_.contains(pointer); }
     // The pointer holds a key that repeats, or will once held long enough.

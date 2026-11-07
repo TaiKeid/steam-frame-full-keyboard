@@ -81,7 +81,7 @@ void OutputController::send(int code, int value) {
     }
 }
 void OutputController::native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code,
-                                    double now) {
+                                    double now, double first_repeat) {
     now_ = now;
     if (!enabled_ || codes.empty()) {
         return;
@@ -89,6 +89,7 @@ void OutputController::native_press(unsigned pointer, const std::vector<int>& co
     auto entry = std::make_shared<Entry>();
     entry->codes = codes;
     entry->repeat_code = repeat_code;
+    entry->first_repeat = first_repeat;
     entry->held = true;
     active_[pointer] = entry;
     queue_.push_back(entry);
@@ -502,7 +503,7 @@ void OutputController::drain(bool fresh_tick) {
         queue_.pop_front();
         ++completed_;
         if (entry->held) {
-            entry->repeat_at = now_ + .5;
+            entry->repeat_at = now_ + entry->first_repeat;
             for (int code : entry->released_modifiers) {
                 release_codes(*entry, code);
             }

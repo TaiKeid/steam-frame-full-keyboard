@@ -225,7 +225,7 @@ Shortcuts and navigation that leave composition commit first; if output refuses
 the composition before admission, the preedit stays visible and the forwarding
 action is blocked. An admitted long batch uses the output retry behavior above.
 Hiding, changing profiles, and closing discard unfinished preedit, as with Japanese; moving,
-resizing, pinning and recentring the panel keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms, and stops once it is empty; the press stays local, so it never goes on to delete the target's text. Other composition keys do not repeat.
+resizing, pinning and recentring the panel keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms. With Chinese it stops once the preedit is empty; the press stays local, so it never goes on to delete the target's text. Korean's goes on, as on a PC: at the open syllable's end it pauses for a fresh 0.5 s, then deletes in the field every 40 ms until you let go. Other composition keys do not repeat.
 
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.
 Both are loaded only when their language is selected. Missing libraries disable

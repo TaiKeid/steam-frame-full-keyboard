@@ -45,7 +45,9 @@ class OutputController : public KeySink, public TextOutput {
     // the characters of a commit, or before the text went out.
     bool retry_uncertain() const { return retry_uncertain_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
-    void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now);
+    // `first_repeat`: how long a held key waits before it repeats.
+    void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now,
+                      double first_repeat = .5);
     bool text_press(unsigned pointer, const std::string& text, double now) override;
     void release(unsigned pointer);
     void release_modifier(int code);
@@ -120,6 +122,7 @@ class OutputController : public KeySink, public TextOutput {
         std::set<int> released_modifiers;
         std::size_t next{};
         int repeat_code{};
+        double first_repeat{.5};
         bool held{}, started{}, waiting{}, repeat{}, paced{};
         // The target took this text and is delivering it. Only then is its
         // delivered-character count about this entry rather than an earlier one.

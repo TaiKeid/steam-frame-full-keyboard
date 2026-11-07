@@ -1178,6 +1178,40 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             click(app, "Backspace");
             require(sink.events == std::vector<std::string>{"한", "14:1", "14:0"},
                     "then the target's Backspace deletes the sent syllable");
+            {
+                // Held, Backspace takes the open syllable's jamo, pauses at its
+                // end, then goes on deleting in the field, as on a PC.
+                sink.events.clear();
+                for (const auto* action : {"KeyG", "KeyK", "KeyS", "KeyR", "KeyM", "KeyF"}) {
+                    click(app, action);
+                }
+                const auto view = app.view();
+                const auto& keys = view.layout->keys;
+                const auto backspace =
+                    panel_rect(view, std::find_if(keys.begin(), keys.end(), [](const Key& k) {
+                                         return k.action == "Backspace";
+                                     })->bounds);
+                const double x = backspace.x + backspace.width / 2,
+                             y = backspace.y + backspace.height / 2;
+                double now = 10;
+                app.down(0, x, y, now);
+                const auto hold = [&](double until) {
+                    for (; now < until; now += .02) {
+                        app.tick(now);
+                    }
+                };
+                hold(10.56);
+                require(app.view().preedit.empty() && sink.events == std::vector<std::string>{"한"},
+                        "a held Backspace takes the open syllable, then pauses at its end");
+                hold(11.0);
+                require(sink.events == std::vector<std::string>{"한"}, "for a fresh repeat delay");
+                hold(11.3);
+                require(sink.events.size() > 3 && sink.events[1] == "14:1" && sink.events[2] == "14:2",
+                        "then it deletes on in the field, repeating");
+                app.up(0, x, y);
+                app.tick(now);
+                require(sink.events.back() == "14:0", "and lets go with the press");
+            }
             sink.events.clear();
             click(app, "KeyE");
             click(app, "KeyK");

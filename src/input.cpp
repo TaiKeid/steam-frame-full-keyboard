@@ -603,6 +603,22 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     return true;
 }
 
+bool KeyboardState::continue_native(unsigned pointer, int code, double now) {
+    const auto found = presses_.find(pointer);
+    if (found == presses_.end() || found->second.modifier || !found->second.codes.empty() ||
+        is_modifier(code)) {
+        return false;
+    }
+    auto& press = found->second;
+    press.codes = {code};
+    press.repeat_code = code;
+    press.repeat_at = now + .04;
+    acquire(code);
+    if (output_) {
+        output_->native_press(pointer, press.codes, press.repeat_code, now, .04);
+    }
+    return true;
+}
 bool KeyboardState::up(unsigned pointer) {
     auto found = presses_.find(pointer);
     if (found == presses_.end()) {
