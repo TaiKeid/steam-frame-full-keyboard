@@ -1211,7 +1211,7 @@ class App {
     // A word punctuation ended, waiting for a space; and the last word that
     // counted. Both with where they end in typed_text_.
     std::optional<std::pair<std::size_t, std::string>> pending_word_, counted_;
-    std::optional<std::pair<unsigned, double>> backspace_held_; // Pointer and press time.
+    std::map<unsigned, double> held_keys_; // Typing keys still held, by pointer: their press.
     std::uint32_t word_window_{};                               // Where the word is typed.
     std::vector<std::string> typing_suggestions_;
     struct WordListLoad {

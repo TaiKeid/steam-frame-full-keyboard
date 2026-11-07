@@ -2141,6 +2141,22 @@ int typing_flow() {
             type(app, "wo");
             require(typing_suggestions(app) == std::vector<std::string>{"world"},
                     "and typing goes on at a word's start");
+            // So does a letter held into its repeat.
+            tap(app, "ArrowRight");
+            type(app, "he");
+            const auto [lx, ly] = key_point(app, "KeyL");
+            app.down(0, lx, ly, 7);
+            app.tick(7.6);
+            app.up(0, lx, ly);
+            require(typing_suggestions(app).empty(), "a held letter forgets the word");
+            // Enter forgets it too: a single-line field has no line break to
+            // take back, so Backspace after it is the field's own text.
+            type(app, " hel");
+            tap(app, "Enter");
+            tap(app, "Backspace");
+            type(app, "wo");
+            require(typing_suggestions(app) == std::vector<std::string>{"world"},
+                    "Backspace after Enter starts a new word");
         }
         tap(app, "ArrowRight");
 

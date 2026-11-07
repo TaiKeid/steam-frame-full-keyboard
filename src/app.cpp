@@ -116,7 +116,7 @@ constexpr std::size_t max_swipe_points = 2000;
 constexpr std::size_t typing_suggestion_count = 5; // As many as swipe alternatives.
 // KeyboardState repeats a held key after half a second; a little before that,
 // the word being typed counts as lost.
-constexpr double backspace_repeat_after = .45;
+constexpr double key_repeats_after = .45;
 // Japanese conversions committed before, offered back while their start is typed.
 constexpr std::size_t learned_completions = 4;
 bool same_pair(const Selection& a, const Selection& b) {
@@ -1892,6 +1892,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                     text_output_->text_press(pointer, text, now);
                 }
                 track_typed(text);
+                held_keys_[pointer] = now; // It repeats while held.
                 if (keymap_->composing()) {
                     status_ = "Accent pending";
                 }
@@ -1901,18 +1902,17 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 // that follows, so only other keys end a pending accent.
                 keymap_->cancel_compose();
                 status_.clear();
-                // The word being typed: Backspace shortens it, Enter ends it
-                // unlearned, and any other key, as an arrow, Tab or a
-                // shortcut, may leave it.
+                // The word being typed: Backspace shortens it, and any other
+                // key, as an arrow, Tab or a shortcut, may leave it; Enter
+                // forgets it unlearned too, as a single-line field keeps its
+                // text with no line break for Backspace to take back, or
+                // clears it.
                 const bool plain = std::none_of(modifiers.begin(), modifiers.end(), [](int held) {
                     return held != key_code("ShiftLeft") && held != key_code("ShiftRight");
                 });
                 if (plain && key->action_kind == ActionKind::Key && key->action == "Backspace") {
                     track_backspace();
-                    backspace_held_ = {pointer, now};
-                } else if (key->action_kind == ActionKind::Key &&
-                           (key->action == "Enter" || key->action == "NumpadEnter")) {
-                    track_typed("\n"); // Ends the word unlearned; Backspace can take it back.
+                    held_keys_[pointer] = now;
                 } else {
                     lose_word();
                 }
@@ -2260,14 +2260,16 @@ bool App::tick(double now) {
         word_window_ = window; // Another window has its own cursor.
         lose_word();
     }
-    // A Backspace held into its repeat deletes more than the one press told:
-    // the word being typed is no longer known.
-    if (backspace_held_) {
-        if (!keyboard_.pointer_pressed(backspace_held_->first)) {
-            backspace_held_.reset();
-        } else if (now - backspace_held_->second >= backspace_repeat_after) {
-            backspace_held_.reset();
+    // A key held into its repeat types or deletes more than its one press
+    // told: the word being typed is no longer known.
+    for (auto held = held_keys_.begin(); held != held_keys_.end();) {
+        if (!keyboard_.pointer_pressed(held->first)) {
+            held = held_keys_.erase(held);
+        } else if (now - held->second >= key_repeats_after) {
+            held = held_keys_.erase(held);
             lose_word();
+        } else {
+            ++held;
         }
     }
     tick_japanese(now);
@@ -5168,7 +5170,6 @@ LearnedWords& App::learned_words(const std::string& lexicon) {
     return found->second;
 }
 void App::track_typed(const std::string& text) {
-    backspace_held_.reset(); // Another key went down since.
     for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
         const auto character = g_utf8_get_char(p);
         static constexpr std::string_view punctuation = ".,!?;:";
