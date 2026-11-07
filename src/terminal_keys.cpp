@@ -30,6 +30,15 @@ constexpr std::array<std::pair<std::string_view, EditKeys>, 20> terminals{{
     {"uxterm", EditKeys::SelectionOnly},
     {"koi8rxterm", EditKeys::SelectionOnly},
 }};
+// The app IDs, lower-cased, that differ from their programs' names.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 6> terminal_app_ids{{
+    {"org.kde.konsole", "konsole"},
+    {"org.gnome.terminal", "gnome-terminal"},
+    {"org.gnome.ptyxis", "ptyxis"},
+    {"org.gnome.console", "kgx"},
+    {"org.wezfurlong.wezterm", "wezterm"},
+    {"com.mitchellh.ghostty", "ghostty"},
+}};
 } // namespace
 
 EditKeys terminal_edit_keys(std::string_view program) {
@@ -45,20 +54,14 @@ EditKeys app_edit_keys(std::string_view app_id) {
     for (auto& c : id) {
         c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
     }
-    // GNOME names its apps apart from their programs.
-    if (id == "org.gnome.console") {
-        return terminal_edit_keys("kgx");
+    // Reverse-DNS app IDs are listed whole: matching only their last part
+    // would take any org.example.st or .foot for a terminal.
+    for (const auto& [name, program] : terminal_app_ids) {
+        if (id == name) {
+            return terminal_edit_keys(program);
+        }
     }
-    if (id == "org.gnome.terminal") {
-        return terminal_edit_keys("gnome-terminal");
-    }
-    if (const auto keys = terminal_edit_keys(id); keys != EditKeys::Standard) {
-        return keys;
-    }
-    // A reverse-DNS app ID ends in the program's name: org.kde.konsole.
-    const auto dot = id.rfind('.');
-    return dot == std::string::npos ? EditKeys::Standard
-                                    : terminal_edit_keys(std::string_view(id).substr(dot + 1));
+    return terminal_edit_keys(id); // A plain app ID or X11 class: lxterminal, xterm.
 }
 EditKeys combine_edit_keys(EditKeys detected, bool terminal_hint) {
     return detected == EditKeys::Standard && terminal_hint ? EditKeys::CtrlShift : detected;
