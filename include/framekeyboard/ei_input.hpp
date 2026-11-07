@@ -47,6 +47,11 @@ class EiSink : public KeySink {
     void set_desktop_focus(std::function<bool()> focused) { desktop_focused_ = std::move(focused); }
     void set_desktop_paste(Clipboard* clipboard) override { desktop_paste_ = clipboard; }
     bool desktop_focused() const override { return desktop_now_; }
+    // The desktop focus watcher's answer, an atomic read.
+    EditKeys edit_keys() const override;
+    void set_terminal_hint(bool terminal) override { terminal_hint_ = terminal; }
+    // Tests replace the focused program's kind with their own answer.
+    void set_edit_keys(std::function<EditKeys()> keys) { edit_keys_ = std::move(keys); }
     // How long a paste waits for the application to take the clipboard's text.
     static constexpr double paste_wait =
         2; // The pause between the key events of Unicode entry. IBus reorders keys
@@ -59,8 +64,9 @@ class EiSink : public KeySink {
     // Text typed into a nested desktop as IBus Unicode entry: Ctrl+Shift+U,
     // the code point in hex, Space, as plain key events that the desktop's
     // own keymap reads correctly. Gamescope's temporary keymap cannot reach it.
-    // With a paste clipboard, the keys are Ctrl+V instead, sent once the
-    // clipboard holds the text, and the entry ends when an application takes it.
+    // With a paste clipboard, the keys are the target's paste chord instead
+    // (Ctrl+V, or a terminal's own), sent once the clipboard holds the text,
+    // and the entry ends when an application takes it.
     struct Entry {
         std::string text;
         std::size_t deletions{};
@@ -104,6 +110,8 @@ class EiSink : public KeySink {
     bool last_entry_{}, desktop_now_{};
     std::unique_ptr<DesktopFocus> desktop_;
     std::function<bool()> desktop_focused_;
+    std::function<EditKeys()> edit_keys_;
+    bool terminal_hint_{};
     Clipboard* desktop_paste_{};
     GamescopeText::Clock clock_;
     double text_retry_at_{}, text_retry_delay_{1};

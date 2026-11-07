@@ -20,6 +20,8 @@ namespace framekeyboard {
 struct DesktopFocus::State {
     std::string display;
     std::atomic<bool> focused{}, stop{};
+    // The focused program's Cut/Copy/Paste keys; only the kind is kept.
+    std::atomic<EditKeys> edit_keys{EditKeys::Standard};
     std::atomic<std::uint64_t> window{}; // X window << 32 | Steam app ID
     mutable std::mutex mutex;
     std::string title; // the focused window's, for Keep open's cue and tooltip
@@ -104,6 +106,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     xcb_change_window_attributes(connection, root, XCB_CW_EVENT_MASK, &mask);
     std::uint32_t pid = 0;
     bool nested = false, stale = true;
+    auto edit_keys = EditKeys::Standard;
     while (!state.stop && !xcb_connection_has_error(connection)) {
         // XCB reads events that arrive while it waits for a reply into its own
         // queue, not the socket: take them before sleeping on the socket.
@@ -124,20 +127,26 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             const auto window = cardinals(connection, root, focused_window);
             const auto list = cardinals(connection, root, focusable_windows);
             bool focused = false;
+            auto keys = EditKeys::Standard;
             std::uint64_t packed = 0;
             for (std::size_t i = 0; !window.empty() && i + 2 < list.size(); i += 3) {
                 if (list[i] == window[0]) {
                     packed = std::uint64_t{list[i]} << 32 | list[i + 1];
-                    // The command line is read once per newly focused process.
+                    // The command line is read once per newly focused process;
+                    // only what its program name says is kept.
                     if (list[i + 2] != pid) {
                         pid = list[i + 2];
-                        nested = DesktopFocus::nested_compositor(pid);
+                        const auto name = DesktopFocus::program(pid);
+                        nested = name == "kwin_wayland";
+                        edit_keys = terminal_edit_keys(name);
                     }
                     focused = nested;
+                    keys = edit_keys;
                     break;
                 }
             }
             state.focused = focused;
+            state.edit_keys = keys;
             state.window = packed;
             // Keep open's cue forgets the titles of windows no longer listed.
             std::vector<std::uint32_t> windows;
@@ -194,6 +203,7 @@ void watch(const std::shared_ptr<DesktopFocus::State>& state) {
         }
         xcb_disconnect(connection);
         state->focused = false;
+        state->edit_keys = EditKeys::Standard;
         state->window = 0;
         {
             std::lock_guard lock(state->mutex);
@@ -229,6 +239,9 @@ std::uint64_t DesktopFocus::windows_changed() const {
 }
 bool DesktopFocus::focused() const {
     return state_->focused.load();
+}
+EditKeys DesktopFocus::edit_keys() const {
+    return state_->edit_keys.load();
 }
 DesktopFocus::Window DesktopFocus::window() const {
     const auto packed = state_->window.load();
@@ -396,10 +409,16 @@ KeyboardFocusProbe::Window KeyboardFocusProbe::app() const {
     std::lock_guard lock(state_->mutex);
     return state_->sample.app;
 }
-bool DesktopFocus::nested_compositor(std::uint32_t pid) {
+std::string DesktopFocus::program(std::uint32_t pid) {
+    if (pid == 0) {
+        return {};
+    }
     std::ifstream file("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
     std::string program;
     std::getline(file, program, '\0');
-    return std::filesystem::path(program).filename() == "kwin_wayland";
+    return std::filesystem::path(program).filename().string();
+}
+bool DesktopFocus::nested_compositor(std::uint32_t pid) {
+    return program(pid) == "kwin_wayland";
 }
 } // namespace framekeyboard

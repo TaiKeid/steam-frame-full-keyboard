@@ -647,6 +647,32 @@ void desktop_entry() {
     server.pump();
     require(server.keys.empty(), "without a Ctrl+V");
     clipboard.elsewhere_only = false;
+    // Gamescope can't show the Desktop's own focus; a shell's terminal hint
+    // makes the paste Ctrl+Shift+V, as in Konsole.
+    sink->set_terminal_hint(true);
+    clipboard.taken = 0;
+    require(!sink->commit_text("😀"), "a terminal paste starts");
+    for (int i = 0; i < 10; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    server.until([&] { return server.keys.size() == 6; });
+    require(server.keys ==
+                Keys{{29, true}, {42, true}, {47, true}, {47, false}, {42, false}, {29, false}},
+            "Ctrl+Shift+V");
+    ++clipboard.taken;
+    sink->pump();
+    require(!sink->output_blocked() && sink->commit_text("😀"), "taken: the terminal paste succeeded");
+    sink->set_terminal_hint(false);
+    // A terminal with no paste key: nothing is written or pressed.
+    sink->set_edit_keys([] { return EditKeys::SelectionOnly; });
+    server.keys.clear();
+    const auto written = clipboard.written.size();
+    require(!sink->commit_text("😀") && !sink->text_pending() && clipboard.written.size() == written,
+            "no paste key: refused, the clipboard untouched");
+    server.pump();
+    require(server.keys.empty(), "and no key");
+    sink->set_edit_keys({});
     sink->set_desktop_paste(nullptr);
 
     // Outside the Desktop, CJK stays one Gamescope commit.

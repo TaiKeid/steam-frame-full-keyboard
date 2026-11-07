@@ -436,9 +436,19 @@ class App {
         return host_.context && (host_.hints.purpose == "email" || host_.hints.purpose == "url" ||
                                  host_.hints.purpose == "terminal");
     }
-    bool hint_no_suggestions() const {
-        return hint_private() || (host_.context && host_.hints.purpose == "terminal");
+    bool hint_terminal() const { return host_.context && host_.hints.purpose == "terminal"; }
+    bool hint_no_suggestions() const { return hint_private() || hint_terminal(); }
+    // The Cut/Copy/Paste keys the target takes (terminal_keys.hpp): a
+    // terminal the sink detected, else the shell's terminal hint. The text
+    // sink keeps the keyboard's own Ctrl+X/C/V key IDs.
+    EditKeys edit_keys() const {
+        return sink_on() ? EditKeys::Standard : combine_edit_keys(output_.edit_keys(), hint_terminal());
     }
+    // The letter a chord presses: the target keymap's in Unicode mode.
+    int chord_code(const EditChord& chord);
+    // Paste's keys in press order, for the keyboard's own paste paths;
+    // empty when the target has no paste key, as in xterm.
+    std::vector<int> paste_keys();
     // Applies the context's autocapitalize hint to dictated or swiped text.
     std::string hint_case(std::string text) const;
     void host_event(const std::string& name, JsonPtr fields, bool telemetry = false);

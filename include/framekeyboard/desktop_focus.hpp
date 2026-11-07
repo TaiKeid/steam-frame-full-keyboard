@@ -1,5 +1,7 @@
 #pragma once
 
+#include "terminal_keys.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -11,7 +13,7 @@ namespace framekeyboard {
 // That compositor reads Gamescope's keys with its own keymap, so text sent
 // through Gamescope's temporary keymap arrives as number-row keys there.
 // Reads only Gamescope's focus properties on the root window of its X
-// display, the focused window's title and the focused process's command line;
+// display, the focused window's title and the focused process's program name;
 // never window contents.
 //
 // X calls wait for the server, so they run on a thread of its own: a server
@@ -40,6 +42,12 @@ class DesktopFocus {
     // until it is known. Kept as it was across a lost connection.
     std::vector<std::uint32_t> windows() const;
     std::uint64_t windows_changed() const;
+    // Never blocks: the focused program's Cut/Copy/Paste keys, a known
+    // terminal's own (terminal_edit_keys). Standard until known, for other
+    // programs, and for the Desktop, whose own focus Gamescope cannot show.
+    EditKeys edit_keys() const;
+    // A process's program file name, from argv[0]; empty if it is gone.
+    static std::string program(std::uint32_t pid);
     // Whether this process is a nested desktop compositor (exposed for tests).
     static bool nested_compositor(std::uint32_t pid);
     // Shared with the watcher thread; defined in desktop_focus.cpp.

@@ -1723,7 +1723,16 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     const bool cancel_accent = unicode_mode() && keymap_->composing() &&
                                (key->action == "Escape" || key->action == "Backspace");
     const bool retry_text = output_.retry_available() && key->action == "Enter";
-    const bool local = ime_local || text_local || cancel_accent || retry_text;
+    // Cut, Copy and Paste take the target's own keys, such as a terminal's,
+    // chosen once at the press: a focus change while held releases exactly
+    // what went down. Where no key reaches the clipboard, as in xterm, any
+    // key would reach its program instead, so the press stays local.
+    std::optional<EditChord> chord;
+    if (key->action_kind == ActionKind::Shortcut) {
+        chord = edit_chord(edit_action(key->action), edit_keys());
+    }
+    const bool silent_shortcut = chord && !chord->sends();
+    const bool local = ime_local || text_local || cancel_accent || retry_text || silent_shortcut;
     // Korean's Esc goes to the target, dropping the open syllable on its way.
     const bool hangul_escape = key->action == "Escape" && cjk_ && !cjk_->chinese();
     if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
@@ -1799,9 +1808,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     const auto symbol = text_local ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
                                    : XKB_KEY_NoSymbol;
     const bool old_num = keyboard_.num();
-    const bool accepted =
-        keyboard_.down(pointer, *key, now, local,
-                       local ? ime_press_code(*key) : native_code(*key, modifiers), !latin_toggle(*key));
+    const int code = local   ? ime_press_code(*key)
+                     : chord ? chord_code(*chord)
+                             : native_code(*key, modifiers);
+    const bool accepted = keyboard_.down(pointer, *key, now, local, code, !latin_toggle(*key),
+                                         chord ? std::optional(chord->modifiers) : std::nullopt);
     if (accepted) {
         try {
             if (retry_text) {
@@ -3485,15 +3496,25 @@ bool App::retry_output() {
     update_output_status();
     return accepted;
 }
+int App::chord_code(const EditChord& chord) {
+    const int fallback = key_code(chord.key);
+    return unicode_mode() ? output_.shortcut_code(chord.symbol, fallback) : fallback;
+}
+std::vector<int> App::paste_keys() {
+    const auto chord = edit_chord(EditAction::Paste, edit_keys());
+    if (!chord.sends()) {
+        return {};
+    }
+    auto keys = chord.modifiers;
+    keys.push_back(chord_code(chord));
+    return keys;
+}
 int App::native_code(const Key& key, const std::set<int>& mods) {
     if (!unicode_mode()) {
         return 0;
     }
     if (key.action_kind == ActionKind::Shortcut) {
-        const auto symbol = key.action == "copy"  ? XKB_KEY_c
-                            : key.action == "cut" ? XKB_KEY_x
-                                                  : XKB_KEY_v;
-        return output_.shortcut_code(symbol, key_code(shortcut_key(key.action)));
+        return chord_code(edit_chord(edit_action(key.action), edit_keys()));
     }
     if (key.action.starts_with("Numpad")) {
         // Num Lock is local in Unicode mode. Send explicit navigation codes,
@@ -6715,8 +6736,9 @@ void App::flush_direct(double now) {
     // queued.
     finish_reopen();
     const bool reading = composing_text() || reopening_;
+    // A terminal without a paste key, such as xterm, gets the phrases typed.
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
-                       !output_.steam_field_target() && !sink_on();
+                       !output_.steam_field_target() && !sink_on() && pastes_clipboard(edit_keys());
     // A queue retry already holds the session's text; Enter retries it.
     // While output is off nothing goes out, so a focus change then is no
     // stop: Steam's page has the keys, and the window picked next decides.
@@ -6737,8 +6759,10 @@ void App::flush_direct(double now) {
     }
     // Typing: at most 32 code points per commit, the most the local text
     // path takes at once, so the front phrase goes out in pieces.
-    while (!paste && !direct_waiting_.empty() && !direct_blocked_ && !reading && output_.can_queue(1) &&
-           output_.admit(true, now)) {
+    // A paste still going, when focus moved to a terminal without a paste
+    // key, finishes first or is typed itself ahead of the rest.
+    while (!paste && !direct_paste_ && !direct_waiting_.empty() && !direct_blocked_ && !reading &&
+           output_.can_queue(1) && output_.admit(true, now)) {
         auto& front = direct_waiting_.front();
         const auto commit = text_commits(front).front();
         if (!direct_gap_) {
@@ -6837,10 +6861,13 @@ void App::tick_direct_paste(double now) {
         if (!direct_window_) {
             direct_window_ = output_.focused_window(); // the session's first text
         }
+        const auto paste = paste_keys();
+        if (paste.empty()) {
+            return type_instead("the app has no paste key");
+        }
         p.served = clipboard()->served();
         p.failures = output_.failures();
-        const int v = output_.shortcut_code(XKB_KEY_v, KEY_V);
-        if (!output_.tap({KEY_LEFTCTRL, v})) {
+        if (!output_.tap(paste)) {
             if (now - p.at > 2) {
                 type_instead("Ctrl+V could not be pressed");
             }
@@ -7442,8 +7469,10 @@ void App::start_send() {
     // the tick its text arrived.
     finish_reveal();
     Sending send;
-    if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on()) {
-        // Steam's own fields take text directly; the clipboard cannot reach them.
+    if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on() &&
+        pastes_clipboard(edit_keys())) {
+        // Steam's own fields take text directly; the clipboard cannot reach
+        // them. A terminal without a paste key, such as xterm, is typed into.
         send.pieces = paste_pieces(editor_.text());
     } else {
         send.pieces = send_pieces(editor_.text(), !output_.single_line_target());
@@ -7625,11 +7654,14 @@ bool App::tick_paste(double now) {
         if (window_moved(s.window)) {
             return give_up(window_paste_status);
         }
+        const auto paste = paste_keys();
+        if (paste.empty()) {
+            return give_up("Paste could not be pressed. The text stays here.");
+        }
         s.paste_served = clipboard()->served();
         s.completed = output_.completed();
         s.failures = output_.failures();
-        const int v = output_.shortcut_code(XKB_KEY_v, KEY_V);
-        if (!output_.tap({KEY_LEFTCTRL, v})) {
+        if (!output_.tap(paste)) {
             return now - s.paste_at > 2 ? give_up("Paste could not be pressed. The text stays here.")
                                         : false;
         }

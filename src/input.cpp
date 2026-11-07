@@ -525,7 +525,7 @@ void KeyboardState::release(int code) {
     }
 }
 bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool local, int native_code,
-                         bool uses_modifiers) {
+                         bool uses_modifiers, std::optional<std::vector<int>> shortcut_modifiers) {
     if (presses_.contains(pointer)) {
         return false;
     }
@@ -560,12 +560,12 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     }
     // A modifier tap latches visually but emits nothing until used. This avoids
     // leaving Ctrl physically held while the user navigates another application.
-    auto modifiers_used = modifiers();
+    // A shortcut holds its own chord's modifiers, in order, never latched ones.
     if (key.action_kind == ActionKind::Shortcut) {
-        modifiers_used = {KEY_LEFTCTRL};
-    }
-    for (int modifier : modifiers_used) {
-        press.codes.push_back(modifier);
+        press.codes = shortcut_modifiers.value_or(std::vector<int>{KEY_LEFTCTRL});
+    } else {
+        const auto modifiers_used = modifiers();
+        press.codes.assign(modifiers_used.begin(), modifiers_used.end());
     }
     const int action_code = key.action_kind == ActionKind::Shortcut
                                 ? (native_code ? native_code : key_code(shortcut_key(key.action)))
