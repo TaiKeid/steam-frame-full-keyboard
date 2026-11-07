@@ -21,7 +21,7 @@ struct SdBus {
     decltype(&sd_bus_set_bus_client) set_bus_client{};
     decltype(&sd_bus_set_method_call_timeout) set_timeout{};
     decltype(&sd_bus_start) start{};
-    decltype(&sd_bus_flush_close_unref) close{};
+    decltype(&sd_bus_close_unref) close{};
     decltype(&sd_bus_request_name) request_name{};
     decltype(&sd_bus_add_filter) add_filter{};
     decltype(&sd_bus_process) process{};
@@ -57,7 +57,7 @@ const SdBus& sd() {
         get(a.set_bus_client, "sd_bus_set_bus_client");
         get(a.set_timeout, "sd_bus_set_method_call_timeout");
         get(a.start, "sd_bus_start");
-        get(a.close, "sd_bus_flush_close_unref");
+        get(a.close, "sd_bus_close_unref");
         get(a.request_name, "sd_bus_request_name");
         get(a.add_filter, "sd_bus_add_filter");
         get(a.process, "sd_bus_process");
@@ -78,8 +78,10 @@ const SdBus& sd() {
     }();
     return api;
 }
-// A call that answers within this keeps the watcher thread responsive.
-constexpr std::uint64_t call_timeout_us = 250000;
+// KWin answers within milliseconds; a call bounded to this keeps the watcher
+// thread, which also follows Gamescope's focus, responsive. Attaching makes
+// at most six calls, once per Desktop session or retry.
+constexpr std::uint64_t call_timeout_us = 100000;
 constexpr const char* service = "org.framekeyboard.DesktopFocus";
 constexpr const char* plugin = "framekeyboard-desktop-focus";
 constexpr std::string_view object = "/org/framekeyboard/DesktopFocus";
@@ -163,6 +165,7 @@ std::string owner(sd_bus* bus, const char* name) {
 struct DesktopTerminal::Bus {
     std::string address;
     sd_bus* bus{};
+    // Closed without flushing: a stalled bus must not hold the watcher.
     ~Bus() {
         if (bus) {
             sd().close(bus);
