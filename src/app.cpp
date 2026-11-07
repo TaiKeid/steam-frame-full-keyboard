@@ -3321,8 +3321,17 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
             leave_pending_conversion(); // As it would leave the conversion.
             return true;
         }
+        const bool flick =
+            profiles_.languages.at(settings_.active.language).input_method == "japanese-flick";
         if (execute) {
-            if (code == "Enter" || code == "NumpadEnter") {
+            if ((code == "Enter" || code == "NumpadEnter") && flick && composition_.converting()) {
+                // As on a phone (Mozc's on-screen Enter), 確定 settles the
+                // active segment as shown and moves on; in the last segment
+                // it commits the phrase. A PC keyboard's Enter commits it all.
+                if (composition_.choose(composition_.selected())) {
+                    commit_japanese();
+                }
+            } else if (code == "Enter" || code == "NumpadEnter") {
                 commit_japanese();
             } else if (code == "Backspace") {
                 composition_.backspace();
@@ -3337,8 +3346,6 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
                 // While converting, phones resize the segment with them and PC
                 // IMEs with Shift; the other moves to the next segment.
                 const int direction = code == "ArrowLeft" ? -1 : 1;
-                const bool flick =
-                    profiles_.languages.at(settings_.active.language).input_method == "japanese-flick";
                 if (!composition_.converting()) {
                     composition_.move(direction);
                 } else if (flick != shift) {

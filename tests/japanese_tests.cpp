@@ -749,6 +749,74 @@ void completion_reopen() {
     require(app.view().preedit == "おもしろ", "↶ restores the kana before the completion");
 }
 // An unavailable prediction provider must not discard a successful conversion.
+// The flick layout's 確定 settles one segment at a time and commits the
+// phrase in the last, as phone keyboards do; a full layout's Enter commits
+// it whole, as PC IMEs do.
+void segment_commits() {
+    char directory[] = "/tmp/framekeyboard-segment-commits-XXXXXX";
+    require(mkdtemp(directory), "temporary segment commit profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    int conversions = 0;
+    Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    const auto preedit = [&] { return app.view().preedit; };
+    const auto active = [&] {
+        const auto view = app.view();
+        return view.preedit.substr(view.preedit_active_begin,
+                                   view.preedit_active_end - view.preedit_active_begin);
+    };
+    flick(app, "a", 1);
+    flick(app, "a", 1.2, -60, 0);
+    flick(app, "a", 1.4, 0, -60);
+    flick(app, "a", 1.6, 60, 0);
+    flick(app, "a", 1.8, 0, 60);
+    require(preedit() == "あいうえお", "five kana are typed");
+    click_key(app, "Space");
+    require(preedit() == "〈あい〉〈うえ〉〈お〉" && active() == "〈あい〉",
+            "変換 makes three segments, the first active");
+    click_key(app, "Enter");
+    require(sink.text.empty() && preedit() == "〈あい〉〈うえ〉〈お〉" && active() == "〈うえ〉",
+            "確定 settles the first segment and moves to the next, sending nothing yet");
+    click_key(app, "Space");
+    require(preedit() == "〈あい〉うえ〈お〉" && active() == "うえ",
+            "次候補 changes the active segment alone");
+    click_key(app, "Enter");
+    require(sink.text.empty() && active() == "〈お〉", "the next 確定 keeps that choice and moves on");
+    click_key(app, "Enter");
+    require(sink.text.size() == 1 && sink.text.back() == "〈あい〉うえ〈お〉" && preedit().empty(),
+            "確定 in the last segment commits the phrase as shown");
+    flick(app, "undo", 2);
+    require(preedit() == "あいうえお", "↶ brings the whole phrase back as a reading");
+    for (int i = 0; i < 10 && !preedit().empty(); ++i) {
+        click_key(app, "Backspace");
+    }
+    flick(app, "ka", 3);
+    click_key(app, "Enter");
+    require(sink.text.back() == "か" && preedit().empty(),
+            "before 変換, 確定 commits the reading as typed");
+
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    for (const auto* key : {"KeyA", "KeyI", "KeyU", "KeyE", "KeyO"}) {
+        click_key(app, key);
+    }
+    click_key(app, "Space");
+    require(active() == "〈あい〉", "a full layout converts the same way");
+    click_key(app, "Enter");
+    require(sink.text.back() == "〈あい〉〈うえ〉〈お〉" && preedit().empty(),
+            "but its Enter commits every segment at once");
+}
 void live_without_predictions() {
     struct Unavailable : FakeConverter {
         int* predictions;
@@ -5158,6 +5226,7 @@ int main() {
         resized_rules();
         completion_reading();
         completion_reopen();
+        segment_commits();
         live_without_predictions();
         carried_number_boundaries();
         anthy_initialization_retry();
