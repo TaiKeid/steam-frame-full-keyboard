@@ -153,6 +153,8 @@
     }
     const routeReady = owner => !!routeFor(owner);
     // Only a retained textarea can hold a line break; a changed element is a new request.
+    // Steam's page pastes its own clipboard into a field it holds focused.
+    const pasteable = session => session?.route?.kind === "dom" && !!session.route.element;
     const multiline = session => session?.route?.kind === "dom" &&
         (session.route.element?.tagName === "TEXTAREA" || session.route.element?.isContentEditable === true);
     function sendDom(session, text, key) {
@@ -163,6 +165,10 @@
             return !element || d.execCommand("insertText", false, text) === true;
         }
         if (text === "VKClose") { releaseLogical(false); return true; }
+        // Steam's own paste key goes through the global controller keyboard,
+        // which can reach an app behind; the page's paste stays in the field.
+        // Full Keyboard never sees what the clipboard holds.
+        if (text === "Paste") return !!element && d.activeElement === element && d.execCommand("paste") === true;
         // Shift+Enter is a paragraph break. The page sees a shifted Enter, as
         // chat entries that submit only on a plain Enter expect.
         const shift = text === "ShiftEnter";
@@ -553,7 +559,7 @@
             // page's field; not one the bridge is closing for its own reasons.
             steam: !logical && !!native.open && ignoreOpen && now() >= closingUntil,
             active: eligible && acknowledged === request && fresh(),
-            local: !!logical?.owner.external, multiline: multiline(logical),
+            local: !!logical?.owner.external, multiline: multiline(logical), paste: pasteable(logical),
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: handoff && !native.open && externalSupported &&
                 LOCAL_KEY.test(handoff.key) ?
@@ -790,10 +796,11 @@
             if (!snapshot().active || generation !== request || typeof text !== "string" ||
                 text.length > 8192 || typeof key !== "boolean" || key &&
                 !["Backspace", "Enter", "ShiftEnter", "Tab", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-                    "VKClose"].includes(text))
+                    "VKClose", "Paste"].includes(text))
                 return false;
             const session = logical, manager = session.owner.manager;
-            if (session.owner.external || key && text === "ShiftEnter" && !multiline(session)) return false;
+            if (session.owner.external || key && text === "ShiftEnter" && !multiline(session) ||
+                key && text === "Paste" && !pasteable(session)) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
             if (session.route?.kind !== "callback") {
                 const ok = sendDom(session, text, key);

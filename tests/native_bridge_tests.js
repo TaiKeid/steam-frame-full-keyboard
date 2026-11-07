@@ -28,6 +28,7 @@ function editingFixture(manager) {
             const e = this.activeElement, f = fields.get(e);
             if (!f || e.disabled || e.readOnly) return false;
             let start = e.selectionStart, end = e.selectionEnd;
+            if (command === "paste") text = "clip"; // what Steam's clipboard holds
             if (command === "delete" && start === end)
                 start -= [...f.text.slice(0, start)].at(-1)?.length || 0;
             if (command === "delete") text = "";
@@ -438,6 +439,21 @@ for (const production of [false, true]) {
     assert(f.dom.doc.activeElement === f.dom.doc.body, "released, the replay moves focus as Steam does");
     f.bridge.dispose();
     assert(f.root.vrGamepadInput.FocusItemUnderMouse === f.oldFocus, "disposal removes the hook");
+}
+// Ctrl+V in a Steam field: the page pastes its own clipboard into the held
+// field. A callback route can't, and says so in its state.
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true), e = f.dom.field(true, true, "DIV");
+    const generation = domOwned(f, true);
+    assert(f.step(generation).paste && f.bridge.send(generation, "Paste", true), "a held field takes a paste");
+    assert.equal(f.dom.text(e), "clip");
+    f.bridge.dispose();
+}
+for (const production of [false, true]) {
+    const f = fixture(false, production), generation = owned(f);
+    assert(!f.step(generation).paste && !f.bridge.send(generation, "Paste", true) && f.deliveries.length === 0,
+        "a callback route can't paste");
+    f.bridge.dispose();
 }
 for (const production of [false, true]) {
     const f = fixture(false, production), generation = owned(f);

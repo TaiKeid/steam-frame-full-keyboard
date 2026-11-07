@@ -659,10 +659,11 @@ void paragraph_breaks() {
     require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "paragraph socketpair");
     {
         NativeReplacement replacement(local, pair[0]);
-        const auto state = [&](int request, bool multiline) {
+        const auto state = [&](int request, bool multiline, bool paste = false) {
             put(pair[1], R"({"op":"state","version":1,"request":)" + std::to_string(request) +
                              R"(,"open":true,"eligible":true,"active":true,"multiline":)" +
-                             (multiline ? "true" : "false") + "}");
+                             (multiline ? "true" : "false") + R"(,"paste":)" + (paste ? "true" : "false") +
+                             "}");
             replacement.poll(10);
             replacement.route(true);
         };
@@ -719,6 +720,26 @@ void paragraph_breaks() {
         replacement.send(KEY_LEFTSHIFT, 0);
         empty("a single-line field never receives a paragraph break");
         require(local.keys.empty(), "paragraph breaks never reach the local sink");
+        // A field Steam's page can paste into: Ctrl is held without a packet,
+        // and Ctrl+V asks the page to paste; other Ctrl shortcuts stay unsupported.
+        state(4, false, true);
+        require(replacement.deliver_key(KEY_LEFTCTRL, 1) == Delivery::Success, "Ctrl is held for a paste");
+        empty("Ctrl alone sends nothing to Steam");
+        require(replacement.deliver_key(KEY_V, 1) == Delivery::Waiting, "Ctrl+V is delivered");
+        const auto paste = read("key", 1, "Paste");
+        put(pair[1], "{\"op\":\"key-result\",\"id\":" + std::to_string(paste) + ",\"ok\":true}");
+        replacement.poll(10.2);
+        require(replacement.deliver_key(KEY_V, 1) == Delivery::Success, "the paste is acknowledged");
+        replacement.send(KEY_V, 2);
+        empty("a held Ctrl+V pastes once");
+        replacement.send(KEY_V, 0);
+        require(take(pair[1]).find("key-up") != std::string::npos, "the paste key is released");
+        replacement.send(KEY_C, 1);
+        replacement.send(KEY_C, 0);
+        replacement.send(KEY_LEFTCTRL, 0);
+        empty("Ctrl+C sends nothing");
+        require(replacement.take_unsupported_control(), "and shows the notice");
+        require(local.keys.empty(), "pastes never reach the local sink");
     }
     close(pair[1]);
 }
