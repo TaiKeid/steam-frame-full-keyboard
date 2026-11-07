@@ -101,9 +101,10 @@ void reload_manager() {
     if (systemctl && *systemctl) {
         return;
     }
-    // systemctl --user needs the manager's private socket, which SteamVR's
-    // sandbox hides and SteamOS's nested desktop places elsewhere along with
-    // $XDG_RUNTIME_DIR. The manager's own bus socket stays at this path.
+    // systemctl --user reaches the manager only through the systemd/private
+    // socket in $XDG_RUNTIME_DIR, without falling back to the bus. SteamOS's
+    // Desktop gives its apps another runtime directory and a private bus, and
+    // a sandbox can hide that socket; the main session bus stays at this path.
     char busctl[] = "busctl", address[] = "--address", call[] = "call",
          service[] = "org.freedesktop.systemd1", path[] = "/org/freedesktop/systemd1",
          interface[] = "org.freedesktop.systemd1.Manager", method[] = "Reload";

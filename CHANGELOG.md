@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Renamed **Use Drag to Move** in Settings → General to **Grab to move**, with a second line saying what it does: hold grip on the keyboard to move it instead of the line below it. The saved setting is unchanged. Thanks to @Bisonator for the report (#12).
-- Fixed: **Start with SteamOS** failed with "Could not refresh SteamOS startup settings" when Full Keyboard was started by SteamVR's dashboard instead of Steam. SteamVR runs overlays where the session bus is visible but the user manager's private socket is not, so `systemctl --user` could not reach the manager even though it was running. The unit is now reloaded through the manager's D-Bus `Reload` method when that happens.
+- Fixed: **Start with SteamOS** couldn't be turned on or off in a Full Keyboard started from SteamOS's Desktop, such as from its terminal: **Apply and save** said "Could not refresh SteamOS startup settings" and the checkbox went back. Apps started in the Desktop get a runtime folder and session bus of their own, where `systemctl --user` can't reach SteamOS's service manager. The keyboard now asks the manager to reload through the main session bus when that happens. Thanks to @jlsalvador for the fix (#11).
 
 ## 0.15.0: Improved typing, swiping and overall feel, and reworked Japanese and Korean
 

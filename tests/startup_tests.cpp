@@ -162,25 +162,57 @@ int main(int argc, char** argv) {
             failed = true;
         }
         require(failed && read(unit) == "# custom unit\n", "custom startup units are never overwritten");
-        // SteamVR's sandbox and SteamOS's nested desktop both hide the manager's
-        // private socket, so systemctl --user fails even though the manager runs
-        // on its canonical bus. The D-Bus Reload must still reach it.
+        // SteamOS's Desktop hides the manager's private socket from its apps, so
+        // systemctl --user fails even though the manager runs on the main
+        // session bus. The D-Bus Reload must still reach it there. PATH holds
+        // only these stand-ins, so the real manager is never reloaded.
         const auto commands = base / "commands";
+        const auto calls = base / "manager-calls";
         fs::create_directories(commands);
-        std::ofstream(commands / "systemctl") << "#!/bin/sh\nexit 1\n";
-        std::ofstream(commands / "busctl") << "#!/bin/sh\nexit 0\n";
-        fs::permissions(commands / "systemctl", fs::perms::owner_all);
-        fs::permissions(commands / "busctl", fs::perms::owner_all);
+        auto client = [&](const char* name, int status) {
+            const auto script = commands / name;
+            std::ofstream(script) << "#!/bin/sh\necho \"" << name << " $*\" >> \"" << calls.string()
+                                  << "\"\nexit " << status << '\n';
+            fs::permissions(script, fs::perms::owner_all);
+        };
         const char* const path = std::getenv("PATH");
         const std::string saved_path = path ? path : "";
-        setenv("PATH", (commands.string() + ":" + saved_path).c_str(), 1);
+        setenv("PATH", commands.c_str(), 1);
+        const auto bus_call = "busctl --address unix:path=/run/user/" + std::to_string(getuid()) +
+                              "/bus call org.freedesktop.systemd1 /org/freedesktop/systemd1 "
+                              "org.freedesktop.systemd1.Manager Reload\n";
+        const auto sandboxed_units = base / "sandboxed-units";
+        const auto sandboxed_link =
+            sandboxed_units / "steamvr.service.wants/framekeyboard-autostart.service";
         settings.start_with_steamos = true;
         settings.replace_native_keyboard = true;
-        const auto sandboxed_units = base / "sandboxed-units";
+        client("systemctl", 1);
+        client("busctl", 0);
         configure_startup(settings, binary, config, sandboxed_units);
-        require(
-            fs::is_symlink(sandboxed_units / "steamvr.service.wants/framekeyboard-autostart.service"),
-            "a hidden manager socket reloads through the canonical user bus socket");
+        require(fs::is_symlink(sandboxed_link) &&
+                    read(calls) == "systemctl --user daemon-reload\n" + bus_call,
+                "a hidden manager socket reloads through the main session bus");
+        fs::remove(calls);
+        client("systemctl", 0);
+        settings.start_with_steamos = false;
+        configure_startup(settings, binary, config, sandboxed_units);
+        require(!fs::exists(sandboxed_units / "framekeyboard-autostart.service") &&
+                    read(calls) == "systemctl --user daemon-reload\n",
+                "a reachable manager reloads through systemctl alone");
+        fs::remove(calls);
+        client("systemctl", 1);
+        client("busctl", 1);
+        settings.start_with_steamos = true;
+        std::string message;
+        try {
+            configure_startup(settings, binary, config, sandboxed_units);
+        } catch (const std::exception& error) {
+            message = error.what();
+        }
+        require(message == "Could not refresh SteamOS startup settings." &&
+                    !fs::exists(sandboxed_units / "framekeyboard-autostart.service") &&
+                    !fs::is_symlink(sandboxed_link),
+                "an unreachable manager leaves startup as it was");
         setenv("PATH", saved_path.c_str(), 1);
         fs::remove_all(base);
         std::cout
