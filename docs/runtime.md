@@ -55,7 +55,7 @@ For example, to address a different running compositor:
 
 The optional `--input uinput` developer backend requires access to `/dev/uinput`; newly created devices were not discovered by the tested outer VR session. The installed launcher uses libei and does not need this backend.
 
-Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. They do not synchronize clipboards between sessions, implement terminal Ctrl+Shift shortcuts, or read clipboard data. In Unicode mode Caps/Num Lock are local to this panel and do not change the system locks. Native modifier shortcuts remain subject to receiving-app behavior.
+Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal opened from the dashboard they use the terminal's own keys instead: Ctrl+Shift+C and Ctrl+Shift+V in Konsole, GNOME Terminal, Ptyxis, GNOME Console, kitty, foot, Alacritty, WezTerm, LXTerminal and st, and Ctrl+Alt+C and Ctrl+Alt+V in rxvt-unicode. A terminal has no cut, so Cut copies there. xterm copies by selecting and pastes with the middle button, so the three keys send nothing there, and dictation's paste Send types instead. The keyboard knows the terminal by its program's name ([design](terminal-edit-keys-design.md)); inside SteamOS's Desktop it can't see which app has focus, so the keys stay Ctrl+X, Ctrl+C and Ctrl+V there, also in Konsole: tap Ctrl and Shift, then C or V, for Konsole's own keys. Konsole passes Copy to the program while nothing is selected, as it does for a real keyboard, so select first. The keys do not synchronize clipboards between sessions or read clipboard data. In Unicode mode Caps/Num Lock are local to this panel and do not change the system locks. Native modifier shortcuts remain subject to receiving-app behavior.
 
 ## Troubleshooting
 
@@ -68,7 +68,7 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. They do not synchronize clip
 | Keyboard paused or disconnected | Wait for the compositor; native and Unicode connections retry in the background and old holds are cleared |
 | Input connection was lost | Wait for background reconnect; old holds and text are discarded. For an unrecoverable resident failure, use Settings → Quit Full Keyboard, then relaunch |
 | Wrong characters | Check the selected app language and custom XKB profile; physical uinput/external-JIS modes additionally need a matching target keymap |
-| Copy/Paste fail in a terminal | This version sends Ctrl+C/Ctrl+V, not terminal Ctrl+Shift shortcuts |
+| Copy/Paste fail in a terminal | Terminals opened from the dashboard get their own keys only if they are on the known list, by program name; Python-based terminals and terminals inside other apps are not detected. In SteamOS's Desktop, tap Ctrl and Shift, then C or V. In xterm, select to copy and middle-click to paste |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
 | Installer says Full Keyboard is running | Quit Full Keyboard in Settings, then run the installer again |

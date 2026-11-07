@@ -164,7 +164,7 @@ A shell can have several text fields. Without a way to tell them apart, switchin
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `purpose` | `text`, `password`, `pin`, `number`, `email`, `url`, `search`, `terminal` | `password`/`pin`: no swipe, suggestions, dictation, emoji or Japanese learning. `number`/`pin`: opens with the numpad shown and Num Lock on. `email`/`url`: no swipe autospace. `terminal`: no autospace, suggestions or Japanese learning. |
+| `purpose` | `text`, `password`, `pin`, `number`, `email`, `url`, `search`, `terminal` | `password`/`pin`: no swipe, suggestions, dictation, emoji or Japanese learning. `number`/`pin`: opens with the numpad shown and Num Lock on. `email`/`url`: no swipe autospace. `terminal`: no autospace, suggestions or Japanese learning; with normal output, Cut, Copy and Paste send Ctrl+Shift+C and Ctrl+Shift+V unless the focused program is a known terminal with keys of its own. |
 | `enter` | `enter`, `go`, `search`, `send`, `next`, `done` | Legend on Enter; the key still sends Enter |
 | `autocapitalize` | `none`, `sentences`, `words` | Swipe and dictation only: `none` lowercases the first letter of each dictated phrase and swiped word, `words` capitalizes every word, `sentences` keeps the usual casing |
 | `language` | language ID | Temporary selection for this context |
@@ -338,7 +338,7 @@ Turning the sink on or off first cancels through the old destination: held keys 
 ### Events and acknowledgement
 
 - `commit` carries committed text. `key` is one atomic action, press and release, for a named control. A held key's repeats arrive as further `key` events with `"repeat":true`. Modifier presses alone are not sent. Latched or held modifiers apply to the next `key` and are listed in `modifiers`.
-- Key names are the logical key IDs from the layout (`Enter`, `Backspace`, `ArrowLeft`, `KeyA`, ...), never evdev or Steam codes. Cut, Copy and Paste arrive as `KeyX`, `KeyC` and `KeyV` with `Ctrl`.
+- Key names are the logical key IDs from the layout (`Enter`, `Backspace`, `ArrowLeft`, `KeyA`, ...), never evdev or Steam codes. Cut, Copy and Paste arrive as `KeyX`, `KeyC` and `KeyV` with `Ctrl`, also in a `terminal` context: the shell maps them for its field.
 - Events are ordered and numbered by `seq`. A swipe correction arrives as `Backspace` keys followed by the new commit, in order, in the same context.
 - A socket write does not mean a field accepted the text. The shell acknowledges with `ack` (`context`, highest accepted `seq`), or rejects one event with `{"op":"reject","context":...,"seq":N}`. A rejected commit is kept for explicit retry, as failed commits are in native replacement. Dictation Send clears the editor only after its commit is acknowledged.
 - One event is in flight at a time (owner, 2026-10-26): the next is sent only after the shell answers the last, exactly as the output queue waits for an asynchronous transport. Each is one local round trip.

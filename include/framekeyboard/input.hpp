@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+#include "terminal_keys.hpp"
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -76,6 +77,14 @@ class KeySink {
     // A nested desktop has the keys: its applications paste from its own
     // clipboard (Clipboard::desktop_result), not Gamescope's.
     virtual bool desktop_focused() const { return false; }
+    // The focused application's own Cut/Copy/Paste keys, such as a known
+    // terminal's (terminal_keys.hpp). Standard when unknown, or when output
+    // goes somewhere that is no terminal, such as a Steam field. Never blocks.
+    virtual EditKeys edit_keys() const { return EditKeys::Standard; }
+    // A shell says the field it activated is a terminal (its `terminal`
+    // purpose hint). A sink that pastes by itself, as the Desktop's Unicode
+    // paste does, applies it as App does to its own keys (combine_edit_keys).
+    virtual void set_terminal_hint(bool) {}
     // Unknown until the receiving system reports its lock state.
     virtual std::optional<bool> num_lock_state() { return {}; }
 };
@@ -132,8 +141,10 @@ class KeyboardState {
     ~KeyboardState();
     // `uses_modifiers` false leaves a latched Shift for the next key, as
     // Korean's 한/영 does: it switches the keys, typing nothing.
+    // `shortcut_modifiers`: what a Cut, Copy or Paste key holds with its
+    // letter (`native_code`), such as a terminal's Ctrl+Shift; Ctrl if unset.
     bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0,
-              bool uses_modifiers = true);
+              bool uses_modifiers = true, std::optional<std::vector<int>> shortcut_modifiers = {});
     // A local press, still held, goes on as a native one already past its
     // repeat delay: `code` goes down now and repeats from the next step.
     bool continue_native(unsigned pointer, int code, double now);

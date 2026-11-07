@@ -82,6 +82,10 @@ class ShellRouter : public KeySink {
     void set_character_gap(double seconds) override { inner_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { inner_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return inner_.desktop_focused(); }
+    // On, Cut, Copy and Paste keep the keyboard's own Ctrl+X/C/V key IDs;
+    // the shell maps them for its own field.
+    EditKeys edit_keys() const override { return on_ ? EditKeys::Standard : inner_.edit_keys(); }
+    void set_terminal_hint(bool terminal) override { inner_.set_terminal_hint(terminal); }
     std::optional<bool> num_lock_state() override {
         return on_ ? std::nullopt : inner_.num_lock_state();
     }

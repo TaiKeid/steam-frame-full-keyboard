@@ -89,6 +89,7 @@ struct AnsweringServer {
     std::atomic<bool> first_watched{};
     std::uint16_t sequence{};
     int client{-1};
+    bool moves{true}; // false: window 10 keeps focus
     bool start(int number, pid_t nested) {
         compositor = nested;
         listener = abstract_listener(number);
@@ -204,7 +205,7 @@ struct AnsweringServer {
                 if (property == focused_atom) {
                     values = {focus};
                 } else {
-                    if (focus == 10) {
+                    if (focus == 10 && moves) {
                         // Focus moves on, once: its notification arrives before this reply.
                         focus = 20;
                         property_notify(focused_atom);
@@ -570,6 +571,39 @@ int main() {
         }
         require(!answering.first_watched,
                 "the window that lost focus is no longer watched for its title");
+        require(moving.edit_keys() == EditKeys::Standard, "this test is no terminal: Ctrl+X/C/V");
+
+        // A focused terminal: its program's name gives its own edit keys.
+        require(DesktopFocus::program(static_cast<std::uint32_t>(getpid())) == "desktop-focus-tests" &&
+                    DesktopFocus::program(0).empty(),
+                "the program is argv[0]'s file name; no process, no name");
+        const pid_t terminal = fork();
+        if (terminal == 0) {
+            char program[] = "/usr/bin/konsole", seconds[] = "30";
+            char* arguments[] = {program, seconds, nullptr};
+            execv("/bin/sleep", arguments);
+            _exit(1);
+        }
+        std::this_thread::sleep_for(50ms); // until it runs as konsole
+        require(DesktopFocus::program(static_cast<std::uint32_t>(terminal)) == "konsole",
+                "the stand-in runs as konsole");
+        static AnsweringServer steady;
+        steady.moves = false;
+        int steady_number = answering_number + 20;
+        while (!steady.start(steady_number, terminal)) {
+            ++steady_number;
+        }
+        DesktopFocus terminal_focus(":" + std::to_string(steady_number));
+        for (int i = 0; i < 200 && terminal_focus.edit_keys() != EditKeys::CtrlShift; ++i) {
+            std::this_thread::sleep_for(10ms);
+        }
+        kill(terminal, SIGKILL);
+        waitpid(terminal, nullptr, 0);
+        require(terminal_focus.edit_keys() == EditKeys::CtrlShift && !terminal_focus.focused(),
+                "a focused Konsole takes Ctrl+Shift, and is not the Desktop");
+        require(timed([&] { (void)terminal_focus.edit_keys(); }) < 5ms, "edit_keys() never blocks");
+        require(DesktopFocus::program(static_cast<std::uint32_t>(terminal)).empty(),
+                "a process that is gone has no name");
         probe_epoch_tests(answering_number + 1);
         probe_title_tests(answering_number + 10);
     } catch (const std::exception& error) {

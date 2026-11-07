@@ -86,6 +86,7 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
     }
     host_.context = std::move(context);
     host_.hints = host_.context ? hints : HostHints{};
+    output_.set_terminal_hint(hint_terminal()); // for the Desktop's Unicode paste
     if (host_.context) {
         status_.clear(); // a new field starts without the last one's notices
     }

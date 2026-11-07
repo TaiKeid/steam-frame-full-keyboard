@@ -223,6 +223,12 @@ bool EiSink::desktop_target() {
     }
     return desktop_->focused();
 }
+EditKeys EiSink::edit_keys() const {
+    if (edit_keys_) {
+        return edit_keys_();
+    }
+    return desktop_ ? desktop_->edit_keys() : EditKeys::Standard;
+}
 bool EiSink::needs_entry(const std::string& text) {
     // A Gamescope commit already out reports its result to the same call,
     // even once the Desktop has taken focus.
@@ -260,11 +266,22 @@ bool EiSink::enter(const std::string& text, std::size_t deletions) {
         tap(KEY_BACKSPACE);
     }
     if (desktop_paste_) {
-        // The text may arrive any time after Ctrl+V, so none counts as delivered.
+        // Gamescope can't show the Desktop's own focus, so only a shell's
+        // terminal hint changes the chord there. Physical V, as for U above.
+        const auto paste = edit_chord(EditAction::Paste, combine_edit_keys(edit_keys(), terminal_hint_));
+        if (!paste.sends()) {
+            return false; // Nothing written: the clipboard keeps what it held.
+        }
+        // The text may arrive any time after the paste keys, so none counts as delivered.
         entry.write = desktop_paste_->write(text);
         entry.paste_at = entry.keys.size();
-        entry.keys.insert(entry.keys.end(),
-                          {{KEY_LEFTCTRL, 1}, {KEY_V, 1}, {KEY_V, 0}, {KEY_LEFTCTRL, 0}});
+        for (const int modifier : paste.modifiers) {
+            entry.keys.emplace_back(modifier, 1);
+        }
+        tap(key_code(paste.key));
+        for (auto modifier = paste.modifiers.rbegin(); modifier != paste.modifiers.rend(); ++modifier) {
+            entry.keys.emplace_back(*modifier, 0);
+        }
         entry.character_ends.assign(static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1)),
                                     entry.keys.size() + 1);
     }

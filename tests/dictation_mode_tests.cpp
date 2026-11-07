@@ -50,6 +50,8 @@ struct Sink : KeySink {
     std::uint32_t focused_window() const override { return window; }
     bool desktop{}; // A nested desktop has the keys.
     bool desktop_focused() const override { return desktop; }
+    EditKeys edit{}; // The focused app's Cut/Copy/Paste keys, such as a terminal's.
+    EditKeys edit_keys() const override { return edit; }
     void send(int code, int value) override { keys.emplace_back(code, value); }
     Delivery deliver_key(int code, int value) override {
         send(code, value);
@@ -1759,6 +1761,194 @@ void direct_paste_tests() {
     }
 }
 
+// The keys a chord presses and releases, modifiers first and last.
+Keys chord_keys(const std::vector<int>& modifiers, int letter) {
+    Keys keys;
+    for (const int modifier : modifiers) {
+        keys.emplace_back(modifier, 1);
+    }
+    keys.emplace_back(letter, 1);
+    keys.emplace_back(letter, 0);
+    for (auto modifier = modifiers.rbegin(); modifier != modifiers.rend(); ++modifier) {
+        keys.emplace_back(*modifier, 0);
+    }
+    return keys;
+}
+Keys operator+(Keys first, const Keys& second) {
+    first.insert(first.end(), second.begin(), second.end());
+    return first;
+}
+// Cut, Copy and Paste use a terminal's own keys, and nothing changes
+// elsewhere (docs/terminal-edit-keys-design.md). Keys go to the test's own
+// sink, never to a focused application.
+void terminal_edit_key_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path, "");
+    const auto press_edit_keys = [&](Sink& sink) {
+        App app(options, sink);
+        for (const auto* id : {"Cut", "Copy", "Paste"}) {
+            press(app, id);
+        }
+        settle(app);
+    };
+    {
+        Sink sink;
+        press_edit_keys(sink);
+        require(sink.keys == chord_keys({KEY_LEFTCTRL}, KEY_X) + chord_keys({KEY_LEFTCTRL}, KEY_C) +
+                                 chord_keys({KEY_LEFTCTRL}, KEY_V),
+                "outside terminals: Ctrl+X, Ctrl+C, Ctrl+V as before");
+    }
+    {
+        Sink sink;
+        sink.edit = EditKeys::CtrlShift;
+        press_edit_keys(sink);
+        const std::vector<int> shift{KEY_LEFTCTRL, KEY_LEFTSHIFT};
+        require(sink.keys ==
+                    chord_keys(shift, KEY_C) + chord_keys(shift, KEY_C) + chord_keys(shift, KEY_V),
+                "in a terminal: Cut copies, Ctrl+Shift+C and Ctrl+Shift+V; never Ctrl+C");
+    }
+    {
+        Sink sink;
+        sink.edit = EditKeys::CtrlAlt;
+        press_edit_keys(sink);
+        const std::vector<int> alt{KEY_LEFTCTRL, KEY_LEFTALT};
+        require(sink.keys == chord_keys(alt, KEY_C) + chord_keys(alt, KEY_C) + chord_keys(alt, KEY_V),
+                "rxvt-unicode: Ctrl+Alt+C and Ctrl+Alt+V");
+    }
+    {
+        Sink sink;
+        sink.edit = EditKeys::SelectionOnly;
+        App app(options, sink);
+        for (const auto* id : {"Cut", "Copy", "Paste"}) {
+            press(app, id);
+        }
+        settle(app);
+        require(sink.keys.empty() && sink.text.empty(), "xterm: no key reaches its program");
+        press(app, "KeyA");
+        settle(app);
+        require(sink.text == std::vector<std::string>{"a"}, "and the keyboard still types");
+    }
+    {
+        // A shell's terminal hint applies where the program isn't known,
+        // and ends with its context.
+        Sink sink;
+        App app(options, sink);
+        App::HostHints terminal;
+        terminal.purpose = "terminal";
+        app.set_context(std::string("c-1"), terminal);
+        press(app, "Copy");
+        settle(app);
+        require(sink.keys == chord_keys({KEY_LEFTCTRL, KEY_LEFTSHIFT}, KEY_C),
+                "a field the shell calls a terminal gets Ctrl+Shift+C");
+        sink.keys.clear();
+        app.set_context(std::string("c-2"), {});
+        press(app, "Copy");
+        settle(app);
+        require(sink.keys == chord_keys({KEY_LEFTCTRL}, KEY_C), "the next field gets Ctrl+C again");
+    }
+    {
+        // A terminal detected after the press changes nothing already held:
+        // the release matches the press.
+        Sink sink;
+        App app(options, sink);
+        const auto [x, y] = key_center(app, "Copy");
+        app.down(0, x, y, clock);
+        app.tick(clock += .05);
+        sink.edit = EditKeys::CtrlShift;
+        app.up(0, x, y);
+        settle(app);
+        require(sink.keys == chord_keys({KEY_LEFTCTRL}, KEY_C),
+                "a focus change while held releases exactly what went down");
+    }
+}
+// Dictation's paste Send and Type as I speak paste with a terminal's own
+// key, and type into a terminal that has none.
+void terminal_paste_tests() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    write_config(directory.path,
+                 R"(,"dictation":"server","dictation_server":"127.0.0.1","dictation_send_paste":true)");
+    use_fake_helper(options, directory.path, "silent");
+    const std::vector<int> shift{KEY_LEFTCTRL, KEY_LEFTSHIFT};
+    {
+        Sink sink;
+        sink.edit = EditKeys::CtrlShift;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "hi there");
+        press(app, "Dictation-send");
+        settle(app);
+        require(clipboard.written == std::vector<std::string>{"hi there"} &&
+                    sink.keys == chord_keys(shift, KEY_V) && sink.text.empty(),
+                "paste Send into a terminal presses Ctrl+Shift+V");
+        require(!app.dictation_open(), "and the pasted text returns to the keyboard");
+    }
+    {
+        Sink sink;
+        sink.edit = EditKeys::SelectionOnly;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "hi there");
+        press(app, "Dictation-send");
+        settle(app);
+        std::string typed;
+        for (const auto& piece : sink.text) {
+            typed += piece;
+        }
+        require(clipboard.written.empty() && sink.keys.empty() && typed == "hi there",
+                "xterm has no paste key: Send types the text and leaves the clipboard alone");
+    }
+    write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1",)"
+                                 R"("dictation_send_paste":true,"dictation_direct":true)");
+    use_fake_helper(options, directory.path, "direct");
+    {
+        Sink sink;
+        sink.edit = EditKeys::CtrlShift;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.keys.size() == 6; });
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.keys.size() == 12; });
+        settle(app);
+        require(clipboard.written == std::vector<std::string>{"Hello there.", " Again."} &&
+                    sink.keys == chord_keys(shift, KEY_V) + chord_keys(shift, KEY_V) &&
+                    sink.text.empty(),
+                "Type as I speak pastes each phrase with Ctrl+Shift+V");
+    }
+    {
+        Sink sink;
+        sink.edit = EditKeys::SelectionOnly;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty() &&
+                    clipboard.written.empty(),
+                "in xterm the phrases are typed");
+    }
+}
+
 void paste_tests() {
     TemporaryDirectory directory;
     Options options;
@@ -2907,6 +3097,16 @@ void hosted_tests() {
     require(events.size() == 1 && events[0].text == "d" && events[0].context == "c-2",
             "the new context types");
     router.acknowledge("c-2", events[0].seq);
+    app.tick(clock += .1);
+    // The shell maps a terminal field's Copy itself: the sink keeps Ctrl+C's key IDs.
+    App::HostHints shell_terminal;
+    shell_terminal.purpose = "terminal";
+    app.set_context(std::string("t"), shell_terminal);
+    press(app, "Copy");
+    events = router.take_events();
+    require(events.size() == 1 && events[0].key == "KeyC" && events[0].modifiers.size() == 1,
+            "Copy reaches the sink as Ctrl+KeyC, also for a terminal field");
+    router.acknowledge("t", events[0].seq);
     app.tick(clock += .1);
     require(sink.text.empty() && sink.keys.empty(),
             "nothing reaches the input backend while the sink is on");
@@ -4136,6 +4336,8 @@ int main() {
         direction_tests();
         direct_tests();
         direct_paste_tests();
+        terminal_edit_key_tests();
+        terminal_paste_tests();
         device_tests();
         fallback_tests();
         microphone_tests();
