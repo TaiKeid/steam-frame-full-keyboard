@@ -68,7 +68,7 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal opened from th
 | Keyboard paused or disconnected | Wait for the compositor; native and Unicode connections retry in the background and old holds are cleared |
 | Input connection was lost | Wait for background reconnect; old holds and text are discarded. For an unrecoverable resident failure, use Settings → Quit Full Keyboard, then relaunch |
 | Wrong characters | Check the selected app language and custom XKB profile; physical uinput/external-JIS modes additionally need a matching target keymap |
-| Copy/Paste fail in a terminal | Terminals opened from the dashboard get their own keys only if they are on the known list, by program name; Python-based terminals and terminals inside other apps are not detected. In SteamOS's Desktop, tap Ctrl and Shift, then C or V. In xterm, select to copy and middle-click to paste |
+| Copy/Paste fail in a terminal | Terminals opened from the dashboard get their own keys only if they are on the known list, by program name; Python-based terminals and terminals inside other apps are not detected. In SteamOS's Desktop, the same terminals are detected while the keyboard runs; if they aren't, as after a KDE update, tap Ctrl and Shift, then C or V. In xterm, select to copy and middle-click to paste |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
 | Installer says Full Keyboard is running | Quit Full Keyboard in Settings, then run the installer again |

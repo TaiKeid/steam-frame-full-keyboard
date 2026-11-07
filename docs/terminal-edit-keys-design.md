@@ -91,11 +91,12 @@ Inside the Desktop, Gamescope's focus only shows `kwin_wayland`, and the Desktop
 
 - Only the program's file name is read, from `/proc/<pid>/cmdline`, as `DesktopFocus` already does. Nothing else of the command line is kept.
 - The name is compared against the fixed list on the watcher thread and dropped. Only the resulting kind (standard, Ctrl+Shift, Ctrl+Alt, selection-only) is kept, as one atomic value.
-- No window titles, no `WM_CLASS`, no accessibility data, no clipboard or primary selection reads. Program names and kinds are never logged.
+- Inside SteamOS's Desktop, only `DBUS_SESSION_BUS_ADDRESS` is taken from the environment of `kwin_wayland`'s parent, and the script sends only the active window's app ID, never its caption. Only reports from KWin's own unique name count. The app ID is matched and dropped like a program name.
+- No window titles, no `WM_CLASS` from Gamescope's displays, no accessibility data, no clipboard or primary selection reads. Program names, app IDs and kinds are never logged.
 
 ## Cost
 
-- No new thread, timer, socket or poll. The watcher thread already wakes on Gamescope's focus property changes and reads the focused process's command line once per newly focused process. The classification is one string comparison against about 20 names at that moment.
+- No new thread or polling. The watcher thread already wakes on Gamescope's focus property changes and reads the focused process's command line once per newly focused process. Inside SteamOS's Desktop it also holds one connection to the Desktop's bus, which wakes it only when KWin reports another active window, or every 5 s while attaching keeps failing. The classification is one string comparison against about 20 names at that moment.
 - The VR thread reads one atomic value per Cut, Copy or Paste press and per paste. Nothing blocks it.
 
 ## Code

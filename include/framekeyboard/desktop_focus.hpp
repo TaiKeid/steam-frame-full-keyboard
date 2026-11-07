@@ -46,8 +46,9 @@ class DesktopFocus {
     std::vector<std::uint32_t> windows() const;
     std::uint64_t windows_changed() const;
     // Never blocks: the focused program's Cut/Copy/Paste keys, a known
-    // terminal's own (terminal_edit_keys). Standard until known, for other
-    // programs, and for the Desktop, whose own focus Gamescope cannot show.
+    // terminal's own (terminal_edit_keys); inside SteamOS's Desktop, its
+    // active app's, when following them (DesktopTerminal). Standard until
+    // known and for other programs.
     EditKeys edit_keys() const;
     // A process's program file name, from argv[0]; empty if it is gone.
     static std::string program(std::uint32_t pid);
