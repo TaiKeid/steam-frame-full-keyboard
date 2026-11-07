@@ -399,8 +399,7 @@ void NativeReplacement::poll(double now) {
                       true,
                       json_object_get_boolean(field("local")) != 0,
                       json_object_get_boolean(field("multiline")) != 0,
-                      json_object_get_boolean(field("steam")) != 0,
-                      json_object_get_boolean(field("paste")) != 0};
+                      json_object_get_boolean(field("steam")) != 0};
             last_reply_ = now;
             install_until_ = 0;
             failure_ = Failure::None;
@@ -569,9 +568,6 @@ bool NativeReplacement::take_unsupported_control() {
 NativeReplacement::ButtonPress NativeReplacement::take_button_press() {
     return std::exchange(button_, {});
 }
-bool NativeReplacement::paste_control(int code) const {
-    return remote_ && state_.active && state_.paste && (code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL);
-}
 bool NativeReplacement::paragraph_shift(int code) const {
     return remote_ && state_.active && state_.multiline &&
            (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT);
@@ -624,17 +620,15 @@ void NativeReplacement::send(int code, int value) {
             modifiers_.insert(code);
         }
     }
-    if (value == 1 && (paragraph_shift(code) || paste_control(code))) {
-        return; // Sends nothing; only a following Enter or V uses it.
+    if (value == 1 && paragraph_shift(code)) {
+        return; // Sends nothing; only a following Enter uses it.
     }
     auto key = named_key(code);
     if (!modifiers_.empty()) {
         // Any other modified control stays unsupported in Steam fields.
         const bool shifted = std::all_of(modifiers_.begin(), modifiers_.end(),
                                          [this](int held) { return paragraph_shift(held); });
-        const bool controlled = std::all_of(modifiers_.begin(), modifiers_.end(),
-                                            [this](int held) { return paste_control(held); });
-        key = key == "Enter" && shifted ? "ShiftEnter" : code == KEY_V && controlled ? "Paste" : "";
+        key = key == "Enter" && shifted ? "ShiftEnter" : "";
     }
     if (remote_ && !key.empty()) {
         if (value != 1 || held != remote_keys_.end()) {
@@ -685,7 +679,7 @@ Delivery NativeReplacement::deliver_key(int code, int value) {
         return ok ? Delivery::Success : Delivery::Failure;
     }
     send(code, value);
-    if (value == 1 && (paragraph_shift(code) || paste_control(code))) {
+    if (value == 1 && paragraph_shift(code)) {
         return Delivery::Success;
     }
     const auto held = remote_keys_.find(code);

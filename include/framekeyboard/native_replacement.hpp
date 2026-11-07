@@ -27,8 +27,6 @@ class NativeReplacement : public KeySink {
         // Steam's own keyboard serves a request the bridge left with it, such
         // as a field in an embedded web page.
         bool steam{};
-        // Steam's page can paste into the retained field (Ctrl+V).
-        bool paste{};
     };
     void poll(double now);
     // Between hidden frames, wake the idle sleep when session metadata changes.
@@ -154,9 +152,6 @@ class NativeReplacement : public KeySink {
         bool pending;
         std::string text; // Named control sent at press; repeats send the same one.
     };
-    // Ctrl in a Steam field Steam's page can paste into is held only to make
-    // V a paste.
-    bool paste_control(int code) const;
     // Shift in a multiline Steam field is held only to make Enter a paragraph break.
     bool paragraph_shift(int code) const;
     std::map<int, RemoteKey> remote_keys_;
