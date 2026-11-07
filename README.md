@@ -1,8 +1,8 @@
 # Full Keyboard for Steam Frame
 
-A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Copy and Paste buttons, plus swipe typing, dictation and emoji, in 47 languages.
+A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Cut, Copy and Paste keys, plus swipe typing, dictation and emoji, in 47 languages.
 
-**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It requires Steam Developer Mode and falls back to the original keyboard when unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
+**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It needs nothing set up: it uses a local connection SteamOS already gives Steam on every Frame, and falls back to the original keyboard if that is ever unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
 ![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
@@ -28,6 +28,16 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 ![Full Keyboard swipe typing, Japanese input, dictation, emoji and Settings on Steam Frame](docs/images/full-keyboard-demo.webp)
 
 *Swipe typing, Japanese input, dictation, the emoji picker and Settings, recorded on Steam Frame with an earlier version of Full Keyboard.*
+
+## Installs as user, no extra steps required
+
+- **No sudo, root access or admin password.** Full Keyboard installs into your home folder as your own user. You never need to set a password on the Frame or unlock SteamOS.
+- **One manual install, then updates from inside the app.** After the first install, Settings finds new versions and installs them with one button, and goes back to the previous version if a new one fails to start.
+- **It just works.** Typing works as soon as it is installed, and **Replace native keyboard** needs nothing set up either: it uses a local connection SteamOS already gives Steam on every Frame.
+- **Survives restarts and SteamOS updates.** With **Start with SteamOS** on, it starts hidden in the background after every boot. SteamOS updates leave your home folder alone, so the keyboard and your settings stay.
+- **Not invasive.** It changes none of Steam's or SteamOS's files, settings, system services or device permissions. Replacement hooks Steam's keyboard only while Full Keyboard runs, and if it stops, Steam's own keyboard comes back by itself.
+- **Light on memory and battery.** Features load only while you use them and leave memory when you stop: Japanese conversion runs only while Japanese is added, dictation's speech engine starts when you first dictate and exits when dictation is turned off, the swipe model unloads when swipe typing is off, and the emoji picker frees its images when it closes. The keyboard redraws only the keys that change, and while it is hidden or the headset is off it slows to four updates a second.
+- **Never reads your clipboard.** Cut, Copy and Paste only press their shortcuts, and text reaches apps as text. Full Keyboard writes to the clipboard only when you choose Paste for dictation or KDE Desktop Unicode.
 
 ## Where it works
 
