@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <filesystem>
 #include <fstream>
 #include <glib.h>
 #include <iostream>
@@ -32,6 +33,11 @@ void require(bool value, const char* message) {
 }
 void require(bool value, const std::string& message) {
     require(value, message.c_str());
+}
+// The stand-in Mozc server beside this test, so a copied build tree, such as
+// an ARM64 one run on the Frame, finds its own.
+std::filesystem::path fake_mozc() {
+    return std::filesystem::read_symlink("/proc/self/exe").parent_path() / FRAMEKEYBOARD_FAKE_MOZC;
 }
 struct Sink : KeySink {
     std::vector<std::pair<int, int>> keys;
@@ -1535,7 +1541,7 @@ void worker_waits_for_japanese() {
     options.input = InputBackend::Ei;
     options.start_enabled = true;
     options.target_language = "en-us";
-    options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC;
+    options.mozc_server = fake_mozc();
     Sink sink;
     App app(options, sink);
     app.apply({"en-us-full", "en-us", "graphite"});
@@ -2228,7 +2234,7 @@ struct FakeMozc {
         stop_mozc();
         fs::remove_all(directory);
     }
-    void start() { start_mozc(FRAMEKEYBOARD_FAKE_MOZC, config); }
+    void start() { start_mozc(fake_mozc(), config); }
     // Lines in one of its files.
     int count(const char* name) const {
         std::ifstream file(profile / name);
@@ -2400,7 +2406,7 @@ void mozc_clear_learning() {
     options.target_language = "en-us";
     int conversions = 0;
     options.japanese_converter = fake_converter(&conversions);
-    options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC;
+    options.mozc_server = fake_mozc();
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});
     require(wait_for_mozc(std::chrono::seconds(5)), "adding Japanese starts it");
@@ -2464,7 +2470,7 @@ void mozc_learning_saves() {
     options.input = InputBackend::Ei;
     options.start_enabled = true;
     options.target_language = "en-us";
-    options.mozc_server = FRAMEKEYBOARD_FAKE_MOZC; // Mozc converts, Anthy meanwhile.
+    options.mozc_server = fake_mozc(); // Mozc converts, Anthy meanwhile.
     Sink sink;
     App app(options, sink);
     app.apply({"ja-flick-12", "ja-flick", "graphite"});

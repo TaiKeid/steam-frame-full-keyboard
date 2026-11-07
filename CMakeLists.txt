@@ -400,7 +400,7 @@ if(BUILD_TESTING)
     # A stand-in Mozc server the tests start in place of the real one.
     add_executable(fake-mozc tests/fake_mozc.cpp)
     target_compile_options(fake-mozc PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_definitions(japanese-tests PRIVATE FRAMEKEYBOARD_FAKE_MOZC="$<TARGET_FILE:fake-mozc>")
+    target_compile_definitions(japanese-tests PRIVATE FRAMEKEYBOARD_FAKE_MOZC="$<TARGET_FILE_NAME:fake-mozc>")
     add_dependencies(japanese-tests fake-mozc)
     add_test(NAME japanese-input COMMAND japanese-tests)
     add_executable(japanese-worker-tests tests/japanese_worker_tests.cpp)
