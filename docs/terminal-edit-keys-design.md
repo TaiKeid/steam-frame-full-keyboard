@@ -1,6 +1,6 @@
 # Terminal edit keys: design
 
-Status: design for review. Nothing here is implemented yet.
+Status: implemented. Host-tested; the headset checks at the end are open.
 
 Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal, Ctrl+C interrupts the running program, Ctrl+X reaches it too (nano exits on it), and Ctrl+V pastes nothing. The keyboard's own paste paths, dictation's paste Send and Type as I speak, and KDE Desktop Unicode set to Paste, press Ctrl+V and have the same problem. Terminals differ, so the keyboard detects the focused terminal and uses its own keys. Everywhere else nothing changes.
 
@@ -77,7 +77,7 @@ Inside the Desktop, Gamescope's focus only shows `kwin_wayland`. Which Desktop w
 - KDE Desktop Unicode set to Paste keeps Ctrl+V.
 - A hosted shell's `terminal` hint still applies there, including to the Unicode paste.
 
-The user can use Konsole's own Ctrl+Shift+C/V there by tapping Shift first: a latched Shift applies to the next key, and Ctrl and C are on the keyboard. Documented in the runtime troubleshooting table.
+There the user can still type Konsole's own keys: tap Ctrl and Shift, which latch, then C or V. Documented in the runtime notes and troubleshooting table.
 
 ## Steam fields and the shell sink
 

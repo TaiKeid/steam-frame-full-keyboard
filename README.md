@@ -11,7 +11,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 ## What it does
 
 - Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
-- Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V.
+- Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V, or a terminal's own keys, such as Ctrl+Shift+C and Ctrl+Shift+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
 - Japanese conversion with Mozc, with candidates as you type, and a phone-style Japanese 12-key flick keyboard.
@@ -161,7 +161,7 @@ See [dictation](docs/dictation.md) for the details.
 
 The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It goes online only to check for updates every few hours and install one when you ask, to download the on-device speech model once, and to reach a speech server you set up.
 
-Cut, Copy and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or Typing → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V. It does not log typed text or save composition history, apart from what Japanese [learning](docs/japanese.md#learning) keeps; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
+Cut, Copy and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or Typing → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V, or a terminal's own paste key. It does not log typed text or save composition history, apart from what Japanese [learning](docs/japanese.md#learning) keeps; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
 
 The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden or with the headset off, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cut, Copy and Paste now work in terminals opened from the dashboard: in Konsole and most other terminals they press Ctrl+Shift+C and Ctrl+Shift+V instead of Ctrl+C, which stopped the running command, and Ctrl+V, which pasted nothing. Dictation's paste uses the same keys. See [terminals](docs/runtime.md).
 - On the flick layout, 確定 now goes through a conversion one segment at a time, as on Japanese phones: it settles the highlighted segment and moves on to the next, and in the last one commits the phrase. がっこうはむずかしい shows 「学校」は難しい, then 学校「は」難しい, then 学校は「難しい」, and the next 確定 types it. ⌫ steps back a segment, keeping the choices made, and returns to the reading only from the first. On full layouts Enter still commits the whole phrase at once, as PC input methods do. Thanks to @Malorn44 for the report (#10).
 - Renamed **Use Drag to Move** in Settings → General to **Grab to move**, with a second line saying what it does: hold grip on the keyboard to move it instead of the line below it. The saved setting is unchanged. Thanks to @Bisonator for the report (#12).
 - Fixed: a Full Keyboard started from SteamOS's Desktop, such as from its terminal, typed only into Steam's own fields, not into apps such as Kate. It watched the Desktop's display for which app has focus, instead of Steam's. Started there, it now takes Steam's session display, runtime folder and bus from SteamOS's service manager, and works as if opened from the dashboard.
