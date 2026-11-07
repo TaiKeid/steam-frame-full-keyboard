@@ -40,7 +40,7 @@ std::pair<double, double> center(const Rect& r) {
 
 void table_tests() {
     const auto& catalog = bundled_emoji();
-    require(catalog.entries.size() == 1898, "bundled table has every fully-qualified emoji");
+    require(catalog.entries.size() == 1914, "bundled table has every fully-qualified emoji");
     require(catalog.entries.front().base == "😀" && catalog.entries.front().group == EmojiGroup::Smileys,
             "table starts in CLDR order");
     require(catalog.entries.back().group == EmojiGroup::Flags, "flags come last");
