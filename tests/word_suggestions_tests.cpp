@@ -34,6 +34,10 @@ void list_tests() {
                 found[2].key == "held",
             "words starting with a key come commonest first");
     require(words.starting("x", 3).empty() && !words.find("hel"), "nothing else matches");
+    std::istringstream swiss("straße\t150\nstrasse\t20\n");
+    const auto respelled = WordList::parse(swiss, {{"ß", "ss"}});
+    require(respelled.size() == 1 && respelled.find("strasse")->frequency == 150,
+            "a respelled word list writes ss for ß, its spellings merged");
 }
 void completion_tests() {
     const auto words = list("he\t220\nhello\t200\nhelp\t190\nheld\t150\nhelmet\t100\nüber\t180\n"

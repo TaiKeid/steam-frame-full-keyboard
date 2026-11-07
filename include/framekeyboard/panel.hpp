@@ -103,11 +103,14 @@ enum class ControlKind {
     // The candidate row's ∨, which opens the candidate list over the keys (∧ closes it).
     CandidateList,
     SwipeTyping,
+    TypingSuggestions,
+    TypingSuggestion,
     KeyFlicks, // Settings: flick a key down for its Shift character
     SwipeCandidate,
     FlickOnly,            // Settings: Japanese flick taps never cycle
     FlickKatakana,        // Settings: show the flick script key
     ClearLearning,        // asks first
+    ClearLearnedRow,      // a language's switch in the Clear learned words popup
     ExtendedKeyCollision, // Settings: presses between keys reach the nearest one
     // The Debug card, only in debug builds (FRAMEKEYBOARD_DEBUG_MODE).
     DebugMarkAnthy,
@@ -330,6 +333,14 @@ struct PanelView {
         bool operator==(const ConfirmView&) const = default;
         Rect panel;
         std::string title, body;
+        // Rows with a switch each, as Clear learned words has; the switches
+        // are controls named confirm-row-N over the same bounds.
+        struct Row {
+            bool operator==(const Row&) const = default;
+            std::string title, note;
+            Rect bounds;
+        };
+        std::vector<Row> rows{};
     };
     std::optional<ConfirmView> confirm;
     // The Additional languages popup; rows are drawn from here and hit-tested

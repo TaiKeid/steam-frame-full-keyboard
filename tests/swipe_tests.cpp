@@ -373,23 +373,33 @@ void text_output_capture() {
         return encoder;
     };
     TextSink sink;
-    App app(options, sink);
-    settle(app, [&] { return app.swipe_ready(); });
-    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
-    auto [ax, ay] = key_point(app, "KeyA");
-    app.down(0, ax, ay, 1);
-    app.up(0, ax, ay);
-    auto [dx, dy] = key_point(app, "Digit1");
-    app.down(0, dx, dy, 1.1);
-    app.up(0, dx, dy);
-    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
-    settle(app, [&] { return recorded.calls.size() == 3; });
-    click(app, "swipe-candidate-1");
-    require(recorded.calls ==
-                std::vector<std::string>{"commit:a", "press:1", "commit:hello", "replace:5:helo"},
-            "taps, text keys, swiped words and alternatives use the text output");
-    require(sink.text.empty() && sink.replaced.empty(),
-            "nothing reaches the target past the text output");
+    {
+        App app(options, sink);
+        settle(app, [&] { return app.swipe_ready(); });
+        *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+        auto [ax, ay] = key_point(app, "KeyA");
+        app.down(0, ax, ay, 1);
+        app.up(0, ax, ay);
+        auto [dx, dy] = key_point(app, "Digit1");
+        app.down(0, dx, dy, 1.1);
+        app.up(0, dx, dy);
+        swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+        settle(app, [&] { return recorded.calls.size() == 3; });
+        click(app, "swipe-candidate-1");
+        require(recorded.calls ==
+                    std::vector<std::string>{"commit:a", "press:1", "commit:hello", "replace:5:helo"},
+                "taps, text keys, swiped words and alternatives use the text output");
+        require(sink.text.empty() && sink.replaced.empty(),
+                "nothing reaches the target past the text output");
+        // The next input keeps the chosen word, which typing suggestions learn.
+        auto [sx, sy] = key_point(app, "Space");
+        app.down(0, sx, sy, 3);
+        app.up(0, sx, sy);
+    }
+    std::ifstream learned(directory.path / "words/en-us.tsv");
+    std::string line;
+    require(std::getline(learned, line) && line.starts_with("helo\t1\t") && !std::getline(learned, line),
+            "the swiped word that stayed is learned, not the one replaced");
 }
 void app_flow(bool ordered_replace) {
     TemporaryDirectory directory;
@@ -2020,9 +2030,166 @@ int model() {
 }
 } // namespace
 
+void tap(App& app, const std::string& action, double now = 1) {
+    const auto [x, y] = key_point(app, action);
+    app.down(0, x, y, now);
+    app.up(0, x, y);
+}
+void type(App& app, const std::string& letters) {
+    for (const char letter : letters) {
+        tap(app, letter == ' ' ? std::string("Space")
+                 : std::isdigit(static_cast<unsigned char>(letter))
+                     ? std::string("Digit") + letter
+                     : std::string("Key") + static_cast<char>(std::toupper(letter)));
+    }
+}
+std::vector<std::string> typing_suggestions(App& app) {
+    std::vector<std::string> words;
+    for (const auto& c : app.view().controls) {
+        if (c.id.starts_with("typing-suggestion-")) {
+            words.push_back(c.label);
+        }
+    }
+    return words;
+}
+// Scrolls Settings' Languages card until the control shows whole.
+void scroll_to(App& app, const std::string& id) {
+    static double now = 100;
+    for (int step = 0; step < 20; ++step) {
+        const auto view = app.view();
+        if (has_control(view, id)) {
+            const auto c = control(view, id);
+            if (!c.clip || (c.bounds.y >= c.clip->y &&
+                            c.bounds.y + c.bounds.height <= c.clip->y + c.clip->height)) {
+                return;
+            }
+        }
+        const auto row = control(view, "language");
+        app.move(9, row.bounds.x + 20, row.bounds.y + 20);
+        app.scroll(9, 0, 1);
+        for (int i = 0; i < 10; ++i) {
+            app.tick(now += .05); // The card glides to its place.
+        }
+    }
+    throw std::runtime_error("missing control " + id);
+}
+std::string read_file(const fs::path& path) {
+    std::ifstream input(path);
+    return {std::istreambuf_iterator<char>(input), {}};
+}
+
+// Typing suggestions complete the word being typed from the language's swipe
+// word list, learn finished words, and stop where the cursor may have moved.
+int typing_flow() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv")
+        << "hello\t200\nhelp\t180\nhelmet\t100\nheld\t90\nworld\t150\n";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [] { return std::unique_ptr<SwipeEncoder>(); };
+    const auto learned = directory.path / "words/en-us.tsv";
+    {
+        TextSink sink;
+        App app(options, sink);
+        type(app, "hel");
+        settle(app, [&] { return !typing_suggestions(app).empty(); });
+        require(typing_suggestions(app) == std::vector<std::string>{"hello", "help", "helmet"},
+                "the commonest completions of the typed word are offered");
+        click(app, "typing-suggestion-1");
+        require(sink.text.back() == "p ", "a pick types the rest of the word and a space");
+        require(typing_suggestions(app).empty(), "a picked word ends the suggestions");
+
+        type(app, "hel");
+        tap(app, "Backspace");
+        require(typing_suggestions(app) == std::vector<std::string>{"help", "hello", "helmet"},
+                "Backspace shortens the typed word, and the picked word now ranks first");
+        tap(app, "Backspace");
+        tap(app, "Backspace");
+        require(typing_suggestions(app).empty(), "nothing is suggested for an empty word");
+        tap(app, "Backspace");
+        type(app, "he");
+        require(typing_suggestions(app).empty(),
+                "after deleting past the word's start, the word's beginning is unknown");
+        type(app, " he");
+        require(!typing_suggestions(app).empty(), "a space starts a new word");
+        tap(app, "ArrowLeft");
+        require(typing_suggestions(app).empty(), "an arrow key leaves the word");
+        type(app, "wo");
+        require(typing_suggestions(app) == std::vector<std::string>{"world"},
+                "typing after an arrow starts a new word");
+        tap(app, "ArrowRight");
+
+        // A word the list lacks is offered once finished three times. Enter
+        // and digits end a word without learning it, as in a password.
+        type(app, " zork zork");
+        tap(app, "Enter");
+        type(app, "zork1 zork ");
+        type(app, "zo");
+        require(typing_suggestions(app).empty(), "Enter and digits don't count a word as used");
+        type(app, "rk zo");
+        require(typing_suggestions(app) == std::vector<std::string>{"zork"},
+                "a new word is offered after three uses");
+    }
+    {
+        // Clear learned words lists the language with its count, off; Clear
+        // forgets only the languages switched on.
+        fs::create_directories(directory.path / "words");
+        std::ofstream(directory.path / "words/de-de.tsv") << "Straße\t4\t1\n";
+        fs::permissions(directory.path / "words/de-de.tsv",
+                        fs::perms::owner_read | fs::perms::owner_write);
+        TextSink sink;
+        App app(options, sink);
+        app.show_settings();
+        scroll_to(app, "clear-learning");
+        click(app, "clear-learning");
+        const auto popup = app.view().confirm;
+        require(popup && popup->rows.size() == 2 && popup->rows[0].title == "English (US)" &&
+                    popup->rows[1].title == "German" && popup->rows[1].note == "1 word you typed" &&
+                    !control(app.view(), "confirm-accept").enabled,
+                "each language's words show by name and count, none chosen");
+        click(app, "confirm-row-1");
+        click(app, "confirm-accept");
+        require(!app.view().confirm && app.view().status == "Learned words cleared." &&
+                    !fs::exists(directory.path / "words/de-de.tsv") && fs::exists(learned),
+                "only the chosen language is forgotten");
+    }
+    const auto saved = read_file(learned);
+    require(saved.find("help\t") != std::string::npos && saved.find("zork\t") != std::string::npos,
+            "picked and finished words are saved on exit");
+    require(saved.find("wo\t") == std::string::npos && saved.find("he\t") == std::string::npos,
+            "words cut short by an arrow or Backspace are not learned");
+    require((fs::status(learned).permissions() & (fs::perms::group_all | fs::perms::others_all)) ==
+                fs::perms::none,
+            "the learned words are the owner's alone");
+
+    // Switched off in Settings, nothing is offered or learned.
+    fs::remove(learned);
+    Settings settings;
+    settings.typing_suggestions = false;
+    save_settings(directory.path, settings);
+    {
+        TextSink sink;
+        App app(options, sink);
+        type(app, "hel");
+        settle(app, [&] { return false; }, 100);
+        require(typing_suggestions(app).empty(), "suggestions switched off offer nothing");
+        type(app, "lo ");
+    }
+    require(!fs::exists(learned), "suggestions switched off learn nothing");
+    std::cout << "typing suggestion tests passed\n";
+    return 0;
+}
+
 int main(int argc, char** argv) {
     try {
         const std::string mode = argc > 1 ? argv[1] : "--core";
+        if (mode == "--typing") {
+            return typing_flow();
+        }
         if (mode == "--model") {
             return model();
         }

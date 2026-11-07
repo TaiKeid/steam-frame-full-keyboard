@@ -13,6 +13,7 @@
 #include <linux/input-event-codes.h>
 #include <pango/pango.h>
 #include <stdexcept>
+#include <thread>
 #include <time.h>
 #include <tuple>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -111,6 +112,11 @@ constexpr double reopen_patience = 3;
 // A swipe longer than this many samples (over 30 s of motion) is not a word,
 // or its capture is stuck: it ends without typing.
 constexpr std::size_t max_swipe_points = 2000;
+// Completions of the word being typed, in the toolbar.
+constexpr std::size_t typing_suggestion_count = 3;
+// KeyboardState repeats a held key after half a second; a little before that,
+// the word being typed counts as lost.
+constexpr double backspace_repeat_after = .45;
 // Japanese conversions committed before, offered back while their start is typed.
 constexpr std::size_t learned_completions = 4;
 bool same_pair(const Selection& a, const Selection& b) {
@@ -253,6 +259,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
@@ -336,6 +343,9 @@ App::~App() {
     }
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
     next_words_.save();
+    for (auto& [lexicon, learned] : learned_words_) {
+        learned.save();
+    }
     japanese_choices_.save();
     japanese_completions_.save();
 }
@@ -399,21 +409,31 @@ std::vector<Control> App::controls() const {
         }
         append_move_handle();
         if (confirm_ != Confirm::None) {
-            const Rect panel = confirm_popup_bounds;
+            const bool learned = confirm_ == Confirm::ClearLearning;
+            const Rect panel = learned ? learned_popup_bounds() : confirm_popup_bounds;
             const bool save = confirm_ == Confirm::SaveLanguages;
+            for (std::size_t i = 0; learned && i < learned_rows_.size(); ++i) {
+                Control row{"confirm-row-" + std::to_string(i), learned_rows_[i].title,
+                            learned_row_bounds(i), learned_rows_[i].on};
+                row.style = ControlStyle::Checkbox;
+                add({ControlKind::ClearLearnedRow, static_cast<int>(i)}, std::move(row));
+            }
             add({ControlKind::ConfirmCancel}, {"confirm-cancel",
                                                dictation_question() ? "Go back"
                                                : save               ? "Discard"
                                                                     : "Cancel",
-                                               {panel.x + 40, panel.y + 160, 210, 52}});
-            add({ControlKind::ConfirmAccept},
-                {"confirm-accept",
-                 confirm_ == Confirm::ClearLanguages || confirm_ == Confirm::ClearLearning ? "Clear"
-                 : save                                                                    ? "Save"
-                 : dictation_question()                                                    ? "Proceed"
-                                                                                           : "Download",
-                 {panel.x + panel.width - 250, panel.y + 160, 210, 52},
-                 true});
+                                               {panel.x + 40, panel.y + panel.height - 80, 210, 52}});
+            Control accept{"confirm-accept",
+                           confirm_ == Confirm::ClearLanguages || learned ? "Clear"
+                           : save                                         ? "Save"
+                           : dictation_question()                         ? "Proceed"
+                                                                          : "Download",
+                           {panel.x + panel.width - 250, panel.y + panel.height - 80, 210, 52},
+                           true};
+            // Clear learned words needs a language chosen.
+            accept.enabled = !learned || std::any_of(learned_rows_.begin(), learned_rows_.end(),
+                                                     [](const LearnedRow& row) { return row.on; });
+            add({ControlKind::ConfirmAccept}, std::move(accept));
         }
         if (address_) {
             // The popup's geometry: a raised panel over the cards, the field, a
@@ -631,6 +651,19 @@ std::vector<Control> App::controls() const {
                  {start + static_cast<double>(i) * pitch, 12, pitch - 10 * scale, 42},
                  static_cast<int>(i) == swipe_selected_});
         }
+    } else if (!typing_suggestions_.empty() && suggesting()) {
+        // Completions take the same places; none is chosen until picked.
+        // They wait out the emoji picker, the editor and Settings.
+        const double start = std::max(body.x + 610 * scale, toolbar_end + 10);
+        const double end = body.x + body.width - 78 - 10;
+        const double pitch = std::min(180 * scale, (end - start + 10 * scale) /
+                                                       static_cast<double>(typing_suggestions_.size()));
+        for (std::size_t i = 0; i < typing_suggestions_.size(); ++i) {
+            add({ControlKind::TypingSuggestion, static_cast<int>(i)},
+                {"typing-suggestion-" + std::to_string(i),
+                 typing_suggestions_[i],
+                 {start + static_cast<double>(i) * pitch, 12, pitch - 10 * scale, 42}});
+        }
     }
     append_move_handle();
 
@@ -661,6 +694,7 @@ void App::update_settings_ui() {
             std::move(note)};
     };
     const bool swipe = pending_can_swipe();
+    const bool suggest = pending_can_suggest();
     // Languages the pending layout cannot type stay listed but dimmed.
     auto language_choices = choices(profiles_.languages);
     for (auto& choice : language_choices) {
@@ -845,12 +879,6 @@ void App::update_settings_ui() {
                                       : "Additional languages",
                            ControlStyle::Button});
     languages.width = 412;
-    // Learning is Anthy's, offered with Japanese as the main language or an
-    // additional one (docs/japanese.md, Learning).
-    const auto japanese_language = [&](const std::string& id) {
-        const auto found = profiles_.languages.find(id);
-        return found != profiles_.languages.end() && found->second.input_method.starts_with("japanese-");
-    };
     const auto pairs = additional_pairs();
     std::vector<SettingField> learning_fields;
     // Flick only, with the flick layout as the main language or an additional one.
@@ -869,15 +897,15 @@ void App::update_settings_ui() {
                   checkbox("flick-katakana", "Flick Katakana (JP)", pending_flick_katakana_, true,
                            "Adds a key that switches the kana to katakana")));
     }
-    if (japanese_language(pending_.language) ||
-        std::any_of(pairs.begin(), pairs.end(),
-                    [&](const Selection& pair) { return japanese_language(pair.language); })) {
+    {
+        // Always last: what typing suggestions and Japanese conversion learned,
+        // chosen by language in a popup.
         auto clear =
             field(ControlKind::ClearLearning,
                   SettingField{"clear-learning", "", "Clear learned words", ControlStyle::Button});
         clear.width = 412;
         // Nothing to clear, or Anthy restarting: it can't be pressed.
-        clear.enabled = learned_ && !restarting_anthy() && !clear_queued_;
+        clear.enabled = anything_learned() && !restarting_anthy() && !clear_queued_;
         clear.busy = clearing_learning_ || clear_queued_;
         learning_fields.push_back(clear);
     }
@@ -898,6 +926,9 @@ void App::update_settings_ui() {
         field(ControlKind::SwipeTyping,
               checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
                        "Powered by FUTO Swipe")),
+        field(ControlKind::TypingSuggestions, checkbox("typing-suggestions", "Typing suggestions",
+                                                       pending_typing_suggestions_ && suggest, suggest,
+                                                       "Completes the word you're typing")),
         field(ControlKind::KeyFlicks,
               checkbox("key-flicks", "Flick down for Shift characters", pending_key_flicks_, true,
                        "Letters flick to capitals only while swipe typing is off"))};
@@ -1288,10 +1319,13 @@ PanelView App::build_view(bool picker) const {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, "Clear all additional languages?",
                                            "Your main language stays."};
     } else if (settings_open_ && confirm_ == Confirm::ClearLearning) {
-        v.confirm = PanelView::ConfirmView{
-            confirm_popup_bounds, "Clear learned words?",
-            "Full Keyboard will forget the words it learned. Other keyboards keep their own. "
-            "This can't be undone."};
+        v.confirm = PanelView::ConfirmView{learned_popup_bounds(), "Clear learned words",
+                                           "Choose the languages whose learned words to forget. "
+                                           "Steam's own keyboard keeps its words."};
+        for (std::size_t i = 0; i < learned_rows_.size(); ++i) {
+            v.confirm->rows.push_back(
+                {learned_rows_[i].title, learned_rows_[i].note, learned_row_bounds(i)});
+        }
     } else if (settings_open_ && confirm_ == Confirm::SaveLanguages) {
         v.confirm =
             PanelView::ConfirmView{confirm_popup_bounds, "Save your language changes?",
@@ -1849,6 +1883,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 } else {
                     text_output_->text_press(pointer, text, now);
                 }
+                track_typed(text);
                 if (keymap_->composing()) {
                     status_ = "Accent pending";
                 }
@@ -1858,6 +1893,22 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 // that follows, so only other keys end a pending accent.
                 keymap_->cancel_compose();
                 status_.clear();
+                // The word being typed: Backspace shortens it, Enter ends it
+                // unlearned, and any other key, as an arrow, Tab or a
+                // shortcut, may leave it.
+                const bool plain = std::none_of(modifiers.begin(), modifiers.end(), [](int held) {
+                    return held != key_code("ShiftLeft") && held != key_code("ShiftRight");
+                });
+                if (plain && key->action_kind == ActionKind::Key && key->action == "Backspace") {
+                    track_backspace();
+                    backspace_held_ = {pointer, now};
+                } else if (key->action_kind == ActionKind::Key &&
+                           (key->action == "Enter" || key->action == "NumpadEnter")) {
+                    end_word(false);
+                    update_typing_suggestions();
+                } else {
+                    lose_word();
+                }
             }
         } catch (const std::exception& error) {
             status_ = error.what();
@@ -2009,6 +2060,8 @@ void App::cancel_pointer(unsigned pointer) {
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_track_.reset();
     }
+    // The laser left the keyboard: the field's cursor may move before it comes back.
+    lose_word();
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_track_.reset(); // A flick that left the panel types nothing.
     }
@@ -2079,6 +2132,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     }
     emoji_.cancel();
     candidates_.cancel();
+    lose_word();
     reopen_.reset();
     follow_up_.reset();
     last_commit_.reset(); // a pair is learned within one field session
@@ -2194,6 +2248,23 @@ bool App::tick(double now) {
     refresh_typing();
     update_emoji(now);
     tick_next_words();
+    load_word_list();
+    if (const auto window = output_.focused_window(); window != word_window_) {
+        word_window_ = window; // Another window has its own cursor.
+        lose_word();
+    }
+    // A Backspace held into its repeat deletes more than the one press told:
+    // the word being typed is no longer known.
+    if (backspace_held_) {
+        if (!keyboard_.pointer_pressed(backspace_held_->first)) {
+            backspace_held_.reset();
+        } else if (now - backspace_held_->second >= backspace_repeat_after) {
+            backspace_held_.reset();
+            typed_word_.clear();
+            word_whole_ = false;
+            update_typing_suggestions();
+        }
+    }
     tick_japanese(now);
     if (dictation_open_) {
         // Type as I speak never uses the editor: turning it on returns to
@@ -2365,6 +2436,7 @@ void App::show_settings() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
@@ -2451,6 +2523,7 @@ void App::activate(Selection selection, bool keep_reading) {
     pending_ = settings_.active;
     prepare_swipe();
     refresh_typing();
+    lose_word();
     status_.clear();
     update_settings_ui();
     dirty = true;
@@ -2624,6 +2697,7 @@ void App::reload() {
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
+        settings_.typing_suggestions = updated_settings.typing_suggestions;
         settings_.key_flicks = updated_settings.key_flicks;
         settings_.swipe_switch = updated_settings.swipe_switch;
         settings_.haptic_sounds_switch = updated_settings.haptic_sounds_switch;
@@ -2667,6 +2741,7 @@ void App::reload() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
+    pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
     pending_emoji_close_on_select_ = settings_.emoji_close_on_select;
     pending_flick_only_ = settings_.flick_only;
@@ -3100,6 +3175,120 @@ void App::learning_restarted() {
     update_settings_ui();
     dirty = true;
 }
+namespace {
+// The Clear learned words popup: up to four rows in a column, then two
+// columns, then three of up to five shorter rows; every word list fits.
+struct LearnedGrid {
+    std::size_t columns, rows;
+    double row_height;
+};
+LearnedGrid learned_grid(std::size_t count) {
+    const std::size_t columns = count <= 4 ? 1 : count <= 8 ? 2 : 3;
+    const std::size_t rows = std::max<std::size_t>(1, (count + columns - 1) / columns);
+    return {columns, rows, rows <= 4 ? 70.0 : 56.0};
+}
+constexpr double learned_column_width = 440, learned_column_gap = 30;
+} // namespace
+std::vector<App::LearnedRow> App::learned_rows() {
+    std::vector<LearnedRow> rows;
+    std::set<std::string> lexicons;
+    for (const auto& [id, language] : profiles_.languages) {
+        if (!language.swipe_lexicon.empty()) {
+            lexicons.insert(language.swipe_lexicon);
+        }
+    }
+    for (const auto& lexicon : lexicons) {
+        std::error_code error;
+        // Only a list with a file, or words this run, is read.
+        if (options_.config_dir.empty() ||
+            (!learned_words_.contains(lexicon) &&
+             !std::filesystem::exists(options_.config_dir / "words" / (lexicon + ".tsv"), error))) {
+            continue;
+        }
+        if (const auto count = learned_words(lexicon).size(); count > 0) {
+            rows.push_back(
+                {lexicon, word_list_name(lexicon),
+                 std::to_string(count) + (count == 1 ? " word you typed" : " words you typed")});
+        }
+    }
+    if (learned_) {
+        // Our own Anthy record, Mozc profile, choices and next words; never
+        // Steam's keyboard's.
+        rows.push_back({"japanese", "Japanese", "Conversions you chose"});
+    }
+    std::sort(rows.begin(), rows.end(),
+              [](const LearnedRow& a, const LearnedRow& b) { return a.title < b.title; });
+    return rows;
+}
+bool App::anything_learned() {
+    return !learned_rows().empty();
+}
+void App::clear_learned(const std::vector<LearnedRow>& rows) {
+    bool japanese = false;
+    for (const auto& row : rows) {
+        if (row.on && row.id == "japanese") {
+            japanese = true;
+        } else if (row.on) {
+            learned_words(row.id).clear();
+        }
+    }
+    update_typing_suggestions();
+    if (japanese) {
+        next_words_.clear();
+        japanese_choices_.clear();
+        japanese_completions_.clear();
+        choices_snapshot_.reset();
+        completions_snapshot_.reset();
+        last_commit_.reset();
+        follow_up_.reset();
+        restart_learning(true); // Reports once Anthy and Mozc are done.
+    } else {
+        report_status("Learned words cleared.");
+        update_settings_ui();
+    }
+    dirty = true;
+}
+std::string App::word_list_name(const std::string& lexicon) const {
+    std::vector<std::string> names;
+    for (const auto& [id, language] : profiles_.languages) {
+        if (language.swipe_lexicon == lexicon) {
+            names.push_back(language.name);
+        }
+    }
+    if (names.empty()) {
+        return lexicon;
+    }
+    // Keyboards differ after a comma (German, QWERTY), regions in brackets
+    // (French (Belgium)); a region all of them share stays: English (UK).
+    for (const auto* cut : {", ", " ("}) {
+        for (auto& name : names) {
+            name = name.substr(0, name.find(cut));
+        }
+        if (std::all_of(names.begin(), names.end(),
+                        [&](const auto& name) { return name == names.front(); })) {
+            break;
+        }
+    }
+    return names.front();
+}
+Rect App::learned_popup_bounds() const {
+    const auto grid = learned_grid(learned_rows_.size());
+    const auto columns = static_cast<double>(grid.columns);
+    const double width = grid.columns == 1
+                             ? 660
+                             : 80 + columns * learned_column_width + (columns - 1) * learned_column_gap;
+    // Title and text, the rows, then the buttons.
+    const double height = 235 + static_cast<double>(grid.rows) * grid.row_height;
+    return {(panel_width - width) / 2, (panel_height - height) / 2, width, height};
+}
+Rect App::learned_row_bounds(std::size_t row) const {
+    const auto grid = learned_grid(learned_rows_.size());
+    const auto panel = learned_popup_bounds();
+    const double width = grid.columns == 1 ? panel.width - 80 : learned_column_width;
+    return {panel.x + 40 + static_cast<double>(row / grid.rows) * (width + learned_column_gap),
+            panel.y + 150 + static_cast<double>(row % grid.rows) * grid.row_height, width,
+            grid.row_height - 8};
+}
 bool App::japanese() const {
     return profiles_.languages.at(settings_.active.language).input_method.starts_with("japanese-");
 }
@@ -3300,6 +3489,11 @@ void App::tick_next_words() {
     for (auto* store : {&next_words_, &japanese_choices_, &japanese_completions_}) {
         if (store->dirty() && monotonic_seconds() - store->changed_at() >= 2) {
             store->save();
+        }
+    }
+    for (auto& [lexicon, learned] : learned_words_) {
+        if (learned.dirty() && monotonic_seconds() - learned.changed_at() >= 2) {
+            learned.save();
         }
     }
 }
@@ -4077,6 +4271,7 @@ void App::apply_settings() {
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.swipe_typing = pending_swipe_typing_;
+    settings_.typing_suggestions = pending_typing_suggestions_;
     settings_.key_flicks = pending_key_flicks_;
     settings_.emoji_close_on_select = pending_emoji_close_on_select_;
     settings_.flick_only = pending_flick_only_;
@@ -4392,6 +4587,11 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::SwipeTyping && pending_can_swipe()) {
         pending_swipe_typing_ = !pending_swipe_typing_;
         update_settings_ui();
+    } else if (kind == ControlKind::TypingSuggestions && pending_can_suggest()) {
+        pending_typing_suggestions_ = !pending_typing_suggestions_;
+        update_settings_ui();
+    } else if (kind == ControlKind::TypingSuggestion) {
+        choose_typing_suggestion(command.index);
     } else if (kind == ControlKind::SwipeCandidate) {
         choose_swipe(command.index);
     } else if (kind == ControlKind::AutoLeveling) {
@@ -4422,17 +4622,15 @@ void App::action(const ControlAction& command) {
         confirm_ = Confirm::None;
         pressed_controls_.clear();
         hovered_.clear();
-        next_words_.clear();
-        japanese_choices_.clear();
-        japanese_completions_.clear();
-        choices_snapshot_.reset();
-        completions_snapshot_.reset();
-        last_commit_.reset();
-        follow_up_.reset();
-        restart_learning(true);
-    } else if (kind == ControlKind::ClearLearning && learned_ && !clearing_learning_) {
+        clear_learned(std::exchange(learned_rows_, {}));
+    } else if (kind == ControlKind::ClearLearnedRow && confirm_ == Confirm::ClearLearning &&
+               command.index >= 0 && command.index < static_cast<int>(learned_rows_.size())) {
+        auto& row = learned_rows_[static_cast<std::size_t>(command.index)];
+        row.on = !row.on;
+    } else if (kind == ControlKind::ClearLearning && anything_learned() && !clearing_learning_) {
         pressed_controls_.clear();
         hovered_.clear();
+        learned_rows_ = learned_rows();
         confirm_ = Confirm::ClearLearning;
     } else if (kind == ControlKind::FlickOnly) {
         pending_flick_only_ = !pending_flick_only_;
@@ -4881,6 +5079,164 @@ bool App::pending_can_swipe() const {
                pending_favorites_.begin(), pending_favorites_.end(),
                [&](const Favorite& favorite) { return swipe_known(favorite.selection.language); });
 }
+bool App::suggestions_supported(const std::string& language_id) const {
+    const auto known = suggestion_support_.find(language_id);
+    if (known != suggestion_support_.end()) {
+        return known->second;
+    }
+    // Where swipe typing is offered: a word list, typed as Unicode text.
+    // Chinese, Japanese and Korean keep their own candidates.
+    const auto language = profiles_.languages.find(language_id);
+    const bool supported =
+        language != profiles_.languages.end() && !language->second.swipe_lexicon.empty() &&
+        language->second.input_method == "xkb" && language->second.keymap != "jp" &&
+        options_.input != InputBackend::Uinput &&
+        !swipe_lexicon_path(options_.data_dir, options_.config_dir, language->second.swipe_lexicon)
+             .empty();
+    return suggestion_support_[language_id] = supported;
+}
+bool App::pending_can_suggest() const {
+    return suggestions_supported(pending_.language) ||
+           std::any_of(pending_favorites_.begin(), pending_favorites_.end(),
+                       [&](const Favorite& favorite) {
+                           return suggestions_supported(favorite.selection.language);
+                       });
+}
+bool App::suggesting() const {
+    return settings_.typing_suggestions && suggestions_supported(settings_.active.language) &&
+           !dictation_open_ && !emoji_open_ && !settings_open_ && !hint_private() &&
+           !hint_no_suggestions() && edit_keys() == EditKeys::Standard;
+}
+void App::load_word_list() {
+    const auto language = profiles_.languages.find(settings_.active.language);
+    const bool wanted = settings_.typing_suggestions && language != profiles_.languages.end() &&
+                        suggestions_supported(settings_.active.language);
+    if (!wanted) {
+        // Off, or a language without: its memory goes back.
+        word_list_.reset();
+        word_list_load_.reset();
+        word_list_lexicon_.clear();
+        return;
+    }
+    const auto& lexicon = language->second.swipe_lexicon;
+    const auto id = lexicon + '\n' + language->second.id;
+    if (id != word_list_lexicon_) {
+        word_list_lexicon_ = id;
+        word_list_.reset();
+        auto load = std::make_shared<WordListLoad>();
+        word_list_load_ = load;
+        // Parsing takes a quarter second: never on the VR loop. A load that
+        // a language change made pointless finishes and goes unread.
+        std::thread([load, path = swipe_lexicon_path(options_.data_dir, options_.config_dir, lexicon),
+                     respell = language->second.swipe_replace] {
+            auto list = std::make_shared<const WordList>(WordList::load(path, respell));
+            std::lock_guard lock(load->lock);
+            load->list = std::move(list);
+            load->done = true;
+        }).detach();
+        return;
+    }
+    if (word_list_load_) {
+        std::lock_guard lock(word_list_load_->lock);
+        if (!word_list_load_->done) {
+            return;
+        }
+        word_list_ = std::move(word_list_load_->list);
+    }
+    if (word_list_load_) {
+        word_list_load_.reset();
+        update_typing_suggestions();
+    }
+}
+LearnedWords& App::learned_words(const std::string& lexicon) {
+    auto found = learned_words_.find(lexicon);
+    if (found == learned_words_.end()) {
+        found =
+            learned_words_
+                .emplace(lexicon, LearnedWords(options_.config_dir.empty()
+                                                   ? std::filesystem::path()
+                                                   : options_.config_dir / "words" / (lexicon + ".tsv")))
+                .first;
+    }
+    return found->second;
+}
+void App::track_typed(const std::string& text) {
+    backspace_held_.reset(); // Another key went down since.
+    for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
+        const auto character = g_utf8_get_char(p);
+        if (word_character(character)) {
+            typed_word_.append(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+            continue;
+        }
+        // A space or sentence punctuation ends a word, which is learned; a
+        // digit or symbol ends it unlearned, as in a password or a code.
+        static constexpr std::string_view sentence = " .,!?;:";
+        end_word(character < 0x80 &&
+                 sentence.find(static_cast<char>(character)) != std::string_view::npos);
+    }
+    update_typing_suggestions();
+}
+void App::track_backspace() {
+    if (typed_word_.empty()) {
+        word_whole_ = false; // What it deleted, and what precedes it, is unknown.
+    } else {
+        typed_word_.erase(static_cast<std::size_t>(
+            g_utf8_find_prev_char(typed_word_.c_str(), typed_word_.c_str() + typed_word_.size()) -
+            typed_word_.c_str()));
+    }
+    update_typing_suggestions();
+}
+void App::end_word(bool learn) {
+    const auto language = profiles_.languages.find(settings_.active.language);
+    if (learn && word_whole_ && suggesting() && learning_allowed() &&
+        language != profiles_.languages.end()) {
+        auto& learned = learned_words(language->second.swipe_lexicon);
+        learned.record(typed_word_);
+        learned.touch(monotonic_seconds());
+    }
+    typed_word_.clear();
+    word_whole_ = true;
+}
+void App::lose_word() {
+    typed_word_.clear();
+    // Typing goes on at an unknown place: a new word is assumed to begin.
+    word_whole_ = true;
+    update_typing_suggestions();
+}
+void App::update_typing_suggestions() {
+    std::vector<std::string> suggestions;
+    const auto language = profiles_.languages.find(settings_.active.language);
+    if (word_list_ && word_whole_ && !typed_word_.empty() && swipe_candidates_.empty() && suggesting() &&
+        language != profiles_.languages.end()) {
+        suggestions = complete_word(*word_list_, learned_words(language->second.swipe_lexicon),
+                                    typed_word_, typing_suggestion_count);
+    }
+    if (suggestions != typing_suggestions_) {
+        typing_suggestions_ = std::move(suggestions);
+        dirty = true;
+    }
+}
+void App::choose_typing_suggestion(int index) {
+    if (index < 0 || index >= static_cast<int>(typing_suggestions_.size()) || !suggesting()) {
+        return;
+    }
+    const auto word = typing_suggestions_[static_cast<std::size_t>(index)];
+    if (!word.starts_with(typed_word_)) {
+        lose_word();
+        return;
+    }
+    // Only the rest of the word goes out, and the space after it: nothing
+    // typed is deleted, so a wrong guess about the field changes nothing.
+    const auto text = word.substr(typed_word_.size()) + (hint_no_autospace() ? "" : " ");
+    if (!preview_output() && !(output_.admit(true) && text_output_->commit_text(text))) {
+        text_refused();
+        return;
+    }
+    status_.clear();
+    typed_word_ = word;
+    end_word(true);
+    update_typing_suggestions();
+}
 bool App::swipe_known(const std::string& language) const {
     const auto known = swipe_support_.find(language);
     return known != swipe_support_.end() ? known->second
@@ -5221,6 +5577,7 @@ void App::finish_key_flick() {
             } else if (!text.empty() && !text_output_->commit_text(text)) {
                 text_refused();
             }
+            track_typed(text);
             if (keymap_->composing()) {
                 status_ = "Accent pending";
             }
@@ -5257,6 +5614,7 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         if (!text.empty() && !preview_output() && !text_output_->commit_text(text)) {
             text_refused();
         }
+        track_typed(text);
         swipe_space_ = false;
     }
     if (dictation_open_) {
@@ -5342,6 +5700,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
         status_ = "Swipe discarded: the laser left the keyboard before the word was ready.";
         return;
     }
+    learn_swiped();
     swipe_candidates_.clear();
     for (const auto& word : result.words) {
         std::string cased = word;
@@ -5391,6 +5750,11 @@ void App::apply_swipe(const SwipeService::Result& result) {
     swipe_committed_ = swipe_candidates_.front();
     swipe_failures_ = output_.failures();
     swipe_space_ = true;
+    // Letters typed straight after it lengthen the swiped word, which typing
+    // suggestions can't complete from its start.
+    typed_word_.clear();
+    word_whole_ = false;
+    update_typing_suggestions();
     if (hint_no_suggestions()) {
         swipe_candidates_.clear(); // a terminal or password field gets no alternatives
     }
@@ -5463,7 +5827,19 @@ void App::choose_swipe(int index) {
     swipe_selected_ = index;
     dirty = true;
 }
+void App::learn_swiped() {
+    // A swiped word counts as used once it stays: it was delivered and the
+    // next input left it as chosen.
+    const auto language = profiles_.languages.find(settings_.active.language);
+    if (!swipe_committed_.empty() && output_.failures() == swipe_failures_ && suggesting() &&
+        learning_allowed() && language != profiles_.languages.end()) {
+        auto& learned = learned_words(language->second.swipe_lexicon);
+        learned.record(swipe_committed_);
+        learned.touch(monotonic_seconds());
+    }
+}
 void App::discard_swipe() {
+    learn_swiped();
     if (!swipe_candidates_.empty()) {
         dirty = true;
     }
@@ -5896,6 +6272,7 @@ bool App::type_emoji(const std::string& text) {
         return true; // The preview cannot type; it still remembers the emoji.
     }
     // One commit for the whole sequence, so a family or flag arrives whole.
+    lose_word(); // An emoji ends the word, unlearned.
     if (!backend_ready_ || !output_.admit(true) || !text_output_->commit_text(text)) {
         update_output_status();
         dirty = true;
@@ -5990,6 +6367,7 @@ void App::close_dictation() {
     release_input();
     dictation_open_ = false;
     text_output_ = options_.text_output ? options_.text_output : &output_;
+    lose_word(); // What was typed went to the editor.
     dirty = true;
 }
 
@@ -6795,6 +7173,7 @@ void App::flush_direct(double now) {
                !keyboard_.active() && !output_.text_pending() && !output_.retry_available()) {
         // Written, never read: the keyboard owns the clipboard with this text.
         discard_swipe(); // The phrase lands after the word they would replace.
+        lose_word();
         direct_paste_ = DirectPaste{std::move(direct_waiting_.front())};
         direct_waiting_.pop_front();
         direct_paste_->write = clipboard()->write(direct_paste_->text);
@@ -6814,6 +7193,7 @@ void App::flush_direct(double now) {
             direct_gap_ = true;
         }
         discard_swipe();
+        lose_word();
         if (!direct_window_) {
             direct_window_ = output_.focused_window(); // the session's first text
         }

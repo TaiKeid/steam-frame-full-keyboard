@@ -20,11 +20,13 @@
 #include "shell_protocol.hpp"
 #include "shell_sink.hpp"
 #include "swipe.hpp"
+#include "word_suggestions.hpp"
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <deque>
 #include <future>
+#include <mutex>
 #include <optional>
 #include <utility>
 
@@ -618,7 +620,46 @@ class App {
     bool swipe_known(const std::string& language) const;
     // Settings' switch reaches every language of the cycle, not only the main one.
     bool pending_can_swipe() const;
-    mutable std::map<std::string, bool> swipe_support_;
+    // Typing suggestions (docs/typing-suggestions.md): completions of the word
+    // being typed, for the languages swipe typing is offered in.
+    bool suggestions_supported(const std::string& language) const;
+    bool pending_can_suggest() const;
+    // Whether completions show now: on in Settings, for this language, and
+    // not in a password, PIN or terminal field, dictation or a composer.
+    bool suggesting() const;
+    // The language's word list, loaded on a thread of its own on first need.
+    void load_word_list();
+    LearnedWords& learned_words(const std::string& lexicon);
+    // Follows the word being typed: text this keyboard typed, a Backspace,
+    // and anything that ends it or makes it unknown.
+    void track_typed(const std::string& text);
+    void track_backspace();
+    // The word ended with a space or sentence punctuation, or a pick: it is
+    // learned. Enter, Tab and digits end it unlearned, as a password ends.
+    void end_word(bool learn);
+    // The cursor may have moved, or what precedes it is unknown.
+    void lose_word();
+    void update_typing_suggestions();
+    void choose_typing_suggestion(int index);
+    // Learns the swiped word once it stays.
+    void learn_swiped();
+    // The Clear learned words popup: a row for each language with something
+    // learned, by name, all off at first.
+    struct LearnedRow {
+        std::string id; // A word list's ID, or "japanese" for its conversions.
+        std::string title, note;
+        bool on{};
+    };
+    std::vector<LearnedRow> learned_rows_;
+    std::vector<LearnedRow> learned_rows();
+    bool anything_learned();
+    void clear_learned(const std::vector<LearnedRow>& rows);
+    // A word list's language as people say it: German for every German
+    // keyboard, English (US) and English (UK) apart.
+    std::string word_list_name(const std::string& lexicon) const;
+    Rect learned_popup_bounds() const;
+    Rect learned_row_bounds(std::size_t row) const;
+    mutable std::map<std::string, bool> swipe_support_, suggestion_support_;
     // Whether the main language or an additional one can swipe.
     bool swipe_in_cycle_{};
     bool swipe_enabled() const { return swipe_ && swipe_keyboard_ && !hint_private(); }
@@ -799,6 +840,7 @@ class App {
     bool pending_replace_native_keyboard_{};
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
+    bool pending_typing_suggestions_{true};
     bool pending_key_flicks_{};
     bool pending_emoji_close_on_select_{};
     bool pending_flick_only_{};
@@ -1150,6 +1192,23 @@ class App {
     // The laser left after releasing the pending swipe: the target's cursor
     // may have moved, so its word is discarded.
     bool swipe_detached_{};
+    // The word being typed, as this keyboard typed it since it began, and
+    // whether that is all of it; and its completions, shown when no swipe
+    // alternatives are.
+    std::string typed_word_;
+    bool word_whole_{true};
+    std::optional<std::pair<unsigned, double>> backspace_held_; // Pointer and press time.
+    std::uint32_t word_window_{};                               // Where the word is typed.
+    std::vector<std::string> typing_suggestions_;
+    struct WordListLoad {
+        std::mutex lock;
+        std::shared_ptr<const WordList> list;
+        bool done{};
+    };
+    std::shared_ptr<WordListLoad> word_list_load_;
+    std::shared_ptr<const WordList> word_list_;
+    std::string word_list_lexicon_;                     // The loaded or loading list's ID.
+    std::map<std::string, LearnedWords> learned_words_; // By word list ID.
     // Alternatives for the last swiped word; any other input invalidates them.
     std::vector<std::string> swipe_candidates_;
     int swipe_selected_{};

@@ -297,6 +297,7 @@ JsonPtr App::host_settings() const {
         json_object_object_add(object.get(), key, json_object_new_boolean(value));
     };
     flag("swipe_typing", settings_.swipe_typing);
+    flag("typing_suggestions", settings_.typing_suggestions);
     flag("swipe_switch", settings_.swipe_switch);
     flag("haptic_sounds_switch", settings_.haptic_sounds_switch);
     flag("num_lock", keyboard_.num());
@@ -329,11 +330,20 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
     if (!values || !json_object_is_type(values, json_type_object)) {
         return {"bad_request", "values"};
     }
-    static const std::set<std::string> booleans{
-        "swipe_typing",          "swipe_switch",         "haptic_sounds_switch", "num_lock",
-        "hide_numpad",           "use_drag_to_move",     "auto_leveling",        "pinned",
-        "emoji_close_on_select", "dictation_send_paste", "dictation_direct",     "dictation_fallback",
-        "desktop_unicode_paste"};
+    static const std::set<std::string> booleans{"swipe_typing",
+                                                "typing_suggestions",
+                                                "swipe_switch",
+                                                "haptic_sounds_switch",
+                                                "num_lock",
+                                                "hide_numpad",
+                                                "use_drag_to_move",
+                                                "auto_leveling",
+                                                "pinned",
+                                                "emoji_close_on_select",
+                                                "dictation_send_paste",
+                                                "dictation_direct",
+                                                "dictation_fallback",
+                                                "desktop_unicode_paste"};
     // Every value is checked before any is applied: one invalid value
     // rejects the whole request.
     json_object_object_foreach(values, check_key, check_value) {
@@ -395,6 +405,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
         // so unapplied edits to other keys stay as they are.
         if (key == "swipe_typing") {
             settings_.swipe_typing = pending_swipe_typing_ = on;
+        } else if (key == "typing_suggestions") {
+            settings_.typing_suggestions = pending_typing_suggestions_ = on;
         } else if (key == "swipe_switch") {
             settings_.swipe_switch = on;
         } else if (key == "haptic_sounds_switch") {
@@ -778,6 +790,7 @@ void App::host_settings_changed(const Settings& before, const char* source) {
         }
     };
     compare("swipe_typing", before.swipe_typing != settings_.swipe_typing);
+    compare("typing_suggestions", before.typing_suggestions != settings_.typing_suggestions);
     compare("swipe_switch", before.swipe_switch != settings_.swipe_switch);
     compare("haptic_sounds_switch", before.haptic_sounds_switch != settings_.haptic_sounds_switch);
     compare("num_lock", before.num_lock != settings_.num_lock);

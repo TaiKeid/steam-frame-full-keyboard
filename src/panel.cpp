@@ -3785,6 +3785,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                   25, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
             label(cr, popup.body, {popup.panel.x + 40, popup.panel.y + 78, popup.panel.width - 80, 56},
                   18, view.language->font, mix(t.legend, t.surface, .3), false, PANGO_ALIGN_LEFT, true);
+            for (const auto& row : popup.rows) {
+                // The name and its note; the row's switch is its control.
+                const Rect& r = row.bounds;
+                label(cr, row.title, {r.x, r.y, r.width - 80, 30}, 22, view.language->font, t.legend,
+                      false, PANGO_ALIGN_LEFT);
+                label(cr, row.note, {r.x, r.y + 30, r.width - 80, 22}, 16, view.language->font,
+                      mix(t.legend, t.surface, .3), false, PANGO_ALIGN_LEFT);
+            }
             for (const auto& control : view.controls) {
                 if (control.id.starts_with("confirm-")) {
                     draw_control(control);

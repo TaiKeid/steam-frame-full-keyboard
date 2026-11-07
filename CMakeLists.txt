@@ -417,6 +417,7 @@ if(BUILD_TESTING)
     target_link_libraries(swipe-tests PRIVATE keyboard_core)
     target_compile_options(swipe-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME swipe COMMAND swipe-tests --core)
+    add_test(NAME typing-suggestions COMMAND swipe-tests --typing)
     # Real encoder and bundled English list; skipped when the engine is not built.
     add_test(NAME swipe-model COMMAND swipe-tests --model)
     add_test(NAME swipe-chinese COMMAND swipe-tests --chinese)

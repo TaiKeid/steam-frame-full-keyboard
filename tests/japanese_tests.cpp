@@ -2518,6 +2518,7 @@ void mozc_clear_learning() {
     };
     require(clear().enabled, "Clear is offered");
     control(app, "clear-learning");
+    control(app, "confirm-row-0"); // Japanese
     control(app, "confirm-accept");
     for (int i = 0; i < 400 && clear().busy; ++i) {
         app.tick(now += .01);
@@ -4433,11 +4434,6 @@ void learning_settings() {
     App app(options, sink);
     app.apply({"en-us-full", "en-us", "graphite"});
     app.show_settings();
-    require(!has_control(app, "japanese-learning") && !has_control(app, "clear-learning"),
-            "Clear learned words is offered only with Japanese, and learning has no switch");
-    control(app, "settings"); // Back
-    app.apply({"ja-flick-12", "ja-flick", "graphite"});
-    app.show_settings();
     // Scrolls the Languages card until the row shows.
     double scrolled = 200;
     const auto find = [&](const std::string& id) {
@@ -4464,6 +4460,12 @@ void learning_settings() {
         }
         throw std::runtime_error("Missing control " + id);
     };
+    require(!find("clear-learning").enabled && !has_control(app, "japanese-learning"),
+            "Clear learned words is offered with any language, with nothing to clear yet, and "
+            "learning has no switch");
+    control(app, "settings"); // Back
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    app.show_settings();
     require(!find("clear-learning").enabled && !has_control(app, "japanese-learning"),
             "learning is always on, as on Steam's keyboard, with nothing to clear yet");
     require(!find("flick-only").selected, "Flick only shows with the flick layout, off as on phones");
@@ -4510,10 +4512,19 @@ void learning_settings() {
     find("clear-learning"); // Scrolled into view.
     control(app, "clear-learning");
     require(app.view().confirm && fs::exists(record), "Clear asks first");
+    const auto rows = app.view().confirm->rows;
+    require(rows.size() == 1 && rows[0].title == "Japanese" && rows[0].note == "Conversions you chose" &&
+                !find("confirm-row-0").selected && !find("confirm-accept").enabled,
+            "it lists Japanese in plain words, off, and Clear waits for a choice");
+    control(app, "confirm-row-0");
+    require(find("confirm-row-0").selected && find("confirm-accept").enabled,
+            "choosing it enables Clear");
     control(app, "confirm-cancel");
     require(!app.view().confirm && fs::exists(record), "and cancelling keeps it");
     find("clear-learning"); // Scrolled into view.
     control(app, "clear-learning");
+    require(!find("confirm-row-0").selected, "the popup opens with nothing chosen again");
+    control(app, "confirm-row-0");
     control(app, "confirm-accept");
     for (int i = 0; i < 400 && find("clear-learning").busy; ++i) {
         require(!find("clear-learning").enabled, "a busy Clear can't be pressed again");

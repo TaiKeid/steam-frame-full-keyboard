@@ -742,6 +742,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* swipe = field(document.get(), "swipe_typing", json_type_boolean, true)) {
             settings.swipe_typing = json_object_get_boolean(swipe);
         }
+        if (auto* suggestions = field(document.get(), "typing_suggestions", json_type_boolean, true)) {
+            settings.typing_suggestions = json_object_get_boolean(suggestions);
+        }
         if (auto* flicks = field(document.get(), "key_flicks", json_type_boolean, true)) {
             settings.key_flicks = json_object_get_boolean(flicks);
         }
@@ -1028,6 +1031,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->start_with_steamos));
         json_object_object_add(document.get(), "swipe_typing",
                                json_object_new_boolean(settings->swipe_typing));
+        json_object_object_add(document.get(), "typing_suggestions",
+                               json_object_new_boolean(settings->typing_suggestions));
         json_object_object_add(document.get(), "key_flicks",
                                json_object_new_boolean(settings->key_flicks));
         json_object_object_add(document.get(), "swipe_switch",

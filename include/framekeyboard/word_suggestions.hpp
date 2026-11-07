@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <istream>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,8 +22,10 @@ bool word_character(std::uint32_t character);
 // loading thread can hand it over whole.
 class WordList {
   public:
-    static WordList parse(std::istream& input);
-    static WordList load(const std::filesystem::path& path);
+    // `respell` replaces parts of each word, as Swiss German writes ss for ß.
+    using Respelling = std::map<std::string, std::string>;
+    static WordList parse(std::istream& input, const Respelling& respell = {});
+    static WordList load(const std::filesystem::path& path, const Respelling& respell = {});
     std::size_t size() const { return entries_.size(); }
     struct Word {
         std::string_view key, spelling;

@@ -66,7 +66,7 @@ bool word_character(std::uint32_t character) {
            character == 0x2019; // ’
 }
 
-WordList WordList::parse(std::istream& input) {
+WordList WordList::parse(std::istream& input, const Respelling& respell) {
     struct Parsed {
         std::string key, spelling;
         int frequency{};
@@ -81,7 +81,13 @@ WordList WordList::parse(std::istream& input) {
         if (tab == 0 || tab == std::string::npos) {
             continue;
         }
-        const std::string spelling = line.substr(0, tab);
+        std::string spelling = line.substr(0, tab);
+        for (const auto& [from, to] : respell) {
+            for (auto at = spelling.find(from); !from.empty() && at != std::string::npos;
+                 at = spelling.find(from, at + to.size())) {
+                spelling.replace(at, from.size(), to);
+            }
+        }
         int frequency = 0;
         try {
             frequency = std::clamp(std::stoi(line.substr(tab + 1)), 0, 255);
@@ -119,9 +125,9 @@ WordList WordList::parse(std::istream& input) {
     }
     return list;
 }
-WordList WordList::load(const fs::path& path) {
+WordList WordList::load(const fs::path& path, const Respelling& respell) {
     std::ifstream input(path);
-    return input ? parse(input) : WordList{};
+    return input ? parse(input, respell) : WordList{};
 }
 WordList::Word WordList::word(const Entry& entry) const {
     return {std::string_view(text_).substr(entry.key, entry.key_length),
