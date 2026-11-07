@@ -2084,7 +2084,7 @@ int typing_flow() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
     std::ofstream(directory.path / "swipe/lexicons/en-us.tsv")
-        << "hello\t200\nhelp\t180\nhelmet\t100\nheld\t90\nworld\t150\n";
+        << "hello\t200\nhelp\t180\nhelmet\t100\nheld\t90\nhelpless\t50\nworld\t150\n";
     Options options;
     options.config_dir = directory.path;
     options.mode = Mode::Vr;
@@ -2111,9 +2111,8 @@ int typing_flow() {
         tap(app, "Backspace");
         require(typing_suggestions(app).empty(), "nothing is suggested for an empty word");
         tap(app, "Backspace");
-        type(app, "he");
-        require(typing_suggestions(app).empty(),
-                "after deleting past the word's start, the word's beginning is unknown");
+        require(typing_suggestions(app) == std::vector<std::string>{"helpless"},
+                "Backspace steps back into the word before");
         type(app, " he");
         require(!typing_suggestions(app).empty(), "a space starts a new word");
         tap(app, "ArrowLeft");
@@ -2121,6 +2120,22 @@ int typing_flow() {
         type(app, "wo");
         require(typing_suggestions(app) == std::vector<std::string>{"world"},
                 "typing after an arrow starts a new word");
+        tap(app, "ArrowRight");
+        tap(app, "Backspace");
+        type(app, "wo");
+        require(typing_suggestions(app) == std::vector<std::string>{"world"},
+                "deleting text the keys didn't type, as a field's, starts a new word too");
+        {
+            // Held until it repeats, Backspace deletes an unknown amount.
+            const auto [bx, by] = key_point(app, "Backspace");
+            app.down(0, bx, by, 5);
+            app.tick(5.6);
+            app.up(0, bx, by);
+            require(typing_suggestions(app).empty(), "a held Backspace forgets the word");
+            type(app, "wo");
+            require(typing_suggestions(app) == std::vector<std::string>{"world"},
+                    "and typing goes on at a word's start");
+        }
         tap(app, "ArrowRight");
 
         // A word the list lacks is offered once finished three times. Enter

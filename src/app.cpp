@@ -1904,8 +1904,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                     backspace_held_ = {pointer, now};
                 } else if (key->action_kind == ActionKind::Key &&
                            (key->action == "Enter" || key->action == "NumpadEnter")) {
-                    end_word(false);
-                    update_typing_suggestions();
+                    track_typed("\n"); // Ends the word unlearned; Backspace can take it back.
                 } else {
                     lose_word();
                 }
@@ -2260,9 +2259,7 @@ bool App::tick(double now) {
             backspace_held_.reset();
         } else if (now - backspace_held_->second >= backspace_repeat_after) {
             backspace_held_.reset();
-            typed_word_.clear();
-            word_whole_ = false;
-            update_typing_suggestions();
+            lose_word();
         }
     }
     tick_japanese(now);
@@ -5164,52 +5161,66 @@ void App::track_typed(const std::string& text) {
     backspace_held_.reset(); // Another key went down since.
     for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
         const auto character = g_utf8_get_char(p);
-        if (word_character(character)) {
-            typed_word_.append(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
-            continue;
+        if (!word_character(character)) {
+            // A space or sentence punctuation ends a word, which is learned; a
+            // digit, a symbol or a line break ends it unlearned, as in a
+            // password or a code.
+            static constexpr std::string_view sentence = " .,!?;:";
+            end_word(character < 0x80 &&
+                     sentence.find(static_cast<char>(character)) != std::string_view::npos);
         }
-        // A space or sentence punctuation ends a word, which is learned; a
-        // digit or symbol ends it unlearned, as in a password or a code.
-        static constexpr std::string_view sentence = " .,!?;:";
-        end_word(character < 0x80 &&
-                 sentence.find(static_cast<char>(character)) != std::string_view::npos);
+        typed_text_.append(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
+    }
+    // Only Backspace looks back, and a few words are enough for it.
+    constexpr std::size_t kept = 256;
+    if (typed_text_.size() > kept) {
+        const auto word = current_word();
+        typed_text_ = word.size() > kept ? std::string() : word;
     }
     update_typing_suggestions();
 }
 void App::track_backspace() {
-    if (typed_word_.empty()) {
-        word_whole_ = false; // What it deleted, and what precedes it, is unknown.
-    } else {
-        typed_word_.erase(static_cast<std::size_t>(
-            g_utf8_find_prev_char(typed_word_.c_str(), typed_word_.c_str() + typed_word_.size()) -
-            typed_word_.c_str()));
+    // Past what the keys typed, the text is the field's own: typing goes on
+    // at a word's start, as after an arrow.
+    if (!typed_text_.empty()) {
+        typed_text_.erase(static_cast<std::size_t>(
+            g_utf8_find_prev_char(typed_text_.c_str(), typed_text_.c_str() + typed_text_.size()) -
+            typed_text_.c_str()));
     }
     update_typing_suggestions();
 }
+std::string App::current_word() const {
+    const char* const begin = typed_text_.c_str();
+    const char* start = begin + typed_text_.size();
+    while (start > begin) {
+        const char* previous = g_utf8_find_prev_char(begin, start);
+        if (!previous || !word_character(g_utf8_get_char(previous))) {
+            break;
+        }
+        start = previous;
+    }
+    return std::string(start, begin + typed_text_.size());
+}
 void App::end_word(bool learn) {
     const auto language = profiles_.languages.find(settings_.active.language);
-    if (learn && word_whole_ && suggesting() && learning_allowed() &&
-        language != profiles_.languages.end()) {
+    if (learn && suggesting() && learning_allowed() && language != profiles_.languages.end()) {
         auto& learned = learned_words(language->second.swipe_lexicon);
-        learned.record(typed_word_);
+        learned.record(current_word());
         learned.touch(monotonic_seconds());
     }
-    typed_word_.clear();
-    word_whole_ = true;
 }
 void App::lose_word() {
-    typed_word_.clear();
-    // Typing goes on at an unknown place: a new word is assumed to begin.
-    word_whole_ = true;
+    typed_text_.clear();
     update_typing_suggestions();
 }
 void App::update_typing_suggestions() {
     std::vector<std::string> suggestions;
     const auto language = profiles_.languages.find(settings_.active.language);
-    if (word_list_ && word_whole_ && !typed_word_.empty() && swipe_candidates_.empty() && suggesting() &&
+    const auto word = current_word();
+    if (word_list_ && !word.empty() && swipe_candidates_.empty() && suggesting() &&
         language != profiles_.languages.end()) {
-        suggestions = complete_word(*word_list_, learned_words(language->second.swipe_lexicon),
-                                    typed_word_, typing_suggestion_count);
+        suggestions = complete_word(*word_list_, learned_words(language->second.swipe_lexicon), word,
+                                    typing_suggestion_count);
     }
     if (suggestions != typing_suggestions_) {
         typing_suggestions_ = std::move(suggestions);
@@ -5221,20 +5232,24 @@ void App::choose_typing_suggestion(int index) {
         return;
     }
     const auto word = typing_suggestions_[static_cast<std::size_t>(index)];
-    if (!word.starts_with(typed_word_)) {
+    const auto typed = current_word();
+    if (!word.starts_with(typed)) {
         lose_word();
         return;
     }
     // Only the rest of the word goes out, and the space after it: nothing
     // typed is deleted, so a wrong guess about the field changes nothing.
-    const auto text = word.substr(typed_word_.size()) + (hint_no_autospace() ? "" : " ");
+    const auto rest = word.substr(typed.size());
+    const auto text = rest + (hint_no_autospace() ? "" : " ");
     if (!preview_output() && !(output_.admit(true) && text_output_->commit_text(text))) {
         text_refused();
         return;
     }
     status_.clear();
-    typed_word_ = word;
+    // A pick counts as a use even without the space.
+    typed_text_ += rest;
     end_word(true);
+    typed_text_ += text.substr(rest.size());
     update_typing_suggestions();
 }
 bool App::swipe_known(const std::string& language) const {
@@ -5700,7 +5715,6 @@ void App::apply_swipe(const SwipeService::Result& result) {
         status_ = "Swipe discarded: the laser left the keyboard before the word was ready.";
         return;
     }
-    learn_swiped();
     swipe_candidates_.clear();
     for (const auto& word : result.words) {
         std::string cased = word;
@@ -5750,11 +5764,9 @@ void App::apply_swipe(const SwipeService::Result& result) {
     swipe_committed_ = swipe_candidates_.front();
     swipe_failures_ = output_.failures();
     swipe_space_ = true;
-    // Letters typed straight after it lengthen the swiped word, which typing
-    // suggestions can't complete from its start.
-    typed_word_.clear();
-    word_whole_ = false;
-    update_typing_suggestions();
+    // The swiped word is typed text too: letters tapped after it lengthen
+    // it, and its space ends the word before it.
+    track_typed(text);
     if (hint_no_suggestions()) {
         swipe_candidates_.clear(); // a terminal or password field gets no alternatives
     }
@@ -5800,7 +5812,7 @@ void App::choose_swipe(int index) {
                 refuse();
                 return;
             }
-            swipe_committed_ = word;
+            swap_swiped(word);
             swipe_selected_ = index;
             dirty = true;
             forget_failed_swipe(); // A synchronous rejection already counts.
@@ -5823,23 +5835,19 @@ void App::choose_swipe(int index) {
             return;
         }
     }
-    swipe_committed_ = word;
+    swap_swiped(word);
     swipe_selected_ = index;
     dirty = true;
 }
-void App::learn_swiped() {
-    // A swiped word counts as used once it stays: it was delivered and the
-    // next input left it as chosen.
-    const auto language = profiles_.languages.find(settings_.active.language);
-    if (!swipe_committed_.empty() && output_.failures() == swipe_failures_ && suggesting() &&
-        learning_allowed() && language != profiles_.languages.end()) {
-        auto& learned = learned_words(language->second.swipe_lexicon);
-        learned.record(swipe_committed_);
-        learned.touch(monotonic_seconds());
+void App::swap_swiped(const std::string& word) {
+    // Nothing else was typed since, or the alternatives would be gone.
+    if (typed_text_.ends_with(swipe_committed_)) {
+        typed_text_.replace(typed_text_.size() - swipe_committed_.size(), swipe_committed_.size(), word);
     }
+    swipe_committed_ = word;
+    update_typing_suggestions();
 }
 void App::discard_swipe() {
-    learn_swiped();
     if (!swipe_candidates_.empty()) {
         dirty = true;
     }

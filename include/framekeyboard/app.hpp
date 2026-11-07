@@ -142,10 +142,13 @@ class App {
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
-    // A decoding word, suggestions or the next word's space: what a pointer
-    // leaving the keyboard discards (cancel_pointer).
+    // A decoding word, suggestions, the next word's space, or what the keys
+    // typed while completions show: what a pointer leaving the keyboard
+    // discards (cancel_pointer). Pointing away with the trigger at rest
+    // keeps it, as the cursor stays.
     bool holds_swipe_state() const {
-        return swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_;
+        return swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
+               (!typed_text_.empty() && suggesting());
     }
     void cancel_pointer(unsigned pointer);
     // The pointer holds a repeating key, such as Backspace, in the keyboard,
@@ -630,19 +633,21 @@ class App {
     // The language's word list, loaded on a thread of its own on first need.
     void load_word_list();
     LearnedWords& learned_words(const std::string& lexicon);
-    // Follows the word being typed: text this keyboard typed, a Backspace,
-    // and anything that ends it or makes it unknown.
+    // Follows the word being typed: text this keyboard typed, typed or
+    // swiped, a Backspace, and anything that ends it or makes it unknown.
     void track_typed(const std::string& text);
     void track_backspace();
+    // The word before the cursor, as the keys typed it; empty after a space.
+    std::string current_word() const;
     // The word ended with a space or sentence punctuation, or a pick: it is
     // learned. Enter, Tab and digits end it unlearned, as a password ends.
     void end_word(bool learn);
-    // The cursor may have moved, or what precedes it is unknown.
+    // The cursor may have moved: typing goes on at a word's start.
     void lose_word();
     void update_typing_suggestions();
     void choose_typing_suggestion(int index);
-    // Learns the swiped word once it stays.
-    void learn_swiped();
+    // A swipe alternative chosen in the swiped word's place.
+    void swap_swiped(const std::string& word);
     // The Clear learned words popup: a row for each language with something
     // learned, by name, all off at first.
     struct LearnedRow {
@@ -1192,11 +1197,11 @@ class App {
     // The laser left after releasing the pending swipe: the target's cursor
     // may have moved, so its word is discarded.
     bool swipe_detached_{};
-    // The word being typed, as this keyboard typed it since it began, and
-    // whether that is all of it; and its completions, shown when no swipe
-    // alternatives are.
-    std::string typed_word_;
-    bool word_whole_{true};
+    // What the keys typed since the cursor last may have moved, taken to
+    // start at a word's start, so Backspace steps back into earlier words;
+    // the word being typed ends it. Its completions show when no swipe
+    // alternatives do.
+    std::string typed_text_;
     std::optional<std::pair<unsigned, double>> backspace_held_; // Pointer and press time.
     std::uint32_t word_window_{};                               // Where the word is typed.
     std::vector<std::string> typing_suggestions_;

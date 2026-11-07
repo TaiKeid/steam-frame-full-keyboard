@@ -366,6 +366,49 @@ void english() {
     simulator.shutdown();
 }
 
+// Typing suggestions keep the word while the mouse rests over the field, as a
+// laser pointing away with its trigger at rest; a click there forgets it.
+std::vector<std::string> chips(Simulator& simulator) {
+    std::vector<std::string> words;
+    for (const auto& c : simulator.app().view().controls) {
+        if (c.id.starts_with("typing-suggestion-")) {
+            words.push_back(c.label);
+        }
+    }
+    return words;
+}
+bool all_start(const std::vector<std::string>& words, const std::string& start) {
+    return !words.empty() && std::all_of(words.begin(), words.end(), [&](const std::string& word) {
+        return word.starts_with(start);
+    });
+}
+void typing_suggestions() {
+    Profile profile;
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    press(simulator, "KeyH");
+    press(simulator, "KeyE");
+    press(simulator, "KeyL");
+    // The word list loads on a thread of its own, slower in a sanitizer build.
+    for (int i = 0; i < 300 && chips(simulator).empty(); ++i) {
+        wait(simulator);
+    }
+    require(all_start(chips(simulator), "hel"), "completions of the typed word show");
+    const double x = Simulator::field_bounds.x + 15, y = Simulator::field_bounds.y + 30;
+    simulator.pointer_move(Simulator::mouse, x, y);
+    wait(simulator);
+    press(simulator, "KeyP");
+    require(all_start(chips(simulator), "help"), "the mouse over the field keeps the word");
+    simulator.pointer_move(Simulator::mouse, x, y);
+    simulator.pointer_down(Simulator::mouse, x, y, clock_now);
+    simulator.pointer_up(Simulator::mouse, x, y);
+    wait(simulator);
+    require(chips(simulator).empty(), "a click in the field forgets it");
+    press(simulator, "KeyO");
+    require(all_start(chips(simulator), "o"), "and typing goes on at a word's start");
+    simulator.shutdown();
+}
+
 void bad_selection() {
     Profile profile;
     auto unknown = setup(profile, "en-us-full", "xx-none", false);
@@ -403,6 +446,7 @@ int main() {
         japanese_reopen(false);
         japanese_reopen(true);
         english();
+        typing_suggestions();
         bad_selection();
         std::cout << "simulator tests passed\n";
         return 0;
