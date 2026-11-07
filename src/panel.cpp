@@ -855,6 +855,24 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             line(-10, -10, 10, 10);
         }
         break;
+    case Icon::Lock:
+        // A padlock: its shackle over a rounded body with a keyhole.
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 0, -3.5, 4.6, pi, 2 * pi);
+        line(-4.6, -3.5, -4.6, -.5);
+        line(4.6, -3.5, 4.6, -.5);
+        cairo_stroke(cr);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, -5.5, 1.5, 1.5, pi, 1.5 * pi);
+        cairo_arc(cr, 5.5, 1.5, 1.5, 1.5 * pi, 2 * pi);
+        cairo_arc(cr, 5.5, 8.5, 1.5, 0, .5 * pi);
+        cairo_arc(cr, -5.5, 8.5, 1.5, .5 * pi, pi);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
+        cairo_arc(cr, 0, 4.4, 1.3, 0, 2 * pi);
+        cairo_fill(cr);
+        line(0, 4.4, 0, 7);
+        break;
     case Icon::Eraser:
         // A block tilted on the line it leaves behind.
         cairo_move_to(cr, -9, 2);

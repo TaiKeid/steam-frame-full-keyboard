@@ -546,11 +546,19 @@ std::vector<Control> App::controls() const {
         const bool flick = !profiles_.languages.at(settings_.active.language).flick.empty();
         const bool blocked = flick || (dictation_open_ && (listening || sending_ || reveal_));
         const bool on = settings_.swipe_switch && !blocked && (swipe_in_cycle_ || here);
-        add({ControlKind::SwipeToggle},
-            {"swipe-toggle", on ? "Turn swiping off" : "Turn swiping on",
-             button(next_slot++, next_column++, 1), false, on ? Icon::Swipe : Icon::SwipeOff});
+        // A password or PIN field takes no swipes, and suggests nothing: the
+        // button says why with a lock, and its press only shakes it.
+        const bool locked = hint_private() && !blocked;
+        add({ControlKind::SwipeToggle}, {"swipe-toggle",
+                                         locked ? "No swiping or suggestions in password fields"
+                                         : on   ? "Turn swiping off"
+                                                : "Turn swiping on",
+                                         button(next_slot++, next_column++, 1), false,
+                                         locked ? Icon::Lock
+                                         : on   ? Icon::Swipe
+                                                : Icon::SwipeOff});
         result.back().enabled = !blocked;
-        result.back().dimmed = !here;
+        result.back().dimmed = !here && !locked;
     }
     // A switch of its own too, with nothing to do while Settings has sounds off.
     // The second row of a compact toolbar holds three: a fourth would sit on the
@@ -4557,8 +4565,8 @@ void App::action(const ControlAction& command) {
         } else {
             use_steam_keyboard();
         }
-    } else if (kind == ControlKind::SwipeToggle && !swipe_in_cycle_ &&
-               !swipe_known(settings_.active.language)) {
+    } else if (kind == ControlKind::SwipeToggle &&
+               ((!swipe_in_cycle_ && !swipe_known(settings_.active.language)) || hint_private())) {
         swipe_shake_since_ = monotonic_seconds(); // Nothing to switch: it says so.
         dirty = true;
     } else if (kind == ControlKind::SwipeToggle) {
@@ -5163,13 +5171,26 @@ void App::track_typed(const std::string& text) {
     backspace_held_.reset(); // Another key went down since.
     for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
         const auto character = g_utf8_get_char(p);
-        if (!word_character(character)) {
-            // A space or sentence punctuation ends a word, which is learned; a
-            // digit, a symbol or a line break ends it unlearned, as in a
-            // password or a code.
-            static constexpr std::string_view sentence = " .,!?;:";
-            end_word(character < 0x80 &&
-                     sentence.find(static_cast<char>(character)) != std::string_view::npos);
+        static constexpr std::string_view punctuation = ".,!?;:";
+        if (character == ' ') {
+            // A space ends a word, which is learned, and confirms one that
+            // punctuation ended.
+            if (pending_word_) {
+                const auto [end, word] = *std::exchange(pending_word_, std::nullopt);
+                learn_word(word, end);
+            }
+            end_word(true);
+        } else if (character < 0x80 &&
+                   punctuation.find(static_cast<char>(character)) != std::string_view::npos) {
+            // Punctuation ends a word too, but a password can end so, with
+            // Enter next: the word waits for a space (".!" waits as one).
+            if (auto word = finished_word(); !word.empty()) {
+                pending_word_ = {typed_text_.size(), std::move(word)};
+            }
+        } else if (!word_character(character) || pending_word_) {
+            // A digit, a symbol, or a letter straight after punctuation, as
+            // in a password, a code or an address: nothing is learned.
+            pending_word_.reset();
         }
         typed_text_.append(p, static_cast<std::size_t>(g_utf8_next_char(p) - p));
     }
@@ -5178,10 +5199,13 @@ void App::track_typed(const std::string& text) {
     if (typed_text_.size() > kept) {
         const auto word = current_word();
         typed_text_ = word.size() > kept ? std::string() : word;
+        pending_word_.reset();
+        counted_.reset(); // Their places in it moved.
     }
     update_typing_suggestions();
 }
 void App::track_backspace() {
+    pending_word_.reset(); // Its punctuation may be what goes.
     // Past what the keys typed, the text is the field's own: typing goes on
     // at a word's start, as after an arrow.
     if (!typed_text_.empty()) {
@@ -5212,11 +5236,7 @@ std::string App::current_word() const {
     }
     return std::string(start, begin + typed_text_.size());
 }
-void App::end_word(bool learn) {
-    const auto language = profiles_.languages.find(settings_.active.language);
-    if (!learn || !suggesting() || !learning_allowed() || language == profiles_.languages.end()) {
-        return;
-    }
+std::string App::finished_word() const {
     auto word = current_word();
     // A closing quote isn't part of the word, unless the list spells it so (goin').
     while (!word.empty() && (!word_list_ || !word_list_->find(word_key(word)))) {
@@ -5226,11 +5246,31 @@ void App::end_word(bool learn) {
         }
         word.erase(static_cast<std::size_t>(last - word.c_str()));
     }
+    return word;
+}
+void App::end_word(bool learn) {
+    if (learn) {
+        learn_word(finished_word(), typed_text_.size());
+    }
+}
+void App::learn_word(const std::string& word, std::size_t end) {
+    const auto language = profiles_.languages.find(settings_.active.language);
+    if (word.empty() || !suggesting() || !learning_allowed() || language == profiles_.languages.end()) {
+        return;
+    }
+    // Each word typed counts once: one stepped back into with Backspace and
+    // finished again where it ended, or a pick and then its space, did.
+    if (counted_ && counted_->first == end && counted_->second == word) {
+        return;
+    }
+    counted_ = {end, word};
     auto& learned = learned_words(language->second.swipe_lexicon);
     learned.record(word);
     learned.touch(monotonic_seconds());
 }
 void App::lose_word() {
+    pending_word_.reset();
+    counted_.reset();
     typed_text_.clear();
     update_typing_suggestions();
 }

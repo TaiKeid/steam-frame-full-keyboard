@@ -2039,6 +2039,7 @@ void type(App& app, const std::string& letters) {
     for (const char letter : letters) {
         tap(app, letter == ' '    ? std::string("Space")
                  : letter == '\'' ? std::string("Quote")
+                 : letter == '.'  ? std::string("Period")
                  : std::isdigit(static_cast<unsigned char>(letter))
                      ? std::string("Digit") + letter
                      : std::string("Key") + static_cast<char>(std::toupper(letter)));
@@ -2158,6 +2159,23 @@ int typing_flow() {
         type(app, " 'quux' 'quux' 'quux' qu");
         require(typing_suggestions(app) == std::vector<std::string>{"quux"},
                 "nor is a closing quote, which isn't learned with it");
+        // Punctuation waits for a space: a password ending in it, then Enter,
+        // isn't learned, nor is a word a letter follows (an address).
+        for (int i = 0; i < 3; ++i) {
+            type(app, " pqrs.");
+            tap(app, "Enter");
+            type(app, "pqrs.x ");
+        }
+        type(app, "pq");
+        require(typing_suggestions(app).empty(), "a word punctuation ended waits for a space");
+        type(app, "rs. pqrs. pqrs. pq");
+        require(typing_suggestions(app) == std::vector<std::string>{"pqrs"}, "which confirms it");
+        // A pick counts once, also when its space is taken back and the
+        // sentence ends there.
+        type(app, " wo");
+        click(app, "typing-suggestion-0");
+        tap(app, "Backspace");
+        type(app, ". ");
     }
     {
         // Clear learned words lists the language with its count, off; Clear
@@ -2185,12 +2203,33 @@ int typing_flow() {
     const auto saved = read_file(learned);
     require(saved.find("help\t") != std::string::npos && saved.find("zork\t") != std::string::npos,
             "picked and finished words are saved on exit");
+    require(saved.find("world\t1\t") != std::string::npos, "a word typed once counts once");
     require(saved.find("wo\t") == std::string::npos && saved.find("he\t") == std::string::npos,
             "words cut short by an arrow or Backspace are not learned");
     require((fs::status(learned).permissions() & (fs::perms::group_all | fs::perms::others_all)) ==
                 fs::perms::none,
             "the learned words are the owner's alone");
 
+    {
+        // In a password field the swipe button is a lock, and nothing is
+        // suggested.
+        Settings swiping;
+        swiping.swipe_typing = true;
+        save_settings(directory.path, swiping);
+        TextSink sink;
+        App app(options, sink);
+        App::HostHints password;
+        password.purpose = "password";
+        app.set_context(std::string("pw"), password);
+        require(control(app.view(), "swipe-toggle").icon == Icon::Lock, "a lock says why");
+        type(app, "hel");
+        settle(app, [&] { return false; }, 100);
+        require(typing_suggestions(app).empty(), "a password field gets no suggestions");
+        app.set_context(std::nullopt);
+        require(control(app.view(), "swipe-toggle").icon != Icon::Lock,
+                "other fields get the switch back");
+        fs::remove(directory.path / "config.json");
+    }
     // Switched off in Settings, nothing is offered or learned.
     fs::remove(learned);
     Settings settings;

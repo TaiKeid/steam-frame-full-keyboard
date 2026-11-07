@@ -92,6 +92,7 @@ enum class Icon {
     Reset,
     Swipe,
     SwipeOff,
+    Lock, // the swipe button in a password field
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.

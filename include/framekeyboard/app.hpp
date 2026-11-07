@@ -639,9 +639,15 @@ class App {
     void track_backspace();
     // The word before the cursor, as the keys typed it; empty after a space.
     std::string current_word() const;
-    // The word ended with a space or sentence punctuation, or a pick: it is
-    // learned. Enter, Tab and digits end it unlearned, as a password ends.
+    // The word ended with a space, or a pick: it is learned. Enter, Tab and
+    // digits end it unlearned, as a password ends, and punctuation waits for
+    // the space after it.
     void end_word(bool learn);
+    // The current word without a closing quote.
+    std::string finished_word() const;
+    // Learns `word`, which ended at `end` in typed_text_, unless it already
+    // counted there.
+    void learn_word(const std::string& word, std::size_t end);
     // The cursor may have moved: typing goes on at a word's start.
     void lose_word();
     void update_typing_suggestions();
@@ -1202,6 +1208,9 @@ class App {
     // the word being typed ends it. Its completions show when no swipe
     // alternatives do.
     std::string typed_text_;
+    // A word punctuation ended, waiting for a space; and the last word that
+    // counted. Both with where they end in typed_text_.
+    std::optional<std::pair<std::size_t, std::string>> pending_word_, counted_;
     std::optional<std::pair<unsigned, double>> backspace_held_; // Pointer and press time.
     std::uint32_t word_window_{};                               // Where the word is typed.
     std::vector<std::string> typing_suggestions_;
