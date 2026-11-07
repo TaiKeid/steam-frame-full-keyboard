@@ -249,6 +249,9 @@ void SettingsUi::close_popup() {
     if (capture_ && capture_->bar.id == "scroll-menu") {
         capture_.reset();
     }
+    if (drag_ && drag_->menu) {
+        drag_.reset(); // It ends with its list, not moving the next one.
+    }
     open_field_.clear();
     first_choice_ = 0;
     choice_remainder_ = 0;

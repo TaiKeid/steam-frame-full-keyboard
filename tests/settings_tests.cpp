@@ -2732,6 +2732,13 @@ void drag_dropdown() {
                 !has(snapshot(), "choose:field:c4"),
             "and the drag goes on from where the stick left it");
     ui.up(0);
+    // A drag ends with its list: the next one opened doesn't follow it.
+    require(!ui.down(0, x, y), "a press on the list");
+    ui.close_popup();
+    ui.toggle("other");
+    require(!ui.move(0, x, y - 3 * 52) && has(snapshot(), "choose:other:o0"),
+            "the next list opened doesn't follow the old drag");
+    require(!ui.up(0), "whose release is nothing either");
 }
 void scroll_cards() {
     SettingsUi ui;
