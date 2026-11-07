@@ -1265,6 +1265,13 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             require(app.view().preedit == "ㅎ" && app.view().key_labels.at("KeyG") == "ㅎ",
                     "and 한/영 again goes back to Hangul");
             click(app, "Space");
+            // A latched Shift waits through 한/영 for the letter after it.
+            sink.events.clear();
+            click(app, "ShiftLeft");
+            click(app, "AltRight");
+            click(app, "KeyA");
+            require(sink.events == std::vector<std::string>{"A"}, "한/영 leaves a latched Shift");
+            click(app, "AltRight");
         } else {
             for (const auto* action :
                  {"Comma", "Period", "Digit0", "Digit6", "Digit7", "Digit8", "Digit9"}) {

@@ -127,7 +127,10 @@ class KeyboardState {
     explicit KeyboardState(KeySink& sink) : sink_(sink) {}
     explicit KeyboardState(OutputController& output);
     ~KeyboardState();
-    bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0);
+    // `uses_modifiers` false leaves a latched Shift for the next key, as
+    // Korean's 한/영 does: it switches the keys, typing nothing.
+    bool down(unsigned pointer, const Key& key, double now, bool local = false, int native_code = 0,
+              bool uses_modifiers = true);
     // A local press, still held, goes on as a native one already past its
     // repeat delay: `code` goes down now and repeats from the next step.
     bool continue_native(unsigned pointer, int code, double now);

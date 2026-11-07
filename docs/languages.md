@@ -210,10 +210,10 @@ app does. Enter types the open syllable and sends Enter in the same press. Esc
 goes to the app at once and drops the open syllable. Space and other ordinary
 keys type it before sending the key. The 한/영 key, in right Alt's place as on a
 Korean PC keyboard, types the open syllable and switches the keys between Hangul
-and the layout's Latin letters, whether or not English is added; the language
-button still shows 한국어 and moves through your languages. Korean starts in
-Hangul, and returns to it when you change language or layout. Punctuation uses
-ordinary US keys.
+and the layout's Latin letters, whether or not English is added. A latched
+Shift waits through it for the next letter. The language button still shows
+한국어 and moves through your languages. Korean starts in Hangul, and returns to
+it when you change language or layout. Punctuation uses ordinary US keys.
 
 Chinese types its own script only, as its keyboards do; for English, add an
 English layout as an additional language and switch with the language button.

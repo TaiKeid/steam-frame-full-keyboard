@@ -1789,8 +1789,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     const auto symbol = text_local ? keymap_->symbol(*key, modifiers, keyboard_.caps(), keyboard_.num())
                                    : XKB_KEY_NoSymbol;
     const bool old_num = keyboard_.num();
-    const bool accepted = keyboard_.down(pointer, *key, now, local,
-                                         local ? ime_press_code(*key) : native_code(*key, modifiers));
+    const bool accepted =
+        keyboard_.down(pointer, *key, now, local,
+                       local ? ime_press_code(*key) : native_code(*key, modifiers), !latin_toggle(*key));
     if (accepted) {
         try {
             if (retry_text) {
@@ -6140,7 +6141,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     const bool ime = editable && (japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers));
     const bool old_num = keyboard_.num();
     // Every key is local here: it shows as pressed and latches, but sends nothing.
-    if (!keyboard_.down(pointer, key, now, true, ime ? ime_press_code(key) : 0)) {
+    if (!keyboard_.down(pointer, key, now, true, ime ? ime_press_code(key) : 0, !latin_toggle(key))) {
         return false;
     }
     dirty = true;

@@ -524,7 +524,8 @@ void KeyboardState::release(int code) {
         references_.erase(found);
     }
 }
-bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool local, int native_code) {
+bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool local, int native_code,
+                         bool uses_modifiers) {
     if (presses_.contains(pointer)) {
         return false;
     }
@@ -591,7 +592,9 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         press.repeat_code = code;
         press.repeat_at = now + .5;
     }
-    use_modifiers();
+    if (uses_modifiers) {
+        use_modifiers();
+    }
     // Store the release sequence first so an exception cannot strand an earlier down.
     presses_.emplace(pointer, press);
     for (int key_value : press.codes) {
