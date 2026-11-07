@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased: Start with SteamOS works from the headset
+
+- Fixed: **Start with SteamOS** failed with "Could not refresh SteamOS startup settings" when Full Keyboard was started by SteamVR's dashboard instead of Steam. SteamVR runs overlays where the session bus is visible but the user manager's private socket is not, so `systemctl --user` could not reach the manager even though it was running. The unit is now reloaded through the manager's D-Bus `Reload` method when that happens.
+
 ## 0.15.0: Improved typing, swiping and overall feel, and reworked Japanese and Korean
 
 - Shortcuts in Steam's own text fields now say "Shortcuts may not work in Steam fields", instead of pointing to Steam's keyboard, which has no Ctrl or Alt.
