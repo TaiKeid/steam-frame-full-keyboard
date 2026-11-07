@@ -162,6 +162,26 @@ int main(int argc, char** argv) {
             failed = true;
         }
         require(failed && read(unit) == "# custom unit\n", "custom startup units are never overwritten");
+        // SteamVR's sandbox and SteamOS's nested desktop both hide the manager's
+        // private socket, so systemctl --user fails even though the manager runs
+        // on its canonical bus. The D-Bus Reload must still reach it.
+        const auto commands = base / "commands";
+        fs::create_directories(commands);
+        std::ofstream(commands / "systemctl") << "#!/bin/sh\nexit 1\n";
+        std::ofstream(commands / "busctl") << "#!/bin/sh\nexit 0\n";
+        fs::permissions(commands / "systemctl", fs::perms::owner_all);
+        fs::permissions(commands / "busctl", fs::perms::owner_all);
+        const char* const path = std::getenv("PATH");
+        const std::string saved_path = path ? path : "";
+        setenv("PATH", (commands.string() + ":" + saved_path).c_str(), 1);
+        settings.start_with_steamos = true;
+        settings.replace_native_keyboard = true;
+        const auto sandboxed_units = base / "sandboxed-units";
+        configure_startup(settings, binary, config, sandboxed_units);
+        require(
+            fs::is_symlink(sandboxed_units / "steamvr.service.wants/framekeyboard-autostart.service"),
+            "a hidden manager socket reloads through the canonical user bus socket");
+        setenv("PATH", saved_path.c_str(), 1);
         fs::remove_all(base);
         std::cout
             << "Startup opt-in, replacement dependency, rollback and custom-unit preservation passed.\n";

@@ -174,7 +174,7 @@ Cut, Copy and Paste are shortcut actions, initially Ctrl+X, Ctrl+C and Ctrl+V fo
 
 ## Packaging and failure cleanup
 
-Releases live under `~/.local/share/framekeyboard/releases`, with a `current` symlink and a launcher in `~/.local/bin`. Config lives under `~/.config/framekeyboard`. The package enables no startup by default. The explicit Start with SteamOS option maintains a user-local session unit on the preference worker. It launches hidden replacement only when both saved options are on; independent fallback and update helpers survive main-process handoff. No kernel module or Steam patch is installed.
+Releases live under `~/.local/share/framekeyboard/releases`, with a `current` symlink and a launcher in `~/.local/bin`. Config lives under `~/.config/framekeyboard`. The package enables no startup by default. The explicit Start with SteamOS option maintains a user-local session unit on the preference worker. It launches hidden replacement only when both saved options are on; independent fallback and update helpers survive main-process handoff. The user manager is reloaded through `systemctl --user daemon-reload`, or through its D-Bus `Reload` method when the sandbox that launched the keyboard hides the manager's private socket, as SteamVR's dashboard does. No kernel module or Steam patch is installed.
 
 Production replacement stages a unique new directory, including for a same-version
 reinstall, and atomically switches `current`. The installer holds the instance lock

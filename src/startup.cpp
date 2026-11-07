@@ -69,31 +69,53 @@ void write_atomic(const fs::path& path, const std::string& text) {
     }
     close(fd);
 }
-void reload_manager() {
-    char command[] = "systemctl", user[] = "--user", reload[] = "daemon-reload";
-    char* args[]{command, user, reload, nullptr};
+// Runs one reload client with the original bounded wait. Nullopt means it
+// could not be started at all, which is different from a client that failed.
+std::optional<bool> reload_with(char* const arguments[]) {
     pid_t pid{};
-    if (posix_spawnp(&pid, command, nullptr, nullptr, args, environ) != 0) {
-        throw std::runtime_error("SteamOS startup manager is unavailable.");
+    if (posix_spawnp(&pid, arguments[0], nullptr, nullptr, arguments, environ) != 0) {
+        return std::nullopt;
     }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     int status{};
     while (std::chrono::steady_clock::now() < deadline) {
         const auto result = waitpid(pid, &status, WNOHANG);
         if (result == pid) {
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                return;
-            }
-            throw std::runtime_error("Could not refresh SteamOS startup settings.");
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
         }
         if (result < 0 && errno != EINTR) {
-            throw std::runtime_error("Could not wait for the SteamOS startup manager.");
+            return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    // This is only our bounded systemctl client, never Steam or a shared service.
+    // This is only our bounded client, never Steam or a shared service.
     kill(pid, SIGKILL);
     while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    return false;
+}
+void reload_manager() {
+    char command[] = "systemctl", user[] = "--user", reload[] = "daemon-reload";
+    char* args[]{command, user, reload, nullptr};
+    const auto systemctl = reload_with(args);
+    if (systemctl && *systemctl) {
+        return;
+    }
+    // systemctl --user needs the manager's private socket, which SteamVR's
+    // sandbox hides and SteamOS's nested desktop places elsewhere along with
+    // $XDG_RUNTIME_DIR. The manager's own bus socket stays at this path.
+    char busctl[] = "busctl", address[] = "--address", call[] = "call",
+         service[] = "org.freedesktop.systemd1", path[] = "/org/freedesktop/systemd1",
+         interface[] = "org.freedesktop.systemd1.Manager", method[] = "Reload";
+    auto bus_address = "unix:path=/run/user/" + std::to_string(getuid()) + "/bus";
+    char* busctl_args[]{busctl, address, bus_address.data(), call, service, path, interface,
+                        method, nullptr};
+    const auto direct = reload_with(busctl_args);
+    if (direct && *direct) {
+        return;
+    }
+    if (!systemctl && !direct) {
+        throw std::runtime_error("SteamOS startup manager is unavailable.");
     }
     throw std::runtime_error("Could not refresh SteamOS startup settings.");
 }
