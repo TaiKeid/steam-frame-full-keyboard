@@ -87,6 +87,9 @@ bool wait(DesktopFocus::State& state, int fd, int milliseconds, int other = -1, 
     poll(fds, other >= 0 ? 3 : fd >= 0 ? 2 : 1, milliseconds);
     return !state.stop;
 }
+// How soon a failed attachment to SteamOS's Desktop is tried again while the
+// Desktop has the focus, as when its KWin has just restarted.
+constexpr auto desktop_retry = std::chrono::seconds(5);
 // One connection's life: reads the focus, then again on every change, until
 // the connection fails or the object is destroyed.
 void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, int screen_number) {
@@ -115,6 +118,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     DesktopTerminal terminal;
     std::string desktop_bus;
     bool desktop = false;
+    std::chrono::steady_clock::time_point retry_at;
     while (!state.stop && !xcb_connection_has_error(connection)) {
         // XCB reads events that arrive while it waits for a reply into its own
         // queue, not the socket: take them before sleeping on the socket.
@@ -158,10 +162,10 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             state.focused = focused;
             state.window = packed;
             desktop = focused && !desktop_bus.empty();
-            if (desktop && terminal.attach(desktop_bus)) {
-                terminal.process(); // The script reports the active window as it starts.
+            if (desktop && terminal.attached(desktop_bus)) {
                 keys = terminal.edit_keys();
             }
+            retry_at = {}; // Attached below if not yet, before the next wait.
             state.edit_keys = keys;
             // Keep open's cue forgets the titles of windows no longer listed.
             std::vector<std::uint32_t> windows;
@@ -209,7 +213,24 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
         if (terminal.process() && desktop) {
             state.edit_keys = terminal.edit_keys();
         }
-        if (!wait(state, xcb_get_file_descriptor(connection), -1, terminal.fd(), terminal.events())) {
+        int timeout = -1;
+        if (desktop && !terminal.attached(desktop_bus)) {
+            auto now = std::chrono::steady_clock::now();
+            if (now >= retry_at) {
+                if (terminal.attach(desktop_bus)) {
+                    terminal.process(); // The script reports the active window as it starts.
+                    state.edit_keys = terminal.edit_keys();
+                }
+                now = std::chrono::steady_clock::now();
+                retry_at = now + desktop_retry;
+            }
+            if (!terminal.attached(desktop_bus)) {
+                timeout = static_cast<int>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(retry_at - now).count() + 1);
+            }
+        }
+        if (!wait(state, xcb_get_file_descriptor(connection), timeout, terminal.fd(),
+                  terminal.events())) {
             return;
         }
     }

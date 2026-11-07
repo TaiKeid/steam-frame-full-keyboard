@@ -29,6 +29,10 @@ struct SdBus {
     decltype(&sd_bus_get_events) get_events{};
     decltype(&sd_bus_call_method) call{};
     decltype(&sd_bus_message_is_method_call) is_method_call{};
+    decltype(&sd_bus_message_get_sender) get_sender{};
+    decltype(&sd_bus_message_get_path) get_path{};
+    decltype(&sd_bus_message_has_signature) has_signature{};
+    decltype(&sd_bus_add_match) add_match{};
     decltype(&sd_bus_message_read) read{};
     decltype(&sd_bus_message_unref) unref{};
     decltype(&sd_bus_reply_method_return) reply{};
@@ -61,6 +65,10 @@ const SdBus& sd() {
         get(a.get_events, "sd_bus_get_events");
         get(a.call, "sd_bus_call_method");
         get(a.is_method_call, "sd_bus_message_is_method_call");
+        get(a.get_sender, "sd_bus_message_get_sender");
+        get(a.get_path, "sd_bus_message_get_path");
+        get(a.has_signature, "sd_bus_message_has_signature");
+        get(a.add_match, "sd_bus_add_match");
         get(a.read, "sd_bus_message_read");
         get(a.unref, "sd_bus_message_unref");
         get(a.reply, "sd_bus_reply_method_return");
@@ -74,6 +82,11 @@ const SdBus& sd() {
 constexpr std::uint64_t call_timeout_us = 250000;
 constexpr const char* service = "org.framekeyboard.DesktopFocus";
 constexpr const char* plugin = "framekeyboard-desktop-focus";
+constexpr std::string_view object = "/org/framekeyboard/DesktopFocus";
+// KWin leaving the bus, or a new KWin taking its name.
+constexpr const char* kwin_owner_rule =
+    "type='signal',sender='org.freedesktop.DBus',path='/org/freedesktop/DBus',"
+    "interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.kde.KWin'";
 // KWin 6: the app ID, never the caption, of each window that becomes active,
 // and of the one active when the script starts.
 constexpr std::string_view script =
@@ -103,8 +116,10 @@ std::string write_script() {
     return file ? path : std::string();
 }
 // A method call on the Desktop's KWin scripting object; false when it failed.
+// With `id`, its integer answer, as loadScript's script ID (negative when
+// KWin refused the script).
 bool scripting(sd_bus* bus, const char* method, const char* types, const char* argument = nullptr,
-               const char* second = nullptr) {
+               const char* second = nullptr, int* id = nullptr) {
     const auto& api = sd();
     sd_bus_error error{}; // SD_BUS_ERROR_NULL, without its C compound literal
     sd_bus_message* reply = nullptr;
@@ -116,10 +131,33 @@ bool scripting(sd_bus* bus, const char* method, const char* types, const char* a
         : argument ? api.call(bus, destination, path, interface, method, &error, &reply, types, argument)
                    : api.call(bus, destination, path, interface, method, &error, &reply, types);
     api.error_free(&error);
+    bool answered = result >= 0;
+    if (reply) {
+        if (id) {
+            answered = answered && api.read(reply, "i", id) > 0;
+        }
+        api.unref(reply);
+    }
+    return answered;
+}
+// Who owns a name on the bus, as its unique name; empty if nobody.
+std::string owner(sd_bus* bus, const char* name) {
+    const auto& api = sd();
+    sd_bus_error error{}; // SD_BUS_ERROR_NULL, without its C compound literal
+    sd_bus_message* reply = nullptr;
+    std::string result;
+    if (api.call(bus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                 "GetNameOwner", &error, &reply, "s", name) >= 0) {
+        const char* unique = nullptr;
+        if (api.read(reply, "s", &unique) > 0 && unique) {
+            result = unique;
+        }
+    }
+    api.error_free(&error);
     if (reply) {
         api.unref(reply);
     }
-    return result >= 0;
+    return result;
 }
 } // namespace
 struct DesktopTerminal::Bus {
@@ -178,21 +216,41 @@ bool DesktopTerminal::attach(const std::string& address) {
         api.start(fresh->bus) < 0) {
         return false;
     }
+    // Only KWin's calls count: anyone else on the Desktop's bus could claim
+    // another app. Its unique name is taken before the script can report.
+    kwin_ = owner(fresh->bus, "org.kde.KWin");
+    if (kwin_.empty()) {
+        return false;
+    }
+    // A KWin that leaves or restarts takes the script with it: its last
+    // report no longer holds (process() detaches).
+    const auto kwin_changed = [](sd_bus_message*, void* data, sd_bus_error*) -> int {
+        auto* self = static_cast<DesktopTerminal*>(data);
+        self->kwin_lost_ = true;
+        self->keys_ = EditKeys::Standard;
+        return 0;
+    };
     // The script's calls arrive here: each says which app became active.
     const auto active = [](sd_bus_message* message, void* data, sd_bus_error*) -> int {
         const auto& api = sd();
         if (api.is_method_call(message, service, "Active") <= 0) {
             return 0;
         }
+        auto* self = static_cast<DesktopTerminal*>(data);
+        const char* sender = api.get_sender(message);
+        const char* path = api.get_path(message);
         const char* app = nullptr;
-        if (api.read(message, "s", &app) >= 0) {
-            static_cast<DesktopTerminal*>(data)->keys_ = app_edit_keys(app ? app : "");
+        if (sender && self->kwin_ == sender && path && object == path &&
+            api.has_signature(message, "s") > 0 && api.read(message, "s", &app) > 0) {
+            self->keys_ = app_edit_keys(app ? app : "");
         }
         api.reply(message, "");
         return 1;
     };
-    if (api.request_name(fresh->bus, service, 0) < 0 ||
+    if (api.add_match(fresh->bus, nullptr, kwin_owner_rule, kwin_changed, this) < 0 ||
+        api.request_name(fresh->bus, service, 0) < 0 ||
         api.add_filter(fresh->bus, nullptr, active, this) < 0) {
+        kwin_.clear();
         return false;
     }
     const auto path = write_script();
@@ -202,18 +260,24 @@ bool DesktopTerminal::attach(const std::string& address) {
     bus_ = std::move(fresh);
     // A copy left by a keyboard that stopped without unloading it goes first.
     scripting(bus_->bus, "unloadScript", "s", plugin);
-    if (!scripting(bus_->bus, "loadScript", "ss", path.c_str(), plugin) ||
+    int id = -1;
+    if (!scripting(bus_->bus, "loadScript", "ss", path.c_str(), plugin, &id) || id < 0 ||
         !scripting(bus_->bus, "start", "")) {
         detach();
         return false;
     }
     return true;
 }
+bool DesktopTerminal::attached(const std::string& address) const {
+    return bus_ && bus_->address == address;
+}
 void DesktopTerminal::detach() {
     if (bus_) {
         scripting(bus_->bus, "unloadScript", "s", plugin);
         bus_.reset();
     }
+    kwin_.clear();
+    kwin_lost_ = false;
     keys_ = EditKeys::Standard;
 }
 int DesktopTerminal::fd() const {
@@ -235,9 +299,16 @@ bool DesktopTerminal::process() {
             keys_ = EditKeys::Standard;
             break;
         }
-        if (result == 0) {
+        if (result == 0 || kwin_lost_) {
             break;
         }
+    }
+    if (kwin_lost_) {
+        // The script went with that KWin: attach() loads it into the next.
+        bus_.reset();
+        kwin_.clear();
+        kwin_lost_ = false;
+        keys_ = EditKeys::Standard;
     }
     return keys_ != before;
 }

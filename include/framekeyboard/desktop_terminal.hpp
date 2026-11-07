@@ -27,11 +27,13 @@ class DesktopTerminal {
     // KWin report the active window; false when that failed.
     bool attach(const std::string& address);
     bool attached() const { return bus_ != nullptr; }
+    bool attached(const std::string& address) const;
     // The connection's descriptor and the poll() events it waits for, or -1.
     int fd() const;
     short events() const;
     // Takes what arrived; true when the active window's kind changed. A
-    // Desktop that closed detaches.
+    // Desktop that closed, or whose KWin left or restarted, detaches, its
+    // keys Standard, until attach() is called again.
     bool process();
     // The keys the Desktop's active window takes; Standard when unknown.
     EditKeys edit_keys() const { return keys_; }
@@ -41,5 +43,8 @@ class DesktopTerminal {
     void detach();
     std::unique_ptr<Bus> bus_;
     EditKeys keys_{EditKeys::Standard};
+    // KWin's unique bus name: only its calls count. kwin_lost_ when it left.
+    std::string kwin_;
+    bool kwin_lost_{};
 };
 } // namespace framekeyboard
