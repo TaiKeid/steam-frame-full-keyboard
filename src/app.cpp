@@ -2561,6 +2561,8 @@ void App::reload() {
     pause_capture();
     cjk_ = std::move(cjk);
     profiles_ = std::move(candidate);
+    // The edited profile may have no 한/영 key left to switch back with.
+    hangul_latin_ = false;
     ++layouts_rebuilt_;
     dictation_layout_for_.reset(); // An edited layout or theme keeps its ID.
     keymap_ = std::move(keymap);

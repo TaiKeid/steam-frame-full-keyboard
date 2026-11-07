@@ -1271,7 +1271,11 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
             click(app, "AltRight");
             click(app, "KeyA");
             require(sink.events == std::vector<std::string>{"A"}, "한/영 leaves a latched Shift");
-            click(app, "AltRight");
+            // Reload returns to Hangul: the reloaded profile may have no 한/영.
+            app.reload();
+            click(app, "KeyG");
+            require(app.view().preedit == "ㅎ", "Reload returns Korean to Hangul");
+            click(app, "Space");
         } else {
             for (const auto* action :
                  {"Comma", "Period", "Digit0", "Digit6", "Digit7", "Digit8", "Digit9"}) {
