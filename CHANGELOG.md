@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0: Improved typing, swiping and overall feel, and reworked Japanese and Korean
 
 - Shortcuts in Steam's own text fields now say "Shortcuts may not work in Steam fields", instead of pointing to Steam's keyboard, which has no Ctrl or Alt.
 - Fixed: with KDE Desktop Unicode set to Paste, text typed into SteamOS's Desktop pasted whatever its clipboard already held, then input stopped with "Text not sent". KWin 6.6 sets the clipboard only through the standard ext data-control protocol, which the keyboard now speaks besides the older one. It also never presses Ctrl+V in the Desktop unless the Desktop's own clipboard holds the text, and dictation's paste types there instead. A clipboard that never finishes being set no longer holds back every later key either: the paste gives up after two seconds, as one nobody takes already did.

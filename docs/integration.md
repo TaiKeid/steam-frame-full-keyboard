@@ -101,9 +101,9 @@ A plain launch while a hosted keyboard is running, for example from the dashboar
 ### `ready` and `hello`
 
 ```json
-← {"event":"ready","protocol":[1],"version":"0.14.1","session":1}
+← {"event":"ready","protocol":[1],"version":"0.15.0","session":1}
 → {"id":1,"op":"hello","protocol":1,"client":"Example Shell","client_version":"1.4.0","lease_ms":2000}
-← {"id":1,"ok":true,"protocol":1,"version":"0.14.1",
+← {"id":1,"ok":true,"protocol":1,"version":"0.15.0",
    "features":["pointer","sink","render","swipe","dictation.server","dictation.device","update"]}
 ```
 
