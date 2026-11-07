@@ -604,7 +604,7 @@ endif()
 set(FRAMEKEYBOARD_REPOSITORY "TaiKeid/steam-frame-full-keyboard")
 set(packaged_docs "https://github.com/${FRAMEKEYBOARD_REPOSITORY}/blob/${PROJECT_VERSION}")
 set(packaged_images "https://raw.githubusercontent.com/${FRAMEKEYBOARD_REPOSITORY}/${PROJECT_VERSION}")
-foreach(document README.md CHANGELOG.md)
+foreach(document README.md README.ja.md CHANGELOG.md)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${document})
     file(READ ${document} text)
     # Images first, by their raw files, so the links after them keep theirs.
