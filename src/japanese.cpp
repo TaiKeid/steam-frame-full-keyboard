@@ -2719,6 +2719,15 @@ void JapaneseComposer::prepare_live() {
         } catch (const std::exception&) {
             // Predictions may use an unavailable fallback even when conversion succeeded.
         }
+        // Anthy's record holds only what Anthy converted; what Mozc converted
+        // comes from the keyboard's own.
+        if (learned_) {
+            for (auto& text : learned_(reading)) {
+                if (std::find(predicted.begin(), predicted.end(), text) == predicted.end()) {
+                    predicted.push_back(std::move(text));
+                }
+            }
+        }
     }
     // A conversion committed before, offered back as learned, is the user's
     // pick for the reading: it leads the dictionary's completions.

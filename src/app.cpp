@@ -111,6 +111,8 @@ constexpr double reopen_patience = 3;
 // A swipe longer than this many samples (over 30 s of motion) is not a word,
 // or its capture is stuck: it ends without typing.
 constexpr std::size_t max_swipe_points = 2000;
+// Japanese conversions committed before, offered back while their start is typed.
+constexpr std::size_t learned_completions = 4;
 bool same_pair(const Selection& a, const Selection& b) {
     return a.layout == b.layout && a.language == b.language;
 }
@@ -274,6 +276,10 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     composition_.set_preferred([this](const std::string& reading) {
         return preferred_phrases(japanese_preferred_, japanese_choices_, learning_allowed(), reading);
     });
+    composition_.set_learned([this](const std::string& reading) {
+        return learning_allowed() ? japanese_completions_.beginning(reading, learned_completions)
+                                  : std::vector<std::string>{};
+    });
     if (owns_anthy()) {
         configure_anthy({true, anthy_home()});
         // Next words are learning too: only the keyboard that types keeps them.
@@ -282,6 +288,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
             import_stock_learning(options_.config_dir / "japanese-learning-imported");
             next_words_ = NextWords(options_.config_dir / "japanese-next-words.tsv");
             japanese_choices_ = NextWords(options_.config_dir / "japanese-choices.tsv");
+            japanese_completions_ = NextWords(options_.config_dir / "japanese-completions.tsv");
         }
     } else if (!anthy_configured()) {
         // An image export on its own still keeps Anthy's lock file in its
@@ -330,6 +337,7 @@ App::~App() {
     save_emoji(); // Reports failure only in a status nobody will see; never throws.
     next_words_.save();
     japanese_choices_.save();
+    japanese_completions_.save();
 }
 std::vector<Control> App::controls() const {
     std::vector<Control> result;
@@ -2365,6 +2373,7 @@ void App::show_settings() {
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
+               !japanese_completions_.empty() ||
                (!mozc_server_.empty() && mozc_learned(options_.config_dir));
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
@@ -2845,6 +2854,14 @@ JapaneseComposer App::japanese_copy() {
                         preferred = &japanese_preferred_](const std::string& reading) {
         return preferred_phrases(*preferred, *choices, learning, reading);
     });
+    if (!completions_snapshot_) {
+        japanese_completions_.empty(); // Read in, as the choices above.
+        completions_snapshot_ = std::make_shared<const NextWords>(japanese_completions_);
+    }
+    copy.set_learned([completions = completions_snapshot_, learning](const std::string& reading) {
+        return learning ? completions->beginning(reading, learned_completions)
+                        : std::vector<std::string>{};
+    });
     return copy;
 }
 void App::japanese_step(JapaneseWorker::Step step, std::function<void(bool)> then) {
@@ -3077,6 +3094,7 @@ void App::learning_restarted() {
         return;
     }
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
+               !japanese_completions_.empty() ||
                (!mozc_server_.empty() && mozc_learned(options_.config_dir));
     apply_learning(); // learning changed while it restarted
     update_settings_ui();
@@ -3202,6 +3220,13 @@ void App::commit_japanese() {
                 choices_snapshot_.reset(); // The worker's copies read the new ones.
                 japanese_choices_.touch(monotonic_seconds());
             }
+            // A conversion, from Mozc or Anthy, is offered back when its start
+            // is typed again; kana committed as typed is not.
+            if (!typed.empty() && text != typed) {
+                japanese_completions_.record(typed, text);
+                completions_snapshot_.reset();
+                japanese_completions_.touch(monotonic_seconds());
+            }
         }
         // ↶ may bring a kana phrase back straight after (Gboard's 確定取り消し).
         if (japanese_typing() && !dictation_open_) {
@@ -3272,7 +3297,7 @@ void App::follow_commit(const std::string& text, std::uint64_t queued_before) {
 }
 void App::tick_next_words() {
     // Written a little after the last change, not at every commit.
-    for (auto* store : {&next_words_, &japanese_choices_}) {
+    for (auto* store : {&next_words_, &japanese_choices_, &japanese_completions_}) {
         if (store->dirty() && monotonic_seconds() - store->changed_at() >= 2) {
             store->save();
         }
@@ -4399,7 +4424,9 @@ void App::action(const ControlAction& command) {
         hovered_.clear();
         next_words_.clear();
         japanese_choices_.clear();
+        japanese_completions_.clear();
         choices_snapshot_.reset();
+        completions_snapshot_.reset();
         last_commit_.reset();
         follow_up_.reset();
         restart_learning(true);

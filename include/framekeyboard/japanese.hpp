@@ -280,6 +280,11 @@ class JapaneseComposer {
     // while a reading typed on its own takes set_preferred()'s order.
     using WordPick = std::function<std::string(const std::string& reading)>;
     void set_word_pick(WordPick pick) { word_pick_ = std::move(pick); }
+    // Phrases committed before whose reading begins with this one, from the
+    // keyboard's own record, whichever converter made them; live candidates
+    // offer them with the converter's own predictions (Anthy's record).
+    using Learned = std::function<std::vector<std::string>(const std::string& reading)>;
+    void set_learned(Learned learned) { learned_ = std::move(learned); }
     // Whether segments take the usual forms of their words (on by default);
     // a converter that weighs the whole sentence, as Mozc, may do better
     // without.
@@ -464,6 +469,7 @@ class JapaneseComposer {
     std::string alternative_;
     Preferred preferred_;
     WordPick word_pick_;
+    Learned learned_;
     bool word_forms_ = true;
     // A learned word picked from the live candidates, now the reading.
     std::optional<std::string> predicted_;

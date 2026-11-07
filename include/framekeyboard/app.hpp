@@ -587,7 +587,7 @@ class App {
     // The candidates shown for Japanese, as a held pick checks them.
     std::vector<std::string> japanese_row() const;
     // The choices the worker's copies read, made again after each change.
-    std::shared_ptr<const NextWords> choices_snapshot_;
+    std::shared_ptr<const NextWords> choices_snapshot_, completions_snapshot_;
     // What live candidates were last asked of the worker for.
     std::string live_asked_;
     std::uint64_t live_asked_clears_{};
@@ -996,6 +996,9 @@ class App {
     // what was committed for those readings, which wins once it differs.
     JapaneseWords japanese_preferred_;
     NextWords japanese_choices_;
+    // Every conversion committed, by its typed reading: live candidates offer
+    // it back while its start is typed again (JapaneseComposer::set_learned).
+    NextWords japanese_completions_;
     std::unique_ptr<CjkComposer> cjk_;
     // 한/영 switched two-set Korean to the layout's own letters. Never saved,
     // and a change of language or layout returns it to Hangul.

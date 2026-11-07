@@ -3657,6 +3657,57 @@ void next_words_temporary() {
                 "the file is the owner's alone, whatever the umask");
     }
 }
+// Conversions committed before are offered back while their start is typed,
+// whichever converter made them: Anthy's record alone missed Mozc's.
+void learned_completions() {
+    char directory[] = "/tmp/framekeyboard-learned-completions-XXXXXX";
+    require(mkdtemp(directory), "temporary learned completions folder");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    {
+        NextWords store(fs::path(directory) / "store.tsv");
+        store.record("ありがとう", "有難う");
+        store.record("ありがとう", "有難う");
+        store.record("ありがたい", "有難い");
+        store.record("かお", "顔");
+        require(store.beginning("あり", 4) == std::vector<std::string>{"有難う", "有難い"} &&
+                    store.beginning("ありがとう", 4) == std::vector<std::string>{"有難う"} &&
+                    store.beginning("か", 4) == std::vector<std::string>{"顔"} &&
+                    store.beginning("あり", 1) == std::vector<std::string>{"有難う"},
+                "phrases are found by the start of their reading, most used first");
+    }
+    int conversions = 0;
+    Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = fake_converter(&conversions);
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "ja-romaji", "graphite"});
+    for (const auto* key : {"KeyA", "KeyI", "KeyU"}) {
+        click_key(app, key);
+    }
+    click_key(app, "Space");
+    click_key(app, "Enter");
+    require(!sink.text.empty() && sink.text.back() == "〈あい〉〈う〉", "a conversion is committed");
+    click_key(app, "KeyA");
+    click_key(app, "KeyI");
+    app.tick(20);
+    app.tick(20.3);
+    const auto view = app.view();
+    require(view.candidates &&
+                std::any_of(view.candidates->chips.begin(), view.candidates->chips.end(),
+                            [](const auto& chip) { return chip.text == "〈あい〉〈う〉"; }),
+            "typing its start again offers it among the live candidates");
+    require(click_candidate(app, "〈あい〉〈う〉", 21) && sink.text.back() == "〈あい〉〈う〉",
+            "and a tap commits it");
+}
 void next_words() {
     char directory[] = "/tmp/framekeyboard-next-XXXXXX";
     require(mkdtemp(directory), "temporary next words profile");
@@ -5239,6 +5290,7 @@ int main() {
         completion_reading();
         completion_reopen();
         segment_commits();
+        learned_completions();
         live_without_predictions();
         carried_number_boundaries();
         anthy_initialization_retry();

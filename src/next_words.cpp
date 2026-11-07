@@ -108,6 +108,28 @@ std::vector<std::string> NextWords::after(const std::string& previous, std::size
     }
     return result;
 }
+std::vector<std::string> NextWords::beginning(const std::string& prefix, std::size_t most) const {
+    load();
+    std::vector<const Pair*> found;
+    for (const auto& pair : pairs_) {
+        if (pair.previous.starts_with(prefix)) {
+            found.push_back(&pair);
+        }
+    }
+    std::sort(found.begin(), found.end(), [](const Pair* a, const Pair* b) {
+        return a->count != b->count ? a->count > b->count : a->stamp > b->stamp;
+    });
+    std::vector<std::string> result;
+    for (const auto* pair : found) {
+        if (result.size() == most) {
+            break;
+        }
+        if (std::find(result.begin(), result.end(), pair->next) == result.end()) {
+            result.push_back(pair->next);
+        }
+    }
+    return result;
+}
 std::string NextWords::latest(const std::string& previous) const {
     load();
     const Pair* last = nullptr;
