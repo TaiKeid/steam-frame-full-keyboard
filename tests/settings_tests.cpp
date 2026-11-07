@@ -1955,7 +1955,7 @@ void behavior_settings() {
     const auto theme_bounds = control(settings_view, "theme").bounds;
     require(movement_bounds.x + movement_bounds.width == theme_bounds.x + theme_bounds.width,
             "General controls share one right edge");
-    for (const auto* text : {"Theme", "Hide numpad", "Use Drag to Move", "Auto leveling"}) {
+    for (const auto* text : {"Theme", "Hide numpad", "Grab to move", "Auto leveling"}) {
         require(std::any_of(settings_view.field_labels.begin(), settings_view.field_labels.end(),
                             [&](const FieldLabel& field) {
                                 return field.text == text && field.left &&

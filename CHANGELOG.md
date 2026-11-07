@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Renamed **Use Drag to Move** in Settings → General to **Grab to move**, with a second line saying what it does: hold grip on the keyboard to move it instead of the line below it. The saved setting is unchanged. Thanks to @Bisonator for the report (#12).
+
 ## 0.15.0: Improved typing, swiping and overall feel, and reworked Japanese and Korean
 
 - Shortcuts in Steam's own text fields now say "Shortcuts may not work in Steam fields", instead of pointing to Steam's keyboard, which has no Ctrl or Alt.

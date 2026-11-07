@@ -101,7 +101,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. Hold an emoji in Recent and drag it into Favorites to keep it. The arrow key at the top left returns to the keyboard |
 | Move / rotate | Unpin, point at the line below the keyboard, hold the trigger, move your hand, then release |
 | Use the headset cursor | Press AUX to show the head cursor. Aim at keys with your head and click AUX; hold AUX on the movement line to move the keyboard |
-| Use grab movement | Enable **Use Drag to Move** in the **General** settings card and apply. Point anywhere on the keyboard and hold grab/grip; the same hand's thumbstick adjusts depth |
+| Use grab movement | Enable **Grab to move** in the **General** settings card and apply. Point anywhere on the keyboard and hold grab/grip; the same hand's thumbstick adjusts depth |
 | Prevent accidental movement | Toggle the pin icon; the keyboard still follows the dashboard |
 | Keep it open without the dashboard | Toggle **Stay open over apps** beside the pin icon |
 | Keep it open between text fields | With Replace native keyboard on, toggle **Focus mode**, the window icon beside Stay open over apps. The keyboard stays where it is when a field closes, types into the next field you select, and otherwise types into the app with keyboard focus; × or the keyboard button still hides it |

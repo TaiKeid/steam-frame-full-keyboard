@@ -810,7 +810,8 @@ void App::update_settings_ui() {
         background_surface,
         field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
         field(ControlKind::UseDragToMove,
-              checkbox("use-drag-to-move", "Use Drag to Move", pending_use_drag_to_move_)),
+              checkbox("use-drag-to-move", "Grab to move", pending_use_drag_to_move_, true,
+                       "Hold grip on the keyboard instead of the line")),
         field(ControlKind::AutoLeveling,
               checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))};
     std::vector<SettingField> typing_fields{haptic_sounds};
