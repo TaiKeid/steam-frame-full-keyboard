@@ -2,6 +2,7 @@
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/mozc.hpp"
 #include "framekeyboard/native_replacement.hpp"
+#include "framekeyboard/session_environment.hpp"
 #include "framekeyboard/shell_protocol.hpp"
 #include "framekeyboard/startup.hpp"
 #include "framekeyboard/updates.hpp"
@@ -181,6 +182,11 @@ int main(int argc, char** argv) {
         }
         if (options.start_enabled && options.input == fk::InputBackend::None) {
             throw std::runtime_error("--start-enabled requires an input backend");
+        }
+        if (options.mode == fk::Mode::Vr) {
+            // Before any thread or helper starts, as it changes the environment
+            // they inherit. Only a launch from SteamOS's Desktop changes it.
+            fk::adopt_session_environment();
         }
         const bool hosted = options.hosted_fd >= 0;
         if (hosted) {
