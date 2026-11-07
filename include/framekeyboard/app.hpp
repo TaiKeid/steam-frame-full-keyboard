@@ -444,6 +444,8 @@ class App {
     EditKeys edit_keys() const {
         return sink_on() ? EditKeys::Standard : combine_edit_keys(output_.edit_keys(), hint_terminal());
     }
+    // The kind the keys were last drawn for (tick() redraws on a change).
+    EditKeys shown_edit_keys_{EditKeys::Standard};
     // The letter a chord presses: the target keymap's in Unicode mode.
     int chord_code(const EditChord& chord);
     // Paste's keys in press order, for the keyboard's own paste paths;

@@ -213,21 +213,26 @@ bool EiSink::desktop_target() {
     if (desktop_focused_) {
         return desktop_focused_();
     }
+    const auto* focus = desktop_focus();
+    return focus && focus->focused();
+}
+DesktopFocus* EiSink::desktop_focus() const {
     if (text_socket_.empty()) {
-        return false;
+        return nullptr;
     }
     if (!desktop_) {
         // Gamescope publishes its focus on its first X display, where Steam runs.
         const char* display = std::getenv("DISPLAY");
         desktop_ = std::make_unique<DesktopFocus>(display && *display ? display : ":0");
     }
-    return desktop_->focused();
+    return desktop_.get();
 }
 EditKeys EiSink::edit_keys() const {
     if (edit_keys_) {
         return edit_keys_();
     }
-    return desktop_ ? desktop_->edit_keys() : EditKeys::Standard;
+    const auto* focus = desktop_focus();
+    return focus ? focus->edit_keys() : EditKeys::Standard;
 }
 bool EiSink::needs_entry(const std::string& text) {
     // A Gamescope commit already out reports its result to the same call,

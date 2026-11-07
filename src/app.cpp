@@ -2137,6 +2137,12 @@ bool App::tick(double now) {
         status_.clear(); // The toolbar's Cancel or a hide ended the reading.
         dirty = true;
     }
+    // Cut, Copy and Paste show what the focused app takes; the focus watcher
+    // changes that on its own thread, with nothing else to redraw the keys.
+    if (const auto keys = edit_keys(); keys != shown_edit_keys_) {
+        shown_edit_keys_ = keys;
+        dirty = true;
+    }
     if (updates_) {
         if (updates_->tick(now)) {
             // A new async label must not turn an already-held press into installation.

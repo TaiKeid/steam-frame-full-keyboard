@@ -108,7 +108,10 @@ class EiSink : public KeySink {
     std::optional<Entry> entry_;
     std::size_t entry_delivered_{};
     bool last_entry_{}, desktop_now_{};
-    std::unique_ptr<DesktopFocus> desktop_;
+    // Started by the first question about the focused app: Cut, Copy and
+    // Paste ask it every frame, so it watches from the start.
+    mutable std::unique_ptr<DesktopFocus> desktop_;
+    DesktopFocus* desktop_focus() const;
     std::function<bool()> desktop_focused_;
     std::function<EditKeys()> edit_keys_;
     bool terminal_hint_{};
