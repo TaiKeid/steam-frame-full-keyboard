@@ -719,6 +719,23 @@
     try {
         for (const manager of managers) adopt(manager);
         if (!owners.length) throw Error("steam-target-restoration-unavailable");
+        // With the dashboard closed, a Steam overlay keeps SteamVR's input focus,
+        // and Steam replays that focus whenever its keyboard opens or closes:
+        // it gives gamepad focus to the element under the laser, or the tree's
+        // first. After our Hide that takes DOM focus from the field we hold, and
+        // Steam drops it. Skip just those steps for the tree holding our field;
+        // without the hook, the field is lost there as before.
+        const gamepad = root.vrGamepadInput;
+        for (const name of ["FocusItemUnderMouse", "TakeFocusIfNothingIsFocused"]) {
+            if (typeof gamepad?.[name] !== "function" || !Object.isExtensible(gamepad)) continue;
+            try {
+                hook(gamepad, name, original => function(tree, ...args) {
+                    const element = logical?.route?.kind === "dom" ? logical.route.element : null;
+                    if (element && tree?.Root?.Element?.contains?.(element) === true) return;
+                    return original.call(this, tree, ...args);
+                });
+            } catch (_) {}
+        }
         for (const name of ["ShowWindow", "BringToFront"]) hook(windowApi, name, original => function(...args) {
             try { inspect(); if (blocking()) { interceptedShow = true; return; } }
             catch (_) { dispose(); }

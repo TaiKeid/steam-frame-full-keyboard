@@ -172,7 +172,12 @@ function fixture(open = false, production = false, external = false, sharedApi =
         setTimeout(fn, ms) { const id = nextTimer++; timeouts.set(id, {fn, until: time + ms}); return id; },
         clearTimeout(id) { timeouts.delete(id); },
         SteamUIStore: {WindowStore: {SteamUIWindows: [{VirtualKeyboardManager: manager}]}},
-        g_PopupManager: {GetPopupForVROverlayKey() { ++inspectionCalls; return popup; }}};
+        g_PopupManager: {GetPopupForVROverlayKey() { ++inspectionCalls; return popup; }},
+        // Steam's VR gamepad focus: replaying overlay focus gives it to the
+        // element under the laser, here the document body.
+        vrGamepadInput: {FocusItemUnderMouse(tree) {
+            if (dom && tree?.Root?.Element?.contains(dom.doc.body)) dom.doc.activeElement = dom.doc.body;
+        }, TakeFocusIfNothingIsFocused() {}}};
     if (production) {
         const require = key => key === "store" ? {store} : key === "decoy" ?
             {store: {VRKeyboardStatus: {}}} : {controllerText};
@@ -216,6 +221,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         const key = owner.m_Instance.GetVROverlayKey();
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
     }
+    const oldFocus = root.vrGamepadInput.FocusItemUnderMouse;
     const bridge = factory(root, production ? undefined : store, external, adoptOpenMs);
     function checkOwnership() {
         const s = bridge.diagnostics();
@@ -234,7 +240,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             assert.equal(manager.logicalOpen, status.bIsOpen && status.sOverlayKey === key,
                 "without a session or restore, each Steam flag matches its native owner");
     }
-    return {bridge, calls, deliveries, wrongTarget, nodes, manager, other, dom, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
+    return {bridge, root, oldFocus, calls, deliveries, wrongTarget, nodes, manager, other, dom, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true) {
@@ -252,6 +258,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             checkOwnership();
         },
         restoreAs(key) { showKey = key; },
+        focusUnderMouse(tree) { root.vrGamepadInput.FocusItemUnderMouse(tree); tick?.(); checkOwnership(); },
         selectFrame(id, keys = []) {
             root.vrFrameStore = {activeFrame: {frameID: id, isVisible: true, steamUIVROverlayKeysInPages: keys}};
         },
@@ -414,6 +421,23 @@ for (const production of [false, true]) for (const field of [false, true]) {
     assert.equal(f.calls.filter(c => c === "native-show").length, shows, "Escape never reopens native");
     if (e) assert.equal(f.dom.text(e), "VKClose");
     f.bridge.dispose();
+}
+// With the dashboard closed, Steam replays a game overlay's input focus when
+// its keyboard closes and gives gamepad focus to the element under the laser.
+// The field we hold keeps it; once released, the replay is Steam's again.
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true), e = f.dom.field(true, true, "DIV");
+    const generation = domOwned(f, true);
+    const tree = {Root: {Element: {contains: () => true}}};
+    f.focusUnderMouse(tree);
+    assert(f.dom.doc.activeElement === e && f.step(generation).active && f.bridge.send(generation, "a"),
+        "Steam's replay leaves the held field focused and typing");
+    assert.equal(f.dom.text(e), "a");
+    assert(f.bridge.send(generation, "VKClose", true) && !f.step(generation).active);
+    f.focusUnderMouse(tree);
+    assert(f.dom.doc.activeElement === f.dom.doc.body, "released, the replay moves focus as Steam does");
+    f.bridge.dispose();
+    assert(f.root.vrGamepadInput.FocusItemUnderMouse === f.oldFocus, "disposal removes the hook");
 }
 for (const production of [false, true]) {
     const f = fixture(false, production), generation = owned(f);
