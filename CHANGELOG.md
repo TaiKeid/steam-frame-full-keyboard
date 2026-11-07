@@ -4,6 +4,7 @@
 
 - Renamed **Use Drag to Move** in Settings → General to **Grab to move**, with a second line saying what it does: hold grip on the keyboard to move it instead of the line below it. The saved setting is unchanged. Thanks to @Bisonator for the report (#12).
 - Fixed: **Start with SteamOS** couldn't be turned on or off in a Full Keyboard started from SteamOS's Desktop, such as from its terminal: **Apply and save** said "Could not refresh SteamOS startup settings" and the checkbox went back. Apps started in the Desktop get a runtime folder and session bus of their own, where `systemctl --user` can't reach SteamOS's service manager. The keyboard now asks the manager to reload through the main session bus when that happens. Thanks to @jlsalvador for the fix (#11).
+- Fixed: run in SteamOS's Desktop terminal, the uninstaller couldn't reach SteamOS's service manager either, so it could neither stop the Start with SteamOS service before removing it nor tell the manager it was gone. It now reaches the manager through the main session bus too.
 
 ## 0.15.0: Improved typing, swiping and overall feel, and reworked Japanese and Korean
 

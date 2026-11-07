@@ -54,6 +54,14 @@ use_systemctl=true
 if [[ ${FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL:-1} == 0 ]] || ! command -v systemctl > /dev/null; then
     use_systemctl=false
 fi
+# SteamOS's Desktop gives the apps started in it another runtime directory and
+# a private bus, where systemctl --user finds no manager. The main session bus
+# still reaches it.
+manager() {
+    systemctl --user "$@" 2> /dev/null ||
+        env -u XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus" \
+            systemctl --user "$@" 2> /dev/null || true
+}
 
 for path in "$install_root" "$settings"; do
     if [[ -L $path ]]; then
@@ -103,7 +111,7 @@ fi
 
 # Stop the startup service before anything else can restart the app.
 if $ours_unit && $use_systemctl; then
-    systemctl --user stop "$unit_name" 2> /dev/null || true
+    manager stop "$unit_name"
 fi
 # Stop any other running copy, such as one started from the launcher. Its
 # normal shutdown gives requests back to Steam's keyboard and removes the
@@ -163,8 +171,8 @@ if $ours_unit; then
     done
     rm -f -- "$unit"
     if $use_systemctl; then
-        systemctl --user daemon-reload 2> /dev/null || true
-        systemctl --user reset-failed "$unit_name" 2> /dev/null || true
+        manager daemon-reload
+        manager reset-failed "$unit_name"
     fi
 fi
 $ours_launcher && rm -f -- "$launcher"

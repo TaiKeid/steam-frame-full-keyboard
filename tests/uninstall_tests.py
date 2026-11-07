@@ -130,5 +130,40 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     require((data / "other-app").exists(), "other programs' data stays")
     require(not (home / ".local/share/framekeyboard").exists(), "the installation is removed")
 
-print("Uninstaller: confirmation, stopping a running app, removal, foreign files, purge, refusal "
-      "and models under XDG_DATA_HOME passed.")
+with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
+    # Run from SteamOS's Desktop, systemctl --user can't reach the manager
+    # until it is pointed at the main session bus. This stand-in fails while
+    # XDG_RUNTIME_DIR is set, as there, and records every call.
+    home, runtime = Path(directory) / "home", Path(directory) / "runtime"
+    install(home, runtime)
+    commands, calls = Path(directory) / "commands", Path(directory) / "manager-calls"
+    commands.mkdir()
+    (commands / "systemctl").write_text(
+        '#!/bin/sh\necho "${XDG_RUNTIME_DIR-unset} ${DBUS_SESSION_BUS_ADDRESS-unset} $*" >> "%s"\n'
+        '[ -z "${XDG_RUNTIME_DIR+set}" ]\n' % calls)
+    (commands / "systemctl").chmod(0o700)
+    environment = dict(os.environ, FRAMEKEYBOARD_INSTALL_HOME=str(home),
+                       FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime),
+                       PATH=str(commands) + os.pathsep + os.environ.get("PATH", ""),
+                       XDG_RUNTIME_DIR=str(Path(directory) / "desktop"),
+                       DBUS_SESSION_BUS_ADDRESS="unix:path=" + str(Path(directory) / "desktop-bus"))
+    environment.pop("FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL", None)
+    # Only run the uninstaller once the stand-in is what bash finds and runs,
+    # so the real manager is never asked to stop anything.
+    subprocess.run(["bash", "-c", "systemctl probe"], env=environment, capture_output=True, text=True,
+                   timeout=10)
+    require(calls.exists() and calls.read_text().endswith(" probe\n"), "the systemctl stand-in did not run")
+    calls.unlink()
+    result = subprocess.run(["bash", str(script), "--yes"], env=environment, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=60)
+    require(result.returncode == 0, "uninstall from the Desktop failed: " + result.stderr)
+    bus = "unset unix:path=/run/user/%d/bus --user " % os.getuid()
+    made = calls.read_text().splitlines()
+    for action in ("stop framekeyboard-autostart.service", "daemon-reload",
+                   "reset-failed framekeyboard-autostart.service"):
+        require(bus + action in made, "the manager was not reached through the main bus for " + action)
+    require(not (home / ".config/systemd/user/framekeyboard-autostart.service").exists(),
+            "the startup unit is removed")
+
+print("Uninstaller: confirmation, stopping a running app, removal, foreign files, purge, refusal, "
+      "models under XDG_DATA_HOME and the Desktop's service manager passed.")
