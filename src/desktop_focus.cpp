@@ -213,7 +213,9 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
         if (terminal.process() && desktop) {
             state.edit_keys = terminal.edit_keys();
         }
-        int timeout = -1;
+        // sd-bus may need to wake for its own timeouts, or at once when more
+        // messages wait in its queue.
+        int timeout = terminal.timeout();
         if (desktop && !terminal.attached(desktop_bus)) {
             auto now = std::chrono::steady_clock::now();
             if (now >= retry_at) {
@@ -227,6 +229,8 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             if (!terminal.attached(desktop_bus)) {
                 timeout = static_cast<int>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(retry_at - now).count() + 1);
+            } else {
+                timeout = terminal.timeout();
             }
         }
         if (!wait(state, xcb_get_file_descriptor(connection), timeout, terminal.fd(),

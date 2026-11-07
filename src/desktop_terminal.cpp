@@ -1,6 +1,9 @@
 #include "framekeyboard/desktop_terminal.hpp"
 
+#include <algorithm>
 #include <cerrno>
+#include <climits>
+#include <ctime>
 #include <dlfcn.h>
 #include <fstream>
 #include <poll.h>
@@ -27,6 +30,7 @@ struct SdBus {
     decltype(&sd_bus_process) process{};
     decltype(&sd_bus_get_fd) get_fd{};
     decltype(&sd_bus_get_events) get_events{};
+    decltype(&sd_bus_get_timeout) get_timeout{};
     decltype(&sd_bus_call_method) call{};
     decltype(&sd_bus_message_is_method_call) is_method_call{};
     decltype(&sd_bus_message_get_sender) get_sender{};
@@ -63,6 +67,7 @@ const SdBus& sd() {
         get(a.process, "sd_bus_process");
         get(a.get_fd, "sd_bus_get_fd");
         get(a.get_events, "sd_bus_get_events");
+        get(a.get_timeout, "sd_bus_get_timeout");
         get(a.call, "sd_bus_call_method");
         get(a.is_method_call, "sd_bus_message_is_method_call");
         get(a.get_sender, "sd_bus_message_get_sender");
@@ -287,19 +292,52 @@ int DesktopTerminal::fd() const {
     return bus_ ? sd().get_fd(bus_->bus) : -1;
 }
 short DesktopTerminal::events() const {
-    const int events = bus_ ? sd().get_events(bus_->bus) : 0;
-    return static_cast<short>(events > 0 ? events : POLLIN);
+    if (!bus_) {
+        return 0;
+    }
+    // sd-bus's own mask, zero included, as sd_bus_get_fd(3) asks.
+    const int events = sd().get_events(bus_->bus);
+    return static_cast<short>(events < 0 ? POLLIN : events);
+}
+int DesktopTerminal::timeout() const {
+    if (!bus_) {
+        return -1;
+    }
+    if (more_) {
+        return 0; // Messages still wait in sd-bus's own queue, not the socket.
+    }
+    std::uint64_t until = 0; // CLOCK_MONOTONIC, in microseconds
+    if (sd().get_timeout(bus_->bus, &until) < 0 || until == UINT64_MAX) {
+        return -1;
+    }
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const auto current = static_cast<std::uint64_t>(now.tv_sec) * 1000000 +
+                         static_cast<std::uint64_t>(now.tv_nsec) / 1000;
+    return until <= current
+               ? 0
+               : static_cast<int>(std::min<std::uint64_t>((until - current + 999) / 1000, INT_MAX));
 }
 bool DesktopTerminal::process() {
     if (!bus_) {
         return false;
     }
     const auto before = keys_;
-    for (int i = 0; i < 64; ++i) {
+    // A burst larger than one round leaves the rest queued in sd-bus, where
+    // poll() can't see it: more_ makes the next wait return at once.
+    constexpr int round = 256;
+    more_ = false;
+    for (int i = 0;; ++i) {
+        if (i == round) {
+            more_ = true;
+            break;
+        }
         const int result = sd().process(bus_->bus, nullptr);
         if (result < 0) {
             bus_.reset(); // The Desktop closed: its KWin and the script are gone with it.
+            kwin_.clear();
             keys_ = EditKeys::Standard;
+            more_ = false;
             break;
         }
         if (result == 0 || kwin_lost_) {

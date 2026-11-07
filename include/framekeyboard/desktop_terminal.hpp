@@ -28,9 +28,11 @@ class DesktopTerminal {
     bool attach(const std::string& address);
     bool attached() const { return bus_ != nullptr; }
     bool attached(const std::string& address) const;
-    // The connection's descriptor and the poll() events it waits for, or -1.
+    // For poll(): the connection's descriptor (or -1) and events, and how long
+    // poll() may sleep in milliseconds: -1 forever, 0 while messages wait.
     int fd() const;
     short events() const;
+    int timeout() const;
     // Takes what arrived; true when the active window's kind changed. A
     // Desktop that closed, or whose KWin left or restarted, detaches, its
     // keys Standard, until attach() is called again.
@@ -45,6 +47,6 @@ class DesktopTerminal {
     EditKeys keys_{EditKeys::Standard};
     // KWin's unique bus name: only its calls count. kwin_lost_ when it left.
     std::string kwin_;
-    bool kwin_lost_{};
+    bool kwin_lost_{}, more_{};
 };
 } // namespace framekeyboard
