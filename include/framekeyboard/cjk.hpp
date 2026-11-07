@@ -32,6 +32,8 @@ class CjkComposer {
     // sends it at once and drops it; until then it stays part of text().
     std::string finished() const;
     void drop_finished();
+    // Drops only the open syllable; refused finished text still commits.
+    void cancel_open();
     static bool supported(const std::string& method);
 
   private:

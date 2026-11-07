@@ -33,6 +33,7 @@ class Engine final : public CjkEngine {
     bool chinese() const override;
     std::string finished() const override;
     void drop_finished() override;
+    void cancel_open() override;
     static bool supported(const std::string& method);
 
   private:
@@ -366,6 +367,15 @@ std::string Engine::finished() const {
 }
 void Engine::drop_finished() {
     state_->finished.clear();
+}
+void Engine::cancel_open() {
+#ifdef FRAMEKEYBOARD_HAVE_HANGUL
+    if (state_->hangul) {
+        hangul_ic_reset(state_->hangul.get());
+        return;
+    }
+#endif
+    cancel();
 }
 } // namespace framekeyboard
 

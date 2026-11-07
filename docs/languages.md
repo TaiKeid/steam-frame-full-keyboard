@@ -207,7 +207,9 @@ on: 간 then ㅏ types 가 and leaves 나 open. Shift selects doubled consonants
 the shifted vowels. Caps Lock does not double jamo. Backspace takes back one jamo
 of the open syllable (값 → 갑), then deletes whole syllables in the field as the
 app does. Enter types the open syllable and sends Enter in the same press. Esc
-goes to the app at once and drops the open syllable. Space and other ordinary
+goes to the app at once and drops the open syllable; syllables the app refused
+still go in before it, and while Enter waits to resend refused text, Enter
+resends it and leaves the open syllable as it is. Space and other ordinary
 keys type it before sending the key. The 한/영 key, in right Alt's place as on a
 Korean PC keyboard, types the open syllable and switches the keys between Hangul
 and the layout's Latin letters, whether or not English is added. A latched

@@ -24,6 +24,8 @@ class CjkEngine {
     // send at once; it stays part of text() until dropped after delivery.
     virtual std::string finished() const { return {}; }
     virtual void drop_finished() {}
+    // Drops what is still open, keeping finished text for its commit.
+    virtual void cancel_open() { cancel(); }
 };
 using CreateCjkEngine = CjkEngine* (*)(const char*);
 } // namespace framekeyboard

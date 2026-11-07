@@ -1723,6 +1723,8 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                                (key->action == "Escape" || key->action == "Backspace");
     const bool retry_text = output_.retry_available() && key->action == "Enter";
     const bool local = ime_local || text_local || cancel_accent || retry_text;
+    // Korean's Esc goes to the target, dropping the open syllable on its way.
+    const bool hangul_escape = key->action == "Escape" && cjk_ && !cjk_->chinese();
     if (!backend_ready_ || keyboard_.pointer_pressed(pointer)) {
         return false;
     }
@@ -1733,6 +1735,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         }
     }
     if (!output_.admit((!local || sends_text) && !retry_text, now)) {
+        if (hangul_escape) {
+            cjk_->cancel_open(); // Esc can't go now, but the syllable still goes.
+        }
         update_output_status();
         dirty = true;
         return false;
@@ -1760,12 +1765,16 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     }
     const bool sends_action =
         key->action_kind == ActionKind::Shortcut || !is_modifier(key_code(key->action)) || !key->sticky;
-    if (key->action == "Escape" && cjk_ && !cjk_->chinese()) {
+    if (hangul_escape) {
         // Esc goes to the target, which may close a chat with it. The open
-        // syllable, unfinished, is dropped rather than typed for the user.
-        cjk_->cancel();
+        // syllable, unfinished, is dropped rather than typed for the user;
+        // syllables the target refused before still go in ahead of the Esc.
+        cjk_->cancel_open();
     }
-    if (!ime_local && (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
+    // Enter's retry goes first and leaves an open reading as it is: what it
+    // resends was typed before the reading.
+    if (!ime_local && !retry_text && (!composition_.empty() || (cjk_ && !cjk_->empty())) &&
+        sends_action) {
         // Commit before either native events or ordinary Unicode text. Spaces,
         // digits and punctuation must not overtake the unfinished IME word.
         try {
@@ -3900,7 +3909,13 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
             if (code == "Backspace") {
                 cjk_->backspace();
             } else if (code == "Escape") {
-                cjk_->cancel();
+                // In the editor, Korean's Esc takes the open syllable first;
+                // syllables the editor refused, when full, go with the next.
+                if (!cjk_->chinese() && cjk_->preedit().size() > cjk_->finished().size()) {
+                    cjk_->cancel_open();
+                } else {
+                    cjk_->cancel();
+                }
             } else if (code == "ArrowUp" || code == "ArrowDown") {
                 cjk_->cycle(code == "ArrowUp" ? -1 : 1);
             } else if (code == "Space" && !cjk_->candidates().empty()) {

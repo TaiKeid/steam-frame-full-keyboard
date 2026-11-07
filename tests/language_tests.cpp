@@ -1304,6 +1304,102 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
     }
 }
 } // namespace
+// Steam answers a text commit on a later frame: a refusal leaves Enter's
+// retry pending while the next syllable is already open.
+struct AsyncSink : Sink {
+    bool pending{}, refuse{};
+    bool commit_text(const std::string& value) override {
+        if (!pending) {
+            pending = true; // submitted; the answer comes with the next call
+            return false;
+        }
+        pending = false;
+        return !refuse && Sink::commit_text(value);
+    }
+    bool text_pending() const override { return pending; }
+};
+void korean_delivery_failures() {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-korean-retry-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    Options options;
+    options.config_dir = path;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    double now = 2;
+    const auto tap = [&](App& app, const std::string& action) {
+        const auto view = app.view();
+        for (const auto& key : view.layout->keys) {
+            if (key.action == action) {
+                const auto r = panel_rect(view, key.bounds);
+                const bool accepted = app.down(0, r.x + r.width / 2, r.y + r.height / 2, now);
+                app.up(0, r.x + r.width / 2, r.y + r.height / 2);
+                for (int i = 0; i < 3; ++i) {
+                    app.tick(now += .05);
+                }
+                return accepted;
+            }
+        }
+        throw std::runtime_error("no key " + action);
+    };
+    {
+        // 한 goes, the target refuses it, and ㄱ is open: Enter retries 한
+        // and leaves ㄱ open; Esc then drops ㄱ, reaching the target.
+        AsyncSink sink;
+        App app(options, sink);
+        app.apply({"en-us-full", "ko-kr", "graphite"});
+        sink.refuse = true;
+        for (const auto* action : {"KeyG", "KeyK", "KeyS", "KeyR"}) {
+            tap(app, action);
+        }
+        require(sink.events.empty() && app.view().preedit == "ㄱ",
+                "한 was sent and refused, ㄱ is open");
+        sink.refuse = false;
+        require(tap(app, "Enter") && sink.events == std::vector<std::string>{"한"} &&
+                    app.view().preedit == "ㄱ",
+                "Enter retries 한 and leaves the open syllable");
+        require(tap(app, "Escape") && sink.events == std::vector<std::string>{"한", "1:1", "1:0"} &&
+                    app.view().preedit.empty(),
+                "Esc drops the open syllable and reaches the target");
+    }
+    {
+        // While the retry waits, Esc can't go, but still drops ㄱ.
+        AsyncSink sink;
+        App app(options, sink);
+        app.apply({"en-us-full", "ko-kr", "graphite"});
+        sink.refuse = true;
+        for (const auto* action : {"KeyG", "KeyK", "KeyS", "KeyR"}) {
+            tap(app, action);
+        }
+        sink.refuse = false;
+        require(!tap(app, "Escape") && app.view().preedit.empty(),
+                "Esc refused by a pending retry still drops the open syllable");
+        require(tap(app, "Enter") && sink.events == std::vector<std::string>{"한"},
+                "and Enter then retries");
+    }
+    {
+        // A syllable refused at once waits ahead of the open one; Esc drops
+        // only the open one and the refused one goes in before the Esc.
+        Sink sink;
+        App app(options, sink);
+        app.apply({"en-us-full", "ko-kr", "graphite"});
+        sink.accept = false;
+        for (const auto* action : {"KeyG", "KeyK", "KeyS", "KeyR"}) {
+            tap(app, action);
+        }
+        require(sink.events.empty() && app.view().preedit == "한ㄱ", "한 waits, refused");
+        sink.accept = true;
+        require(tap(app, "Escape") && sink.events == std::vector<std::string>{"한", "1:1", "1:0"} &&
+                    app.view().preedit.empty(),
+                "Esc keeps the refused 한, which goes in first, and drops ㄱ");
+    }
+}
 int main(int argc, char** argv) {
     try {
         if (const char* directory = std::getenv("FRAMEKEYBOARD_TEST_TABLE_DIRECTORY")) {
@@ -1322,6 +1418,9 @@ int main(int argc, char** argv) {
             engines(group);
             concurrent_engines(method, group == "--korean" ? "gksrmf" : "nihao");
             app_composition(profiles, group);
+            if (group == "--korean") {
+                korean_delivery_failures();
+            }
             if (group == "--chinese") {
                 app_traditional();
             }

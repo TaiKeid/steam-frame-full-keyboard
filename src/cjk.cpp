@@ -163,6 +163,10 @@ void CjkComposer::drop_finished() {
         state_->engine->drop_finished();
     }
 }
+void CjkComposer::cancel_open() {
+    std::lock_guard lock(engine_mutex());
+    state_->engine->cancel_open();
+}
 bool CjkComposer::phonetic_keys() const {
     return phonetic_keys_;
 }
