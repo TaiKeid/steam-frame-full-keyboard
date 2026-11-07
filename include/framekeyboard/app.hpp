@@ -148,7 +148,7 @@ class App {
     // keeps it, as the cursor stays.
     bool holds_swipe_state() const {
         return swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
-               (!typed_text_.empty() && suggesting());
+               ((!typing_suggestions_.empty() || word_open()) && suggesting());
     }
     void cancel_pointer(unsigned pointer);
     // The pointer holds a repeating key, such as Backspace, in the keyboard,
@@ -639,6 +639,8 @@ class App {
     void track_backspace();
     // The word before the cursor, as the keys typed it; empty after a space.
     std::string current_word() const;
+    // Whether one is being typed: what the keys typed ends in a letter.
+    bool word_open() const;
     // The word ended with a space, or a pick: it is learned. Enter, Tab and
     // digits end it unlearned, as a password ends, and punctuation waits for
     // the space after it.
@@ -1212,6 +1214,7 @@ class App {
     // counted. Both with where they end in typed_text_.
     std::optional<std::pair<std::size_t, std::string>> pending_word_, counted_;
     std::map<unsigned, double> held_keys_; // Typing keys still held, by pointer: their press.
+    std::optional<unsigned> word_pointer_; // The pointer that typed into the word last.
     std::uint32_t word_window_{};                               // Where the word is typed.
     std::vector<std::string> typing_suggestions_;
     struct WordListLoad {

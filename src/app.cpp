@@ -1892,6 +1892,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                     text_output_->text_press(pointer, text, now);
                 }
                 track_typed(text);
+                word_pointer_ = pointer;
                 held_keys_[pointer] = now; // It repeats while held.
                 if (keymap_->composing()) {
                     status_ = "Accent pending";
@@ -1912,6 +1913,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 });
                 if (plain && key->action_kind == ActionKind::Key && key->action == "Backspace") {
                     track_backspace();
+                    word_pointer_ = pointer;
                     held_keys_[pointer] = now;
                 } else {
                     lose_word();
@@ -2067,8 +2069,12 @@ void App::cancel_pointer(unsigned pointer) {
     if (swipe_track_ && swipe_track_->pointer == pointer) {
         swipe_track_.reset();
     }
-    // The laser left the keyboard: the field's cursor may move before it comes back.
-    lose_word();
+    // The laser left the keyboard: the field's cursor may move before it
+    // comes back. Unless the other hand typed since, which took SteamVR's
+    // laser on the keys: the word goes on.
+    if (!word_pointer_ || *word_pointer_ == pointer) {
+        lose_word();
+    }
     if (flick_track_ && flick_track_->pointer == pointer) {
         flick_track_.reset(); // A flick that left the panel types nothing.
     }
@@ -5221,6 +5227,11 @@ bool apostrophe(gunichar character) {
     return character == '\'' || character == 0x2019; // ’
 }
 } // namespace
+bool App::word_open() const {
+    const char* const begin = typed_text_.c_str();
+    const char* last = g_utf8_find_prev_char(begin, begin + typed_text_.size());
+    return last && word_character(g_utf8_get_char(last));
+}
 std::string App::current_word() const {
     const char* const begin = typed_text_.c_str();
     const char* start = begin + typed_text_.size();
@@ -5270,6 +5281,7 @@ void App::learn_word(const std::string& word, std::size_t end) {
     learned.touch(monotonic_seconds());
 }
 void App::lose_word() {
+    word_pointer_.reset();
     pending_word_.reset();
     counted_.reset();
     typed_text_.clear();
@@ -5655,6 +5667,7 @@ void App::finish_key_flick() {
                 text_refused();
             }
             track_typed(text);
+            word_pointer_ = track.pointer;
             if (keymap_->composing()) {
                 status_ = "Accent pending";
             }
@@ -5692,6 +5705,7 @@ void App::type_swipe_tap(const SwipeTrack& track) {
             text_refused();
         }
         track_typed(text);
+        word_pointer_ = track.pointer;
         swipe_space_ = false;
     }
     if (dictation_open_) {

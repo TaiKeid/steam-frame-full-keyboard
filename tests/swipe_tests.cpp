@@ -2157,6 +2157,24 @@ int typing_flow() {
             type(app, "wo");
             require(typing_suggestions(app) == std::vector<std::string>{"world"},
                     "Backspace after Enter starts a new word");
+            // Two hands: the other hand's press takes SteamVR's laser, and the
+            // first hand's pointer is cancelled after it.
+            tap(app, "ArrowRight");
+            type(app, "he");
+            const auto [hx, hy] = key_point(app, "KeyL");
+            app.down(1, hx, hy, 8);
+            app.up(1, hx, hy);
+            app.cancel_pointer(0);
+            const auto chips = typing_suggestions(app);
+            require(!chips.empty() && chips.front().starts_with("hel"),
+                    "the word goes on when the other hand typed last");
+            app.cancel_pointer(1);
+            require(typing_suggestions(app).empty(), "and ends when the hand that typed it leaves");
+            // The laser leaving is watched only while a word is being typed.
+            type(app, "he");
+            require(app.holds_swipe_state(), "a word being typed is kept while the laser points away");
+            tap(app, "ArrowRight");
+            require(!app.holds_swipe_state(), "with none, there is nothing to watch");
         }
         tap(app, "ArrowRight");
 
