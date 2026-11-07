@@ -7,14 +7,18 @@
 #include "ext-data-control-server.h"
 #include "wlr-data-control-server.h"
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <fcntl.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 #include <wayland-server.h>
@@ -258,11 +262,68 @@ void no_data_control() {
 }
 } // namespace
 
+// An X display that refuses us, as the Desktop's own Xwayland does without
+// its auth file, isn't tried at every write: libxcb prints each refusal. A new
+// server makes its socket anew and is tried again. libxcb connects to the
+// abstract socket @/tmp/.X11-unix/X<n> first, so the test serves one there and
+// touches nothing in the real /tmp/.X11-unix.
+void refused_display() {
+    const auto runtime = std::filesystem::temp_directory_path() /
+                         ("framekeyboard-clipboard-refused-" + std::to_string(getpid()));
+    std::filesystem::create_directories(runtime / "x11");
+    const int number = 47000 + getpid() % 1000;
+    const auto listen_abstract = [&] {
+        const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        const auto name = "/tmp/.X11-unix/X" + std::to_string(number);
+        std::copy(name.begin(), name.end(), address.sun_path + 1);
+        const auto size = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + 1 + name.size());
+        require(fd >= 0 && bind(fd, reinterpret_cast<sockaddr*>(&address), size) == 0 &&
+                    listen(fd, 4) == 0,
+                "abstract listen");
+        return fd;
+    };
+    // The socket file the clipboard lists; a new one stands for a new server.
+    const auto socket_file = runtime / "x11" / ("X" + std::to_string(number));
+    std::ofstream(socket_file).close();
+    int fd = listen_abstract(), attempts = 0;
+    auto clipboard = make_clipboard(runtime / "x11", runtime);
+    const auto write = [&](const char* text) {
+        const auto number = clipboard->write(text);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!clipboard->result(number) && std::chrono::steady_clock::now() < deadline) {
+            if (const int peer = accept4(fd, nullptr, nullptr, SOCK_CLOEXEC); peer >= 0) {
+                ++attempts;
+                close(peer); // refused
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        require(clipboard->result(number).has_value() && !*clipboard->result(number),
+                "write finishes unowned");
+    };
+    write("a");
+    require(attempts == 1, "the first write tries the display");
+    write("b");
+    write("c");
+    require(attempts == 1, "a display that refused isn't tried again");
+    close(fd);
+    std::filesystem::remove(socket_file);
+    std::ofstream(socket_file).close();
+    fd = listen_abstract();
+    write("d");
+    require(attempts == 2, "a new server's socket is tried");
+    clipboard.reset();
+    close(fd);
+    std::filesystem::remove_all(runtime);
+}
+
 int main() {
     try {
         nested_desktop<Wlr>();
         nested_desktop<Ext>();
         no_data_control();
+        refused_display();
     } catch (const std::exception& error) {
         std::cerr << "clipboard test failed: " << error.what() << '\n';
         return 1;

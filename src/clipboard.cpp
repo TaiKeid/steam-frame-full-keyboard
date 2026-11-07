@@ -13,11 +13,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <poll.h>
 #include <pthread.h>
 #include <sys/eventfd.h>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -307,12 +309,25 @@ class XClipboard final : public Clipboard {
             if (known) {
                 continue;
             }
+            // A display that refused us, such as the Desktop's own Xwayland,
+            // which wants its auth file, is tried again only once a new
+            // server makes its socket anew: libxcb prints every refusal.
+            struct stat status{};
+            const auto socket = ::stat(entry.path().c_str(), &status) == 0
+                                    ? std::pair{status.st_dev, status.st_ino}
+                                    : std::pair<dev_t, ino_t>{};
+            if (const auto refused = refused_.find(name);
+                refused != refused_.end() && refused->second == socket) {
+                continue;
+            }
             int screen_number = 0;
             auto* connection = xcb_connect(name.c_str(), &screen_number);
             if (xcb_connection_has_error(connection)) {
                 xcb_disconnect(connection);
+                refused_[name] = socket;
                 continue;
             }
+            refused_.erase(name);
             auto iterator = xcb_setup_roots_iterator(xcb_get_setup(connection));
             for (int i = 0; i < screen_number && iterator.rem; ++i) {
                 xcb_screen_next(&iterator);
@@ -535,6 +550,8 @@ class XClipboard final : public Clipboard {
     std::atomic<bool> running_{true};
     std::vector<Display> displays_;               // the thread's own
     std::vector<std::unique_ptr<Nested>> nested_; // the thread's own
+    // The thread's own: each display that refused us, and its socket then.
+    std::map<std::string, std::pair<dev_t, ino_t>> refused_;
 };
 } // namespace
 
