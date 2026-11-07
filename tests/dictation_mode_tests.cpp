@@ -965,6 +965,30 @@ void language_tests() {
         require(editor_text(app) == "Hello there.かあかさかさ",
                 "overlapping flicks keep press order in the editor");
     }
+    if (CjkComposer::supported("korean-2set")) {
+        // A reading that starts over a selection replaces it at once, as on
+        // a PC, instead of leaving it lit until its first syllable is done.
+        write_config(directory.path, server, "ko-kr");
+        Sink sink;
+        App app(options, sink);
+        open_editor(app);
+        wait_until(app, [&] { return editor_text(app) == "Hello there."; });
+        settle(app);
+        for (int i = 0; i < 6; ++i) {
+            press(app, "ShiftLeft");
+            press(app, "ArrowLeft");
+        }
+        require(app.view().dictation->selection_begin != app.view().dictation->selection_end,
+                "there. is selected");
+        press(app, "KeyG");
+        // The editor shows the reading in its text, at the cursor.
+        require(editor_text(app) == "Hello ㅎ" &&
+                    app.view().dictation->selection_begin == app.view().dictation->selection_end,
+                "the first jamo replaces the selection at once");
+        type_text(app, "ks");
+        press(app, "Space");
+        require(editor_text(app) == "Hello 한 ", "and the syllable goes where it was");
+    }
     if (!CjkComposer::supported("chinese-pinyin-simplified")) {
         std::cout << "Pinyin in dictation mode skipped: engine absent.\n";
         return;

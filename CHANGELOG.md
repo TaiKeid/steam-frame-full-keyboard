@@ -12,6 +12,7 @@
 - Dropping a language from the list on the main language in Settings → Additional languages now keeps the old main language as the first additional one, instead of removing it.
 - An open dropdown list in Settings, such as Language, now scrolls when you press on it and drag, as the cards do, instead of only with the stick or its scrollbar.
 - With key flicks paused from the toolbar, keys no longer show the small Shift characters they would flick to, such as ㅃ over ㅂ.
+- In the dictation editor, a Japanese, Chinese or Korean reading started over a selection now replaces it at once, as on a PC, instead of leaving it highlighted until the reading is committed.
 - A half-typed reading in Japanese, Chinese or Korean now waits through Settings: it is still there when you come back, unless you apply another language or layout, which discards it. Before, opening Settings threw it away.
 - Added **Extended key collision** to Settings → Typing, on by default: a press between two keys now reaches the nearer one instead of missing.
 - Development builds and the simulator have a **Debug** card in Settings: Mark Anthy suggestions and Display key collision. Releases leave it out.

@@ -111,7 +111,7 @@ Short conversational sentences are used rather than descriptions such as 以下�
   - Manual typing is allowed up to 1000 characters; the counter may then show `1000/900`.
 - **Undo last phrase:** removes the most recently inserted phrase. Repeated presses remove earlier phrases. A phrase whose text was edited since is no longer undoable; edits before it only move it.
 - **Composers:** Japanese and Chinese composers commit into the editor instead of the application, with the same keys as on the normal keyboard; the toolbar's composer buttons stay.
-  - The reading being composed shows in the editor at the cursor, underlined as in a text field, with the segment being converted underlined more strongly.
+  - The reading being composed shows in the editor at the cursor, underlined as in a text field, with the segment being converted underlined more strongly. A reading started over a selection replaces it at once, as on a PC.
   - **Convert** moves beside the editor, into the side column's free slot next to Esc, as large as the mic key, its label on two lines. It is shown while a reading is composed.
   - Candidates fill the band over the editor's foot while there are any to choose; the text above it stays in view.
   - Any key that edits the editor, the mic key, Send, Undo and a tap in the text commit the reading first. Esc cancels the reading before it acts on the editor. Closing the mode drops a reading not yet committed.

@@ -1475,6 +1475,10 @@ class App {
     std::optional<ReadingRepeat> reading_repeat_;
     bool reading_open() const { return !composition_.empty() || (cjk_ && !cjk_->empty()); }
     void continue_held_backspace(double now);
+    // In the editor, a reading that starts over a selection replaces it at
+    // once, as a PC's input method does, rather than leave it lit until the
+    // commit. A target's selection can't be known, so only the editor's.
+    void reading_replaces_selection(bool was_open);
     void start_reading_repeat(unsigned pointer, const Key& key, const std::set<int>& modifiers,
                               double now);
 };

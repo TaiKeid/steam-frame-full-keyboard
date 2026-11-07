@@ -5084,8 +5084,10 @@ void App::finish_key_flick() {
     const auto& modifiers = track.flicked ? shift : track.modifiers;
     try {
         if (japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers)) {
+            const bool was_open = reading_open();
             japanese_key(*key, true, modifiers);
             cjk_key(*key, true, modifiers);
+            reading_replaces_selection(was_open);
         } else {
             // An unfinished reading goes first, so the text keeps its order;
             // one that can't be typed keeps the key from overtaking it.
@@ -6151,6 +6153,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     }
     if (ime) {
         clear_editor_error();
+        const bool was_open = reading_open();
         try {
             japanese_key(key, true, modifiers);
             cjk_key(key, true, modifiers);
@@ -6158,6 +6161,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         } catch (const std::exception& error) {
             status_ = error.what();
         }
+        reading_replaces_selection(was_open);
         editor_goal_x_.reset();
         follow_cursor();
         return true;
@@ -7136,6 +7140,11 @@ void App::start_reading_repeat(unsigned pointer, const Key& key, const std::set<
     } else if (cjk_ && !cjk_->chinese()) {
         // It took the open syllable's last jamo: held on, it goes on.
         reading_repeat_ = ReadingRepeat{pointer, key, modifiers, now + .5, true};
+    }
+}
+void App::reading_replaces_selection(bool was_open) {
+    if (dictation_open_ && !was_open && reading_open() && editor_.has_selection()) {
+        editor_.backspace(); // which takes the selection only
     }
 }
 void App::continue_held_backspace(double now) {
