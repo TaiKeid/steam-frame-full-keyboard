@@ -3334,7 +3334,14 @@ bool App::japanese_key(const Key& key, bool execute, const std::set<int>& mods) 
             } else if (code == "Enter" || code == "NumpadEnter") {
                 commit_japanese();
             } else if (code == "Backspace") {
-                composition_.backspace();
+                if (flick && composition_.converting() && composition_.active_segment() > 0) {
+                    // On a phone the segments 確定 settled are typed already,
+                    // so ⌫ never undoes them: it steps back a segment here,
+                    // keeping the choices made, and leaves at the first.
+                    composition_.segment(-1);
+                } else {
+                    composition_.backspace();
+                }
             } else if (code == "Escape") {
                 if (composition_.converting()) {
                     composition_.unconvert();

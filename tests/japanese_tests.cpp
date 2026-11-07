@@ -794,11 +794,19 @@ void segment_commits() {
             "次候補 changes the active segment alone");
     click_key(app, "Enter");
     require(sink.text.empty() && active() == "〈お〉", "the next 確定 keeps that choice and moves on");
+    click_key(app, "Backspace");
+    require(preedit() == "〈あい〉うえ〈お〉" && active() == "うえ",
+            "⌫ steps back a segment, keeping the choices made");
+    click_key(app, "Enter");
+    require(sink.text.empty() && active() == "〈お〉", "and 確定 moves on again");
     click_key(app, "Enter");
     require(sink.text.size() == 1 && sink.text.back() == "〈あい〉うえ〈お〉" && preedit().empty(),
             "確定 in the last segment commits the phrase as shown");
     flick(app, "undo", 2);
     require(preedit() == "あいうえお", "↶ brings the whole phrase back as a reading");
+    click_key(app, "Space");
+    click_key(app, "Backspace");
+    require(preedit() == "あいうえお", "⌫ in the first segment returns to the reading");
     for (int i = 0; i < 10 && !preedit().empty(); ++i) {
         click_key(app, "Backspace");
     }
@@ -813,6 +821,10 @@ void segment_commits() {
     }
     click_key(app, "Space");
     require(active() == "〈あい〉", "a full layout converts the same way");
+    click_key(app, "ArrowRight");
+    click_key(app, "Backspace");
+    require(preedit() == "あいうえお", "its ⌫ returns to the reading from any segment, as PC IMEs do");
+    click_key(app, "Space");
     click_key(app, "Enter");
     require(sink.text.back() == "〈あい〉〈うえ〉〈お〉" && preedit().empty(),
             "but its Enter commits every segment at once");
