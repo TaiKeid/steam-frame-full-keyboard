@@ -5191,6 +5191,11 @@ void App::track_backspace() {
     }
     update_typing_suggestions();
 }
+namespace {
+bool apostrophe(gunichar character) {
+    return character == '\'' || character == 0x2019; // ’
+}
+} // namespace
 std::string App::current_word() const {
     const char* const begin = typed_text_.c_str();
     const char* start = begin + typed_text_.size();
@@ -5201,15 +5206,29 @@ std::string App::current_word() const {
         }
         start = previous;
     }
+    // An apostrophe opening a word quotes it: 'hello is hello.
+    while (*start && apostrophe(g_utf8_get_char(start))) {
+        start = g_utf8_next_char(start);
+    }
     return std::string(start, begin + typed_text_.size());
 }
 void App::end_word(bool learn) {
     const auto language = profiles_.languages.find(settings_.active.language);
-    if (learn && suggesting() && learning_allowed() && language != profiles_.languages.end()) {
-        auto& learned = learned_words(language->second.swipe_lexicon);
-        learned.record(current_word());
-        learned.touch(monotonic_seconds());
+    if (!learn || !suggesting() || !learning_allowed() || language == profiles_.languages.end()) {
+        return;
     }
+    auto word = current_word();
+    // A closing quote isn't part of the word, unless the list spells it so (goin').
+    while (!word.empty() && (!word_list_ || !word_list_->find(word_key(word)))) {
+        const auto last = g_utf8_find_prev_char(word.c_str(), word.c_str() + word.size());
+        if (!last || !apostrophe(g_utf8_get_char(last))) {
+            break;
+        }
+        word.erase(static_cast<std::size_t>(last - word.c_str()));
+    }
+    auto& learned = learned_words(language->second.swipe_lexicon);
+    learned.record(word);
+    learned.touch(monotonic_seconds());
 }
 void App::lose_word() {
     typed_text_.clear();

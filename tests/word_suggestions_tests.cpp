@@ -55,6 +55,10 @@ void completion_tests() {
                 complete_word(words, none, "don", 3) == Words{"don't"},
             "letters beyond ASCII and apostrophes complete too");
     require(complete_word(words, none, "iph", 3) == Words{"iphone"}, "what was typed is never changed");
+    const auto elided = list("I'm\t160\nI'll\t150\nc'est\t170\n");
+    require(complete_word(elided, none, "I'", 3) == Words{"I'm", "I'll"} &&
+                complete_word(elided, none, "C'", 3) == Words{"C'est"},
+            "a capital and an apostrophe aren't two capitals");
     require(complete_word(words, none, "", 3).empty() && complete_word(words, none, "xyz", 3).empty(),
             "nothing typed or nothing listed offers nothing");
     require(word_character('a') && word_character(0xfc) && word_character('\'') &&

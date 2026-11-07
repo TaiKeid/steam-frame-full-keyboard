@@ -346,11 +346,15 @@ std::vector<std::string> complete_word(const WordList& list, const LearnedWords&
     });
     // What was typed stays as typed; only the rest of the word is added.
     const auto typed_length = characters(typed);
-    bool capitals = typed_length >= 2;
-    for (const char* p = typed.data(); capitals && p < typed.data() + typed.size();
-         p = g_utf8_next_char(p)) {
-        capitals = !g_unichar_islower(g_utf8_get_char(p));
+    // Capitals after two capital letters and no small one: HEL, not I' or C'.
+    int upper = 0;
+    bool lower = false;
+    for (const char* p = typed.data(); p < typed.data() + typed.size(); p = g_utf8_next_char(p)) {
+        const auto character = g_utf8_get_char(p);
+        upper += g_unichar_isupper(character) ? 1 : 0;
+        lower |= g_unichar_islower(character) != 0;
     }
+    const bool capitals = upper >= 2 && !lower;
     std::vector<std::string> result;
     for (const auto& [spelling, score] : ranked) {
         if (result.size() == most) {

@@ -2037,7 +2037,8 @@ void tap(App& app, const std::string& action, double now = 1) {
 }
 void type(App& app, const std::string& letters) {
     for (const char letter : letters) {
-        tap(app, letter == ' ' ? std::string("Space")
+        tap(app, letter == ' '    ? std::string("Space")
+                 : letter == '\'' ? std::string("Quote")
                  : std::isdigit(static_cast<unsigned char>(letter))
                      ? std::string("Digit") + letter
                      : std::string("Key") + static_cast<char>(std::toupper(letter)));
@@ -2152,6 +2153,11 @@ int typing_flow() {
         type(app, "rk zo");
         require(typing_suggestions(app) == std::vector<std::string>{"zork"},
                 "a new word is offered after three uses");
+        type(app, " 'hel");
+        require(typing_suggestions(app).front() == "help", "an opening quote isn't part of the word");
+        type(app, " 'quux' 'quux' 'quux' qu");
+        require(typing_suggestions(app) == std::vector<std::string>{"quux"},
+                "nor is a closing quote, which isn't learned with it");
     }
     {
         // Clear learned words lists the language with its count, off; Clear
