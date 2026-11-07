@@ -1208,6 +1208,16 @@ PanelView App::build_view(bool picker) const {
             }
         }
     }
+    // A Cut, Copy or Paste key that sends nothing to the focused app shows
+    // disabled: Cut in a terminal, and all three in xterm.
+    if (const auto keys = edit_keys(); keys != EditKeys::Standard) {
+        for (const auto& key : v.layout->keys) {
+            if (key.action_kind == ActionKind::Shortcut &&
+                !edit_chord(edit_action(key.action), keys).sends()) {
+                v.disabled_keys.insert(key.id);
+            }
+        }
+    }
     // The script switch acts on the kana page alone; the digits page has none.
     if (flick_mode() != FlickMode::Kana) {
         for (const auto& key : v.layout->keys) {
@@ -6869,7 +6879,7 @@ void App::tick_direct_paste(double now) {
         p.failures = output_.failures();
         if (!output_.tap(paste)) {
             if (now - p.at > 2) {
-                type_instead("Ctrl+V could not be pressed");
+                type_instead("the paste key could not be pressed");
             }
             return;
         }

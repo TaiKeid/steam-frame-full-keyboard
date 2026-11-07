@@ -1808,16 +1808,15 @@ void terminal_edit_key_tests() {
         sink.edit = EditKeys::CtrlShift;
         press_edit_keys(sink);
         const std::vector<int> shift{KEY_LEFTCTRL, KEY_LEFTSHIFT};
-        require(sink.keys ==
-                    chord_keys(shift, KEY_C) + chord_keys(shift, KEY_C) + chord_keys(shift, KEY_V),
-                "in a terminal: Cut copies, Ctrl+Shift+C and Ctrl+Shift+V; never Ctrl+C");
+        require(sink.keys == chord_keys(shift, KEY_C) + chord_keys(shift, KEY_V),
+                "in a terminal: Cut sends nothing, then Ctrl+Shift+C and Ctrl+Shift+V; never Ctrl+C");
     }
     {
         Sink sink;
         sink.edit = EditKeys::CtrlAlt;
         press_edit_keys(sink);
         const std::vector<int> alt{KEY_LEFTCTRL, KEY_LEFTALT};
-        require(sink.keys == chord_keys(alt, KEY_C) + chord_keys(alt, KEY_C) + chord_keys(alt, KEY_V),
+        require(sink.keys == chord_keys(alt, KEY_C) + chord_keys(alt, KEY_V),
                 "rxvt-unicode: Ctrl+Alt+C and Ctrl+Alt+V");
     }
     {
@@ -1829,9 +1828,25 @@ void terminal_edit_key_tests() {
         }
         settle(app);
         require(sink.keys.empty() && sink.text.empty(), "xterm: no key reaches its program");
+        const auto disabled = app.view().disabled_keys;
+        require(disabled.contains("Cut") && disabled.contains("Copy") && disabled.contains("Paste"),
+                "and all three show disabled there");
         press(app, "KeyA");
         settle(app);
         require(sink.text == std::vector<std::string>{"a"}, "and the keyboard still types");
+    }
+    {
+        // Cut shows disabled in a terminal, which has none; elsewhere all three stay usable.
+        Sink sink;
+        App app(options, sink);
+        settle(app);
+        const auto none = app.view().disabled_keys;
+        require(!none.contains("Cut") && !none.contains("Copy") && !none.contains("Paste"),
+                "outside terminals the three keys are usable");
+        sink.edit = EditKeys::CtrlShift;
+        const auto cut = app.view().disabled_keys;
+        require(cut.contains("Cut") && !cut.contains("Copy") && !cut.contains("Paste"),
+                "in a terminal Cut alone shows disabled");
     }
     {
         // A shell's terminal hint applies where the program isn't known,

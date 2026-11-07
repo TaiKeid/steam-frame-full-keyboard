@@ -45,13 +45,11 @@ EditAction edit_action(std::string_view name) {
     return name == "cut" ? EditAction::Cut : name == "copy" ? EditAction::Copy : EditAction::Paste;
 }
 EditChord edit_chord(EditAction action, EditKeys keys) {
-    if (keys == EditKeys::SelectionOnly) {
-        return {}; // Any key would reach the program as a control character.
-    }
-    // A terminal cannot remove text, so Cut copies; Ctrl+Shift+X is no
-    // terminal's cut and would reach the program as ^X.
-    if (keys != EditKeys::Standard && action == EditAction::Cut) {
-        action = EditAction::Copy;
+    // In xterm any key would reach the program as a control character. A
+    // terminal cannot remove text, so it has no Cut, and Ctrl+Shift+X would
+    // reach the program as ^X: the keyboard shows those keys disabled.
+    if (keys == EditKeys::SelectionOnly || (keys != EditKeys::Standard && action == EditAction::Cut)) {
+        return {};
     }
     EditChord chord;
     chord.modifiers = {KEY_LEFTCTRL};

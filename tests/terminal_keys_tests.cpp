@@ -64,14 +64,15 @@ void chord_tests() {
           "terminal Copy is Ctrl+Shift+C");
     check(EditAction::Paste, EditKeys::CtrlShift, {KEY_LEFTCTRL, KEY_LEFTSHIFT}, XKB_KEY_v, "KeyV",
           "terminal Paste is Ctrl+Shift+V");
-    check(EditAction::Cut, EditKeys::CtrlShift, {KEY_LEFTCTRL, KEY_LEFTSHIFT}, XKB_KEY_c, "KeyC",
-          "a terminal cannot cut: Cut copies, never ^X");
     check(EditAction::Copy, EditKeys::CtrlAlt, {KEY_LEFTCTRL, KEY_LEFTALT}, XKB_KEY_c, "KeyC",
           "rxvt-unicode Copy is Ctrl+Alt+C");
     check(EditAction::Paste, EditKeys::CtrlAlt, {KEY_LEFTCTRL, KEY_LEFTALT}, XKB_KEY_v, "KeyV",
           "rxvt-unicode Paste is Ctrl+Alt+V");
-    check(EditAction::Cut, EditKeys::CtrlAlt, {KEY_LEFTCTRL, KEY_LEFTALT}, XKB_KEY_c, "KeyC",
-          "rxvt-unicode Cut copies");
+    for (const auto keys : {EditKeys::CtrlShift, EditKeys::CtrlAlt}) {
+        const auto chord = fk::edit_chord(EditAction::Cut, keys);
+        require(!chord.sends() && chord.modifiers.empty(),
+                "a terminal cannot cut: Cut sends nothing, never ^X");
+    }
     for (const auto action : {EditAction::Cut, EditAction::Copy, EditAction::Paste}) {
         const auto chord = fk::edit_chord(action, EditKeys::SelectionOnly);
         require(!chord.sends() && chord.modifiers.empty(), "xterm gets no key at all");

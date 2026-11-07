@@ -51,7 +51,7 @@ Matching is on the file name of the focused process's program (`argv[0]`), exact
 
 Never used: Ctrl+Insert, Shift+Insert, Shift+Delete. Shift+Delete deletes files permanently in Dolphin, and Shift+Insert pastes the primary selection in foot, Alacritty, WezTerm, Konsole and xterm, which is not what the user copied.
 
-xterm-like terminals copy by selecting and paste with the middle button. Any key the keyboard could send there reaches the program as a control character, so Cut, Copy and Paste send nothing: the key moves and buzzes as usual. Dictation's paste Send and Type as I speak type the text instead.
+xterm-like terminals copy by selecting and paste with the middle button. Any key the keyboard could send there reaches the program as a control character, so Cut, Copy and Paste send nothing there and show disabled, as a key that can't be used right now does. Dictation's paste Send and Type as I speak type the text instead.
 
 The letter goes through the existing `shortcut_code` lookup, so a non-Latin target keymap still gets the physical C or V.
 
@@ -59,9 +59,9 @@ Terminals not on the list keep today's keys. Python-based ones such as Terminato
 
 ## Cut
 
-Cut acts as Copy in terminals, and does nothing in xterm-like ones. A terminal cannot remove text from its screen or scrollback, and its input line belongs to the shell, so copying is the only part of Cut it can do. Copying destroys nothing, while sending nothing would silently drop the copy the user asked for. Ctrl+Shift+X is no terminal's cut and would reach the program as ^X.
+Cut is disabled in terminals: it sends nothing and shows disabled while a terminal has focus (owner's decision, 2026-11-07). A terminal cannot remove text from its screen or scrollback, and its input line belongs to the shell, so it has no cut. Ctrl+Shift+X is no terminal's cut and would reach the program as ^X. Copy is the key to use there.
 
-Known limit, the same as with a physical keyboard: Konsole disables its Copy action while nothing is selected, and the key then reaches the program. Copy or Cut pressed in Konsole with nothing selected can therefore interrupt, as Ctrl+Shift+C does there from a real keyboard. The keyboard cannot tell whether text is selected without reading the selection, which it never does.
+Known limit, the same as with a physical keyboard: Konsole disables its Copy action while nothing is selected, and the key then reaches the program. Copy pressed in Konsole with nothing selected can therefore interrupt, as Ctrl+Shift+C does there from a real keyboard. The keyboard cannot tell whether text is selected without reading the selection, which it never does.
 
 ## Fallback
 
@@ -105,4 +105,4 @@ There the user can still type Konsole's own keys: tap Ctrl and Shift, which latc
 
 ## Headset checks
 
-On the Frame, with a dedicated scratch file or shell and nothing running that an interrupt would hurt: Konsole from the dashboard (Copy and Cut copy a selection, Paste pastes, Copy with nothing selected), xterm (nothing is sent), a browser and Kate (unchanged), Konsole inside the Desktop (unchanged), dictation paste Send into Konsole and into xterm.
+On the Frame, with a dedicated scratch file or shell and nothing running that an interrupt would hurt: Konsole from the dashboard (Copy copies a selection, Paste pastes, Cut shows disabled, Copy with nothing selected), xterm (all three show disabled and send nothing), a browser and Kate (unchanged), Konsole inside the Desktop (unchanged), dictation paste Send into Konsole and into xterm.
