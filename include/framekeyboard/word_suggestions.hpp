@@ -24,14 +24,20 @@ class WordList {
   public:
     // `respell` replaces parts of each word, as Swiss German writes ss for ß.
     using Respelling = std::map<std::string, std::string>;
-    static WordList parse(std::istream& input, const Respelling& respell = {});
-    static WordList load(const std::filesystem::path& path, const Respelling& respell = {});
+    // `offensive` lists the words completions hold back, one per line
+    // (swipe/lexicons/README.md, Offensive words).
+    static WordList parse(std::istream& input, const Respelling& respell = {},
+                          std::istream* offensive = nullptr);
+    static WordList load(const std::filesystem::path& path, const Respelling& respell = {},
+                         const std::filesystem::path& offensive = {});
     std::size_t size() const { return entries_.size(); }
     struct Word {
         std::string_view key, spelling;
         int frequency{};
+        bool offensive{};
     };
-    // The words whose key begins with `prefix` (a key), commonest first.
+    // The words whose key begins with `prefix` (a key), commonest first and
+    // offensive ones last.
     std::vector<Word> starting(std::string_view prefix, std::size_t most) const;
     // The word with this key, if listed.
     std::optional<Word> find(std::string_view key) const;
@@ -42,6 +48,7 @@ class WordList {
         std::uint32_t key{}, spelling{};
         std::uint16_t key_length{}, spelling_length{};
         std::uint8_t frequency{};
+        bool offensive{};
     };
     Word word(const Entry& entry) const;
     std::string text_;
@@ -91,8 +98,8 @@ class LearnedWords {
 // Up to `most` completions of `typed`, a word as typed: each is `typed` and
 // the rest of a word, never changing what was typed, in capitals after two
 // or more capitals. Listed words rank by frequency, raised by the user's
-// uses; words the list lacks join after new_word_uses. The typed word itself
-// is not offered.
+// uses; an offensive word ranks below all others until used once. Words the
+// list lacks join after new_word_uses. The typed word itself is not offered.
 std::vector<std::string> complete_word(const WordList& list, const LearnedWords& learned,
                                        std::string_view typed, std::size_t most);
 } // namespace framekeyboard

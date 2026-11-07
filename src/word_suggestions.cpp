@@ -7,6 +7,7 @@
 #include <fstream>
 #include <glib.h>
 #include <map>
+#include <set>
 #include <sstream>
 #include <sys/stat.h>
 #include <system_error>
@@ -66,13 +67,30 @@ bool word_character(std::uint32_t character) {
            character == 0x2019; // ’
 }
 
-WordList WordList::parse(std::istream& input, const Respelling& respell) {
+namespace {
+void apply(const WordList::Respelling& respell, std::string& spelling) {
+    for (const auto& [from, to] : respell) {
+        for (auto at = spelling.find(from); !from.empty() && at != std::string::npos;
+             at = spelling.find(from, at + to.size())) {
+            spelling.replace(at, from.size(), to);
+        }
+    }
+}
+} // namespace
+WordList WordList::parse(std::istream& input, const Respelling& respell, std::istream* offensive) {
     struct Parsed {
         std::string key, spelling;
         int frequency{};
     };
-    std::vector<Parsed> parsed;
+    std::set<std::string, std::less<>> held_back;
     std::string line;
+    while (offensive && std::getline(*offensive, line)) {
+        if (!line.empty() && line.front() != '#') {
+            apply(respell, line);
+            held_back.insert(word_key(line));
+        }
+    }
+    std::vector<Parsed> parsed;
     while (std::getline(input, line)) {
         if (line.empty() || line.front() == '#') {
             continue;
@@ -82,12 +100,7 @@ WordList WordList::parse(std::istream& input, const Respelling& respell) {
             continue;
         }
         std::string spelling = line.substr(0, tab);
-        for (const auto& [from, to] : respell) {
-            for (auto at = spelling.find(from); !from.empty() && at != std::string::npos;
-                 at = spelling.find(from, at + to.size())) {
-                spelling.replace(at, from.size(), to);
-            }
-        }
+        apply(respell, spelling);
         int frequency = 0;
         try {
             frequency = std::clamp(std::stoi(line.substr(tab + 1)), 0, 255);
@@ -121,17 +134,23 @@ WordList WordList::parse(std::istream& input, const Respelling& respell) {
             list.text_ += word.spelling;
         }
         entry.frequency = static_cast<std::uint8_t>(word.frequency);
+        entry.offensive = held_back.contains(word.key);
         list.entries_.push_back(entry);
     }
     return list;
 }
-WordList WordList::load(const fs::path& path, const Respelling& respell) {
+WordList WordList::load(const fs::path& path, const Respelling& respell, const fs::path& offensive) {
     std::ifstream input(path);
-    return input ? parse(input, respell) : WordList{};
+    std::ifstream held_back;
+    if (!offensive.empty()) {
+        held_back.open(offensive);
+    }
+    return input ? parse(input, respell, held_back.is_open() ? &held_back : nullptr) : WordList{};
 }
 WordList::Word WordList::word(const Entry& entry) const {
     return {std::string_view(text_).substr(entry.key, entry.key_length),
-            std::string_view(text_).substr(entry.spelling, entry.spelling_length), entry.frequency};
+            std::string_view(text_).substr(entry.spelling, entry.spelling_length), entry.frequency,
+            entry.offensive};
 }
 std::vector<WordList::Word> WordList::starting(std::string_view prefix, std::size_t most) const {
     const auto first = std::lower_bound(
@@ -144,6 +163,9 @@ std::vector<WordList::Word> WordList::starting(std::string_view prefix, std::siz
     const auto keep = std::min(most, found.size());
     std::partial_sort(found.begin(), found.begin() + static_cast<std::ptrdiff_t>(keep), found.end(),
                       [](const Word& a, const Word& b) {
+                          if (a.offensive != b.offensive) {
+                              return b.offensive;
+                          }
                           return a.frequency != b.frequency ? a.frequency > b.frequency : a.key < b.key;
                       });
     found.resize(keep);
@@ -293,10 +315,15 @@ std::vector<std::string> complete_word(const WordList& list, const LearnedWords&
     }
     // Candidates by key: their spelling and score.
     std::map<std::string, std::pair<std::string, int>, std::less<>> scored;
+    // An offensive word the user hasn't used ranks below every other one;
+    // once used, it ranks as any word, so whoever swears trains it back.
+    const auto score = [&](const WordList::Word& word, std::uint32_t uses) {
+        return word.offensive && uses == 0 ? word.frequency - 256 : word.frequency + bonus(uses);
+    };
     for (const auto& word : list.starting(key, 32)) {
         if (word.key != key) {
             scored[std::string(word.key)] = {std::string(word.spelling),
-                                             word.frequency + bonus(learned.uses(word.key))};
+                                             score(word, learned.uses(word.key))};
         }
     }
     // The user's words: listed ones the top above missed, and new ones used often enough.
@@ -305,7 +332,7 @@ std::vector<std::string> complete_word(const WordList& list, const LearnedWords&
             continue;
         }
         if (const auto listed = list.find(use->key)) {
-            scored[use->key] = {std::string(listed->spelling), listed->frequency + bonus(use->uses)};
+            scored[use->key] = {std::string(listed->spelling), score(*listed, use->uses)};
         } else if (use->uses >= LearnedWords::new_word_uses) {
             scored[use->key] = {use->spelling, learned_frequency + bonus(use->uses)};
         }

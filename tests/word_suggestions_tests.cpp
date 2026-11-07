@@ -1,5 +1,5 @@
 // Typing suggestions' word lists, the user's learned words and completion
-// (docs/typing-suggestions.md).
+// (docs/configuration.md, Typing suggestions).
 #include "framekeyboard/word_suggestions.hpp"
 #include <algorithm>
 #include <filesystem>
@@ -116,12 +116,38 @@ void learning_tests() {
         require(none.empty(), "without a file nothing is kept");
     }
 }
+// An offensive word ranks below every other completion until the user has
+// used it once, then as any other word.
+void offensive_tests() {
+    char directory[] = "/tmp/framekeyboard-words-XXXXXX";
+    require(mkdtemp(directory), "temporary words folder");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::istringstream input("fuck\t155\nfucking\t154\nfun\t150\nfull\t140\nfuture\t130\nfully\t60\n");
+    std::istringstream offensive("# held back\nFuck\nfucking\n");
+    const auto words = WordList::parse(input, {}, &offensive);
+    require(words.find("fuck")->offensive && words.find("fucking")->offensive &&
+                !words.find("fun")->offensive,
+            "the listed words are marked, whatever their case");
+    const LearnedWords none;
+    require(complete_word(words, none, "fu", 4) == Words{"fun", "full", "future", "fully"},
+            "unused, they come after every other word");
+    require(complete_word(words, none, "fuc", 3) == Words{"fuck", "fucking"},
+            "and still complete what only they begin with");
+    LearnedWords learned(fs::path(directory) / "en-us.tsv");
+    learned.record("fuck");
+    require(complete_word(words, learned, "fu", 3) == Words{"fuck", "fun", "full"},
+            "once used, a word ranks as any other");
+}
 } // namespace
 int main() {
     try {
         list_tests();
         completion_tests();
         learning_tests();
+        offensive_tests();
         std::cout << "Word lists, completion and learned words passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

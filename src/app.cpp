@@ -113,7 +113,7 @@ constexpr double reopen_patience = 3;
 // or its capture is stuck: it ends without typing.
 constexpr std::size_t max_swipe_points = 2000;
 // Completions of the word being typed, in the toolbar.
-constexpr std::size_t typing_suggestion_count = 3;
+constexpr std::size_t typing_suggestion_count = 5; // As many as swipe alternatives.
 // KeyboardState repeats a held key after half a second; a little before that,
 // the word being typed counts as lost.
 constexpr double backspace_repeat_after = .45;
@@ -5125,8 +5125,10 @@ void App::load_word_list() {
         // Parsing takes a quarter second: never on the VR loop. A load that
         // a language change made pointless finishes and goes unread.
         std::thread([load, path = swipe_lexicon_path(options_.data_dir, options_.config_dir, lexicon),
+                     offensive = swipe_lexicon_path(options_.data_dir, options_.config_dir,
+                                                    lexicon + "-offensive"),
                      respell = language->second.swipe_replace] {
-            auto list = std::make_shared<const WordList>(WordList::load(path, respell));
+            auto list = std::make_shared<const WordList>(WordList::load(path, respell, offensive));
             std::lock_guard lock(load->lock);
             load->list = std::move(list);
             load->done = true;

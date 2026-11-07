@@ -14,7 +14,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V, or a terminal's own keys, such as Ctrl+Shift+C and Ctrl+Shift+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
-- Typing suggestions, on by default, in the languages swipe typing has: up to three completions of the word you're typing, the words you use most first.
+- Typing suggestions, on by default, in the languages swipe typing has: up to five completions of the word you're typing, the words you use most first.
 - Japanese conversion with Mozc, with candidates as you type, and a phone-style Japanese 12-key flick keyboard.
 - Key flicks, off by default: pull a key down for its Shift character, as on an iPad, such as ^ on the 6 key, or a capital while swipe typing is off.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
@@ -95,7 +95,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Clear a tapped modifier | Tap it again |
 | Lock Shift | Hold Shift for half a second; press it again to unlock |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
-| Complete a word | Type its start; up to three completions appear in the toolbar. Choose one to type the rest and a space |
+| Complete a word | Type its start; up to five completions appear in the toolbar. Choose one to type the rest and a space |
 | Flick for Shift characters | Turn on **Flick down for Shift characters** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |
 | Cut / copy / paste | Use the Cut, Copy and Paste keys on the left; select text first when cutting or copying |
 | Dictate | Press the mic key below Cut, Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |

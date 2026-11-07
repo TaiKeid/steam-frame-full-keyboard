@@ -85,3 +85,42 @@ MIT, `LICENSE.jieba`) with readings from pypinyin 0.55.0 (MIT,
 `LICENSE.pypinyin`). Words of one to four characters were converted, counts of
 identical Pinyin summed, and the 100,000 most frequent kept
 (`--format jieba-pinyin`).
+
+## Offensive words
+
+Each `<id>-offensive.tsv` lists, one per line, the words of `<id>.tsv` that
+typing suggestions rank below every other completion until the user has used
+them. Swipe typing doesn't read them: a swipe spells the whole word. The lists
+are built by `tools/build_offensive_words.py` from the "List of Dirty, Naughty,
+Obscene, and Otherwise Bad Words",
+https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words,
+commit `5faf2ba42d7b1c0977169ec3611df25a3c08eb13`, licensed under CC BY 4.0,
+https://creativecommons.org/licenses/by/4.0/: a word is listed when the word
+list has it and the bad words list does. Inflections and compounds the bad
+words list lacks are added where they begin with a root every word built on is
+offensive in, reviewed by hand (`ROOTS` in the tool: fuck, German scheiß), or
+where the word list's AOSP source marks them `possibly_offensive` and they begin
+with a listed word of four letters or more; the AOSP marks alone are too broad
+(English marks "AI", German "Club"). Everyday
+words the bad words lists include, such as Italian "regina", Portuguese "comer"
+or English "hardcore", are kept out by hand (`KEEP` in the tool). Ukrainian
+uses the Russian bad words list, and Italian and Ukrainian have no AOSP marks.
+Drawn from the word lists, the lists are licensed under CC BY-SA 4.0 as they are.
+
+| Bad words list | Used for | SHA-256 |
+| --- | --- | --- |
+| `en` | `en-us`, `en-gb` | `af851ecef1d5f212caba17339b12ac39cc2fef7d78c74876f67237644fcee8bd` |
+| `de` | `de-de` | `ebe44d7772897390e27f7bec412fdcdf0efc294e4db157f8487c4cd8d4fabd55` |
+| `es` | `es-es` | `073334261cc2e7c08339faefd2f19f9623e8240a0ac18fe2a26c368b897496ce` |
+| `fr` | `fr-fr` | `79763a705e08256b393952852bb63aa903f4485e0ef02f70735f5e50efff213c` |
+| `it` | `it-it` | `d413f41018d58aa79d2c4809d0161f29ffd5652c4dc34c5b7b9ade680ee5599a` |
+| `nl` | `nl-nl` | `8298ba0cdc3ca9a1989c349b8ad0148e4504c2804f2f2fb6c2f52bfb39c5ae71` |
+| `pl` | `pl-pl` | `98cf824e3692255645c5a72d5913f26fd4f20930f725683b4c96bb312ca5d9b3` |
+| `pt` | `pt-br` | `05ef524b0bb7f83f87257f6ec4dabf70e16b8bb6930f769fb93deaf608ff196d` |
+| `ru` | `ru-ru`, `uk-ua` | `2598adabd2b761733d72a68d8ee4fcc1d2c38f2f85b6ff489985c6ce1d93bf75` |
+| `sv` | `sv-se` | `77f3f99a89bd3b2bde6a654741bacfcb3acca3f5c804af4d8d3fea11e09ea562` |
+
+The AOSP marks come from the source lists in the table above, except for
+`pt-br`, whose marks come from `wordlists/main_pt_BR.combined` at the same
+aosp-dictionaries commit (SHA-256
+`1e58ac19ee1732027d0598b837adc9e80cbd0c1af767c6e7e1f2dfac7ebee183`).

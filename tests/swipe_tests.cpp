@@ -2085,6 +2085,8 @@ int typing_flow() {
     fs::create_directories(directory.path / "swipe/lexicons");
     std::ofstream(directory.path / "swipe/lexicons/en-us.tsv")
         << "hello\t200\nhelp\t180\nhelmet\t100\nheld\t90\nhelpless\t50\nworld\t150\n";
+    // Held back as an offensive word would be, for this test.
+    std::ofstream(directory.path / "swipe/lexicons/en-us-offensive.tsv") << "# test\nhelmet\n";
     Options options;
     options.config_dir = directory.path;
     options.mode = Mode::Vr;
@@ -2097,15 +2099,17 @@ int typing_flow() {
         App app(options, sink);
         type(app, "hel");
         settle(app, [&] { return !typing_suggestions(app).empty(); });
-        require(typing_suggestions(app) == std::vector<std::string>{"hello", "help", "helmet"},
-                "the commonest completions of the typed word are offered");
+        require(typing_suggestions(app) ==
+                    std::vector<std::string>{"hello", "help", "held", "helpless", "helmet"},
+                "up to five completions of the typed word, commonest first, offensive words last");
         click(app, "typing-suggestion-1");
         require(sink.text.back() == "p ", "a pick types the rest of the word and a space");
         require(typing_suggestions(app).empty(), "a picked word ends the suggestions");
 
         type(app, "hel");
         tap(app, "Backspace");
-        require(typing_suggestions(app) == std::vector<std::string>{"help", "hello", "helmet"},
+        require(typing_suggestions(app) ==
+                    std::vector<std::string>{"help", "hello", "held", "helpless", "helmet"},
                 "Backspace shortens the typed word, and the picked word now ranks first");
         tap(app, "Backspace");
         tap(app, "Backspace");
