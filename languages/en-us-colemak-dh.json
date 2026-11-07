@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "en-us-colemak-dh",
+  "name": "English (US), Colemak-DH",
+  "native_name": "English Colemak-DH",
+  "short_name": "Colemak-DH",
+  "locale": "en-US",
+  "keymap": {
+    "rules": "evdev",
+    "model": "pc105",
+    "layout": "us",
+    "variant": "colemak_dh",
+    "options": []
+  },
+  "legends": {
+    "source": "keymap",
+    "overrides": {}
+  },
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "swipe": {
+    "lexicon": "en-us"
+  },
+  "dictation": {
+    "language": "en"
+  }
+}

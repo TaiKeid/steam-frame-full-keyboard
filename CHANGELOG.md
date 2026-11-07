@@ -7,6 +7,7 @@
 - Fixed: a Full Keyboard started from SteamOS's Desktop, such as from its terminal, typed only into Steam's own fields, not into apps such as Kate. It watched the Desktop's display for which app has focus, instead of Steam's. Started there, it now takes Steam's session display, runtime folder and bus from SteamOS's service manager, and works as if opened from the dashboard.
 - Fixed: **Start with SteamOS** couldn't be turned on or off in a Full Keyboard started from SteamOS's Desktop, such as from its terminal: **Apply and save** said "Could not refresh SteamOS startup settings" and the checkbox went back. Apps started in the Desktop get a runtime folder and session bus of their own, where `systemctl --user` can't reach SteamOS's service manager. The keyboard now asks the manager to reload through the main session bus when that happens. Thanks to @jlsalvador for the fix (#11).
 - Fixed: run in SteamOS's Desktop terminal, the uninstaller couldn't reach SteamOS's service manager either, so it could neither stop the Start with SteamOS service before removing it nor tell the manager it was gone. It now reaches the manager through the main session bus too.
+- Added **English (US), Colemak-DH**, next to Colemak, whose keys, legends and swipe typing follow that arrangement.
 
 ## 0.15.0: Improved typing, swiping and overall feel, and reworked Japanese and Korean
 

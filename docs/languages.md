@@ -13,6 +13,7 @@ does not automatically select Russian. Updating the app preserves your selection
 | English UK | `en-gb` | UK QWERTY | UK XKB |
 | English US, Dvorak | `en-us-dvorak` | US QWERTY | US Dvorak XKB; legends and swipe follow it |
 | English US, Colemak | `en-us-colemak` | US QWERTY | US Colemak XKB; legends and swipe follow it |
+| English US, Colemak-DH | `en-us-colemak-dh` | US QWERTY | US Colemak-DH XKB (ANSI); legends and swipe follow it |
 | English US, International | `en-us-intl` | US QWERTY | US international, accents on dead keys |
 | Bulgarian | `bg-bg` | US QWERTY | Bulgarian BDS |
 | Bulgarian, phonetic | `bg-bg-phonetic` | US QWERTY | Bulgarian new phonetic |
