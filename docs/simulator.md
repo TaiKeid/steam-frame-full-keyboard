@@ -1,6 +1,6 @@
 # Desktop simulator
 
-The simulator runs Full Keyboard in a window on a Linux PC, typing into a text field above it. It is for trying the keyboard without a Steam Frame: for native speakers checking Japanese and Korean input, and for AI agents that drive it through computer use. It runs the keyboard's own code, the same as on the headset, but everything it types stays in its own field. Nothing reaches other applications, the system clipboard or the disk.
+The simulator runs Full Keyboard in a window on a Linux PC, typing into a text field above it. It is for trying the keyboard without a Steam Frame: for native speakers checking Japanese and Korean input, and for AI agents that drive it through computer use. It runs the keyboard's own code, the same as on the headset, but everything it types stays in its own field. Nothing reaches other applications or the system clipboard, and only Japanese learning keeps typed phrases on disk, in the simulator's own settings folder.
 
 It runs on Linux x86-64. Windows and browser versions may follow.
 
@@ -68,7 +68,7 @@ LD_LIBRARY_PATH=$A/usr/lib ./build/simulator/framekeyboard-simulator \
   --anthy-dictionary $A/usr/share/anthy/anthy.dic --layout ja-flick-12 --language ja-flick
 ```
 
-`FRAMEKEYBOARD_ANTHY_DICTIONARY=FILE` does the same as `--anthy-dictionary`. The dictionary must match the library's version. Without Anthy the keyboard still composes kana, and says "Japanese conversion needs the Anthy library" when you convert. As on the headset, Anthy always learns ([Japanese learning](japanese.md#learning)), but the simulator keeps what it learns in `.anthy` inside its own config folder, not in your home, so it neither copies nor touches your desktop's input method's learning. The JIS language relies on a system input method and cannot type in the simulator.
+`FRAMEKEYBOARD_ANTHY_DICTIONARY=FILE` does the same as `--anthy-dictionary`. The dictionary must match the library's version. Without Mozc or Anthy the keyboard still composes kana, and says "Japanese conversion needs the Anthy library" when you convert. As on the headset, Anthy always learns ([Japanese learning](japanese.md#learning)), but the simulator keeps what it learns in `.anthy` inside its own config folder, not in your home, so it neither copies nor touches your desktop's input method's learning. The JIS language relies on a system input method and cannot type in the simulator.
 
 ### Japanese candidates
 
@@ -89,14 +89,14 @@ kyouhaiitenkidane → きょうはいいてんきだね
 
 ## AppImage
 
-An AppImage holds the simulator, the libraries it needs and, optionally, Anthy with its dictionary, in one file that runs without installing anything:
+An AppImage holds the simulator, the libraries it needs and Japanese completion's words and kaomoji, and optionally Mozc, swipe typing, Anthy with its dictionary, the emoji dictionary and the Cangjie and Quick tables, in one file that runs without installing anything:
 
 ```sh
 chmod +x Full_Keyboard_simulator-0.14.1-x86_64.AppImage
 ./Full_Keyboard_simulator-0.14.1-x86_64.AppImage --layout ja-flick-12 --language ja-flick
 ```
 
-It takes the same options as the simulator and keeps its settings in the same folder. Without FUSE, add `--appimage-extract-and-run`. It runs only on systems at least as new as the one that built it: its libraries are that system's, so it needs C and C++ runtime libraries at least as new, and a CPU those libraries were compiled for. The build prints the glibc version it needs. It does not include swipe typing unless built with the swipe engine, and never dictation.
+It takes the same options as the simulator and keeps its settings in the same folder. Without FUSE, add `--appimage-extract-and-run`. It runs only on systems at least as new as the one that built it: its libraries are that system's, so it needs C and C++ runtime libraries at least as new, and a CPU those libraries were compiled for. The build prints the glibc version it needs. It does not include swipe typing unless built with the swipe engine, nor Mozc unless built with its server, and never dictation.
 
 `scripts/simulator-appimage.sh` builds it into `out/simulator/`, with a `SHA256SUMS` file. It builds the `simulator` preset, copies the simulator and its composition engines into an AppDir, and bundles every library they load apart from the system's own C and C++ runtimes, graphics drivers and display, sound and system-service connections. `libstdc++` and `libgcc_s` stay on the host: child programs such as bubblewrap, Mozc and Python inherit the AppImage's library path, and bundling older runtimes could mask the versions they or graphics plugins need. The glibc scan includes Mozc's server as well as the simulator and modules. `usr/share/licenses/BUNDLED.txt` inside it lists each bundled library's package, version and license, beside the packages' license files. It needs:
 
@@ -108,6 +108,7 @@ It takes the same options as the simulator and keeps its settings in the same fo
 | `FRAMEKEYBOARD_IBUS_ROOT` | Optional: unpacked `libibus` and `ibus` packages, with `usr/lib/libibus-1.0.so.5` and `usr/share/ibus/dicts/emoji-ja.dict`, to bundle for Japanese emoji candidates, which the Steam Frame has of its own. `FRAMEKEYBOARD_EMOJI_DICTIONARY` names another dictionary at run time |
 | `FRAMEKEYBOARD_IBUS_TABLE_ROOT` | Optional: an unpacked `ibus-table-chinese` package, with `usr/share/ibus-table/tables/cangjie5.db` and `quick5.db`, to bundle for Cangjie and Quick, which the Steam Frame has of its own. `FRAMEKEYBOARD_TABLE_DIRECTORY` names another folder of tables at run time |
 | `FRAMEKEYBOARD_EXECUTORCH_HOST` | Optional: includes swipe typing, as for a [host build](building.md#dependencies) |
+| `FRAMEKEYBOARD_MOZC_HOST` | Optional: includes Mozc's server, so Japanese converts with Mozc, as for a [host build](building.md#dependencies); without it, Anthy converts alone |
 
 The optional Anthy, IBus and Chinese-table roots must match the pinned package
 payloads in `scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256`.
@@ -128,14 +129,14 @@ Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engi
 - **Haptics and haptic sounds.**
 - **Steam.** Native keyboard replacement, Start with SteamOS and updates have no effect here. The field is not one of Steam's; the slow field only imitates their timing.
 - **Dictation.** The mic key shows only once dictation is set up in Settings, which downloads a speech model or needs a speech server. It would then listen through the PC's microphone. Dictation has not been checked in the simulator.
-- **Swipe typing**, unless the build includes the swipe engine ([building](building.md#dependencies)); without it, Settings keeps swipe typing off. Swiping has not been checked in the simulator.
+- **Swipe typing**, unless the build includes the swipe engine ([building](building.md#dependencies)); without it, Settings keeps swipe typing off.
 - **A full text editor.** The field has no undo or rich text, and ↑ and ↓ move between lines separated by line breaks, not wrapped lines.
 
 ## Privacy
 
-- Typed text stays in the window's memory. It is never logged, saved or sent, and closing the window discards it.
+- The field's text stays in the window's memory. It is never logged, saved or sent, and closing the window discards it. Japanese learning keeps the phrases it learns, as on the headset.
 - Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V to the field, which uses a clipboard of its own. The system clipboard is never read or written; dictation's paste Send also writes the field's clipboard.
-- Settings, favorites and emoji Recent and Favorites are saved in the simulator's settings folder, as on the headset. Dictation models, if downloaded, go to `~/.local/share/framekeyboard-simulator/models`.
+- Settings, additional languages, Japanese learning and emoji Recent and Favorites are saved in the simulator's settings folder, as on the headset. Dictation models, if downloaded, go to `~/.local/share/framekeyboard-simulator/models`.
 
 ## For AI agents
 

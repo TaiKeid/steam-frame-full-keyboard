@@ -1,8 +1,8 @@
 # Speech server setup
 
-Dictation in **Server** mode sends each spoken phrase to a speech server you run on your own computer with a capable GPU. Full Keyboard ships no server; this guide sets up whisper.cpp's `whisper-server`, which answers the OpenAI-style requests described in [dictation](dictation.md#protocol). The keyboard needs only the server's address, for example `192.168.1.20:8031`.
+Dictation in **Self-hosted** mode sends each spoken phrase to a speech server you run on your own computer with a capable GPU. Full Keyboard ships no server; this guide sets up whisper.cpp's `whisper-server`, which answers the OpenAI-style requests described in [dictation](dictation.md#protocol). The keyboard needs only the server's address, for example `192.168.1.20:8031`.
 
-Dictation was released in 0.11.0. Of the setups below, only Linux with Vulkan has been verified; see [status of these instructions](#status-of-these-instructions).
+Dictation was released in 0.11.0. Of the setups below, only Linux with Vulkan and macOS with Metal have been verified; see [status of these instructions](#status-of-these-instructions).
 
 ## What you need
 
@@ -154,8 +154,9 @@ Instead of your own server, you can use a hosted service that speaks the same Op
 
 1. In `~/.config/framekeyboard/config.json`, set `dictation_url` to the provider's base URL, for example `https://api.groq.com/openai/v1`, and `dictation_model` to its model name, for example `whisper-large-v3-turbo`. Check the provider's documentation for current URLs and models.
 2. Put your API key on one line in `~/.config/framekeyboard/dictation-key`, then make it readable only by you: `chmod 600 ~/.config/framekeyboard/dictation-key`.
+3. In Settings, press **Reload config**, then choose **Self-hosted** on the Dictation card and apply it, or set `dictation` to `server` in `config.json` before reloading. The card's **Test** then checks that URL.
 
-The key is sent only over HTTPS and only to that URL's host. Settings shows whether a key is set and can delete it, but never shows the key.
+The key is sent only over HTTPS and only to that URL's host. Settings never shows the key and cannot change or delete it; `uninstall.sh --purge` removes the file with your other settings.
 
 ## Privacy
 

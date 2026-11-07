@@ -24,10 +24,11 @@ The public name is **Full Keyboard for Steam Frame**; the launcher label is **Fu
 export FRAMEKEYBOARD_SYSROOT=/absolute/path/to/frame-sysroot
 export FRAMEKEYBOARD_EXECUTORCH_FRAME=/absolute/path/to/executorch-arm64
 export FRAMEKEYBOARD_WHISPER_FRAME=/absolute/path/to/whisper-arm64
+export FRAMEKEYBOARD_MOZC_FRAME=/absolute/path/to/mozc-arm64/mozc_server
 ./scripts/package.sh
 ```
 
-The script configures the ARM64 release preset, `frame-arm64-release`, from these variables, so an unset ExecuTorch or whisper.cpp path leaves its engine out of the package. That preset leaves out [debug mode](building.md#debug-mode). It refuses to package without the dictation engine; see [building](building.md).
+The script configures the ARM64 release preset, `frame-arm64-release`, from these variables, so an unset ExecuTorch path leaves swipe typing out of the package. That preset leaves out [debug mode](building.md#debug-mode), and the script refuses an executable that still has it. It also refuses to package without the dictation engine or Mozc's server, and checks the server's library versions against the sysroot; see [building](building.md#dependencies).
 
 Upload the generated `out/framekeyboard-VERSION-aarch64.tar.gz` and `out/SHA256SUMS` as assets for the matching tag. Use the archive basename from `SHA256SUMS`; do not rename it after hashing. The checksum file covers that release's install archive, not GitHub's generated source archives.
 

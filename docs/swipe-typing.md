@@ -1,6 +1,6 @@
 # Swipe typing plan
 
-Status: released in 0.9.0 for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin; Polish, Dutch and Swedish followed in 0.11.0. Japanese and Korean are not started. Feasibility was checked the same day; see [results](#feasibility-results). Mark milestone checkboxes only after their acceptance conditions pass. User-facing behavior is described in [configuration](configuration.md#swipe-typing).
+Status: released in 0.9.0 for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin; Polish, Dutch and Swedish followed in 0.11.0. Japanese and Korean were dropped (see [milestones](#milestones)). Feasibility was checked the same day; see [results](#feasibility-results). Mark milestone checkboxes only after their acceptance conditions pass. User-facing behavior is described in [configuration](configuration.md#swipe-typing).
 
 Swipe typing lets a user hold the trigger, trace a word across the letter keys and release. The keyboard decodes the path into a word and alternatives. Tapping keeps working exactly as before.
 
@@ -8,16 +8,16 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 
 - **Decoder:** FUTO Swipe encoder (`honorable_sturgeon`, 635K parameters, ExecuTorch `.pte`) plus our own trie-constrained CTC beam search. Its key layout is supplied at runtime, so it works with file-defined layouts. FUTO's `swipe-library` is GPL-3 and is not used or copied; preprocessing and search follow the published technical report.
 - **Notice:** the weights license requires a visible end-user notice. Settings shows "Powered by FUTO Swipe" as a second line under the Swipe typing label, whether swipe is on or off. Ship FUTO's `LICENSE.md` beside the model. The FUTO name is used for nothing else.
-- **Setting:** a Swipe typing checkbox in the Languages and Layouts card, beside the Layout and Language dropdowns. It is saved as the optional global boolean `swipe_typing` and defaults to false. Apply and save activates it; Back discards it.
+- **Setting:** a Swipe typing checkbox in the Languages and Layouts card, beside the Layout and Language dropdowns. It is saved as the optional global boolean `swipe_typing` and defaults to false. Apply and save activates it; Back discards it. Turning it off frees the swipe model; the toolbar switch keeps the model loaded, so switching back on is quick.
 - **Toolbar button:** with the setting on, the toolbar gains a switch of its own, saved as `swipe_switch`, which turns swiping on and off without changing the setting. See [configuration](configuration.md#swipe-typing) for its states.
 - **Dictation editor:** swiping also works in the editor while it can be typed in. Words join at the cursor, and an alternative replaces only that word.
-- **Unsupported languages:** the checkbox is disabled (drawn with the theme's disabled color, not clickable) whenever neither the language selected in the dropdown nor an additional one has `swipe` support, or the swipe engine module or their word lists are unavailable. Like Start with SteamOS, the saved choice is kept while disabled, but swipe is active only when the saved boolean is true and the active language supports it. Cycling to a favorite without swipe support turns swipe off for that language without changing the saved value.
+- **Unsupported languages:** the checkbox is disabled (drawn with the theme's disabled color, not clickable) whenever neither the language selected in the dropdown nor an additional one has `swipe` support, or the swipe engine module or their word lists are unavailable. Like Start with SteamOS, the saved choice is kept while disabled, but swipe is active only when the saved boolean is true and the active language supports it. Switching to an additional language without swipe support turns swipe off for that language without changing the saved value.
 - **Language order:** English, German, Spanish and Japanese romaji; then Korean and Chinese; then the remaining XKB profiles; Russian last.
 - **Privacy:** no learning, no typing history, no logging of paths or decoded words. The development trace recorder only records prompted test phrases.
 
 ## Interaction model
 
-1. **Tap or swipe.** With swipe disabled, keys keep sending on press, exactly as today. For now, with swipe enabled and a swipe-capable language active, a letter key's text is sent on release instead of on press. A press becomes a swipe once the pointer is more than a third of a key width outside the start key and at least half a key width from where it pressed, so a trembling laser near a key's edge still taps. Non-letter keys, modifiers, shortcuts and Settings are unchanged. Key repeat only starts if the pointer stays on the start key for 500 ms. The owner considers send-on-release unsuitable for normal typing, so this is temporary; see the open issue below.
+1. **Tap or swipe.** With swipe disabled, keys keep sending on press, exactly as today. For now, with swipe enabled and a swipe-capable language active, a letter key's text is sent on release instead of on press. A press becomes a swipe once the pointer is more than a third of a key width outside the start key and at least half a key width from where it pressed, so a trembling laser near a key's edge still taps. Each letter reaches halfway into the gaps beside it, so a swipe can also start between two letters; a tap there types nothing unless **Extended key collision** gives the gap to the nearer key ([configuration](configuration.md#extended-key-collision)). The number row takes no part in swipes and types on press. Non-letter keys, modifiers, shortcuts and Settings are unchanged. Key repeat only starts if the pointer stays on the start key for 500 ms. The owner considers send-on-release unsuitable for normal typing, so this is temporary; see the open issue below.
 2. **Capture.** `App::move` already receives OpenVR `MouseMove` events while the trigger is held. A `SwipeTracker` stores time-stamped case coordinates for the owning pointer. One swipe is active at a time; a second controller's press cancels nothing and is ignored for swiping.
 3. **Decode.** On release, decoding runs on a worker thread, never on the VR loop: resample to 60 Hz and then 64 points, normalise to the letter block, encoder, beam search, rescoring.
 4. **Commit.** Open decision, below.
@@ -34,7 +34,7 @@ The first version uses option A below: immediate commit with guarded replacement
 | **A. Immediate commit (recommended)** | The top word is committed through the existing text path. Alternatives show in the candidate row. Picking one sends Backspace × length plus the new word. | Picking an alternative after the user moved the cursor would edit the wrong text. Alternatives are invalidated when any key is pressed, any pointer leaves the panel, the target changes or the panel hides. |
 | B. Preedit first | The word stays in the panel preedit, like Chinese/Korean composition, and is committed by the next swipe, Space or tap. | Safe, but the text doesn't appear in the field until the next action, which is unusual for Latin swipe typing. |
 
-Japanese always uses the composer preedit, because the result is a reading for kanji conversion.
+Chinese Pinyin always uses the composer preedit, because the result is a reading for character conversion.
 
 ### Open issue: tap timing with swipe enabled
 
@@ -67,7 +67,7 @@ The language profile gains an optional `swipe` object, for example `{"lexicon": 
 
 ## Milestones
 
-Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shipped. Japanese and Korean have no swipe typing: they type with their flick 12-key keyboards, so M4 and the Korean half of M5 were dropped.
+Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shipped. Japanese and Korean have no swipe typing, so M4 and the Korean half of M5 were dropped; Japanese has its flick keyboard.
 
 - [x] **M0 Build and runtime.** Toolchain ASM fix; pinned ExecuTorch build script; swipe engine module loading the model; host and ARM64 builds. Acceptance: module loads on Frame, decodes the reference swipe, and absence is handled cleanly.
 - [x] **M1 Core path, host-tested.** `SwipeTracker`, deferred letter text, `SwipeLayout`, lexicon trie, C++ beam search, decoder interface, cancellation. Acceptance: host tests for tap/swipe classification, every cancel path, folding, collapsed paths and decoding of fixed traces.

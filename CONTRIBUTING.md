@@ -6,7 +6,7 @@ Full Keyboard for Steam Frame welcomes bug reports, review, and focused fixes. T
 
 Include the app version, SteamOS/runtime version, controller model, affected app, desktop versus floating-window mode, selected language/layout, reproduction steps, and expected/actual result. Include a screenshot or a short log only if it helps. Remove passwords, private text, account details, and clipboard contents.
 
-For Japanese input, include a harmless example reading, the expected conversion, and the selected Romaji/Kana/JIS mode. Feedback from fluent Japanese users is especially useful.
+For Japanese input, include a harmless example reading, the expected conversion, and the selected Romaji, Kana, JIS or flick layout. Feedback from fluent Japanese users is especially useful.
 
 ## Dependencies and third-party code
 
@@ -34,7 +34,7 @@ Only the project owner, TaiKeid, may bump the project version. Contributors must
 
 Read [building](docs/building.md), [architecture](docs/architecture.md), and [configuration](docs/configuration.md). Keep renderer, key state, backend, and profile data separate. Use `.clang-format` for project C++; preserve vendored code's style and attribution.
 
-Run the core test suites for behavior changes. Test input with fake sinks or a dedicated receiver, never an arbitrary focused app. Cover lost releases, tracking loss, disconnects, hiding, and shutdown when changing interaction ownership. Add comments where state lifetime, coordinate transforms, or event ordering are not obvious.
+Build with `./scripts/build.sh host` and run the core test suites for behavior changes: `ctest --test-dir build/host --output-on-failure`, or `ctest --test-dir build/host -R <suite>` for the suites you touched. Test input with fake sinks or a dedicated receiver, never an arbitrary focused app. Cover lost releases, tracking loss, disconnects, hiding, and shutdown when changing interaction ownership. Add comments where state lifetime, coordinate transforms, or event ordering are not obvious.
 
 Submit focused PRs and describe the behavior, validation, and remaining limits. Separate unrelated fixes, features, UI changes, and refactoring when they can be reviewed independently. Do not include sysroots, builds, device logs, personal paths, credentials, or user settings. Do not mix publication changes into unrelated PRs.
 

@@ -4,7 +4,7 @@ Most users should install the ARM64 archive described in the [README](../README.
 
 ## Dependencies
 
-Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, libxkbcommon, json-c, Wayland, SDL2, and Vulkan. Haptic sounds also need the PipeWire headers (`libpipewire-0.3`) at build time and load the library at run time. A build without those headers succeeds, but sounds stay silent, so a release sysroot must include them. The libei client is pinned and built statically from `third_party/libei`; normal builds need neither system libei nor network access. The build uses the host `wayland-scanner`. Tests also need X11 development files. Chinese/Korean release builds also need PyZy development headers/library and libhangul. Frame supplies both and the PyZy system dictionary; include their libraries in a curated sysroot. Host builds may omit these engines, but then cannot activate their composition profiles. Runtime adapters are loaded on demand from the release's `lib/framekeyboard/` directory; they are built alongside development executables in `engines/`. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
+Install C and C++20 compilers, CMake 3.24+, Ninja, Python 3, pkg-config, and development headers/libraries for Cairo, Pango/PangoCairo, HarfBuzz, GLib, libxkbcommon, json-c, Wayland, XCB, SDL2, and Vulkan (Vulkan only for the VR build). Haptic sounds also need the PipeWire headers (`libpipewire-0.3`) at build time and load the library at run time. A build without those headers succeeds, but sounds stay silent, so a release sysroot must include them. The libei client is pinned and built statically from `third_party/libei`; normal builds need neither system libei nor network access. The build uses the host `wayland-scanner`. Tests also need X11 development files. Chinese/Korean release builds also need PyZy development headers/library and libhangul. Frame supplies both and the PyZy system dictionary; include their libraries in a curated sysroot. Host builds may omit these engines, but then cannot activate their composition profiles. Runtime adapters are loaded on demand from the release's `lib/framekeyboard/` directory; they are built alongside development executables in `engines/`. Optional Japanese conversion tests require Anthy and its dictionary; Japanese rendering needs a font such as Noto Sans CJK JP.
 
 Swipe typing needs the optional `framekeyboard-swipe` module, built against a pinned ExecuTorch. Builds without it still work; Settings then keeps swipe disabled. Clone ExecuTorch into a directory named `executorch`, check out the commit pinned in `tools/build-executorch.sh` with submodules, and provide a Python environment with PyTorch for its code generation. Then build one prefix per target and point the presets at them:
 
@@ -61,11 +61,13 @@ CTest reports unavailable `korean-input` and `chinese-input` suites as **Skipped
 
 The preview uses the same renderer, key state, and settings as VR but never injects OS input. `scripts/preview.sh` serves the older HTML layout study, not the application.
 
-The [desktop simulator](simulator.md) types into a text field of its own, for trying the keyboard without a Steam Frame. `cmake --preset simulator` builds only it, without SteamVR or Vulkan (`-DFRAMEKEYBOARD_VR=OFF`).
+The [desktop simulator](simulator.md) types into a text field of its own, for trying the keyboard without a Steam Frame. The `simulator` preset (`cmake --preset simulator`, then `cmake --build --preset simulator`) builds only it, without SteamVR or Vulkan (`-DFRAMEKEYBOARD_VR=OFF`), taking swipe typing and Mozc from `FRAMEKEYBOARD_EXECUTORCH_HOST` and `FRAMEKEYBOARD_MOZC_HOST` as the host preset does. `scripts/simulator-appimage.sh` packs it as an AppImage; its variables are listed under [AppImage](simulator.md#appimage).
 
 ## Debug mode
 
 Builds other than releases have debug mode (CMake option `FRAMEKEYBOARD_DEBUG_MODE`, on by default), always on, also on the Frame and in the simulator: Settings ends with a **Debug** card, whose switches are never saved. Releases build with the `frame-arm64-release` preset, which leaves it out and never reads `--debug`.
+
+Two more CMake options, off by default, are for development builds only. `FRAMEKEYBOARD_FOCUS_TRACE` logs dashboard focus clicks, focus checks and typing-block decisions with their monotonic times. `FRAMEKEYBOARD_FRAME_TRACE` logs, once a second while the panel is worn, the VR loop's frames, its longest gap between frames, how many came late and how many missed a whole 60 Hz frame, and a line for each Japanese conversion with its time and the reading's length. Neither logs window titles or anything typed. Configure them in a build directory of their own, for example `cmake --preset frame-arm64 -B build/frame-arm64-trace -DFRAMEKEYBOARD_FRAME_TRACE=ON`.
 
 ## ARM64 sysroot
 
@@ -81,7 +83,7 @@ Set `FRAMEKEYBOARD_SYSROOT` to an absolute path outside the source checkout. It 
 If SSH access and rsync are configured on your Frame, this is one way to copy those installed files. Run these commands **on the development host**, replacing the SSH address with your device's address:
 
 ```sh
-export FRAME_HOST=steamos@steam-frame
+export FRAME_HOST=steamos@your-frame
 export FRAMEKEYBOARD_SYSROOT="$HOME/steam-frame-sysroot"
 mkdir -p "$FRAMEKEYBOARD_SYSROOT/usr" "$FRAMEKEYBOARD_SYSROOT/usr/share" \
   "$FRAMEKEYBOARD_SYSROOT/opt/steamvr/bin/linuxarm64"
@@ -104,11 +106,11 @@ file build/frame-arm64/framekeyboard
 ./scripts/package.sh
 ```
 
-`scripts/package.sh` builds the release in `build/frame-arm64-release`, without [debug mode](#debug-mode).
+`scripts/package.sh` builds the release in `build/frame-arm64-release`, without [debug mode](#debug-mode). It also needs `FRAMEKEYBOARD_WHISPER_FRAME` and `FRAMEKEYBOARD_MOZC_FRAME`, and takes `FRAMEKEYBOARD_EXECUTORCH_FRAME` for swipe typing; see [releasing](releasing.md#package-and-publish).
 
 The generated Wayland protocol is compiled as C. GCC and Clang builds use the same warning flags; check clean builds of both before claiming a warning-free release.
 
-The package script builds ARM64, installs into `out/framekeyboard-VERSION-aarch64/`, includes licenses, profiles, the README and the changelog, and writes an archive plus `out/SHA256SUMS`. It leaves out `docs/` and `CONTRIBUTING.md`, which nothing installed reads; the packaged README and changelog link to them at the release's tag on GitHub instead. Only the packaged executable is stripped, using the cross toolchain's `CMAKE_STRIP`; the build-directory executable retains debugging information. Packaging rejects remaining debug/static-symbol sections, a non-AArch64 binary, or embedded source/sysroot/builder-home paths. Compiler prefix maps remove build paths from diagnostics, and haptic manifests are found relative to the executable rather than through an embedded source path. Development builds copy the manifests into `build/<preset>/vr/`.
+The package script builds ARM64, installs into `out/framekeyboard-VERSION-aarch64/`, includes licenses, profiles, the README and the changelog, and writes an archive plus `out/SHA256SUMS`. It leaves out `docs/` and `CONTRIBUTING.md`, which nothing installed reads; the packaged README and changelog link to them at the release's tag on GitHub instead. Only the packaged executable is stripped, using the cross toolchain's `CMAKE_STRIP`; the build-directory executable retains debugging information. Packaging rejects remaining debug/static-symbol sections, a non-AArch64 binary, embedded source/sysroot/builder-home paths, an executable that still has debug mode or needs PyZy, libhangul or the system libei, and a Mozc server that needs library versions the sysroot lacks. Compiler prefix maps remove build paths from diagnostics, and haptic manifests are found relative to the executable rather than through an embedded source path. Development builds copy the manifests into `build/<preset>/vr/`.
 
 The binary retains the device OpenVR runtime path `/opt/steamvr/bin/linuxarm64`. The pinned libei client is compiled into the executable to avoid a crash in SteamOS libei 1.4.1 when negotiation is aborted. Its MIT license and provenance are included. The remaining third-party libraries come from the installed runtime.
 
@@ -130,9 +132,11 @@ ARM64 tests must run on an ARM64 machine. For example, after cross-building:
 
 ```sh
 scp build/frame-arm64/keyboard-tests build/frame-arm64/placement-instance-tests \
-  build/frame-arm64/japanese-tests "$FRAME_HOST:/tmp/"
+  build/frame-arm64/japanese-tests build/frame-arm64/fake-mozc "$FRAME_HOST:/tmp/"
 ssh "$FRAME_HOST" '/tmp/keyboard-tests && /tmp/placement-instance-tests && FRAMEKEYBOARD_TEST_ANTHY_REQUIRED=1 /tmp/japanese-tests'
 ```
+
+`japanese-tests` starts the stand-in Mozc server, `fake-mozc`, from its own folder, so copy the two together.
 
 Optional probes are excluded from CTest. `uinput-smoke-test` exclusively grabs its own device before emitting events. `ei-target-probe` and `japanese-target-probe` require focus in their own disposable Xwayland receiver. `vr-panel-probe` requires a specific input-disabled instance before posting UI events. `stick-component-probe` checks model calculations; `haptics-probe` physically vibrates controllers. Read each probe's source and usage before running it. Do not run input probes against the user's active typing session.
 
@@ -191,12 +195,15 @@ leaks allocated inside either library.
 Keep unsuppressed logs when investigating Anthy ownership or growth; a filtered
 pass is not a zero-leak result. The raw `sanitized` preset remains unsuppressed.
 
-The configure preset inherits `FRAMEKEYBOARD_EXECUTORCH_HOST` and
-`FRAMEKEYBOARD_WHISPER_HOST` from the ordinary host setup. Set them before fresh
-configuration to include the optional swipe and on-device recognition adapters.
-The adapters are instrumented, but prebuilt inference libraries and system
-libraries remain uninstrumented unless rebuilt separately with compatible
-sanitizer flags. The vendored libei C sources and generated protocol C sources
+The configure preset inherits `FRAMEKEYBOARD_EXECUTORCH_HOST`,
+`FRAMEKEYBOARD_WHISPER_HOST` and `FRAMEKEYBOARD_MOZC_HOST` from the ordinary host
+setup. Set them before fresh configuration to include the optional swipe and
+on-device recognition adapters and Mozc's server.
+The adapters are instrumented, but prebuilt inference libraries, Mozc's prebuilt
+server and system libraries remain uninstrumented unless rebuilt separately with
+compatible sanitizer flags. Sanitizer builds start Mozc's server with a plain
+fork rather than the keyboard's memory-sharing start, which the sanitizers
+cannot follow. The vendored libei C sources and generated protocol C sources
 are instrumented by this preset. Record missing engines and their skipped tests
 rather than treating them as covered. Python and shell logic is not instrumented,
 although their tests can exercise instrumented native child programs.
@@ -236,20 +243,17 @@ Repeat with the same headset/dashboard state for a candidate build. A changed pr
 
 ## Refresh the README image
 
-Render the bundled default profile from a temporary config directory with Self-hosted dictation chosen, so the mic key shows; On device would hide it until the model is downloaded. The address is a placeholder and appears nowhere in the image:
+The README image is the first scene of the Japanese render tour: the default US QWERTY profile with every toolbar button showing. That takes an additional language, Replace native keyboard, Swipe typing, Haptic sounds and key flicks, and Self-hosted dictation for the mic key; On device would hide it until the model is downloaded. Only the VR mode draws the Focus mode button, so a plain `--render` can't. The tour builds with the host preset, swipe typing included (`FRAMEKEYBOARD_EXECUTORCH_HOST`), and its dictation address is a placeholder that appears nowhere in the image:
 
 ```sh
-screenshot_config=$(mktemp -d)
-printf '%s' '{"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"dictation":"server","dictation_server":"speech.local:8031"}' \
-  > "$screenshot_config/config.json"
-mkdir -p docs/images
-./build/host/framekeyboard --config-dir "$screenshot_config" \
-  --render docs/images/keyboard-graphite.png
-rm -r "$screenshot_config"
+tour=$(mktemp -d)
+./build/host/japanese-tour "$tour"
+cp "$tour/00-readme.png" docs/images/keyboard-graphite.png
+rm -r "$tour"
 ```
 
-Image exports omit the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
+The tour renders without the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
 
-The `languages` suite checks all added XKB profiles and, when compiled in, real Pinyin/Hangul engines plus app commit ordering. Set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1` to make missing engines a test failure. Run this on Frame for release verification. `japanese-target-probe --multilingual` checks a fixed mixed-script phrase in its own focus-checked receiver.
+The `languages` suite checks all added XKB profiles; `korean-input` and `chinese-input` check the real Hangul and Pinyin engines, when compiled in, plus app commit ordering, and `table-composition` checks Cangjie and Quick composition against a fixture table. Set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1` to make missing engines a test failure. Run this on Frame for release verification. `japanese-target-probe --multilingual` checks a fixed mixed-script phrase in its own focus-checked receiver.
 
 `unicode-target-probe` exercises the production App with German, French, Russian, Ukrainian, Brazilian, Korean and both Chinese profiles, without a target-language declaration. It creates temporary settings, re-focuses only its own disposable Xwayland window before each press, verifies focus before delivery, and checks exact output. It restores previous focus and deletes its temporary settings. Never run it against a user field.

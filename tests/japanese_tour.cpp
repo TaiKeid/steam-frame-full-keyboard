@@ -138,6 +138,17 @@ int main(int argc, char** argv) {
         configure_anthy({false, root}); // Its lock file stays in the scratch folder.
         Sink sink;
         {
+            // The README image (docs/building.md): US QWERTY with every toolbar
+            // button showing, which only the VR mode draws.
+            const std::string all =
+                R"(,"favorites":[{"id":"a","name":"Japanese","layout":"en-us-full",)"
+                R"("language":"ja-romaji","theme":"graphite"}],"replace_native_keyboard":true,)"
+                R"("swipe_typing":true,"haptic_sounds":"press","key_flicks":true,)"
+                R"("dictation":"server","dictation_server":"speech.local:8031")";
+            auto app = keyboard(root / "readme", all, Mode::Vr, sink, "graphite", "en-us-full", "en-us");
+            shot(*app, "00-readme");
+        }
+        {
             auto app = keyboard(root / "a", "", Mode::Vr, sink);
             shot(*app, "01-kana-idle");
             flicks(*app, nihongo);

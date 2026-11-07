@@ -5,7 +5,7 @@ Full Keyboard builds on pinned third-party code and data, on libraries SteamOS p
 ## When
 
 - Monthly, and before every release.
-- After a SteamOS, Steam client or SteamVR update on the Frame: see [after a SteamOS or Steam update](#after-a-steamos-or-steam-update).
+- After a SteamOS, Steam client or SteamVR update on the Frame: see [SteamOS libraries](#steamos-libraries) and [private behavior](#private-behavior).
 - When an upstream security fix is announced for anything below.
 
 ## Check for updates
@@ -14,7 +14,7 @@ Full Keyboard builds on pinned third-party code and data, on libraries SteamOS p
 tools/check-upstream.sh
 ```
 
-It reads each pin from the file that owns it and compares it with the upstream's latest release, using only `git ls-remote` and public metadata over HTTPS. **CHECK** means upstream moved, or could not be reached. Then, for each CHECK:
+It reads each pin from the file that owns it and compares it with the upstream's latest release, using only `git ls-remote` and public metadata over HTTPS. It does not cover the two data-control protocol files or the AppImage's Anthy, IBus and Chinese-table packages; compare those by hand. **CHECK** means upstream moved, or could not be reached. Then, for each CHECK:
 
 1. Read upstream's changelog or the diff of the files we use, and decide: update, or stay and record why.
 2. To update, change the pin where the table below says. Then update the license file and [third_party/README.md](../third_party/README.md) in the same commit.
@@ -37,6 +37,7 @@ It reads each pin from the file that owns it and compares it with the upstream's
 | OpenVR header | `third_party/openvr/openvr.h` | Overlay, input and render-model calls | Full build; every VR check in [acceptance](acceptance.md) |
 | Overlay texture (frame-perf-overlay) | `third_party/overlay_texture/`, commit in `third_party/README.md` | Persistent Vulkan textures | `rendering`; the panel in the headset at every size |
 | Gamescope input-method protocol | `third_party/gamescope/gamescope-input-method.xml`, commit in `third_party/README.md` | Unicode text into local apps | `unicode-target-probe`, `japanese-target-probe`; Unicode, Japanese and dictation Send in local apps |
+| Data-control protocols | `third_party/wayland-protocols/ext-data-control-v1.xml` and `third_party/wlr-protocols/wlr-data-control-unstable-v1.xml`, tag, commits and SHA-256 in `third_party/README.md` | Setting the clipboard of a nested desktop such as SteamOS's: the standard protocol, the only one KWin 6.6 offers, else wlroots' older one | `clipboard`; in the Desktop, dictation's paste Send and KDE Desktop Unicode set to Paste |
 | Unicode emoji list | `tools/emoji_table.py`, version and SHA-256 in `third_party/README.md` | Emoji picker | `emoji`. Only emoji the Frame's color emoji font draws are listed, so check that font's version before taking a newer Unicode version |
 
 ## SteamOS libraries
@@ -46,8 +47,10 @@ These are linked or used as the Frame provides them, never bundled:
 - libibus (`libibus-1.0.so.5`) and `/usr/share/ibus/dicts/emoji-ja.dict` (Japanese emoji candidates);
 - PyZy and libhangul;
 - libsqlite3 and the `cangjie5` and `quick5` tables in `/usr/share/ibus-table/tables` (Cangjie and Quick);
-- Cairo, Pango and HarfBuzz;
-- json-c, xkbcommon and the Wayland client;
+- Cairo, Pango, HarfBuzz and GLib;
+- json-c, xkbcommon, XCB and the Wayland client;
+- Vulkan, SDL2 and SteamVR's `libopenvr_api.so`;
+- bubblewrap (`bwrap`), Mozc's sandbox where it is installed;
 - Python 3, 3.12 on the Frame (the dictation and update helpers);
 - PipeWire and WirePlumber (`pw-record`, `pw-dump`, `pw-link`, and `libpipewire-0.3.so.0` for Haptic sounds);
 - the system fonts.
@@ -55,7 +58,8 @@ These are linked or used as the Frame provides them, never bundled:
 After a SteamOS update:
 
 - Refresh the [ARM64 sysroot](building.md#arm64-sysroot) from the Frame, rebuild, and run the ARM64 core tests on the Frame ([tests](building.md#tests)), with `FRAMEKEYBOARD_TEST_ANTHY_REQUIRED=1`.
-- Check that the release binary links only the expected system libraries (`tools/check_release_binary.py`, run by `scripts/package.sh`).
+- Build releases against the stable SteamOS libraries. A sysroot copied from a beta Frame can tie binaries to newer symbol versions that stable SteamOS can't load, such as glibc 2.43's `acosf` and `sqrtf` in the swipe and whisper engines. Keep such a copy apart until stable catches up, and check release binaries with `objdump -T` for symbol versions newer than stable's.
+- Package again: `scripts/package.sh` checks that the release binaries are AArch64, stripped and free of build paths (`tools/check_release_binary.py`), that the executable needs neither PyZy, libhangul nor the system libei, and that the sysroot has every library version Mozc's prebuilt server needs (`tools/check_frame_libraries.py`).
 - Check that every bundled script still renders in the headset, including Arabic, Hebrew, Devanagari, Thai, Greek, CJK and emoji. A missing font shows blank keys.
 
 ## Private behavior
@@ -84,6 +88,13 @@ After any update above, run these in order and stop at the first failure:
    - dictation in editor mode and Type as I speak, on device and self-hosted, with and without a game.
 
 ## Last check
+
+2026-11-06, for 0.15.0:
+- **Current:** whisper.cpp v1.9.5, ExecuTorch v1.5.1, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1 and the word lists.
+- **frame-perf-overlay:** no new upstream commits since the 0.14.1 comparison; the pinned texture code stays.
+- **Mozc dictionary and kaomoji data:** upstream moved past the pinned commit; the pin stays until the next Japanese tuning round.
+- **Unicode emoji:** SteamOS beta's Noto Color Emoji 2.051 draws all of Unicode 17.0, so the list moved from 15.1 to 17.0; 18.0 has emoji it doesn't draw. Stable SteamOS's older font hides the newer emoji at runtime.
+- **SteamOS libraries:** the beta has glibc 2.43 and GCC 15.2.1; releases still build against stable's glibc 2.39 libraries.
 
 2026-10-26:
 - **Current:** whisper.cpp v1.9.5, ExecuTorch v1.5.1, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file and the word lists.

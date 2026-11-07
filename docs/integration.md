@@ -89,7 +89,7 @@ A plain launch while a hosted keyboard is running, for example from the dashboar
 
 - One JSON object per line, UTF-8, terminated by `\n`, over the inherited stream socket.
 - Requests carry a shell-chosen integer `id` and an `op`. Each request gets exactly one response with the same `id`: `{"id":N,"ok":true,...}` or `{"id":N,"ok":false,"error":"code","message":"..."}`. The message is short, fixed English text and never contains input text.
-- Events carry `"event"` and no `id`. `ready`, `update`, `regions` and sink events are always sent. Others are sent only after `subscribe`.
+- Events carry `"event"` and no `id`. `ready`, `update`, `regions`, `saved` and sink events are always sent. Others are sent only after `subscribe`.
 - Limits: 64 KiB per message, 128 KiB of buffered inbound bytes, and a bounded number of messages parsed per frame. A shell that exceeds a limit or sends malformed JSON gets one `bad_request` error and is disconnected, which ends the keyboard.
 - Outbound capacity is reserved for responses and committed output. Telemetry (`geometry`, microphone level, download progress) is coalesced to the latest value and may be dropped under pressure. Sink events are never dropped: when the sink queue is full, the keyboard stops accepting key presses until it drains.
 - The VR thread reads and writes nonblocking. While the panel is hidden, the loop waits on the control socket as well, instead of only sleeping up to 250 ms, so requests are answered promptly.
@@ -104,7 +104,7 @@ A plain launch while a hosted keyboard is running, for example from the dashboar
 ← {"event":"ready","protocol":[1],"version":"0.14.1","session":1}
 → {"id":1,"op":"hello","protocol":1,"client":"Example Shell","client_version":"1.4.0","lease_ms":2000}
 ← {"id":1,"ok":true,"protocol":1,"version":"0.14.1",
-   "features":["pointer","sink","dictation.server","dictation.device","swipe","update"]}
+   "features":["pointer","sink","render","swipe","dictation.server","dictation.device","update"]}
 ```
 
 `ready` lists the protocol versions the keyboard supports, and `hello` picks one. `session` increases with every process on the same connection, including update successors and rollbacks, so a shell can tell a fresh process from the old one. Any other request before `hello` returns `no_hello`. `features` lists what works now. Features that depend on the device or installation are left out when they are unavailable, for example `dictation.device` before its model is downloaded, or `update` outside a versioned installation. `client` is shown to the user while the [text sink](#text-sink) is on.
@@ -164,7 +164,7 @@ A shell can have several text fields. Without a way to tell them apart, switchin
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `purpose` | `text`, `password`, `pin`, `number`, `email`, `url`, `search`, `terminal` | `password`/`pin`: no swipe, suggestions, dictation or emoji. `number`/`pin`: opens with the numpad shown and Num Lock on. `email`/`url`: no swipe autospace. `terminal`: no autospace or suggestions. |
+| `purpose` | `text`, `password`, `pin`, `number`, `email`, `url`, `search`, `terminal` | `password`/`pin`: no swipe, suggestions, dictation, emoji or Japanese learning. `number`/`pin`: opens with the numpad shown and Num Lock on. `email`/`url`: no swipe autospace. `terminal`: no autospace, suggestions or Japanese learning. |
 | `enter` | `enter`, `go`, `search`, `send`, `next`, `done` | Legend on Enter; the key still sends Enter |
 | `autocapitalize` | `none`, `sentences`, `words` | Swipe and dictation only: `none` lowercases the first letter of each dictated phrase and swiped word, `words` capitalizes every word, `sentences` keeps the usual casing |
 | `language` | language ID | Temporary selection for this context |
@@ -226,7 +226,7 @@ Settings written over the protocol persist, exactly like the same change in Sett
 | `dictation_send_gap` | 10, 20, 30 or 40 (ms) |
 | `dictation_send_paste`, `dictation_direct`, `dictation_fallback` | boolean |
 
-Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-only, see [modes](#standalone-and-hosted-modes)), `developer_options`, `dictation_device_model`, `dictation_url`, `dictation_model`, and favorites (read-only in protocol 1). `settings.get` leaves out the standalone-only keys.
+Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-only, see [modes](#standalone-and-hosted-modes)), `developer_options`, `dictation_device_model`, `dictation_url`, `dictation_model`, and favorites (read-only in protocol 1). Any key not in the table above, such as a setting added after protocol 1, returns `invalid_setting`. `settings.get` returns exactly the keys in the table.
 
 - `settings.set` is all-or-nothing: one invalid value rejects the request with `invalid_setting` and the key name.
 - `ok` means validated and applied. Saving is asynchronous and the writer coalesces snapshots, so the save result comes later as a `saved` event listing the `requests` (their `id`s) it covers, with `ok` true or false.
@@ -240,7 +240,7 @@ Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-onl
 | --- | --- |
 | `dictation.start` | Opens dictation the same way the mic key does |
 | `dictation.stop` | Stops capture; recognized text stays in the dictation editor |
-| `dictation.test_server` | Tests `dictation_server` like the card's Test |
+| `dictation.test_server` | Tests `dictation_server`, or `dictation_url` when `config.json` sets one, like the card's Test; `busy` while a test runs, the previous dictation helper is still shutting down, or Settings holds an unapplied server address |
 | `dictation.model` | `action`: `status` or `download` |
 
 - The dictation editor stays inside the keyboard. Its text reaches the target only through the user's Send, or per phrase with Type as I speak, and so through the normal output path or the sink.
@@ -290,12 +290,12 @@ If the successor fails probation, the helper rolls back and starts the previous 
 
 Replacement never runs in hosted mode, so there is no Steam request to hand back or adopt, and the boot service is not involved.
 
-Implementation notes for the updater, from the current code:
+Implementation notes for the updater:
 
-- `Updates` reserves descriptor 3 for the helper's private socket and closes every higher descriptor (`updates.cpp`). Both hosted descriptors must be passed explicitly.
-- `update_helper.py` passes only its acknowledgement socket to the successor. It must pass the hosted descriptors for the successor, the rollback launch, and the old-binary fallback.
-- The fallback `execv` in `main.cpp` must keep them too.
-- Rollback snapshots cover `config.json` and `placement.json` only. They must include the hosted placement file.
+- `Updates` reserves descriptor 3 for the helper's private socket and closes every higher descriptor (`updates.cpp`). The handover sends both hosted descriptors to the helper with its `activate-hosted` request (`SCM_RIGHTS`), so the helper holds them before the keyboard exits.
+- `update_helper.py` passes them, with its acknowledgement socket, to the successor and to the rollback launch of the previous release, naming the control descriptor in `--hosted` and the lock in `FRAMEKEYBOARD_INSTANCE_LOCK_FD`.
+- The fallback `execv` in `main.cpp`, for a helper that is gone, keeps both open.
+- Rollback snapshots cover `config.json`, `placement.json` and the hosted placement file, `placement-hosted.json`.
 
 ## Pointer forwarding
 
@@ -358,7 +358,7 @@ Later, and separate from this connection. Compositor shells can then use the sta
 `render` returns a PNG of the keyboard, settings, emoji or dictation view with a given theme, layout and language, for a shell's own pickers.
 
 - It renders isolated sample state, never the live editor, composition, candidates, recent emoji or settings values that identify the user.
-- It uses the existing desktop renderer in a worker, one request at a time.
+- It uses the existing desktop renderer in a worker, one request at a time; another `render` meanwhile gets `busy`. It is listed in `features` as `render`.
 - `{"op":"render","view":"keyboard","layout":...,"language":...,"theme":...,"width":800}`; omitted fields take the current selection. `width` is 64 to 2048 pixels and keeps the texture's proportions; without it the image is the panel's own 1600 pixels. `theme:"shell"` renders the shell's current custom theme.
 - It returns `{"path":".../preview-N.png"}` in the keyboard's private runtime directory and does not send image data over the connection. At most 4 previews are kept; older ones are overwritten, and all are removed when the keyboard exits.
 
@@ -373,7 +373,7 @@ Later, and separate from this connection. Compositor shells can then use the sta
 | `theme` | `id`, `custom`, `source` |
 | `selection` | `layout`, `language`, `source` |
 | `settings` | `changed`, `source` |
-| `saved` | `requests`, `ok` |
+| `saved` | `requests`, `ok` (always sent) |
 | `dictation` | `state`, `level`, `error`, `download` |
 | `update` | `state`, `latest`, `bytes`, `error` (always sent) |
 | `target` | `owner`: `normal`, `sink`; `context` |

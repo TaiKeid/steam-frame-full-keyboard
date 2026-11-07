@@ -8,7 +8,7 @@ The installed **Full Keyboard** launcher uses:
 framekeyboard --vr --input ei --start-enabled
 ```
 
-It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an optional setting, disabled by default. It is visible and accepts input only while the dashboard is open. Hiding cancels keys, unfinished composition, and grabs.
+It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an optional setting, disabled by default. The keyboard is visible and accepts input only while the dashboard is open, unless **Stay open over apps** keeps it up with the dashboard closed. Hiding cancels keys, unfinished composition, and grabs.
 
 First launch starts at 95 cm wide, tilted back 50° from upright, just beneath the dashboard. If the dashboard anchor is unavailable, it falls back to 65 cm below eye level and 85 cm forward. Placement follows dashboard position and full rotation, including when a local app tab is selected.
 
@@ -28,7 +28,7 @@ By default, point at the line below the keyboard, hold the trigger, move your ha
 
 The keyboard reads grip travel from the native Frame controller model. Other controller models are unsupported. Steam updates that change this model may require an app update. No global SteamVR input setting is changed.
 
-General → Auto leveling is on by default. Horizon assistance runs only after release: a roll within 5° eases level over 500 ms without changing pitch. Disable Auto leveling and Apply to retain your chosen roll. Changing the setting preserves the current displayed pose. Corner resizers change the width within 45 cm to 2 m.
+General → Auto leveling is on by default. Horizon assistance runs only after release: the long edge's tilt (one end higher) and turn away, within 5° in total, ease out over 500 ms, while the desk tilt around the long edge is kept. Disable Auto leveling and Apply to keep the edge as you placed it. Changing the setting preserves the current displayed pose. Corner resizers change the width within 45 cm to 2 m.
 
 Press feedback uses 25 ms at full strength; release uses 8 ms at 35%, both at 150 Hz. Hover uses 4 ms at 10% and 240 Hz. Feedback goes to the controller responsible for the interaction. Toolbar actions, repeats, and dragging do not pulse. Optional [Haptic sounds](configuration.md) add a pop on the same key presses and releases.
 
@@ -74,7 +74,7 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. They do not synchronize clip
 | Installer says Full Keyboard is running | Quit Full Keyboard in Settings, then run the installer again |
 | New name is absent in Steam Library | A manually added shortcut has its own title; rename it to Full Keyboard in its Properties |
 
-No input is sent outside the dashboard. Streamed VR applications, including VRChat, are outside the supported scope. Focus behavior in nested desktops and floating apps needs testing per application. Do not assume success in a dedicated receiver proves every app works.
+No input is sent with the dashboard closed unless Stay open over apps keeps the keyboard up. Streamed VR applications are outside the supported scope. Focus behavior in nested desktops and floating apps needs testing per application. Do not assume success in a dedicated receiver proves every app works.
 
 ## Update, rollback, and removal
 

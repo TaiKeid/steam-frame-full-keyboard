@@ -10,14 +10,14 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - In-VR settings, theme selection, favorites, reload, and persistent configuration.
 - Manual stable-release checks and verified, staged update/restart with rollback. See [updates](updates.md); future-release headset acceptance remains pending.
 - Laser-trigger movement from a line below the keyboard, optional grip movement, same-hand stick depth in either controller mode, laser corner resizers, and optional release-only horizon alignment, enabled by default.
-- Dashboard position/rotation following and dashboard-only visibility/input.
+- Dashboard position/rotation following and dashboard-only visibility/input by default.
 - Saved placement, single-instance launches, and relaunch-to-recenter.
 - Per-controller haptics, cancellation paths, host tests, and ARM64 release packaging.
 - Experimental swipe typing, powered by FUTO Swipe (0.9.0), with Polish, Dutch and Swedish added in 0.11.0. See [swipe typing](swipe-typing.md).
 - Japanese 12-key flick input and typing over pinned windows in passthrough (0.9.0).
 - Emoji picker with recent emoji, categories and skin tones, and resizing from the corners (0.10.0). See [emoji picker](emoji.md).
 - Dictation on device or with a self-hosted Whisper server, in an editor or typed straight into the focused app (0.11.0). See [dictation](dictation.md).
-- 25 more national layouts, each with dictation, for 37 languages in all; Korean 12-key input; emoji favorites (0.11.0).
+- 25 more national layouts, each with dictation, for 37 languages in all; Korean 12-key input, removed in 0.15.0; emoji favorites (0.11.0).
 - Ten more themes, a raised Settings design, and Settings cards that glide and drag (0.11.0).
 - Shell integration protocol 1: alternative shells launch the keyboard in hosted mode and control it over an inherited connection (0.11.0). See [shell integration](integration.md).
 - Focus mode, which keeps the keyboard up between text fields and flags typing into a window out of sight; nothing is typed while Steam's dashboard has focus; a see-through Background; and clicking floating windows from Stay open over apps (0.12.0). See [configuration](configuration.md).
@@ -53,4 +53,4 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - An in-app update while dictating, tested in the headset.
 - PC apps through Moonlight and Sunshine: Moonlight runs as a local window on the Frame, so typing, shortcuts and dictation should reach the PC that Sunshine streams from. Test it, including non-ASCII text, and document it as the way to type into PC apps, since Steam Link streams cannot receive our keys (see [streamed games](streamed-games.md)).
 
-Swipe typing for Japanese and Korean is planned in [swipe typing](swipe-typing.md). No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+Swipe typing for Japanese and Korean was dropped; see [swipe typing](swipe-typing.md#milestones). No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

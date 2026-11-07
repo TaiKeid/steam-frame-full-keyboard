@@ -14,7 +14,7 @@ The left side column changes in every layout, whether or not the picker is avail
 
 The Dictation slot holds the mic key when dictation is usable for the active language; otherwise it stays empty, with no placeholder drawing. See [dictation](dictation.md#mic-key).
 
-The emoji key is disabled (drawn with the theme's disabled color, not clickable) when the active input mode can't type Unicode text: the uinput backend, external JIS, or a Unicode transport that isn't ready. If that happens while the picker is open, the keyboard returns to the main layout. The desktop preview, which never types, still opens the picker.
+The emoji key is disabled (sunk flat in the theme's disabled color, as a disabled button is, and not clickable) when the active input mode can't type Unicode text: the uinput backend, external JIS, or a Unicode transport that isn't ready. If that happens while the picker is open, the keyboard returns to the main layout. The desktop preview, which never types, still opens the picker.
 
 ## Picker view
 
@@ -24,7 +24,7 @@ The emoji key is disabled (drawn with the theme's disabled color, not clickable)
 - **Bottom:** a space bar under the grid.
 - **Right side:** Backspace and Enter, with the arrow keys below them.
 - **Compact (no numpad) mode:** the keyboard keeps its compact width, unlike Settings, which widens it. The grid shrinks to fit: fewer columns are visible at once.
-- **Japanese:** the picker opens in the same case as the keys, which share it with the reading band, so nothing moves; the grid takes the band's height, keeping its cells their usual size. On the flick layout, whose emoji key sits beside the kana, Back takes the side column's top slot, and Cut, Copy and Paste stay in their places and sizes.
+- **Reading line:** every layout keeps room for a Japanese, Chinese or Korean reading line, and the picker opens in the same case as the keys, so nothing moves; the grid takes that room's height, keeping its cells their usual size. On the flick layout, whose emoji key sits beside the kana, Back takes the side column's top slot, and Cut, Copy and Paste stay in their places and sizes.
 - **Toolbar:** unchanged, except that the language key is disabled while the picker is open.
 
 The view's geometry is generated from the active layout's case size, key unit and side column, rather than from a separate layout file (*proposal*).

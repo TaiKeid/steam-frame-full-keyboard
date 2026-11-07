@@ -87,8 +87,8 @@ Open Settings, select Layout, then Language, then Apply and save. Languages
 the selected layout cannot type are dimmed, and the open list says so on the
 status line; choose a layout with the needed keys first
 (for example International or UK for German). Choosing a layout that cannot
-type the current language switches to the most likely one for it: a favorite
-pair, another variant of the same language, the layout's own language, or US
+type the current language switches to the most likely one for it: an additional
+language on that layout, another variant of the same language, the layout's own language, or US
 English. Theme selection is unchanged.
 
 Settings dims a language on any layout without a key it needs. Many listed with
@@ -204,7 +204,9 @@ For Korean, type the displayed two-set jamo. As on a PC, each syllable goes into
 the field as soon as the next one starts, so only the syllable being typed waits
 in the reading line, and there is no length limit. A final consonant still moves
 on: 간 then ㅏ types 가 and leaves 나 open. Shift selects doubled consonants and
-the shifted vowels. Caps Lock does not double jamo. Backspace takes back one jamo
+the shifted vowels. Caps Lock does not double jamo. With
+[key flicks](configuration.md#key-flicks) on, pulling a key down types its Shift
+jamo, which the key shows, such as ㅃ over ㅂ. Backspace takes back one jamo
 of the open syllable (값 → 갑), then deletes whole syllables in the field as the
 app does. Enter types the open syllable and sends Enter in the same press. Esc
 goes to the app at once and drops the open syllable; syllables the app refused
@@ -215,7 +217,9 @@ Korean PC keyboard, types the open syllable and switches the keys between Hangul
 and the layout's Latin letters, whether or not English is added. A latched
 Shift waits through it for the next letter. The language button still shows
 한국어 and moves through your languages. Korean starts in Hangul, and returns to
-it when you change language or layout. Punctuation uses ordinary US keys.
+it when you change language or layout or reload the config. Punctuation uses
+ordinary US keys. A saved selection of the former Korean 12-key (천지인) keyboard,
+including an additional language, opens as two-set Korean on US QWERTY.
 
 Chinese types its own script only, as its keyboards do; for English, add an
 English layout as an additional language and switch with the language button.
@@ -227,7 +231,7 @@ Shortcuts and navigation that leave composition commit first; if output refuses
 the composition before admission, the preedit stays visible and the forwarding
 action is blocked. An admitted long batch uses the output retry behavior above.
 Hiding, changing profiles, and closing discard unfinished preedit, as with Japanese; moving,
-resizing, pinning and recentring the panel keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms. With Chinese it stops once the preedit is empty; the press stays local, so it never goes on to delete the target's text. Korean's goes on, as on a PC: at the open syllable's end it pauses for a fresh 0.5 s, then deletes in the field every 40 ms until you let go. Other composition keys do not repeat.
+resizing, pinning and recentring the panel, and opening Settings, keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms. With Chinese it stops once the preedit is empty; the press stays local, so it never goes on to delete the target's text. Korean's goes on, as on a PC: at the open syllable's end it pauses for a fresh 0.5 s, then deletes in the field every 40 ms until you let go. Other composition keys do not repeat.
 
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.
 Both are loaded only when their language is selected. Missing libraries disable

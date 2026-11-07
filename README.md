@@ -12,7 +12,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
-- A phone-style Japanese 12-key flick keyboard.
+- Japanese conversion with Mozc, with candidates as you type, and a phone-style Japanese 12-key flick keyboard.
 - Key flicks, off by default: pull a key down for its Shift character, as on an iPad, such as ^ on the 6 key, or a capital while swipe typing is off.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
@@ -83,7 +83,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Lock Shift | Hold Shift for half a second; press it again to unlock |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Flick for Shift characters | Turn on **Flick down for Shift characters** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |
-| Copy / paste | Use the two icons on the left; select text first when copying |
+| Cut / copy / paste | Use the Cut, Copy and Paste keys on the left; select text first when cutting or copying |
 | Dictate | Press the mic key below Cut, Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
 | Type as I speak | Turn it on in the **Dictation** settings card. The mic key then listens on the normal keyboard and types each phrase into the app |
 | Type emoji | Press the smiley key at the top left. Scroll the grid by dragging or with the thumbstick, choose a category above it, and release the trigger on an emoji to type it. Hold a toned emoji to choose a skin tone. Hold an emoji in Recent and drag it into Favorites to keep it. The arrow key at the top left returns to the keyboard |
@@ -94,7 +94,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Keep it open without the dashboard | Toggle **Stay open over apps** beside the pin icon |
 | Keep it open between text fields | With Replace native keyboard on, toggle **Focus mode**, the window icon beside Stay open over apps. The keyboard stays where it is when a field closes, types into the next field you select, and otherwise types into the app with keyboard focus; × or the keyboard button still hides it |
 | Add languages to switch between | Open Settings → **Additional languages**, then tap or drag languages into the list |
-| Switch between your languages | Press the language button beside the pin icon |
+| Switch between your languages | Press the language button, the last of the toolbar buttons |
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
@@ -110,11 +110,11 @@ Closing and reopening restores the last position, rotation, size and Num Lock st
 
 ## Languages and customization
 
-Select a language in Settings and **Apply and save**. The keyboard sends characters from that layout independently of the system keyboard layout, including Shift, Caps Lock, AltGr and dead-key accents. No matching SteamOS layout or relaunch is needed. A fresh install defaults to English; later launches use your saved selection. Save layout and language pairs as favorites to switch between them from the toolbar. See [language setup and switching](docs/languages.md).
+Select a language in Settings and **Apply and save**. The keyboard sends characters from that layout independently of the system keyboard layout, including Shift, Caps Lock, AltGr and dead-key accents. No matching SteamOS layout or relaunch is needed. A fresh install defaults to English; later launches use your saved selection. Add layout and language pairs under **Additional languages** to switch between them from the toolbar. See [language setup and switching](docs/languages.md).
 
-For Japanese, pick **Romaji**, **Kana**, or **JIS** from the Language dropdown in Settings, or the **Japanese flick 12-key** layout for phone-style flick input. Romaji, Kana and Flick compose text in the keyboard and use the system Anthy dictionary for kanji conversion. Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
+For Japanese, pick **Romaji**, **Kana**, or **JIS** from the Language dropdown in Settings, or the **Japanese flick** layout for phone-style flick input. Romaji, Kana and Flick compose text in the keyboard and convert it to kanji with Mozc, which comes with Full Keyboard, or with the system's Anthy while Mozc is unavailable. Candidates appear as you type; Space converts; Enter commits the composition. Another Enter sends a normal Enter key. JIS mode requires an existing system IME. See [Japanese input](docs/japanese.md).
 
-Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean uses two-set Hangul. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
+Chinese and Korean compose locally and can be selected alongside English and integrated Japanese without a system layout change. Korean uses two-set Hangul and types each syllable as the next one starts, as on a PC; 한/영 in right Alt's place switches to Latin letters. [The language guide](docs/languages.md#chinese-and-korean-composition) explains candidates, Hangul, and input limitations.
 
 Copy a bundled JSON profile from `~/.local/share/framekeyboard/current/share/framekeyboard/` into the matching folder below, edit it, then use the **Reload config** icon in Settings:
 
@@ -141,17 +141,17 @@ Privacy:
 - On device, audio never leaves the Frame. Self-hosted, it goes only to the server you entered, and only while you dictate or press Test. A plain `host:port` address is unencrypted, so keep the server on your own network; Settings warns about addresses that are not local.
 - Audio and text stay in memory only. Nothing you say or type is logged or saved, apart from the Japanese phrases [learning](docs/japanese.md#learning) keeps.
 - Listening stops as soon as you take the headset off or it wakes from sleep, and after 60 s of silence.
-- The microphone hears everyone nearby. While a game runs, game sound may be picked up too, and the status line says so while listening.
+- The microphone hears everyone nearby. While a game runs, game sound may be picked up too, and a message says so while listening.
 
 See [dictation](docs/dictation.md) for the details.
 
 ## How it works
 
-The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It goes online only to check for and install updates when you ask, to download the on-device speech model once, and to reach a speech server you set up.
+The keyboard is a native C++20 app. Cairo/Pango draw the keys, Vulkan/OpenVR display the panel, and libei sends native controls to the Frame's local Gamescope compositor. A feature-checked Gamescope text-input protocol sends characters resolved from the selected layout, including Japanese, Chinese and Korean composition. It does not run a browser. It goes online only to check for updates every few hours and install one when you ask, to download the on-device speech model once, and to reach a speech server you set up.
 
-Cut, Copy and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or General → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V. It does not log typed text or save composition history; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
+Cut, Copy and Paste send shortcuts; the app never reads clipboard contents. It writes to the clipboard only when dictation's **Send** or Typing → **KDE Desktop Unicode** is set to **Paste**, and then pastes with Ctrl+V. It does not log typed text or save composition history, apart from what Japanese [learning](docs/japanese.md#learning) keeps; the emoji picker keeps your Recent and Favorites emoji locally, and Clear empties Recent. Placement and profile preferences are stored locally.
 
-The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
+The visible panel polls input and follows the dashboard at a target 60 Hz. While hidden or with the headset off, polling drops to 4 Hz. It redraws the texture only when its display changes or a key animation runs. With replacement enabled, closing the panel keeps the app resident for the next native request; Settings → Quit Full Keyboard exits it. With replacement off, closing the keyboard exits the process. Battery impact has not been benchmarked.
 
 ## Development and feedback
 

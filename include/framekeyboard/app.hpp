@@ -1282,7 +1282,8 @@ class App {
         return window && output_.focused_window() != window;
     }
     // Live dictation (docs/dictation.md, Capturing). The helper starts on the
-    // first capture and stays until the keyboard exits.
+    // first capture, Test or download, and exits once dictation is off and
+    // none of them is under way.
     bool start_capture();
     void pause_capture();
     // Stops capture and drops every phrase not yet inserted.
