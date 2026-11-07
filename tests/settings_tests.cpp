@@ -2703,11 +2703,12 @@ void fractional_dropdown_scroll() {
 // scrolls them, and its release chooses nothing.
 void drag_dropdown() {
     SettingsUi ui;
-    SettingField field{"field", "Field", "c0"};
+    SettingField field{"field", "Field", "c0"}, other{"other", "Other", "o0"};
     for (int i = 0; i < 20; ++i) {
         field.choices.push_back({"c" + std::to_string(i), "Choice " + std::to_string(i)});
+        other.choices.push_back({"o" + std::to_string(i), "Other " + std::to_string(i)});
     }
-    ui.set_cards({{"card", "Card", {field}}});
+    ui.set_cards({{"card", "Card", {field, other}}});
     auto snapshot = [&] {
         PanelView view;
         ui.append(view);
@@ -2723,6 +2724,14 @@ void drag_dropdown() {
             "dragged up three rows, the list shows from the fourth");
     require(ui.move(0, x, y + 600) && has(snapshot(), "choose:field:c0"), "and stops at its top");
     require(ui.up(0) && ui.popup_open(), "the release chooses nothing, and the list stays open");
+    // The stick scrolls under a held press, and the drag goes on from there.
+    require(!ui.down(0, x, y) && ui.scroll(popup.x + 5, popup.y + 5, 0, 4) &&
+                has(snapshot(), "choose:field:c4"),
+            "the stick scrolls the list under a held press");
+    require(ui.move(0, x, y - 52) && has(snapshot(), "choose:field:c5") &&
+                !has(snapshot(), "choose:field:c4"),
+            "and the drag goes on from where the stick left it");
+    ui.up(0);
 }
 void scroll_cards() {
     SettingsUi ui;

@@ -316,6 +316,9 @@ bool SettingsUi::scroll(double x, double y, double dx, double dy) {
                 static_cast<int>(std::trunc(choice_remainder_ + std::copysign(1e-9, choice_remainder_)));
             first_choice_ = std::clamp(first_choice_ + steps, 0, limit);
             choice_remainder_ -= steps;
+            if (drag_ && drag_->menu) {
+                drag_->first += first_choice_ - old; // A held drag goes on from here.
+            }
             if (std::abs(choice_remainder_) < 1e-9 || (first_choice_ == 0 && choice_remainder_ < 0) ||
                 (first_choice_ == limit && choice_remainder_ > 0)) {
                 choice_remainder_ = 0; // Discard overscroll so reversing responds immediately.
