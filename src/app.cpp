@@ -4601,15 +4601,18 @@ void App::finish_flick() {
             undo_japanese(track.pressed);
             return;
         }
+        const bool was_open = reading_open();
         if (flick_mode() == FlickMode::Digits) {
             flick_toggle_.reset();
             flick_type(text); // Joins the reading, for 3じに to convert to 3時に.
+            reading_replaces_selection(was_open);
             return;
         }
         if (cycles) {
             composition_.backspace();
         }
         flick_type(flick_kana(text));
+        reading_replaces_selection(was_open);
         if (track.direction == FlickDirection::Tap && key.tap.size() > 1 && !composition_.converting()) {
             const auto index = cycles ? (flick_toggle_->index + 1) % key.tap.size() : 0;
             flick_toggle_ = FlickToggle{track.slot, index, track.pressed};
@@ -5160,11 +5163,13 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         const auto key =
             std::find_if(keys.begin(), keys.end(), [&](const Key& k) { return k.id == track.key; });
         if (key != keys.end()) {
+            const bool was_open = reading_open();
             try {
                 cjk_key(*key, true, track.modifiers);
             } catch (const std::exception& error) {
                 status_ = error.what(); // As for presses: the composition is full.
             }
+            reading_replaces_selection(was_open);
         }
     } else {
         const auto text = keymap_->compose(track.symbol);
@@ -5227,6 +5232,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
         // offers the characters. Separators only matter after a syllable. A
         // word that does not fit is removed again, so it goes in whole or not at all.
         const auto before = cjk_->preedit();
+        const bool was_open = reading_open();
         std::size_t typed = 0;
         try {
             for (const char c : result.words.front()) {
@@ -5243,6 +5249,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
             return;
         }
         status_.clear();
+        reading_replaces_selection(was_open);
         if (dictation_open_) {
             follow_cursor(); // The reading grows at the cursor.
         }
