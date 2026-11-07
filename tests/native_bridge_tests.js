@@ -84,6 +84,11 @@ function editingFixture(manager) {
 // lateWindow: "shared" or "own" adds no second window at install; addWindow()
 // opens one later, as Steam does for a game's overlay, sharing the main
 // window's keyboard provider or with its own.
+// Steam's navigation tree: TakeFocus gives focus to its first visible element.
+class NavTree {
+    constructor(contains, doc = null) { this.Root = {Element: {contains}}; this.doc = doc; }
+    TakeFocus() { if (this.doc) this.doc.activeElement = this.doc.body; return true; }
+}
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
     discoveryProbe = false, adoptOpenMs = 0, lateWindow = null) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
@@ -175,10 +180,11 @@ function fixture(open = false, production = false, external = false, sharedApi =
         SteamUIStore: {WindowStore: {SteamUIWindows: [{VirtualKeyboardManager: manager}]}},
         g_PopupManager: {GetPopupForVROverlayKey() { ++inspectionCalls; return popup; }},
         // Steam's VR gamepad focus: replaying overlay focus gives it to the
-        // element under the laser, here the document body.
+        // element under the laser, here the document body, and a tree taking
+        // focus for a controller button gives it to its first element, too.
         vrGamepadInput: {FocusItemUnderMouse(tree) {
             if (dom && tree?.Root?.Element?.contains(dom.doc.body)) dom.doc.activeElement = dom.doc.body;
-        }, TakeFocusIfNothingIsFocused() {}}};
+        }, TakeFocusIfNothingIsFocused() {}, m_NullNavTree: new NavTree(() => false)}};
     if (production) {
         const require = key => key === "store" ? {store} : key === "decoy" ?
             {store: {VRKeyboardStatus: {}}} : {controllerText};
@@ -439,6 +445,22 @@ for (const production of [false, true]) {
     assert(f.dom.doc.activeElement === f.dom.doc.body, "released, the replay moves focus as Steam does");
     f.bridge.dispose();
     assert(f.root.vrGamepadInput.FocusItemUnderMouse === f.oldFocus, "disposal removes the hook");
+}
+// A controller button Steam's overlay navigation gets, such as the trigger
+// pressing Full Keyboard's keys in passthrough, finds no navigation item
+// focused and the tree takes focus to its first element: not from our field.
+for (const production of [false, true]) {
+    const f = fixture(false, production, false, false, true), e = f.dom.field(true, true, "DIV");
+    const generation = domOwned(f, true);
+    const tree = new NavTree(() => true, f.dom.doc), elsewhere = new NavTree(() => false, f.dom.doc);
+    assert(tree.TakeFocus() === false && f.dom.doc.activeElement === e && f.step(generation).active &&
+        f.bridge.send(generation, "b"), "the tree holding our field leaves its focus");
+    assert.equal(f.dom.text(e), "b");
+    assert(elsewhere.TakeFocus() === true && f.dom.doc.activeElement === f.dom.doc.body,
+        "another tree takes focus as Steam does");
+    e.focus();
+    f.bridge.dispose();
+    assert(tree.TakeFocus() === true && f.dom.doc.activeElement === f.dom.doc.body, "disposal removes the hook");
 }
 // Ctrl+V in a Steam field: the page pastes its own clipboard into the held
 // field. A callback route can't, and says so in its state.

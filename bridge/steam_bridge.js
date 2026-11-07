@@ -725,20 +725,38 @@
     try {
         for (const manager of managers) adopt(manager);
         if (!owners.length) throw Error("steam-target-restoration-unavailable");
-        // With the dashboard closed, a Steam overlay keeps SteamVR's input focus,
-        // and Steam replays that focus whenever its keyboard opens or closes:
-        // it gives gamepad focus to the element under the laser, or the tree's
-        // first. After our Hide that takes DOM focus from the field we hold, and
-        // Steam drops it. Skip just those steps for the tree holding our field;
-        // without the hook, the field is lost there as before.
+        // With the dashboard closed, a Steam overlay keeps SteamVR's input
+        // focus, and its gamepad navigation takes DOM focus from the field we
+        // hold, after which Steam drops it. Steam replays that focus whenever its
+        // keyboard opens or closes, giving gamepad focus to the element under
+        // the laser, or the tree's first. And a controller button finds no
+        // navigation item focused, the field being none, so the tree takes focus
+        // to its first visible element; in passthrough the trigger that presses
+        // Full Keyboard's keys is such a button. Skip those steps for a tree
+        // holding our field. Without these hooks the field is lost there as before.
+        const holds = tree => {
+            const element = logical?.route?.kind === "dom" ? logical.route.element : null;
+            return !!element && tree?.Root?.Element?.contains?.(element) === true;
+        };
         const gamepad = root.vrGamepadInput;
         for (const name of ["FocusItemUnderMouse", "TakeFocusIfNothingIsFocused"]) {
             if (typeof gamepad?.[name] !== "function" || !Object.isExtensible(gamepad)) continue;
             try {
                 hook(gamepad, name, original => function(tree, ...args) {
-                    const element = logical?.route?.kind === "dom" ? logical.route.element : null;
-                    if (element && tree?.Root?.Element?.contains?.(element) === true) return;
+                    if (holds(tree)) return;
                     return original.call(this, tree, ...args);
+                });
+            } catch (_) {}
+        }
+        // Every navigation tree shares the null tree's class.
+        const navTree = gamepad?.m_NullNavTree && Object.getPrototypeOf(gamepad.m_NullNavTree);
+        if (typeof navTree?.TakeFocus === "function") {
+            try {
+                hook(navTree, "TakeFocus", original => function(...args) {
+                    const element = logical?.route?.element;
+                    // Focus already elsewhere, as after a click, is Steam's to move.
+                    if (holds(this) && element.ownerDocument?.activeElement === element) return false;
+                    return original.apply(this, args);
                 });
             } catch (_) {}
         }
