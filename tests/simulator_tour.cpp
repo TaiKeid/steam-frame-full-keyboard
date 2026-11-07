@@ -172,6 +172,13 @@ int main(int argc, char** argv) {
                 }
             }
             shot(simulator, "07-korean");
+            if (CjkComposer::supported("korean-2set")) {
+                // 한/영, in right Alt's place, types 어 and turns the keys Latin.
+                for (const auto* key : {"AltRight", "KeyA", "KeyB"}) {
+                    flick(simulator, key, 0, .1);
+                }
+                shot(simulator, "07-korean-latin");
+            }
             control(simulator, "settings");
             shot(simulator, "08-settings");
             simulator.shutdown();
