@@ -1,8 +1,10 @@
-// The nested desktop clipboard against a minimal data-control compositor:
-// a write becomes its selection, a paste request gets the text, and the
-// offers it sends back are destroyed without being received.
+// The nested desktop clipboard against a minimal data-control compositor,
+// once with wlroots' protocol and once with the standard ext one (KWin 6.6
+// offers only that): a write becomes its selection, a paste request gets
+// the text, and the offers it sends back are destroyed without being received.
 #include "framekeyboard/clipboard.hpp"
 
+#include "ext-data-control-server.h"
 #include "wlr-data-control-server.h"
 #include <chrono>
 #include <cstdio>
@@ -63,47 +65,94 @@ void unused_seat_object(wl_client*, wl_resource*, std::uint32_t) {
 const struct wl_seat_interface seat_implementation{unused_seat_object, unused_seat_object,
                                                    unused_seat_object, destroy};
 
+// The two data-control protocols: the same requests and events, so one
+// compositor serves either.
+struct Wlr {
+    static constexpr const wl_interface* manager = &zwlr_data_control_manager_v1_interface;
+    static constexpr const wl_interface* device = &zwlr_data_control_device_v1_interface;
+    static constexpr const wl_interface* source = &zwlr_data_control_source_v1_interface;
+    static constexpr const wl_interface* offer = &zwlr_data_control_offer_v1_interface;
+    using Manager = struct zwlr_data_control_manager_v1_interface;
+    using Device = struct zwlr_data_control_device_v1_interface;
+    using Source = struct zwlr_data_control_source_v1_interface;
+    using Offer = struct zwlr_data_control_offer_v1_interface;
+    static void send_data_offer(wl_resource* device, wl_resource* offer) {
+        zwlr_data_control_device_v1_send_data_offer(device, offer);
+    }
+    static void send_offer(wl_resource* offer, const char* type) {
+        zwlr_data_control_offer_v1_send_offer(offer, type);
+    }
+    static void send_selection(wl_resource* device, wl_resource* offer) {
+        zwlr_data_control_device_v1_send_selection(device, offer);
+    }
+    static void send_send(wl_resource* source, const char* type, int fd) {
+        zwlr_data_control_source_v1_send_send(source, type, fd);
+    }
+};
+struct Ext {
+    static constexpr const wl_interface* manager = &ext_data_control_manager_v1_interface;
+    static constexpr const wl_interface* device = &ext_data_control_device_v1_interface;
+    static constexpr const wl_interface* source = &ext_data_control_source_v1_interface;
+    static constexpr const wl_interface* offer = &ext_data_control_offer_v1_interface;
+    using Manager = struct ext_data_control_manager_v1_interface;
+    using Device = struct ext_data_control_device_v1_interface;
+    using Source = struct ext_data_control_source_v1_interface;
+    using Offer = struct ext_data_control_offer_v1_interface;
+    static void send_data_offer(wl_resource* device, wl_resource* offer) {
+        ext_data_control_device_v1_send_data_offer(device, offer);
+    }
+    static void send_offer(wl_resource* offer, const char* type) {
+        ext_data_control_offer_v1_send_offer(offer, type);
+    }
+    static void send_selection(wl_resource* device, wl_resource* offer) {
+        ext_data_control_device_v1_send_selection(device, offer);
+    }
+    static void send_send(wl_resource* source, const char* type, int fd) {
+        ext_data_control_source_v1_send_send(source, type, fd);
+    }
+};
+
 void offer_type(wl_client*, wl_resource*, const char* type) {
     compositor->types.push_back(type);
 }
-const struct zwlr_data_control_source_v1_interface source_implementation{offer_type, destroy};
+template <typename P> const typename P::Source source_implementation{offer_type, destroy};
 
 void receive(wl_client*, wl_resource*, const char*, std::int32_t fd) {
     ++compositor->received;
     close(fd);
 }
-const struct zwlr_data_control_offer_v1_interface offer_implementation{receive, destroy};
+template <typename P> const typename P::Offer offer_implementation{receive, destroy};
 
-void set_selection(wl_client* client, wl_resource* device, wl_resource* source) {
+template <typename P> void set_selection(wl_client* client, wl_resource* device, wl_resource* source) {
     compositor->selection = source;
     // Like a compositor, announce the new selection to every data device,
     // the one that set it included.
-    auto* offer = wl_resource_create(client, &zwlr_data_control_offer_v1_interface, 1, 0);
-    wl_resource_set_implementation(offer, &offer_implementation, nullptr,
+    auto* offer = wl_resource_create(client, P::offer, 1, 0);
+    wl_resource_set_implementation(offer, &offer_implementation<P>, nullptr,
                                    [](wl_resource*) { ++compositor->offers_destroyed; });
-    zwlr_data_control_device_v1_send_data_offer(device, offer);
-    zwlr_data_control_offer_v1_send_offer(offer, "text/plain;charset=utf-8");
-    zwlr_data_control_device_v1_send_selection(device, offer);
+    P::send_data_offer(device, offer);
+    P::send_offer(offer, "text/plain;charset=utf-8");
+    P::send_selection(device, offer);
 }
 void unused_primary(wl_client*, wl_resource*, wl_resource*) {
 }
-const struct zwlr_data_control_device_v1_interface device_implementation{set_selection, destroy,
-                                                                         unused_primary};
+template <typename P>
+const typename P::Device device_implementation{set_selection<P>, destroy, unused_primary};
 
-void create_source(wl_client* client, wl_resource*, std::uint32_t id) {
-    auto* source = wl_resource_create(client, &zwlr_data_control_source_v1_interface, 1, id);
-    wl_resource_set_implementation(source, &source_implementation, nullptr, [](wl_resource* gone) {
+template <typename P> void create_source(wl_client* client, wl_resource*, std::uint32_t id) {
+    auto* source = wl_resource_create(client, P::source, 1, id);
+    wl_resource_set_implementation(source, &source_implementation<P>, nullptr, [](wl_resource* gone) {
         if (compositor->selection == gone) {
             compositor->selection = nullptr;
         }
     });
 }
-void get_device(wl_client* client, wl_resource*, std::uint32_t id, wl_resource*) {
-    compositor->device = wl_resource_create(client, &zwlr_data_control_device_v1_interface, 1, id);
-    wl_resource_set_implementation(compositor->device, &device_implementation, nullptr, nullptr);
+template <typename P> void get_device(wl_client* client, wl_resource*, std::uint32_t id, wl_resource*) {
+    compositor->device = wl_resource_create(client, P::device, 1, id);
+    wl_resource_set_implementation(compositor->device, &device_implementation<P>, nullptr, nullptr);
 }
-const struct zwlr_data_control_manager_v1_interface manager_implementation{create_source, get_device,
-                                                                           destroy};
+template <typename P>
+const typename P::Manager manager_implementation{create_source<P>, get_device<P>, destroy};
 
 int listen_at(const std::filesystem::path& path) {
     const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -117,10 +166,10 @@ int listen_at(const std::filesystem::path& path) {
 }
 
 // The text a paste request gets, read as an application would.
-std::string paste(Compositor& server) {
+template <typename P> std::string paste(Compositor& server) {
     int pipe_fds[2];
     require(pipe(pipe_fds) == 0, "pipe");
-    zwlr_data_control_source_v1_send_send(server.selection, "text/plain;charset=utf-8", pipe_fds[1]);
+    P::send_send(server.selection, "text/plain;charset=utf-8", pipe_fds[1]);
     close(pipe_fds[1]);
     server.pump();
     std::string text;
@@ -137,7 +186,7 @@ std::string paste(Compositor& server) {
     return text;
 }
 
-void nested_desktop() {
+template <typename P> void nested_desktop() {
     const auto runtime =
         std::filesystem::temp_directory_path() / ("framekeyboard-clipboard-" + std::to_string(getpid()));
     std::filesystem::create_directories(runtime / "nested");
@@ -150,11 +199,10 @@ void nested_desktop() {
                          wl_resource_set_implementation(seat, &seat_implementation, nullptr, nullptr);
                      });
     wl_global_create(
-        server.display, &zwlr_data_control_manager_v1_interface, 1, nullptr,
+        server.display, P::manager, 1, nullptr,
         [](wl_client* client, void*, std::uint32_t version, std::uint32_t id) {
-            auto* manager = wl_resource_create(client, &zwlr_data_control_manager_v1_interface,
-                                               static_cast<int>(version), id);
-            wl_resource_set_implementation(manager, &manager_implementation, nullptr, nullptr);
+            auto* manager = wl_resource_create(client, P::manager, static_cast<int>(version), id);
+            wl_resource_set_implementation(manager, &manager_implementation<P>, nullptr, nullptr);
         });
     // The compositor's socket sits one directory below the runtime directory
     // the keyboard sees, as SteamOS's Desktop does. No X sockets: the test
@@ -165,19 +213,46 @@ void nested_desktop() {
     auto clipboard = make_clipboard(runtime / "x11", runtime);
     const auto first = clipboard->write("あいう");
     require(server.pump_until([&] { return clipboard->result(first).has_value(); }), "write finishes");
-    require(*clipboard->result(first), "the nested desktop takes the clipboard");
+    require(*clipboard->result(first) && *clipboard->desktop_result(first),
+            "the nested desktop takes the clipboard");
     require(server.selection, "the selection is set");
     require(server.types.size() == 4 && server.types[0] == "text/plain;charset=utf-8",
             "text types offered");
-    require(paste(server) == "あいう" && clipboard->served() == 1, "a paste gets the text");
+    require(paste<P>(server) == "あいう" && clipboard->served() == 1, "a paste gets the text");
 
     const auto second = clipboard->write("かきく");
     require(server.pump_until([&] { return clipboard->result(second).has_value(); }), "second write");
     require(server.pump_until([&] { return server.offers_destroyed == 2; }),
             "offers are destroyed, our own included");
-    require(paste(server) == "かきく" && clipboard->served() == 2, "the new text replaces the old");
+    require(paste<P>(server) == "かきく" && clipboard->served() == 2, "the new text replaces the old");
     require(server.received == 0, "the clipboard is never read");
 
+    clipboard.reset();
+    std::filesystem::remove_all(runtime);
+}
+
+// A nested desktop without data-control can't take the clipboard: neither
+// counts it, so no Ctrl+V pastes what that desktop held before.
+void no_data_control() {
+    const auto runtime = std::filesystem::temp_directory_path() /
+                         ("framekeyboard-clipboard-none-" + std::to_string(getpid()));
+    std::filesystem::create_directories(runtime / "nested");
+    Compositor server;
+    compositor = &server;
+    wl_global_create(server.display, &wl_seat_interface, 1, nullptr,
+                     [](wl_client* client, void*, std::uint32_t version, std::uint32_t id) {
+                         auto* seat = wl_resource_create(client, &wl_seat_interface,
+                                                         static_cast<int>(version), id);
+                         wl_resource_set_implementation(seat, &seat_implementation, nullptr, nullptr);
+                     });
+    require(wl_display_add_socket_fd(server.display, listen_at(runtime / "nested" / "wayland-0")) == 0,
+            "socket");
+    std::filesystem::create_directories(runtime / "x11");
+    auto clipboard = make_clipboard(runtime / "x11", runtime);
+    const auto write = clipboard->write("あいう");
+    require(server.pump_until([&] { return clipboard->result(write).has_value(); }), "write finishes");
+    require(!*clipboard->result(write) && !*clipboard->desktop_result(write),
+            "no data-control: the desktop's clipboard isn't ours");
     clipboard.reset();
     std::filesystem::remove_all(runtime);
 }
@@ -185,7 +260,9 @@ void nested_desktop() {
 
 int main() {
     try {
-        nested_desktop();
+        nested_desktop<Wlr>();
+        nested_desktop<Ext>();
+        no_data_control();
     } catch (const std::exception& error) {
         std::cerr << "clipboard test failed: " << error.what() << '\n';
         return 1;

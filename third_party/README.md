@@ -30,6 +30,10 @@ The SDK library is supplied by the installed SteamVR runtime, not redistributed.
 
 `wlr-protocols/wlr-data-control-unstable-v1.xml` comes from https://gitlab.freedesktop.org/wlroots/wlr-protocols commit `151664b67ab1eecf6f2eca055dccea66516cab54`, under the MIT-style license included in the XML (SHA-256 `5ac39552975b28d0ea42f636a79b7fc8e2d1fcfa31cbe173f549bd4b044ae2de`). Wayland client stubs are generated at build time. Version 1 is used only to set the clipboard of a nested desktop session; offers are never received.
 
+## Standard data-control protocol
+
+`wayland-protocols/ext-data-control-v1.xml` comes from https://gitlab.freedesktop.org/wayland/wayland-protocols tag `1.49` (commit `ee78491a237eaff9389a0ccf8680521d074407d3`), `staging/ext-data-control/`, under the MIT-style license included in the XML (SHA-256 `293deba5dfdb974fbcf8dcf891a30a51a36a8bba0047dc6bdf6a03194089b7fb`). Wayland client stubs are generated at build time. Version 1 is used, as the wlroots protocol above, only to set the clipboard of a nested desktop session whose compositor offers this standard protocol instead, such as KWin 6.6; offers are never received.
+
 ## Swipe typing
 
 `futo-swipe/` holds the unmodified FUTO Swipe encoder weights and their FUTO

@@ -81,6 +81,7 @@ class ShellRouter : public KeySink {
     std::uint32_t focused_window() const override { return on_ ? 0 : inner_.focused_window(); }
     void set_character_gap(double seconds) override { inner_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { inner_.set_desktop_paste(clipboard); }
+    bool desktop_focused() const override { return inner_.desktop_focused(); }
     std::optional<bool> num_lock_state() override {
         return on_ ? std::nullopt : inner_.num_lock_state();
     }

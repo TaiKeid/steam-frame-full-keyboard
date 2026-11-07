@@ -107,6 +107,7 @@ class OutputController : public KeySink, public TextOutput {
     std::uint32_t focused_window() const override { return target_.focused_window(); }
     void set_character_gap(double seconds) override { target_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { target_.set_desktop_paste(clipboard); }
+    bool desktop_focused() const override { return target_.desktop_focused(); }
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {

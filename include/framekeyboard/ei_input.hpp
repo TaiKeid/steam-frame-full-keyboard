@@ -46,6 +46,7 @@ class EiSink : public KeySink {
     // Tests replace Gamescope's focus with their own answer.
     void set_desktop_focus(std::function<bool()> focused) { desktop_focused_ = std::move(focused); }
     void set_desktop_paste(Clipboard* clipboard) override { desktop_paste_ = clipboard; }
+    bool desktop_focused() const override { return desktop_now_; }
     // How long a paste waits for the application to take the clipboard's text.
     static constexpr double paste_wait =
         2; // The pause between the key events of Unicode entry. IBus reorders keys

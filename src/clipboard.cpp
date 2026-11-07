@@ -3,6 +3,7 @@
 // ownership and answers other applications' requests for its own text.
 #include "framekeyboard/clipboard.hpp"
 
+#include "ext-data-control-client.h"
 #include "wlr-data-control-client.h"
 #include <algorithm>
 #include <atomic>
@@ -48,12 +49,17 @@ xcb_atom_t intern(xcb_connection_t* connection, const char* name) {
 // One nested Wayland desktop: its connection and the selection set there.
 // Its compositor keeps a clipboard of its own, which data-control sets
 // without keyboard focus. Offers it sends back, our own included, are
-// destroyed unread.
+// destroyed unread. Data-control comes in two protocols with the same
+// requests: the standard ext one, which KWin 6.6 offers alone, and wlroots'
+// older one; ext_* is used when the compositor offers it.
 struct Nested {
     std::string path;
     wl_display* display{};
     wl_registry* registry{};
     wl_seat* seat{};
+    ext_data_control_manager_v1* ext_manager{};
+    ext_data_control_device_v1* ext_device{};
+    ext_data_control_source_v1* ext_source{}; // the current selection, ours
     zwlr_data_control_manager_v1* manager{};
     zwlr_data_control_device_v1* device{};
     zwlr_data_control_source_v1* source{}; // the current selection, ours
@@ -64,6 +70,15 @@ struct Nested {
     Nested(const Nested&) = delete;
     Nested& operator=(const Nested&) = delete;
     ~Nested() {
+        if (ext_source) {
+            ext_data_control_source_v1_destroy(ext_source);
+        }
+        if (ext_device) {
+            ext_data_control_device_v1_destroy(ext_device);
+        }
+        if (ext_manager) {
+            ext_data_control_manager_v1_destroy(ext_manager);
+        }
         if (source) {
             zwlr_data_control_source_v1_destroy(source);
         }
@@ -91,6 +106,10 @@ void bind_global(void* data, wl_registry* registry, std::uint32_t name, const ch
     auto& nested = *static_cast<Nested*>(data);
     if (!nested.seat && std::strcmp(interface, wl_seat_interface.name) == 0) {
         nested.seat = static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, 1));
+    } else if (!nested.ext_manager &&
+               std::strcmp(interface, ext_data_control_manager_v1_interface.name) == 0) {
+        nested.ext_manager = static_cast<ext_data_control_manager_v1*>(
+            wl_registry_bind(registry, name, &ext_data_control_manager_v1_interface, 1));
     } else if (!nested.manager &&
                std::strcmp(interface, zwlr_data_control_manager_v1_interface.name) == 0) {
         // Version 1: no primary selection events.
@@ -115,6 +134,18 @@ void device_finished(void* data, zwlr_data_control_device_v1*) {
 }
 const zwlr_data_control_device_v1_listener device_listener{data_offer, selection, device_finished,
                                                            selection};
+void ext_data_offer(void*, ext_data_control_device_v1*, ext_data_control_offer_v1*) {
+}
+void ext_selection(void*, ext_data_control_device_v1*, ext_data_control_offer_v1* offer) {
+    if (offer) {
+        ext_data_control_offer_v1_destroy(offer);
+    }
+}
+void ext_device_finished(void* data, ext_data_control_device_v1*) {
+    static_cast<Nested*>(data)->finished = true;
+}
+const ext_data_control_device_v1_listener ext_device_listener{ext_data_offer, ext_selection,
+                                                              ext_device_finished, ext_selection};
 
 // Writes to an application's pipe. SIGPIPE is blocked on the clipboard
 // thread; one raised by a reader that went away is taken here.
@@ -154,6 +185,20 @@ void cancelled(void* data, zwlr_data_control_source_v1* source) {
     zwlr_data_control_source_v1_destroy(source);
 }
 const zwlr_data_control_source_v1_listener source_listener{send_text, cancelled};
+void ext_send_text(void* data, ext_data_control_source_v1*, const char*, std::int32_t fd) {
+    auto& nested = *static_cast<Nested*>(data);
+    write_all(fd, nested.text);
+    close(fd);
+    ++*nested.served;
+}
+void ext_cancelled(void* data, ext_data_control_source_v1* source) {
+    auto& nested = *static_cast<Nested*>(data);
+    if (nested.ext_source == source) {
+        nested.ext_source = nullptr; // another copy won
+    }
+    ext_data_control_source_v1_destroy(source);
+}
+const ext_data_control_source_v1_listener ext_source_listener{ext_send_text, ext_cancelled};
 
 // A roundtrip that gives up: a stopped compositor must not stall the X
 // displays this thread also serves.
@@ -230,6 +275,12 @@ class XClipboard final : public Clipboard {
             return {};
         }
         return owned_.load() >= number;
+    }
+    std::optional<bool> desktop_result(std::uint64_t number) const override {
+        if (done_.load() < number) {
+            return {};
+        }
+        return desktop_owned_.load() >= number;
     }
     std::uint64_t served() const override { return served_.load(); }
 
@@ -312,12 +363,25 @@ class XClipboard final : public Clipboard {
                 }
                 nested->registry = wl_display_get_registry(nested->display);
                 wl_registry_add_listener(nested->registry, &registry_listener, nested.get());
-                if (!roundtrip(nested->display, 500) || !nested->seat || !nested->manager) {
+                if (!roundtrip(nested->display, 500) || !nested->seat ||
+                    (!nested->ext_manager && !nested->manager)) {
                     continue;
                 }
-                nested->device =
-                    zwlr_data_control_manager_v1_get_data_device(nested->manager, nested->seat);
-                zwlr_data_control_device_v1_add_listener(nested->device, &device_listener, nested.get());
+                if (nested->ext_manager) {
+                    if (nested->manager) {
+                        zwlr_data_control_manager_v1_destroy(nested->manager);
+                        nested->manager = nullptr;
+                    }
+                    nested->ext_device =
+                        ext_data_control_manager_v1_get_data_device(nested->ext_manager, nested->seat);
+                    ext_data_control_device_v1_add_listener(nested->ext_device, &ext_device_listener,
+                                                            nested.get());
+                } else {
+                    nested->device =
+                        zwlr_data_control_manager_v1_get_data_device(nested->manager, nested->seat);
+                    zwlr_data_control_device_v1_add_listener(nested->device, &device_listener,
+                                                             nested.get());
+                }
                 nested_.push_back(std::move(nested));
             }
         }
@@ -325,6 +389,20 @@ class XClipboard final : public Clipboard {
     // Replaces our selection in a nested desktop; true unless it was refused
     // or the compositor did not answer.
     static bool own(Nested& nested, const std::string& text) {
+        if (nested.ext_manager) {
+            auto* source = ext_data_control_manager_v1_create_data_source(nested.ext_manager);
+            for (const char* type : {"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT"}) {
+                ext_data_control_source_v1_offer(source, type);
+            }
+            ext_data_control_source_v1_add_listener(source, &ext_source_listener, &nested);
+            ext_data_control_device_v1_set_selection(nested.ext_device, source);
+            if (nested.ext_source) {
+                ext_data_control_source_v1_destroy(nested.ext_source);
+            }
+            nested.ext_source = source;
+            nested.text = text;
+            return roundtrip(nested.display, 500) && nested.ext_source == source;
+        }
         auto* source = zwlr_data_control_manager_v1_create_data_source(nested.manager);
         for (const char* type : {"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT"}) {
             zwlr_data_control_source_v1_offer(source, type);
@@ -340,11 +418,15 @@ class XClipboard final : public Clipboard {
         return roundtrip(nested.display, 500) && nested.source == source;
     }
     // Takes the clipboard on every display; true when at least one holds it.
-    bool own(const std::string& text) {
+    // `desktop` says whether a nested desktop does, the one its own
+    // applications paste from: Gamescope's X displays are not theirs.
+    bool own(const std::string& text, bool& desktop) {
         bool any = false;
+        desktop = false;
         for (auto& nested : nested_) {
-            any |= own(*nested, text);
+            desktop |= own(*nested, text);
         }
+        any = desktop;
         for (auto& display : displays_) {
             xcb_set_selection_owner(display.connection, display.window, display.clipboard,
                                     XCB_CURRENT_TIME);
@@ -414,8 +496,12 @@ class XClipboard final : public Clipboard {
             if (requested != handled && running_) {
                 connect();
                 connect_nested();
-                if (own(text)) {
+                bool desktop = false;
+                if (own(text, desktop)) {
                     owned_ = requested;
+                }
+                if (desktop) {
+                    desktop_owned_ = requested;
                 }
                 done_ = requested;
                 handled = requested;
@@ -445,7 +531,7 @@ class XClipboard final : public Clipboard {
     std::mutex mutex_;
     std::string text_; // never logged
     std::uint64_t requested_{};
-    std::atomic<std::uint64_t> done_{}, owned_{}, served_{};
+    std::atomic<std::uint64_t> done_{}, owned_{}, desktop_owned_{}, served_{};
     std::atomic<bool> running_{true};
     std::vector<Display> displays_;               // the thread's own
     std::vector<std::unique_ptr<Nested>> nested_; // the thread's own

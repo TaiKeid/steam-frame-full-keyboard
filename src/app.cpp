@@ -6796,7 +6796,7 @@ void App::tick_direct_paste(double now) {
     };
     switch (p.stage) {
     case 1:
-        if (const auto owned = clipboard()->result(p.write)) {
+        if (const auto owned = paste_ready(p.write)) {
             if (!*owned) {
                 return type_instead("the clipboard is not available");
             }
@@ -7554,6 +7554,9 @@ void App::finish_piece(double now) {
 void App::route_desktop_text() {
     output_.set_desktop_paste(settings_.desktop_unicode_paste ? clipboard() : nullptr);
 }
+std::optional<bool> App::paste_ready(std::uint64_t number) {
+    return output_.desktop_focused() ? clipboard()->desktop_result(number) : clipboard()->result(number);
+}
 Clipboard* App::clipboard() {
     if (options_.clipboard) {
         return options_.clipboard;
@@ -7588,7 +7591,7 @@ bool App::tick_paste(double now) {
         s.paste_at = now;
         return false;
     case 1:
-        if (const auto owned = clipboard()->result(s.paste_write)) {
+        if (const auto owned = paste_ready(s.paste_write)) {
             if (!*owned) {
                 return give_up("The clipboard is not available. The text stays here.");
             }

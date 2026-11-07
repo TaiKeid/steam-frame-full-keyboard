@@ -48,6 +48,8 @@ struct Sink : KeySink {
     std::size_t commit_attempts{};
     std::uint32_t window{}; // Gamescope's focused window; 0 names none.
     std::uint32_t focused_window() const override { return window; }
+    bool desktop{}; // A nested desktop has the keys.
+    bool desktop_focused() const override { return desktop; }
     void send(int code, int value) override { keys.emplace_back(code, value); }
     Delivery deliver_key(int code, int value) override {
         send(code, value);
@@ -1660,11 +1662,13 @@ struct FakeClipboard : Clipboard {
     const Sink* sink{};
     std::vector<std::string> written;
     bool available{true}, taken{true};
+    bool desktop{true}; // the nested desktop's own clipboard took it too
     std::uint64_t write(const std::string& text) override {
         written.push_back(text);
         return written.size();
     }
     std::optional<bool> result(std::uint64_t) const override { return available; }
+    std::optional<bool> desktop_result(std::uint64_t) const override { return available && desktop; }
     std::uint64_t served() const override {
         std::uint64_t pastes = 0;
         bool control = false;
@@ -1720,6 +1724,22 @@ void direct_paste_tests() {
         wait_until(app, [&] { return sink.text.size() == 2; });
         require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
                 "without a clipboard the phrases are typed instead");
+    }
+    {
+        // A nested desktop pastes from its own clipboard: taken only on
+        // Gamescope's, Ctrl+V would paste what the desktop held before.
+        Sink sink;
+        sink.desktop = true;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        clipboard.desktop = false;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        press(app, "Dictation");
+        press(app, "Dictation");
+        wait_until(app, [&] { return sink.text.size() == 2; });
+        require(sink.text == std::vector<std::string>{"Hello there.", " Again."} && sink.keys.empty(),
+                "in a desktop whose clipboard isn't ours, the phrases are typed, not pasted");
     }
     {
         Sink sink;

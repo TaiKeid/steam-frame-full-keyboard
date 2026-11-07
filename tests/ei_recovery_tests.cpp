@@ -565,6 +565,11 @@ void desktop_entry() {
             return written.size();
         }
         std::optional<bool> result(std::uint64_t) const override { return owned; }
+        // Taken on Gamescope's X displays but not in the Desktop's own clipboard.
+        bool elsewhere_only{};
+        std::optional<bool> desktop_result(std::uint64_t) const override {
+            return elsewhere_only ? std::optional<bool>(false) : owned;
+        }
         std::uint64_t served() const override { return taken; }
     } clipboard;
     sink->set_desktop_paste(&clipboard);
@@ -627,6 +632,21 @@ void desktop_entry() {
             "a clipboard that never answers fails the paste and holds nothing back");
     server.pump();
     require(server.keys.empty(), "and no Ctrl+V was sent");
+    // Taken only on Gamescope's X displays, the Desktop's clipboard still
+    // holds what it did before: Ctrl+V would paste that, so none is sent.
+    clipboard.owned = true;
+    clipboard.elsewhere_only = true;
+    require(!sink->commit_text("😀"), "a paste starts");
+    for (int i = 0; i < 10; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    require(!sink->commit_text("😀") && !sink->text_pending() && !sink->output_blocked() &&
+                sink->delivered_characters() == 0,
+            "the Desktop's clipboard isn't ours: the paste fails");
+    server.pump();
+    require(server.keys.empty(), "without a Ctrl+V");
+    clipboard.elsewhere_only = false;
     sink->set_desktop_paste(nullptr);
 
     // Outside the Desktop, CJK stays one Gamescope commit.

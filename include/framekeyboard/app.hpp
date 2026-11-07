@@ -1261,6 +1261,9 @@ class App {
     // the mode closes.
     void finish_piece(double now);
     Clipboard* clipboard();
+    // Whether a paste of clipboard write `number` will get our text: in a
+    // nested desktop, only its own clipboard counts. Empty while being set.
+    std::optional<bool> paste_ready(std::uint64_t number);
     std::unique_ptr<Clipboard> clipboard_;
     bool can_send() const;
     void start_send();

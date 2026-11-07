@@ -125,7 +125,8 @@ fi
 # Our own license and those of the code compiled into the simulator.
 mkdir -p "$appdir/usr/share/licenses/framekeyboard/third_party"
 cp LICENSE third_party/README.md "$appdir/usr/share/licenses/framekeyboard/"
-cp -r third_party/libei third_party/gamescope third_party/wlr-protocols third_party/unicode third_party/mozc \
+cp -r third_party/libei third_party/gamescope third_party/wlr-protocols third_party/wayland-protocols \
+    third_party/unicode third_party/mozc \
     "$appdir/usr/share/licenses/framekeyboard/third_party/"
 if [[ -f $appdir/usr/lib/framekeyboard/framekeyboard-swipe.so ]]; then
     cp -r third_party/futo-swipe third_party/executorch "$appdir/usr/share/licenses/framekeyboard/third_party/"

@@ -18,6 +18,10 @@ class Clipboard {
     // Whether write `number` took the clipboard on some display; empty while
     // it is still being set.
     virtual std::optional<bool> result(std::uint64_t number) const = 0;
+    // The same, but only a nested desktop session counts: its applications
+    // paste from its own clipboard, so owning Gamescope's X displays alone
+    // would let Ctrl+V paste whatever the desktop held before.
+    virtual std::optional<bool> desktop_result(std::uint64_t number) const { return result(number); }
     // Requests for the text answered so far, so Send can tell that an
     // application took it after Ctrl+V.
     virtual std::uint64_t served() const = 0;
@@ -27,7 +31,8 @@ class Clipboard {
 // the applications it starts use :1, and Gamescope does not copy one to the
 // other. Also sets the clipboard of every nested Wayland desktop session
 // (a socket in a subdirectory of XDG_RUNTIME_DIR, such as SteamOS's Desktop),
-// whose compositor keeps its own and copies nothing from Gamescope. XCB and
+// whose compositor keeps its own and copies nothing from Gamescope, through
+// the standard ext data-control protocol or wlroots' older one. XCB and
 // Wayland on a thread of its own: unlike Xlib, XCB never ends the process
 // when a display goes away. The text stays until another application copies
 // or the keyboard exits. Tests pass their own directories, so they never

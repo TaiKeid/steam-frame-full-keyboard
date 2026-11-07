@@ -318,7 +318,9 @@ void EiSink::advance_entry() {
         return;
     }
     if (entry.write && entry.next == entry.paste_at) {
-        const auto owned = desktop_paste_ ? desktop_paste_->result(*entry.write) : false;
+        // Only the Desktop's own clipboard will do: owning Gamescope's X
+        // displays alone, Ctrl+V would paste what the Desktop held before.
+        const auto owned = desktop_paste_ ? desktop_paste_->desktop_result(*entry.write) : false;
         if (!owned) {
             // The clipboard is still being set. An X display that accepts the
             // connection but never answers must not hold every key back.
