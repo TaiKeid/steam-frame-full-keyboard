@@ -31,12 +31,12 @@ double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 namespace {
-constexpr const char* no_reading_status =
-    "No character has this reading. Backspace corrects it, Esc cancels it.";
+// Messages compared with what the status line shows, by key.
+constexpr const char* no_reading_status = "status.no-reading";
 constexpr const char* editor_full_notice = "The editor is full. Send or shorten the text to type more.";
 // Refused while Steam's dashboard has the keys and no Focus mode button can
 // shake to say so, as with replacement off.
-constexpr const char* dashboard_keys_status = "Click the window you want to type into first.";
+constexpr const char* dashboard_keys_status = "status.dashboard-keys";
 // Every message for output stopped because another window took focus starts so.
 constexpr std::string_view window_moved_status = "Another window took focus.";
 // Type as I speak, when another window took focus mid-session (App::direct_window_).
@@ -218,25 +218,24 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         startup_status_ += message;
     };
     if (!profiles_.themes.contains(settings_.active.theme)) {
-        fallback_status("Saved theme unavailable. Using Graphite.");
+        fallback_status(tr("status.saved-theme-unavailable"));
         settings_.active.theme = "graphite";
     }
     if (!profiles_.languages.contains(settings_.active.language)) {
-        fallback_status("Saved language unavailable. Using English.");
+        fallback_status(tr("status.saved-language-unavailable"));
         settings_.active.language = "en-us";
     }
     try {
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
     } catch (const std::exception& error) {
-        fallback_status("Saved language could not be prepared. Using English. " +
-                        std::string(error.what()));
+        fallback_status(tr("status.saved-language-failed", {{"error", std::string(error.what())}}));
         settings_.active.language = "en-us";
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at("en-us"));
     }
     const auto layout = compatible_layout(profiles_, settings_.active);
     if (layout != settings_.active.layout) {
-        fallback_status("Saved layout unavailable or incompatible. Using " + layout + ".");
+        fallback_status(tr("status.saved-layout-unavailable", {{"layout", layout}}));
         settings_.active.layout = layout;
     }
     try {
@@ -254,7 +253,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         profiles_.themes[settings_.active.theme] = defaults.themes.at(settings_.active.theme);
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
         cjk_.reset();
-        startup_status_ = "Saved selection has no compatible layout. Using English defaults.";
+        startup_status_ = tr("status.saved-selection-unavailable");
     }
     keyboard_.set_num(settings_.num_lock);
     // Under a shell the shell decides when the panel shows.
@@ -1132,8 +1131,9 @@ PanelView App::build_view(bool picker) const {
     }
     v.status = !status_.empty()            ? status_
                : capturing_ && game_sound_ ? game_sound_message()
-               : sink_on() ? "Typing into " + (host_.sink_client.empty() ? std::string("the shell")
-                                                                         : host_.sink_client)
+               : sink_on() ? host_.sink_client.empty()
+                                 ? tr("status.shell-typing-unnamed")
+                                 : tr("status.shell-typing", {{"client", host_.sink_client}})
                : !debug_status_.empty() ? debug_status_
                                         : startup_status_;
     v.status_card = !v.status.empty() && v.status == send_status_;
@@ -1172,17 +1172,18 @@ PanelView App::build_view(bool picker) const {
     if (v.status.empty() && !typing_ready_ && !image_export) {
         // External JIS sends physical keys to a system IME, which a replaced
         // Steam keyboard request cannot receive.
-        v.status = preview_input() ? "Preview only: this launch cannot type."
-                   : native_session_ && external_jis()
-                       ? "External JIS cannot type into this request. Choose another language."
-                       : "Typing disabled: choose a profile matching the target keymap used at launch.";
+        v.status = tr(preview_input()                     ? "status.preview-only"
+                      : native_session_ && external_jis() ? "status.external-jis"
+                                                          : "status.typing-disabled");
     }
     v.settings = settings_open_;
     if (settings_open_ && settings_.replace_native_keyboard && !replacement_available_ &&
         v.status.empty()) {
-        v.status = replacement_unavailable_reason_.empty() ? "Native replacement unavailable. "
-                                                           : replacement_unavailable_reason_ + " ";
-        v.status += "Steam keyboard remains available.";
+        // The reason is the replacement's own text, before App's closing words.
+        v.status = replacement_unavailable_reason_.empty()
+                       ? tr("status.replacement-unavailable")
+                       : tr("status.replacement-unavailable-reason",
+                            {{"reason", replacement_unavailable_reason_}});
     }
     // The digits page composes once it holds a reading; before that its band
     // says it is the digits page.
@@ -1282,12 +1283,11 @@ PanelView App::build_view(bool picker) const {
         }
     }
     if (!backend_ready_) {
-        v.status = backend_can_resume_ ? "Keyboard paused or disconnected. Waiting for the compositor."
-                   : resident_replacement()
-                       ? "Keyboard connection lost. Use Settings > Quit Full Keyboard, then relaunch."
-                       : "Keyboard connection lost. Reopen the app to reconnect.";
+        v.status = tr(backend_can_resume_      ? "status.keyboard-paused"
+                      : resident_replacement() ? "status.connection-lost-resident"
+                                               : "status.connection-lost");
     } else if ((unicode_mode() || japanese() || cjk_) && !preview_input() && !text_ready_) {
-        v.status = "Text delivery unavailable. Waiting for the compositor connection to recover.";
+        v.status = tr("status.text-delivery-unavailable");
     }
     if (swipe_track_ && swipe_track_->swiping) {
         v.swipe_trail = swipe_track_->trail;
@@ -1902,7 +1902,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 output_.send(KEY_NUMLOCK, 0);
                 native_num_requested_ = !*target_num;
             }
-            status_ = "Waiting for target Num Lock. Press the keypad key again.";
+            status_ = tr("status.num-lock-wait");
             dirty = true;
             return false;
         }
@@ -1970,7 +1970,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 word_pointer_ = pointer;
                 held_keys_[pointer] = now; // It repeats while held.
                 if (keymap_->composing()) {
-                    status_ = "Accent pending";
+                    status_ = tr("status.accent-pending");
                 }
             } else if (!local &&
                        !(key->action_kind == ActionKind::Key && is_modifier(key_code(key->action)))) {
@@ -2283,7 +2283,7 @@ void App::suspend_input(bool asleep) {
     cancel(false);
 }
 bool App::tick(double now) {
-    if (status_ == no_reading_status && (!cjk_ || cjk_->empty())) {
+    if (status_is(no_reading_status) && (!cjk_ || cjk_->empty())) {
         status_.clear(); // The toolbar's Cancel or a hide ended the reading.
         dirty = true;
     }
@@ -2501,8 +2501,8 @@ void App::set_dragging(bool dragging, bool resizing) {
     resizing_ = dragging && resizing;
     status_.clear();
 }
-void App::report_status(const std::string& message) {
-    status_ = message;
+void App::report_status(const UiText& message) {
+    status_ = message.key.empty() ? std::string() : tr(message);
     dirty = true;
 }
 void App::show_passing_status(const std::string& message) {
@@ -3299,7 +3299,7 @@ void App::restart_learning(bool clear) {
 void App::learning_restarted() {
     anthy_restarting_ = false;
     if (std::exchange(clearing_learning_, false)) {
-        report_status(tr(std::exchange(mozc_clear_failed_, false) ? "status.mozc-not-cleared"
+        report_status(ui(std::exchange(mozc_clear_failed_, false) ? "status.mozc-not-cleared"
                                                                   : "status.learned-cleared"));
     }
     if (std::exchange(clear_queued_, false)) {
@@ -3408,7 +3408,7 @@ void App::clear_learned(const std::vector<LearnedRow>& rows) {
         follow_up_.reset();
         restart_learning(true); // Reports once Anthy and Mozc are done.
     } else {
-        report_status(tr("status.learned-cleared"));
+        report_status(ui("status.learned-cleared"));
         update_settings_ui();
     }
     dirty = true;
@@ -3550,7 +3550,7 @@ void App::commit_japanese() {
     if (preview_output()) {
         composition_.cancel();
         drop_live_requests();
-        status_ = "Preview: composition committed locally.";
+        status_ = tr("status.preview-committed");
     } else if (const auto queued = output_.queued(); text_output_->commit_text(text)) {
         composition_.set_learning(learning_allowed());
         learn_japanese();
@@ -3624,7 +3624,7 @@ void App::type_follow_up(const std::string& text) {
     reopen_.reset();
     follow_up_.reset();
     if (preview_output()) {
-        status_ = "Preview: composition committed locally.";
+        status_ = tr("status.preview-committed");
     } else if (const auto queued = output_.queued(); text_output_->commit_text(text)) {
         follow_commit(text, queued);
         // A phrase offers what followed it in turn; punctuation ends the run.
@@ -3977,7 +3977,7 @@ void App::commit_cjk() {
     }
     const auto text = cjk_->text();
     if (text.empty()) {
-        status_ = no_reading_status; // It stays to be corrected, and the key is refused.
+        status_ = tr(no_reading_status); // It stays to be corrected, and the key is refused.
         return;
     }
     // In dictation mode the editor takes the text, even in a preview.
@@ -4290,7 +4290,7 @@ void App::commit_failed() {
         notice_error_ = true;
         status_ = editor_full_notice; // A reading's candidates cover the notice.
     } else {
-        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        status_ = tr("status.text-not-sent");
     }
 }
 bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
@@ -4317,7 +4317,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     }
     const auto& code = key.action;
     const bool composing = !cjk_->empty();
-    if (execute && status_ == no_reading_status) {
+    if (execute && status_is(no_reading_status)) {
         status_.clear();
     }
     if (cjk_->phonetic_keys() && !mods.contains(key_code("ShiftLeft")) &&
@@ -4548,7 +4548,7 @@ void App::action(const ControlAction& command) {
         } else if (updates_) {
             updates_->click(monotonic_seconds());
         } else {
-            report_status(tr("status.updates-installed-only"));
+            report_status(ui("status.updates-installed-only"));
         }
     } else if (kind == ControlKind::Close) {
         close_with_x();
@@ -5090,8 +5090,7 @@ bool one_backspace_each(const std::string& text) {
     return std::all_of(attributes.begin(), attributes.end(),
                        [](const PangoLogAttr& attribute) { return attribute.is_cursor_position; });
 }
-constexpr const char* reopen_typing_status =
-    "The phrase is still being typed. Tap ↶ again once it is in.";
+constexpr const char* reopen_typing_status = "status.reopen-typing"; // a key, compared as shown
 } // namespace
 bool App::undo_held(unsigned pointer) const {
     return flick_track_ && flick_track_->pointer != pointer && flick_track_->slot == flick_undo_slot;
@@ -5146,11 +5145,11 @@ void App::reopen_phrase() {
     if (output_.text_pending() && output_.queued() == reopen_->queued) {
         // The phrase is still on its way, and Backspaces after it could not
         // tell where it lands. The chance stays for a tap once it is in.
-        status_ = reopen_typing_status;
+        status_ = tr(reopen_typing_status);
         dirty = true;
         return;
     }
-    if (status_ == reopen_typing_status) {
+    if (status_is(reopen_typing_status)) {
         status_.clear();
     }
     const auto phrase = *reopen_;
@@ -5196,7 +5195,7 @@ void App::expire_reopen(double now) {
     } else if (now - reopening_->since > reopen_patience) {
         output_.cancel(); // Only the Backspaces: every hold ended when they were queued.
         reopening_.reset();
-        status_ = "The field stopped answering ↶. Check what is left of the phrase.";
+        status_ = tr("status.reopen-stalled");
         dirty = true;
     }
 }
@@ -5612,7 +5611,7 @@ void App::swipe_move(double x, double y) {
     }
     if (n >= max_swipe_points) {
         swipe_track_.reset();
-        status_ = "Swipe was too long and was cancelled.";
+        status_ = tr("status.swipe-too-long");
         dirty = true;
         return;
     }
@@ -5840,7 +5839,7 @@ void App::finish_key_flick() {
             track_typed(text);
             word_pointer_ = track.pointer;
             if (keymap_->composing()) {
-                status_ = "Accent pending";
+                status_ = tr("status.accent-pending");
             }
         }
     } catch (const std::exception& error) {
@@ -5898,7 +5897,7 @@ void App::text_refused() {
         notice_ = editor_full_notice;
         notice_error_ = true;
     } else if (!refuse_without_target(monotonic_seconds())) {
-        status_ = "Text was not sent. Release other keys and check the target/input connection.";
+        status_ = tr("status.text-not-sent");
     }
 }
 void App::finish_swipe(bool wait) {
@@ -5921,11 +5920,12 @@ void App::finish_swipe(bool wait) {
 void App::apply_swipe(const SwipeService::Result& result) {
     dirty = true;
     if (!result.error.empty()) {
-        status_ = "Swipe typing unavailable: " + result.error;
+        // The error is the swipe engine's own text, after a translated lead-in.
+        status_ = tr("status.swipe-unavailable", {{"error", result.error}});
         return;
     }
     if (result.words.empty()) {
-        status_ = "No word matched the swipe.";
+        status_ = tr("status.swipe-no-match");
         return;
     }
     if (cjk_) {
@@ -5959,7 +5959,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
     if (std::exchange(swipe_detached_, false)) {
         // The laser left before the word was ready; the target's cursor may
         // have moved since, so the word is not typed at all.
-        status_ = "Swipe discarded: the laser left the keyboard before the word was ready.";
+        status_ = tr("status.swipe-detached");
         return;
     }
     swipe_candidates_.clear();
@@ -6024,7 +6024,7 @@ void App::forget_failed_swipe() {
     // the target, and replacing by its length could delete text before it.
     if (!swipe_candidates_.empty() && output_.failures() != swipe_failures_) {
         discard_swipe();
-        status_ = "Text was not sent, so the swipe alternatives were removed. Check the text.";
+        status_ = tr("status.swipe-alternatives-removed");
         swipe_notice_ = true;
         dirty = true;
     }
@@ -6071,7 +6071,7 @@ void App::choose_swipe(int index) {
         // Steam fields acknowledge each Backspace before the text. Each is one
         // queue entry; refuse rather than leave a partial deletion.
         if (!output_.can_queue(count + 1)) {
-            show_passing_status("Wait for typing to finish, then choose again.");
+            show_passing_status(tr("status.wait-for-typing"));
             return;
         }
         // One sequence: separate presses would each be admitted on their own,
@@ -6188,14 +6188,14 @@ bool App::refuse_without_target(double now) {
     }
     focus_shake_since_ = now;
     // The shake is the answer where its button shows; without it, say what to do.
-    status_ = !focus_mode_button() && dashboard_focus_ ? dashboard_keys_status : "";
+    status_ = !focus_mode_button() && dashboard_focus_ ? tr(dashboard_keys_status) : "";
     dirty = true;
     return true;
 }
 void App::set_dashboard_focus(bool focused) {
     if (focused != dashboard_focus_) {
         dashboard_focus_ = focused;
-        if (!focused && status_ == dashboard_keys_status) {
+        if (!focused && status_is(dashboard_keys_status)) {
             status_.clear(); // The click it asked for happened.
         }
         dirty = true;
@@ -6444,7 +6444,7 @@ void App::update_emoji(double now) {
             }
             emoji_font_ = !emoji_catalog_.entries.empty();
             if (!emoji_font_) {
-                status_ = "No color emoji font found. Emoji are unavailable.";
+                status_ = tr("status.emoji-font-missing");
             }
             if (emoji_open_) {
                 update_emoji_content();
@@ -6544,7 +6544,7 @@ void App::save_emoji() {
         save_emoji_preferences(options_.config_dir / "emoji.json", emoji_preferences_);
         emoji_saved_ = emoji_preferences_;
     } catch (const std::exception& error) {
-        status_ = "Recent emoji not saved: " + std::string(error.what());
+        status_ = tr("status.recent-emoji-not-saved", {{"error", std::string(error.what())}});
     }
 }
 

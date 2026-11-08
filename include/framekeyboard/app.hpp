@@ -310,7 +310,9 @@ class App {
     }
     // Hiding the VR context releases keys before closing the input gate.
     void set_interaction_active(bool active);
-    void report_status(const std::string& message);
+    // Shows a message on the status line in the interface language; an
+    // empty key clears it.
+    void report_status(const UiText& message);
     void apply(Selection selection);
     // Reload immediately when storage is idle, otherwise coalesce the request
     // and complete it from tick() after the newest pending snapshot is saved.
@@ -845,6 +847,10 @@ class App {
         return localization_.text(key, args);
     }
     std::string tr(const UiText& message) const { return localization_.text(message); }
+    // Whether the status line shows the message `key` names. Compared as text:
+    // the interface language changes only as Settings opens, applies or
+    // reloads, and a message from before a change no longer matches.
+    bool status_is(std::string_view key) const { return !status_.empty() && status_ == tr(key); }
     // The Debug card's choice, else the system's language; a change rebuilds
     // what holds interface text.
     void follow_interface_language();

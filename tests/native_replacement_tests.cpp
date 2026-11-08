@@ -919,8 +919,9 @@ void handoff_status() {
         require(app.tick(5) && app.view().status.empty(),
                 "transport recovery repaints the warning while input remains paused");
         require(!app.down(1, x, y, 5), "recovery cannot bypass the handoff input gate");
-        app.report_status("Input connection error");
-        require(app.view().status == "Input connection error", "handoff preserves explicit errors");
+        app.report_status(ui("status.native-grip-unavailable"));
+        require(app.view().status == "Native grip unavailable; use Recenter to recover the keyboard.",
+                "handoff preserves explicit errors");
     }
     {
         Options disabled = options;

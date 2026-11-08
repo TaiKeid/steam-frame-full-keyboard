@@ -2233,9 +2233,10 @@ void passthrough_message_tests() {
         press(app, "Dictation");
         require(app.dashboard_visibility(false), "listening with the dashboard closed");
         app.tick(clock += .01);
-        app.report_status("Another message");
+        app.report_status(ui("status.shortcuts-steam-fields"));
         app.tick(clock += 6);
-        require(app.view().status == "Another message", "a newer status stays past the five seconds");
+        require(app.view().status == "Shortcuts may not work in Steam fields.",
+                "a newer status stays past the five seconds");
     }
     {
         // Once the last phrase is typed the keyboard closes, so the message

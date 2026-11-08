@@ -816,10 +816,11 @@ void typing_tests() {
     app.set_dragging(false);
     type_key();
     require(sink.events.size() == 10, "ending a drag restores typing");
-    app.report_status("Tracking recovered");
+    app.report_status(fk::ui("status.native-grip-unavailable"));
     app.dirty = false;
     app.set_dragging(false);
-    require(app.view().status == "Tracking recovered" && !app.dirty,
+    require(app.view().status == "Native grip unavailable; use Recenter to recover the keyboard." &&
+                !app.dirty,
             "repeated drag cleanup leaves status and rendering alone");
     type_a(app, false);
     app.set_dragging(false);

@@ -1303,7 +1303,7 @@ void background_surface_setting() {
     // A message shows on an opaque card above the case, centred on it, as
     // the focus tooltip does; the transparent case under it stays clear.
     {
-        app.report_status("Waiting for target Num Lock. Press the keypad key again.");
+        app.report_status(ui("status.num-lock-wait"));
         app.paint(2.5);
         const auto pixels = app.renderer.rgba();
         auto alpha = [&](int px, int py) {
@@ -1312,7 +1312,7 @@ void background_surface_setting() {
         require(alpha(800, -37) == 255 && alpha(40, -37) == 0 && alpha(800, 74) == 0,
                 "a message sits on a card above the case, fitted to its text");
         app.renderer.write_png("/tmp/framekeyboard-transparent-status.png");
-        app.report_status("");
+        app.report_status({});
     }
     // Settings keeps its case, or its cards would float on the dashboard.
     app.show_settings();

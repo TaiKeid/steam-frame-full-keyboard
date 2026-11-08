@@ -1958,7 +1958,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     bool reveal_requested = false;
     GrabInput grip_input;
     if (!grip_input.connect() && app.use_drag_to_move()) {
-        app.report_status("Native grip unavailable; use Recenter to recover the keyboard.");
+        app.report_status(ui("status.native-grip-unavailable"));
     }
     ScenePointer scene_pointer;
     double stick_scrolled = 0; // When the passthrough stick last scrolled the emoji grid.
@@ -3180,7 +3180,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         replacement.poll(now);
         if (replacement.take_unsupported_control()) {
-            app.report_status("Shortcuts may not work in Steam fields.");
+            app.report_status(ui("status.shortcuts-steam-fields"));
         }
         const auto native = replacement.state();
         app.set_replacement_available(native.available, replacement.unavailable_reason());
