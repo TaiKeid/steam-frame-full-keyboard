@@ -24,11 +24,13 @@ CODE = 'status_ = tr("a.hello", {{"name", n}});\nreturn ui("a.count", {{"count",
 
 
 def tree(folder, english=ENGLISH, context=CONTEXT, translations=(TESTISH,), code=CODE):
-    root = Path(folder)
-    (root / 'locales').mkdir()
+    """A repository in folder/repo, and its translator notes beside it in
+    folder/context.json, as they are kept outside the repository."""
+    root = Path(folder) / 'repo'
+    (root / 'locales').mkdir(parents=True)
     (root / 'src').mkdir()
     (root / 'locales' / 'en.json').write_text(json.dumps(english))
-    (root / 'locales' / 'context.json').write_text(json.dumps(context))
+    (Path(folder) / 'context.json').write_text(json.dumps(context))
     for data in translations:
         (root / 'locales' / f'{data["locale"].lower()}.json').write_text(json.dumps(data, ensure_ascii=False))
     (root / 'src' / 'app.cpp').write_text(code)
@@ -48,6 +50,8 @@ with tempfile.TemporaryDirectory() as folder:
     root = tree(folder)
     errors, warnings = tool.check(root)
     expect(not errors, f'a complete tree has no errors: {errors}')
+    expect(not tool.check(root, context_path=Path(folder) / 'context.json')[0],
+           'and its notes cover every key')
     expect(has(warnings, 'never accepted'), 'a translation not yet accepted is a warning')
     expect(tool.check(root, release=True)[0], 'and an error for a release')
     tool.accept(root, 'xt')
@@ -70,6 +74,8 @@ with tempfile.TemporaryDirectory() as folder:
     root = tree(folder, context=context, translations=(broken,),
                 code=CODE + 'tr("a.missing");\n')
     errors, _ = tool.check(root)
+    expect(not has(errors, 'context.json'), f'without --context the notes are not checked: {errors}')
+    errors, _ = tool.check(root, context_path=Path(folder) / 'context.json')
     for text in ('en.json lacks a.missing', 'context.json: a.count needs', 'context.json: a.gone is no English key',
                  'xt.json: a.extra is no English key', 'a.hello uses nmae', 'a.hello leaves out name',
                  'a.count: plural forms missing: few'):

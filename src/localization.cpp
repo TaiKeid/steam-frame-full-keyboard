@@ -523,10 +523,8 @@ void Localization::load(const fs::path& data_dir, const fs::path& user_dir) {
         }
         std::vector<fs::path> files;
         for (const auto& entry : fs::directory_iterator(folder, error)) {
-            const auto& path = entry.path();
-            // context.json holds translators' notes, not a language.
-            if (path.extension() == ".json" && path.filename() != "context.json") {
-                files.push_back(path);
+            if (entry.path().extension() == ".json") {
+                files.push_back(entry.path());
             }
         }
         std::sort(files.begin(), files.end());

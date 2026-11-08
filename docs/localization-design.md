@@ -17,11 +17,10 @@ First languages, by Steam's language survey of October 2026 (about 97% of Steam 
 ```
 <data dir>/locales/en.json         bundled, the source of every key
 <data dir>/locales/ru.json         bundled translations
-<data dir>/locales/context.json    translator notes per key; not loaded by the app
 <config dir>/locales/*.json        a user's own files: added languages, or overrides
 ```
 
-A user file with the same `locale` as a bundled one replaces it key by key. Reload config reloads them.
+Translator notes per key are kept with the translation work outside the repository; the app never loads them. A user file with the same `locale` as a bundled one replaces it key by key. Reload config reloads them.
 
 ```json
 {
@@ -120,17 +119,17 @@ Before any translation, a generated pseudo-language (`qps`: accented, 40% longer
 ## Checks
 
 - Unit tests: loading and merging, plural rules (including Russian, Polish and Ukrainian 1, 2, 5, 11, 21, 22), placeholders, number marks, every step of the fallback chain, the font choice.
-- `tools/check_locales.py`, run by a host test: every key used in the code exists in `en.json` and `context.json`; every bundled file has every key, the same placeholders as English, and the plural forms its rules need; it lists stale translations (`sources`) and keys no code uses.
+- `tools/check_locales.py`, run by a host test: every key used in the code exists in `en.json`; every bundled file has every key, the same placeholders as English, and the plural forms its rules need; it lists stale translations (`sources`) and keys no code uses. Given the translator notes, kept with the translation work outside the repository (`--context PATH`), it also checks that every key has its notes and that no note names a key English lacks.
 - The tour in `qps` and in every bundled language: no cut interface label; shrunk and wrapped labels listed with screenshots; in `qps` no interface text without brackets.
 - Before each release: no stale or missing translation in bundled files.
 
 ## Translator context
 
-`locales/context.json` has, for every key: where it shows (screen and element), what it is about (the feature, and when the user sees it), roughly how much room it has, and terms that stay as they are. Each language also gets a short style guide (formal or informal address, how the interface addresses the user, punctuation) and a glossary. The glossary keeps terms consistent, in line with the terms Steam itself uses in that language, without copying Steam's sentences. Simulator screenshots of each screen go with the notes, and each language is reviewed again on screenshots of its own text in place.
+The translator notes, kept with the translation work outside the repository, have, for every key: where it shows (screen and element), what it is about (the feature, and when the user sees it), roughly how much room it has, and terms that stay as they are. Each language also gets a short style guide (formal or informal address, how the interface addresses the user, punctuation) and a glossary. The glossary keeps terms consistent, in line with the terms Steam itself uses in that language, without copying Steam's sentences. Simulator screenshots of each screen go with the notes, and each language is reviewed again on screenshots of its own text in place.
 
 ## Steps
 
 1. The framework: `Localization`, file format and loader, plural rules, placeholders, numbers, fonts, language detection, the Debug card dropdown, live switching, the overflow recorder, `qps`, the check tool and their tests. The interface still shows only English.
-2. English into `en.json`: every interface string gets a key and a note in `context.json`; pieced-together text becomes templates. Rendering in English stays as it was (tour screenshots compared before and after). Then the `qps` tour, with its screenshots reviewed with the owner to settle shrinking and wrapping.
+2. English into `en.json`: every interface string gets a key and a note in the translator notes, kept with the translation work outside the repository; pieced-together text becomes templates. Rendering in English stays as it was (tour screenshots compared before and after). Then the `qps` tour, with its screenshots reviewed with the owner to settle shrinking and wrapping.
 3. Translations, one language at a time, in batches with their notes and screenshots; each checked by the tool and the tour, reviewed in place, and committed on its own.
 4. Docs: the format in [configuration](configuration.md), a short guide for contributing a language, the changelog, the README's list of languages, and a note in the README's AI-generated section that the translations are AI-made and corrections are welcome (README.ja.md too).

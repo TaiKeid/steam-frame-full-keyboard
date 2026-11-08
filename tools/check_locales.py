@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Check the interface language files (docs/localization-design.md).
 
-check_locales.py ROOT [--release] [--accept TAG]
+check_locales.py ROOT [--release] [--accept TAG] [--context PATH]
 
-Errors (exit 1): a key the code uses that en.json lacks; an English key
-without translator notes in context.json, or notes for no key; a bundled
+Errors (exit 1): a key the code uses that en.json lacks; a bundled
 translation missing a key, having one English doesn't, using placeholders
 English doesn't, or missing a plural form its rules can pick; a damaged file.
+
+--context PATH also checks the translator notes, which are kept with the
+translation work outside the repository: every English key needs "where"
+and "about", and no note may name a key English lacks. Without it the notes
+are not checked.
 
 Warnings: translations made from English text that has changed since
 (`sources`), or never accepted; keys no code uses. --release turns stale
@@ -95,7 +99,7 @@ def load(path, errors):
     return data
 
 
-def check(root, release=False):
+def check(root, release=False, context_path=None):
     errors, warnings = [], []
     folder = root / 'locales'
     english = load(folder / 'en.json', errors) or {}
@@ -111,15 +115,17 @@ def check(root, release=False):
     errors += [f'en.json lacks {key}, used in the code' for key in sorted(used - set(source))]
     warnings += [f'{key} is in en.json but no code uses it' for key in sorted(set(source) - used - literals)]
 
-    context = load(folder / 'context.json', errors) or {}
-    for key in sorted(source):
-        note = context.get(key)
-        if not isinstance(note, dict) or not note.get('where') or not note.get('about'):
-            errors.append(f'context.json: {key} needs "where" and "about"')
-    errors += [f'context.json: {key} is no English key' for key in sorted(set(context) - set(source))]
+    if context_path is not None:
+        context = load(Path(context_path), errors) or {}
+        name = Path(context_path).name
+        for key in sorted(source):
+            note = context.get(key)
+            if not isinstance(note, dict) or not note.get('where') or not note.get('about'):
+                errors.append(f'{name}: {key} needs "where" and "about"')
+        errors += [f'{name}: {key} is no English key' for key in sorted(set(context) - set(source))]
 
     for path in sorted(folder.glob('*.json')):
-        if path.name in ('en.json', 'context.json'):
+        if path.name == 'en.json':
             continue
         data = load(path, errors)
         if data is None:
@@ -163,19 +169,27 @@ def accept(root, tag):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
+def take(args, option):
+    """The value after option, removed from args with it; None without it, or
+    False when the value is missing."""
+    if option not in args:
+        return None
+    at = args.index(option)
+    value = args[at + 1] if at + 1 < len(args) else False
+    del args[at:at + 2]
+    return value
+
+
 def main(argv):
     args = argv[1:]
     release = '--release' in args
-    tag = None
-    if '--accept' in args:
-        tag = args[args.index('--accept') + 1]
-        args = [a for a in args if a not in ('--accept', tag)]
+    tag, context = take(args, '--accept'), take(args, '--context')
     args = [a for a in args if a != '--release']
-    if len(args) != 1:
+    if len(args) != 1 or tag is False or context is False:
         print(__doc__, file=sys.stderr)
         return 2
     root = Path(args[0])
-    errors, warnings = check(root, release)
+    errors, warnings = check(root, release, context)
     if tag and not errors:
         accept(root, tag)
     for message in warnings:

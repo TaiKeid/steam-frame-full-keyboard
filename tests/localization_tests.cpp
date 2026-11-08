@@ -142,7 +142,6 @@ void loading_tests() {
   "posix": ["xt_YY"], "strings": {"a.plain": "Variant {name}"}})j");
     data.write("locales/en.json", R"({"locale": "en", "strings": {
   "a.only-english": "English only", "a.hello": "Hello {name}"}})");
-    data.write("locales/context.json", R"({"a.plain": {"where": "nowhere"}})");
     data.write("locales/bad.json", "{ not json");
     data.write("locales/bad-rule.json", R"({"locale": "xb", "plural": {"one": "i = "}})");
     data.write("locales/bad-branch.json",
@@ -154,8 +153,7 @@ void loading_tests() {
 
     Localization l;
     l.load(data.path, user.path);
-    require(l.errors().size() == 6, "six damaged files reported, context.json is no language: " +
-                                        std::to_string(l.errors().size()));
+    require(l.errors().size() == 6, "six damaged files reported: " + std::to_string(l.errors().size()));
     l.choose({"", "C"});
     require(l.tag() == "en" && l.text("a.only-english") == "English only", "C: English");
     require(l.text("a.missing") == "a.missing", "a key found nowhere shows as itself");
