@@ -60,13 +60,16 @@ class EiSink : public KeySink {
     // Tests replace the focused program's kind with their own answer.
     void set_edit_keys(std::function<EditKeys()> keys) { edit_keys_ = std::move(keys); }
     // How long a paste waits for the application to take the clipboard's text.
-    static constexpr double paste_wait =
-        2; // The pause between the key events of Unicode entry. IBus reorders keys
+    static constexpr double paste_wait = 2;
+    // The pause between the key events of Unicode entry. IBus reorders keys
     // that arrive closer together (measured on the Frame: none at 0 ms, exact at 5 ms).
     static constexpr double entry_gap = .005;
     // How long a streaming client's paste waits for no one to read the
     // clipboard before its shortcut, as Gamescope reads every new one.
     static constexpr double stream_quiet = .03;
+    // How long after the client's last read its paste counts as done:
+    // Moonlight reads twice, a round trip apart.
+    static constexpr double stream_settle = .01;
     EiSink(const EiSink&) = delete;
     EiSink& operator=(const EiSink&) = delete;
 
@@ -96,7 +99,11 @@ class EiSink : public KeySink {
         bool stream{}; // For a streaming client: its clipboard and focus.
         // When the clipboard was first held, and since when no one read it.
         std::optional<double> owned_at, quiet_since;
-        // Moonlight never read the paste: its text may still be typed.
+        // After a streaming client's shortcut: whether anyone read the
+        // clipboard, and when the client last did.
+        bool read{};
+        std::optional<double> read_at;
+        // No one read the paste: its text may still be typed.
         bool unread{};
     };
     static std::size_t entered(const Entry& entry);
@@ -110,6 +117,7 @@ class EiSink : public KeySink {
     bool needs_entry(const std::string& text);
     bool enter(const std::string& text, std::size_t deletions);
     void advance_entry();
+    void follow_stream_reads(Entry& entry, const Clipboard* clipboard);
     void release_entry_keys();
     bool entering() const {
         return entry_ && !entry_->failed && !entry_->unread &&
@@ -141,8 +149,10 @@ class EiSink : public KeySink {
     Clipboard* desktop_paste_{};
     Clipboard* stream_paste_{};
     // Who read the clipboard before a streaming client's shortcut, as
-    // Gamescope does: their reads never count as the client's.
-    std::set<std::uint64_t> stream_readers_;
+    // Gamescope does: their reads never count as the client's. Who took a
+    // paste is never one of them, even when its late read lands before the
+    // next shortcut. Both start again when a streaming client takes focus.
+    std::set<std::uint64_t> stream_readers_, stream_takers_;
     GamescopeText::Clock clock_;
     double text_retry_at_{}, text_retry_delay_{1};
     double retry_at_{}, retry_delay_{1}, connect_deadline_{};

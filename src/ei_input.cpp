@@ -135,12 +135,19 @@ bool EiSink::text_available() {
 bool EiSink::commit_text(const std::string& text) {
     follow_focus(); // Decided by the window that has the keys now.
     if (entry_ && entry_->unread && entry_->text == text && !entry_->deletions) {
-        // Moonlight never read the paste, as its own windows don't: they
-        // take Gamescope's typing, and nothing of the paste arrived.
+        // No one read the paste, as Moonlight's own windows don't: they take
+        // Gamescope's typing, and nothing of the paste arrived. Until
+        // Gamescope takes the commit, the paste's count of none stands.
         entry_.reset();
-        last_entry_ = false;
-        return pump() && !input_reset_ && held_.empty() && text_available() &&
-               text_->commit(text, 0, on_keymap(text));
+        entry_delivered_ = 0;
+        if (!pump() || input_reset_ || !held_.empty() || !text_available()) {
+            return false;
+        }
+        const bool ok = text_->commit(text, 0, on_keymap(text));
+        if (ok || text_->pending()) {
+            last_entry_ = false;
+        }
+        return ok;
     }
     if (entry_ || needs_entry(text)) {
         return enter(text, 0);
@@ -153,8 +160,9 @@ bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
     follow_focus();
     // A streaming client never sees Gamescope's deletions (replaces_text),
     // and a whole word pasted at once loses characters on a Linux computer:
-    // refused, the replacement goes as Backspace taps instead.
-    if (stream_now_ && delete_before > 0 && !entry_) {
+    // refused, the replacement fails, and App's next one goes as Backspace
+    // taps. A Gamescope commit already out still reports its result here.
+    if (stream_now_ && delete_before > 0 && !entry_ && !(text_ && text_->pending())) {
         return false;
     }
     if (entry_ || needs_entry(text)) {
@@ -233,8 +241,15 @@ bool EiSink::desktop_target() {
     return focus && focus->focused();
 }
 void EiSink::follow_focus() {
+    const bool streaming = stream_now_;
     desktop_now_ = desktop_target();
     stream_now_ = !desktop_now_ && stream_target();
+    if (stream_now_ && !streaming) {
+        // Readers are judged anew for each streaming focus, so a misjudged
+        // one doesn't last.
+        stream_readers_.clear();
+        stream_takers_.clear();
+    }
 }
 bool EiSink::stream_target() {
     if (stream_focused_) {
@@ -362,6 +377,36 @@ bool EiSink::enter(const std::string& text, std::size_t deletions) {
     advance_entry();
     return false;
 }
+// A streaming client's paste is done once the client has read it and its
+// reads have stopped for stream_settle. Moonlight reads twice, a round trip
+// apart: SDL asks whether the clipboard holds text, then for the text.
+// Written sooner, the next character would reach its second read, and that
+// read, landing before the next shortcut, would have it taken for Gamescope.
+// A reader that read before the shortcut, as Gamescope does every new
+// clipboard, doesn't count, however late.
+void EiSink::follow_stream_reads(Entry& entry, const Clipboard* clipboard) {
+    const auto served = clipboard ? clipboard->served() : entry.served;
+    if (served != entry.served) {
+        entry.read = true;
+        const auto readers = clipboard->readers_since(entry.served);
+        entry.served = served;
+        const auto client = [&](std::uint64_t reader) { return !stream_readers_.contains(reader); };
+        if (!readers || std::any_of(readers->begin(), readers->end(), client)) {
+            entry.read_at = clock_();
+        }
+        for (const auto reader : readers.value_or(std::vector<std::uint64_t>{})) {
+            if (client(reader)) {
+                stream_takers_.insert(reader);
+            }
+        }
+        if (stream_takers_.size() > 64) {
+            stream_takers_.clear();
+        }
+    }
+    // Reads that never stop still end it at the paste's deadline: the client read it.
+    entry.taken =
+        entry.read_at && (clock_() - *entry.read_at >= stream_settle || clock_() >= entry.deadline);
+}
 // One key event per call, at least entry_gap apart.
 void EiSink::advance_entry() {
     if (!entering()) {
@@ -380,22 +425,19 @@ void EiSink::advance_entry() {
     }
     auto* const clipboard = entry_clipboard(entry);
     if (entry.write && entry.next == entry.keys.size()) {
-        // Ctrl+V is out: done once an application asks for the text. For a
-        // streaming client, a reader that read before the shortcut, as
-        // Gamescope does every new clipboard, doesn't count, however late.
-        if (const auto readers =
-                entry.stream && clipboard ? clipboard->readers_since(entry.served) : std::nullopt) {
-            entry.taken = std::any_of(readers->begin(), readers->end(), [&](std::uint64_t reader) {
-                return !stream_readers_.contains(reader);
-            });
+        // Ctrl+V is out: done once an application asks for the text.
+        if (entry.stream) {
+            follow_stream_reads(entry, clipboard);
         } else {
             entry.taken = clipboard && clipboard->served() != entry.served;
         }
         if (!entry.taken && clock_() >= entry.deadline) {
-            // Unread: Moonlight's own windows ignore its paste shortcut.
-            // Nothing arrived, so the text may still be typed (commit_text).
-            entry.unread = entry.stream;
-            entry.failed = !entry.stream;
+            // No one read it: Moonlight's own windows ignore its paste
+            // shortcut, so nothing arrived and the text may still be typed
+            // (commit_text). A read not credited to the client may have been
+            // its own: then it failed, and may have arrived.
+            entry.unread = entry.stream && !entry.read;
+            entry.failed = !entry.unread;
         }
         return;
     }
@@ -437,7 +479,11 @@ void EiSink::advance_entry() {
                 return;
             }
             if (const auto readers = clipboard->readers_since(entry.served)) {
-                stream_readers_.insert(readers->begin(), readers->end());
+                for (const auto reader : *readers) {
+                    if (!stream_takers_.contains(reader)) {
+                        stream_readers_.insert(reader);
+                    }
+                }
                 if (stream_readers_.size() > 64) {
                     stream_readers_.clear(); // Only Gamescope's few are kept.
                 }

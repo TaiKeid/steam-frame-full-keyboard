@@ -24,6 +24,7 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Additional languages in place of favorites, 35 more keyboards including Traditional Chinese Zhuyin, Cangjie and Quick, haptic sounds, swipe typing in the dictation editor, and automatic update checks (0.13.0).
 - Text selection in the dictation editor with its own Copy, Cut and Paste keys, and a Cut key on the keyboard (0.14.0).
 - Japanese conversion with Mozc, live candidates, learning and a four-row flick layout; Korean typed as on a PC, with 한/영; key flicks; presses between keys; and a desktop simulator (0.15.0).
+- Typing into PC apps through Moonlight and Sunshine: keys go as keys, other text a character at a time through Moonlight's Ctrl+Alt+Shift+V paste, and dictation types. Steam Link streams still cannot receive our keys. See [streamed games](streamed-games.md).
 
 ## Before each release
 
@@ -52,6 +53,5 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Measured battery, memory, and latency results.
 - Shell integration: `theme.derive`, the Wayland input method bridge, and headset checks of anchors, two-hand forwarding and the update handover.
 - An in-app update while dictating, tested in the headset.
-- PC apps through Moonlight and Sunshine: done. Keys go as keys, other text a character at a time through Moonlight's Ctrl+Alt+Shift+V paste, and dictation types; Steam Link streams still cannot receive our keys (see [streamed games](streamed-games.md)).
 
 Swipe typing for Japanese and Korean was dropped; see [swipe typing](swipe-typing.md#milestones). No universal native keyboard replacement, input into Steam Link streams, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

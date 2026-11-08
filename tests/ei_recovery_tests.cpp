@@ -788,6 +788,16 @@ void stream_paste() {
             "then Ctrl+Alt+Shift+V, Moonlight's paste");
     ++clipboard.taken;
     sink->pump();
+    require(sink->output_blocked() && !sink->commit_text("Привет"),
+            "read, it waits for the reads to stop");
+    now += EiSink::stream_settle / 2;
+    ++clipboard.taken; // SDL asks whether there is text, then for it.
+    sink->pump();
+    now += EiSink::stream_settle / 2;
+    sink->pump();
+    require(sink->output_blocked(), "a second read waits again");
+    now += 2 * EiSink::stream_settle;
+    sink->pump();
     require(!sink->output_blocked() && sink->commit_text("Привет"), "taken: Moonlight read it");
     // ASCII is on its keys: one Gamescope commit, as anywhere else.
     require(!sink->commit_text("abc") && sink->text_pending(), "ASCII is a Gamescope commit");
@@ -841,7 +851,52 @@ void stream_paste() {
             "Gamescope's late read is not Moonlight's");
     clipboard.read(2);
     sink->pump();
+    now += 2 * EiSink::stream_settle;
+    sink->pump();
     require(sink->commit_text("ж"), "Moonlight's is");
+    // Moonlight's second read landing before the next shortcut, past the
+    // settle, still leaves it Moonlight's.
+    server.keys.clear();
+    require(!sink->commit_text("з"), "the next paste starts");
+    sink->pump();
+    clipboard.read(1); // Gamescope
+    clipboard.read(2); // Moonlight's late second read of "ж"
+    settle_paste();
+    server.until([&] { return server.keys.size() == 8; });
+    clipboard.read(2);
+    sink->pump();
+    now += 2 * EiSink::stream_settle;
+    sink->pump();
+    require(sink->commit_text("з"), "Moonlight still counts");
+    // A read that wasn't Moonlight's, and none of its: not typed again,
+    // since an uncredited read may have been its own.
+    server.keys.clear();
+    const auto typed = text.commits.size();
+    require(!sink->commit_text("з"), "a paste starts");
+    settle_paste();
+    server.until([&] { return server.keys.size() == 8; });
+    clipboard.read(1); // Gamescope, late
+    now += EiSink::paste_wait;
+    sink->pump();
+    require(!sink->output_blocked() && !sink->commit_text("з") && !sink->text_pending() &&
+                text.commits.size() == typed,
+            "a paste read only by Gamescope fails, with nothing typed");
+    // A new streaming focus judges readers anew.
+    streaming = false;
+    sink->pump();
+    streaming = true;
+    sink->pump();
+    server.keys.clear();
+    require(!sink->commit_text("з"), "a paste starts");
+    sink->pump();
+    clipboard.read(2); // before the shortcut: taken for Gamescope's now
+    settle_paste();
+    server.until([&] { return server.keys.size() == 8; });
+    clipboard.read(1);
+    sink->pump();
+    now += 2 * EiSink::stream_settle;
+    sink->pump();
+    require(sink->commit_text("з"), "a reader not seen before the shortcut counts");
     // A clipboard read at every frame never goes quiet: the paste fails
     // rather than holding every key back.
     clipboard.tell = false;
@@ -872,6 +927,36 @@ void stream_paste() {
         return sink->commit_text("ж");
     });
     require(text.commits.size() == commits + 1 && text.commits.back() == "ж", "typed once");
+    // An unread paste that Gamescope can't take yet reports none delivered,
+    // not the count of the commit before.
+    server.until([&] {
+        now += .05;
+        text.pump();
+        sink->pump();
+        return sink->commit_text("abc");
+    });
+    require(!sink->commit_text("ж"), "a paste starts");
+    settle_paste();
+    server.until([&] { return server.keys.size() == 16; });
+    now += EiSink::paste_wait;
+    sink->pump();
+    sink->send(42, 1); // Left Shift, held
+    require(!sink->commit_text("ж") && !sink->text_pending() && sink->delivered_characters() == 0,
+            "a refused fallback delivered nothing");
+    sink->send(42, 0);
+    // A replacement already out as Gamescope's commit still reports its
+    // result once a streaming client has the keys.
+    streaming = false;
+    sink->pump();
+    require(!sink->replace_text(1, "ab") && sink->text_pending(), "a replacement goes out");
+    streaming = true;
+    server.until([&] {
+        now += .05; // Its characters go one by one, paced.
+        text.pump();
+        sink->pump();
+        return sink->replace_text(1, "ab");
+    });
+    require(!sink->text_pending() && !sink->output_blocked(), "and is collected");
 }
 void app_ordering_barrier() {
     Server server;
