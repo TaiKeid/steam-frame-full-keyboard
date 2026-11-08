@@ -14,6 +14,9 @@
 #include <pango/pango.h>
 #include <stdexcept>
 #include <thread>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #include <time.h>
 #include <tuple>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -114,6 +117,9 @@ constexpr double reopen_patience = 3;
 constexpr std::size_t max_swipe_points = 2000;
 // Completions of the word being typed, in the toolbar.
 constexpr std::size_t typing_suggestion_count = 5; // As many as swipe alternatives.
+// A word list unused this long, as while the panel is hidden, goes until
+// the next letter typed: 5–11 MB.
+constexpr double word_list_idle = 300;
 // KeyboardState repeats a held key after half a second; a little before that,
 // the word being typed counts as lost.
 constexpr double key_repeats_after = .45;
@@ -2264,7 +2270,7 @@ bool App::tick(double now) {
     refresh_typing();
     update_emoji(now);
     tick_next_words();
-    load_word_list();
+    load_word_list(now);
     if (const auto window = output_.focused_window(); window != word_window_) {
         word_window_ = window; // Another window has its own cursor.
         lose_word();
@@ -2653,6 +2659,7 @@ void App::rebuild_cycle_entries() {
     }
     cycle_entries_ = std::move(entries);
     swipe_support_.clear(); // Profiles may have changed.
+    suggestion_support_.clear();
     swipe_in_cycle_ = std::any_of(cycle_entries_.begin(), cycle_entries_.end(),
                                   [&](const Selection& entry) { return swipe_known(entry.language); });
 }
@@ -2691,6 +2698,7 @@ void App::reload() {
     hangul_latin_ = false;
     ++layouts_rebuilt_;
     dictation_layout_for_.reset(); // An edited layout or theme keeps its ID.
+    word_list_id_.clear();         // A word list of the user's own may have changed.
     keymap_ = std::move(keymap);
     std::vector<std::string> config_errors, field_errors;
     const auto updated_settings = load_settings(options_.config_dir, config_errors, &field_errors);
@@ -3237,7 +3245,34 @@ std::vector<App::LearnedRow> App::learned_rows() {
     return rows;
 }
 bool App::anything_learned() {
-    return !learned_rows().empty();
+    // Asked for each Settings update: it reads no words file, only their sizes.
+    if (learned_) {
+        return true;
+    }
+    for (const auto& [lexicon, learned] : learned_words_) {
+        if (learned.loaded() && !learned.empty()) {
+            return true;
+        }
+    }
+    if (options_.config_dir.empty()) {
+        return false;
+    }
+    std::set<std::string> lexicons;
+    for (const auto& [id, language] : profiles_.languages) {
+        lexicons.insert(language.swipe_lexicon);
+    }
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(options_.config_dir / "words", error)) {
+        const auto lexicon = entry.path().stem().string();
+        const auto known = learned_words_.find(lexicon);
+        std::error_code size_error;
+        if (entry.path().extension() == ".tsv" && lexicons.contains(lexicon) &&
+            (known == learned_words_.end() || !known->second.loaded()) &&
+            entry.file_size(size_error) > 0 && !size_error) {
+            return true;
+        }
+    }
+    return false;
 }
 void App::clear_learned(const std::vector<LearnedRow>& rows) {
     bool japanese = false;
@@ -3502,14 +3537,17 @@ void App::follow_commit(const std::string& text, std::uint64_t queued_before) {
 }
 void App::tick_next_words() {
     // Written a little after the last change, not at every commit.
+    // One that can't be written, as in a full config folder, waits as long
+    // again, rather than trying at every frame.
+    const double now = monotonic_seconds();
     for (auto* store : {&next_words_, &japanese_choices_, &japanese_completions_}) {
-        if (store->dirty() && monotonic_seconds() - store->changed_at() >= 2) {
-            store->save();
+        if (store->dirty() && now - store->changed_at() >= 2 && !store->save()) {
+            store->touch(now);
         }
     }
     for (auto& [lexicon, learned] : learned_words_) {
-        if (learned.dirty() && monotonic_seconds() - learned.changed_at() >= 2) {
-            learned.save();
+        if (learned.dirty() && now - learned.changed_at() >= 2 && !learned.save()) {
+            learned.touch(now);
         }
     }
 }
@@ -5123,46 +5161,51 @@ bool App::suggesting() const {
            !dictation_open_ && !emoji_open_ && !settings_open_ && !hint_private() &&
            !hint_no_suggestions() && edit_keys() == EditKeys::Standard;
 }
-void App::load_word_list() {
+void App::load_word_list(double now) {
+    if (std::exchange(typed_since_tick_, false)) {
+        typed_at_ = now;
+    }
     const auto language = profiles_.languages.find(settings_.active.language);
     const bool wanted = settings_.typing_suggestions && language != profiles_.languages.end() &&
-                        suggestions_supported(settings_.active.language);
+                        suggestions_supported(settings_.active.language) && typed_at_ >= 0 &&
+                        now - typed_at_ < word_list_idle;
     if (!wanted) {
-        // Off, or a language without: its memory goes back.
-        word_list_.reset();
-        word_list_load_.reset();
-        word_list_lexicon_.clear();
-        return;
-    }
-    const auto& lexicon = language->second.swipe_lexicon;
-    const auto id = lexicon + '\n' + language->second.id;
-    if (id != word_list_lexicon_) {
-        word_list_lexicon_ = id;
-        word_list_.reset();
-        auto load = std::make_shared<WordListLoad>();
-        word_list_load_ = load;
-        // Parsing takes a quarter second: never on the VR loop. A load that
-        // a language change made pointless finishes and goes unread.
-        std::thread([load, path = swipe_lexicon_path(options_.data_dir, options_.config_dir, lexicon),
-                     offensive = swipe_lexicon_path(options_.data_dir, options_.config_dir,
-                                                    lexicon + "-offensive"),
-                     respell = language->second.swipe_replace] {
-            auto list = std::make_shared<const WordList>(WordList::load(path, respell, offensive));
-            std::lock_guard lock(load->lock);
-            load->list = std::move(list);
-            load->done = true;
-        }).detach();
-        return;
-    }
-    if (word_list_load_) {
-        std::lock_guard lock(word_list_load_->lock);
-        if (!word_list_load_->done) {
-            return;
+        // Off, a language without, or unused for a while: its memory goes back.
+        if (!word_list_id_.empty()) {
+            word_list_.reset();
+            word_list_id_.clear();
+            word_list_loader_.take(); // Drops a load that finished meanwhile.
+            update_typing_suggestions();
+#if defined(__GLIBC__)
+            malloc_trim(0);
+#endif
         }
-        word_list_ = std::move(word_list_load_->list);
+        return;
     }
-    if (word_list_load_) {
-        word_list_load_.reset();
+    // Layouts of one language share their list: German, QWERTZ and QWERTY.
+    const auto& lexicon = language->second.swipe_lexicon;
+    auto id = lexicon;
+    for (const auto& [from, to] : language->second.swipe_replace) {
+        id += '\n' + from + '\t' + to;
+    }
+    if (id != word_list_id_) {
+        word_list_id_ = id;
+        word_list_.reset();
+        // Without a thread, there are no suggestions, and typing goes on.
+        word_list_loader_.request(
+            {id, swipe_lexicon_path(options_.data_dir, options_.config_dir, lexicon),
+             swipe_lexicon_path(options_.data_dir, options_.config_dir, lexicon + "-offensive"),
+             learned_words_.contains(lexicon) || options_.config_dir.empty()
+                 ? std::filesystem::path()
+                 : options_.config_dir / "words" / (lexicon + ".tsv"),
+             language->second.swipe_replace});
+    }
+    if (auto result = word_list_loader_.take(); result && result->id == word_list_id_) {
+        word_list_ = std::move(result->list);
+        // Read beside the list, unless one was made meanwhile, as by Clear.
+        if (!options_.config_dir.empty()) {
+            learned_words_.try_emplace(lexicon, std::move(result->learned));
+        }
         update_typing_suggestions();
     }
 }
@@ -5179,6 +5222,7 @@ LearnedWords& App::learned_words(const std::string& lexicon) {
     return found->second;
 }
 void App::track_typed(const std::string& text) {
+    typed_since_tick_ = true;
     for (const char* p = text.c_str(); *p; p = g_utf8_next_char(p)) {
         const auto character = g_utf8_get_char(p);
         static constexpr std::string_view punctuation = ".,!?;:";
@@ -5215,6 +5259,7 @@ void App::track_typed(const std::string& text) {
     update_typing_suggestions();
 }
 void App::track_backspace() {
+    typed_since_tick_ = true;
     pending_word_.reset(); // Its punctuation may be what goes.
     // Past what the keys typed, the text is the field's own: typing goes on
     // at a word's start, as after an arrow.

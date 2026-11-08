@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 using namespace framekeyboard;
 namespace fs = std::filesystem;
@@ -144,6 +145,55 @@ void offensive_tests() {
     learned.record("fuck");
     require(complete_word(words, learned, "fu", 3) == Words{"fuck", "fun", "full"},
             "once used, a word ranks as any other");
+    const auto top = words.starting("f", 2);
+    require(top.size() == 2 && top[0].key == "fun" && top[1].key == "full",
+            "only the best few of many matches are kept, offensive ones last");
+}
+// Swiss German writes ss for ß and shares German's learned words.
+void respelling_tests() {
+    char directory[] = "/tmp/framekeyboard-words-XXXXXX";
+    require(mkdtemp(directory), "temporary words folder");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    std::istringstream input("straße\t150\nstrom\t140\n");
+    const auto swiss = WordList::parse(input, {{"ß", "ss"}});
+    LearnedWords learned(fs::path(directory) / "de-de.tsv");
+    for (int i = 0; i < 3; ++i) {
+        learned.record("Fußweg");
+    }
+    const auto offered = complete_word(swiss, learned, "fu", 3);
+    require(offered == Words{"fussweg"} || offered == Words{"Fussweg"},
+            "a word learned with ß is offered as the list writes it");
+}
+// The loader hands over the latest request only, and ends with its owner.
+void loader_tests() {
+    char directory[] = "/tmp/framekeyboard-words-XXXXXX";
+    require(mkdtemp(directory), "temporary words folder");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    const fs::path folder = directory;
+    std::ofstream(folder / "a.tsv") << "alpha\t100\n";
+    std::ofstream(folder / "b.tsv") << "beta\t100\n";
+    std::ofstream(folder / "b-offensive.tsv") << "beta\n";
+    std::ofstream(folder / "learned.tsv") << "betamax\t4\t1\n";
+    WordListLoader loader;
+    require(loader.request({"a", folder / "a.tsv", {}, {}, {}}) &&
+                loader.request(
+                    {"b", folder / "b.tsv", folder / "b-offensive.tsv", folder / "learned.tsv", {}}),
+            "requests are taken");
+    std::optional<WordListLoader::Result> result;
+    for (int i = 0; i < 2000 && !(result = loader.take()); ++i) {
+        usleep(1000);
+    }
+    require(result && result->id == "b" && result->list->find("beta")->offensive &&
+                result->learned.loaded() && result->learned.uses("betamax") == 4,
+            "the latest request is loaded, with its offensive words and the user's words");
+    require(!loader.take(), "once");
+    loader.request({"a", folder / "a.tsv", {}, {}, {}}); // Still loading as the loader ends.
 }
 } // namespace
 int main() {
@@ -152,6 +202,8 @@ int main() {
         completion_tests();
         learning_tests();
         offensive_tests();
+        respelling_tests();
+        loader_tests();
         std::cout << "Word lists, completion and learned words passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

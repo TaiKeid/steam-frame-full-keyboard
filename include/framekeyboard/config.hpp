@@ -131,7 +131,7 @@ struct Settings {
     // Active only when the current language also supports swipe.
     bool swipe_typing{};
     // Completions of the word being typed in the toolbar, where swipe is
-    // offered (docs/typing-suggestions.md); on unless turned off.
+    // offered (docs/configuration.md, Typing suggestions); on unless turned off.
     bool typing_suggestions{true};
     // A key pulled down types its Shift character, as an iPad's key flicks
     // do; letters flick to capitals only while swipe isn't active.

@@ -26,7 +26,6 @@
 #include <csignal>
 #include <deque>
 #include <future>
-#include <mutex>
 #include <optional>
 #include <utility>
 
@@ -623,7 +622,7 @@ class App {
     bool swipe_known(const std::string& language) const;
     // Settings' switch reaches every language of the cycle, not only the main one.
     bool pending_can_swipe() const;
-    // Typing suggestions (docs/typing-suggestions.md): completions of the word
+    // Typing suggestions (docs/configuration.md, Typing suggestions): completions of the word
     // being typed, for the languages swipe typing is offered in.
     bool suggestions_supported(const std::string& language) const;
     bool pending_can_suggest() const;
@@ -631,7 +630,7 @@ class App {
     // not in a password, PIN or terminal field, dictation or a composer.
     bool suggesting() const;
     // The language's word list, loaded on a thread of its own on first need.
-    void load_word_list();
+    void load_word_list(double now);
     LearnedWords& learned_words(const std::string& lexicon);
     // Follows the word being typed: text this keyboard typed, typed or
     // swiped, a Backspace, and anything that ends it or makes it unknown.
@@ -1217,15 +1216,14 @@ class App {
     std::optional<unsigned> word_pointer_; // The pointer that typed into the word last.
     std::uint32_t word_window_{};                               // Where the word is typed.
     std::vector<std::string> typing_suggestions_;
-    struct WordListLoad {
-        std::mutex lock;
-        std::shared_ptr<const WordList> list;
-        bool done{};
-    };
-    std::shared_ptr<WordListLoad> word_list_load_;
+    WordListLoader word_list_loader_;
     std::shared_ptr<const WordList> word_list_;
-    std::string word_list_lexicon_;                     // The loaded or loading list's ID.
+    std::string word_list_id_;                          // The loaded or loading list's.
     std::map<std::string, LearnedWords> learned_words_; // By word list ID.
+    // When the keys last typed, in tick() time: the list loads at the first
+    // letter and goes after a while without one, as while the panel is hidden.
+    bool typed_since_tick_{};
+    double typed_at_{-1};
     // Alternatives for the last swiped word; any other input invalidates them.
     std::vector<std::string> swipe_candidates_;
     int swipe_selected_{};

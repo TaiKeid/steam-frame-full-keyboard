@@ -1,12 +1,16 @@
 #pragma once
 
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <istream>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace framekeyboard {
@@ -41,6 +45,9 @@ class WordList {
     std::vector<Word> starting(std::string_view prefix, std::size_t most) const;
     // The word with this key, if listed.
     std::optional<Word> find(std::string_view key) const;
+    // `word` as this list writes its language, respelled.
+    std::string respelled(std::string_view word) const;
+    bool respells() const { return !respell_.empty(); }
 
   private:
     // Keys and spellings live in one buffer; most spellings are their key.
@@ -53,6 +60,7 @@ class WordList {
     Word word(const Entry& entry) const;
     std::string text_;
     std::vector<Entry> entries_; // By key.
+    Respelling respell_;
 };
 
 // The words the user finished in one language, how often and how lately,
@@ -79,6 +87,8 @@ class LearnedWords {
     void touch(double now) { changed_at_ = now; }
     // Writes the changes, replacing the file whole; false if it could not.
     bool save();
+    // Whether the file was read: until then, empty() and size() read it.
+    bool loaded() const { return loaded_; }
 
     static constexpr std::size_t most_words = 5000;
     static constexpr std::size_t longest = 40; // Characters in a word.
@@ -89,10 +99,45 @@ class LearnedWords {
     void load() const;
     std::filesystem::path file_;
     mutable bool loaded_{};
-    mutable std::vector<Use> words_;
+    mutable std::map<std::string, Use, std::less<>> words_; // By key.
     mutable std::uint64_t clock_{};
     bool dirty_{};
     double changed_at_{};
+};
+
+// Loads a word list, and the user's words for it, on a thread of its own:
+// parsing takes a quarter second, never on the VR loop. Only the latest
+// request is loaded; the thread starts with the first request and ends with
+// the loader, after any load under way.
+class WordListLoader {
+  public:
+    struct Request {
+        std::string id; // Names the result.
+        std::filesystem::path list, offensive, learned;
+        WordList::Respelling respell;
+    };
+    struct Result {
+        std::string id;
+        std::shared_ptr<const WordList> list;
+        LearnedWords learned;
+    };
+    WordListLoader() = default;
+    WordListLoader(const WordListLoader&) = delete;
+    WordListLoader& operator=(const WordListLoader&) = delete;
+    ~WordListLoader();
+    // Replaces a request not started yet; false if the thread can't start.
+    bool request(Request request);
+    // The latest finished load, once; a later request drops an earlier result.
+    std::optional<Result> take();
+
+  private:
+    void run();
+    std::mutex lock_;
+    std::condition_variable wake_;
+    std::optional<Request> waiting_;
+    std::optional<Result> done_;
+    bool stop_{};
+    std::thread thread_;
 };
 
 // Up to `most` completions of `typed`, a word as typed: each is `typed` and

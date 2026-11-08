@@ -2264,6 +2264,19 @@ int typing_flow() {
                 "other fields get the switch back");
         fs::remove(directory.path / "config.json");
     }
+    {
+        // Unused for five minutes, as while hidden, the word list goes, and
+        // comes back with the next letter.
+        TextSink sink;
+        App app(options, sink);
+        type(app, "hel");
+        settle(app, [&] { return !typing_suggestions(app).empty(); });
+        app.tick(monotonic_seconds() + 301);
+        require(typing_suggestions(app).empty(), "an unused word list is let go");
+        type(app, "p");
+        settle(app, [&] { return !typing_suggestions(app).empty(); });
+        require(typing_suggestions(app).front() == "helpless", "and loaded again by typing");
+    }
     // Switched off in Settings, nothing is offered or learned.
     fs::remove(learned);
     Settings settings;

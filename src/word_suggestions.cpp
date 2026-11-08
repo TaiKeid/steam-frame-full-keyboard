@@ -1,17 +1,19 @@
 #include "framekeyboard/word_suggestions.hpp"
+#include "framekeyboard/private_file.hpp"
 
 #include <algorithm>
-#include <cerrno>
+#include <charconv>
 #include <cmath>
-#include <fcntl.h>
 #include <fstream>
 #include <glib.h>
 #include <map>
 #include <set>
 #include <sstream>
-#include <sys/stat.h>
 #include <system_error>
-#include <unistd.h>
+#include <utility>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 namespace framekeyboard {
 namespace {
@@ -26,24 +28,6 @@ std::size_t characters(std::string_view text) {
 bool keepable(std::string_view word) {
     return valid(word) && word.find_first_of("\t\n\r") == std::string_view::npos &&
            characters(word) >= 2 && characters(word) <= LearnedWords::longest;
-}
-bool write_all(int fd, const std::string& data) {
-    for (std::size_t offset = 0; offset < data.size();) {
-        const auto written = write(fd, data.data() + offset, data.size() - offset);
-        if (written < 0 && errno == EINTR) {
-            continue;
-        }
-        if (written <= 0) {
-            return false;
-        }
-        offset += static_cast<std::size_t>(written);
-    }
-    return true;
-}
-fs::path temporary_of(const fs::path& file) {
-    auto temporary = file;
-    temporary += ".tmp";
-    return temporary;
 }
 // The user's own uses raise a listed word, by less for each further use.
 int bonus(std::uint32_t uses) {
@@ -78,10 +62,6 @@ void apply(const WordList::Respelling& respell, std::string& spelling) {
 }
 } // namespace
 WordList WordList::parse(std::istream& input, const Respelling& respell, std::istream* offensive) {
-    struct Parsed {
-        std::string key, spelling;
-        int frequency{};
-    };
     std::set<std::string, std::less<>> held_back;
     std::string line;
     while (offensive && std::getline(*offensive, line)) {
@@ -90,7 +70,11 @@ WordList WordList::parse(std::istream& input, const Respelling& respell, std::is
             held_back.insert(word_key(line));
         }
     }
-    std::vector<Parsed> parsed;
+    WordList list;
+    list.respell_ = respell;
+    // Every key and spelling goes straight into the list's one buffer: a
+    // string for each word would take several times the list's memory.
+    std::string spelling;
     while (std::getline(input, line)) {
         if (line.empty() || line.front() == '#') {
             continue;
@@ -99,44 +83,47 @@ WordList WordList::parse(std::istream& input, const Respelling& respell, std::is
         if (tab == 0 || tab == std::string::npos) {
             continue;
         }
-        std::string spelling = line.substr(0, tab);
-        apply(respell, spelling);
         int frequency = 0;
-        try {
-            frequency = std::clamp(std::stoi(line.substr(tab + 1)), 0, 255);
-        } catch (const std::exception&) {
+        const char* const number = line.data() + tab + 1;
+        const auto [end, error] = std::from_chars(number, line.data() + line.size(), frequency);
+        if (error != std::errc{} || end == number) {
             continue;
         }
-        auto key = word_key(spelling);
-        if (key.empty() || key.size() > 0xffff || spelling.size() > 0xffff) {
-            continue;
-        }
-        parsed.push_back({std::move(key), spelling, frequency});
-    }
-    // Each key once, with its commonest spelling: he before He.
-    std::sort(parsed.begin(), parsed.end(), [](const Parsed& a, const Parsed& b) {
-        return a.key != b.key ? a.key < b.key : a.frequency > b.frequency;
-    });
-    WordList list;
-    for (const auto& word : parsed) {
-        if (!list.entries_.empty() && list.word(list.entries_.back()).key == word.key) {
+        spelling.assign(line, 0, tab);
+        apply(respell, spelling);
+        const auto key = word_key(spelling);
+        if (key.empty() || key.size() > 0xffff || spelling.size() > 0xffff ||
+            list.text_.size() + key.size() + spelling.size() > UINT32_MAX) {
             continue;
         }
         Entry entry;
         entry.key = static_cast<std::uint32_t>(list.text_.size());
-        entry.key_length = static_cast<std::uint16_t>(word.key.size());
-        list.text_ += word.key;
+        entry.key_length = static_cast<std::uint16_t>(key.size());
+        list.text_ += key;
         entry.spelling = entry.key;
         entry.spelling_length = entry.key_length;
-        if (word.spelling != word.key) {
+        if (spelling != key) {
             entry.spelling = static_cast<std::uint32_t>(list.text_.size());
-            entry.spelling_length = static_cast<std::uint16_t>(word.spelling.size());
-            list.text_ += word.spelling;
+            entry.spelling_length = static_cast<std::uint16_t>(spelling.size());
+            list.text_ += spelling;
         }
-        entry.frequency = static_cast<std::uint8_t>(word.frequency);
-        entry.offensive = held_back.contains(word.key);
+        entry.frequency = static_cast<std::uint8_t>(std::clamp(frequency, 0, 255));
+        entry.offensive = held_back.contains(key);
         list.entries_.push_back(entry);
     }
+    // Each key once, with its commonest spelling: he before He.
+    auto& entries = list.entries_;
+    std::sort(entries.begin(), entries.end(), [&](const Entry& a, const Entry& b) {
+        const auto a_key = list.word(a).key, b_key = list.word(b).key;
+        return a_key != b_key ? a_key < b_key : a.frequency > b.frequency;
+    });
+    entries.erase(std::unique(entries.begin(), entries.end(),
+                              [&](const Entry& a, const Entry& b) {
+                                  return list.word(a).key == list.word(b).key;
+                              }),
+                  entries.end());
+    entries.shrink_to_fit();
+    list.text_.shrink_to_fit();
     return list;
 }
 WordList WordList::load(const fs::path& path, const Respelling& respell, const fs::path& offensive) {
@@ -153,23 +140,43 @@ WordList::Word WordList::word(const Entry& entry) const {
             entry.offensive};
 }
 std::vector<WordList::Word> WordList::starting(std::string_view prefix, std::size_t most) const {
+    // Offensive words last, then commonest first.
+    const auto better = [](const Word& a, const Word& b) {
+        if (a.offensive != b.offensive) {
+            return b.offensive;
+        }
+        return a.frequency != b.frequency ? a.frequency > b.frequency : a.key < b.key;
+    };
+    std::vector<Word> best; // A heap whose front is the worst kept.
+    if (most == 0) {
+        return best;
+    }
+    best.reserve(std::min<std::size_t>(most, 256) + 1);
     const auto first = std::lower_bound(
         entries_.begin(), entries_.end(), prefix,
         [&](const Entry& entry, std::string_view key) { return word(entry).key < key; });
-    std::vector<Word> found;
-    for (auto at = first; at != entries_.end() && word(*at).key.starts_with(prefix); ++at) {
-        found.push_back(word(*at));
+    for (auto at = first; at != entries_.end(); ++at) {
+        const auto found = word(*at);
+        if (!found.key.starts_with(prefix)) {
+            break;
+        }
+        // One letter can begin ten thousand words: only the best stay.
+        if (best.size() < most) {
+            best.push_back(found);
+            std::push_heap(best.begin(), best.end(), better);
+        } else if (better(found, best.front())) {
+            std::pop_heap(best.begin(), best.end(), better);
+            best.back() = found;
+            std::push_heap(best.begin(), best.end(), better);
+        }
     }
-    const auto keep = std::min(most, found.size());
-    std::partial_sort(found.begin(), found.begin() + static_cast<std::ptrdiff_t>(keep), found.end(),
-                      [](const Word& a, const Word& b) {
-                          if (a.offensive != b.offensive) {
-                              return b.offensive;
-                          }
-                          return a.frequency != b.frequency ? a.frequency > b.frequency : a.key < b.key;
-                      });
-    found.resize(keep);
-    return found;
+    std::sort_heap(best.begin(), best.end(), better);
+    return best;
+}
+std::string WordList::respelled(std::string_view word) const {
+    std::string spelling(word);
+    apply(respell_, spelling);
+    return spelling;
 }
 std::optional<WordList::Word> WordList::find(std::string_view key) const {
     const auto at = std::lower_bound(
@@ -208,7 +215,7 @@ void LearnedWords::load() const {
         }
         use.key = word_key(use.spelling);
         clock_ = std::max(clock_, use.stamp);
-        words_.push_back(std::move(use));
+        words_.try_emplace(use.key, std::move(use));
     }
 }
 void LearnedWords::record(std::string_view word) {
@@ -216,36 +223,35 @@ void LearnedWords::record(std::string_view word) {
         return;
     }
     load();
-    const auto key = word_key(word);
-    const auto found =
-        std::find_if(words_.begin(), words_.end(), [&](const Use& use) { return use.key == key; });
-    if (found != words_.end()) {
-        found->uses = std::min<std::uint32_t>(found->uses + 1, 1000000);
-        found->stamp = ++clock_;
-        found->spelling = std::string(word); // As last typed: iPhone stays iPhone.
+    auto key = word_key(word);
+    if (const auto found = words_.find(key); found != words_.end()) {
+        auto& use = found->second;
+        use.uses = std::min<std::uint32_t>(use.uses + 1, 1000000);
+        use.stamp = ++clock_;
+        use.spelling = std::string(word); // As last typed: iPhone stays iPhone.
     } else {
-        words_.push_back({key, std::string(word), 1, ++clock_});
+        words_.try_emplace(key, Use{key, std::string(word), 1, ++clock_});
         if (words_.size() > most_words) {
             // The one used longest ago goes.
-            words_.erase(std::min_element(words_.begin(), words_.end(),
-                                          [](const Use& a, const Use& b) { return a.stamp < b.stamp; }));
+            words_.erase(
+                std::min_element(words_.begin(), words_.end(), [](const auto& a, const auto& b) {
+                    return a.second.stamp < b.second.stamp;
+                }));
         }
     }
     dirty_ = true;
 }
 std::uint32_t LearnedWords::uses(std::string_view key) const {
     load();
-    const auto found =
-        std::find_if(words_.begin(), words_.end(), [&](const Use& use) { return use.key == key; });
-    return found == words_.end() ? 0 : found->uses;
+    const auto found = words_.find(key);
+    return found == words_.end() ? 0 : found->second.uses;
 }
 std::vector<const LearnedWords::Use*> LearnedWords::starting(std::string_view prefix) const {
     load();
     std::vector<const Use*> found;
-    for (const auto& use : words_) {
-        if (std::string_view(use.key).starts_with(prefix)) {
-            found.push_back(&use);
-        }
+    for (auto at = words_.lower_bound(prefix); at != words_.end() && at->first.starts_with(prefix);
+         ++at) {
+        found.push_back(&at->second);
     }
     return found;
 }
@@ -263,48 +269,83 @@ void LearnedWords::clear() {
     clock_ = 0;
     dirty_ = false;
     if (!file_.empty()) {
-        std::error_code ignored;
-        fs::remove(file_, ignored);
-        fs::remove(temporary_of(file_), ignored);
+        remove_private_file(file_);
     }
 }
 bool LearnedWords::save() {
     if (!dirty_ || file_.empty()) {
         return true;
     }
-    // Written whole beside it, then put in its place. The words are the
-    // user's own: their folder and file are the owner's alone from their
-    // creation, and a failed write leaves nothing behind.
-    std::error_code error;
-    const auto folder = file_.parent_path();
-    if (!folder.empty() && !fs::exists(folder, error)) {
-        if (mkdir(folder.c_str(), 0700) != 0 && errno != EEXIST) {
-            return false;
-        }
-    }
+    // The words are the user's own: their folder and file are the owner's
+    // alone from their creation.
     std::ostringstream text;
-    for (const auto& use : words_) {
+    for (const auto& [key, use] : words_) {
         text << use.spelling << '\t' << use.uses << '\t' << use.stamp << '\n';
     }
-    const auto temporary = temporary_of(file_);
-    unlink(temporary.c_str());
-    const int fd = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
-    if (fd < 0) {
-        return false;
-    }
-    // No fsync: this runs on the VR thread, and a sync could stall a frame.
-    const bool written = write_all(fd, text.str());
-    if (close(fd) != 0 || !written) {
-        unlink(temporary.c_str());
-        return false;
-    }
-    fs::rename(temporary, file_, error);
-    if (error) {
-        unlink(temporary.c_str());
+    if (!write_private_file(file_, text.str(), true)) {
         return false;
     }
     dirty_ = false;
     return true;
+}
+
+WordListLoader::~WordListLoader() {
+    {
+        std::lock_guard guard(lock_);
+        stop_ = true;
+        waiting_.reset();
+    }
+    wake_.notify_one();
+    if (thread_.joinable()) {
+        thread_.join(); // After a load under way, at most a quarter second.
+    }
+}
+bool WordListLoader::request(Request request) {
+    {
+        std::lock_guard guard(lock_);
+        waiting_ = std::move(request);
+        done_.reset();
+    }
+    if (!thread_.joinable()) {
+        try {
+            thread_ = std::thread([this] { run(); });
+        } catch (const std::system_error&) {
+            std::lock_guard guard(lock_);
+            waiting_.reset();
+            return false;
+        }
+    }
+    wake_.notify_one();
+    return true;
+}
+std::optional<WordListLoader::Result> WordListLoader::take() {
+    std::lock_guard guard(lock_);
+    return std::exchange(done_, std::nullopt);
+}
+void WordListLoader::run() {
+    for (;;) {
+        Request request;
+        {
+            std::unique_lock guard(lock_);
+            wake_.wait(guard, [&] { return stop_ || waiting_; });
+            if (stop_) {
+                return;
+            }
+            request = std::move(*std::exchange(waiting_, std::nullopt));
+        }
+        Result result{request.id,
+                      std::make_shared<const WordList>(
+                          WordList::load(request.list, request.respell, request.offensive)),
+                      LearnedWords(request.learned)};
+        result.learned.size(); // Read here, not on the VR thread.
+#if defined(__GLIBC__)
+        malloc_trim(0); // Parsing's spare memory goes back.
+#endif
+        std::lock_guard guard(lock_);
+        if (!waiting_) { // A newer request makes this one moot.
+            done_ = std::move(result);
+        }
+    }
 }
 
 std::vector<std::string> complete_word(const WordList& list, const LearnedWords& learned,
@@ -326,15 +367,34 @@ std::vector<std::string> complete_word(const WordList& list, const LearnedWords&
                                              score(word, learned.uses(word.key))};
         }
     }
-    // The user's words: listed ones the top above missed, and new ones used often enough.
-    for (const auto* use : learned.starting(key)) {
-        if (use->key == key || scored.contains(use->key)) {
+    // The user's words: listed ones the top above missed, and new ones used
+    // often enough, as the list writes them (Straße learned in German is
+    // Strasse in Swiss German, which shares its words).
+    // Only the most used of them can outrank the list's best: one used
+    // rarely, and missed by the top above, ranks below those.
+    auto mine = learned.starting(key);
+    constexpr std::size_t considered = 64;
+    if (mine.size() > considered) {
+        std::partial_sort(mine.begin(), mine.begin() + considered, mine.end(),
+                          [](const auto* a, const auto* b) { return a->uses > b->uses; });
+        mine.resize(considered);
+    }
+    std::string respelled_spelling, respelled_key;
+    for (const auto* use : mine) {
+        std::string_view spelling = use->spelling, use_key = use->key;
+        if (list.respells()) {
+            respelled_spelling = list.respelled(use->spelling);
+            respelled_key = word_key(respelled_spelling);
+            spelling = respelled_spelling;
+            use_key = respelled_key;
+        }
+        if (use_key == key || scored.contains(use_key)) {
             continue;
         }
-        if (const auto listed = list.find(use->key)) {
-            scored[use->key] = {std::string(listed->spelling), score(*listed, use->uses)};
+        if (const auto listed = list.find(use_key)) {
+            scored[std::string(use_key)] = {std::string(listed->spelling), score(*listed, use->uses)};
         } else if (use->uses >= LearnedWords::new_word_uses) {
-            scored[use->key] = {use->spelling, learned_frequency + bonus(use->uses)};
+            scored[std::string(use_key)] = {std::string(spelling), learned_frequency + bonus(use->uses)};
         }
     }
     std::vector<std::pair<std::string, int>> ranked;
