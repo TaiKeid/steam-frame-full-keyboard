@@ -231,18 +231,22 @@ void stick_tests() {
             "half way past the dead zone, half the rate");
 }
 
+// The hints App gives the picker, as in English.
+const EmojiPickerWords words{"Loading emoji…", "Recently used emoji\nappear here",
+                             "Drag and drop from Recent to add a favorite, drop outside to remove."};
+
 void picker_tests() {
     const auto catalog = sample_catalog();
     const Rect tabs{100, 100, 900, 50}, grid{100, 170, 700, 290};
     EmojiPicker picker;
     picker.set_geometry(tabs, grid);
     picker.set_content(sections(catalog), 0, true);
-    auto view = picker.view();
+    auto view = picker.view(words);
     require(view.cells.empty() && view.hint == "Loading emoji…", "loading shows only a hint");
     require(view.tab_list.size() == emoji_group_count, "every tab shows while loading");
 
     picker.set_content(sections(catalog), 0, false);
-    view = picker.view();
+    view = picker.view(words);
     require(view.hint.find("Recently used") == 0, "an empty Recent explains itself");
     require(view.tab_list.size() == 5, "empty categories have no tab; Favorites always has one");
     require(view.tab_list[1].icon == Icon::Favorites, "Favorites comes after Recent");
@@ -655,13 +659,13 @@ void favorites_tests() {
     require(picker.up(1, x, y, now + .2).type == "s0", "a tap in Recent types");
     lift({x, y}, now += 1);
     require(picker.lifted(), "a hold in Recent lifts the emoji");
-    auto view = picker.view();
+    auto view = picker.view(words);
     require(view.lifted && view.lifted->text == "s0" && !view.lifted->removing, "it follows the laser");
     require(cell(view, "s0")->pressed, "its place in Recent stays lit");
     require(!view.favorites_hint.empty(), "the hint stays until it would land");
     auto [fx, fy] = slot_center(0);
     picker.move(1, fx, fy, now + .7);
-    view = picker.view();
+    view = picker.view(words);
     require(std::count_if(view.cells.begin(), view.cells.end(), [](const auto& c) { return c.slot; }) ==
                     1 &&
                 view.favorites_hint.empty(),

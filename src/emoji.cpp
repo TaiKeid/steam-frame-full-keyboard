@@ -939,7 +939,7 @@ void EmojiPicker::stop_glide() {
     // A grid caught past an end goes straight back to it.
     scroll_ = std::clamp(scroll_, 0.0, scroll_limit());
 }
-EmojiPickerView EmojiPicker::view() const {
+EmojiPickerView EmojiPicker::view(const EmojiPickerWords& words) const {
     EmojiPickerView v;
     v.grid = grid_;
     v.tabs = tabs_;
@@ -976,11 +976,11 @@ EmojiPickerView EmojiPicker::view() const {
                            !item.entry && item.group == 1, hovered(target), pressed(target) || source});
     }
     if (loading_) {
-        v.hint = "Loading emoji…";
+        v.hint = words.loading;
         v.hint_bounds = grid_;
     } else if (sections_[0].empty()) {
         const auto& recent = layout_[0];
-        v.hint = "Recently used emoji\nappear here";
+        v.hint = words.recent;
         v.hint_bounds = {grid_.x + recent.start - shown_scroll(), grid_.y, recent.columns * cell_,
                          grid_.height};
     }
@@ -998,7 +998,7 @@ EmojiPickerView EmojiPicker::view() const {
     }
     if (!loading_ && layout_[1].items == 0) {
         const auto& favorites = layout_[1];
-        v.favorites_hint = "Drag and drop from Recent to add a favorite, drop outside to remove.";
+        v.favorites_hint = words.favorites;
         v.favorites_hint_bounds = {grid_.x + favorites.start - shown_scroll(), grid_.y,
                                    favorites.columns * cell_, grid_.height};
     }

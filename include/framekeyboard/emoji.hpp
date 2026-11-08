@@ -122,6 +122,14 @@ struct EmojiPickerView {
     bool operator==(const EmojiPickerView&) const = default;
 };
 
+// The picker's hints, in the interface language: App provides them, as the
+// picker never looks up interface text. Without them the hints stay empty.
+struct EmojiPickerWords {
+    std::string loading;   // over the grid until the emoji font is checked
+    std::string recent;    // in an empty Recent
+    std::string favorites; // in an empty Favorites
+};
+
 // The picker's grid and tabs: one strip of every category, filled down each
 // column and then across, scrolled sideways by dragging or with the stick.
 // An emoji types when released over the cell it was pressed on; holding a
@@ -174,7 +182,7 @@ class EmojiPicker {
     // The skin tones are open, held or left open after the release.
     bool popup_open() const { return tones_.has_value(); }
     bool lifted() const { return press_ && press_->lifted; }
-    EmojiPickerView view() const;
+    EmojiPickerView view(const EmojiPickerWords& words = {}) const;
     // Display texts for the glyph cache: those in view first, then outward.
     std::vector<std::string> glyph_order(std::size_t limit) const;
     // Display texts of Recent and Favorites as shown, whose images stay

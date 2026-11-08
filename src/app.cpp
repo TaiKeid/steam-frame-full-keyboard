@@ -1291,7 +1291,8 @@ PanelView App::build_view(bool picker) const {
         v.key_labels.clear();
         v.flick_preview.reset();
         if (picker) {
-            v.emoji = emoji_.view();
+            v.emoji = emoji_.view(
+                {tr("emoji.loading"), tr("emoji.recent-empty"), tr("emoji.favorites-empty")});
             v.emoji_glyphs = emoji_glyphs_.get();
             if (emoji_glyphs_) {
                 auto mark = [&](std::vector<EmojiPickerView::Cell>& cells) {
