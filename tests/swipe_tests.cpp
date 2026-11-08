@@ -403,6 +403,58 @@ void text_output_capture() {
     require(std::getline(learned, line) && line.starts_with("helo\t1\t") && !std::getline(learned, line),
             "the swiped word that stayed is learned, not the one replaced");
 }
+// Alternatives chosen faster than a target takes their Backspaces fill the
+// output queue: a message asks to wait, and goes by itself once the output
+// is out and a moment has passed, or at once when a key is pressed.
+void waiting_message() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "swipe/lexicons");
+    std::ofstream(directory.path / "swipe/lexicons/en-us.tsv") << "hello\t200\nhelo\t100\n";
+    Settings settings;
+    settings.swipe_typing = true;
+    settings.typing_suggestions = false;
+    save_settings(directory.path, settings);
+    auto path = std::make_shared<std::vector<int>>();
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.swipe_encoder = [path] {
+        auto encoder = std::make_unique<FakeEncoder>();
+        encoder->path = path;
+        encoder->calls = std::make_shared<int>(0);
+        return encoder;
+    };
+    TextSink sink; // Not ordered: alternatives go as Backspace taps.
+    App app(options, sink);
+    settle(app, [&] { return app.swipe_ready(); });
+    *path = path_of(keyboard_for("en-us-full", "en-us"), U"helo");
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 2);
+    settle(app, [&] { return has_control(app.view(), "swipe-candidate-1"); });
+    const std::string wait = "Wait for typing to finish, then choose again.";
+    sink.hold = true; // The target takes the Backspaces' presses only slowly.
+    for (int i = 0; i < 12 && app.view().status != wait; ++i) {
+        click(app, i % 2 ? "swipe-candidate-0" : "swipe-candidate-1");
+    }
+    require(app.view().status == wait, "choosing faster than typing goes out asks to wait");
+    sink.hold = false;
+    sink.held_pending = false;
+    settle(app, [&] { return app.view().status != wait; }, 600);
+    require(app.view().status.empty(), "once the typing is out, the message goes by itself");
+    sink.hold = true;
+    for (int i = 0; i < 12 && app.view().status != wait; ++i) {
+        click(app, i % 2 ? "swipe-candidate-0" : "swipe-candidate-1");
+    }
+    require(app.view().status == wait, "asked again");
+    sink.hold = false;
+    sink.held_pending = false;
+    settle(app, [&] { return app.idle_for_update(); }, 600);
+    auto [x, y] = key_point(app, "KeyA");
+    app.down(0, x, y, 30);
+    app.up(0, x, y);
+    require(app.view().status.empty(), "a key pressed again ends it at once");
+}
 void app_flow(bool ordered_replace) {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "swipe/lexicons");
@@ -2349,6 +2401,7 @@ int main(int argc, char** argv) {
         app_flow(false);
         app_flow(true);
         text_output_capture();
+        waiting_message();
         swipes_between_keys();
         swipes_from_key_areas();
         trail_repaint();

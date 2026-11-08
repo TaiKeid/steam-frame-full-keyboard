@@ -646,6 +646,13 @@ class App {
     void end_word(bool learn);
     // The current word without a closing quote.
     std::string finished_word() const;
+    // A message about a moment, such as asking to wait for typing to finish:
+    // it goes by itself a little after the output is out, or when a key is
+    // pressed (tick_passing_status).
+    void show_passing_status(const std::string& message);
+    void clear_passing_status();
+    void tick_passing_status();
+    std::optional<std::pair<std::string, double>> passing_status_; // Its text, and when shown.
     // Learns `word`, which ended at `end` in typed_text_, unless it already
     // counted there.
     void learn_word(const std::string& word, std::size_t end);

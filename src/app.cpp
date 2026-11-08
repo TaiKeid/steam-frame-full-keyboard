@@ -120,6 +120,9 @@ constexpr std::size_t typing_suggestion_count = 5; // As many as swipe alternati
 // A word list unused this long, as while the panel is hidden, goes until
 // the next letter typed: 5–11 MB.
 constexpr double word_list_idle = 300;
+// A message about a moment, as "wait for typing to finish", goes this long
+// after it was last shown, once the keyboard's output is out.
+constexpr double passing_status_time = 2;
 // KeyboardState repeats a held key after half a second; a little before that,
 // the word being typed counts as lost.
 constexpr double key_repeats_after = .45;
@@ -1762,7 +1765,11 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     // While a word list loads, letters type as without swipe: a swipe would
     // make the next key wait for the whole load on the VR thread.
     if (swipes(*key, modifiers)) {
-        return swipe_down(pointer, *key, x, y, now, modifiers, gap);
+        const bool down = swipe_down(pointer, *key, x, y, now, modifiers, gap);
+        if (down && !gap) {
+            clear_passing_status(); // A letter tapped or swiped: typing again.
+        }
+        return down;
     }
     if (gap) {
         return false;
@@ -1883,6 +1890,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     const bool accepted = keyboard_.down(pointer, *key, now, local, code, !latin_toggle(*key),
                                          chord ? std::optional(chord->modifiers) : std::nullopt);
     if (accepted) {
+        clear_passing_status(); // Typing again: the wait it asked for is over.
         try {
             if (retry_text) {
                 retry_output();
@@ -2270,6 +2278,7 @@ bool App::tick(double now) {
     refresh_typing();
     update_emoji(now);
     tick_next_words();
+    tick_passing_status();
     load_word_list(now);
     if (const auto window = output_.focused_window(); window != word_window_) {
         word_window_ = window; // Another window has its own cursor.
@@ -2437,6 +2446,29 @@ void App::set_dragging(bool dragging, bool resizing) {
 void App::report_status(const std::string& message) {
     status_ = message;
     dirty = true;
+}
+void App::show_passing_status(const std::string& message) {
+    status_ = message;
+    passing_status_ = {message, monotonic_seconds()};
+    dirty = true;
+}
+void App::clear_passing_status() {
+    if (passing_status_ && status_ == passing_status_->first) {
+        status_.clear();
+        dirty = true;
+    }
+    passing_status_.reset();
+}
+void App::tick_passing_status() {
+    if (!passing_status_) {
+        return;
+    }
+    if (status_ != passing_status_->first) {
+        passing_status_.reset(); // Another message took its place.
+    } else if (monotonic_seconds() - passing_status_->second >= passing_status_time &&
+               output_.can_queue(OutputController::capacity)) {
+        clear_passing_status(); // Shown a while, and the typing it waited for is out.
+    }
 }
 void App::show_settings() {
     close_emoji(); // Settings returns to the keyboard, not the picker.
@@ -5955,7 +5987,7 @@ void App::choose_swipe(int index) {
         // Steam fields acknowledge each Backspace before the text. Each is one
         // queue entry; refuse rather than leave a partial deletion.
         if (!output_.can_queue(count + 1)) {
-            status_ = "Wait for typing to finish, then choose again.";
+            show_passing_status("Wait for typing to finish, then choose again.");
             return;
         }
         // One sequence: separate presses would each be admitted on their own,
