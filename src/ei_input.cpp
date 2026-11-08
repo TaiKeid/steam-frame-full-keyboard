@@ -133,6 +133,15 @@ bool EiSink::text_available() {
     return !disconnected_ && resumed_ && text_ && text_->ready();
 }
 bool EiSink::commit_text(const std::string& text) {
+    follow_focus(); // Decided by the window that has the keys now.
+    if (entry_ && entry_->unread && entry_->text == text && !entry_->deletions) {
+        // Moonlight never read the paste, as its own windows don't: they
+        // take Gamescope's typing, and nothing of the paste arrived.
+        entry_.reset();
+        last_entry_ = false;
+        return pump() && !input_reset_ && held_.empty() && text_available() &&
+               text_->commit(text, 0, on_keymap(text));
+    }
     if (entry_ || needs_entry(text)) {
         return enter(text, 0);
     }
@@ -141,8 +150,14 @@ bool EiSink::commit_text(const std::string& text) {
            text_->commit(text, 0, on_keymap(text));
 }
 bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
-    // A streaming client never sees Gamescope's deletions (replaces_text).
-    if (entry_ || needs_entry(text) || (stream_now_ && delete_before > 0)) {
+    follow_focus();
+    // A streaming client never sees Gamescope's deletions (replaces_text),
+    // and a whole word pasted at once loses characters on a Linux computer:
+    // refused, the replacement goes as Backspace taps instead.
+    if (stream_now_ && delete_before > 0 && !entry_) {
+        return false;
+    }
+    if (entry_ || needs_entry(text)) {
         return enter(text, delete_before);
     }
     last_entry_ = false;
@@ -217,6 +232,10 @@ bool EiSink::desktop_target() {
     const auto* focus = desktop_focus();
     return focus && focus->focused();
 }
+void EiSink::follow_focus() {
+    desktop_now_ = desktop_target();
+    stream_now_ = !desktop_now_ && stream_target();
+}
 bool EiSink::stream_target() {
     if (stream_focused_) {
         return stream_focused_();
@@ -263,7 +282,7 @@ bool EiSink::enter(const std::string& text, std::size_t deletions) {
         if (entering() || text != entry_->text || deletions != entry_->deletions) {
             return false;
         }
-        const bool ok = !entry_->failed;
+        const bool ok = !entry_->failed && !entry_->unread;
         entry_.reset();
         return ok;
     }
@@ -304,7 +323,8 @@ bool EiSink::enter(const std::string& text, std::size_t deletions) {
             return false; // Nothing written: the clipboard keeps what it held.
         }
         // The text may arrive any time after the paste keys, so none counts as delivered.
-        entry.write = clipboard->write(text);
+        entry.write = entry.stream ? clipboard->write_gamescope(text) : clipboard->write(text);
+        entry.served = clipboard->served(); // Reads from here on are of this text.
         entry.paste_at = entry.keys.size();
         for (const int modifier : paste.modifiers) {
             entry.keys.emplace_back(modifier, 1);
@@ -360,9 +380,23 @@ void EiSink::advance_entry() {
     }
     auto* const clipboard = entry_clipboard(entry);
     if (entry.write && entry.next == entry.keys.size()) {
-        // Ctrl+V is out: done once an application asks for the text.
-        entry.taken = clipboard && clipboard->served() != entry.served;
-        entry.failed = !entry.taken && clock_() >= entry.deadline;
+        // Ctrl+V is out: done once an application asks for the text. For a
+        // streaming client, a reader that read before the shortcut, as
+        // Gamescope does every new clipboard, doesn't count, however late.
+        if (const auto readers =
+                entry.stream && clipboard ? clipboard->readers_since(entry.served) : std::nullopt) {
+            entry.taken = std::any_of(readers->begin(), readers->end(), [&](std::uint64_t reader) {
+                return !stream_readers_.contains(reader);
+            });
+        } else {
+            entry.taken = clipboard && clipboard->served() != entry.served;
+        }
+        if (!entry.taken && clock_() >= entry.deadline) {
+            // Unread: Moonlight's own windows ignore its paste shortcut.
+            // Nothing arrived, so the text may still be typed (commit_text).
+            entry.unread = entry.stream;
+            entry.failed = !entry.stream;
+        }
         return;
     }
     if (clock_() < entry.next_at) {
@@ -394,16 +428,26 @@ void EiSink::advance_entry() {
             // Gamescope reads a new clipboard itself at once. Counted as
             // Moonlight's, it would let the next character's write overtake
             // the paste, landing it amid later keys: the shortcut waits
-            // until no read has come for stream_quiet, so the next read is
-            // Moonlight's. One that never ends doesn't hold the keys back.
+            // until no read has come for stream_quiet, and whoever read
+            // meanwhile doesn't count after it. Reads that never stop fail
+            // the paste rather than holding every key back.
+            entry.owned_at = entry.owned_at.value_or(clock_());
+            if (clock_() - *entry.owned_at >= paste_wait) {
+                entry.failed = true; // nothing pasted, so nothing to finish
+                return;
+            }
+            if (const auto readers = clipboard->readers_since(entry.served)) {
+                stream_readers_.insert(readers->begin(), readers->end());
+                if (stream_readers_.size() > 64) {
+                    stream_readers_.clear(); // Only Gamescope's few are kept.
+                }
+            }
             if (!entry.quiet_since || served != entry.served) {
-                entry.owned_at = entry.owned_at.value_or(clock_());
                 entry.quiet_since = clock_();
                 entry.served = served;
                 return;
             }
-            if (clock_() - *entry.quiet_since < stream_quiet &&
-                clock_() - *entry.owned_at < paste_wait) {
+            if (clock_() - *entry.quiet_since < stream_quiet) {
                 return;
             }
         }
@@ -555,8 +599,7 @@ bool EiSink::pump() {
     if (!disconnected_ && connect_deadline_ != 0 && clock_() >= connect_deadline_) {
         connection_lost();
     }
-    desktop_now_ = desktop_target();
-    stream_now_ = !desktop_now_ && stream_target();
+    follow_focus();
     advance_entry();
     return resumed_ && !disconnected_;
 }

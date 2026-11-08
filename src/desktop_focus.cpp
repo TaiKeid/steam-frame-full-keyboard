@@ -266,6 +266,7 @@ void watch(const std::shared_ptr<DesktopFocus::State>& state) {
         }
         xcb_disconnect(connection);
         state->focused = false;
+        state->streaming = false;
         state->edit_keys = EditKeys::Standard;
         state->window = 0;
         {

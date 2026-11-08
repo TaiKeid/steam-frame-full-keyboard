@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace framekeyboard {
 // Writes text to the clipboard for dictation's paste Send (docs/dictation.md,
@@ -25,6 +26,15 @@ class Clipboard {
     // Requests for the text answered so far, so Send can tell that an
     // application took it after Ctrl+V.
     virtual std::uint64_t served() const = 0;
+    // Like write(), but on Gamescope's own X displays only, where a streaming
+    // client such as Moonlight reads it: a nested desktop keeps its own
+    // clipboard, and its clipboard history doesn't record each character.
+    virtual std::uint64_t write_gamescope(const std::string& text) { return write(text); }
+    // Who read the text on Gamescope's X displays since served() was
+    // `since`, one number per reader (a display and its requesting window);
+    // empty when nobody did, and no value when this clipboard can't tell.
+    // A paste can then tell an application's read from Gamescope's own.
+    virtual std::optional<std::vector<std::uint64_t>> readers_since(std::uint64_t) const { return {}; }
 };
 
 // Owns CLIPBOARD on every X display Gamescope runs, as Steam uses :0 and

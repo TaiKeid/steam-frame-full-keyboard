@@ -12,6 +12,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -256,11 +257,14 @@ class XClipboard final : public Clipboard {
             close(wake_);
         }
     }
-    std::uint64_t write(const std::string& text) override {
+    std::uint64_t write(const std::string& text) override { return write(text, false); }
+    std::uint64_t write_gamescope(const std::string& text) override { return write(text, true); }
+    std::uint64_t write(const std::string& text, bool gamescope_only) {
         std::uint64_t number;
         {
             std::lock_guard lock(mutex_);
             text_ = text;
+            gamescope_only_ = gamescope_only;
             number = ++requested_;
         }
         if (!thread_.joinable() && wake_ >= 0) {
@@ -285,6 +289,16 @@ class XClipboard final : public Clipboard {
         return desktop_owned_.load() >= number;
     }
     std::uint64_t served() const override { return served_.load(); }
+    std::optional<std::vector<std::uint64_t>> readers_since(std::uint64_t since) const override {
+        std::vector<std::uint64_t> found;
+        std::lock_guard lock(readers_mutex_);
+        for (const auto& [serial, reader] : readers_) {
+            if (serial > since) {
+                found.push_back(reader);
+            }
+        }
+        return found;
+    }
 
   private:
     void signal() {
@@ -435,11 +449,12 @@ class XClipboard final : public Clipboard {
     // Takes the clipboard on every display; true when at least one holds it.
     // `desktop` says whether a nested desktop does, the one its own
     // applications paste from: Gamescope's X displays are not theirs.
-    bool own(const std::string& text, bool& desktop) {
+    // `gamescope_only` leaves the nested desktops' clipboards as they are.
+    bool own(const std::string& text, bool& desktop, bool gamescope_only) {
         bool any = false;
         desktop = false;
         for (auto& nested : nested_) {
-            desktop |= own(*nested, text);
+            desktop |= !gamescope_only && own(*nested, text);
         }
         any = desktop;
         for (auto& display : displays_) {
@@ -462,7 +477,13 @@ class XClipboard final : public Clipboard {
         } else if (request.target == display.utf8 || request.target == display.text) {
             xcb_change_property(display.connection, XCB_PROP_MODE_REPLACE, request.requestor, property,
                                 display.utf8, 8, static_cast<std::uint32_t>(text.size()), text.data());
-            ++served_;
+            // Who asked: a display and its window, never what was asked for.
+            const auto reader = std::hash<std::string>{}(display.name) * 31 + request.requestor;
+            std::lock_guard lock(readers_mutex_);
+            readers_.emplace_back(++served_, reader);
+            if (readers_.size() > 64) {
+                readers_.pop_front();
+            }
         } else {
             property = XCB_ATOM_NONE; // a format we do not offer
         }
@@ -503,16 +524,18 @@ class XClipboard final : public Clipboard {
             [[maybe_unused]] const auto read_bytes = ::read(wake_, &count, sizeof count);
             std::string text;
             std::uint64_t requested;
+            bool gamescope_only = false;
             {
                 std::lock_guard lock(mutex_);
                 text = text_;
                 requested = requested_;
+                gamescope_only = gamescope_only_;
             }
             if (requested != handled && running_) {
                 connect();
                 connect_nested();
                 bool desktop = false;
-                if (own(text, desktop)) {
+                if (own(text, desktop, gamescope_only)) {
                     owned_ = requested;
                 }
                 if (desktop) {
@@ -545,7 +568,11 @@ class XClipboard final : public Clipboard {
     std::thread thread_;
     std::mutex mutex_;
     std::string text_; // never logged
+    bool gamescope_only_{};
     std::uint64_t requested_{};
+    // The latest X reads: served()'s count after each, and its reader.
+    mutable std::mutex readers_mutex_;
+    std::deque<std::pair<std::uint64_t, std::uint64_t>> readers_;
     std::atomic<std::uint64_t> done_{}, owned_{}, desktop_owned_{}, served_{};
     std::atomic<bool> running_{true};
     std::vector<Display> displays_;               // the thread's own

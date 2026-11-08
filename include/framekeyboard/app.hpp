@@ -1221,9 +1221,8 @@ class App {
     std::optional<std::pair<std::size_t, std::string>> pending_word_, counted_;
     std::map<unsigned, double> held_keys_; // Typing keys still held, by pointer: their press.
     std::optional<unsigned> word_pointer_; // The pointer that typed into the word last.
-    std::uint32_t word_window_{};
-    bool stream_paste_routed_{}; // The sink has the clipboard for a streaming client. // Where the word
-                                 // is typed.
+    std::uint32_t word_window_{};          // Where the word is typed.
+    bool stream_paste_routed_{};           // The sink has the clipboard for a streaming client.
     std::vector<std::string> typing_suggestions_;
     WordListLoader word_list_loader_;
     std::shared_ptr<const WordList> word_list_;

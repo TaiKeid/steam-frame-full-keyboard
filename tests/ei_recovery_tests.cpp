@@ -728,9 +728,14 @@ void stream_paste() {
             "without a clipboard, text beyond its keys is refused");
     struct TestClipboard : Clipboard {
         std::vector<std::string> written;
+        std::size_t desktops{}; // Writes that reached a nested desktop too.
         std::optional<bool> owned;
         std::uint64_t taken{};
         std::uint64_t write(const std::string& value) override {
+            ++desktops;
+            return write_gamescope(value);
+        }
+        std::uint64_t write_gamescope(const std::string& value) override {
             written.push_back(value);
             return written.size();
         }
@@ -738,6 +743,22 @@ void stream_paste() {
         // Moonlight reads Gamescope's clipboard; the Desktop's doesn't matter.
         std::optional<bool> desktop_result(std::uint64_t) const override { return false; }
         std::uint64_t served() const override { return taken; }
+        // Who read, once the test says: Gamescope is 1, Moonlight 2.
+        bool tell{};
+        std::vector<std::pair<std::uint64_t, std::uint64_t>> reads;
+        void read(std::uint64_t reader) { reads.emplace_back(++taken, reader); }
+        std::optional<std::vector<std::uint64_t>> readers_since(std::uint64_t since) const override {
+            if (!tell) {
+                return {};
+            }
+            std::vector<std::uint64_t> found;
+            for (const auto& [serial, reader] : reads) {
+                if (serial > since) {
+                    found.push_back(reader);
+                }
+            }
+            return found;
+        }
     } clipboard;
     sink->set_stream_paste(&clipboard);
     server.keys.clear();
@@ -792,6 +813,65 @@ void stream_paste() {
     server.pump();
     require(server.keys.empty(), "with no key sent");
     require(sink->replaces_text(), "other windows take Gamescope's replacement again");
+    require(clipboard.desktops == 0, "Moonlight's text never reaches a nested desktop's clipboard");
+    streaming = true;
+    sink->pump();
+    const auto writes = clipboard.written.size();
+    require(!sink->replace_text(2, "ab") && clipboard.written.size() == writes && !sink->text_pending(),
+            "a replacement while streaming is refused, for Backspace taps instead");
+    // Gamescope's own read, even a late one after the shortcut, doesn't
+    // count: only a reader new since the shortcut, Moonlight, does.
+    const auto settle_paste = [&] {
+        for (int i = 0; i < 4; ++i) {
+            now += EiSink::stream_quiet;
+            sink->pump();
+        }
+    };
+    clipboard.tell = true;
+    clipboard.owned = true;
+    server.keys.clear();
+    require(!sink->commit_text("ж"), "a paste starts");
+    sink->pump();
+    clipboard.read(1); // Gamescope, at once
+    settle_paste();
+    server.until([&] { return server.keys.size() == 8; });
+    clipboard.read(1); // Gamescope again, late
+    sink->pump();
+    require(sink->output_blocked() && !sink->commit_text("ж"),
+            "Gamescope's late read is not Moonlight's");
+    clipboard.read(2);
+    sink->pump();
+    require(sink->commit_text("ж"), "Moonlight's is");
+    // A clipboard read at every frame never goes quiet: the paste fails
+    // rather than holding every key back.
+    clipboard.tell = false;
+    server.keys.clear();
+    require(!sink->commit_text("ж"), "a paste starts");
+    for (int i = 0; i < 400 && sink->output_blocked(); ++i) {
+        ++clipboard.taken;
+        now += .011;
+        sink->pump();
+    }
+    server.pump();
+    require(!sink->output_blocked() && !sink->commit_text("ж") && server.keys.empty(),
+            "endless reads fail it after the paste wait, with no key sent");
+    // Moonlight's own windows ignore its paste shortcut: nothing is read,
+    // so the text goes as Gamescope's typing instead.
+    server.keys.clear();
+    const auto commits = text.commits.size();
+    require(!sink->commit_text("ж"), "a paste starts");
+    settle_paste();
+    server.until([&] { return server.keys.size() == 8; });
+    now += EiSink::paste_wait;
+    sink->pump();
+    require(!sink->output_blocked() && !sink->commit_text("ж") && sink->text_pending(),
+            "unread, it goes as Gamescope's typing");
+    server.until([&] {
+        text.pump();
+        sink->pump();
+        return sink->commit_text("ж");
+    });
+    require(text.commits.size() == commits + 1 && text.commits.back() == "ж", "typed once");
 }
 void app_ordering_barrier() {
     Server server;

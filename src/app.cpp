@@ -8163,8 +8163,13 @@ bool App::tick_send(double now) {
         return true;
     }
     // Hiding the panel or losing the target cancels the queue without a
-    // failure; a target that never answers is given up the same way.
-    if (!output_.text_pending() || now - s.since > 5) {
+    // failure; a target that never answers is given up the same way. A
+    // streaming client takes a piece a character at a time, each a paste of
+    // about 60 ms: its limit grows with the piece.
+    const double limit =
+        5 + (output_.stream_focused() ? .25 * static_cast<double>(g_utf8_strlen(piece.text.c_str(), -1))
+                                      : 0);
+    if (!output_.text_pending() || now - s.since > limit) {
         stop_send(true, window_moved(s.window));
         return true;
     }

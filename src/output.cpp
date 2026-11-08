@@ -428,7 +428,9 @@ void OutputController::drain(bool fresh_tick) {
         auto entry = queue_.front();
         if (moved && !entry->submitted) {
             target_.cancel_delivery(); // ends a native key waiting for its result
-            fail(0, false);            // no text of it went out
+            // Nothing of it went out, beyond the characters of one going
+            // a character at a time that are already in.
+            fail(entry->done_characters, false);
             return;
         }
         if (!entry->started && entry->repeat) {

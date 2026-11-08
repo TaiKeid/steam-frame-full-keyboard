@@ -96,10 +96,14 @@ class EiSink : public KeySink {
         bool stream{}; // For a streaming client: its clipboard and focus.
         // When the clipboard was first held, and since when no one read it.
         std::optional<double> owned_at, quiet_since;
+        // Moonlight never read the paste: its text may still be typed.
+        bool unread{};
     };
     static std::size_t entered(const Entry& entry);
     bool desktop_target();
     bool stream_target();
+    // Reads Gamescope's focus: the nested Desktop's, or a streaming client's.
+    void follow_focus();
     Clipboard* entry_clipboard(const Entry& entry) const {
         return entry.stream ? stream_paste_ : desktop_paste_;
     }
@@ -108,7 +112,7 @@ class EiSink : public KeySink {
     void advance_entry();
     void release_entry_keys();
     bool entering() const {
-        return entry_ && !entry_->failed &&
+        return entry_ && !entry_->failed && !entry_->unread &&
                (entry_->next < entry_->keys.size() || (entry_->write && !entry_->taken));
     }
     void read_keymap();
@@ -136,6 +140,9 @@ class EiSink : public KeySink {
     bool terminal_hint_{};
     Clipboard* desktop_paste_{};
     Clipboard* stream_paste_{};
+    // Who read the clipboard before a streaming client's shortcut, as
+    // Gamescope does: their reads never count as the client's.
+    std::set<std::uint64_t> stream_readers_;
     GamescopeText::Clock clock_;
     double text_retry_at_{}, text_retry_delay_{1};
     double retry_at_{}, retry_delay_{1}, connect_deadline_{};

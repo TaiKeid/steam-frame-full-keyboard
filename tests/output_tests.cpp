@@ -760,6 +760,19 @@ void stream_client() {
     sink.done = true;
     output.tick(1.3);
     require(!output.text_pending() && sink.events.size() == 9, "and that's all");
+    // Another window taking the keys between its characters keeps only the
+    // rest for a retry: what went before is in the first window.
+    sink.window = 7;
+    output.tick(2);
+    require(output.commit_text("aéb"), "more mixed text");
+    sink.done = true;
+    output.tick(2.1);
+    require(sink.events.back() == "é", "two of its characters are on their way");
+    sink.done = true;
+    sink.window = 8;
+    output.tick(2.2);
+    require(output.failures() == 1 && output.retry_text() == "b" && !output.retry_uncertain(),
+            "only the third is kept, certainly not sent");
 }
 int main() {
     try {
