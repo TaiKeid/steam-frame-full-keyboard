@@ -153,7 +153,7 @@ Dictation works in every bundled language except Japanese JIS. A small icon on t
 Privacy:
 
 - On device, audio never leaves the Frame. Self-hosted, it goes only to the server you entered, and only while you dictate or press Test. A plain `host:port` address is unencrypted, so keep the server on your own network; Settings warns about addresses that are not local.
-- Audio and text stay in memory only. Nothing you say or type is logged or saved, apart from the Japanese phrases [learning](docs/japanese.md#learning) keeps and the words [typing suggestions](docs/configuration.md#typing-suggestions) count, never from password, PIN or terminal fields.
+- Audio and text stay in memory only. Nothing you say or type is logged or saved, apart from the Japanese phrases [learning](docs/japanese.md#learning) keeps and the words [typing suggestions](docs/configuration.md#typing-suggestions) count, never from fields marked as password, PIN or terminal.
 - Listening stops as soon as you take the headset off or it wakes from sleep, and after 60 s of silence.
 - The microphone hears everyone nearby. While a game runs, game sound may be picked up too, and a message says so while listening.
 

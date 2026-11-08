@@ -154,7 +154,7 @@ La dictée fonctionne dans toutes les langues fournies sauf le japonais JIS. Une
 Confidentialité :
 
 - Sur l'appareil, le son ne quitte jamais la Frame. En auto-hébergé, il ne va qu'au serveur que vous avez saisi, et seulement pendant que vous dictez ou appuyez sur Tester. Une simple adresse `host:port` n'est pas chiffrée, gardez donc le serveur sur votre propre réseau ; les paramètres avertissent pour les adresses qui ne sont pas locales.
-- Le son et le texte restent uniquement en mémoire. Rien de ce que vous dites ou tapez n'est journalisé ni enregistré, à part les phrases japonaises que l'[apprentissage](docs/japanese.md#learning) conserve et les mots que les [suggestions de saisie](docs/configuration.md#typing-suggestions) comptent, et jamais depuis des champs de mot de passe, de code PIN ou de terminal.
+- Le son et le texte restent uniquement en mémoire. Rien de ce que vous dites ou tapez n'est journalisé ni enregistré, à part les phrases japonaises que l'[apprentissage](docs/japanese.md#learning) conserve et les mots que les [suggestions de saisie](docs/configuration.md#typing-suggestions) comptent, et jamais depuis des champs signalés comme mot de passe, code PIN ou terminal.
 - L'écoute s'arrête dès que vous retirez le casque ou qu'il sort de veille, et après 60 s de silence.
 - Le micro entend tout le monde autour. Pendant qu'un jeu tourne, le son du jeu peut aussi être capté, et un message le signale pendant l'écoute.
 

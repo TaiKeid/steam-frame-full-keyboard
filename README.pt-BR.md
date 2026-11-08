@@ -154,7 +154,7 @@ O ditado funciona em todos os idiomas incluídos, exceto japonês JIS. Um pequen
 Privacidade:
 
 - No dispositivo, o áudio nunca sai do Frame. No servidor próprio, ele vai só para o servidor que você informou, e só enquanto você dita ou pressiona Testar. Um endereço `host:port` simples não é criptografado, então mantenha o servidor na sua própria rede; as Configurações avisam sobre endereços que não são locais.
-- Áudio e texto ficam só na memória. Nada do que você fala ou digita é registrado ou salvo, exceto as frases em japonês que o [aprendizado](docs/japanese.md#learning) guarda e as palavras que as [sugestões de digitação](docs/configuration.md#typing-suggestions) contam, e nunca de campos de senha, PIN ou terminal.
+- Áudio e texto ficam só na memória. Nada do que você fala ou digita é registrado ou salvo, exceto as frases em japonês que o [aprendizado](docs/japanese.md#learning) guarda e as palavras que as [sugestões de digitação](docs/configuration.md#typing-suggestions) contam, e nunca de campos marcados como senha, PIN ou terminal.
 - A escuta para assim que você tira o headset ou quando ele acorda do modo de suspensão, e após 60 s de silêncio.
 - O microfone ouve todos que estão por perto. Enquanto um jogo está rodando, o som dele também pode ser captado, e uma mensagem avisa isso durante a escuta.
 

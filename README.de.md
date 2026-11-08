@@ -154,7 +154,7 @@ Diktieren funktioniert in jeder mitgelieferten Sprache außer Japanisch JIS. Ein
 Datenschutz:
 
 - Auf dem Gerät verlässt der Ton nie die Frame. Selbst gehostet geht er nur an den Server, den Sie eingegeben haben, und nur, während Sie diktieren oder Testen drücken. Eine einfache `host:port`-Adresse ist unverschlüsselt, also halten Sie den Server in Ihrem eigenen Netzwerk; die Einstellungen warnen vor Adressen, die nicht lokal sind.
-- Ton und Text bleiben nur im Arbeitsspeicher. Nichts, was Sie sagen oder tippen, wird protokolliert oder gespeichert, abgesehen von den japanischen Sätzen, die das [Lernen](docs/japanese.md#learning) behält, und den Wörtern, die die [Wortvorschläge](docs/configuration.md#typing-suggestions) zählen, und nie aus Passwort-, PIN- oder Terminalfeldern.
+- Ton und Text bleiben nur im Arbeitsspeicher. Nichts, was Sie sagen oder tippen, wird protokolliert oder gespeichert, abgesehen von den japanischen Sätzen, die das [Lernen](docs/japanese.md#learning) behält, und den Wörtern, die die [Wortvorschläge](docs/configuration.md#typing-suggestions) zählen, und nie aus Feldern, die als Passwort-, PIN- oder Terminalfeld gekennzeichnet sind.
 - Das Zuhören endet, sobald Sie das Headset absetzen oder es aus dem Ruhezustand erwacht, und nach 60 s Stille.
 - Das Mikrofon hört alle in der Nähe. Während ein Spiel läuft, kann auch der Spielton aufgenommen werden, und eine Meldung weist beim Zuhören darauf hin.
 

@@ -154,7 +154,7 @@ El dictado funciona en todos los idiomas incluidos excepto japonés JIS. Un pequ
 Privacidad:
 
 - En el dispositivo, el audio nunca sale del Frame. En modo autoalojado, solo va al servidor que hayas introducido, y solo mientras dictas o pulsas Probar. Una dirección `host:port` simple no está cifrada, así que mantén el servidor en tu propia red; Ajustes avisa de las direcciones que no son locales.
-- El audio y el texto solo se quedan en memoria. Nada de lo que dices o escribes se registra ni se guarda, salvo las frases en japonés que conserva el [aprendizaje](docs/japanese.md#learning) y las palabras que cuentan las [sugerencias de escritura](docs/configuration.md#typing-suggestions), y nunca de campos de contraseña, PIN o terminal.
+- El audio y el texto solo se quedan en memoria. Nada de lo que dices o escribes se registra ni se guarda, salvo las frases en japonés que conserva el [aprendizaje](docs/japanese.md#learning) y las palabras que cuentan las [sugerencias de escritura](docs/configuration.md#typing-suggestions), y nunca de campos marcados como contraseña, PIN o terminal.
 - La escucha se detiene en cuanto te quitas el visor o este despierta del modo de suspensión, y tras 60 s de silencio.
 - El micrófono oye a todos los que están cerca. Mientras se ejecuta un juego, también puede captar su sonido, y un mensaje lo indica mientras escucha.
 
