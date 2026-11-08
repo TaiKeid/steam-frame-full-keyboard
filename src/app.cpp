@@ -401,7 +401,7 @@ std::vector<Control> App::controls() const {
         if (!settings_.pinned && !settings_.use_drag_to_move && !locked_move() && !forwarded()) {
             add({ControlKind::MoveHandle},
                 {"move-handle",
-                 "Move keyboard",
+                 tr("tooltip.move-handle"),
                  {body.x + body.width / 2 - 220, body.y + body.height + 12, 440, 60},
                  dragging_ && !resizing_,
                  Icon::None,
@@ -526,7 +526,8 @@ std::vector<Control> App::controls() const {
     };
     // A shell may hide chrome; the Settings view stays reachable through it.
     if (host_.chrome.settings) {
-        add({ControlKind::Settings}, {"settings", "Settings", button(0, 0, 0), false, Icon::Settings});
+        add({ControlKind::Settings},
+            {"settings", tr("tooltip.settings"), button(0, 0, 0), false, Icon::Settings});
         // Listening goes on under Settings; it waits only while Send runs.
         result.back().enabled = !(dictation_open_ && (sending_ || send_wait_since_));
         // A shell decides about updates itself.
@@ -536,13 +537,14 @@ std::vector<Control> App::controls() const {
     // is recognized and typed: their joining and context follow the language.
     const bool listening = capturing_ || send_wait_since_ || phrases_pending() ||
                            !direct_waiting_.empty() || direct_paste_.has_value();
-    add({ControlKind::Recenter}, {"recenter", "Recenter", button(1, 1, 0), false, Icon::Recenter});
-    add({ControlKind::Pin}, {"pin", settings_.pinned ? "Unpin keyboard" : "Pin keyboard",
+    add({ControlKind::Recenter},
+        {"recenter", tr("tooltip.recenter"), button(1, 1, 0), false, Icon::Recenter});
+    add({ControlKind::Pin}, {"pin", tr(settings_.pinned ? "tooltip.unpin" : "tooltip.pin"),
                              button(2, 2, 0), false, settings_.pinned ? Icon::PinOn : Icon::PinOff});
     // Under a shell the shell decides when the panel shows.
     if (!hosted()) {
         add({ControlKind::Passthrough},
-            {"passthrough", passthrough() ? "Close with the dashboard" : "Stay open over apps",
+            {"passthrough", tr(passthrough() ? "tooltip.close-with-dashboard" : "tooltip.stay-open"),
              // Like Pin, only its icon shows the state.
              button(3, 0, 1), false, passthrough() ? Icon::PassthroughOn : Icon::PassthroughOff});
     }
@@ -550,8 +552,8 @@ std::vector<Control> App::controls() const {
     const bool keep_button = focus_mode_button();
     if (keep_button) {
         add({ControlKind::KeepOpen},
-            {"keep-open", settings_.keep_open ? "Leave focus mode" : "Focus mode", button(4, 1, 1),
-             false, settings_.keep_open ? Icon::KeepOpenOn : Icon::KeepOpenOff});
+            {"keep-open", tr(settings_.keep_open ? "tooltip.focus-mode-leave" : "tooltip.focus-mode"),
+             button(4, 1, 1), false, settings_.keep_open ? Icon::KeepOpenOn : Icon::KeepOpenOff});
         result.back().warning = settings_.keep_open && hidden_focus_;
     }
     int next_slot = keep_button ? 5 : 4, next_column = keep_button ? 2 : 1;
@@ -569,9 +571,9 @@ std::vector<Control> App::controls() const {
         // button says why with a lock, and its press only shakes it.
         const bool locked = hint_private() && !blocked;
         add({ControlKind::SwipeToggle}, {"swipe-toggle",
-                                         locked ? "No swiping or suggestions in password fields"
-                                         : on   ? "Turn swiping off"
-                                                : "Turn swiping on",
+                                         tr(locked ? "tooltip.swipe-password"
+                                            : on   ? "tooltip.swipe-off"
+                                                   : "tooltip.swipe-on"),
                                          button(next_slot++, next_column++, 1), false,
                                          locked ? Icon::Lock
                                          : on   ? Icon::Swipe
@@ -589,7 +591,7 @@ std::vector<Control> App::controls() const {
         const bool on = settings_.haptic_sounds_switch && !capturing_;
         const bool on_top = compact && next_column == 3;
         add({ControlKind::SoundsToggle},
-            {"sounds-toggle", on ? "Turn haptic sounds off" : "Turn haptic sounds on",
+            {"sounds-toggle", tr(on ? "tooltip.sounds-off" : "tooltip.sounds-on"),
              on_top ? button(0, top_column++, 0) : button(next_slot, next_column++, 1), false,
              on ? Icon::HapticSound : Icon::HapticSoundOff});
         ++next_slot;
@@ -601,7 +603,7 @@ std::vector<Control> App::controls() const {
         const bool on = settings_.key_flicks_switch;
         const bool on_top = compact && next_column == 3;
         add({ControlKind::KeyFlicksToggle},
-            {"key-flicks-toggle", on ? "Turn key flicks off" : "Turn key flicks on",
+            {"key-flicks-toggle", tr(on ? "tooltip.key-flicks-off" : "tooltip.key-flicks-on"),
              on_top ? button(0, top_column++, 0) : button(next_slot, next_column++, 1), false,
              on ? Icon::KeyFlick : Icon::KeyFlickOff});
         ++next_slot;
@@ -622,7 +624,7 @@ std::vector<Control> App::controls() const {
     }
     if (host_.chrome.close) {
         add({ControlKind::Close}, {"close",
-                                   resident_replacement() ? "Hide keyboard" : "Close",
+                                   tr(resident_replacement() ? "tooltip.hide" : "tooltip.close"),
                                    {body.x + body.width - 78, 12, 60, 42},
                                    false,
                                    Icon::Close});
@@ -630,7 +632,7 @@ std::vector<Control> App::controls() const {
     if (sink_on()) {
         // While a shell receives the typing, the user can take it back here.
         add({ControlKind::SinkOff},
-            {"sink-off", "Stop shell typing", {body.x + body.width - 288, 12, 200, 42}});
+            {"sink-off", tr("button.sink-off"), {body.x + body.width - 288, 12, 200, 42}});
     }
     if (dictation_open_ && confirm_discard_ && !settings_open_) {
         // The answers sit at the right of the band the question shows in.
@@ -660,8 +662,8 @@ std::vector<Control> App::controls() const {
     // ∨ shows while the candidates have more than their row shows.
     if (geometry.ime_more && !settings_open_ && candidates_.shown() && candidate_more_) {
         add({ControlKind::CandidateList},
-            {"ime-more", candidate_list_ ? "Close candidates" : "More candidates", *candidate_more_,
-             false, candidate_list_ ? Icon::ChevronUp : Icon::ChevronDown});
+            {"ime-more", tr(candidate_list_ ? "tooltip.candidates-close" : "tooltip.candidates-more"),
+             *candidate_more_, false, candidate_list_ ? Icon::ChevronUp : Icon::ChevronDown});
     }
     // Swipe suggestions scale the same way, but never start before the end of
     // the first toolbar row or reach the close button; many share the room.
@@ -1122,7 +1124,7 @@ PanelView App::build_view(bool picker) const {
     if (settings_.focus_tooltip &&
         std::any_of(v.controls.begin(), v.controls.end(),
                     [](const Control& c) { return c.id == "keep-open" && c.warning; })) {
-        v.focus_tooltip = hidden_window_.empty() ? "A window out of sight" : hidden_window_;
+        v.focus_tooltip = hidden_window_.empty() ? tr("tooltip.hidden-window") : hidden_window_;
     }
     if (settings_open_) {
         settings_ui_.append(v);
@@ -1137,12 +1139,17 @@ PanelView App::build_view(bool picker) const {
     v.status_card = !v.status.empty() && v.status == send_status_;
     // The context's Enter hint is a legend only; the key still sends Enter.
     if (host_.context && host_.hints.enter != "enter") {
-        static const std::map<std::string, std::string> legends{
-            {"go", "Go"}, {"search", "Search"}, {"send", "Send"}, {"next", "Next"}, {"done", "Done"}};
+        // In the interface language: App's words, not the layout's legends.
+        static const std::map<std::string, const char*> legends{{"go", "key.enter.go"},
+                                                                {"search", "key.enter.search"},
+                                                                {"send", "key.enter.send"},
+                                                                {"next", "key.enter.next"},
+                                                                {"done", "key.enter.done"}};
+        const auto legend = tr(legends.at(host_.hints.enter));
         for (const auto& key : v.layout->keys) {
             if (key.action_kind == ActionKind::Key &&
                 (key.action == "Enter" || key.action == "NumpadEnter")) {
-                v.key_labels[key.id] = legends.at(host_.hints.enter);
+                v.key_labels[key.id] = legend;
             }
         }
     }
