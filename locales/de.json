@@ -149,7 +149,7 @@
     "languages.back": "Zurück",
     "languages.clear": "Alle weiteren Sprachen entfernen",
     "languages.drop-to-remove": "Loslassen zum Entfernen",
-    "languages.hint": "Sprachen hierher ziehen, um sie hinzuzufügen und zu ordnen; zum Entfernen herausziehen.",
+    "languages.hint": "Sprachen hierher ziehen und ordnen, zum Entfernen herausziehen.",
     "languages.language-missing": "{layout} (Sprache fehlt)",
     "languages.languages": "Sprachen",
     "languages.layout-missing": "{layout} (fehlt)",
