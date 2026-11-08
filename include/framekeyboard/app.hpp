@@ -696,9 +696,9 @@ class App {
     bool swipe_starts(const std::set<int>& modifiers) const;
     // Whether a press of this key can start a swipe.
     bool swipes(const Key& key, const std::set<int>& modifiers) const;
-    // Key flicks (Settings): a key that types a character types it on
+    // Pull for Shift (Settings): a key that types a character types it on
     // release instead, never repeating, and pulled down by flick_distance
-    // its Shift character, as an iPad's key flicks do. Space, the numpad
+    // its Shift character. Space, the numpad
     // and keys that edit or move keep acting on press.
     struct KeyFlickTrack {
         unsigned pointer{};

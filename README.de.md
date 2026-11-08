@@ -16,7 +16,7 @@ Eine vollwertige Alternative zur eingebauten virtuellen Tastatur der Steam Frame
 - Wischeingabe, standardmäßig aus, für Englisch, Deutsch, Französisch, Spanisch, Italienisch, Portugiesisch, Polnisch, Niederländisch, Schwedisch, Ukrainisch, Russisch und chinesisches Pinyin. Die Wischeingabe nutzt die Technologie „FUTO Swipe“.
 - Wortvorschläge, standardmäßig an, in den Sprachen mit Wischeingabe: bis zu fünf Ergänzungen des Wortes, das Sie gerade tippen, die meistgenutzten Wörter zuerst.
 - Japanische Umwandlung mit Mozc, mit Kandidaten während des Tippens, und eine japanische 12-Tasten-Flick-Tastatur wie auf dem Telefon.
-- Tastenstreichen (Key Flicks), standardmäßig aus: Ziehen Sie eine Taste nach unten für ihr zweites Zeichen, wie auf einem iPad, etwa ^ auf der Taste 6 oder einen Großbuchstaben, solange die Wischeingabe aus ist.
+- **Umschalt durch Ziehen**, standardmäßig aus: Ziehen Sie eine Taste nach unten für ihr Umschalt-Zeichen, etwa ^ auf der Taste 6 oder einen Großbuchstaben, solange die Wischeingabe aus ist.
 - Eine Emoji-Auswahl mit Zuletzt verwendeten, Favoriten per Drag-and-drop, Kategorien und Hauttönen.
 - **Über Apps geöffnet lassen** (Stay open over apps): Die Tastatur bleibt an ihrem Platz, wenn das Dashboard schließt, zum Tippen in Fenster, die im Raum schweben; zeigen Sie auf ein schwebendes Fenster, um es mit dem Laser von SteamVR anzuklicken.
 - **Fokusmodus** (Focus mode): Mit nativem Ersatz bleibt die Tastatur offen, wenn ein Textfeld schließt, bereit für das nächste Feld oder die nächste App, und warnt, wenn sie in ein Fenster tippen würde, das Sie nicht sehen.
@@ -96,7 +96,7 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Shift feststellen | Shift eine halbe Sekunde halten; erneut drücken zum Lösen |
 | Ein Wort wischen | **Wischeingabe** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann den Abzug halten und über die Buchstaben ziehen. Weitere Vorschläge erscheinen in der Werkzeugleiste |
 | Ein Wort ergänzen | Den Anfang tippen; bis zu fünf Ergänzungen erscheinen in der Werkzeugleiste. Eine wählen, um den Rest und ein Leerzeichen zu tippen |
-| Zweites Zeichen per Streichen | **Tastenstreichen** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann eine Taste vor dem Loslassen nach unten ziehen, wie auf einem iPad: 6 ergibt ^, und bei ausgeschalteter Wischeingabe ergibt k ein K |
+| Umschalt-Zeichen per Ziehen | **Umschalt durch Ziehen** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann eine Taste vor dem Loslassen nach unten ziehen: 6 ergibt ^, und bei ausgeschalteter Wischeingabe ergibt k ein K |
 | Ausschneiden / Kopieren / Einfügen | Die Tasten Ausschneiden, Kopieren und Einfügen links nutzen; zum Ausschneiden oder Kopieren zuerst Text markieren |
 | Diktieren | Die Mikrofontaste unter Ausschneiden, Kopieren und Einfügen drücken und sprechen. Sätze erscheinen in einem Editor anstelle der Funktionstasten; mit den Tasten korrigieren, dann **Senden** drücken, um den Text in die App zu tippen. Esc beendet das Zuhören |
 | Beim Sprechen tippen | In der Einstellungskarte **Diktieren** einschalten. Die Mikrofontaste hört dann auf der normalen Tastatur zu und tippt jeden Satz in die App |

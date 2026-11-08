@@ -1393,7 +1393,7 @@ void background_surface_setting() {
         reading.renderer.write_png("/tmp/framekeyboard-transparent-reading.png");
     }
 }
-// Key flicks: off until chosen, right after swipe typing, saved by Apply.
+// Pull for Shift: off until chosen, right after swipe typing, saved by Apply.
 void key_flicks_setting() {
     TemporaryDirectory directory;
     Options options;

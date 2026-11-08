@@ -16,7 +16,7 @@ Una alternativa de tamaño completo al teclado virtual integrado de Steam Frame,
 - Escritura deslizante, desactivada por defecto, para inglés, alemán, francés, español, italiano, portugués, polaco, neerlandés, sueco, ucraniano, ruso y chino pinyin. La escritura deslizante funciona con la tecnología "FUTO Swipe".
 - Sugerencias de escritura, activadas por defecto, en los idiomas que tienen escritura deslizante: hasta cinco formas de completar la palabra que escribes, con las que más usas primero.
 - Conversión de japonés con Mozc, con candidatos mientras escribes, y un teclado flick japonés de 12 teclas como el de los móviles.
-- **Deslizar teclas hacia abajo** (Key Flicks), desactivado por defecto: tira de una tecla hacia abajo para obtener su carácter secundario, como en un iPad; por ejemplo ^ en la tecla 6, o una mayúscula mientras la escritura deslizante está desactivada.
+- **Tirar para Mayús**, desactivado por defecto: tira de una tecla hacia abajo para obtener su carácter con Mayús; por ejemplo ^ en la tecla 6, o una mayúscula mientras la escritura deslizante está desactivada.
 - Un selector de emojis con Recientes, Favoritos que se ordenan arrastrando, categorías y tonos de piel.
 - **Mantener abierto sobre apps** (Stay open over apps): el teclado se queda en su sitio cuando se cierra el panel, para escribir en ventanas que flotan en el mundo; apunta a una ventana flotante para hacer clic en ella con el láser de SteamVR.
 - **Modo de foco** (Focus mode): con el reemplazo nativo, el teclado sigue visible cuando se cierra un campo de texto, listo para el siguiente campo o app, y avisa cuando escribiría en una ventana que no puedes ver.
@@ -96,7 +96,7 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Bloquear Shift | Mantén Shift medio segundo; púlsalo de nuevo para desbloquearlo |
 | Deslizar una palabra | Activa **Escritura deslizante** en la tarjeta de ajustes Idiomas y distribuciones, mantén el gatillo y traza sobre las letras. Otras propuestas aparecen en la barra de herramientas |
 | Completar una palabra | Escribe su comienzo; aparecen hasta cinco opciones en la barra de herramientas. Elige una para escribir el resto y un espacio |
-| Deslizar para caracteres secundarios | Activa **Deslizar teclas hacia abajo** en la tarjeta de ajustes Idiomas y distribuciones y tira de una tecla hacia abajo antes de soltarla: 6 da ^, y con la escritura deslizante desactivada k da K |
+| Tirar para caracteres con Mayús | Activa **Tirar para Mayús** en la tarjeta de ajustes Idiomas y distribuciones y tira de una tecla hacia abajo antes de soltarla: 6 da ^, y con la escritura deslizante desactivada k da K |
 | Cortar / copiar / pegar | Usa las teclas Cortar, Copiar y Pegar de la izquierda; selecciona primero el texto al cortar o copiar |
 | Dictar | Pulsa la tecla del micrófono bajo Cortar, Copiar y Pegar y habla. Las frases aparecen en un editor en lugar de las teclas de función; corrígelas con las teclas y pulsa **Enviar** para escribir el texto en la app. Esc deja de escuchar |
 | Escribir mientras hablo | Actívalo en la tarjeta de ajustes **Dictado**. La tecla del micrófono escucha entonces con el teclado normal y escribe cada frase en la app |

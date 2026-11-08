@@ -243,7 +243,7 @@ Repeat with the same headset/dashboard state for a candidate build. A changed pr
 
 ## Refresh the README image
 
-The README image is the first scene of the Japanese render tour: the default US QWERTY profile with every toolbar button showing. That takes an additional language, Replace native keyboard, Swipe typing, Haptic sounds and key flicks, and Self-hosted dictation for the mic key; On device would hide it until the model is downloaded. Only the VR mode draws the Focus mode button, so a plain `--render` can't. The tour builds with the host preset, swipe typing included (`FRAMEKEYBOARD_EXECUTORCH_HOST`), and its dictation address is a placeholder that appears nowhere in the image:
+The README image is the first scene of the Japanese render tour: the default US QWERTY profile with every toolbar button showing. That takes an additional language, Replace native keyboard, Swipe typing, Haptic sounds and Pull for Shift, and Self-hosted dictation for the mic key; On device would hide it until the model is downloaded. Only the VR mode draws the Focus mode button, so a plain `--render` can't. The tour builds with the host preset, swipe typing included (`FRAMEKEYBOARD_EXECUTORCH_HOST`), and its dictation address is a placeholder that appears nowhere in the image:
 
 ```sh
 tour=$(mktemp -d)

@@ -16,7 +16,7 @@ Une alternative complète au clavier virtuel intégré de la Steam Frame, conçu
 - La saisie gestuelle, désactivée par défaut, pour l'anglais, l'allemand, le français, l'espagnol, l'italien, le portugais, le polonais, le néerlandais, le suédois, l'ukrainien, le russe et le pinyin chinois. La saisie gestuelle repose sur la technologie « FUTO Swipe ».
 - Les suggestions de saisie, activées par défaut, dans les langues qui ont la saisie gestuelle : jusqu'à cinq complétions du mot que vous tapez, les mots que vous utilisez le plus en premier.
 - La conversion japonaise avec Mozc, avec des candidats pendant la frappe, et un clavier japonais à 12 touches avec effleurement, comme sur un téléphone.
-- L'effleurement de touches (Key Flicks), désactivé par défaut : tirez une touche vers le bas pour obtenir son caractère secondaire, comme sur un iPad, par exemple ^ sur la touche 6, ou une majuscule quand la saisie gestuelle est désactivée.
+- **Tirer pour Maj**, désactivé par défaut : tirez une touche vers le bas pour obtenir son caractère Maj, par exemple ^ sur la touche 6, ou une majuscule quand la saisie gestuelle est désactivée.
 - Un sélecteur d'emoji avec Récents, des Favoris par glisser-déposer, des catégories et des teintes de peau.
 - **Rester ouvert sur les applis** (Stay open over apps) : le clavier reste en place quand le tableau de bord se ferme, pour taper dans des fenêtres qui flottent dans l'espace ; pointez une fenêtre flottante pour cliquer dessus avec le laser de SteamVR.
 - **Mode focus** (Focus mode) : avec le remplacement natif, le clavier reste affiché quand un champ de texte se ferme, prêt pour le champ ou l'appli suivants, et vous avertit quand il taperait dans une fenêtre que vous ne voyez pas.
@@ -96,7 +96,7 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 | Verrouiller Shift | Maintenir Shift une demi-seconde ; appuyer à nouveau pour déverrouiller |
 | Tracer un mot | Activer **Saisie gestuelle** dans la carte de paramètres **Langues et dispositions**, puis maintenir la gâchette et passer sur les lettres. D'autres propositions apparaissent dans la barre d'outils |
 | Compléter un mot | Taper son début ; jusqu'à cinq complétions apparaissent dans la barre d'outils. En choisir une pour taper la suite et une espace |
-| Effleurer pour le caractère secondaire | Activer **Effleurement de touches** dans la carte de paramètres **Langues et dispositions**, puis tirer une touche vers le bas avant de la relâcher, comme sur un iPad : 6 donne ^, et avec la saisie gestuelle désactivée k donne K |
+| Tirer pour le caractère Maj | Activer **Tirer pour Maj** dans la carte de paramètres **Langues et dispositions**, puis tirer une touche vers le bas avant de la relâcher : 6 donne ^, et avec la saisie gestuelle désactivée k donne K |
 | Couper / copier / coller | Utiliser les touches Couper, Copier et Coller à gauche ; sélectionner d'abord le texte pour couper ou copier |
 | Dicter | Appuyer sur la touche micro sous Couper, Copier et Coller et parler. Les phrases apparaissent dans un éditeur à la place des touches de fonction ; les corriger avec les touches, puis appuyer sur **Envoyer** pour taper le texte dans l'appli. Esc arrête l'écoute |
 | Taper en parlant | L'activer dans la carte de paramètres **Dictée**. La touche micro écoute alors sur le clavier normal et tape chaque phrase dans l'appli |

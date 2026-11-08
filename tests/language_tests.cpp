@@ -69,7 +69,7 @@ double keys_top(const PanelView& view) {
     }
     return top;
 }
-// Key flicks: character keys type on release, and pulled down their Shift
+// Pull for Shift: character keys type on release, and pulled down their Shift
 // character, never repeating; Space and Backspace still act on press.
 void key_flicks() {
     const auto path =

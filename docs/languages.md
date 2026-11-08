@@ -206,7 +206,7 @@ the field as soon as the next one starts, so only the syllable being typed waits
 in the reading line, and there is no length limit. A final consonant still moves
 on: 간 then ㅏ types 가 and leaves 나 open. Shift selects doubled consonants and
 the shifted vowels. Caps Lock does not double jamo. With
-[key flicks](configuration.md#key-flicks) on, pulling a key down types its Shift
+[Pull for Shift](configuration.md#pull-for-shift) on, pulling a key down types its Shift
 jamo, which the key shows, such as ㅃ over ㅂ. Backspace takes back one jamo
 of the open syllable (값 → 갑), then deletes whole syllables in the field as the
 app does. Enter types the open syllable and sends Enter in the same press. Esc

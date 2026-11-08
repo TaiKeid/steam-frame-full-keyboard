@@ -16,7 +16,7 @@ Uma alternativa em tamanho completo ao teclado virtual integrado do Steam Frame,
 - Digitação por deslize, desativada por padrão, para inglês, alemão, francês, espanhol, italiano, português, polonês, holandês, sueco, ucraniano, russo e chinês pinyin. A digitação por deslize usa a tecnologia "FUTO Swipe".
 - Sugestões de digitação, ativadas por padrão, nos idiomas que têm digitação por deslize: até cinco formas de completar a palavra que você está digitando, com as que você mais usa primeiro.
 - Conversão de japonês com o Mozc, com candidatos enquanto você digita, e um teclado flick japonês de 12 teclas no estilo dos celulares.
-- **Retorno de teclas** (Key Flicks), desativado por padrão: puxe uma tecla para baixo para obter o caractere secundário dela, como no iPad; por exemplo ^ na tecla 6, ou uma maiúscula enquanto a digitação por deslize está desativada.
+- **Puxar para Shift**, desativado por padrão: puxe uma tecla para baixo para obter o caractere com Shift dela; por exemplo ^ na tecla 6, ou uma maiúscula enquanto a digitação por deslize está desativada.
 - Um seletor de emojis com Recentes, Favoritos organizados arrastando, categorias e tons de pele.
 - **Manter aberto sobre apps** (Stay open over apps): o teclado fica no lugar quando o painel fecha, para digitar em janelas flutuando no mundo; aponte para uma janela flutuante para clicar nela com o laser do SteamVR.
 - **Modo de foco** (Focus mode): com a substituição nativa, o teclado continua aberto quando um campo de texto fecha, pronto para o próximo campo ou app, e avisa quando digitaria em uma janela que você não está vendo.
@@ -96,7 +96,7 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 | Travar o Shift | Segure o Shift por meio segundo; pressione-o de novo para destravar |
 | Deslizar uma palavra | Ative **Digitação por deslize** no cartão de configurações Idiomas e layouts, depois segure o gatilho e desenhe sobre as letras. Outras sugestões aparecem na barra de ferramentas |
 | Completar uma palavra | Digite o começo; até cinco opções aparecem na barra de ferramentas. Escolha uma para digitar o resto e um espaço |
-| Puxar para caracteres secundários | Ative **Retorno de teclas** no cartão de configurações Idiomas e layouts, depois puxe uma tecla para baixo antes de soltar: 6 dá ^, e com a digitação por deslize desativada k dá K |
+| Puxar para caracteres com Shift | Ative **Puxar para Shift** no cartão de configurações Idiomas e layouts, depois puxe uma tecla para baixo antes de soltar: 6 dá ^, e com a digitação por deslize desativada k dá K |
 | Recortar / copiar / colar | Use as teclas Recortar, Copiar e Colar à esquerda; selecione o texto antes de recortar ou copiar |
 | Ditar | Pressione a tecla do microfone abaixo de Recortar, Copiar e Colar e fale. As frases aparecem em um editor no lugar das teclas de função; corrija-as com as teclas e pressione **Enviar** para digitar o texto no app. Esc para de ouvir |
 | Digitar enquanto falo | Ative no cartão de configurações **Ditado**. A tecla do microfone passa a ouvir no teclado normal e digita cada frase no app |

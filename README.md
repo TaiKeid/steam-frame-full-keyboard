@@ -16,7 +16,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
 - Typing suggestions, on by default, in the languages swipe typing has: up to five completions of the word you're typing, the words you use most first.
 - Japanese conversion with Mozc, with candidates as you type, and a phone-style Japanese 12-key flick keyboard.
-- Key flicks, off by default: pull a key down for its Shift character, as on an iPad, such as ^ on the 6 key, or a capital while swipe typing is off.
+- Pull for Shift, off by default: pull a key down for its Shift character, such as ^ on the 6 key, or a capital while swipe typing is off.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
 - **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
@@ -96,7 +96,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Lock Shift | Hold Shift for half a second; press it again to unlock |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Complete a word | Type its start; up to five completions appear in the toolbar. Choose one to type the rest and a space |
-| Flick for Shift characters | Turn on **Key flicks** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |
+| Pull for Shift characters | Turn on **Pull for Shift** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |
 | Cut / copy / paste | Use the Cut, Copy and Paste keys on the left; select text first when cutting or copying |
 | Dictate | Press the mic key below Cut, Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
 | Type as I speak | Turn it on in the **Dictation** settings card. The mic key then listens on the normal keyboard and types each phrase into the app |

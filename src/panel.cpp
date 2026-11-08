@@ -1419,8 +1419,8 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     }
     if (view.key_flick && view.key_flick->key == key.id && view.key_flick->pull > 0) {
         // Pulled down, the Shift character slides from its corner into the
-        // middle and grows as the key's own shrinks away below, as an iPad's
-        // key flicks show; a letter's capital, which has no corner, fades in.
+        // middle and grows as the key's own shrinks away below; a letter's
+        // capital, which has no corner, fades in.
         const double pull = view.key_flick->pull;
         const auto mix_rect = [&](Rect a, Rect b) {
             return Rect{a.x + (b.x - a.x) * pull, a.y + (b.y - a.y) * pull,

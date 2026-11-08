@@ -80,9 +80,9 @@ See [emoji picker](emoji.md#acceptance) for the full list. In the headset:
 
 ## Settings and pin
 
-- Confirm the toolbar order: Settings, Recenter, Pin, Stay open over apps, Focus mode with replacement on, swipe with Swipe typing on, haptic sounds with Haptic sounds on, key flicks with Key flicks on, then language, always last. On a narrow keyboard confirm nothing covers the dictation editor. A pinned button changes icon without an active background.
+- Confirm the toolbar order: Settings, Recenter, Pin, Stay open over apps, Focus mode with replacement on, swipe with Swipe typing on, haptic sounds with Haptic sounds on, Pull for Shift with Pull for Shift on, then language, always last. On a narrow keyboard confirm nothing covers the dictation editor. A pinned button changes icon without an active background.
 - Set Haptic sounds to each mode and confirm effect and volume clicks preview it, keys pop, the toolbar button mutes without changing the setting, and pops stop while the microphone listens.
-- Turn on Key flicks. Pulling a key down types its Shift character, which slides into the key's middle while pulled; Space, Backspace, Enter and the arrows still act on press. The toolbar button pauses key flicks and hides their characters, and keeps its state across a restart.
+- Turn on Pull for Shift. Pulling a key down types its Shift character, which slides into the key's middle while pulled; Space, Backspace, Enter and the arrows still act on press. The toolbar button pauses Pull for Shift and hides its characters, and keeps its state across a restart.
 - With Extended key collision on, a tap in the gap between two keys types the nearer one; with it off, it types nothing. The flick layout's kana and digit pages keep their gaps.
 - Corner resizers: aiming either laser just outside either bottom corner fades in a bracket there that follows the case's rounded corner; aiming away fades it out, and the pin hides both. Dragging either corner scales the keyboard about its center, release keeps the size, and keys at the corner still type while the resizer shows. Repeat over apps with the dashboard closed and at the smallest and largest sizes.
 - Turn Num Lock on, close/reopen, and confirm its legends and mapping. Turn it off and repeat.

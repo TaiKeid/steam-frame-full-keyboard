@@ -133,8 +133,8 @@ struct Settings {
     // Completions of the word being typed in the toolbar, where swipe is
     // offered (docs/configuration.md, Typing suggestions); on unless turned off.
     bool typing_suggestions{true};
-    // A key pulled down types its Shift character, as an iPad's key flicks
-    // do; letters flick to capitals only while swipe isn't active.
+    // Pull for Shift: a key pulled down types its Shift character; letters
+    // pull to capitals only while swipe isn't active.
     bool key_flicks{};
     // The toolbar's own switches, saved apart from the Settings options above
     // and below: each works only while its option allows it.

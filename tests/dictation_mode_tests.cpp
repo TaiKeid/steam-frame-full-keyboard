@@ -477,7 +477,7 @@ void open_editor(App& app) {
     settle_pause(app);
 }
 
-// Key flicks and dictation: a character the other hand holds as the mic
+// Pull for Shift and dictation: a character the other hand holds as the mic
 // opens the editor types into the app first, and flicks type into the editor.
 void key_flick_tests() {
     TemporaryDirectory directory;
