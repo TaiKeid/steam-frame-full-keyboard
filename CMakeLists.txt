@@ -313,6 +313,13 @@ if(BUILD_TESTING)
     add_executable(localization-tests tests/localization_tests.cpp)
     target_link_libraries(localization-tests PRIVATE keyboard_core)
     add_test(NAME localization COMMAND localization-tests)
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME locales COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_locales.py" "${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME locales-tool COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_locales_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_locales.py")
+    endif()
     add_executable(word-suggestions-tests tests/word_suggestions_tests.cpp)
     target_link_libraries(word-suggestions-tests PRIVATE keyboard_core)
     add_test(NAME word-suggestions COMMAND word-suggestions-tests)
