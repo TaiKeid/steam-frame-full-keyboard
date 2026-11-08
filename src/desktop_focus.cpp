@@ -24,6 +24,10 @@ struct DesktopFocus::State {
     std::atomic<bool> focused{}, stop{};
     // The focused program's Cut/Copy/Paste keys; only the kind is kept.
     std::atomic<EditKeys> edit_keys{EditKeys::Standard};
+    // The Desktop has the focus and its KWin hasn't said which app is active
+    // there, since then (steady_clock ticks).
+    std::atomic<bool> desktop_waiting{};
+    std::atomic<std::int64_t> desktop_waiting_since{};
     std::atomic<std::uint64_t> window{}; // X window << 32 | Steam app ID
     mutable std::mutex mutex;
     std::string title; // the focused window's, for Keep open's cue and tooltip
@@ -119,6 +123,14 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     std::string desktop_bus;
     bool desktop = false;
     std::chrono::steady_clock::time_point retry_at;
+    // Until the Desktop's KWin reports, its keys are only a guess.
+    const auto follow_report = [&] {
+        const bool waiting = desktop && !(terminal.attached(desktop_bus) && terminal.reported());
+        if (waiting && !state.desktop_waiting) {
+            state.desktop_waiting_since = std::chrono::steady_clock::now().time_since_epoch().count();
+        }
+        state.desktop_waiting = waiting;
+    };
     while (!state.stop && !xcb_connection_has_error(connection)) {
         // XCB reads events that arrive while it waits for a reply into its own
         // queue, not the socket: take them before sleeping on the socket.
@@ -167,6 +179,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             }
             retry_at = {}; // Attached below if not yet, before the next wait.
             state.edit_keys = keys;
+            follow_report();
             // Keep open's cue forgets the titles of windows no longer listed.
             std::vector<std::uint32_t> windows;
             for (std::size_t i = 0; i + 2 < list.size(); i += 3) {
@@ -213,6 +226,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
         if (terminal.process() && desktop) {
             state.edit_keys = terminal.edit_keys();
         }
+        follow_report();
         // sd-bus may need to wake for its own timeouts, or at once when more
         // messages wait in its queue.
         int timeout = terminal.timeout();
@@ -222,6 +236,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                 if (terminal.attach(desktop_bus)) {
                     terminal.process(); // The script reports the active window as it starts.
                     state.edit_keys = terminal.edit_keys();
+                    follow_report();
                 }
                 now = std::chrono::steady_clock::now();
                 retry_at = now + desktop_retry;
@@ -288,6 +303,16 @@ bool DesktopFocus::focused() const {
 }
 EditKeys DesktopFocus::edit_keys() const {
     return state_->edit_keys.load();
+}
+bool DesktopFocus::edit_keys_known() const {
+    if (!state_->desktop_waiting.load()) {
+        return true;
+    }
+    // Where no report ever comes, as without sd-bus, the guess stands after a while.
+    const std::chrono::steady_clock::duration waited{
+        std::chrono::steady_clock::now().time_since_epoch().count() -
+        state_->desktop_waiting_since.load()};
+    return waited >= desktop_report_wait;
 }
 DesktopFocus::Window DesktopFocus::window() const {
     const auto packed = state_->window.load();

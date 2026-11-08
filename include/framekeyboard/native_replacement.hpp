@@ -45,6 +45,7 @@ class NativeReplacement : public KeySink {
     bool desktop_focused() const override { return local_.desktop_focused(); }
     // A Steam field is never a terminal, whatever app Gamescope has focused.
     EditKeys edit_keys() const override { return remote_ ? EditKeys::Standard : local_.edit_keys(); }
+    bool edit_keys_known() const override { return remote_ || local_.edit_keys_known(); }
     void set_terminal_hint(bool terminal) override { local_.set_terminal_hint(terminal); }
     bool remote() const { return remote_; }
     void dismiss_request();

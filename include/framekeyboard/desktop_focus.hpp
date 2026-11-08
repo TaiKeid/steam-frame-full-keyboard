@@ -2,6 +2,7 @@
 
 #include "terminal_keys.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -50,6 +51,10 @@ class DesktopFocus {
     // active app's, when following them (DesktopTerminal). Standard until
     // known and for other programs.
     EditKeys edit_keys() const;
+    // Never blocks: false while the Desktop has the focus and its KWin hasn't
+    // reported the active app yet, for at most desktop_report_wait.
+    bool edit_keys_known() const;
+    static constexpr std::chrono::seconds desktop_report_wait{3};
     // A process's program file name, from argv[0]; empty if it is gone.
     static std::string program(std::uint32_t pid);
     // Whether this process is a nested desktop compositor (exposed for tests).

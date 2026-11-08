@@ -81,6 +81,11 @@ class KeySink {
     // terminal's (terminal_keys.hpp). Standard when unknown, or when output
     // goes somewhere that is no terminal, such as a Steam field. Never blocks.
     virtual EditKeys edit_keys() const { return EditKeys::Standard; }
+    // Whether edit_keys() knows the focused app yet: inside SteamOS's
+    // Desktop, not until its KWin reports the active app, at most a few
+    // seconds. Typing suggestions wait, so a terminal's commands aren't
+    // learned meanwhile. Never blocks.
+    virtual bool edit_keys_known() const { return true; }
     // A shell says the field it activated is a terminal (its `terminal`
     // purpose hint). A sink that pastes by itself, as the Desktop's Unicode
     // paste does, applies it as App does to its own keys (combine_edit_keys).

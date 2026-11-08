@@ -236,6 +236,7 @@ bool DesktopTerminal::attach(const std::string& address) {
         auto* self = static_cast<DesktopTerminal*>(data);
         self->kwin_lost_ = true;
         self->keys_ = EditKeys::Standard;
+        self->reported_ = false;
         return 0;
     };
     // The script's calls arrive here: each says which app became active.
@@ -251,6 +252,7 @@ bool DesktopTerminal::attach(const std::string& address) {
         if (sender && self->kwin_ == sender && path && object == path &&
             api.has_signature(message, "s") > 0 && api.read(message, "s", &app) > 0) {
             self->keys_ = app_edit_keys(app ? app : "");
+            self->reported_ = true;
         }
         api.reply(message, "");
         return 1;
@@ -287,6 +289,7 @@ void DesktopTerminal::detach() {
     kwin_.clear();
     kwin_lost_ = false;
     keys_ = EditKeys::Standard;
+    reported_ = false;
 }
 int DesktopTerminal::fd() const {
     return bus_ ? sd().get_fd(bus_->bus) : -1;
@@ -337,6 +340,7 @@ bool DesktopTerminal::process() {
             bus_.reset(); // The Desktop closed: its KWin and the script are gone with it.
             kwin_.clear();
             keys_ = EditKeys::Standard;
+            reported_ = false;
             more_ = false;
             break;
         }
@@ -350,6 +354,7 @@ bool DesktopTerminal::process() {
         kwin_.clear();
         kwin_lost_ = false;
         keys_ = EditKeys::Standard;
+        reported_ = false;
     }
     return keys_ != before;
 }

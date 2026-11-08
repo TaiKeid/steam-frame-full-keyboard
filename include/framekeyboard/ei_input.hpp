@@ -49,6 +49,7 @@ class EiSink : public KeySink {
     bool desktop_focused() const override { return desktop_now_; }
     // The desktop focus watcher's answer, an atomic read.
     EditKeys edit_keys() const override;
+    bool edit_keys_known() const override;
     void set_terminal_hint(bool terminal) override { terminal_hint_ = terminal; }
     // Tests replace the focused program's kind with their own answer.
     void set_edit_keys(std::function<EditKeys()> keys) { edit_keys_ = std::move(keys); }

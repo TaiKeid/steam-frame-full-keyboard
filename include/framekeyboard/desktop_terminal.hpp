@@ -39,6 +39,8 @@ class DesktopTerminal {
     bool process();
     // The keys the Desktop's active window takes; Standard when unknown.
     EditKeys edit_keys() const { return keys_; }
+    // Whether KWin reported the active app since attaching.
+    bool reported() const { return reported_; }
 
   private:
     struct Bus;
@@ -47,6 +49,6 @@ class DesktopTerminal {
     EditKeys keys_{EditKeys::Standard};
     // KWin's unique bus name: only its calls count. kwin_lost_ when it left.
     std::string kwin_;
-    bool kwin_lost_{}, more_{};
+    bool kwin_lost_{}, more_{}, reported_{};
 };
 } // namespace framekeyboard

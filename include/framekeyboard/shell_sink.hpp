@@ -85,6 +85,7 @@ class ShellRouter : public KeySink {
     // On, Cut, Copy and Paste keep the keyboard's own Ctrl+X/C/V key IDs;
     // the shell maps them for its own field.
     EditKeys edit_keys() const override { return on_ ? EditKeys::Standard : inner_.edit_keys(); }
+    bool edit_keys_known() const override { return on_ || inner_.edit_keys_known(); }
     void set_terminal_hint(bool terminal) override { inner_.set_terminal_hint(terminal); }
     std::optional<bool> num_lock_state() override {
         return on_ ? std::nullopt : inner_.num_lock_state();

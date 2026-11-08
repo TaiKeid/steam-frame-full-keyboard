@@ -5159,7 +5159,8 @@ bool App::pending_can_suggest() const {
 bool App::suggesting() const {
     return settings_.typing_suggestions && suggestions_supported(settings_.active.language) &&
            !dictation_open_ && !emoji_open_ && !settings_open_ && !hint_private() &&
-           !hint_no_suggestions() && edit_keys() == EditKeys::Standard;
+           !hint_no_suggestions() && edit_keys() == EditKeys::Standard &&
+           (sink_on() || output_.edit_keys_known());
 }
 void App::load_word_list(double now) {
     if (std::exchange(typed_since_tick_, false)) {

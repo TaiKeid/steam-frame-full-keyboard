@@ -235,6 +235,10 @@ EditKeys EiSink::edit_keys() const {
     const auto* focus = desktop_focus();
     return focus ? focus->edit_keys() : EditKeys::Standard;
 }
+bool EiSink::edit_keys_known() const {
+    const auto* focus = edit_keys_ ? nullptr : desktop_focus();
+    return !focus || focus->edit_keys_known();
+}
 bool EiSink::needs_entry(const std::string& text) {
     // A Gamescope commit already out reports its result to the same call,
     // even once the Desktop has taken focus.

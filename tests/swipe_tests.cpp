@@ -224,6 +224,8 @@ struct TextSink : KeySink {
     bool hold{}, held_pending{};
     int polls_until_failure{-1};
     bool offline{}; // The input connection is lost.
+    bool keys_known{true}; // SteamOS's Desktop hasn't said which app is active yet.
+    bool edit_keys_known() const override { return keys_known; }
     std::vector<std::size_t> replaced;
     bool pump() override { return !offline; }
     void send(int code, int value) override { events.emplace_back(code, value); }
@@ -2276,6 +2278,20 @@ int typing_flow() {
         type(app, "p");
         settle(app, [&] { return !typing_suggestions(app).empty(); });
         require(typing_suggestions(app).front() == "helpless", "and loaded again by typing");
+    }
+    {
+        // In SteamOS's Desktop, suggestions wait until it says which app is
+        // active, as a terminal's commands mustn't be learned.
+        TextSink sink;
+        sink.keys_known = false;
+        App app(options, sink);
+        type(app, "hel");
+        settle(app, [&] { return false; }, 100);
+        require(typing_suggestions(app).empty(), "no suggestions while the app is unknown");
+        sink.keys_known = true;
+        type(app, "p");
+        settle(app, [&] { return !typing_suggestions(app).empty(); });
+        require(typing_suggestions(app).front() == "helpless", "then they come");
     }
     // Switched off in Settings, nothing is offered or learned.
     fs::remove(learned);

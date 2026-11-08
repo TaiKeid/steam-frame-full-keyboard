@@ -109,6 +109,7 @@ class OutputController : public KeySink, public TextOutput {
     void set_desktop_paste(Clipboard* clipboard) override { target_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return target_.desktop_focused(); }
     EditKeys edit_keys() const override { return target_.edit_keys(); }
+    bool edit_keys_known() const override { return target_.edit_keys_known(); }
     void set_terminal_hint(bool terminal) override { target_.set_terminal_hint(terminal); }
     bool text_pending() const override { return !queue_.empty(); }
     void cancel_text() override { cancel(); }
