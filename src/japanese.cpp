@@ -1,4 +1,5 @@
 #include "framekeyboard/japanese.hpp"
+#include "framekeyboard/localization.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -167,7 +168,7 @@ void start(Anthy& state) {
         api.conf_override("HOME", home.c_str());
     }
     if (api.init() != 0) {
-        throw std::runtime_error("Cannot initialize the Anthy dictionary");
+        throw UiError(ui("japanese.anthy-dictionary-failed"));
     }
     state.initialized = true;
     // Off, an anonymous personality keeps no record and reads none, not even
@@ -190,12 +191,12 @@ Anthy::Api& loaded() {
     Anthy::Api api;
     api.handle = dlopen("libanthy.so.0", RTLD_NOW | RTLD_LOCAL);
     if (!api.handle) {
-        throw std::runtime_error("Japanese conversion needs the Anthy library");
+        throw UiError(ui("japanese.anthy-missing"));
     }
     auto symbol = [&](auto& fn, const char* name, bool required = true) {
         fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(dlsym(api.handle, name));
         if (!fn && required) {
-            throw std::runtime_error("Installed Anthy has an incompatible API");
+            throw UiError(ui("japanese.anthy-incompatible"));
         }
     };
     try {
@@ -242,7 +243,7 @@ class AnthyConverter final : public JapaneseConverter {
     std::vector<Segment> convert(const std::string& reading) override {
         std::lock_guard lock(anthy().calls);
         if (loaded().set(context(), reading.c_str()) != 0) {
-            throw std::runtime_error("Japanese conversion failed");
+            throw UiError(ui("japanese.conversion-failed"));
         }
         return segments();
     }
@@ -400,7 +401,7 @@ class AnthyConverter final : public JapaneseConverter {
         auto& api = *anthy().api;
         AnthyStat stat{};
         if (api.stat(context_, &stat) != 0 || stat.segments <= 0 || stat.segments > 32) {
-            throw std::runtime_error("Japanese conversion failed");
+            throw UiError(ui("japanese.conversion-failed"));
         }
         std::vector<Segment> result;
         for (int s = 0; s < stat.segments; ++s) {
@@ -2373,7 +2374,7 @@ void JapaneseComposer::drain(bool finish) {
 void JapaneseComposer::roman(char key) {
     ++edits_;
     if (g_utf8_strlen(reading_.c_str(), -1) >= 30) {
-        throw std::runtime_error("Commit this phrase before typing more");
+        throw UiError(ui("japanese.commit-first"));
     }
     unconvert();
     romaji_ = true;
@@ -2383,7 +2384,7 @@ void JapaneseComposer::roman(char key) {
 void JapaneseComposer::kana(const std::string& text) {
     ++edits_;
     if (g_utf8_strlen(reading_.c_str(), -1) >= 30) {
-        throw std::runtime_error("Commit this phrase before typing more");
+        throw UiError(ui("japanese.commit-first"));
     }
     unconvert();
     drain(true);

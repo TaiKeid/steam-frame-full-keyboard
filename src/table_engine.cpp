@@ -1,5 +1,6 @@
 #include "table_engine.hpp"
 #include "framekeyboard/cjk.hpp"
+#include "framekeyboard/localization.hpp"
 
 #include <array>
 #include <dlfcn.h>
@@ -79,13 +80,13 @@ struct TableEngine::Database {
     Database(const std::filesystem::path& table) {
         const auto& api = sqlite();
         if (!api.ready) {
-            throw std::runtime_error("Table input needs the SQLite library");
+            throw UiError(ui("ime.table-needs-sqlite"));
         }
         // Immutable: a system file that is never written, so no lock or journal.
         const auto uri = "file:" + table.string() + "?immutable=1";
         if (api.open(uri.c_str(), &handle, sqlite_open_readonly | sqlite_open_uri, nullptr) != 0) {
             release();
-            throw std::runtime_error("The input table could not be opened");
+            throw UiError(ui("ime.table-unreadable"));
         }
     }
     void release() {
@@ -136,7 +137,7 @@ bool TableEngine::available(const std::filesystem::path& table) {
 TableEngine::TableEngine(const std::filesystem::path& table, std::size_t max_keys)
     : database_(std::make_unique<Database>(table)), max_keys_(max_keys) {
     if (database_->find("a").empty()) {
-        throw std::runtime_error("The input table is empty");
+        throw UiError(ui("ime.table-empty"));
     }
 }
 TableEngine::~TableEngine() = default;
@@ -149,7 +150,7 @@ void TableEngine::type(char key) {
         return;
     }
     if (static_cast<std::size_t>(g_utf8_strlen(chosen_.c_str(), -1)) >= retained_limit) {
-        throw std::runtime_error("Composition is full. Use Backspace to shorten it before continuing.");
+        throw UiError(ui("ime.composition-full"));
     }
     keys_ += key;
     look_up();
@@ -181,12 +182,12 @@ void TableEngine::choose(int index) {
     }
     const auto& candidate = candidates_[static_cast<std::size_t>(index)];
     if (!g_utf8_validate(candidate.c_str(), static_cast<gssize>(candidate.size()), nullptr)) {
-        throw std::runtime_error("The input table contains invalid text.");
+        throw UiError(ui("ime.table-invalid-text"));
     }
     const auto chosen = static_cast<std::size_t>(g_utf8_strlen(chosen_.c_str(), -1));
     const auto added = static_cast<std::size_t>(g_utf8_strlen(candidate.c_str(), -1));
     if (added > retained_limit - chosen) {
-        throw std::runtime_error("Composition is full. Use Backspace to shorten it before continuing.");
+        throw UiError(ui("ime.composition-full"));
     }
     // A choice ends the reading. Accepted characters or phrases stay until
     // committed, and text the target refused goes out with the next choice.

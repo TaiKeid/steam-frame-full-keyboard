@@ -1,5 +1,6 @@
 #include "framekeyboard/emoji.hpp"
 #include "bundled_profiles.hpp"
+#include "framekeyboard/localization.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -170,7 +171,7 @@ void save_emoji_preferences(const std::filesystem::path& path, const EmojiPrefer
     std::string temporary = (path.parent_path() / ".emoji-XXXXXX").string();
     const int fd = mkstemp(temporary.data());
     if (fd < 0) {
-        throw std::runtime_error("Cannot save recent emoji");
+        throw UiError(ui("emoji.cannot-save"));
     }
     try {
         std::size_t offset = 0;
@@ -180,7 +181,7 @@ void save_emoji_preferences(const std::filesystem::path& path, const EmojiPrefer
                 continue;
             }
             if (written <= 0) {
-                throw std::runtime_error("Cannot save recent emoji");
+                throw UiError(ui("emoji.cannot-save"));
             }
             offset += static_cast<std::size_t>(written);
         }

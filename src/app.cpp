@@ -222,7 +222,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
         cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
     } catch (const std::exception& error) {
-        fallback_status(tr("status.saved-language-failed", {{"error", std::string(error.what())}}));
+        fallback_status(tr("status.saved-language-failed", {{"error", tr(error)}}));
         settings_.active.language = "en-us";
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at("en-us"));
     }
@@ -876,9 +876,14 @@ void App::update_settings_ui() {
                                     ControlStyle::Note};
     focus_tooltip_note.plain = true;
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
+    auto themes = choices(profiles_.themes);
+    for (auto& theme : themes) {
+        if (theme.id == shell_theme_id) {
+            theme.name = tr("setting.theme.shell"); // A shell's own theme has no name of its own.
+        }
+    }
     std::vector<SettingField> general_fields{
-        field(ControlKind::ChooseTheme,
-              dropdown("theme", tr("setting.theme"), pending_.theme, choices(profiles_.themes))),
+        field(ControlKind::ChooseTheme, dropdown("theme", tr("setting.theme"), pending_.theme, themes)),
         background_surface,
         field(ControlKind::HideNumpad,
               checkbox("hide-numpad", tr("setting.hide-numpad"), pending_hide_numpad_)),
@@ -1916,7 +1921,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
             commit_japanese();
             commit_cjk();
         } catch (const std::exception& error) {
-            status_ = error.what();
+            status_ = tr(error);
         }
         dirty = true;
         if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
@@ -1986,7 +1991,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 }
             }
         } catch (const std::exception& error) {
-            status_ = error.what();
+            status_ = tr(error);
         }
         if (keyboard_.num() != old_num) {
             settings_.num_lock = keyboard_.num();
@@ -2109,7 +2114,7 @@ bool App::up(unsigned pointer, double x, double y) {
             try {
                 action(pressed.action);
             } catch (const std::exception& error) {
-                status_ = error.what();
+                status_ = tr(error);
             }
         }
     }
@@ -2319,7 +2324,7 @@ bool App::tick(double now) {
         try {
             reload();
         } catch (const std::exception& error) {
-            status_ = error.what();
+            status_ = tr(error);
             dirty = true;
         }
     }
@@ -2400,7 +2405,7 @@ bool App::tick(double now) {
                 japanese_key(reading_repeat_->key, true, reading_repeat_->modifiers);
                 cjk_key(reading_repeat_->key, true, reading_repeat_->modifiers);
             } catch (const std::exception& error) {
-                status_ = error.what();
+                status_ = tr(error);
             }
             if (dictation_open_) {
                 editor_goal_x_.reset();
@@ -3022,12 +3027,12 @@ void App::take_japanese_answers() {
             composition_.adopt(std::move(*answer.composer));
             try {
                 if (!answer.error.empty()) {
-                    status_ = answer.error;
+                    status_ = tr(answer.error);
                 } else if (wait.then) {
                     wait.then(answer.result);
                 }
             } catch (const std::exception& error) {
-                status_ = error.what();
+                status_ = tr(error);
             }
             break;
         }
@@ -3182,7 +3187,7 @@ void App::replay_input() {
                 break;
             }
         } catch (const std::exception& error) {
-            status_ = error.what();
+            status_ = tr(error);
         }
         replaying_input_ = false;
         dirty = true;
@@ -4237,7 +4242,7 @@ void App::pick_candidate(int index) {
                           commit);
         }
     } catch (const std::exception& error) {
-        status_ = error.what();
+        status_ = tr(error);
     }
     candidate_list_ = false; // A choice closes the list, as on a phone.
     follow_cursor();         // In dictation mode the reading sits at the cursor.
@@ -4268,7 +4273,7 @@ bool App::commit_composition() {
         commit_japanese();
         commit_cjk();
     } catch (const std::exception& error) {
-        status_ = error.what();
+        status_ = tr(error);
     }
     dirty = true;
     return !composing_text();
@@ -4593,7 +4598,7 @@ void App::action(const ControlAction& command) {
                 } catch (const std::exception& error) {
                     // Missing optional engines must not strand the cycle at an
                     // unusable favorite. Keep the current keyboard until one works.
-                    failure = error.what();
+                    failure = tr(error);
                 }
             }
             status_ = failure;
@@ -5068,7 +5073,7 @@ void App::finish_flick() {
         }
     } catch (const std::exception& error) {
         flick_toggle_.reset();
-        status_ = error.what();
+        status_ = tr(error);
     }
 }
 namespace {
@@ -5835,7 +5840,7 @@ void App::finish_key_flick() {
             }
         }
     } catch (const std::exception& error) {
-        status_ = error.what();
+        status_ = tr(error);
     }
     if (dictation_open_) {
         editor_goal_x_.reset();
@@ -5857,7 +5862,7 @@ void App::type_swipe_tap(const SwipeTrack& track) {
             try {
                 cjk_key(*key, true, track.modifiers);
             } catch (const std::exception& error) {
-                status_ = error.what(); // As for presses: the composition is full.
+                status_ = tr(error); // As for presses: the composition is full.
             }
             reading_replaces_selection(was_open);
         }
@@ -5912,8 +5917,8 @@ void App::finish_swipe(bool wait) {
 void App::apply_swipe(const SwipeService::Result& result) {
     dirty = true;
     if (!result.error.empty()) {
-        // The error is the swipe engine's own text, after a translated lead-in.
-        status_ = tr("status.swipe-unavailable", {{"error", result.error}});
+        // The swipe service's reason, after a translated lead-in.
+        status_ = tr("status.swipe-unavailable", {{"error", tr(result.error)}});
         return;
     }
     if (result.words.empty()) {
@@ -5938,7 +5943,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
             for (std::size_t i = 0; i <= typed && cjk_->preedit() != before; ++i) {
                 cjk_->backspace();
             }
-            status_ = error.what();
+            status_ = tr(error);
             return;
         }
         status_.clear();
@@ -6341,7 +6346,7 @@ void App::open_emoji() {
         commit_japanese();
         commit_cjk();
     } catch (const std::exception& error) {
-        status_ = error.what();
+        status_ = tr(error);
     }
     dirty = true;
     if (!composition_.empty() || (cjk_ && !cjk_->empty())) {
@@ -6537,7 +6542,7 @@ void App::save_emoji() {
         save_emoji_preferences(options_.config_dir / "emoji.json", emoji_preferences_);
         emoji_saved_ = emoji_preferences_;
     } catch (const std::exception& error) {
-        status_ = tr("status.recent-emoji-not-saved", {{"error", std::string(error.what())}});
+        status_ = tr("status.recent-emoji-not-saved", {{"error", tr(error)}});
     }
 }
 
@@ -6894,7 +6899,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
             cjk_key(key, true, modifiers);
             start_reading_repeat(pointer, key, modifiers, now);
         } catch (const std::exception& error) {
-            status_ = error.what();
+            status_ = tr(error);
         }
         reading_replaces_selection(was_open);
         editor_goal_x_.reset();
@@ -6949,7 +6954,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
     try {
         text = keymap_->compose(symbol);
     } catch (const std::exception& error) {
-        dictation_message(error.what(), true);
+        dictation_message(tr(error), true);
         return true;
     }
     if (!text.empty() && text_output_->text_press(pointer, text, now)) {

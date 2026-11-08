@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+#include "localization.hpp"
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -126,7 +127,7 @@ class SwipeService {
     struct Result {
         std::uint64_t id{};
         std::vector<std::string> words;
-        std::string error;
+        ErrorText error;
     };
     std::optional<Result> take_result();
     // Blocks until no request is outstanding, for input that must not overtake it.

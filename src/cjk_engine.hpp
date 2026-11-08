@@ -1,8 +1,16 @@
 #pragma once
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace framekeyboard {
+// A message for the user from an engine module, by its key in the interface
+// language files: a module has no language tables, so CjkComposer passes it
+// on as a UiError.
+class CjkMessage : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+};
 // Private interface between modules built and packaged with this executable.
 // Destroy engines before unloading the module that owns their virtual table.
 class CjkEngine {

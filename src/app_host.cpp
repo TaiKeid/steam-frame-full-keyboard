@@ -119,7 +119,7 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
                 }
                 host_.hinted = settings_.active;
             } catch (const std::exception& error) {
-                status_ = error.what();
+                status_ = tr(error);
             }
         } else if (host_.hints.language.empty() && host_.before_language) {
             end_language_hint(); // the same context, now without a language
@@ -178,7 +178,7 @@ void App::end_language_hint() {
         try {
             activate(selection);
         } catch (const std::exception& error) {
-            status_ = error.what();
+            status_ = tr(error);
         }
     }
     host_.before_language.reset();
@@ -505,7 +505,7 @@ std::string App::host_select(const std::string& layout, const std::string& langu
     try {
         apply(selection); // persists, as Settings → Apply does
     } catch (const std::exception& error) {
-        status_ = error.what();
+        status_ = tr(error);
         return "failed";
     }
     if (custom) {
@@ -565,7 +565,7 @@ std::string App::host_theme_select(const std::string& id, std::int64_t request) 
     try {
         apply(selection);
     } catch (const std::exception& error) {
-        status_ = error.what();
+        status_ = tr(error);
         return "failed";
     }
     host_.theme.reset();
@@ -585,8 +585,7 @@ std::pair<std::string, std::string> App::host_theme_set(const std::string& json)
     } catch (const std::exception& error) {
         return {"invalid_theme", error.what()};
     }
-    theme.id = shell_theme_id;
-    theme.name = "Shell theme";
+    theme.id = shell_theme_id; // Settings names it (App::update_settings_ui).
     const auto before = settings_;
     if (settings_.active.theme != shell_theme_id) {
         host_.theme_before = settings_.active.theme;

@@ -162,7 +162,7 @@ bool Engine::supported(const std::string& method) {
 }
 Engine::Engine(const std::string& method) : state_(std::make_unique<State>()) {
     if (!supported(method)) {
-        throw std::runtime_error("This build lacks the selected Chinese/Korean input engine");
+        throw CjkMessage("ime.engine-missing");
     }
     auto& s = *state_;
     s.pinyin = method.starts_with("chinese-");
@@ -173,7 +173,7 @@ Engine::Engine(const std::string& method) : state_(std::make_unique<State>()) {
         s.context.reset(PyZy::InputContext::create(
             s.zhuyin ? PyZy::InputContext::BOPOMOFO : PyZy::InputContext::FULL_PINYIN, &s.observer));
         if (!s.context) {
-            throw std::runtime_error("Pinyin engine unavailable");
+            throw CjkMessage("ime.pinyin-unavailable");
         }
         s.context->setProperty(PyZy::InputContext::PROPERTY_SPECIAL_PHRASE,
                                PyZy::Variant::fromBool(false));
@@ -188,7 +188,7 @@ Engine::Engine(const std::string& method) : state_(std::make_unique<State>()) {
         const bool ready = s.context->getCandidate(0, candidate);
         s.context->reset();
         if (!ready) {
-            throw std::runtime_error("Pinyin dictionary unavailable");
+            throw CjkMessage("ime.pinyin-dictionary-unavailable");
         }
     }
 #endif
@@ -196,7 +196,7 @@ Engine::Engine(const std::string& method) : state_(std::make_unique<State>()) {
     if (!s.pinyin) {
         s.hangul.reset(hangul_ic_new("2"));
         if (!s.hangul) {
-            throw std::runtime_error("Korean two-set engine unavailable");
+            throw CjkMessage("ime.hangul-unavailable");
         }
     }
 #endif
@@ -223,7 +223,7 @@ void Engine::type(char key) {
     if (s.keys.size() + static_cast<std::size_t>(g_utf8_strlen(s.prefix.c_str(), -1)) +
             static_cast<std::size_t>(g_utf8_strlen(s.finished.c_str(), -1)) >=
         30) {
-        throw std::runtime_error("Commit this composition before typing more");
+        throw CjkMessage("ime.commit-first");
     }
     if (s.pinyin) {
 #ifdef FRAMEKEYBOARD_HAVE_PYZY

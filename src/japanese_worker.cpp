@@ -198,7 +198,7 @@ JapaneseWorker::Answer JapaneseWorker::answer(Job job) {
         try {
             result.result = job.step(copy);
         } catch (const std::exception& error) {
-            result.error = error.what(); // The copy stays as the throw left it.
+            result.error = error_text(error); // The copy stays as the throw left it.
         }
     }
 #ifdef FRAMEKEYBOARD_FRAME_TRACE

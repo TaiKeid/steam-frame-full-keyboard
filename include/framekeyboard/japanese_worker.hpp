@@ -6,6 +6,7 @@
 // copies back as answers, which the asking thread takes in that order. It
 // sleeps while nothing is asked: no timed wakeups.
 #include "framekeyboard/japanese.hpp"
+#include "framekeyboard/localization.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -37,7 +38,7 @@ class JapaneseWorker {
         // tasks and learning.
         std::optional<JapaneseComposer> composer;
         bool result{};
-        std::string error; // What the step threw, if it did.
+        ErrorText error;            // What the step threw, if it did.
         std::function<void()> done; // A task's, for the asking thread.
     };
     // The converter is made with `factory` on the worker, when a step first

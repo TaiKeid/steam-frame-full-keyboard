@@ -1,4 +1,5 @@
 #include "framekeyboard/input.hpp"
+#include "framekeyboard/localization.hpp"
 #include "framekeyboard/output.hpp"
 
 #include <algorithm>
@@ -373,12 +374,12 @@ std::string LanguageMap::compose(xkb_keysym_t symbol) {
         auto* table =
             xkb_compose_table_new_from_locale(context_, "C.UTF-8", XKB_COMPOSE_COMPILE_NO_FLAGS);
         if (!table) {
-            throw std::runtime_error("Unicode accent composition table unavailable");
+            throw UiError(ui("input.accent-table-unavailable"));
         }
         compose_ = xkb_compose_state_new(table, XKB_COMPOSE_STATE_NO_FLAGS);
         xkb_compose_table_unref(table);
         if (!compose_) {
-            throw std::runtime_error("Cannot initialize accent composition");
+            throw UiError(ui("input.accent-composition-failed"));
         }
     }
     xkb_compose_state_feed(compose_, symbol);
@@ -392,7 +393,7 @@ std::string LanguageMap::compose(xkb_keysym_t symbol) {
         return buffer;
     case XKB_COMPOSE_CANCELLED:
         xkb_compose_state_reset(compose_);
-        throw std::runtime_error("This accent combination is unavailable; try again");
+        throw UiError(ui("input.accent-unavailable"));
     default:
         xkb_keysym_to_utf8(symbol, buffer, sizeof(buffer));
         return buffer;

@@ -45,7 +45,7 @@ void run_step(JapaneseWorker& worker, JapaneseComposer& composer, JapaneseWorker
             composer.adopt(std::move(*answer.composer));
         }
         if (!answer.error.empty()) {
-            throw std::runtime_error(answer.error);
+            throw std::runtime_error(answer.error.english);
         }
     }
 }

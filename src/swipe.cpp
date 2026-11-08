@@ -329,11 +329,11 @@ SwipeLexicon SwipeLexicon::parse(std::istream& input, const SwipeKeyboard& keybo
 SwipeLexicon SwipeLexicon::load(const fs::path& path, const SwipeKeyboard& keyboard) {
     std::ifstream input(path);
     if (!input) {
-        throw std::runtime_error("Swipe word list unavailable");
+        throw UiError(ui("swipe.word-list-unavailable"));
     }
     auto lexicon = parse(input, keyboard);
     if (lexicon.size() == 0) {
-        throw std::runtime_error("Swipe word list has no words for this layout");
+        throw UiError(ui("swipe.word-list-empty"));
     }
     return lexicon;
 }
@@ -487,13 +487,13 @@ struct SwipeModule {
         // ModuleEncoder still destroys every encoder and model instance.
         handle = dlopen(module_path().c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
         if (!handle) {
-            throw std::runtime_error("Swipe engine unavailable");
+            throw UiError(ui("swipe.engine-unavailable"));
         }
         create =
             reinterpret_cast<CreateSwipeEncoder>(dlsym(handle, "framekeyboard_create_swipe_encoder_v1"));
         if (!create) {
             dlclose(handle);
-            throw std::runtime_error("Swipe engine module is incompatible. Reinstall this release.");
+            throw UiError(ui("swipe.engine-incompatible"));
         }
     }
     ~SwipeModule() { dlclose(handle); }
@@ -515,14 +515,14 @@ class ModuleEncoder final : public SwipeEncoder {
 
 std::unique_ptr<SwipeEncoder> load_swipe_encoder(const fs::path& model) {
     if (model.empty()) {
-        throw std::runtime_error("Swipe model unavailable");
+        throw UiError(ui("swipe.model-unavailable"));
     }
     auto module = std::make_shared<SwipeModule>();
     // Own the engine before allocating its wrapper. If that allocation fails,
     // destroy the engine while the local module still owns its code.
     std::unique_ptr<SwipeEncoder> encoder(module->create(model.c_str()));
     if (!encoder) {
-        throw std::runtime_error("Swipe model could not be loaded");
+        throw UiError(ui("swipe.model-failed"));
     }
     return std::make_unique<ModuleEncoder>(std::move(module), std::move(encoder));
 }
@@ -585,11 +585,12 @@ std::optional<SwipeService::Result> SwipeService::wait_result() {
 }
 void SwipeService::run() {
     std::unique_ptr<SwipeEncoder> encoder;
-    std::string encoder_error;
+    ErrorText encoder_error;
     bool encoder_tried = false;
     std::shared_ptr<const SwipeKeyboard> keyboard;
     std::optional<SwipeLexicon> lexicon;
-    std::string lexicon_error = "Swipe typing is not ready";
+    const auto not_ready = error_text(ui("swipe.not-ready"));
+    auto lexicon_error = not_ready;
     // Identifies the loaded word list file, so an unchanged one is not parsed again.
     fs::path loaded_path;
     fs::file_time_type loaded_time{};
@@ -613,11 +614,11 @@ void SwipeService::run() {
         if (job.release) {
             keyboard.reset();
             lexicon.reset();
-            lexicon_error = "Swipe typing is not ready";
+            lexicon_error = not_ready;
             loaded_path.clear();
             if (job.release_encoder) {
                 encoder.reset();
-                encoder_error.clear();
+                encoder_error = {};
                 encoder_tried = false; // The next prepare loads it again.
             }
             return_memory();
@@ -638,7 +639,7 @@ void SwipeService::run() {
                 try {
                     encoder = factory_();
                 } catch (const std::exception& error) {
-                    encoder_error = error.what();
+                    encoder_error = error_text(error);
                 }
             }
             keyboard = std::move(job.keyboard);
@@ -646,14 +647,14 @@ void SwipeService::run() {
             loaded_path.clear();
             try {
                 lexicon = SwipeLexicon::load(job.lexicon, *keyboard);
-                lexicon_error.clear();
+                lexicon_error = {};
                 if (!stat_error) {
                     loaded_path = job.lexicon;
                     loaded_time = time;
                     loaded_size = size;
                 }
             } catch (const std::exception& error) {
-                lexicon_error = error.what();
+                lexicon_error = error_text(error);
             }
             return_memory();
             std::lock_guard lock(mutex_);
@@ -662,31 +663,31 @@ void SwipeService::run() {
             continue;
         }
         Result result{job.id, {}, {}};
-        try {
-            if (!encoder) {
-                throw std::runtime_error(encoder_error.empty() ? "Swipe engine unavailable"
-                                                               : encoder_error);
+        if (!encoder) {
+            result.error =
+                encoder_error.empty() ? error_text(ui("swipe.engine-unavailable")) : encoder_error;
+        } else if (!lexicon || !keyboard) {
+            result.error = lexicon_error;
+        } else {
+            try {
+                std::vector<float> keys(2 * swipe_max_keys);
+                std::vector<unsigned char> mask(swipe_max_keys);
+                for (std::size_t i = 0; i < keyboard->centers.size(); ++i) {
+                    keys[2 * i] = static_cast<float>((keyboard->centers[i].x - keyboard->frame.x) /
+                                                     keyboard->frame.width);
+                    keys[2 * i + 1] = static_cast<float>((keyboard->centers[i].y - keyboard->frame.y) /
+                                                         keyboard->frame.height);
+                    mask[i] = 1;
+                }
+                const auto features = swipe_features(job.points, *keyboard);
+                int steps = 0;
+                const auto log_probs = encoder->encode(features.data(), keys.data(), mask.data(), steps);
+                for (const auto& candidate : lexicon->decode(log_probs, steps, swipe_max_keys + 1, 5)) {
+                    result.words.push_back(candidate.word);
+                }
+            } catch (const std::exception& error) {
+                result.error = error_text(error);
             }
-            if (!lexicon || !keyboard) {
-                throw std::runtime_error(lexicon_error);
-            }
-            std::vector<float> keys(2 * swipe_max_keys);
-            std::vector<unsigned char> mask(swipe_max_keys);
-            for (std::size_t i = 0; i < keyboard->centers.size(); ++i) {
-                keys[2 * i] = static_cast<float>((keyboard->centers[i].x - keyboard->frame.x) /
-                                                 keyboard->frame.width);
-                keys[2 * i + 1] = static_cast<float>((keyboard->centers[i].y - keyboard->frame.y) /
-                                                     keyboard->frame.height);
-                mask[i] = 1;
-            }
-            const auto features = swipe_features(job.points, *keyboard);
-            int steps = 0;
-            const auto log_probs = encoder->encode(features.data(), keys.data(), mask.data(), steps);
-            for (const auto& candidate : lexicon->decode(log_probs, steps, swipe_max_keys + 1, 5)) {
-                result.words.push_back(candidate.word);
-            }
-        } catch (const std::exception& error) {
-            result.error = error.what();
         }
         {
             std::lock_guard lock(mutex_);

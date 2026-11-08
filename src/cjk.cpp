@@ -1,5 +1,6 @@
 #include "framekeyboard/cjk.hpp"
 #include "cjk_engine.hpp"
+#include "framekeyboard/localization.hpp"
 #include "table_engine.hpp"
 
 #include <dlfcn.h>
@@ -18,6 +19,15 @@ std::mutex& engine_mutex() {
     static std::mutex mutex;
     return mutex;
 }
+// An engine module's messages for the user come as keys; they go on as
+// UiErrors, with their English for logs.
+template <class Call> auto engine_call(Call&& call) {
+    try {
+        return call();
+    } catch (const CjkMessage& message) {
+        throw UiError(ui(message.what()));
+    }
+}
 struct Module {
     void* handle{};
     CreateCjkEngine create{};
@@ -32,12 +42,12 @@ struct Module {
         }
         handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
-            throw std::runtime_error(name + " engine unavailable. Choose another language.");
+            throw UiError(ui("ime.engine-unavailable", {{"engine", name}}));
         }
         create = reinterpret_cast<CreateCjkEngine>(dlsym(handle, "framekeyboard_create_cjk_v2"));
         if (!create) {
             dlclose(handle);
-            throw std::runtime_error(name + " engine module is incompatible. Reinstall this release.");
+            throw UiError(ui("ime.engine-incompatible", {{"engine", name}}));
         }
     }
     ~Module() { dlclose(handle); }
@@ -71,7 +81,7 @@ struct CjkComposer::State {
             return;
         }
         module = load(method);
-        engine.reset(module->create(method.c_str()));
+        engine.reset(engine_call([&] { return module->create(method.c_str()); }));
         if (!engine) {
             throw std::runtime_error("Could not create composition engine");
         }
@@ -102,7 +112,7 @@ CjkComposer::~CjkComposer() {
 void CjkComposer::type(char key) {
     std::lock_guard lock(engine_mutex());
     if (state_->engine) {
-        state_->engine->type(key);
+        engine_call([&] { state_->engine->type(key); });
     }
 }
 void CjkComposer::backspace() {

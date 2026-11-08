@@ -284,7 +284,8 @@ void step_errors() {
         return true;
     });
     const auto done = answers(worker);
-    require(done.size() == 1 && done.front().error == "Japanese conversion needs the Anthy library" &&
+    require(done.size() == 1 &&
+                done.front().error.english == "Japanese conversion needs the Anthy library" &&
                 !done.front().composer->converting(),
             "the error comes back with the copy");
 }
