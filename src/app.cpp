@@ -815,12 +815,12 @@ void App::update_settings_ui() {
     }
     // Semi-transparent and Invisible keep the case's laser area
     // (docs/configuration.md, Background).
-    auto background_surface =
-        field(ControlKind::ChooseBackgroundSurface,
-              dropdown("background-surface", "Background", pending_background_surface_,
-                       {{"visible", "Visible"},
-                        {"semi-transparent", "Semi-transparent"},
-                        {"invisible", "Invisible"}}));
+    auto background_surface = field(
+        ControlKind::ChooseBackgroundSurface,
+        dropdown("background-surface", tr("setting.background-surface"), pending_background_surface_,
+                 {{"visible", tr("setting.background-surface.visible")},
+                  {"semi-transparent", tr("setting.background-surface.semi-transparent")},
+                  {"invisible", tr("setting.background-surface.invisible")}}));
     background_surface.width = 250; // "Semi-transparent" and the label, both whole
     auto haptic_sounds = field(
         ControlKind::ChooseHapticSounds,
@@ -874,14 +874,15 @@ void App::update_settings_ui() {
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
     std::vector<SettingField> general_fields{
         field(ControlKind::ChooseTheme,
-              dropdown("theme", "Theme", pending_.theme, choices(profiles_.themes))),
+              dropdown("theme", tr("setting.theme"), pending_.theme, choices(profiles_.themes))),
         background_surface,
-        field(ControlKind::HideNumpad, checkbox("hide-numpad", "Hide numpad", pending_hide_numpad_)),
+        field(ControlKind::HideNumpad,
+              checkbox("hide-numpad", tr("setting.hide-numpad"), pending_hide_numpad_)),
         field(ControlKind::UseDragToMove,
-              checkbox("use-drag-to-move", "Grab to move", pending_use_drag_to_move_, true,
-                       "Hold grip on the keyboard instead of the line")),
+              checkbox("use-drag-to-move", tr("setting.use-drag-to-move"), pending_use_drag_to_move_,
+                       true, tr("setting.use-drag-to-move.note"))),
         field(ControlKind::AutoLeveling,
-              checkbox("auto-leveling", "Auto leveling", pending_auto_leveling_))};
+              checkbox("auto-leveling", tr("setting.auto-leveling"), pending_auto_leveling_))};
     std::vector<SettingField> typing_fields{haptic_sounds};
     if (pending_haptic_sounds_ != "off") {
         typing_fields.push_back(haptic_effect);
@@ -898,12 +899,11 @@ void App::update_settings_ui() {
                                          "A press between keys goes to the nearest one"))});
     // The popup edits the same main language as the two dropdowns.
     const auto additional = additional_pairs().size();
-    auto languages =
-        field(ControlKind::OpenLanguages,
-              SettingField{"additional-languages", "",
-                           additional ? "Additional languages: " + std::to_string(additional)
-                                      : "Additional languages",
-                           ControlStyle::Button});
+    auto languages = field(
+        ControlKind::OpenLanguages,
+        SettingField{"additional-languages", "",
+                     tr("button.additional-languages", {{"count", static_cast<long long>(additional)}}),
+                     ControlStyle::Button});
     languages.width = 412;
     const auto pairs = additional_pairs();
     std::vector<SettingField> learning_fields;
@@ -915,20 +915,20 @@ void App::update_settings_ui() {
     if (flick_language(pending_.language) ||
         std::any_of(pairs.begin(), pairs.end(),
                     [&](const Selection& pair) { return flick_language(pair.language); })) {
-        learning_fields.push_back(field(ControlKind::FlickOnly,
-                                        checkbox("flick-only", "Flick Only (JP)", pending_flick_only_,
-                                                 true, "A quick second tap types the same kana again")));
+        learning_fields.push_back(field(
+            ControlKind::FlickOnly, checkbox("flick-only", tr("setting.flick-only"), pending_flick_only_,
+                                             true, tr("setting.flick-only.note"))));
         learning_fields.push_back(
             field(ControlKind::FlickKatakana,
-                  checkbox("flick-katakana", "Flick Katakana (JP)", pending_flick_katakana_, true,
-                           "Adds a key that switches the kana to katakana")));
+                  checkbox("flick-katakana", tr("setting.flick-katakana"), pending_flick_katakana_, true,
+                           tr("setting.flick-katakana.note"))));
     }
     {
         // Always last: what typing suggestions and Japanese conversion learned,
         // chosen by language in a popup.
         auto clear =
             field(ControlKind::ClearLearning,
-                  SettingField{"clear-learning", "", "Clear learned words", ControlStyle::Button});
+                  SettingField{"clear-learning", "", tr("button.clear-learning"), ControlStyle::Button});
         clear.width = 412;
         // Nothing to clear, or Anthy restarting: it can't be pressed.
         clear.enabled = anything_learned() && !restarting_anthy() && !clear_queued_;
@@ -937,7 +937,7 @@ void App::update_settings_ui() {
     }
     auto language_fields = std::vector<SettingField>{
         field(ControlKind::ChooseLayout,
-              dropdown("layout", "Layout", pending_.layout,
+              dropdown("layout", tr("setting.layout"), pending_.layout,
                        [&] {
                            // Without companion layouts, which are other layouts' English pages.
                            auto list = choices(profiles_.layouts);
@@ -947,21 +947,22 @@ void App::update_settings_ui() {
                            return list;
                        }())),
         field(ControlKind::ChooseLanguage,
-              dropdown("language", "Language", pending_.language, language_choices)),
+              dropdown("language", tr("setting.language"), pending_.language, language_choices)),
         languages,
         field(ControlKind::SwipeTyping,
-              checkbox("swipe-typing", "Swipe typing", pending_swipe_typing_ && swipe, swipe,
-                       "Powered by FUTO Swipe")),
-        field(ControlKind::TypingSuggestions, checkbox("typing-suggestions", "Typing suggestions",
-                                                       pending_typing_suggestions_ && suggest, suggest,
-                                                       "Completes the word you're typing")),
+              checkbox("swipe-typing", tr("setting.swipe-typing"), pending_swipe_typing_ && swipe, swipe,
+                       tr("setting.swipe-typing.note"))),
+        field(ControlKind::TypingSuggestions,
+              checkbox("typing-suggestions", tr("setting.typing-suggestions"),
+                       pending_typing_suggestions_ && suggest, suggest,
+                       tr("setting.typing-suggestions.note"))),
         field(ControlKind::KeyFlicks,
-              checkbox("key-flicks", "Flick down for Shift characters", pending_key_flicks_, true,
-                       "Letters flick to capitals only while swipe typing is off"))};
+              checkbox("key-flicks", tr("setting.key-flicks"), pending_key_flicks_, true,
+                       tr("setting.key-flicks.note")))};
     language_fields.insert(language_fields.end(), learning_fields.begin(), learning_fields.end());
     std::vector<SettingsCard> cards{
-        {{"languages", "Languages and Layouts", language_fields},
-         {"general", "General", general_fields},
+        {{"languages", tr("card.languages"), language_fields},
+         {"general", tr("card.general"), general_fields},
          {"typing", "Typing", typing_fields},
          {"dictation", "Dictation", dictation_fields},
          {"integration",

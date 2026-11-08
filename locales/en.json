@@ -20,6 +20,14 @@
     "group_min": 4
   },
   "strings": {
+    "button.additional-languages": {
+      "by": "count",
+      "=0": "Additional languages",
+      "other": "Additional languages: {count}"
+    },
+    "button.clear-learning": "Clear learned words",
+    "card.general": "General",
+    "card.languages": "Languages and Layouts",
     "dictation.server.address-hint": "Host name or IP address",
     "dictation.server.outside-network": "Outside your local network: speech would cross the internet unencrypted.",
     "dictation.server.title": "Server address",
@@ -45,6 +53,27 @@
     "output.not-sent-actions-discarded": "Text not sent. Check the target, then press Enter to retry. Queued actions and later text were discarded.",
     "output.not-sent-later-discarded": "Text not sent. Check the target, then press Enter to retry. Later input was discarded.",
     "output.queue-full": "Input queue full. Wait for delivery, then try the key again.",
-    "output.waiting-for-delivery": "Waiting for compositor text delivery. Try the key again when it completes."
+    "output.waiting-for-delivery": "Waiting for compositor text delivery. Try the key again when it completes.",
+    "setting.auto-leveling": "Auto leveling",
+    "setting.background-surface": "Background",
+    "setting.background-surface.invisible": "Invisible",
+    "setting.background-surface.semi-transparent": "Semi-transparent",
+    "setting.background-surface.visible": "Visible",
+    "setting.flick-katakana": "Flick Katakana (JP)",
+    "setting.flick-katakana.note": "Adds a key that switches the kana to katakana",
+    "setting.flick-only": "Flick Only (JP)",
+    "setting.flick-only.note": "A quick second tap types the same kana again",
+    "setting.hide-numpad": "Hide numpad",
+    "setting.key-flicks": "Flick down for Shift characters",
+    "setting.key-flicks.note": "Letters flick to capitals only while swipe typing is off",
+    "setting.language": "Language",
+    "setting.layout": "Layout",
+    "setting.swipe-typing": "Swipe typing",
+    "setting.swipe-typing.note": "Powered by FUTO Swipe",
+    "setting.theme": "Theme",
+    "setting.typing-suggestions": "Typing suggestions",
+    "setting.typing-suggestions.note": "Completes the word you're typing",
+    "setting.use-drag-to-move": "Grab to move",
+    "setting.use-drag-to-move.note": "Hold grip on the keyboard instead of the line"
   }
 }
