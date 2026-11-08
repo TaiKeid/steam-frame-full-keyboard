@@ -3,6 +3,7 @@
 // (docs/localization-design.md). Read on App's thread only.
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -40,6 +41,19 @@ struct SystemLanguage {
 std::string steam_language(std::string_view registry);
 // Reads <home>/.steam/registry.vdf, then LC_ALL, LC_MESSAGES and LANG.
 SystemLanguage system_language(const fs::path& home);
+// The system language, read again only after Steam's registry file changed:
+// asked each time Settings opens, it costs one stat.
+class SystemLanguageWatch {
+  public:
+    explicit SystemLanguageWatch(fs::path home) : home_(std::move(home)) {}
+    SystemLanguage operator()();
+
+  private:
+    fs::path home_;
+    std::optional<fs::file_time_type> seen_;
+    SystemLanguage last_;
+    bool read_{};
+};
 
 // The CLDR plural category (zero, one, two, few, many or other) that a
 // language's rules pick for a count. Rules see integers only: n and i are

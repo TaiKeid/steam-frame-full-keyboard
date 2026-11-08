@@ -352,6 +352,18 @@ SystemLanguage system_language(const fs::path& home) {
     return result;
 }
 
+SystemLanguage SystemLanguageWatch::operator()() {
+    std::error_code error;
+    const auto changed = fs::last_write_time(home_ / ".steam" / "registry.vdf", error);
+    const auto stamp = error ? std::nullopt : std::optional(changed);
+    if (!read_ || stamp != seen_) {
+        last_ = system_language(home_);
+        seen_ = stamp;
+        read_ = true;
+    }
+    return last_;
+}
+
 Localization::Node Localization::node(json_object* value, const std::string& key, int depth) {
     Node result;
     if (json_object_is_type(value, json_type_string)) {

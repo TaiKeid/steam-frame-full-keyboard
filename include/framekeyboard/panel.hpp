@@ -114,7 +114,8 @@ enum class ControlKind {
     ExtendedKeyCollision, // Settings: presses between keys reach the nearest one
     // The Debug card, only in debug builds (FRAMEKEYBOARD_DEBUG_MODE).
     DebugMarkAnthy,
-    DebugKeyCollision
+    DebugKeyCollision,
+    DebugInterfaceLanguage
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -200,6 +201,9 @@ struct PanelView {
     const Layout* layout{};
     const Theme* theme{};
     const Language* language{};
+    // Interface text's fonts follow the interface language; key legends,
+    // candidates and typed text keep the typing language's (language->font).
+    std::string interface_font{"Noto Sans,sans-serif"};
     const LanguageMap* keymap{};
     const KeyboardState* keyboard{};
     std::vector<Control> controls;

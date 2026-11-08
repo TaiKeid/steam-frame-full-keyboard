@@ -1764,7 +1764,7 @@ std::optional<Rect> focus_tooltip_card(cairo_t* cr, const PanelView& view) {
     }
     const auto& button = *std::find_if(view.controls.begin(), view.controls.end(),
                                        [](const Control& c) { return c.id == "keep-open"; });
-    const double ink = text_width(cr, view.focus_tooltip, focus_tooltip_size, view.language->font);
+    const double ink = text_width(cr, view.focus_tooltip, focus_tooltip_size, view.interface_font);
     const double radius = card_radius(*view.theme);
     const double least = std::min(area->width, 2 * (radius + focus_tooltip_pointer) + 8);
     const double width = std::clamp(ink + 2 * focus_tooltip_pad, least, area->width);
@@ -1793,7 +1793,7 @@ void draw_status_card(cairo_t* cr, const PanelView& view) {
     constexpr double size = 17, pad = 20, gap = 12;
     const auto body = panel_case_bounds(view);
     const double width =
-        std::min(text_width(cr, view.status, size, view.language->font) + 2 * pad, panel_width - 16.0);
+        std::min(text_width(cr, view.status, size, view.interface_font) + 2 * pad, panel_width - 16.0);
     Rect card{std::clamp(body.x + (body.width - width) / 2, 8.0, panel_width - 8 - width),
               body.y - 4 - focus_tooltip_pointer - focus_tooltip_height, width, focus_tooltip_height};
     if (const auto tooltip = focus_tooltip_card(cr, view); tooltip &&
@@ -1810,7 +1810,7 @@ void draw_status_card(cairo_t* cr, const PanelView& view) {
     draw_card(cr, *view.theme, card);
     // label() sets text 4 px inside its area.
     label(cr, view.status, {card.x + pad - 4, card.y, card.width - 2 * pad + 8, card.height}, size,
-          view.language->font, view.theme->legend);
+          view.interface_font, view.theme->legend);
 }
 void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
     const auto found = focus_tooltip_card(cr, view);
@@ -1850,7 +1850,7 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
     // label() sets text 4 px inside its area.
     label(cr, view.focus_tooltip,
           {card.x + focus_tooltip_pad - 4, card.y, card.width - 2 * focus_tooltip_pad + 8, card.height},
-          focus_tooltip_size, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+          focus_tooltip_size, view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
 }
 void draw_settings_card(cairo_t* cr, const Theme& t, const Rect& r) {
     const double radius = t.radius + 4;
@@ -1987,7 +1987,7 @@ void case_plate(cairo_t* cr, const PanelView& view, const Rect& area, const std:
     if (!clear_case(view) || text.empty()) {
         return;
     }
-    const double ink = text_width(cr, text, size, view.language->font) + extra;
+    const double ink = text_width(cr, text, size, view.interface_font) + extra;
     const auto& t = *view.theme;
     constexpr double pad = 14;
     const bool fills = ink + 8 > area.width;
@@ -2093,7 +2093,7 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
             const auto hint = composition_hint(view);
             const auto& r = line ? areas.band : areas.reading;
             case_plate(cr, view, r, hint, 19, PANGO_ALIGN_CENTER);
-            label(cr, hint, r, 19, view.language->font, mix(t.legend, t.surface, .35));
+            label(cr, hint, r, 19, view.interface_font, mix(t.legend, t.surface, .35));
         } else {
             const auto& r = areas.reading;
             draw_well(cr, t, r);
@@ -2298,7 +2298,7 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
         const Rect band{r.x + 1, r.y + r.height - dictation_notice_height, r.width - 2,
                         dictation_notice_height - 1};
         label(cr, editor.notice, {band.x + editor_padding_x, band.y, band.width - 280, band.height},
-              t.small_font_size * 1.3, view.language->font,
+              t.small_font_size * 1.3, view.interface_font,
               editor.notice_error ? amber : Color{t.legend.r, t.legend.g, t.legend.b}, false,
               PANGO_ALIGN_LEFT);
     }
@@ -2313,11 +2313,11 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
                        editor.where == Icon::None ? 0 : 32);
         }
         // Quiet while there is room; amber once dictation has reached its limit.
-        label(cr, editor.counter, counter, size, view.language->font,
+        label(cr, editor.counter, counter, size, view.interface_font,
               editor.at_limit ? amber : disabled_legend(t), false, PANGO_ALIGN_RIGHT);
         if (editor.where != Icon::None) {
             // Where speech is recognized, just left of the count.
-            const double width = text_width(cr, editor.counter, size, view.language->font);
+            const double width = text_width(cr, editor.counter, size, view.interface_font);
             draw_icon(cr, editor.where,
                       {counter.x + counter.width - 4 - width - 32, counter.y + (counter.height - 26) / 2,
                        26, 26},
@@ -2561,13 +2561,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // the microphone's bars move, so the text is measured once.
         std::optional<Rect> status_line;
         double status_overflow = 0;
-        if (status_shown && (status_measured_ != view.status || status_font_ != view.language->font)) {
+        if (status_shown && (status_measured_ != view.status || status_font_ != view.interface_font)) {
             auto* measure = cairo_create(surface_);
             grey_text(measure);
-            status_width_ = text_width(measure, view.status, 15, view.language->font);
+            status_width_ = text_width(measure, view.status, 15, view.interface_font);
             cairo_destroy(measure);
             status_measured_ = view.status;
-            status_font_ = view.language->font;
+            status_font_ = view.interface_font;
         }
         if (!choice && status_shown) {
             const auto line = dictation_status_line(view);
@@ -2593,7 +2593,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             auto* measure = cairo_create(surface_);
             grey_text(measure);
             const double overflow =
-                text_width(measure, choice->label, 21, view.language->font) - (text.width - 8);
+                text_width(measure, choice->label, 21, view.interface_font) - (text.width - 8);
             cairo_destroy(measure);
             if (overflow > 0) {
                 const auto step = marquee_step(overflow, now - marquee_since_);
@@ -3290,13 +3290,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 emoji_image(cell.text, cell.bounds);
             }
             if (!picker.hint.empty()) {
-                label(cr, picker.hint, picker.hint_bounds, t.small_font_size * 1.3, view.language->font,
+                label(cr, picker.hint, picker.hint_bounds, t.small_font_size * 1.3, view.interface_font,
                       disabled_legend(t), false, PANGO_ALIGN_CENTER, true);
             }
             if (!picker.favorites_hint.empty()) {
                 const auto& r = picker.favorites_hint_bounds;
                 label(cr, picker.favorites_hint, {r.x + 8, r.y, r.width - 16, r.height},
-                      t.small_font_size * 1.1, view.language->font, disabled_legend(t), false,
+                      t.small_font_size * 1.1, view.interface_font, disabled_legend(t), false,
                       PANGO_ALIGN_CENTER, true);
             }
             cairo_restore(cr);
@@ -3326,7 +3326,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // quieter than the rows, like a section header.
                 label(cr, card.title,
                       {card.bounds.x + 30, card.bounds.y + 12, card.bounds.width - 60, 32}, 19,
-                      view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
+                      view.interface_font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
                 // One quiet line under the title; rows are set apart by space
                 // alone, as most of them configure similar things.
                 const double y = std::round(card.bounds.y + 50) + .5;
@@ -3342,7 +3342,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
                 cairo_clip(cr);
                 const Color warning = t.warning; // the editor's and address popup's amber
-                label(cr, field.text, field.bounds, field.size, view.language->font,
+                label(cr, field.text, field.bounds, field.size, view.interface_font,
                       !field.enabled  ? disabled_legend(t)
                       : field.warning ? warning
                                       : t.legend,
@@ -3406,10 +3406,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     if (const Rect text{r.x + 20, r.y, r.width - 40, r.height};
                         marquee_text && control.id == marquee_) {
                         // A name too long for its row scrolls while the laser is on it.
-                        scrolled_label(cr, control.label, text, 21, view.language->font, legend,
+                        scrolled_label(cr, control.label, text, 21, view.interface_font, legend,
                                        marquee_shift);
                     } else {
-                        label(cr, control.label, text, 21, view.language->font, legend, false,
+                        label(cr, control.label, text, 21, view.interface_font, legend, false,
                               PANGO_ALIGN_LEFT);
                     }
                     break;
@@ -3424,7 +3424,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         cairo_stroke(cr);
                     }
                     label(cr, control.label, {r.x + 18, r.y, r.width - 36, r.height}, 21,
-                          view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                          view.interface_font, legend, false, PANGO_ALIGN_LEFT);
                     break;
                 }
                 case ControlStyle::Segment: {
@@ -3451,14 +3451,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     if (control.icon != Icon::None) {
                         draw_icon(cr, control.icon, r, legend, 30);
                     } else {
-                        label(cr, control.label, r, 21, view.language->font, legend);
+                        label(cr, control.label, r, 21, view.interface_font, legend);
                     }
                     break;
                 }
                 case ControlStyle::Dropdown: {
                     draw_cap(cr, t, r, hovered, control.selected, control.enabled);
                     label(cr, control.label, {r.x + 18, r.y, r.width - 62, r.height}, 21,
-                          view.language->font, legend, false, PANGO_ALIGN_LEFT);
+                          view.interface_font, legend, false, PANGO_ALIGN_LEFT);
                     const double x = r.x + r.width - 26, y = r.y + r.height / 2;
                     cairo_move_to(cr, x - 6, y - 3);
                     cairo_line_to(cr, x, y + 3);
@@ -3475,7 +3475,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     if (control.icon != Icon::None) {
                         draw_icon(cr, control.icon, r, legend);
                     } else {
-                        label(cr, control.label, r, 21, view.language->font, legend);
+                        label(cr, control.label, r, 21, view.interface_font, legend);
                     }
                     if (control.busy) {
                         draw_ring(cr, t, r, busy_ring_);
@@ -3508,7 +3508,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
             if (control.style == ControlStyle::Scrollbar) {
             } else if (control.style == ControlStyle::Dropdown) {
-                label(cr, control.label, {r.x + 6, r.y, r.width - 58, r.height}, 22, view.language->font,
+                label(cr, control.label, {r.x + 6, r.y, r.width - 58, r.height}, 22, view.interface_font,
                       legend);
                 source(cr, legend);
                 cairo_move_to(cr, r.x + r.width - 50, r.y);
@@ -3533,9 +3533,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 draw_icon(cr, control.icon, at, tint);
             } else {
-                // Toolbar names such as a language's short name shrink to fit.
-                label(cr, control.label, r, view.settings ? 22 : 19, view.language->font, legend,
-                      !view.settings);
+                // Toolbar names such as a language's short name shrink to fit,
+                // in that language's own fonts.
+                label(cr, control.label, r, view.settings ? 22 : 19,
+                      control.action.kind == ControlKind::LanguageCycle ? view.language->font
+                                                                        : view.interface_font,
+                      legend, !view.settings);
             }
             if (control.badge) {
                 // Stays inside the button, whose bounds are its repaint damage.
@@ -3566,7 +3569,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 if (control.action.kind == ControlKind::Updates) {
                     const auto& r = control.bounds;
                     label(cr, view.version, {r.x + r.width + 6, r.y, 120, r.height}, 16,
-                          view.language->font, disabled_legend(t), false, PANGO_ALIGN_LEFT);
+                          view.interface_font, disabled_legend(t), false, PANGO_ALIGN_LEFT);
                 }
             }
         }
@@ -3574,9 +3577,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             const auto line = dictation_status_line(view);
             case_plate(cr, view, line, view.status, 15, PANGO_ALIGN_LEFT);
             if (marquee_status) {
-                scrolled_label(cr, view.status, line, 15, view.language->font, t.legend, marquee_shift);
+                scrolled_label(cr, view.status, line, 15, view.interface_font, t.legend, marquee_shift);
             } else {
-                label(cr, view.status, line, 15, view.language->font, t.legend, false, PANGO_ALIGN_LEFT,
+                label(cr, view.status, line, 15, view.interface_font, t.legend, false, PANGO_ALIGN_LEFT,
                       true);
             }
         }
@@ -3665,7 +3668,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             const auto& popup = *view.languages;
             modal_panel(popup.panel);
             label(cr, "Additional languages", {popup.panel.x + 92, popup.panel.y + 10, 500, 42}, 24,
-                  view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+                  view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, popup.well);
             for (const double x : {popup.languages_list.x - 15, popup.additional_list.x - 16}) {
                 cairo_move_to(cr, std::round(x) + .5, popup.well.y + 12);
@@ -3675,7 +3678,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_stroke(cr);
             }
             const auto caption = [&](const char* text, double x, double y) {
-                label(cr, text, {x, y, 340, 30}, 17, view.language->font, disabled_legend(t), false,
+                label(cr, text, {x, y, 340, 30}, 17, view.interface_font, disabled_legend(t), false,
                       PANGO_ALIGN_LEFT);
             };
             caption("Layout", popup.layouts_list.x, popup.layouts_list.y - 36);
@@ -3690,13 +3693,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 const double left = row.swipe ? 46 : 12;
                 const double width = r.width - left - right + 12;
                 if (row.note.empty()) {
-                    label(cr, row.title, {r.x + left, r.y, width, r.height}, 21, view.language->font,
+                    label(cr, row.title, {r.x + left, r.y, width, r.height}, 21, view.interface_font,
                           title, false, PANGO_ALIGN_LEFT);
                     return;
                 }
-                label(cr, row.title, {r.x + left, r.y + 3, width, 28}, 21, view.language->font, title,
+                label(cr, row.title, {r.x + left, r.y + 3, width, 28}, 21, view.interface_font, title,
                       false, PANGO_ALIGN_LEFT);
-                label(cr, row.note, {r.x + left, r.y + 29, width, 21}, 15, view.language->font, note,
+                label(cr, row.note, {r.x + left, r.y + 29, width, 21}, 15, view.interface_font, note,
                       false, PANGO_ALIGN_LEFT);
             };
             const Color quiet = disabled_legend(t);
@@ -3759,7 +3762,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 label(cr, popup.hint,
                       {popup.additional_list.x + 34, popup.additional_list.y + 60,
                        popup.additional_list.width - 68, 120},
-                      18, view.language->font, quiet, false, PANGO_ALIGN_CENTER, true);
+                      18, view.interface_font, quiet, false, PANGO_ALIGN_CENTER, true);
             }
             for (const auto& thumb :
                  {popup.layouts_thumb, popup.languages_thumb, popup.additional_thumb}) {
@@ -3780,7 +3783,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         rounded(cr, tip, t.radius);
                         source(cr, mix(t.bottom, t.surface, .25));
                         cairo_fill(cr);
-                        label(cr, control.label, tip, 17, view.language->font, t.legend);
+                        label(cr, control.label, tip, 17, view.interface_font, t.legend);
                     }
                 }
             }
@@ -3800,15 +3803,15 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             const auto& popup = *view.confirm;
             modal_panel(popup.panel);
             label(cr, popup.title, {popup.panel.x + 40, popup.panel.y + 30, popup.panel.width - 80, 36},
-                  25, view.language->font, t.legend, false, PANGO_ALIGN_LEFT);
+                  25, view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             label(cr, popup.body, {popup.panel.x + 40, popup.panel.y + 78, popup.panel.width - 80, 56},
-                  18, view.language->font, mix(t.legend, t.surface, .3), false, PANGO_ALIGN_LEFT, true);
+                  18, view.interface_font, mix(t.legend, t.surface, .3), false, PANGO_ALIGN_LEFT, true);
             for (const auto& row : popup.rows) {
                 // The name and its note; the row's switch is its control.
                 const Rect& r = row.bounds;
-                label(cr, row.title, {r.x, r.y, r.width - 80, 30}, 22, view.language->font, t.legend,
+                label(cr, row.title, {r.x, r.y, r.width - 80, 30}, 22, view.interface_font, t.legend,
                       false, PANGO_ALIGN_LEFT);
-                label(cr, row.note, {r.x, r.y + 30, r.width - 80, 22}, 16, view.language->font,
+                label(cr, row.note, {r.x, r.y + 30, r.width - 80, 22}, 16, view.interface_font,
                       mix(t.legend, t.surface, .3), false, PANGO_ALIGN_LEFT);
             }
             for (const auto& control : view.controls) {
@@ -3824,11 +3827,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             modal_panel(popup.panel);
             label(cr, "Server address",
                   {popup.panel.x + 30, popup.panel.y + 18, popup.panel.width - 140, 32}, 19,
-                  view.language->font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
+                  view.interface_font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, popup.field);
             auto* text = pango_cairo_create_layout(cr);
             auto* font = pango_font_description_new();
-            pango_font_description_set_family(font, view.language->font.c_str());
+            pango_font_description_set_family(font, view.interface_font.c_str());
             pango_font_description_set_absolute_size(font, 26 * PANGO_SCALE);
             pango_layout_set_font_description(text, font);
             pango_font_description_free(font);
@@ -3846,7 +3849,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             source(cr, t.legend);
             cairo_fill(cr);
             using Tone = PanelView::AddressView::Tone;
-            label(cr, popup.message, popup.hint, 17, view.language->font,
+            label(cr, popup.message, popup.hint, 17, view.interface_font,
                   popup.tone == Tone::Error     ? t.error
                   : popup.tone == Tone::Warning ? t.warning
                                                 : disabled_legend(t),

@@ -1533,6 +1533,80 @@ void debug_card_setting() {
     require(last_card(app) == "Integration", "a release build has no Debug card at all");
 #endif
 }
+// The interface language (docs/localization-design.md): the system's, with
+// its fonts for interface text, followed when Settings opens and on Reload;
+// the Debug card picks one for the run without saving it.
+void interface_language_setting() {
+    TemporaryDirectory directory;
+    fs::create_directories(directory.path / "locales");
+    std::ofstream(directory.path / "locales" / "xt.json")
+        << R"({"locale": "xt", "name": "Testish", "posix": ["xt"],
+               "font_families": ["Test Sans", "sans-serif"], "strings": {}})";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    {
+        App app(options, sink);
+        require(app.interface_language() == "en" && app.view().interface_font == "Noto Sans,sans-serif",
+                "with no system language, English");
+    }
+    std::string posix = "xt_XT.UTF-8";
+    options.system_language = [&] { return SystemLanguage{"", posix}; };
+    {
+        App app(options, sink);
+        require(app.interface_language() == "xt" && app.view().interface_font == "Test Sans,sans-serif",
+                "the system's language, with its fonts for interface text");
+        require(app.view().language->font == "Noto Sans,sans-serif",
+                "key legends keep the typing language's");
+        posix = "C.UTF-8";
+        require(app.interface_language() == "xt", "nothing changes while Settings is closed");
+        app.show_settings();
+        require(app.interface_language() == "en" && app.view().interface_font == "Noto Sans,sans-serif",
+                "opening Settings follows a changed system language");
+        std::ofstream(directory.path / "locales" / "xu.json")
+            << R"({"locale": "xu", "name": "Unish", "posix": ["xu"], "strings": {}})";
+        posix = "xu_XU";
+        click(app, "reload");
+        require(app.interface_language() == "xu", "Reload finds a new language file");
+    }
+    posix = "xt";
+    auto last_card = [](App& app) {
+        app.move(0, 800, 300);
+        app.scroll(0, 1000, 0);
+        static double now = 300;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+        return app.view().cards.back().title;
+    };
+    options.debug = true;
+    App app(options, sink);
+    app.show_settings();
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+    last_card(app);
+    require(control(app.view(), "debug-interface-language").label.find("System") != std::string::npos,
+            "the Debug card follows the system");
+    select(app, "debug-interface-language", "en");
+    app.back();
+    require(app.interface_language() == "xt", "Back discards the choice");
+    app.show_settings();
+    last_card(app);
+    select(app, "debug-interface-language", "qps");
+    click(app, "apply");
+    require(app.interface_language() == "qps", "Apply takes it: the pseudo-language");
+    app.show_settings();
+    require(app.interface_language() == "qps", "and Settings opening keeps it");
+    std::ifstream file(directory.path / "config.json");
+    const std::string text{std::istreambuf_iterator<char>(file), {}};
+    require(text.find("qps") == std::string::npos && text.find("interface") == std::string::npos,
+            "nothing saved");
+    App restarted(options, sink);
+    require(restarted.interface_language() == "xt", "a restart follows the system again");
+#else
+    require(last_card(app) == "Integration", "a release build has no Debug card at all");
+#endif
+}
 void haptic_sounds_setting() {
     TemporaryDirectory directory;
     Options options;
@@ -2898,6 +2972,7 @@ int main() {
         key_flicks_setting();
         extended_key_collision_setting();
         debug_card_setting();
+        interface_language_setting();
         haptic_sounds_setting();
         app_settings();
         dictation_settings();

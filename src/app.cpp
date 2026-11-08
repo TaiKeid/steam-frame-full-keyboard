@@ -204,6 +204,11 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
                       "framekeyboard/models";
     }
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
+    localization_.load(options.data_dir, options.config_dir);
+    profiles_.errors.insert(profiles_.errors.end(), localization_.errors().begin(),
+                            localization_.errors().end());
+    localization_.choose(options.system_language ? options.system_language() : SystemLanguage{});
+    interface_shown_ = localization_.tag();
     persisted_active_ = settings_.active;
     auto fallback_status = [&](const std::string& message) {
         profiles_.errors.push_back(message);
@@ -276,6 +281,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_extended_key_collision_ = settings_.extended_key_collision;
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
+    pending_debug_interface_language_ = debug_interface_language_;
     // Emoji from the system's IBus dictionary, as phones offer them (ねこ → 🐈).
     composition_.set_emoji([](const std::vector<std::string>& words) { return emoji_for(words, 4); });
     japanese_words_ = JapaneseWords(data_resource(options_.data_dir, "japanese/words.tsv"));
@@ -981,14 +987,25 @@ void App::update_settings_ui() {
 #ifdef FRAMEKEYBOARD_DEBUG_MODE
     // Last, after everything a release shows. Not saved (App::debug_mark_anthy_).
     if (debug_card(options_)) {
+        // By English name, for this run (docs/localization-design.md).
+        std::vector<SettingChoice> interface_languages{{"system", "System"}};
+        for (const auto& locale : localization_.locales()) {
+            interface_languages.push_back({locale.tag, locale.name});
+        }
         cards.push_back(
             {"debug",
              "Debug",
              {field(ControlKind::DebugMarkAnthy,
                     checkbox("debug-mark-anthy", "Mark Anthy suggestions", pending_debug_mark_anthy_)),
-              field(ControlKind::DebugKeyCollision,
-                    checkbox("debug-key-collision", "Display key collision",
-                             pending_debug_key_outlines_))}});
+              field(
+                  ControlKind::DebugKeyCollision,
+                  checkbox("debug-key-collision", "Display key collision", pending_debug_key_outlines_)),
+              field(ControlKind::DebugInterfaceLanguage,
+                    dropdown("debug-interface-language", "Interface language",
+                             pending_debug_interface_language_.empty()
+                                 ? "system"
+                                 : pending_debug_interface_language_,
+                             interface_languages))}});
     }
 #endif
     settings_ui_.set_cards(std::move(cards));
@@ -1013,6 +1030,7 @@ PanelView App::geometry() const {
     v.layout = &shown_layout();
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
+    v.interface_font = localization_.fonts();
     v.hide_numpad = numpad_hidden();
     v.case_opacity = case_opacity();
     v.settings = settings_open_;
@@ -1057,6 +1075,7 @@ PanelView App::build_view(bool picker) const {
     v.layout = &shown_layout();
     v.theme = &shown_theme();
     v.language = &profiles_.languages.at(settings_.active.language);
+    v.interface_font = localization_.fonts();
     v.keymap = keymap_.get();
     v.keyboard = &keyboard_;
     v.hide_numpad = numpad_hidden();
@@ -2504,6 +2523,7 @@ void App::show_settings() {
     pending_extended_key_collision_ = settings_.extended_key_collision;
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
+    pending_debug_interface_language_ = debug_interface_language_;
     learned_ = anthy_learned() || !next_words_.empty() || !japanese_choices_.empty() ||
                !japanese_completions_.empty() ||
                (!mozc_server_.empty() && mozc_learned(options_.config_dir));
@@ -2516,9 +2536,20 @@ void App::show_settings() {
     pending_dictation_server_ = settings_.dictation_server;
     pending_dictation_fallback_ = settings_.dictation_fallback;
     pending_dictation_device_model_ = settings_.dictation_device_model;
+    follow_interface_language(); // Steam's language may have changed meanwhile.
     update_settings_ui();
     settings_ui_.reset();
     dirty = true;
+}
+void App::follow_interface_language() {
+    localization_.choose(options_.system_language ? options_.system_language() : SystemLanguage{},
+                         debug_interface_language_);
+    if (localization_.tag() == interface_shown_) {
+        return;
+    }
+    interface_shown_ = localization_.tag();
+    dirty = true;
+    update_settings_ui();
 }
 void App::back() {
     if (address_ || confirm_ != Confirm::None) {
@@ -2790,6 +2821,12 @@ void App::reload() {
     }
     profiles_.errors.insert(profiles_.errors.end(), config_errors.begin(), config_errors.end());
     profiles_.errors.insert(profiles_.errors.end(), field_errors.begin(), field_errors.end());
+    // Edited language files can change text in the language already shown.
+    localization_.load(options_.data_dir, options_.config_dir);
+    profiles_.errors.insert(profiles_.errors.end(), localization_.errors().begin(),
+                            localization_.errors().end());
+    interface_shown_.clear();
+    follow_interface_language();
     pending_ = main_selection();
     pending_favorites_ = settings_.favorites;
     remember_languages();
@@ -2811,6 +2848,7 @@ void App::reload() {
     pending_extended_key_collision_ = settings_.extended_key_collision;
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
+    pending_debug_interface_language_ = debug_interface_language_;
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -4371,6 +4409,8 @@ void App::apply_settings() {
     settings_.extended_key_collision = pending_extended_key_collision_;
     debug_mark_anthy_ = pending_debug_mark_anthy_;
     debug_key_outlines_ = pending_debug_key_outlines_;
+    debug_interface_language_ = pending_debug_interface_language_;
+    follow_interface_language();
     katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
     apply_learning();
     sync_mozc();
@@ -4789,6 +4829,12 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::DebugKeyCollision && debug_card(options_)) {
         pending_debug_key_outlines_ = !pending_debug_key_outlines_;
+        update_settings_ui();
+    } else if (kind == ControlKind::DebugInterfaceLanguage && debug_card(options_)) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_debug_interface_language_ = command.value == "system" ? "" : command.value;
+        settings_ui_.close_popup();
         update_settings_ui();
     } else if (kind == ControlKind::FocusTooltip) {
         pending_focus_tooltip_ = !pending_focus_tooltip_;

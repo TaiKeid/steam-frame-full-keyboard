@@ -11,6 +11,7 @@
 #include "instance.hpp"
 #include "japanese.hpp"
 #include "japanese_worker.hpp"
+#include "localization.hpp"
 #include "next_words.hpp"
 #include "output.hpp"
 #include "panel.hpp"
@@ -91,6 +92,9 @@ struct Options {
     // gives candidates Anthy converted an orange border. Only builds with
     // FRAMEKEYBOARD_DEBUG_MODE have the card; the others ignore this.
     bool debug{};
+    // The system's interface language: main reads Steam's own setting and
+    // LANG. Left empty, as in tests and previews, the interface is English.
+    std::function<SystemLanguage()> system_language;
     // Where Anthy keeps what it learns. Empty is the user's home with the
     // default config folder, and any other config folder itself.
     fs::path anthy_home;
@@ -317,6 +321,8 @@ class App {
     double slow_work_deadline() const { return slow_work_deadline_.load(); }
     void frame_completed() { slow_work_deadline_.store(0); }
     const fs::path& config_dir() const { return options_.config_dir; }
+    // The interface language's tag (docs/localization-design.md).
+    const std::string& interface_language() const { return localization_.tag(); }
     bool quitting() const { return quit_; }
     // ↶ could still bring back the phrase committed last (the simulator's trace).
     bool reopen_pending() const { return reopen_.has_value(); }
@@ -833,6 +839,16 @@ class App {
     Updates* updates_{};
     Options options_;
     Profiles profiles_;
+    // Interface text; App resolves keys when it builds what the panel shows.
+    Localization localization_;
+    std::string tr(std::string_view key, const UiArgs& args = {}) const {
+        return localization_.text(key, args);
+    }
+    std::string tr(const UiText& message) const { return localization_.text(message); }
+    // The Debug card's choice, else the system's language; a change rebuilds
+    // what holds interface text.
+    void follow_interface_language();
+    std::string interface_shown_; // the language the cards were built in
     Settings settings_;
     SettingsWriter settings_writer_;
     std::string save_status_;
@@ -871,6 +887,9 @@ class App {
     // as for every other card.
     bool debug_mark_anthy_{true}, pending_debug_mark_anthy_{true};
     bool debug_key_outlines_{}, pending_debug_key_outlines_{};
+    // The interface language for this run, chosen on the Debug card; empty
+    // follows the system.
+    std::string debug_interface_language_, pending_debug_interface_language_;
     // Anthy restarts on the conversion worker for learning turned on or
     // off, or to clear what it learned (docs/japanese.md, Learning), and
     // Mozc's learning is cleared with it; live candidates wait.

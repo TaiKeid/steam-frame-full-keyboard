@@ -59,6 +59,9 @@ int main(int argc, char** argv) {
         fk::Updates updates(FRAMEKEYBOARD_VERSION, std::vector<std::string>(argv + 1, argv + argc));
         fk::Options options;
         options.config_dir = fk::default_config_dir();
+        // The interface follows Steam's language, else LANG (docs/localization-design.md).
+        const char* home = std::getenv("HOME");
+        options.system_language = fk::SystemLanguageWatch(home ? home : "");
 #ifdef FRAMEKEYBOARD_DEBUG_MODE
         // Every debug build has debug mode on, also launched from the
         // dashboard, whose launcher passes no --debug. Release builds leave
