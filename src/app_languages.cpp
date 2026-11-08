@@ -154,9 +154,11 @@ PanelView::LanguagesView::Row App::language_row(const Selection& pair) const {
     const auto layout = profiles_.layouts.find(pair.layout);
     // A pair whose profiles were removed stays listed, so it can go too.
     row.title = language != profiles_.languages.end() ? language->second.name : pair.language;
-    row.note = layout != profiles_.layouts.end() ? layout->second.name : pair.layout + " (missing)";
+    row.note = layout != profiles_.layouts.end()
+                   ? layout->second.name
+                   : tr("languages.layout-missing", {{"layout", pair.layout}});
     if (language == profiles_.languages.end()) {
-        row.note += " (language missing)";
+        row.note = tr("languages.language-missing", {{"layout", row.note}});
     }
     row.swipe = language_swipe(pair.language);
     return row;
@@ -179,7 +181,7 @@ void App::append_languages(PanelView& v) const {
         v.controls.push_back(std::move(control));
     };
     add({ControlKind::CloseLanguages}, {"languages-close",
-                                        "Back",
+                                        tr("languages.back"),
                                         {popup.panel.x + 16, popup.panel.y + 10, 60, 42},
                                         false,
                                         Icon::Back});
@@ -240,16 +242,20 @@ void App::append_languages(PanelView& v) const {
     popup.main.id = "languages-main";
     popup.main.bounds = languages_main_bounds;
     popup.main_target = state.drag && state.drag->lifted && state.drag->over_main;
-    Control reset{"languages-reset",
-                  "Reset to English (US)",
-                  {languages_main_bounds.x + languages_main_bounds.width - 62,
-                   languages_main_bounds.y + 7, 54, 42},
-                  false,
-                  Icon::Reset};
+    // Languages keep their profiles' names, as in the lists.
+    const auto main = profiles_.languages.find(default_main.language);
+    Control reset{
+        "languages-reset",
+        tr("languages.reset", {{"language", main != profiles_.languages.end() ? main->second.name
+                                                                              : default_main.language}}),
+        {languages_main_bounds.x + languages_main_bounds.width - 62, languages_main_bounds.y + 7, 54,
+         42},
+        false,
+        Icon::Reset};
     reset.enabled = !same_pair(pending_, default_main) && fits(profiles_, default_main);
     add({ControlKind::ResetMainLanguage}, reset);
     Control clear{"languages-clear",
-                  "Clear all additional languages",
+                  tr("languages.clear"),
                   {additional_list_bounds.x + additional_list_bounds.width - 54,
                    additional_list_bounds.y - 44, 54, 38},
                   false,
@@ -285,7 +291,7 @@ void App::append_languages(PanelView& v) const {
         add({ControlKind::None}, {row.id, row.title, bounds}, additional_list_bounds);
     }
     if (pairs.empty() && !(state.drag && state.drag->lifted)) {
-        popup.hint = "Drag and drop languages to add and order them, drop outside to remove.";
+        popup.hint = tr("languages.hint");
     }
     popup.layouts_thumb =
         scroll_thumb(layouts_list, state.layouts.scroll, languages_limit(Which::Layouts));

@@ -955,7 +955,7 @@ class App {
     struct AddressEntry {
         std::string text;
         std::size_t cursor{};
-        std::string error;
+        std::string error; // its key (dictation.server.*), shown in the language then chosen
     };
     std::optional<AddressEntry> address_;
     // A held Backspace or arrow in the popup repeats like the editor's; it

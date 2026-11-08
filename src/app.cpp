@@ -409,18 +409,21 @@ std::vector<Control> App::controls() const {
         }
     };
     if (settings_open_) {
-        add({ControlKind::Settings}, {"settings", "Back (Esc)", {18, 12, 60, 42}, false, Icon::Back});
-        add({ControlKind::Apply}, {"apply", "Apply and save", {88, 12, 60, 42}, false, Icon::Apply});
-        add({ControlKind::Reload}, {"reload", "Reload config", {158, 12, 60, 42}, false, Icon::Reload});
+        add({ControlKind::Settings},
+            {"settings", tr("tooltip.settings-back"), {18, 12, 60, 42}, false, Icon::Back});
+        add({ControlKind::Apply}, {"apply", tr("tooltip.apply"), {88, 12, 60, 42}, false, Icon::Apply});
+        add({ControlKind::Reload},
+            {"reload", tr("tooltip.reload"), {158, 12, 60, 42}, false, Icon::Reload});
+        // The updater's own states are its words (Updates::label).
         add({ControlKind::Updates},
-            {"updates", updates_ ? updates_->label() : "Check for updates", {550, 12, 500, 42}});
+            {"updates", updates_ ? updates_->label() : tr("update.check"), {550, 12, 500, 42}});
         if (settings_.replace_native_keyboard && native_session_) {
             add({ControlKind::NativeFallback},
-                {"native-fallback", "Use Steam keyboard", {250, 12, 245, 42}});
+                {"native-fallback", tr("button.native-fallback"), {250, 12, 245, 42}});
         }
         if (resident_replacement()) {
             add({ControlKind::Quit},
-                {"quit", "Quit Full Keyboard", {body.x + body.width - 268, 12, 250, 42}});
+                {"quit", tr("button.quit"), {body.x + body.width - 268, 12, 250, 42}});
         }
         append_move_handle();
         if (confirm_ != Confirm::None) {
@@ -434,15 +437,16 @@ std::vector<Control> App::controls() const {
                 add({ControlKind::ClearLearnedRow, static_cast<int>(i)}, std::move(row));
             }
             add({ControlKind::ConfirmCancel}, {"confirm-cancel",
-                                               dictation_question() ? "Go back"
-                                               : save               ? "Discard"
-                                                                    : "Cancel",
+                                               tr(dictation_question() ? "popup.dictation-active.cancel"
+                                                  : save               ? "popup.save-languages.discard"
+                                                                       : "button.cancel"),
                                                {panel.x + 40, panel.y + panel.height - 80, 210, 52}});
             Control accept{"confirm-accept",
-                           confirm_ == Confirm::ClearLanguages || learned ? "Clear"
-                           : save                                         ? "Save"
-                           : dictation_question()                         ? "Proceed"
-                                                                          : "Download",
+                           tr(confirm_ == Confirm::ClearLanguages ? "popup.clear-languages.confirm"
+                              : learned                           ? "popup.clear-learned.confirm"
+                              : save                              ? "popup.save-languages.confirm"
+                              : dictation_question()              ? "popup.dictation-active.confirm"
+                                                                  : "popup.download-model.confirm"),
                            {panel.x + panel.width - 250, panel.y + panel.height - 80, 210, 52},
                            true};
             // Clear learned words needs a language chosen.
@@ -455,7 +459,7 @@ std::vector<Control> App::controls() const {
             // hint line, recent servers and a 12-column key grid.
             const Rect panel = address_popup_bounds;
             add({ControlKind::AddressKey, 0, "esc"}, {"address-close",
-                                                      "Cancel",
+                                                      tr("dictation.server.close"),
                                                       {panel.x + panel.width - 78, panel.y + 14, 60, 42},
                                                       false,
                                                       Icon::Close});
@@ -472,7 +476,7 @@ std::vector<Control> App::controls() const {
             }
             add({ControlKind::AddressKey, 0, "clear"},
                 {"address-clear",
-                 "Clear",
+                 tr("dictation.server.clear"),
                  {panel.x + panel.width - 92, panel.y + 74, 56, 52},
                  false,
                  Icon::ClearText});
@@ -1152,7 +1156,7 @@ PanelView App::build_view(bool picker) const {
         std::any_of(profiles_.languages.begin(), profiles_.languages.end(), [&](const auto& item) {
             return !fits(profiles_, {pending_.layout, item.first, pending_.theme});
         })) {
-        v.status = "Dimmed languages need another layout. Choose the layout first.";
+        v.status = tr("status.dimmed-languages");
     }
     // Image exports show the layout without the interactive preview's input notice.
     const bool image_export = options_.mode == Mode::Render || options_.mode == Mode::RenderSettings ||
@@ -1385,34 +1389,30 @@ PanelView App::build_view(bool picker) const {
         }
     }
     if (settings_open_ && confirm_ == Confirm::ClearLanguages) {
-        v.confirm = PanelView::ConfirmView{confirm_popup_bounds, "Clear all additional languages?",
-                                           "Your main language stays."};
+        v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.clear-languages.title"),
+                                           tr("popup.clear-languages.body")};
     } else if (settings_open_ && confirm_ == Confirm::ClearLearning) {
-        v.confirm = PanelView::ConfirmView{learned_popup_bounds(), "Clear learned words",
-                                           "Choose the languages whose learned words to forget. "
-                                           "Steam's own keyboard keeps its words."};
+        v.confirm = PanelView::ConfirmView{learned_popup_bounds(), tr("popup.clear-learned.title"),
+                                           tr("popup.clear-learned.body")};
         for (std::size_t i = 0; i < learned_rows_.size(); ++i) {
             v.confirm->rows.push_back(
                 {learned_rows_[i].title, learned_rows_[i].note, learned_row_bounds(i)});
         }
     } else if (settings_open_ && confirm_ == Confirm::SaveLanguages) {
-        v.confirm =
-            PanelView::ConfirmView{confirm_popup_bounds, "Save your language changes?",
-                                   "You changed your languages. Do you want to save or discard them?"};
+        v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.save-languages.title"),
+                                           tr("popup.save-languages.body")};
     } else if (settings_open_ && dictation_question()) {
-        v.confirm = PanelView::ConfirmView{
-            confirm_popup_bounds, "Dictation is active",
-            "This will cancel the current dictation and discard any unsent text. Proceed?"};
+        v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.dictation-active.title"),
+                                           tr("popup.dictation-active.body")};
     } else if (settings_open_ && confirm_ != Confirm::None) {
         const auto& model = pending_dictation_device_model_;
-        const int download = device_model_megabytes(model), kept = device_model_kept_megabytes(model);
+        const long long download = device_model_megabytes(model),
+                        kept = device_model_kept_megabytes(model);
         v.confirm = PanelView::ConfirmView{
-            confirm_popup_bounds, "Download the speech model?",
+            confirm_popup_bounds, tr("popup.download-model.title"),
             download == kept
-                ? "Whisper small, " + std::to_string(download) +
-                      " MB from Hugging Face, for dictation on the device."
-                : "Whisper small, " + std::to_string(download) + " MB from Hugging Face, made into a " +
-                      std::to_string(kept) + " MB 4-bit model on the device."};
+                ? tr("popup.download-model.body", {{"download", download}})
+                : tr("popup.download-model.body-kept", {{"download", download}, {"kept", kept}})};
     }
     if (settings_open_ && address_) {
         PanelView::AddressView popup;
@@ -2661,7 +2661,7 @@ void App::save() {
         }
         settings_writer_.enqueue(std::move(saved));
     } catch (const std::exception& error) {
-        status_ = "Applied, but not saved: " + std::string(error.what());
+        status_ = tr("status.not-saved", {{"error", std::string(error.what())}});
     }
 }
 void App::update_save_status() {
@@ -2693,9 +2693,9 @@ void App::update_save_status() {
             }
         } else {
             save_status_is_startup_ = result->reconcile;
-            save_status_ =
-                (result->reconcile ? "SteamOS startup not configured: " : "Applied, but not saved: ") +
-                result->error;
+            // The error is the system's own text, after a translated lead-in.
+            save_status_ = tr(result->reconcile ? "status.startup-not-configured" : "status.not-saved",
+                              {{"error", result->error}});
             status_ = save_status_;
         }
         dirty = true;
@@ -2767,7 +2767,7 @@ void App::rebuild_cycle_entries() {
 void App::reload() {
     if (!settings_writer_.idle()) {
         reload_requested_ = true;
-        status_ = "Waiting for settings to finish saving.";
+        status_ = tr("status.waiting-for-save");
         dirty = true;
         return;
     }
@@ -3292,9 +3292,8 @@ void App::restart_learning(bool clear) {
 void App::learning_restarted() {
     anthy_restarting_ = false;
     if (std::exchange(clearing_learning_, false)) {
-        report_status(std::exchange(mozc_clear_failed_, false)
-                          ? "Mozc's learned words could not be cleared."
-                          : "Learned words cleared.");
+        report_status(tr(std::exchange(mozc_clear_failed_, false) ? "status.mozc-not-cleared"
+                                                                  : "status.learned-cleared"));
     }
     if (std::exchange(clear_queued_, false)) {
         restart_learning(true);
@@ -3340,13 +3339,13 @@ std::vector<App::LearnedRow> App::learned_rows() {
         if (const auto count = learned_words(lexicon).size(); count > 0) {
             rows.push_back(
                 {lexicon, word_list_name(lexicon),
-                 std::to_string(count) + (count == 1 ? " word you typed" : " words you typed")});
+                 tr("popup.clear-learned.row.words", {{"count", static_cast<long long>(count)}})});
         }
     }
     if (learned_) {
         // Our own Anthy record, Mozc profile, choices and next words; never
-        // Steam's keyboard's.
-        rows.push_back({"japanese", "Japanese", "Conversions you chose"});
+        // Steam's keyboard's. Titled like the word lists, by English name.
+        rows.push_back({"japanese", "Japanese", tr("popup.clear-learned.row.conversions")});
     }
     std::sort(rows.begin(), rows.end(),
               [](const LearnedRow& a, const LearnedRow& b) { return a.title < b.title; });
@@ -3402,7 +3401,7 @@ void App::clear_learned(const std::vector<LearnedRow>& rows) {
         follow_up_.reset();
         restart_learning(true); // Reports once Anthy and Mozc are done.
     } else {
-        report_status("Learned words cleared.");
+        report_status(tr("status.learned-cleared"));
         update_settings_ui();
     }
     dirty = true;
@@ -4542,7 +4541,7 @@ void App::action(const ControlAction& command) {
         } else if (updates_) {
             updates_->click(monotonic_seconds());
         } else {
-            report_status("Updates are available from the installed keyboard.");
+            report_status(tr("status.updates-installed-only"));
         }
     } else if (kind == ControlKind::Close) {
         close_with_x();
@@ -7915,9 +7914,9 @@ void App::address_key(const std::string& key) {
     } else if (key == "enter") {
         // Accepted only as the pending setting; Apply saves it as usual.
         if (entry.text.empty()) {
-            entry.error = "Enter an address, such as speech.local:8031";
+            entry.error = "dictation.server.empty";
         } else if (!valid_dictation_server(entry.text)) {
-            entry.error = "Use a host name or IP address, optionally with :port";
+            entry.error = "dictation.server.invalid";
         } else {
             if (entry.text != pending_dictation_server_) {
                 pending_dictation_server_ = entry.text;
