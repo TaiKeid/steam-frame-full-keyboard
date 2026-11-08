@@ -155,6 +155,8 @@ struct FieldLabel {
     bool enabled{true};
     double size{22};
     bool wrap{}, warning{}; // a Note row: wrapped, in the warning colour
+    // Room under the bounds for a second line, the first staying in place.
+    double below{};
 };
 // The dictation editor as the panel draws it.
 struct DictationView {

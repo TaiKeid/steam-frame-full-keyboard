@@ -182,6 +182,8 @@ void SettingsUi::append(PanelView& view) const {
                 const Rect note{r.x + row_left, bounds.y + 32, label_width, 22};
                 if (intersects(note, clip)) {
                     view.field_labels.push_back({field.note, note, clip, true, field.enabled, 16});
+                    // A translated note may take a second line in the gap to the next row.
+                    view.field_labels.back().below = bounds.y + row_height - 4 - (note.y + note.height);
                 }
             }
             if (intersects(bounds, clip) && field.style == ControlStyle::Segment) {
