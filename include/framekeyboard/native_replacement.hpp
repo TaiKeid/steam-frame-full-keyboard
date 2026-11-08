@@ -43,6 +43,8 @@ class NativeReplacement : public KeySink {
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { local_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return local_.desktop_focused(); }
+    void set_stream_paste(Clipboard* clipboard) override { local_.set_stream_paste(clipboard); }
+    bool stream_focused() const override { return !remote_ && local_.stream_focused(); }
     // A Steam field is never a terminal, whatever app Gamescope has focused.
     EditKeys edit_keys() const override { return remote_ ? EditKeys::Standard : local_.edit_keys(); }
     bool edit_keys_known() const override { return remote_ || local_.edit_keys_known(); }

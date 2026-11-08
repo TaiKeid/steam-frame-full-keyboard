@@ -21,6 +21,10 @@ enum class EditAction { Cut, Copy, Paste };
 // terminals; Standard for anything else. Exact, case-sensitive names: the
 // caller passes only the file name, never a path, title or arguments.
 EditKeys terminal_edit_keys(std::string_view program);
+// Whether a program (argv[0]'s file name) streams another computer and sends
+// it the keys it gets as physical keys, as Moonlight does: text beyond its
+// keys must reach that computer another way (docs/streamed-games.md).
+bool stream_client(std::string_view program);
 // The kind for an app ID as KWin reports it inside SteamOS's Desktop: a
 // Wayland app's ID (org.kde.konsole, lxterminal) or an X11 window's class
 // (xterm), matched case-insensitively against the same list.

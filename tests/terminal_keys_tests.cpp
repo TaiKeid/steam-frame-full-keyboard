@@ -38,6 +38,12 @@ void classification_tests() {
         require(fk::terminal_edit_keys(name) == EditKeys::Standard,
                 "anything else, paths and other spellings included, is no terminal");
     }
+    require(fk::stream_client("moonlight") && fk::stream_client("moonlight-qt") &&
+                fk::terminal_edit_keys("moonlight") == EditKeys::Standard,
+            "Moonlight is a streaming client with ordinary edit keys");
+    for (const auto* name : {"", "Moonlight", "/app/bin/moonlight", "steamwebhelper", "kwin_wayland"}) {
+        require(!fk::stream_client(name), "anything else is not");
+    }
     // App IDs as KWin reports them inside SteamOS's Desktop.
     for (const auto* id :
          {"org.kde.konsole", "lxterminal", "kitty", "foot", "Alacritty", "org.wezfurlong.wezterm",

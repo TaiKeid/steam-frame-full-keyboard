@@ -49,6 +49,9 @@ EditKeys terminal_edit_keys(std::string_view program) {
     }
     return EditKeys::Standard;
 }
+bool stream_client(std::string_view program) {
+    return program == "moonlight" || program == "moonlight-qt";
+}
 EditKeys app_edit_keys(std::string_view app_id) {
     std::string id(app_id);
     for (auto& c : id) {

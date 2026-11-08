@@ -27,7 +27,9 @@ class EiSink : public KeySink {
     // Local text always replaces in one ordered input-method request. While that
     // connection is briefly down, replacing fails instead of falling back to
     // separate libei Backspace keys, which would delete the word and type nothing.
-    bool replaces_text() override { return true; }
+    // A streaming client forwards only keys, so there Backspace taps delete
+    // (OutputController::taps_then_text).
+    bool replaces_text() override { return !stream_now_; }
     bool replace_text(std::size_t delete_before, const std::string& text) override;
     bool text_pending() const override { return (text_ && text_->pending()) || entry_; }
     std::size_t delivered_characters() const override;
@@ -47,6 +49,10 @@ class EiSink : public KeySink {
     void set_desktop_focus(std::function<bool()> focused) { desktop_focused_ = std::move(focused); }
     void set_desktop_paste(Clipboard* clipboard) override { desktop_paste_ = clipboard; }
     bool desktop_focused() const override { return desktop_now_; }
+    // Tests replace the streaming client's focus with their own answer.
+    void set_stream_focus(std::function<bool()> focused) { stream_focused_ = std::move(focused); }
+    void set_stream_paste(Clipboard* clipboard) override { stream_paste_ = clipboard; }
+    bool stream_focused() const override { return stream_now_; }
     // The desktop focus watcher's answer, an atomic read.
     EditKeys edit_keys() const override;
     bool edit_keys_known() const override;
@@ -67,7 +73,9 @@ class EiSink : public KeySink {
     // own keymap reads correctly. Gamescope's temporary keymap cannot reach it.
     // With a paste clipboard, the keys are the target's paste chord instead
     // (Ctrl+V, or a terminal's own), sent once the clipboard holds the text,
-    // and the entry ends when an application takes it.
+    // and the entry ends when an application takes it. A streaming client
+    // forwards Gamescope's keys as physical ones, so its text always goes by
+    // its own paste shortcut (stream).
     struct Entry {
         std::string text;
         std::size_t deletions{};
@@ -82,9 +90,14 @@ class EiSink : public KeySink {
         double deadline{};
         std::optional<double> clipboard_since; // When Ctrl+V first waited for the clipboard.
         bool taken{};
+        bool stream{}; // For a streaming client: its clipboard and focus.
     };
     static std::size_t entered(const Entry& entry);
     bool desktop_target();
+    bool stream_target();
+    Clipboard* entry_clipboard(const Entry& entry) const {
+        return entry.stream ? stream_paste_ : desktop_paste_;
+    }
     bool needs_entry(const std::string& text);
     bool enter(const std::string& text, std::size_t deletions);
     void advance_entry();
@@ -108,15 +121,16 @@ class EiSink : public KeySink {
     std::unique_ptr<GamescopeText> text_;
     std::optional<Entry> entry_;
     std::size_t entry_delivered_{};
-    bool last_entry_{}, desktop_now_{};
+    bool last_entry_{}, desktop_now_{}, stream_now_{};
     // Started by the first question about the focused app: Cut, Copy and
     // Paste ask it every frame, so it watches from the start.
     mutable std::unique_ptr<DesktopFocus> desktop_;
     DesktopFocus* desktop_focus() const;
-    std::function<bool()> desktop_focused_;
+    std::function<bool()> desktop_focused_, stream_focused_;
     std::function<EditKeys()> edit_keys_;
     bool terminal_hint_{};
     Clipboard* desktop_paste_{};
+    Clipboard* stream_paste_{};
     GamescopeText::Clock clock_;
     double text_retry_at_{}, text_retry_delay_{1};
     double retry_at_{}, retry_delay_{1}, connect_deadline_{};

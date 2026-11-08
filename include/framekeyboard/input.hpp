@@ -77,6 +77,12 @@ class KeySink {
     // A nested desktop has the keys: its applications paste from its own
     // clipboard (Clipboard::desktop_result), not Gamescope's.
     virtual bool desktop_focused() const { return false; }
+    // A game-streaming client, such as Moonlight, has the keys: it sends them
+    // to the streamed computer as physical keys, so text beyond them goes
+    // through this clipboard and the client's own paste shortcut, which types
+    // it there (docs/streamed-games.md). Null: such text is refused.
+    virtual void set_stream_paste(Clipboard*) {}
+    virtual bool stream_focused() const { return false; }
     // The focused application's own Cut/Copy/Paste keys, such as a known
     // terminal's (terminal_keys.hpp). Standard when unknown, or when output
     // goes somewhere that is no terminal, such as a Steam field. Never blocks.

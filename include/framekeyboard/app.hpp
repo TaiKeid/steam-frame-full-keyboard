@@ -453,7 +453,8 @@ class App {
     // The letter a chord presses: the target keymap's in Unicode mode.
     int chord_code(const EditChord& chord);
     // Paste's keys in press order, for the keyboard's own paste paths;
-    // empty when the target has no paste key, as in xterm.
+    // empty when the target has no paste key, as in xterm. A streaming
+    // client's own shortcut for typing the clipboard there, as Moonlight's.
     std::vector<int> paste_keys();
     // Applies the context's autocapitalize hint to dictated or swiped text.
     std::string hint_case(std::string text) const;
@@ -1214,7 +1215,9 @@ class App {
     std::optional<std::pair<std::size_t, std::string>> pending_word_, counted_;
     std::map<unsigned, double> held_keys_; // Typing keys still held, by pointer: their press.
     std::optional<unsigned> word_pointer_; // The pointer that typed into the word last.
-    std::uint32_t word_window_{};                               // Where the word is typed.
+    std::uint32_t word_window_{};
+    bool stream_paste_routed_{}; // The sink has the clipboard for a streaming client. // Where the word
+                                 // is typed.
     std::vector<std::string> typing_suggestions_;
     WordListLoader word_list_loader_;
     std::shared_ptr<const WordList> word_list_;

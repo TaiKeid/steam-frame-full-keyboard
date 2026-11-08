@@ -50,6 +50,8 @@ struct Sink : KeySink {
     std::uint32_t focused_window() const override { return window; }
     bool desktop{}; // A nested desktop has the keys.
     bool desktop_focused() const override { return desktop; }
+    bool streaming{}; // A streaming client, as Moonlight, has the keys.
+    bool stream_focused() const override { return streaming; }
     EditKeys edit{}; // The focused app's Cut/Copy/Paste keys, such as a terminal's.
     EditKeys edit_keys() const override { return edit; }
     void send(int code, int value) override { keys.emplace_back(code, value); }
@@ -1909,6 +1911,24 @@ void terminal_paste_tests() {
                     sink.keys == chord_keys(shift, KEY_V) && sink.text.empty(),
                 "paste Send into a terminal presses Ctrl+Shift+V");
         require(!app.dictation_open(), "and the pasted text returns to the keyboard");
+    }
+    {
+        // Moonlight types the clipboard on the streamed computer at
+        // Ctrl+Alt+Shift+V; its Ctrl+V would paste that computer's own.
+        Sink sink;
+        sink.streaming = true;
+        FakeClipboard clipboard;
+        clipboard.sink = &sink;
+        options.clipboard = &clipboard;
+        App app(options, sink);
+        open_editor(app);
+        type_text(app, "hi there");
+        press(app, "Dictation-send");
+        settle(app);
+        require(clipboard.written == std::vector<std::string>{"hi there"} &&
+                    sink.keys == chord_keys({KEY_LEFTCTRL, KEY_LEFTALT, KEY_LEFTSHIFT}, KEY_V) &&
+                    sink.text.empty(),
+                "paste Send into Moonlight presses its Ctrl+Alt+Shift+V");
     }
     {
         Sink sink;

@@ -141,7 +141,8 @@ bool EiSink::commit_text(const std::string& text) {
            text_->commit(text, 0, on_keymap(text));
 }
 bool EiSink::replace_text(std::size_t delete_before, const std::string& text) {
-    if (entry_ || needs_entry(text)) {
+    // A streaming client never sees Gamescope's deletions (replaces_text).
+    if (entry_ || needs_entry(text) || (stream_now_ && delete_before > 0)) {
         return enter(text, delete_before);
     }
     last_entry_ = false;
@@ -216,6 +217,13 @@ bool EiSink::desktop_target() {
     const auto* focus = desktop_focus();
     return focus && focus->focused();
 }
+bool EiSink::stream_target() {
+    if (stream_focused_) {
+        return stream_focused_();
+    }
+    const auto* focus = desktop_focus();
+    return focus && focus->streaming();
+}
 DesktopFocus* EiSink::desktop_focus() const {
     if (text_socket_.empty()) {
         return nullptr;
@@ -242,7 +250,7 @@ bool EiSink::edit_keys_known() const {
 bool EiSink::needs_entry(const std::string& text) {
     // A Gamescope commit already out reports its result to the same call,
     // even once the Desktop has taken focus.
-    return desktop_now_ && !(text_ && text_->pending()) &&
+    return (desktop_now_ || stream_now_) && !(text_ && text_->pending()) &&
            std::any_of(text.begin(), text.end(), [](char c) { return c < 0x20 || c > 0x7e; });
 }
 bool EiSink::enter(const std::string& text, std::size_t deletions) {
@@ -275,15 +283,24 @@ bool EiSink::enter(const std::string& text, std::size_t deletions) {
     for (std::size_t i = 0; i < deletions; ++i) {
         tap(KEY_BACKSPACE);
     }
-    if (desktop_paste_) {
+    entry.stream = stream_now_;
+    auto* const clipboard = entry_clipboard(entry);
+    if (entry.stream && !clipboard) {
+        return false; // A streaming client takes no Unicode entry.
+    }
+    if (clipboard) {
         // Gamescope can't show the Desktop's own focus, so only a shell's
-        // terminal hint changes the chord there. Physical V, as for U above.
-        const auto paste = edit_chord(EditAction::Paste, combine_edit_keys(edit_keys(), terminal_hint_));
+        // terminal hint changes the chord there. Moonlight types the text
+        // it finds on the clipboard at Ctrl+Alt+Shift+V. Physical V, as for U
+        // above.
+        const auto paste =
+            entry.stream ? EditChord{{KEY_LEFTCTRL, KEY_LEFTALT, KEY_LEFTSHIFT}, XKB_KEY_v, "KeyV"}
+                         : edit_chord(EditAction::Paste, combine_edit_keys(edit_keys(), terminal_hint_));
         if (!paste.sends()) {
             return false; // Nothing written: the clipboard keeps what it held.
         }
         // The text may arrive any time after the paste keys, so none counts as delivered.
-        entry.write = desktop_paste_->write(text);
+        entry.write = clipboard->write(text);
         entry.paste_at = entry.keys.size();
         for (const int modifier : paste.modifiers) {
             entry.keys.emplace_back(modifier, 1);
@@ -295,7 +312,7 @@ bool EiSink::enter(const std::string& text, std::size_t deletions) {
         entry.character_ends.assign(static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1)),
                                     entry.keys.size() + 1);
     }
-    for (const char* p = desktop_paste_ ? "" : text.c_str(); *p; p = g_utf8_next_char(p)) {
+    for (const char* p = clipboard ? "" : text.c_str(); *p; p = g_utf8_next_char(p)) {
         const auto character = g_utf8_get_char(p);
         if (character == ' ') {
             tap(KEY_SPACE);
@@ -328,16 +345,19 @@ void EiSink::advance_entry() {
     }
     auto& entry = *entry_;
     // The connection went down (EIS released our keys with it), or the
-    // Desktop lost focus, so the rest would reach another application.
-    if (disconnected_ || !resumed_ || input_reset_ || !keyboard_ || !desktop_now_) {
+    // Desktop or the streaming client lost focus, so the rest would reach
+    // another application.
+    if (disconnected_ || !resumed_ || input_reset_ || !keyboard_ ||
+        !(entry.stream ? stream_now_ : desktop_now_)) {
         release_entry_keys();
         entry.failed = true;
         entry_delivered_ = entered(entry);
         return;
     }
+    auto* const clipboard = entry_clipboard(entry);
     if (entry.write && entry.next == entry.keys.size()) {
         // Ctrl+V is out: done once an application asks for the text.
-        entry.taken = desktop_paste_ && desktop_paste_->served() != entry.served;
+        entry.taken = clipboard && clipboard->served() != entry.served;
         entry.failed = !entry.taken && clock_() >= entry.deadline;
         return;
     }
@@ -346,8 +366,11 @@ void EiSink::advance_entry() {
     }
     if (entry.write && entry.next == entry.paste_at) {
         // Only the Desktop's own clipboard will do: owning Gamescope's X
-        // displays alone, Ctrl+V would paste what the Desktop held before.
-        const auto owned = desktop_paste_ ? desktop_paste_->desktop_result(*entry.write) : false;
+        // displays alone, Ctrl+V would paste what the Desktop held before. A
+        // streaming client reads Gamescope's.
+        const auto owned = !clipboard     ? std::optional<bool>(false)
+                           : entry.stream ? clipboard->result(*entry.write)
+                                          : clipboard->desktop_result(*entry.write);
         if (!owned) {
             // The clipboard is still being set. An X display that accepts the
             // connection but never answers must not hold every key back.
@@ -362,7 +385,7 @@ void EiSink::advance_entry() {
             entry.failed = true; // nothing pasted, so nothing to finish
             return;
         }
-        entry.served = desktop_paste_->served();
+        entry.served = clipboard->served();
     }
     const auto [code, value] = entry.keys[entry.next++];
     if (value) {
@@ -504,6 +527,7 @@ bool EiSink::pump() {
         connection_lost();
     }
     desktop_now_ = desktop_target();
+    stream_now_ = !desktop_now_ && stream_target();
     advance_entry();
     return resumed_ && !disconnected_;
 }

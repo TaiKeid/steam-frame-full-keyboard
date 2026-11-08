@@ -21,7 +21,7 @@ namespace framekeyboard {
 struct DesktopFocus::State {
     std::string display;
     bool desktop_apps{}; // Follows the Desktop's active app (DesktopTerminal).
-    std::atomic<bool> focused{}, stop{};
+    std::atomic<bool> focused{}, streaming{}, stop{};
     // The focused program's Cut/Copy/Paste keys; only the kind is kept.
     std::atomic<EditKeys> edit_keys{EditKeys::Standard};
     // The Desktop has the focus and its KWin hasn't said which app is active
@@ -115,7 +115,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     const std::uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
     xcb_change_window_attributes(connection, root, XCB_CW_EVENT_MASK, &mask);
     std::uint32_t pid = 0;
-    bool nested = false, stale = true;
+    bool nested = false, streams = false, stale = true;
     auto edit_keys = EditKeys::Standard;
     // The Desktop's own bus, found once per compositor; its KWin reports the
     // app active there (DesktopTerminal).
@@ -150,7 +150,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             stale = false;
             const auto window = cardinals(connection, root, focused_window);
             const auto list = cardinals(connection, root, focusable_windows);
-            bool focused = false;
+            bool focused = false, streaming = false;
             auto keys = EditKeys::Standard;
             std::uint64_t packed = 0;
             for (std::size_t i = 0; !window.empty() && i + 2 < list.size(); i += 3) {
@@ -162,16 +162,19 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                         pid = list[i + 2];
                         const auto name = DesktopFocus::program(pid);
                         nested = name == "kwin_wayland";
+                        streams = stream_client(name);
                         edit_keys = terminal_edit_keys(name);
                         desktop_bus = nested && state.desktop_apps ? DesktopTerminal::bus_address(pid)
                                                                    : std::string();
                     }
                     focused = nested;
+                    streaming = streams;
                     keys = edit_keys;
                     break;
                 }
             }
             state.focused = focused;
+            state.streaming = streaming;
             state.window = packed;
             desktop = focused && !desktop_bus.empty();
             if (desktop && terminal.attached(desktop_bus)) {
@@ -300,6 +303,9 @@ std::uint64_t DesktopFocus::windows_changed() const {
 }
 bool DesktopFocus::focused() const {
     return state_->focused.load();
+}
+bool DesktopFocus::streaming() const {
+    return state_->streaming.load();
 }
 EditKeys DesktopFocus::edit_keys() const {
     return state_->edit_keys.load();

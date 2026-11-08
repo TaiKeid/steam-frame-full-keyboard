@@ -2275,6 +2275,12 @@ bool App::tick(double now) {
         word_window_ = window; // Another window has its own cursor.
         lose_word();
     }
+    // Text a streaming client can't take as keys goes through the clipboard,
+    // made only once one has the keys.
+    if (!stream_paste_routed_ && output_.stream_focused()) {
+        stream_paste_routed_ = true;
+        output_.set_stream_paste(clipboard());
+    }
     // A key held into its repeat types or deletes more than its one press
     // told: the word being typed is no longer known.
     for (auto held = held_keys_.begin(); held != held_keys_.end();) {
@@ -3790,6 +3796,12 @@ int App::chord_code(const EditChord& chord) {
     return unicode_mode() ? output_.shortcut_code(chord.symbol, fallback) : fallback;
 }
 std::vector<int> App::paste_keys() {
+    if (output_.stream_focused()) {
+        // Moonlight types what the clipboard holds on the streamed computer
+        // at Ctrl+Alt+Shift+V; its Ctrl+V would paste that computer's own.
+        // Physical keys: it reads them as such.
+        return {KEY_LEFTCTRL, KEY_LEFTALT, KEY_LEFTSHIFT, KEY_V};
+    }
     const auto chord = edit_chord(EditAction::Paste, edit_keys());
     if (!chord.sends()) {
         return {};

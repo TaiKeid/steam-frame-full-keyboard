@@ -697,6 +697,96 @@ void desktop_entry() {
     require(text.commits.size() == 2 && !sink->text_pending() && server.keys.empty(),
             "the commit reports its own result, and nothing is entered");
 }
+// A streaming client, such as Moonlight, forwards Gamescope's keys as physical
+// keys: ASCII still goes as Gamescope's keys, other text through the
+// clipboard and Moonlight's Ctrl+Alt+Shift+V, and words are replaced with
+// Backspace taps, which reach the streamed computer.
+void stream_paste() {
+    Server server;
+    TextServer text(server.directory / "text");
+    double now = 10;
+    auto connecting = std::async(std::launch::async, [&] {
+        return std::make_unique<EiSink>(server.socket, server.directory / "text", [&] { return now; });
+    });
+    server.until([&] {
+        text.pump();
+        return connecting.wait_for(0ms) == std::future_status::ready;
+    });
+    auto sink = connecting.get();
+    server.until([&] {
+        text.pump();
+        return sink->text_available();
+    });
+    sink->take_input_reset();
+    bool streaming = true;
+    sink->set_desktop_focus([] { return false; });
+    sink->set_stream_focus([&] { return streaming; });
+    sink->pump();
+    require(sink->stream_focused() && !sink->replaces_text(),
+            "a streaming client takes Backspace taps, not Gamescope's replacement");
+    require(!sink->commit_text("😀") && !sink->text_pending(),
+            "without a clipboard, text beyond its keys is refused");
+    struct TestClipboard : Clipboard {
+        std::vector<std::string> written;
+        std::optional<bool> owned;
+        std::uint64_t taken{};
+        std::uint64_t write(const std::string& value) override {
+            written.push_back(value);
+            return written.size();
+        }
+        std::optional<bool> result(std::uint64_t) const override { return owned; }
+        // Moonlight reads Gamescope's clipboard; the Desktop's doesn't matter.
+        std::optional<bool> desktop_result(std::uint64_t) const override { return false; }
+        std::uint64_t served() const override { return taken; }
+    } clipboard;
+    sink->set_stream_paste(&clipboard);
+    server.keys.clear();
+    using Keys = std::vector<std::pair<unsigned, bool>>;
+    require(!sink->commit_text("Привет") && clipboard.written == std::vector<std::string>{"Привет"},
+            "the text goes to the clipboard");
+    clipboard.owned = true;
+    for (int i = 0; i < 20; ++i) {
+        now += EiSink::entry_gap;
+        sink->pump();
+    }
+    server.until([&] { return server.keys.size() == 8; });
+    require(server.keys == Keys{{29, true},
+                                {56, true},
+                                {42, true},
+                                {47, true},
+                                {47, false},
+                                {42, false},
+                                {56, false},
+                                {29, false}},
+            "then Ctrl+Alt+Shift+V, Moonlight's paste");
+    ++clipboard.taken;
+    sink->pump();
+    require(!sink->output_blocked() && sink->commit_text("Привет"), "taken: Moonlight read it");
+    // ASCII is on its keys: one Gamescope commit, as anywhere else.
+    require(!sink->commit_text("abc") && sink->text_pending(), "ASCII is a Gamescope commit");
+    server.until([&] {
+        now += .05; // Its characters go one by one, paced.
+        text.pump();
+        sink->pump();
+        return sink->commit_text("abc");
+    });
+    require(text.commits.size() >= 3 &&
+                std::vector<std::string>(text.commits.end() - 3, text.commits.end()) ==
+                    std::vector<std::string>{"a", "b", "c"} &&
+                clipboard.written.size() == 1,
+            "typed by Gamescope one by one, with no paste");
+    // Focus leaving mid-paste ends it: the rest would reach another window.
+    server.keys.clear();
+    clipboard.owned.reset();
+    require(!sink->commit_text("é"), "a paste starts");
+    streaming = false;
+    sink->pump();
+    require(!sink->commit_text("é") && !sink->output_blocked() && sink->delivered_characters() == 0,
+            "Moonlight losing the focus fails it before its keys");
+    server.pump();
+    require(server.keys.empty(), "with no key sent");
+    require(sink->replaces_text(), "other windows take Gamescope's replacement again");
+}
 void app_ordering_barrier() {
     Server server;
     TextServer text(server.directory / "text");
@@ -869,6 +959,7 @@ int main() {
 #ifdef FRAMEKEYBOARD_TEST_WAYLAND_SERVER
         asynchronous_text();
         desktop_entry();
+        stream_paste();
         app_ordering_barrier();
 #endif
         for (const auto* layout : {"us", "fr"}) {

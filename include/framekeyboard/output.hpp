@@ -108,6 +108,8 @@ class OutputController : public KeySink, public TextOutput {
     void set_character_gap(double seconds) override { target_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { target_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return target_.desktop_focused(); }
+    void set_stream_paste(Clipboard* clipboard) override { target_.set_stream_paste(clipboard); }
+    bool stream_focused() const override { return target_.stream_focused(); }
     EditKeys edit_keys() const override { return target_.edit_keys(); }
     bool edit_keys_known() const override { return target_.edit_keys_known(); }
     void set_terminal_hint(bool terminal) override { target_.set_terminal_hint(terminal); }

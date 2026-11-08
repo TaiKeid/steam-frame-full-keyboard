@@ -32,6 +32,9 @@ class DesktopFocus {
     DesktopFocus& operator=(const DesktopFocus&) = delete;
     // Never blocks: the focus Gamescope last reported, false until known.
     bool focused() const;
+    // Never blocks: whether the focused program is a game-streaming client,
+    // such as Moonlight (stream_client); false until known.
+    bool streaming() const;
     // Never blocks: Gamescope's focused X window and its Steam app ID (0 for
     // other apps), both 0 until known. Used for Keep open's hidden-window cue.
     struct Window {

@@ -1,6 +1,22 @@
-# Streamed PC games: not supported
+# Streamed PC games and apps
 
-Games streamed from a PC to the Frame through Steam Link (for example Path of Exile 2 or VRChat) keep using Steam's own keyboard. Full Keyboard leaves their keyboard requests native. This page records what was measured on a Steam Frame in October 2026, so the question can be revisited when SteamVR, Steam or Gamescope change.
+## Through Moonlight
+
+Moonlight runs on the Frame as an ordinary window and sends the keys it gets to the PC that Sunshine streams, so Full Keyboard types into PC apps and games through it. Install Moonlight on the Frame from Flathub (`com.moonlight_stream.Moonlight`) and Sunshine on the PC.
+
+Moonlight passes on keys, as the physical keys they are, and no text. So the keyboard sends:
+- letters, digits and symbols, Enter, Backspace, the arrows and shortcuts as keys, as anywhere else;
+- other text, such as é, Cyrillic, emoji, and Japanese, Chinese and Korean, through the Frame's clipboard and Moonlight's own Ctrl+Alt+Shift+V, which types the clipboard's text on the PC. Typed through Gamescope's keys, it arrived as digits. The keyboard writes the clipboard and never reads it; the text stays there afterwards, as with dictation's paste. It counts as sent once Moonlight reads the clipboard, and fails after 2 s if Moonlight doesn't;
+- a swipe alternative as Backspace taps and then the word, since Moonlight never sees Gamescope's own deletions;
+- dictation's paste Send and Type as I speak's phrases with Ctrl+Alt+Shift+V too.
+
+Cut, Copy and Paste press Ctrl+X, Ctrl+C and Ctrl+V on the PC, so Paste pastes the PC's own clipboard. Moonlight keeps its own shortcuts, Ctrl+Alt+Shift with Q, Z, X and other letters, for itself.
+
+The PC types pasted text itself. Sunshine on Windows types Unicode as it is. Sunshine on Linux types each character as Ctrl+Shift+U, its code and Enter, which only GTK apps and input methods such as IBus take, and which lost characters in a long paste into Firefox. Measured in November 2026 with Moonlight 6.2 on the Frame and Sunshine 2026.1103 on a Linux PC, with US layouts on both.
+
+## Steam Link streams: not supported
+
+Games streamed from a PC to the Frame through Steam Link (for example Path of Exile 2 or VRChat) keep using Steam's own keyboard. Full Keyboard leaves their keyboard requests native. The rest of this page records what was measured on a Steam Frame in October 2026, so the question can be revisited when SteamVR, Steam or Gamescope change.
 
 ## How Steam's keyboard reaches a streamed game
 
