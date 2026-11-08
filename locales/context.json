@@ -1,1 +1,123 @@
-{}
+{
+  "dictation.server.address-hint": {
+    "where": "Quiet line under the address field in the Server address popup",
+    "about": "What to type: the server computer's network name or IP address."
+  },
+  "dictation.server.outside-network": {
+    "where": "Warning line under the address field in the Server address popup",
+    "about": "The typed address is not on the user's home network, so recorded speech would travel over the internet without encryption."
+  },
+  "dictation.server.title": {
+    "where": "Title of the popup for typing a dictation server's address, over Settings",
+    "about": "Dictation can use a speech recognition server the user runs on another computer; this popup asks for its address.",
+    "room": "about 30 characters"
+  },
+  "ime.hint.cangjie": {
+    "where": "Hint line under the toolbar before anything is typed, Chinese Cangjie input",
+    "about": "Space or the digits 1–5 pick a candidate, Enter commits, Esc cancels.",
+    "keep": "Keep 倉頡 (the input method's name) and the key names Space, Enter and Esc; translate select, commit and cancel."
+  },
+  "ime.hint.flick": {
+    "where": "Hint line in the Japanese flick keyboard before anything is typed",
+    "about": "Which keys convert, commit and undo.",
+    "keep": "Written in Japanese for people typing Japanese: keep it exactly as it is in every language."
+  },
+  "ime.hint.flick-digits": {
+    "where": "Hint line in the Japanese flick keyboard while it types digits",
+    "about": "Tells Japanese typists that the あA1 key returns to kana input.",
+    "keep": "Written in Japanese for people typing Japanese: keep it exactly as it is in every language."
+  },
+  "ime.hint.flick-latin": {
+    "where": "Hint line in the Japanese flick keyboard while it types Latin letters",
+    "about": "Tells Japanese typists that flicking the あA1 key left returns to kana input.",
+    "keep": "Written in Japanese for people typing Japanese: keep it exactly as it is in every language."
+  },
+  "ime.hint.jis-latin": {
+    "where": "Hint line under the toolbar while Japanese input is set to Latin letters on a JIS keyboard",
+    "about": "Tells Japanese typists that the 半/全 key returns to kana input.",
+    "keep": "Written in Japanese for people typing Japanese: keep it exactly as it is in every language."
+  },
+  "ime.hint.kana": {
+    "where": "Hint line under the toolbar before anything is typed, Japanese kana input",
+    "about": "Which keys convert, commit and cancel.",
+    "keep": "Written in Japanese for people typing Japanese: keep it exactly as it is in every language."
+  },
+  "ime.hint.pinyin": {
+    "where": "Hint line under the toolbar before anything is typed, Chinese Pinyin input",
+    "about": "Space or the digits 1–5 pick a candidate, Enter commits, Esc cancels.",
+    "keep": "Keep Pinyin (the input method's name) and the key names Space, Enter and Esc; translate select, commit and cancel."
+  },
+  "ime.hint.quick": {
+    "where": "Hint line under the toolbar before anything is typed, Chinese Quick input",
+    "about": "Space or the digits 1–5 pick a candidate, Enter commits, Esc cancels.",
+    "keep": "Keep 速成 (the input method's name) and the key names Space, Enter and Esc; translate select, commit and cancel."
+  },
+  "ime.hint.romaji": {
+    "where": "Hint line under the toolbar before anything is typed, Japanese romaji input",
+    "about": "Which keys convert, commit and cancel.",
+    "keep": "Written in Japanese for people typing Japanese: keep it exactly as it is in every language."
+  },
+  "ime.hint.zhuyin": {
+    "where": "Hint line under the toolbar before anything is typed, Chinese Zhuyin input",
+    "about": "Space picks a candidate, Enter commits the typed text, Esc cancels it.",
+    "keep": "Keep 注音 (the input method's name) and the key names Space, Enter and Esc; translate select, commit and cancel."
+  },
+  "languages.additional": {
+    "where": "Caption over the right column's list in the Additional languages popup",
+    "about": "The added keyboard languages, in the order the toolbar's language button switches through them.",
+    "room": "about 30 characters"
+  },
+  "languages.drop-to-remove": {
+    "where": "Note on a language row being dragged out of the Additional list",
+    "about": "Letting go of the dragged row removes that language from the additional languages.",
+    "room": "about 25 characters"
+  },
+  "languages.languages": {
+    "where": "Caption over the middle column of the Additional languages popup",
+    "about": "The keyboard languages the chosen layout can type.",
+    "room": "about 25 characters"
+  },
+  "languages.layouts": {
+    "where": "Caption over the first column of the Additional languages popup",
+    "about": "The list of keyboard layouts (key arrangements such as QWERTY); picking one shows the languages that layout can type.",
+    "room": "about 25 characters"
+  },
+  "languages.main": {
+    "where": "Caption over the right column's top row in the Additional languages popup",
+    "about": "The keyboard language set in Settings, which the others are added to.",
+    "room": "about 25 characters"
+  },
+  "languages.title": {
+    "where": "Title of the Additional languages popup, opened from Settings",
+    "about": "Keyboard languages besides the main one, which the toolbar's language button cycles through.",
+    "room": "about 30 characters"
+  },
+  "output.input-not-sent": {
+    "where": "Status line above the keys",
+    "about": "Key presses (not text) could not be delivered to the app; everything waiting was dropped."
+  },
+  "output.not-queued": {
+    "where": "Status line above the keys",
+    "about": "Text could not even be put in line for delivery to the app ('target'). Rare; a technical failure."
+  },
+  "output.not-sent": {
+    "where": "Status line above the keys",
+    "about": "Typing into the focused app ('target') failed. Pressing Enter on the keyboard tries the same text again."
+  },
+  "output.not-sent-actions-discarded": {
+    "where": "Status line above the keys",
+    "about": "Like 'Text not sent', and key presses and text waiting behind it were dropped. Enter on the keyboard retries the text."
+  },
+  "output.not-sent-later-discarded": {
+    "where": "Status line above the keys",
+    "about": "Typing into the focused app failed. 'Target' is the app or text field receiving the keyboard's input. Pressing Enter on the keyboard tries the text again; what was typed after it was dropped."
+  },
+  "output.queue-full": {
+    "where": "Status line above the keys",
+    "about": "Too many key presses are waiting to be delivered to the app; the last press was dropped."
+  },
+  "output.waiting-for-delivery": {
+    "where": "Status line above the keys",
+    "about": "Earlier text is still being handed to the system's text input, so the key just pressed was not sent. The user should press it again once that finishes. 'Compositor' is the system part that delivers text to apps."
+  }
+}

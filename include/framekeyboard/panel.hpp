@@ -215,6 +215,8 @@ struct PanelView {
     // Interface text's fonts follow the interface language; key legends,
     // candidates and typed text keep the typing language's (language->font).
     std::string interface_font{"Noto Sans,sans-serif"};
+    // What the composing line says before anything is typed (App::composition_hint).
+    std::string composition_hint;
     const LanguageMap* keymap{};
     const KeyboardState* keyboard{};
     std::vector<Control> controls;
@@ -336,6 +338,7 @@ struct PanelView {
     struct AddressView {
         bool operator==(const AddressView&) const = default;
         Rect panel, field, hint;
+        std::string title;
         std::string text; // a server address, never anything typed elsewhere
         std::size_t cursor{};
         std::string message;
@@ -371,6 +374,9 @@ struct PanelView {
             std::optional<bool> swipe;
         };
         Rect panel, well, layouts_list, languages_list, additional_list;
+        // The popup's own words, in the interface language.
+        std::string title, layouts_caption, languages_caption, main_caption, additional_caption,
+            drop_note;
         std::vector<Row> layouts, languages, additional; // only those in view
         Row main;
         bool main_target{}; // A lifted row would land on it.

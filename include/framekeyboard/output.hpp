@@ -1,4 +1,5 @@
 #pragma once
+#include "localization.hpp"
 
 #include "input.hpp"
 #include <cstdint>
@@ -80,7 +81,7 @@ class OutputController : public KeySink, public TextOutput {
         return enabled_ && !failed_ && queue_.size() + entries <= capacity;
     }
     std::string retry_text() const;
-    std::optional<std::string> take_status();
+    std::optional<UiText> take_status();
     void set_enabled(bool value);
     bool enabled() const { return enabled_; }
 
@@ -152,7 +153,7 @@ class OutputController : public KeySink, public TextOutput {
     void fail(std::size_t delivered = 0, bool uncertain = true);
     void drop_holds();
     void release_codes(Entry& entry, std::optional<int> only = {});
-    void status(std::string message);
+    void status(UiText message);
     KeySink& target_;
     std::deque<std::shared_ptr<Entry>> queue_, retry_;
     std::map<unsigned, std::shared_ptr<Entry>> active_;
@@ -176,7 +177,7 @@ class OutputController : public KeySink, public TextOutput {
     bool enabled_{}, failed_{};
     bool discarded_{}; // by the last fail()
     std::uint64_t failures_{}, completed_{}, queued_{}, cancels_{};
-    std::string status_;
+    UiText status_;
     bool status_changed_{};
 };
 } // namespace framekeyboard

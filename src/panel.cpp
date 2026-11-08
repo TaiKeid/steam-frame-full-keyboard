@@ -2065,30 +2065,6 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
         cairo_fill(cr);
     }
 }
-// What the composing line says before anything is typed.
-std::string composition_hint(const PanelView& view) {
-    const auto& method = view.language->input_method;
-    if (view.ime_band && !view.composing) {
-        // The flick layout switches with its 「あA1」 key, a JIS keyboard with
-        // 半/全. A tap on 「あA1」 goes English → digits → kana; a left flick
-        // picks kana.
-        if (method != "japanese-flick") {
-            return "英字入力 · 半/全: かな入力に戻る";
-        }
-        return view.flick_digits ? "数字入力 · あA1: かな入力に戻る"
-                                 : "英字入力 · あA1を左にフリック: かな入力に戻る";
-    }
-    // Two-set Korean has nothing to explain: only its open syllable waits.
-    return method == "korean-2set"          ? ""
-           : method == "chinese-zhuyin"     ? "注音 → Space: select · Enter: commit · Esc: cancel"
-           : method == "chinese-cangjie"    ? "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel"
-           : method == "chinese-quick"      ? "速成 → Space/1–5: select · Enter: commit · Esc: cancel"
-           : method.starts_with("chinese-") ? "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel"
-           : method == "japanese-kana"      ? "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル"
-           : method == "japanese-flick"
-               ? "フリック入力 → 空白: 変換 · 改行: 確定 · ↶: 戻す"
-               : "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル";
-}
 // The reading in a small well, underlined as in a text field with the
 // converting segment on the latched colour, and the candidates as caps. A
 // hint stands in while nothing is typed. On full layouts the reading takes
@@ -2100,7 +2076,7 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
     const auto clip = clip_bounds(cr);
     if (overlaps(pixel_bounds(line && view.preedit.empty() ? areas.band : areas.reading, 6), clip)) {
         if (view.preedit.empty()) {
-            const auto hint = composition_hint(view);
+            const auto& hint = view.composition_hint;
             const auto& r = line ? areas.band : areas.reading;
             case_plate(cr, view, r, hint, 19, PANGO_ALIGN_CENTER);
             label(cr, hint, r, 19, view.interface_font, mix(t.legend, t.surface, .35));
@@ -3677,7 +3653,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             // are: layouts act as tabs, languages list, the chosen ones raised.
             const auto& popup = *view.languages;
             modal_panel(popup.panel);
-            label(cr, "Additional languages", {popup.panel.x + 92, popup.panel.y + 10, 500, 42}, 24,
+            label(cr, popup.title, {popup.panel.x + 92, popup.panel.y + 10, 500, 42}, 24,
                   view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, popup.well);
             for (const double x : {popup.languages_list.x - 15, popup.additional_list.x - 16}) {
@@ -3687,14 +3663,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
             }
-            const auto caption = [&](const char* text, double x, double y) {
+            const auto caption = [&](const std::string& text, double x, double y) {
                 label(cr, text, {x, y, 340, 30}, 17, view.interface_font, disabled_legend(t), false,
                       PANGO_ALIGN_LEFT);
             };
-            caption("Layout", popup.layouts_list.x, popup.layouts_list.y - 36);
-            caption("Languages", popup.languages_list.x, popup.languages_list.y - 36);
-            caption("Main language", popup.additional_list.x, popup.layouts_list.y - 36);
-            caption("Additional, in cycle order", popup.additional_list.x, popup.additional_list.y - 40);
+            caption(popup.layouts_caption, popup.layouts_list.x, popup.layouts_list.y - 36);
+            caption(popup.languages_caption, popup.languages_list.x, popup.languages_list.y - 36);
+            caption(popup.main_caption, popup.additional_list.x, popup.layouts_list.y - 36);
+            caption(popup.additional_caption, popup.additional_list.x, popup.additional_list.y - 40);
             const auto hovered = [&](const auto& row) { return view.hovered_controls.contains(row.id); };
             // The title, and under it a quieter note when there is one. A
             // swipe icon, when shown, sits before them.
@@ -3803,7 +3779,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 draw_cap(cr, t, row.bounds, true, false, !row.removing);
                 auto shown = row;
                 if (row.removing) {
-                    shown.note = "Drop to remove";
+                    shown.note = popup.drop_note;
                 }
                 text(shown, 24, row.removing ? quiet : t.legend, quiet);
                 swipe_icon(row);
@@ -3835,9 +3811,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             // and the keys.
             const auto& popup = *view.address;
             modal_panel(popup.panel);
-            label(cr, "Server address",
-                  {popup.panel.x + 30, popup.panel.y + 18, popup.panel.width - 140, 32}, 19,
-                  view.interface_font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
+            label(cr, popup.title, {popup.panel.x + 30, popup.panel.y + 18, popup.panel.width - 140, 32},
+                  19, view.interface_font, mix(t.legend, t.surface, .35), false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, popup.field);
             auto* text = pango_cairo_create_layout(cr);
             auto* font = pango_font_description_new();

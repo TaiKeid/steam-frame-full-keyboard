@@ -121,7 +121,7 @@ void failure_and_retry() {
     output.tick(2);
     require(sink.events == std::vector<std::string>{"a"} && output.retry_text() == "ab",
             "failed text retains only the prefix before discarded native actions");
-    require(output.take_status()->find("discarded") != std::string::npos,
+    require(output.take_status()->key.find("discarded") != std::string::npos,
             "discarded native actions are reported");
     output.tick(100);
     require(sink.events.size() == 1, "failed delivery never retries automatically");
@@ -264,7 +264,7 @@ void release_and_capacity() {
         character(output, i + 1, "x");
     }
     require(!output.admit(true), "press beyond queue bound is rejected");
-    require(output.take_status()->find("full") != std::string::npos, "queue bound has a status");
+    require(output.take_status()->key.find("full") != std::string::npos, "queue bound has a status");
     output.release(0);
     require(sink.events == std::vector<std::string>{"14:1", "14:0"},
             "full queue cannot prevent a delivered key's release");

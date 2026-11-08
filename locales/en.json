@@ -2,10 +2,49 @@
   "locale": "en",
   "name": "English",
   "native_name": "English",
-  "steam": ["english"],
-  "posix": ["en"],
-  "font_families": ["Noto Sans", "sans-serif"],
-  "plural": {"one": "i = 1 and v = 0"},
-  "number": {"group": ",", "group_min": 4},
-  "strings": {}
+  "steam": [
+    "english"
+  ],
+  "posix": [
+    "en"
+  ],
+  "font_families": [
+    "Noto Sans",
+    "sans-serif"
+  ],
+  "plural": {
+    "one": "i = 1 and v = 0"
+  },
+  "number": {
+    "group": ",",
+    "group_min": 4
+  },
+  "strings": {
+    "dictation.server.address-hint": "Host name or IP address",
+    "dictation.server.outside-network": "Outside your local network: speech would cross the internet unencrypted.",
+    "dictation.server.title": "Server address",
+    "ime.hint.cangjie": "倉頡 → Space/1–5: select · Enter: commit · Esc: cancel",
+    "ime.hint.flick": "フリック入力 → 空白: 変換 · 改行: 確定 · ↶: 戻す",
+    "ime.hint.flick-digits": "数字入力 · あA1: かな入力に戻る",
+    "ime.hint.flick-latin": "英字入力 · あA1を左にフリック: かな入力に戻る",
+    "ime.hint.jis-latin": "英字入力 · 半/全: かな入力に戻る",
+    "ime.hint.kana": "かな入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル",
+    "ime.hint.pinyin": "Pinyin → Space/1–5: select · Enter: commit · Esc: cancel",
+    "ime.hint.quick": "速成 → Space/1–5: select · Enter: commit · Esc: cancel",
+    "ime.hint.romaji": "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル",
+    "ime.hint.zhuyin": "注音 → Space: select · Enter: commit · Esc: cancel",
+    "languages.additional": "Additional, in cycle order",
+    "languages.drop-to-remove": "Drop to remove",
+    "languages.languages": "Languages",
+    "languages.layouts": "Layout",
+    "languages.main": "Main language",
+    "languages.title": "Additional languages",
+    "output.input-not-sent": "Input not sent. Queued input was discarded.",
+    "output.not-queued": "Text not queued. Check the target and input queue.",
+    "output.not-sent": "Text not sent. Check the target, then press Enter to retry.",
+    "output.not-sent-actions-discarded": "Text not sent. Check the target, then press Enter to retry. Queued actions and later text were discarded.",
+    "output.not-sent-later-discarded": "Text not sent. Check the target, then press Enter to retry. Later input was discarded.",
+    "output.queue-full": "Input queue full. Wait for delivery, then try the key again.",
+    "output.waiting-for-delivery": "Waiting for compositor text delivery. Try the key again when it completes."
+  }
 }

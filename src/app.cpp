@@ -1070,6 +1070,29 @@ std::string App::game_sound_message() const {
     }
     return "Game sounds may be picked up during a play session.";
 }
+// What the composing line says before anything is typed. Japanese hints
+// are written in Japanese for everyone typing it.
+std::string App::composition_hint(const PanelView& v) const {
+    const auto& method = v.language->input_method;
+    if (v.ime_band && !v.composing) {
+        // The flick layout switches with its 「あA1」 key, a JIS keyboard with
+        // 半/全. A tap on 「あA1」 goes English → digits → kana; a left flick
+        // picks kana.
+        if (method != "japanese-flick") {
+            return tr("ime.hint.jis-latin");
+        }
+        return tr(v.flick_digits ? "ime.hint.flick-digits" : "ime.hint.flick-latin");
+    }
+    // Two-set Korean has nothing to explain: only its open syllable waits.
+    return method == "korean-2set"          ? ""
+           : method == "chinese-zhuyin"     ? tr("ime.hint.zhuyin")
+           : method == "chinese-cangjie"    ? tr("ime.hint.cangjie")
+           : method == "chinese-quick"      ? tr("ime.hint.quick")
+           : method.starts_with("chinese-") ? tr("ime.hint.pinyin")
+           : method == "japanese-kana"      ? tr("ime.hint.kana")
+           : method == "japanese-flick"     ? tr("ime.hint.flick")
+                                            : tr("ime.hint.romaji");
+}
 PanelView App::build_view(bool picker) const {
     PanelView v;
     v.layout = &shown_layout();
@@ -1396,11 +1419,12 @@ PanelView App::build_view(bool picker) const {
             popup.message = address_->error;
             popup.tone = PanelView::AddressView::Tone::Error;
         } else if (valid_dictation_server(address_->text) && !local_dictation_server(address_->text)) {
-            popup.message = "Outside your local network: speech would cross the internet unencrypted.";
+            popup.message = tr("dictation.server.outside-network");
             popup.tone = PanelView::AddressView::Tone::Warning;
         } else {
-            popup.message = "Host name or IP address";
+            popup.message = tr("dictation.server.address-hint");
         }
+        popup.title = tr("dictation.server.title");
         v.address = std::move(popup);
     }
     for (const auto& [pointer, target] : hovered_) {
@@ -1421,6 +1445,7 @@ PanelView App::build_view(bool picker) const {
         (!dictation_open_ || (editor_editable() && !phrases_pending()))) {
         v.swipe_reach = &swipe_keyboard_->reach;
     }
+    v.composition_hint = composition_hint(v);
     return v;
 }
 const std::vector<KeyArea>* App::key_areas(const PanelView& view) const {
@@ -3845,11 +3870,11 @@ void App::update_output_status() {
     if (auto status = output_.take_status()) {
         // The queue clears its own failure message once it drains again; keep
         // the notice that the swipe alternatives were removed until news.
-        if (status->empty() && std::exchange(swipe_notice_, false)) {
+        if (status->key.empty() && std::exchange(swipe_notice_, false)) {
             return;
         }
         swipe_notice_ = false;
-        status_ = std::move(*status);
+        status_ = tr(*status);
         dirty = true;
     }
 }

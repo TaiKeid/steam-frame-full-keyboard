@@ -23,6 +23,8 @@ from pathlib import Path
 
 PLURAL = ('zero', 'one', 'two', 'few', 'many', 'other')
 KEY_USE = re.compile(r'\b(?:tr|ui)\(\s*"([a-z][a-z0-9.-]*)"')
+# Any dotted literal: keys kept in constants or tables count as used.
+KEY_LITERAL = re.compile(r'"([a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+)"')
 PLACEHOLDER = re.compile(r'(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})')
 TAG = re.compile(r'^[A-Za-z][A-Za-z0-9-]{1,15}$')
 
@@ -101,11 +103,13 @@ def check(root, release=False):
     for key, node in source.items():
         errors += shape_errors(node, f'en.json: {key}')
 
-    used = set()
+    used, literals = set(), set()
     for path in sorted([*root.glob('src/*.cpp'), *root.glob('include/framekeyboard/*.hpp')]):
-        used |= set(KEY_USE.findall(path.read_text(encoding='utf-8', errors='replace')))
+        code = path.read_text(encoding='utf-8', errors='replace')
+        used |= set(KEY_USE.findall(code))
+        literals |= set(KEY_LITERAL.findall(code))
     errors += [f'en.json lacks {key}, used in the code' for key in sorted(used - set(source))]
-    warnings += [f'{key} is in en.json but no code uses it' for key in sorted(set(source) - used)]
+    warnings += [f'{key} is in en.json but no code uses it' for key in sorted(set(source) - used - literals)]
 
     context = load(folder / 'context.json', errors) or {}
     for key in sorted(source):

@@ -8,8 +8,7 @@
 
 namespace framekeyboard {
 namespace {
-constexpr auto waiting_status =
-    "Waiting for compositor text delivery. Try the key again when it completes.";
+constexpr auto waiting_status = "output.waiting-for-delivery";
 // Gamescope resets its temporary keymap after 100 ms idle. Count from the
 // previous result, with some headroom, rather than queueing a burst of maps.
 constexpr double composition_gap = .12;
@@ -20,13 +19,13 @@ OutputController::~OutputController() {
     } catch (...) {
     }
 }
-void OutputController::status(std::string message) {
+void OutputController::status(UiText message) {
     if (status_ != message) {
         status_ = std::move(message);
         status_changed_ = true;
     }
 }
-std::optional<std::string> OutputController::take_status() {
+std::optional<UiText> OutputController::take_status() {
     if (std::exchange(status_changed_, false)) {
         return status_;
     }
@@ -42,17 +41,17 @@ bool OutputController::admit(bool produces_output, double now) {
         failed_ = false; // A new deliberate press can follow a discarded native action.
     }
     if (failed_) {
-        status("Text not sent. Check the target, then press Enter to retry. Later input was discarded.");
+        status(ui("output.not-sent-later-discarded"));
         return false;
     }
     // A cancelled request may still have a Wayland sync outstanding. It has no
     // owned result to consume or retry; keep B12/B14's explicit rejection.
     if (queue_.empty() && target_.output_blocked()) {
-        status(waiting_status);
+        status(ui(waiting_status));
         return false;
     }
     if (queue_.size() >= capacity || active_.size() >= capacity) {
-        status("Input queue full. Wait for delivery, then try the key again.");
+        status(ui("output.queue-full"));
         return false;
     }
     return true;
@@ -134,7 +133,7 @@ bool OutputController::enqueue_text(const std::string& text, std::shared_ptr<Ent
                       // (App::refuse_without_target).
     }
     if (failed_ || queue_.size() >= capacity || !sendable(text)) {
-        status("Text not queued. Check the target and input queue.");
+        status(ui("output.not-queued"));
         return false;
     }
     if (!entry) {
@@ -168,19 +167,19 @@ bool OutputController::commit_text(const std::string& text) {
         return false;
     }
     if (queue_.empty() && target_.output_blocked()) {
-        status(waiting_status);
+        status(ui(waiting_status));
         return false;
     }
     if (text.size() > max_commit_codepoints * 4 || text.find('\0') != std::string::npos ||
         !g_utf8_validate(text.c_str(), static_cast<gssize>(text.size()), nullptr)) {
-        status("Text not queued. Check the target and input queue.");
+        status(ui("output.not-queued"));
         return false;
     }
     const auto count = static_cast<std::size_t>(g_utf8_strlen(text.c_str(), -1));
     if (count > commit_limit) {
         const auto chunks = (count + commit_limit - 1) / commit_limit;
         if (count > max_commit_codepoints || !can_queue(chunks)) {
-            status("Text not queued. Check the target and input queue.");
+            status(ui("output.not-queued"));
             return false;
         }
         // Build the complete queue before changing ownership or draining it.
@@ -211,7 +210,7 @@ bool OutputController::commit_text(const std::string& text) {
         // editor retains it and can attempt another explicit commit, as before.
         retry_.clear();
         failed_ = false;
-        status_.clear();
+        status_ = {};
         status_changed_ = false;
         return false;
     }
@@ -229,7 +228,7 @@ bool OutputController::retry() {
         return false;
     }
     if (target_.output_blocked()) {
-        status(waiting_status);
+        status(ui(waiting_status));
         return false;
     }
     failed_ = false;
@@ -351,7 +350,7 @@ void OutputController::cancel() {
     failed_ = false;
     target_.cancel_delivery();
     drop_holds();
-    status("");
+    status({});
 }
 void OutputController::fail(std::size_t delivered, bool uncertain) {
     ++failures_;
@@ -390,10 +389,9 @@ void OutputController::fail(std::size_t delivered, bool uncertain) {
     failed_ = true;
     discarded_ = discarded;
     drop_holds();
-    status(retry_.empty() ? "Input not sent. Queued input was discarded."
-           : discarded    ? "Text not sent. Check the target, then press Enter to retry. "
-                            "Queued actions and later text were discarded."
-                          : "Text not sent. Check the target, then press Enter to retry.");
+    status(ui(retry_.empty() ? "output.input-not-sent"
+              : discarded    ? "output.not-sent-actions-discarded"
+                             : "output.not-sent"));
 }
 bool OutputController::settling() const {
     if (queue_.empty() || queue_.front()->started) {
@@ -551,8 +549,8 @@ void OutputController::drain(bool fresh_tick) {
         }
     }
     window_ = 0; // The run is out; the next one belongs to the window then.
-    if (status_ != waiting_status || !target_.output_blocked()) {
-        status("");
+    if (status_.key != waiting_status || !target_.output_blocked()) {
+        status({});
     }
 }
 bool OutputController::tick(double now) {
@@ -568,8 +566,8 @@ bool OutputController::tick(double now) {
     const auto completed = completed_;
     drain(true);
     if (queue_.empty() && !failed_ && enabled_) {
-        if (status_ == waiting_status && !target_.output_blocked()) {
-            status("");
+        if (status_.key == waiting_status && !target_.output_blocked()) {
+            status({});
         }
         std::set<int> repeated;
         for (const auto& [pointer, held] : active_) {

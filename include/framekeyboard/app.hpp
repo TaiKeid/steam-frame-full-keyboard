@@ -848,6 +848,7 @@ class App {
     // The Debug card's choice, else the system's language; a change rebuilds
     // what holds interface text.
     void follow_interface_language();
+    std::string composition_hint(const PanelView& v) const;
     std::string interface_shown_; // the language the cards were built in
     Settings settings_;
     SettingsWriter settings_writer_;

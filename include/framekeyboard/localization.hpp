@@ -24,7 +24,8 @@ using UiArgs = std::vector<std::pair<std::string, UiValue>>;
 // Interface text by key with its arguments, resolved when shown. Modules
 // return these, so worker threads never touch the language tables.
 struct UiText {
-    std::string key;
+    bool operator==(const UiText&) const = default;
+    std::string key; // empty: no text
     UiArgs args;
 };
 inline UiText ui(std::string key, UiArgs args = {}) {

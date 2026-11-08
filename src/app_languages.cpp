@@ -302,6 +302,12 @@ void App::append_languages(PanelView& v) const {
             state.drag->source == Which::Additional && !state.drag->insert && !state.drag->over_main;
         popup.lifted = row;
     }
+    popup.title = tr("languages.title");
+    popup.layouts_caption = tr("languages.layouts");
+    popup.languages_caption = tr("languages.languages");
+    popup.main_caption = tr("languages.main");
+    popup.additional_caption = tr("languages.additional");
+    popup.drop_note = tr("languages.drop-to-remove");
     v.languages = std::move(popup);
 }
 void App::languages_press(unsigned pointer, double x, double y) {
