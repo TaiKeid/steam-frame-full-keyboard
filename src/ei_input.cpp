@@ -391,14 +391,21 @@ void EiSink::advance_entry() {
         }
         entry.served = clipboard->served();
     }
-    const auto [code, value] = entry.keys[entry.next++];
-    if (value) {
-        held_.insert(code);
-    } else {
-        held_.erase(code);
-    }
-    ei_device_keyboard_key(keyboard_, static_cast<std::uint32_t>(code), value != 0);
-    ei_device_frame(keyboard_, ei_now(context_));
+    // A streaming client's paste shortcut goes out whole once the clipboard
+    // holds the text: its keys all differ, so none reads as a repeat, and
+    // a key a frame would make each character take tens of milliseconds.
+    // Other keys, as Backspace taps, keep their gap.
+    const bool burst = entry.stream && entry.write && entry.next >= entry.paste_at;
+    do {
+        const auto [code, value] = entry.keys[entry.next++];
+        if (value) {
+            held_.insert(code);
+        } else {
+            held_.erase(code);
+        }
+        ei_device_keyboard_key(keyboard_, static_cast<std::uint32_t>(code), value != 0);
+        ei_device_frame(keyboard_, ei_now(context_));
+    } while (burst && entry.next < entry.keys.size());
     ei_dispatch(context_);
     entry.next_at = clock_() + entry_gap;
     entry.deadline = clock_() + paste_wait;

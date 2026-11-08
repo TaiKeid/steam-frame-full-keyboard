@@ -745,10 +745,7 @@ void stream_paste() {
     require(!sink->commit_text("Привет") && clipboard.written == std::vector<std::string>{"Привет"},
             "the text goes to the clipboard");
     clipboard.owned = true;
-    for (int i = 0; i < 20; ++i) {
-        now += EiSink::entry_gap;
-        sink->pump();
-    }
+    sink->pump(); // One frame, without the gap that paces other keys.
     server.until([&] { return server.keys.size() == 8; });
     require(server.keys == Keys{{29, true},
                                 {56, true},
