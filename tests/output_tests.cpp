@@ -730,9 +730,41 @@ void cancellation() {
     }
 }
 } // namespace
+// A streaming client, such as Moonlight, reads a key pressed again at once
+// as its repeat and drops it, so taps go a little apart. Its computer types
+// pastes itself, so mixed text goes a character at a time.
+void stream_client() {
+    struct Stream : Transport {
+        bool stream_focused() const override { return true; }
+    } sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    output.tick(1);
+    require(output.taps_then_text(KEY_BACKSPACE, 3, "Wood"), "a word's replacement is queued");
+    require(sink.events == std::vector<std::string>{"14:1", "14:0"}, "one Backspace at first");
+    output.tick(1.01);
+    require(sink.events.size() == 2, "the next waits for the gap");
+    output.tick(1.03);
+    require(sink.events.size() == 4, "then follows");
+    output.tick(1.06);
+    require(sink.events ==
+                std::vector<std::string>{"14:1", "14:0", "14:1", "14:0", "14:1", "14:0", "Wood"},
+            "the third, then the word, which is ASCII and goes whole");
+    sink.done = true;
+    output.tick(1.1);
+    require(output.commit_text("aé"), "mixed text is queued");
+    require(sink.events.back() == "a", "its first character goes alone");
+    sink.done = true;
+    output.tick(1.2);
+    require(sink.events.back() == "é", "then the next");
+    sink.done = true;
+    output.tick(1.3);
+    require(!output.text_pending() && sink.events.size() == 9, "and that's all");
+}
 int main() {
     try {
         ordering();
+        stream_client();
         failure_and_retry();
         partial_retry();
         stale_delivery_count();

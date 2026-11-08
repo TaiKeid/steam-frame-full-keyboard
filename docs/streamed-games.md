@@ -6,9 +6,9 @@ Moonlight runs on the Frame as an ordinary window and sends the keys it gets to 
 
 Moonlight passes on keys, as the physical keys they are, and no text. So the keyboard sends:
 - letters, digits and symbols, Enter, Backspace, the arrows and shortcuts as keys, as anywhere else;
-- other text, such as é, Cyrillic, emoji, and Japanese, Chinese and Korean, through the Frame's clipboard and Moonlight's own Ctrl+Alt+Shift+V, which types the clipboard's text on the PC. Typed through Gamescope's keys, it arrived as digits. The keyboard writes the clipboard and never reads it; the text stays there afterwards, as with dictation's paste. It counts as sent once Moonlight reads the clipboard, and fails after 2 s if Moonlight doesn't;
-- a swipe alternative as Backspace taps and then the word, since Moonlight never sees Gamescope's own deletions;
-- dictation's paste Send and Type as I speak's phrases with Ctrl+Alt+Shift+V too.
+- other text, such as é, Cyrillic, emoji, and Japanese, Chinese and Korean, a character at a time through the Frame's clipboard and Moonlight's own Ctrl+Alt+Shift+V, which types the clipboard's text on the PC. Typed through Gamescope's keys, it arrived as digits, and a whole word pasted at once lost characters on a Linux PC. ASCII between such characters still goes as keys. The keyboard writes the clipboard and never reads it; the last character stays there afterwards. Each counts as sent once Moonlight reads the clipboard, and fails after 2 s if Moonlight doesn't;
+- a swipe alternative as Backspace taps, 20 ms apart, and then the word: Moonlight never sees Gamescope's own deletions, and takes a key pressed again at once for its repeat, which it drops;
+- dictation's Send and Type as I speak's phrases typed, as above, even with Send set to Paste, since the PC types a paste itself.
 
 Cut, Copy and Paste press Ctrl+X, Ctrl+C and Ctrl+V on the PC, so Paste pastes the PC's own clipboard. Moonlight keeps its own shortcuts, Ctrl+Alt+Shift with Q, Z, X and other letters, for itself.
 

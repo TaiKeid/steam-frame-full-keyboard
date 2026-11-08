@@ -3796,12 +3796,6 @@ int App::chord_code(const EditChord& chord) {
     return unicode_mode() ? output_.shortcut_code(chord.symbol, fallback) : fallback;
 }
 std::vector<int> App::paste_keys() {
-    if (output_.stream_focused()) {
-        // Moonlight types what the clipboard holds on the streamed computer
-        // at Ctrl+Alt+Shift+V; its Ctrl+V would paste that computer's own.
-        // Physical keys: it reads them as such.
-        return {KEY_LEFTCTRL, KEY_LEFTALT, KEY_LEFTSHIFT, KEY_V};
-    }
     const auto chord = edit_chord(EditAction::Paste, edit_keys());
     if (!chord.sends()) {
         return {};
@@ -7303,8 +7297,10 @@ void App::flush_direct(double now) {
     finish_reopen();
     const bool reading = composing_text() || reopening_;
     // A terminal without a paste key, such as xterm, gets the phrases typed.
+    // So does a streaming client, whose computer types pastes itself.
     const bool paste = settings_.dictation_send_paste && !direct_type_only_ &&
-                       !output_.steam_field_target() && !sink_on() && pastes_clipboard(edit_keys());
+                       !output_.steam_field_target() && !sink_on() && pastes_clipboard(edit_keys()) &&
+                       !output_.stream_focused();
     // A queue retry already holds the session's text; Enter retries it.
     // While output is off nothing goes out, so a focus change then is no
     // stop: Steam's page has the keys, and the window picked next decides.
@@ -8038,9 +8034,11 @@ void App::start_send() {
     finish_reveal();
     Sending send;
     if (settings_.dictation_send_paste && !output_.steam_field_target() && !sink_on() &&
-        pastes_clipboard(edit_keys())) {
+        pastes_clipboard(edit_keys()) && !output_.stream_focused()) {
         // Steam's own fields take text directly; the clipboard cannot reach
-        // them. A terminal without a paste key, such as xterm, is typed into.
+        // them. A terminal without a paste key, such as xterm, is typed into,
+        // and so is a streaming client: its computer types a paste itself,
+        // and a Linux one loses characters of a long one.
         send.pieces = paste_pieces(editor_.text());
     } else {
         send.pieces = send_pieces(editor_.text(), !output_.single_line_target());

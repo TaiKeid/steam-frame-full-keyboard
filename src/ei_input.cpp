@@ -250,8 +250,12 @@ bool EiSink::edit_keys_known() const {
 bool EiSink::needs_entry(const std::string& text) {
     // A Gamescope commit already out reports its result to the same call,
     // even once the Desktop has taken focus.
+    // A streaming client takes Enter and Tab as Gamescope's keys; only text
+    // beyond ASCII needs its paste.
     return (desktop_now_ || stream_now_) && !(text_ && text_->pending()) &&
-           std::any_of(text.begin(), text.end(), [](char c) { return c < 0x20 || c > 0x7e; });
+           std::any_of(text.begin(), text.end(), [&](char c) {
+               return stream_now_ ? static_cast<unsigned char>(c) > 0x7e : c < 0x20 || c > 0x7e;
+           });
 }
 bool EiSink::enter(const std::string& text, std::size_t deletions) {
     if (entry_) {

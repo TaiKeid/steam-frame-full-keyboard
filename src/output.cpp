@@ -452,15 +452,31 @@ void OutputController::drain(bool fresh_tick) {
             if (!entry->started) {
                 note_text_time(entry->paced, fresh_tick);
                 entry->started = true;
+                // A streaming client's computer types pasted text itself, and
+                // a Linux one loses characters of a longer paste: mixed text
+                // goes a character at a time, ASCII as keys and the rest as
+                // one-character pastes (docs/streamed-games.md).
+                entry->one_by_one = !entry->delete_before && target_.stream_focused() &&
+                                    g_utf8_strlen(entry->text.c_str(), -1) > 1 &&
+                                    std::any_of(entry->text.begin(), entry->text.end(), [](char c) {
+                                        return static_cast<unsigned char>(c) > 0x7e;
+                                    });
             }
+            const auto piece =
+                entry->one_by_one
+                    ? entry->text.substr(entry->done_bytes,
+                                         static_cast<std::size_t>(
+                                             g_utf8_next_char(entry->text.c_str() + entry->done_bytes) -
+                                             (entry->text.c_str() + entry->done_bytes)))
+                    : entry->text;
             if (!(entry->delete_before ? target_.replace_text(entry->delete_before, entry->text)
-                                       : target_.commit_text(entry->text))) {
+                                       : target_.commit_text(piece))) {
                 if (target_.text_pending()) {
                     if (moved) {
                         // Still going out: its acknowledged characters arrived,
                         // and one in flight may have; between characters, none
                         // is. Read both before the cancel ends the commit.
-                        const auto delivered = target_.delivered_characters();
+                        const auto delivered = entry->done_characters + target_.delivered_characters();
                         const bool uncertain = target_.character_in_flight();
                         target_.cancel_delivery();
                         fail(delivered, uncertain);
@@ -472,11 +488,26 @@ void OutputController::drain(bool fresh_tick) {
                 note_text_time(entry->paced, fresh_tick);
                 // A refusal before submission sent nothing; the target may
                 // still report the count of an earlier, finished commit.
-                fail(entry->submitted ? target_.delivered_characters() : 0, entry->submitted);
+                fail(entry->done_characters + (entry->submitted ? target_.delivered_characters() : 0),
+                     entry->submitted);
                 return;
             }
             note_text_time(entry->paced, fresh_tick);
+            if (entry->one_by_one) {
+                entry->done_bytes += piece.size();
+                ++entry->done_characters;
+                entry->submitted = false;
+                if (entry->done_bytes < entry->text.size()) {
+                    continue; // The next character, as the target allows.
+                }
+            }
         } else {
+            // A streaming client reads a key pressed again at once as its
+            // repeat, and drops it: its taps go a little apart.
+            if (!entry->started && !entry->repeat && last_key_at_ >= 0 &&
+                now_ - last_key_at_ < stream_key_gap && target_.stream_focused()) {
+                return;
+            }
             while (entry->next < entry->codes.size()) {
                 const int code = entry->codes[entry->next];
                 if (!entry->waiting) {
@@ -502,6 +533,9 @@ void OutputController::drain(bool fresh_tick) {
         }
         queue_.pop_front();
         ++completed_;
+        if (entry->text.empty()) {
+            last_key_at_ = now_;
+        }
         if (entry->held) {
             entry->repeat_at = now_ + entry->first_repeat;
             for (int code : entry->released_modifiers) {

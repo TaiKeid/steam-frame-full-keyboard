@@ -453,8 +453,7 @@ class App {
     // The letter a chord presses: the target keymap's in Unicode mode.
     int chord_code(const EditChord& chord);
     // Paste's keys in press order, for the keyboard's own paste paths;
-    // empty when the target has no paste key, as in xterm. A streaming
-    // client's own shortcut for typing the clipboard there, as Moonlight's.
+    // empty when the target has no paste key, as in xterm.
     std::vector<int> paste_keys();
     // Applies the context's autocapitalize hint to dictated or swiped text.
     std::string hint_case(std::string text) const;

@@ -52,6 +52,6 @@ Full Keyboard for Steam Frame is a manually launched alternative keyboard for lo
 - Measured battery, memory, and latency results.
 - Shell integration: `theme.derive`, the Wayland input method bridge, and headset checks of anchors, two-hand forwarding and the update handover.
 - An in-app update while dictating, tested in the headset.
-- PC apps through Moonlight and Sunshine: done. Keys go as keys, other text through Moonlight's Ctrl+Alt+Shift+V paste, and dictation's paste uses it too; Steam Link streams still cannot receive our keys (see [streamed games](streamed-games.md)).
+- PC apps through Moonlight and Sunshine: done. Keys go as keys, other text a character at a time through Moonlight's Ctrl+Alt+Shift+V paste, and dictation types; Steam Link streams still cannot receive our keys (see [streamed games](streamed-games.md)).
 
 Swipe typing for Japanese and Korean was dropped; see [swipe typing](swipe-typing.md#milestones). No universal native keyboard replacement, streamed PC input, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

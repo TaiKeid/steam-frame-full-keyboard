@@ -133,6 +133,10 @@ class OutputController : public KeySink, public TextOutput {
         // The target took this text and is delivering it. Only then is its
         // delivered-character count about this entry rather than an earlier one.
         bool submitted{};
+        // For a streaming client, mixed text goes one character at a time
+        // (one_by_one): the bytes and characters already delivered.
+        bool one_by_one{};
+        std::size_t done_bytes{}, done_characters{};
         double repeat_at{};
         std::weak_ptr<Entry> owner;
     };
@@ -155,6 +159,10 @@ class OutputController : public KeySink, public TextOutput {
     std::map<int, std::shared_ptr<Entry>> direct_;
     std::map<int, unsigned> delivered_;
     double now_{};
+    // When the last key entry finished: a streaming client takes the next
+    // only stream_key_gap later (drain).
+    double last_key_at_{-1};
+    static constexpr double stream_key_gap = .02;
     // A paced composition must let the compositor's temporary keymap settle
     // between chunks. Keep this debt across cancellation and explicit retries.
     double last_text_at_{-1}, text_ready_at_{-1};
