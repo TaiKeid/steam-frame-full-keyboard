@@ -5660,6 +5660,10 @@ int main() {
         click_key(external, "Convert");
         require(sink.keys == std::vector<std::pair<int, int>>{{92, 1}, {92, 0}},
                 "JIS conversion key uses evdev");
+        sink.keys.clear();
+        click_key(external, "ZenkakuHankaku");
+        require(sink.keys == std::vector<std::pair<int, int>>{{41, 1}, {41, 0}},
+                "半/全 sends the grave key, where the jp keymap has Zenkaku_Hankaku");
         options.start_enabled = false;
         options.target_language = "en-us";
         App disabled(options, sink);

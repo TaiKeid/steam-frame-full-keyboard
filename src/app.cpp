@@ -3916,6 +3916,12 @@ std::vector<int> App::paste_keys() {
     return keys;
 }
 int App::native_code(const Key& key, const std::set<int>& mods) {
+    // A JIS keyboard sends 半/全 as the grave key: XKB's jp keymap puts
+    // Zenkaku_Hankaku there (<HZTG> is <TLDE>) and nothing on
+    // KEY_ZENKAKUHANKAKU. Local composition takes the key before this.
+    if (external_jis() && key.action_kind == ActionKind::Key && key.action == "ZenkakuHankaku") {
+        return KEY_GRAVE;
+    }
     if (!unicode_mode()) {
         return 0;
     }
