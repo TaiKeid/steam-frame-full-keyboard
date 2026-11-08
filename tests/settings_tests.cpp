@@ -1559,6 +1559,19 @@ void interface_language_setting() {
                 "the system's language, with its fonts for interface text");
         require(app.view().language->font == "Noto Sans,sans-serif",
                 "key legends keep the typing language's");
+        app.show_settings();
+        std::vector<LabelFit> fits;
+        record_label_fits(&fits);
+        app.paint(10);
+        record_label_fits(nullptr);
+        const auto title = app.view().cards.front().title;
+        require(std::any_of(fits.begin(), fits.end(),
+                            [&](const LabelFit& fit) {
+                                return fit.text == title && fit.family == "Test Sans,sans-serif" &&
+                                       fit.scale == 1 && fit.lines == 1 && !fit.cut;
+                            }),
+                "card titles in the interface language's fonts, each label's fit recorded");
+        app.back();
         posix = "C.UTF-8";
         require(app.interface_language() == "xt", "nothing changes while Settings is closed");
         app.show_settings();

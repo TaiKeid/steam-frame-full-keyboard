@@ -55,6 +55,8 @@ double visible_layout_width(const PanelView& view) {
     return removed && right > 0 ? right : view.layout->width;
 }
 namespace {
+// Set by record_label_fits: every label drawn while it is set.
+std::vector<LabelFit>* label_fits{};
 bool list_open(const PanelView& view) {
     return view.candidates && view.candidates->list;
 }
@@ -362,6 +364,11 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
     pango_layout_set_alignment(layout, alignment);
     int width, height;
     pango_layout_get_pixel_size(layout, &width, &height);
+    if (label_fits) {
+        const double drawn = pango_font_description_get_size(font) / static_cast<double>(PANGO_SCALE);
+        label_fits->push_back({text, family, drawn / size, pango_layout_get_line_count(layout),
+                               pango_layout_is_ellipsized(layout) || (wrap && height > r.height + 1)});
+    }
     source(cr, color);
     cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
     pango_cairo_show_layout(cr, layout);
@@ -1370,6 +1377,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     }
 }
 } // namespace
+void record_label_fits(std::vector<LabelFit>* into) {
+    label_fits = into;
+}
 double semi_transparent_case_opacity(const Theme& theme) {
     return light_theme(theme) ? .15 : .5;
 }

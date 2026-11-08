@@ -197,6 +197,17 @@ constexpr double languages_row_height = 56, additional_row_height = 62;
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
 constexpr double dictation_notice_height = 46;
+// How a label fitted its room, for finding interface text that doesn't fit
+// (docs/localization-design.md): its size over the size asked for after
+// shrinking, its lines, and whether it was cut short or ran out of room.
+struct LabelFit {
+    std::string text, family;
+    double scale{1};
+    int lines{1};
+    bool cut{};
+};
+// While set, the renderer adds every label it draws; nullptr stops it.
+void record_label_fits(std::vector<LabelFit>* into);
 struct PanelView {
     const Layout* layout{};
     const Theme* theme{};
