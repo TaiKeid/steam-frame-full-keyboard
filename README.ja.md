@@ -1,6 +1,6 @@
 # Full Keyboard for Steam Frame
 
-<p align="center"><a href="README.md">English</a> | <b>日本語</b></p>
+<p align="center"><a href="README.md">English</a> | <b>日本語</b> | <a href="README.zh-Hans.md">简体中文</a> | <a href="README.ru.md">Русский</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.de.md">Deutsch</a> | <a href="README.fr.md">Français</a></p>
 
 Steam Frame に標準で入っている仮想キーボードの代わりに使える、フルサイズのキーボードです。ヘッドセットで毎日使うことを考えて作りました。矢印キー、テンキー、Ctrl・Alt、専用の Cut（切り取り）・Copy（コピー）・Paste（貼り付け）キーに加えて、スワイプ入力、音声入力、絵文字に対応し、47 言語で使えます。
 
@@ -98,7 +98,7 @@ Full Keyboard は**ヘッドセット上での利用**のために作られて�
 | Shift をロックする | Shift を 0.5 秒長押しする。もう一度押すと解除 |
 | 単語をスワイプする | 設定の Languages and Layouts カードで **Swipe typing** をオンにし、トリガーを引いたまま文字をなぞる。ほかの候補はツールバーに出る |
 | 単語を補完する | 単語の最初の文字を入力すると、ツールバーに候補が最大 5 つ出る。選ぶと残りの文字とスペースが入力される |
-| 下フリックで Shift 側の文字を入力する | 設定の Languages and Layouts カードで **Flick down for Shift characters** をオンにし、キーを下に引いてから離す。6 なら ^、スワイプ入力がオフなら k で K |
+| 下フリックで Shift 側の文字を入力する | 設定の Languages and Layouts カードで **Key flicks** をオンにし、キーを下に引いてから離す。6 なら ^、スワイプ入力がオフなら k で K |
 | 切り取り・コピー・貼り付け | 左側の Cut・Copy・Paste キーを使う。切り取りとコピーは、先に文字を選択しておく |
 | 音声入力する | Cut・Copy・Paste の下のマイクキーを押して話す。フレーズはファンクションキーの位置に出るエディターに表示されるので、キーで修正してから **Send** を押してアプリに入力する。Esc で聞き取りを止める |
 | Type as I speak | 設定の **Dictation** カードでオンにする。マイクキーを押すと、キーボードはそのままで聞き取り、フレーズごとにアプリへ入力する |

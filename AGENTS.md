@@ -3,6 +3,7 @@
 Follow any enclosing workspace instructions. This file covers project engineering; keep machine-specific notes, deployment records, and credentials outside this repository. The public project name is Full Keyboard for Steam Frame, the app label is Full Keyboard, and internal identifiers remain framekeyboard.
 
 - Read `README.md`, `docs/plan.md`, and the relevant architecture section before implementation. Mark milestone checkboxes only after their acceptance conditions pass.
+- The README exists in several languages (`README.md` and `README.*.md`). Every change to one must be made in all of them in the same commit, with the same structure, links and language switcher; name interface items as `locales/<tag>.json` names them in that language.
 - The approved appearance is `design/index.html`. Native key geometry is `layouts/en-us.json`; visual constants are `themes/graphite.json`. Keep fixed-size press movement, the flat case, shallow key sides, and left Copy/Paste keys.
 - Cross-build deployment artifacts on the development host. Keep host and ARM64 output separate. Do not maintain a source checkout on Frame or run an ARM64 artifact on the host.
 - Treat file-based layouts, languages and themes with in-VR selection as core requirements. Read `docs/configuration.md`; keep key geometry, input mapping and styles independent. Do not equate relabeled keys with working language support.

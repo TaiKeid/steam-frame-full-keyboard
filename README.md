@@ -1,6 +1,6 @@
 # Full Keyboard for Steam Frame
 
-<p align="center"><b>English</b> | <a href="README.ja.md">日本語</a></p>
+<p align="center"><b>English</b> | <a href="README.ja.md">日本語</a> | <a href="README.zh-Hans.md">简体中文</a> | <a href="README.ru.md">Русский</a> | <a href="README.es.md">Español</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.de.md">Deutsch</a> | <a href="README.fr.md">Français</a></p>
 
 A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Cut, Copy and Paste keys, plus swipe typing, dictation and emoji, in 47 languages.
 
@@ -96,7 +96,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Lock Shift | Hold Shift for half a second; press it again to unlock |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Complete a word | Type its start; up to five completions appear in the toolbar. Choose one to type the rest and a space |
-| Flick for Shift characters | Turn on **Flick down for Shift characters** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |
+| Flick for Shift characters | Turn on **Key flicks** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |
 | Cut / copy / paste | Use the Cut, Copy and Paste keys on the left; select text first when cutting or copying |
 | Dictate | Press the mic key below Cut, Copy and Paste and speak. Phrases appear in an editor in place of the function keys; correct them with the keys, then press **Send** to type the text into the app. Esc stops listening |
 | Type as I speak | Turn it on in the **Dictation** settings card. The mic key then listens on the normal keyboard and types each phrase into the app |
