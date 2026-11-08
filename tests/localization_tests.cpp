@@ -2,6 +2,7 @@
 // plural rules, templates and branches, the fallback chain, language
 // detection and the pseudo-language.
 #include "framekeyboard/localization.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -206,9 +207,13 @@ void loading_tests() {
     require(l.text("a.plain") == "a.plain", "only English keys");
 
     const auto list = l.locales();
-    require(list.back().tag == "qps" && list.size() == 4 && list[0].name == "English" &&
-                list[1].name == "Testish" && list[2].name == "Testish (YY)" &&
-                list[1].native_name == "Tëstish",
+    const auto at = [&](const std::string& tag) {
+        return std::find_if(list.begin(), list.end(), [&](const auto& item) { return item.tag == tag; });
+    };
+    require(list.back().tag == "qps" && at("xt") != list.end() && at("xt")->native_name == "Tëstish" &&
+                at("xt") < at("xt-YY") &&
+                std::is_sorted(list.begin(), list.end() - 1,
+                               [](const auto& a, const auto& b) { return a.name < b.name; }),
             "languages by English name, the pseudo-language last");
 
     // Reload without the user's folder: the bundled and data files alone.

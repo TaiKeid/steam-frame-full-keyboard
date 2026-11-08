@@ -189,3 +189,5 @@ Project code is available under the [MIT License](LICENSE). Vendored components 
 ## AI-generated project disclaimer
 
 This project is fully AI-generated. The author is unfamiliar with C++, so please have patience and understanding. Bugs and rough edges are expected; careful reviews, clear bug reports, and contributions are welcome. Third-party components retain their original authorship and licenses.
+
+The interface translations are AI-made too. If something reads wrong in your language, corrections are welcome.
