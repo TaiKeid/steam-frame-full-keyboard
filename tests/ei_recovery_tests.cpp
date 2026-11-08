@@ -745,7 +745,16 @@ void stream_paste() {
     require(!sink->commit_text("Привет") && clipboard.written == std::vector<std::string>{"Привет"},
             "the text goes to the clipboard");
     clipboard.owned = true;
+    sink->pump();
+    ++clipboard.taken; // Gamescope reads every new clipboard itself.
+    now += EiSink::stream_quiet;
+    sink->pump();
+    server.pump();
+    require(server.keys.empty() && !sink->character_in_flight(),
+            "the shortcut waits until no one has read the clipboard for a moment");
+    now += 2 * EiSink::stream_quiet;
     sink->pump(); // One frame, without the gap that paces other keys.
+    require(sink->character_in_flight(), "then goes whole");
     server.until([&] { return server.keys.size() == 8; });
     require(server.keys == Keys{{29, true},
                                 {56, true},

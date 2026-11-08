@@ -389,7 +389,25 @@ void EiSink::advance_entry() {
             entry.failed = true; // nothing pasted, so nothing to finish
             return;
         }
-        entry.served = clipboard->served();
+        const auto served = clipboard->served();
+        if (entry.stream) {
+            // Gamescope reads a new clipboard itself at once. Counted as
+            // Moonlight's, it would let the next character's write overtake
+            // the paste, landing it amid later keys: the shortcut waits
+            // until no read has come for stream_quiet, so the next read is
+            // Moonlight's. One that never ends doesn't hold the keys back.
+            if (!entry.quiet_since || served != entry.served) {
+                entry.owned_at = entry.owned_at.value_or(clock_());
+                entry.quiet_since = clock_();
+                entry.served = served;
+                return;
+            }
+            if (clock_() - *entry.quiet_since < stream_quiet &&
+                clock_() - *entry.owned_at < paste_wait) {
+                return;
+            }
+        }
+        entry.served = served;
     }
     // A streaming client's paste shortcut goes out whole once the clipboard
     // holds the text: its keys all differ, so none reads as a repeat, and

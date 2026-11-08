@@ -64,6 +64,9 @@ class EiSink : public KeySink {
         2; // The pause between the key events of Unicode entry. IBus reorders keys
     // that arrive closer together (measured on the Frame: none at 0 ms, exact at 5 ms).
     static constexpr double entry_gap = .005;
+    // How long a streaming client's paste waits for no one to read the
+    // clipboard before its shortcut, as Gamescope reads every new one.
+    static constexpr double stream_quiet = .03;
     EiSink(const EiSink&) = delete;
     EiSink& operator=(const EiSink&) = delete;
 
@@ -91,6 +94,8 @@ class EiSink : public KeySink {
         std::optional<double> clipboard_since; // When Ctrl+V first waited for the clipboard.
         bool taken{};
         bool stream{}; // For a streaming client: its clipboard and focus.
+        // When the clipboard was first held, and since when no one read it.
+        std::optional<double> owned_at, quiet_since;
     };
     static std::size_t entered(const Entry& entry);
     bool desktop_target();
