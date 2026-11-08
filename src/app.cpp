@@ -646,10 +646,13 @@ std::vector<Control> App::controls() const {
     }
     // Swipe suggestions scale the same way, but never start before the end of
     // the first toolbar row or reach the close button; many share the room.
+    // In dictation mode the counter sits left of the close button, and while a
+    // shell takes the typing, its Stop button.
+    const double chips_end =
+        body.x + body.width - 78 - 10 - std::max(dictation_open_ ? 156 : 0, sink_on() ? 210 : 0);
     if (!swipe_candidates_.empty()) {
         const double start = std::max(body.x + 610 * scale, toolbar_end + 10);
-        // In dictation mode the counter sits left of the close button.
-        const double end = body.x + body.width - 78 - 10 - (dictation_open_ ? 156 : 0);
+        const double end = chips_end;
         const double pitch = std::min(180 * scale, (end - start + 10 * scale) /
                                                        static_cast<double>(swipe_candidates_.size()));
         for (std::size_t i = 0; i < swipe_candidates_.size(); ++i) {
@@ -663,7 +666,7 @@ std::vector<Control> App::controls() const {
         // Completions take the same places; none is chosen until picked.
         // They wait out the emoji picker, the editor and Settings.
         const double start = std::max(body.x + 610 * scale, toolbar_end + 10);
-        const double end = body.x + body.width - 78 - 10;
+        const double end = chips_end;
         const double pitch = std::min(180 * scale, (end - start + 10 * scale) /
                                                        static_cast<double>(typing_suggestions_.size()));
         for (std::size_t i = 0; i < typing_suggestions_.size(); ++i) {

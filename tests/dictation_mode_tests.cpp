@@ -3126,6 +3126,38 @@ void hosted_tests() {
     require(sink.text.empty() && sink.keys.empty(),
             "nothing reaches the input backend while the sink is on");
     require(app.idle_for_update(), "settled output leaves the keyboard idle for an update");
+    {
+        // Typing suggestions, all five, end before Stop shell typing.
+        app.set_context(std::string("c-3"), {});
+        press(app, "KeyS");
+        router.acknowledge("c-3", router.take_events().at(0).seq);
+        const auto chips = [&] {
+            std::vector<Control> found;
+            for (const auto& c : app.view().controls) {
+                if (c.id.starts_with("typing-suggestion-")) {
+                    found.push_back(c);
+                }
+            }
+            return found;
+        };
+        // The word list loads on a thread of its own, slower in a sanitizer build.
+        for (int i = 0; i < 2000 && chips().size() < 5; ++i) {
+            app.tick(clock += .01);
+            usleep(5000);
+        }
+        Control stop;
+        for (const auto& c : app.view().controls) {
+            if (c.id == "sink-off") {
+                stop = c;
+            }
+        }
+        const auto shown = chips();
+        require(shown.size() == 5 && std::none_of(shown.begin(), shown.end(),
+                                                  [&](const Control& c) {
+                                                      return c.bounds.x + c.bounds.width > stop.bounds.x;
+                                                  }),
+                "typing suggestions leave the shell's Stop button free");
+    }
     click(app, "sink-off");
     require(!app.sink_on(), "the user can take typing back");
     press(app, "KeyE");
