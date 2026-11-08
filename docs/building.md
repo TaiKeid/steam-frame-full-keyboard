@@ -95,7 +95,7 @@ rsync -aL "$FRAME_HOST:/opt/steamvr/bin/linuxarm64/libopenvr_api.so" \
   "$FRAMEKEYBOARD_SYSROOT/opt/steamvr/bin/linuxarm64/"
 ```
 
-Copying most of `/usr/lib` can take several gigabytes. These commands only read the device; they do not install packages or unlock SteamOS. They assume the Frame already contains the required development files. A missing header, linker name, or pkg-config file must be supplied from a matching target development environment. Do not substitute host x86-64 libraries. The initial validated sysroot was a smaller curated copy of these files; the broad copy recipe above has not been independently tested from a clean device.
+Copying most of `/usr/lib` can take several gigabytes. These commands only read the device; they install no packages and change no system files. They assume the Frame already contains the required development files. A missing header, linker name, or pkg-config file must be supplied from a matching target development environment. Do not substitute host x86-64 libraries. The initial validated sysroot was a smaller curated copy of these files; the broad copy recipe above has not been independently tested from a clean device.
 
 ## Cross-build and package
 
