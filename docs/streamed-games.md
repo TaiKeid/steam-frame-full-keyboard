@@ -12,7 +12,7 @@ Moonlight passes on keys, as the physical keys they are, and no text. So the key
 
 Cut, Copy and Paste press Ctrl+X, Ctrl+C and Ctrl+V on the PC, so Paste pastes the PC's own clipboard. Moonlight keeps its own shortcuts, Ctrl+Alt+Shift with Q, Z, X and other letters, for itself.
 
-The PC types pasted text itself. Sunshine on Windows types Unicode with the system's own Unicode input, which is expected to take whole words but wasn't tested. Sunshine on Linux types each character as Ctrl+Shift+U, its code and Enter, which only GTK apps and input methods such as IBus take, and which lost characters in a long paste into Firefox. Measured in November 2026 with Moonlight 6.2 on the Frame and Sunshine 2026.1103 on a Linux PC, with US layouts on both.
+The PC types pasted text itself. Sunshine on Windows types Unicode with the system's own Unicode input, which is expected to take whole words but wasn't tested. Sunshine on Linux types each character as Ctrl+Shift+U, its code and Enter, which GTK apps and Chromium-based browsers take, and which lost characters in a long paste into Firefox. Qt and KDE apps, such as Kate, show the code instead (`1f605` for 😅) unless an input method such as IBus or Fcitx5 runs on the PC. Measured in November 2026 with Moonlight 6.2 on the Frame and Sunshine 2026.1103 on a Linux PC, with US layouts on both.
 
 ## Steam Link streams: not supported
 
