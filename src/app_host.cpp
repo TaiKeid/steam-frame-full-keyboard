@@ -308,6 +308,7 @@ JsonPtr App::host_settings() const {
     flag("hide_numpad", settings_.hide_numpad);
     flag("use_drag_to_move", settings_.use_drag_to_move);
     flag("auto_leveling", settings_.auto_leveling);
+    flag("vibration", settings_.vibration);
     flag("pinned", settings_.pinned);
     flag("emoji_close_on_select", settings_.emoji_close_on_select);
     flag("desktop_unicode_paste", settings_.desktop_unicode_paste);
@@ -342,6 +343,7 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
                                                 "hide_numpad",
                                                 "use_drag_to_move",
                                                 "auto_leveling",
+                                                "vibration",
                                                 "pinned",
                                                 "emoji_close_on_select",
                                                 "dictation_send_paste",
@@ -424,6 +426,8 @@ std::pair<std::string, std::string> App::host_settings_set(json_object* values, 
             settings_.use_drag_to_move = pending_use_drag_to_move_ = on;
         } else if (key == "auto_leveling") {
             settings_.auto_leveling = pending_auto_leveling_ = on;
+        } else if (key == "vibration") {
+            settings_.vibration = pending_vibration_ = on;
         } else if (key == "pinned") {
             settings_.pinned = on;
         } else if (key == "emoji_close_on_select") {
@@ -804,6 +808,7 @@ void App::host_settings_changed(const Settings& before, const char* source) {
     compare("haptic_volume", before.haptic_volume != settings_.haptic_volume);
     compare("use_drag_to_move", before.use_drag_to_move != settings_.use_drag_to_move);
     compare("auto_leveling", before.auto_leveling != settings_.auto_leveling);
+    compare("vibration", before.vibration != settings_.vibration);
     compare("pinned", before.pinned != settings_.pinned);
     compare("emoji_close_on_select", before.emoji_close_on_select != settings_.emoji_close_on_select);
     compare("desktop_unicode_paste", before.desktop_unicode_paste != settings_.desktop_unicode_paste);

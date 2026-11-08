@@ -120,6 +120,9 @@ struct Settings {
     std::string background_surface{"visible"};
     // Pops on keyboard keys: "off", "press", "release" or "both".
     std::string haptic_sounds{"off"};
+    // Vibration pulses on keyboard keys: press, release, hover and flick
+    // ticks; on unless turned off. Listening cues and emoji scroll ticks stay.
+    bool vibration{true};
     // Which pop, "a" to "f", and its volume: 25, 50, 75 or 100 percent of
     // full loudness (key_sounds.hpp).
     std::string haptic_effect{"e"};

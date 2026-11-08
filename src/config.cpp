@@ -733,6 +733,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* leveling = field(document.get(), "auto_leveling", json_type_boolean, true)) {
             settings.auto_leveling = json_object_get_boolean(leveling);
         }
+        if (auto* vibration = field(document.get(), "vibration", json_type_boolean, true)) {
+            settings.vibration = json_object_get_boolean(vibration);
+        }
         if (auto* replace = field(document.get(), "replace_native_keyboard", json_type_boolean, true)) {
             settings.replace_native_keyboard = json_object_get_boolean(replace);
         }
@@ -1025,6 +1028,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->use_drag_to_move));
         json_object_object_add(document.get(), "auto_leveling",
                                json_object_new_boolean(settings->auto_leveling));
+        json_object_object_add(document.get(), "vibration",
+                               json_object_new_boolean(settings->vibration));
         json_object_object_add(document.get(), "replace_native_keyboard",
                                json_object_new_boolean(settings->replace_native_keyboard));
         json_object_object_add(document.get(), "start_with_steamos",

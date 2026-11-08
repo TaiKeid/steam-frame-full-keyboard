@@ -262,6 +262,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_haptic_volume_ = settings_.haptic_volume;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
+    pending_vibration_ = settings_.vibration;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
@@ -893,6 +894,8 @@ void App::update_settings_ui() {
         field(ControlKind::AutoLeveling,
               checkbox("auto-leveling", tr("setting.auto-leveling"), pending_auto_leveling_))};
     std::vector<SettingField> typing_fields{haptic_sounds};
+    typing_fields.push_back(
+        field(ControlKind::Vibration, checkbox("vibration", tr("setting.vibration"), pending_vibration_)));
     if (pending_haptic_sounds_ != "off") {
         typing_fields.push_back(haptic_effect);
         typing_fields.push_back(haptic_volume);
@@ -2549,6 +2552,7 @@ void App::show_settings() {
     pending_haptic_volume_ = settings_.haptic_volume;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
+    pending_vibration_ = settings_.vibration;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
@@ -2827,6 +2831,7 @@ void App::reload() {
         settings_.haptic_volume = updated_settings.haptic_volume;
         settings_.use_drag_to_move = updated_settings.use_drag_to_move;
         settings_.auto_leveling = updated_settings.auto_leveling;
+        settings_.vibration = updated_settings.vibration;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
         settings_.swipe_typing = updated_settings.swipe_typing;
@@ -2875,6 +2880,7 @@ void App::reload() {
     pending_haptic_volume_ = settings_.haptic_volume;
     pending_use_drag_to_move_ = settings_.use_drag_to_move;
     pending_auto_leveling_ = settings_.auto_leveling;
+    pending_vibration_ = settings_.vibration;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_swipe_typing_ = settings_.swipe_typing;
@@ -4445,6 +4451,7 @@ void App::apply_settings() {
     settings_.haptic_volume = pending_haptic_volume_;
     settings_.use_drag_to_move = pending_use_drag_to_move_;
     settings_.auto_leveling = pending_auto_leveling_;
+    settings_.vibration = pending_vibration_;
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.swipe_typing = pending_swipe_typing_;
@@ -4775,6 +4782,9 @@ void App::action(const ControlAction& command) {
         choose_swipe(command.index);
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
+        update_settings_ui();
+    } else if (kind == ControlKind::Vibration) {
+        pending_vibration_ = !pending_vibration_;
         update_settings_ui();
     } else if (kind == ControlKind::ChooseDictation) {
         pressed_controls_.clear();

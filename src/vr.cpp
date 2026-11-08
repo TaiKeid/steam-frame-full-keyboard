@@ -4114,7 +4114,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             delayed_release.reset();
         }
         for (const auto& [device, kind] : feedback.take(now)) {
-            if (!drag.active() && lifecycle.visible()) {
+            if (app.vibration() && !drag.active() && lifecycle.visible()) {
                 RuntimeWait runtime_wait;
                 haptics.send(device, kind);
             }

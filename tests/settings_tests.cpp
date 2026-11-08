@@ -1792,6 +1792,45 @@ void haptic_sounds_setting() {
                 std::abs(sound_gain(50) - .315f) < .01f && std::abs(sound_gain(25) - .1f) < .01f,
             "volume steps follow loudness, about 10 dB for each halving");
 }
+void vibration_setting() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(app.vibration() && saved(app).vibration, "key vibration starts on");
+    app.show_settings();
+    require(has(app.view(), "vibration") && control(app.view(), "vibration").selected,
+            "the Typing card shows the vibration checkbox, checked");
+    click(app, "vibration");
+    require(app.vibration() && saved(app).vibration && !control(app.view(), "vibration").selected,
+            "the choice stays pending until Apply");
+    click(app, "apply");
+    require(!app.vibration() && !saved(app).vibration, "Apply saves it off");
+    // Back discards a pending edit; the host applies the flag at once.
+    app.show_settings();
+    click(app, "vibration");
+    app.back();
+    require(!app.vibration() && !saved(app).vibration, "Back discards the pending change");
+    {
+        auto flag = json_ptr(json_tokener_parse(R"({"vibration":true})"));
+        require(app.host_settings_set(flag.get(), 1).first.empty(), "the host applies the flag");
+    }
+    app.flush_settings();
+    require(app.vibration() && saved(app).vibration, "the host's change is saved");
+    // A config without the field loads on.
+    {
+        TemporaryDirectory edited;
+        std::ofstream(edited.path / "config.json")
+            << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+               R"("theme":"graphite"}})";
+        std::vector<std::string> errors;
+        const auto loaded = load_settings(edited.path, errors);
+        require(loaded.vibration && errors.empty(), "a config without the field loads vibration on");
+    }
+}
+
 void app_settings() {
     TemporaryDirectory directory;
     Options options;
@@ -2987,6 +3026,7 @@ int main() {
         debug_card_setting();
         interface_language_setting();
         haptic_sounds_setting();
+        vibration_setting();
         app_settings();
         dictation_settings();
         desktop_unicode_setting();

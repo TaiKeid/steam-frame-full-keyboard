@@ -272,6 +272,7 @@
     "setting.typing-suggestions.note": "Completes the word you're typing",
     "setting.use-drag-to-move": "Grab to move",
     "setting.use-drag-to-move.note": "Hold grip on the keyboard instead of the line",
+    "setting.vibration": "Key vibration",
     "startup.control-characters": "Startup paths cannot contain control characters.",
     "startup.custom-link": "A custom SteamOS startup link already exists.",
     "startup.custom-unit": "A custom SteamOS startup unit already exists.",

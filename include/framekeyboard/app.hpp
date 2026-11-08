@@ -303,6 +303,8 @@ class App {
     }
     const std::string& haptic_effect() const { return settings_.haptic_effect; }
     int haptic_volume() const { return settings_.haptic_volume; }
+    // Key vibration (config.hpp): VR reads this to keep or drop its pulses.
+    bool vibration() const { return settings_.vibration; }
     std::optional<SoundPreview> take_sound_preview() { return std::exchange(sound_preview_, {}); }
     // Whether this press or release pops. Silent while the microphone is
     // listening: the speakers sit close enough for it to hear them.
@@ -889,6 +891,7 @@ class App {
     std::optional<SoundPreview> sound_preview_;
     bool pending_use_drag_to_move_{};
     bool pending_auto_leveling_{true};
+    bool pending_vibration_{true};
     bool pending_replace_native_keyboard_{};
     bool pending_start_with_steamos_{};
     bool pending_swipe_typing_{};
