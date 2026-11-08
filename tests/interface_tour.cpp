@@ -160,6 +160,7 @@ int main(int argc, char** argv) {
             usleep(10000);
         }
         shot(app, "emoji");
+        app.show_settings(); // Settings closes the picker; Back returns to the keys.
         app.back();
         app.show_dictation();
         shot(app, "dictation");
