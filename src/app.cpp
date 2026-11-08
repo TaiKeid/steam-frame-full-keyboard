@@ -2865,8 +2865,6 @@ void App::reload() {
     localization_.load(options_.data_dir, options_.config_dir);
     profiles_.errors.insert(profiles_.errors.end(), localization_.errors().begin(),
                             localization_.errors().end());
-    interface_shown_.clear();
-    follow_interface_language();
     pending_ = main_selection();
     pending_favorites_ = settings_.favorites;
     remember_languages();
@@ -2898,6 +2896,10 @@ void App::reload() {
     pending_dictation_server_ = settings_.dictation_server;
     pending_dictation_fallback_ = settings_.dictation_fallback;
     pending_dictation_device_model_ = settings_.dictation_device_model;
+    // Settings is rebuilt in the language now, so after the pending choices,
+    // or one naming a removed language file would be looked up.
+    interface_shown_.clear();
+    follow_interface_language();
     swipe_prepared_.clear(); // Reread an edited word list.
     prepare_swipe();
     rebuild_cycle_entries();
