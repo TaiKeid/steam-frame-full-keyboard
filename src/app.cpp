@@ -729,80 +729,85 @@ void App::update_settings_ui() {
     }
     // Send types one character at a time, slower keeping the order under
     // load, or pastes through the clipboard.
+    std::vector<SettingChoice> send_choices;
+    for (const long long gap : {10, 20, 30, 40}) {
+        send_choices.push_back(
+            {std::to_string(gap),
+             tr(gap == 20 ? "setting.send-gap.type-default" : "setting.send-gap.type", {{"ms", gap}})});
+    }
+    send_choices.push_back({"paste", tr("setting.send-gap.paste")});
     auto send_gap = field(
         ControlKind::ChooseSendGap,
-        dropdown("send-gap", "Send",
+        dropdown("send-gap", tr("setting.send-gap"),
                  pending_dictation_send_paste_ ? "paste" : std::to_string(pending_dictation_send_gap_),
-                 {{"10", "Type, 10 ms"},
-                  {"20", "Type, 20 ms (default)"},
-                  {"30", "Type, 30 ms"},
-                  {"40", "Type, 40 ms"},
-                  {"paste", "Paste"}}));
+                 std::move(send_choices)));
     // Dictation (docs/dictation.md, Settings): the mode, the user's own
     // server, a connection check and how Send delivers.
     auto server =
         field(ControlKind::DictationServer,
-              SettingField{"dictation-server", "Server",
-                           pending_dictation_server_.empty() ? "Not set" : pending_dictation_server_,
+              SettingField{"dictation-server", tr("setting.dictation-server"),
+                           pending_dictation_server_.empty() ? tr("setting.dictation-server.not-set")
+                                                             : pending_dictation_server_,
                            ControlStyle::TextField});
     auto test = field(ControlKind::DictationTest,
-                      SettingField{"dictation-test", "Connection", "Test", ControlStyle::Button});
-    test.note = dictation_test_.empty() ? (test_address().empty() ? "No server set" : "Not tested")
-                                        : dictation_test_;
+                      SettingField{"dictation-test", tr("setting.dictation-test"),
+                                   tr("button.dictation-test"), ControlStyle::Button});
+    test.note = tr(!dictation_test_.empty() ? dictation_test_
+                   : test_address().empty() ? "setting.dictation-test.no-server"
+                                            : "setting.dictation-test.not-tested");
     test.enabled =
         !test_address().empty() && !testing_server_ && (!dictation_ || dictation_->ready_to_start());
     // On device (docs/dictation.md, On-device recognition): the model's row,
     // its development format and the warning for weaker languages.
-    std::vector<SettingField> dictation_fields{
-        field(ControlKind::ChooseDictation,
-              dropdown("dictation", "Dictation", pending_dictation_,
-                       {{"off", "Off"}, {"device", "On device"}, {"server", "Self-hosted"}}))};
+    std::vector<SettingField> dictation_fields{field(
+        ControlKind::ChooseDictation, dropdown("dictation", tr("setting.dictation"), pending_dictation_,
+                                               {{"off", tr("setting.dictation.off")},
+                                                {"device", tr("setting.dictation.device")},
+                                                {"server", tr("setting.dictation.server")}}))};
     const auto& pending_language = profiles_.languages.at(pending_.language).dictation_language;
     const bool device = pending_dictation_ == "device", server_mode = pending_dictation_ == "server";
     if (device && !pending_language.empty() && pending_language != "en" && pending_language != "es") {
         dictation_fields.push_back(
-            SettingField{"device-accuracy",
-                         "This language has low accuracy on the device. Your own speech server gives "
-                         "much better results.",
-                         "", ControlStyle::Note});
+            SettingField{"device-accuracy", tr("setting.device-accuracy.note"), "", ControlStyle::Note});
     }
     if (server_mode) {
         dictation_fields.push_back(server);
         dictation_fields.push_back(test);
         dictation_fields.push_back(
             field(ControlKind::DictationFallback,
-                  checkbox("dictation-fallback", "Fall back to on device", pending_dictation_fallback_,
-                           true, "When the server fails")));
+                  checkbox("dictation-fallback", tr("setting.dictation-fallback"),
+                           pending_dictation_fallback_, true, tr("setting.dictation-fallback.note"))));
     }
     if (needs_model(pending_dictation_, pending_dictation_fallback_)) {
         const auto& model = pending_dictation_device_model_;
         auto row = field(ControlKind::ModelAction,
-                         SettingField{"model-action", "Model", "Download", ControlStyle::Button});
+                         SettingField{"model-action", tr("setting.model-action"),
+                                      tr("button.model-download"), ControlStyle::Button});
         // The note fits the label column; the button says what it does.
         if (download_) {
-            row.value = "Cancel";
-            row.note =
-                download_->quantizing
-                    ? "Preparing"
-                    : std::to_string(static_cast<int>(model_download_share() * 100)) + "% downloaded";
+            row.value = tr("button.model-cancel");
+            row.note = download_->quantizing
+                           ? tr("setting.model-action.preparing")
+                           : tr("setting.model-action.downloaded",
+                                {{"percent", static_cast<long long>(model_download_share() * 100)}});
         } else if (model_ready(model)) {
-            row.value = "Delete";
-            row.note = "Ready";
+            row.value = tr("button.model-delete");
+            row.note = tr("setting.model-action.ready");
         } else {
             // 4-bit downloads more than it keeps, which a lone size makes look odd.
-            const int download = device_model_megabytes(model),
-                      kept = device_model_kept_megabytes(model);
-            row.note = download == kept
-                           ? std::to_string(download) + " MB"
-                           : std::to_string(download) + " → " + std::to_string(kept) + " MB";
+            const long long download = device_model_megabytes(model),
+                            kept = device_model_kept_megabytes(model);
+            row.note = download == kept ? tr("setting.model-action.size", {{"download", download}})
+                                        : tr("setting.model-action.size-kept",
+                                             {{"download", download}, {"kept", kept}});
         }
         dictation_fields.push_back(row);
         if (settings_.developer_options) {
-            dictation_fields.push_back(
-                field(ControlKind::ChooseDeviceModel, dropdown("device-model", "Format", model,
-                                                               {{"small-q8_0", "8-bit (default)"},
-                                                                {"small-q5_1", "5-bit"},
-                                                                {"small-q4_0", "4-bit"}})));
+            dictation_fields.push_back(field(ControlKind::ChooseDeviceModel,
+                                             dropdown("device-model", tr("setting.device-model"), model,
+                                                      {{"small-q8_0", tr("setting.device-model.q8")},
+                                                       {"small-q5_1", tr("setting.device-model.q5")},
+                                                       {"small-q4_0", tr("setting.device-model.q4")}})));
         }
     }
     // With dictation off, the card shows only the mode.
@@ -810,8 +815,8 @@ void App::update_settings_ui() {
         dictation_fields.push_back(send_gap);
         dictation_fields.push_back(
             field(ControlKind::DictationDirect,
-                  checkbox("dictation-direct", "Type as I speak", pending_dictation_direct_, true,
-                           "Skips the editor but lower accuracy")));
+                  checkbox("dictation-direct", tr("setting.dictation-direct"), pending_dictation_direct_,
+                           true, tr("setting.dictation-direct.note"))));
     }
     // Semi-transparent and Invisible keep the case's laser area
     // (docs/configuration.md, Background).
@@ -822,11 +827,13 @@ void App::update_settings_ui() {
                   {"semi-transparent", tr("setting.background-surface.semi-transparent")},
                   {"invisible", tr("setting.background-surface.invisible")}}));
     background_surface.width = 250; // "Semi-transparent" and the label, both whole
-    auto haptic_sounds = field(
-        ControlKind::ChooseHapticSounds,
-        dropdown(
-            "haptic-sounds", "Haptic sounds", pending_haptic_sounds_,
-            {{"off", "Off"}, {"press", "Press"}, {"release", "Release"}, {"both", "Press & release"}}));
+    auto haptic_sounds =
+        field(ControlKind::ChooseHapticSounds,
+              dropdown("haptic-sounds", tr("setting.haptic-sounds"), pending_haptic_sounds_,
+                       {{"off", tr("setting.haptic-sounds.off")},
+                        {"press", tr("setting.haptic-sounds.press")},
+                        {"release", tr("setting.haptic-sounds.release")},
+                        {"both", tr("setting.haptic-sounds.both")}}));
     haptic_sounds.width = 232; // Lines up with the Haptic effect and volume rows.
     auto segmented = [&](ControlKind kind, std::string id, std::string label, std::string value,
                          std::vector<SettingChoice> options) {
@@ -836,17 +843,18 @@ void App::update_settings_ui() {
         row.width = 232; // The label stays whole.
         return row;
     };
-    // Stored by letter; only key_sounds.cpp knows what each sounds like.
-    auto haptic_effect = segmented(ControlKind::ChooseHapticEffect, "haptic-effect", "Haptic effect",
-                                   pending_haptic_effect_,
+    // Stored by letter; only key_sounds.cpp knows what each sounds like. The
+    // segments show icons: their letters and percentages are only names.
+    auto haptic_effect = segmented(ControlKind::ChooseHapticEffect, "haptic-effect",
+                                   tr("setting.haptic-effect"), pending_haptic_effect_,
                                    {{"a", "A", true, Icon::PopHigh},
                                     {"b", "B", true, Icon::PopHighClick},
                                     {"c", "C", true, Icon::PopMiddle},
                                     {"d", "D", true, Icon::PopMiddleClick},
                                     {"e", "E", true, Icon::PopLow},
                                     {"f", "F", true, Icon::PopLowClick}});
-    auto haptic_volume = segmented(ControlKind::ChooseHapticVolume, "haptic-volume", "Haptic volume",
-                                   std::to_string(pending_haptic_volume_),
+    auto haptic_volume = segmented(ControlKind::ChooseHapticVolume, "haptic-volume",
+                                   tr("setting.haptic-volume"), std::to_string(pending_haptic_volume_),
                                    {{"25", "25%", true, Icon::Volume25},
                                     {"50", "50%", true, Icon::Volume50},
                                     {"75", "75%", true, Icon::Volume75},
@@ -854,22 +862,20 @@ void App::update_settings_ui() {
     // SteamOS's Desktop cannot take emoji and other non-ASCII text from
     // Gamescope; it is typed as Unicode entry or pasted (docs/architecture.md).
     auto desktop_unicode = field(ControlKind::ChooseDesktopUnicode,
-                                 dropdown("desktop-unicode", "KDE Desktop Unicode",
+                                 dropdown("desktop-unicode", tr("setting.desktop-unicode"),
                                           pending_desktop_unicode_paste_ ? "paste" : "type",
-                                          {{"type", "Type"}, {"paste", "Paste"}}));
+                                          {{"type", tr("setting.desktop-unicode.type")},
+                                           {"paste", tr("setting.desktop-unicode.paste")}}));
     desktop_unicode.narrow = true;
-    SettingField desktop_unicode_note{
-        "desktop-unicode-note",
-        pending_desktop_unicode_paste_
-            ? "Emoji and other Unicode characters are pasted. Fast, but replaces what is in the "
-              "clipboard."
-            : "You will see Unicode codes typed for emoji and other Unicode characters. Slow.",
-        "", ControlStyle::Note};
+    SettingField desktop_unicode_note{"desktop-unicode-note",
+                                      tr(pending_desktop_unicode_paste_
+                                             ? "setting.desktop-unicode.note-paste"
+                                             : "setting.desktop-unicode.note-type"),
+                                      "", ControlStyle::Note};
     desktop_unicode_note.plain = true;
     // Too long for a switch's second line: a wrapped row of its own.
-    SettingField focus_tooltip_note{
-        "focus-tooltip-note", "Names the window focus mode types into when that window is out of sight.",
-        "", ControlStyle::Note};
+    SettingField focus_tooltip_note{"focus-tooltip-note", tr("setting.focus-tooltip.note"), "",
+                                    ControlStyle::Note};
     focus_tooltip_note.plain = true;
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
     std::vector<SettingField> general_fields{
@@ -890,13 +896,13 @@ void App::update_settings_ui() {
     }
     typing_fields.insert(typing_fields.end(),
                          {field(ControlKind::EmojiCloseOnSelect,
-                                checkbox("emoji-close-on-select", "Close emoji picker after choosing",
+                                checkbox("emoji-close-on-select", tr("setting.emoji-close-on-select"),
                                          pending_emoji_close_on_select_)),
                           desktop_unicode, desktop_unicode_note,
                           field(ControlKind::ExtendedKeyCollision,
-                                checkbox("extended-key-collision", "Extended key collision",
+                                checkbox("extended-key-collision", tr("setting.extended-key-collision"),
                                          pending_extended_key_collision_, true,
-                                         "A press between keys goes to the nearest one"))});
+                                         tr("setting.extended-key-collision.note")))});
     // The popup edits the same main language as the two dropdowns.
     const auto additional = additional_pairs().size();
     auto languages = field(
@@ -963,20 +969,20 @@ void App::update_settings_ui() {
     std::vector<SettingsCard> cards{
         {{"languages", tr("card.languages"), language_fields},
          {"general", tr("card.general"), general_fields},
-         {"typing", "Typing", typing_fields},
-         {"dictation", "Dictation", dictation_fields},
+         {"typing", tr("card.typing"), typing_fields},
+         {"dictation", tr("card.dictation"), dictation_fields},
          {"integration",
-          "Integration",
+          tr("card.integration"),
           {field(ControlKind::ReplaceNativeKeyboard,
-                 checkbox("replace-native-keyboard", "Replace native keyboard",
+                 checkbox("replace-native-keyboard", tr("setting.replace-native-keyboard"),
                           pending_replace_native_keyboard_)),
            field(ControlKind::StartWithSteamos,
-                 checkbox("start-with-steamos", "Start with SteamOS",
+                 checkbox("start-with-steamos", tr("setting.start-with-steamos"),
                           pending_start_with_steamos_ && pending_replace_native_keyboard_,
                           pending_replace_native_keyboard_)),
            // Focus mode, and so its amber cue, exists only with replacement.
            field(ControlKind::FocusTooltip,
-                 checkbox("focus-tooltip", "Hidden window tooltip",
+                 checkbox("focus-tooltip", tr("setting.focus-tooltip"),
                           pending_focus_tooltip_ && pending_replace_native_keyboard_,
                           pending_replace_native_keyboard_)),
            focus_tooltip_note}}}};
@@ -1417,7 +1423,7 @@ PanelView App::build_view(bool picker) const {
         popup.text = address_->text;
         popup.cursor = address_->cursor;
         if (!address_->error.empty()) {
-            popup.message = address_->error;
+            popup.message = tr(address_->error);
             popup.tone = PanelView::AddressView::Tone::Error;
         } else if (valid_dictation_server(address_->text) && !local_dictation_server(address_->text)) {
             popup.message = tr("dictation.server.outside-network");
@@ -7748,7 +7754,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         if (event.reason == "helper-exited" && testing_server_) {
             // No answer will come; Test can start a new helper.
             testing_server_.reset();
-            dictation_test_ = "Helper stopped";
+            dictation_test_ = "setting.dictation-test.helper-stopped";
             update_settings_ui();
         }
         if (event.reason == "helper-exited" && download_) {
@@ -7828,13 +7834,13 @@ void App::dictation_event(const Dictation::Event& event, double now) {
                 dirty = true;
                 break;
             }
-            dictation_test_ = event.ok                           ? "Reachable"
-                              : event.reason == "timeout"        ? "No answer"
-                              : event.reason == "server-error"   ? "Server error"
-                              : event.reason == "bad-reply"      ? "Bad reply"
-                              : event.reason == "helper-exited"  ? "Helper stopped"
-                              : event.reason == "not-configured" ? "No server set"
-                                                                 : "Unreachable";
+            dictation_test_ = event.ok                          ? "setting.dictation-test.reachable"
+                              : event.reason == "timeout"       ? "setting.dictation-test.no-answer"
+                              : event.reason == "server-error"  ? "setting.dictation-test.server-error"
+                              : event.reason == "bad-reply"     ? "setting.dictation-test.bad-reply"
+                              : event.reason == "helper-exited" ? "setting.dictation-test.helper-stopped"
+                              : event.reason == "not-configured" ? "setting.dictation-test.no-server"
+                                                                 : "setting.dictation-test.unreachable";
             update_settings_ui();
             dirty = true;
             break;
@@ -8011,9 +8017,9 @@ void App::test_dictation_server() {
     target.language = profiles_.languages.at(settings_.active.language).dictation_language;
     if (dictation_->test(target)) {
         testing_server_ = address;
-        dictation_test_ = "Testing…";
+        dictation_test_ = "setting.dictation-test.testing";
     } else {
-        dictation_test_ = "Helper stopped";
+        dictation_test_ = "setting.dictation-test.helper-stopped";
     }
     update_settings_ui();
     dirty = true;

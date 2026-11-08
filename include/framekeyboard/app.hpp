@@ -1051,7 +1051,8 @@ class App {
     std::optional<ScrollRoom> languages_scroll_room(double x, double y) const;
     void tick_languages(double now);
     void address_key(const std::string& key);
-    // The Dictation card's connection line: empty until Test runs.
+    // The Dictation card's connection line, as its key (setting.dictation-test.*,
+    // which the shell protocol also maps): empty until Test runs.
     std::string dictation_test_;
     // The address the Test in flight checks: one at a time, and its answer
     // labels and remembers only that address.

@@ -3481,6 +3481,21 @@ void shell_server_tests() {
     require(text.find(R"("dictation_server_source":"shell")") != std::string::npos ||
                 text.find(R"("dictation_server_source": "shell")") != std::string::npos,
             "who chose the server is remembered");
+
+    // A Test's answer reaches the shell as its fixed code, not its label.
+    wait_until(app, [&] { return !app.listening() && !app.view().dictation_recognizing; });
+    app.take_host_events();
+    require(app.host_dictation_request("dictation.test_server", nullptr).first.empty(),
+            "the shell starts a Test");
+    bool reported = false;
+    wait_until(app, [&] {
+        for (const auto& event : app.take_host_events()) {
+            reported |= event.name == "dictation" &&
+                        std::string(json_object_to_json_string(event.fields.get()))
+                                .find(R"("test": "reachable")") != std::string::npos;
+        }
+        return reported;
+    });
 }
 
 // Correcting dictated text uses the layout's dead accents, as the keyboard does.

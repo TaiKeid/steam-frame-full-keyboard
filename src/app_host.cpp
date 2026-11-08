@@ -21,14 +21,18 @@ json_object* string_array(const std::vector<std::string>& values) {
     }
     return array;
 }
-// The Dictation card's Test labels as fixed codes.
-std::string test_code(const std::string& label) {
+// The Dictation card's Test answers, kept by key (App::dictation_test_), as
+// fixed protocol codes.
+std::string test_code(const std::string& key) {
     static const std::map<std::string, std::string> codes{
-        {"Reachable", "reachable"},    {"Unreachable", "unreachable"},
-        {"No answer", "no_answer"},    {"Server error", "server_error"},
-        {"Bad reply", "bad_reply"},    {"Helper stopped", "helper_stopped"},
-        {"No server set", "no_server"}};
-    const auto found = codes.find(label);
+        {"setting.dictation-test.reachable", "reachable"},
+        {"setting.dictation-test.unreachable", "unreachable"},
+        {"setting.dictation-test.no-answer", "no_answer"},
+        {"setting.dictation-test.server-error", "server_error"},
+        {"setting.dictation-test.bad-reply", "bad_reply"},
+        {"setting.dictation-test.helper-stopped", "helper_stopped"},
+        {"setting.dictation-test.no-server", "no_server"}};
+    const auto found = codes.find(key);
     return found == codes.end() ? "" : found->second;
 }
 } // namespace
@@ -885,7 +889,7 @@ void App::host_tick(double now) {
     if (!testing_server_ && host_.test_reported != dictation_test_) {
         host_.test_reported = dictation_test_;
         if (const auto code = test_code(dictation_test_);
-            !code.empty() && dictation_test_ != "Testing…") {
+            !code.empty() && dictation_test_ != "setting.dictation-test.testing") {
             auto fields = json_ptr(json_object_new_object());
             json_object_object_add(fields.get(), "state", json_object_new_string(current.c_str()));
             json_object_object_add(fields.get(), "test", json_object_new_string(code.c_str()));
