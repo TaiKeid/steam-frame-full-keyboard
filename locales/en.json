@@ -1,0 +1,11 @@
+{
+  "locale": "en",
+  "name": "English",
+  "native_name": "English",
+  "steam": ["english"],
+  "posix": ["en"],
+  "font_families": ["Noto Sans", "sans-serif"],
+  "plural": {"one": "i = 1 and v = 0"},
+  "number": {"group": ",", "group_min": 4},
+  "strings": {}
+}

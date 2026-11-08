@@ -36,7 +36,7 @@ A user file with the same `locale` as a bundled one replaces it key by key. Relo
     "few": "v = 0 and i % 10 = 2..4 and i % 100 != 12..14",
     "many": "v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14"
   },
-  "number": {"group": " ", "decimal": ","},
+  "number": {"group": " ", "group_min": 5},
   "strings": {
     "setting.typing-suggestions": "Подсказки при вводе",
     "status.wait-for-typing": "Дождитесь окончания ввода и выберите снова.",
@@ -49,10 +49,11 @@ A user file with the same `locale` as a bundled one replaces it key by key. Relo
 
 - `locale`: a BCP 47 tag (`en`, `de`, `pt-BR`, `zh-Hans`, `zh-Hant`). File names are the tag in lower case.
 - `steam`: Steam's own language names that select this file (`schinese`, `tchinese`, `koreana`, `brazilian`, `latam`).
-- `posix`: language prefixes of `LANG` that select it (`zh_CN`, `zh_TW`, `pt_BR`, `ru`). The longest match wins.
+- `posix`: locales of `LANG` that select it (`zh_CN`, `zh_TW`, `pt_BR`, `ru`): the whole locale first, then its language alone.
 - `font_families`: the fonts for interface text in this language (below).
 - `plural`: CLDR plural rules, one per category the language uses; `other` needs none. Only integer counts appear in the interface, so the operands are `n`, `i` and `v`, with `v = 0`.
-- `number`: digit grouping and decimal marks for counts such as 5,000.
+- `fallback`: optional, the language a variant falls back to before English (`es-419` → `es`).
+- `number`: the digit-grouping mark for counts such as 5,000, and from how many digits it applies (`group_min`, 4 by default; 5 in Polish or Spanish, where 1000 stays whole).
 - `strings`: key to text, or key to a branch (below).
 - `sources`: for each translated key, the first 8 hex digits of the SHA-256 of the English text it was translated from, written by the check tool when a translation is accepted. A mismatch marks the translation stale.
 
@@ -73,7 +74,7 @@ Where one template can't serve every case, a string branches on one argument:
 "status.feature-switched": {"by": "state", "on": "{feature} is on", "off": "{feature} is off"}
 ```
 
-- `by` names the argument. A number chooses by the language's plural categories (`zero`, `one`, `two`, `few`, `many`, `other`); any other value chooses the option with that name.
+- `by` names the argument. A number chooses an exact option such as `=0` ("No words yet") first, then its plural category (`zero`, `one`, `two`, `few`, `many`, `other`); any other value chooses the option with that name.
 - `other` is the fallback for both, and a number branch must have every category the language's `plural` rules can select.
 - An option can itself be a branch, for text that depends on two arguments.
 - A language may branch where English doesn't: a translation can be an object where English has plain text, with the English placeholders as its `by` arguments.
@@ -87,9 +88,8 @@ Debug card dropdown (development builds, this run only, never saved; languages b
        Steam's own language (SteamOS's system language), from ~/.steam/registry.vdf
        └─ else LC_ALL, LC_MESSAGES, LANG
   └─ a file whose `steam` or `posix` names it
-       └─ else its base language (pt-BR → pt, es-419 → es)
-            └─ else English
-Each key: the chosen file → its base language's file → English
+       └─ else English
+Each key: the chosen file → its `fallback`, if any (es-419 → es) → English
 ```
 
 On SteamOS the system language is Steam's own language setting; the session's `LANG` may stay English. The keyboard reads Steam's value when it starts and again whenever Settings opens (one `stat`, and a read only when the file changed), so a language change shows up without a restart. Hosted mode uses the same detection; a shell protocol field for the shell's own language can come later.
