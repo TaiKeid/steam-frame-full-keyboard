@@ -1001,7 +1001,7 @@ void App::update_settings_ui() {
                   ControlKind::DebugKeyCollision,
                   checkbox("debug-key-collision", "Display key collision", pending_debug_key_outlines_)),
               field(ControlKind::DebugInterfaceLanguage,
-                    dropdown("debug-interface-language", "Interface language",
+                    dropdown("debug-interface-language", "Interface",
                              pending_debug_interface_language_.empty()
                                  ? "system"
                                  : pending_debug_interface_language_,
