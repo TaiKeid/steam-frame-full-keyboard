@@ -2224,6 +2224,11 @@ int typing_flow() {
                     "the word goes on when the other hand typed last");
             app.cancel_pointer(1);
             require(typing_suggestions(app).empty(), "and ends when the hand that typed it leaves");
+            // The other hand's click off the keyboard may move the cursor:
+            // the word ends though that hand didn't type it.
+            type(app, "he");
+            app.cancel_pointer(1, true);
+            require(typing_suggestions(app).empty(), "the other hand's click elsewhere ends the word");
             // The laser leaving is watched only while a word is being typed.
             type(app, "he");
             require(app.holds_swipe_state(), "a word being typed is kept while the laser points away");

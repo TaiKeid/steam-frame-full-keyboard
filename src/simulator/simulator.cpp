@@ -182,7 +182,7 @@ void Simulator::leave(unsigned pointer) {
 void Simulator::press_outside(unsigned pointer, double x, double y) {
     // A press off the keyboard may click anywhere in the target, as a trigger
     // pulled off the panel can: ↶'s reopen and swipe replacements end here.
-    app_->cancel_pointer(pointer);
+    app_->cancel_pointer(pointer, true);
     if (slow_button().contains(x, y)) {
         sink_.set_slow(!sink_.slow());
         redraw_ = true;

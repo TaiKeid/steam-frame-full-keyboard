@@ -2122,9 +2122,11 @@ bool App::up(unsigned pointer, double x, double y) {
     return key_released;
 }
 
-void App::cancel_pointer(unsigned pointer) {
+void App::cancel_pointer(unsigned pointer, bool clicked) {
     if (!replaying_input_ && held_pointers_.contains(pointer)) {
-        hold_input(HeldInput::pointer_event(HeldInput::Kind::Cancel, pointer));
+        auto input = HeldInput::pointer_event(HeldInput::Kind::Cancel, pointer);
+        input.clicked = clicked;
+        hold_input(std::move(input));
         held_pointers_.erase(pointer);
         return;
     }
@@ -2142,8 +2144,9 @@ void App::cancel_pointer(unsigned pointer) {
     }
     // The laser left the keyboard: the field's cursor may move before it
     // comes back. Unless the other hand typed since, which took SteamVR's
-    // laser on the keys: the word goes on.
-    if (!word_pointer_ || *word_pointer_ == pointer) {
+    // laser on the keys: the word goes on. A click off the keyboard may move
+    // the cursor whichever hand typed, so it always ends the word.
+    if (clicked || !word_pointer_ || *word_pointer_ == pointer) {
         lose_word();
     }
     if (flick_track_ && flick_track_->pointer == pointer) {
@@ -3181,7 +3184,7 @@ void App::replay_input() {
                 up(input.pointer, input.x, input.y);
                 break;
             case HeldInput::Kind::Cancel:
-                cancel_pointer(input.pointer);
+                cancel_pointer(input.pointer, input.clicked);
                 break;
             case HeldInput::Kind::Control:
                 action(input.control);

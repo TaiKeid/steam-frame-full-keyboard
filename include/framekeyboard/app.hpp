@@ -153,7 +153,9 @@ class App {
         return swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
                ((!typing_suggestions_.empty() || word_open()) && suggesting());
     }
-    void cancel_pointer(unsigned pointer);
+    // clicked: the pointer pulled its trigger off the keyboard, so it may
+    // have moved the field's cursor: the word ends whichever hand typed it.
+    void cancel_pointer(unsigned pointer, bool clicked = false);
     // The pointer holds a repeating key, such as Backspace, in the keyboard,
     // the dictation editor or the address popup. It stays held after the
     // laser leaves the panel, until the trigger's release
@@ -562,6 +564,7 @@ class App {
         std::vector<std::string> row; // A pick's candidates, as tapped.
         ControlAction control;        // A toolbar button's, as pressed.
         unsigned pointer{};
+        bool clicked{}; // A Cancel's: cancel_pointer(pointer, clicked).
         double x{}, y{}, now{};
         static HeldInput pointer_event(Kind kind, unsigned pointer, double x = 0, double y = 0,
                                        double now = 0) {

@@ -3882,7 +3882,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // batch, so swipe suggestions can no longer replace text there.
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
                 if (!samples[hand].lost && samples[hand].pressed && !inside[hand]) {
-                    app.cancel_pointer(ScenePointer::pointer(hand));
+                    app.cancel_pointer(ScenePointer::pointer(hand), true);
                 }
             }
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
