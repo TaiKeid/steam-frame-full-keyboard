@@ -2582,6 +2582,7 @@ void App::follow_interface_language() {
         return;
     }
     interface_shown_ = localization_.tag();
+    dictation_layout_for_.reset(); // Its Send key's name.
     dirty = true;
     update_settings_ui();
 }
@@ -6674,6 +6675,11 @@ void App::refresh_dictation_layout() {
     banded.ime_room = !banded.ime_band;
     dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
                                          unbanded_layout_height(banded) - main.layout->height);
+    for (auto& key : dictation_layout_.layout.keys) {
+        if (key.id == "Dictation-send") {
+            key.label = tr("dictation.send-key");
+        }
+    }
     ++layouts_rebuilt_;
     // Placed as the mode shows it: a layout without a function-key row grows
     // taller for the editor.

@@ -77,6 +77,27 @@ void shot(App& app, const std::string& name) {
         }
     }
 }
+// The interface language for the run, as the Debug card picks it.
+void choose_language(App& app, const std::string& language) {
+    if (language == "en") {
+        return;
+    }
+    app.show_settings();
+    to_last_card(app);
+    click(app, "debug-interface-language");
+    const auto choice = "choose:debug-interface-language:" + language;
+    for (int i = 0; i < 40 && !has(app.view(), choice); ++i) {
+        const auto popup = *app.view().popup;
+        app.move(0, popup.x + 10, popup.y + 10);
+        app.scroll(0, 0, 1);
+        settle(app, 2);
+    }
+    click(app, choice);
+    click(app, "apply");
+    if (app.interface_language() != language) {
+        throw std::runtime_error("no language " + language);
+    }
+}
 // Every card, a step at a time, each also with its rows scrolled down.
 void settings_cards(App& app) {
     app.move(0, 800, 300);
@@ -123,23 +144,7 @@ int main(int argc, char** argv) {
         options.debug = true;
         Sink sink;
         App app(options, sink);
-        if (language != "en") {
-            app.show_settings();
-            to_last_card(app);
-            click(app, "debug-interface-language");
-            const auto choice = "choose:debug-interface-language:" + language;
-            for (int i = 0; i < 40 && !has(app.view(), choice); ++i) {
-                const auto popup = *app.view().popup;
-                app.move(0, popup.x + 10, popup.y + 10);
-                app.scroll(0, 0, 1);
-                settle(app, 2);
-            }
-            click(app, choice);
-            click(app, "apply");
-            if (app.interface_language() != language) {
-                throw std::runtime_error("no language " + language);
-            }
-        }
+        choose_language(app, language);
         settle(app);
         shot(app, "keyboard");
         app.show_settings();
@@ -160,10 +165,12 @@ int main(int argc, char** argv) {
             usleep(10000);
         }
         shot(app, "emoji");
-        app.show_settings(); // Settings closes the picker; Back returns to the keys.
-        app.back();
-        app.show_dictation();
-        shot(app, "dictation");
+        // The editor opens only in dictation's render mode, as for its image export.
+        options.mode = Mode::RenderDictation;
+        App dictation(options, sink);
+        choose_language(dictation, language);
+        dictation.show_dictation();
+        shot(dictation, "dictation");
         std::error_code ignored;
         fs::remove_all(config, ignored);
     } catch (const std::exception& error) {

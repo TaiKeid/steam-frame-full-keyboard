@@ -81,6 +81,7 @@
     "dictation.problem.timeout": "The speech server did not answer in time.",
     "dictation.problem.unreachable": "The speech server cannot be reached.",
     "dictation.send-clipboard-unavailable": "The clipboard is not available. The text stays here.",
+    "dictation.send-key": "Send",
     "dictation.send-paste-failed": "Paste could not be pressed. The text stays here.",
     "dictation.send-paste-not-taken": "The application did not take the pasted text. It stays here.",
     "dictation.send-stopped": "Sending stopped. The rest stays here; Send continues.",
