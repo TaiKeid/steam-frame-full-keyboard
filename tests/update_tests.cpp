@@ -43,15 +43,15 @@ class CaptureLogs {
   private:
     int output_{-1}, error_{-1};
 };
-void wait_label(Updates& updates, const std::string& label, double now) {
+void wait_label(Updates& updates, const std::string& key, double now) {
     for (int i = 0; i < 300; ++i) {
         updates.tick(now);
-        if (updates.label() == label) {
+        if (updates.label().key == key) {
             return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    throw std::runtime_error("unexpected update label: " + updates.label());
+    throw std::runtime_error("unexpected update label: " + updates.label().key);
 }
 void update_presentation() {
     const auto previous = std::getenv("FRAMEKEYBOARD_SERVICE");
@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
                 const double deadline = monotonic_seconds() + 30;
                 while (!app.quitting() && monotonic_seconds() < deadline) {
                     app.tick(monotonic_seconds());
-                    if (!installing && updates.label() == "Download and install update") {
+                    if (!installing && updates.label().key == "update.available") {
                         press();
                         installing = true;
                     }
@@ -279,13 +279,13 @@ if mode=='marked':
             settle(updates, 10);
             require(silent_checks() == 0, "the first check waits for the network to come up");
             updates.check_periodically(1060);
-            require(!updates.busy() && updates.label() == "Check for updates",
+            require(!updates.busy() && updates.label().key == "update.check",
                     "a silent check shows nothing while it runs");
             for (int i = 0; i < 400 && !updates.offered(); ++i) {
                 updates.tick(10);
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
-            require(updates.offered() && updates.label() == "Download and install update",
+            require(updates.offered() && updates.label().key == "update.available",
                     "a silent check's offer takes the button");
             for (int i = 0; i < 400 && !std::filesystem::exists(directory / "helper-exited"); ++i) {
                 updates.tick(10);
@@ -298,7 +298,7 @@ if mode=='marked':
             require(silent_checks() == 1, "an offer ends the checks");
             updates.click(11);
             require(updates.busy(), "the offer installs with a new helper");
-            wait_label(updates, "Restarting keyboard...", 12);
+            wait_label(updates, "update.restarting", 12);
         }
         std::filesystem::remove(directory / "silent-checks");
         for (const auto mode : {"check-error", "exit"}) {
@@ -312,8 +312,9 @@ if mode=='marked':
                 settle(updates, 10);
                 updates.tick(100);
                 require(updates.state() == Updates::State::Idle &&
-                            updates.label() == "Check for updates" && updates.failure_reason().empty() &&
-                            updates.failure_code().empty() && !updates.offered(),
+                            updates.label().key == "update.check" &&
+                            updates.failure_reason().key.empty() && updates.failure_code().empty() &&
+                            !updates.offered(),
                         "a failed silent check changes nothing the user can see");
                 updates.check_periodically(1061);
                 updates.check_periodically(1180);
@@ -367,7 +368,7 @@ if mode=='marked':
             std::filesystem::remove(directory / "helper-exited");
             Updates updates("0.6.0", {"marked"}, helper);
             updates.click(10);
-            wait_label(updates, "Download and install update", 11);
+            wait_label(updates, "update.available", 11);
             for (int i = 0; i < 400 && !std::filesystem::exists(directory / "helper-exited"); ++i) {
                 updates.tick(11);
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -379,7 +380,7 @@ if mode=='marked':
             // A shell pinning the version it runs says nothing about the offer.
             Updates updates("0.6.0", {"pinned"}, helper);
             updates.click(10);
-            wait_label(updates, "Download and install update", 11);
+            wait_label(updates, "update.available", 11);
             require(updates.install(12, "0.6.0", 1), "the pin goes to the helper");
             for (int i = 0; i < 200 && updates.state() != Updates::State::Error; ++i) {
                 updates.tick(12);
@@ -394,20 +395,20 @@ if mode=='marked':
             updates.check_periodically(1000);
             updates.check_periodically(1060);
             updates.click(10);
-            require(updates.label() == "Checking for updates...", "the button takes over the check");
-            wait_label(updates, "You are on latest version", 11);
+            require(updates.label().key == "update.checking", "the button takes over the check");
+            wait_label(updates, "update.latest", 11);
             require(silent_checks() == 1, "without asking GitHub twice");
             std::filesystem::remove(directory / "silent-checks");
         }
         {
             Updates updates("0.6.0", {"withdrawn"}, helper);
             updates.click(10);
-            wait_label(updates, "Download and install update", 20);
+            wait_label(updates, "update.available", 20);
             updates.click(21);
-            wait_label(updates, "Update failed. Try again", 22);
+            wait_label(updates, "update.failed", 22);
             require(!updates.offered(), "a withdrawn release ends the offer");
             updates.tick(27);
-            require(updates.label() == "Check for updates", "and the button checks again");
+            require(updates.label().key == "update.check", "and the button checks again");
         }
         {
             // A shell's install: losing the helper while Prepared is a failure
@@ -429,9 +430,9 @@ if mode=='marked':
         for (const auto mode : {"supervised", "supervised-error"}) {
             Updates updates("0.6.0", {mode}, helper);
             updates.click(10);
-            wait_label(updates, "Download and install update", 20);
+            wait_label(updates, "update.available", 20);
             updates.click(21);
-            wait_label(updates, "Restarting keyboard...", 22);
+            wait_label(updates, "update.restarting", 22);
             const auto previous_service = std::getenv("FRAMEKEYBOARD_SERVICE");
             const auto previous_notify = std::getenv("NOTIFY_SOCKET");
             const std::string service = previous_service ? previous_service : "";
@@ -451,7 +452,7 @@ if mode=='marked':
                 CaptureLogs capture(log);
                 Updates updates("0.6.0", {"logging"}, helper);
                 updates.click(10);
-                wait_label(updates, "Download and install update", 20);
+                wait_label(updates, "update.available", 20);
             }
             std::ifstream stream(log);
             const std::string contents((std::istreambuf_iterator<char>(stream)), {});
@@ -461,27 +462,27 @@ if mode=='marked':
         }
         {
             Updates updates("0.6.0", {"--autostart", "latest"}, helper);
-            require(updates.label() == "Check for updates", "initial label");
+            require(updates.label().key == "update.check", "initial label");
             updates.click(10);
             require(updates.busy(), "check is asynchronous");
             updates.click(10); // A second pointer cannot duplicate an in-flight operation.
-            wait_label(updates, "You are on latest version", 20);
+            wait_label(updates, "update.latest", 20);
             updates.tick(24.999);
-            require(updates.label() == "You are on latest version", "latest remains for five seconds");
+            require(updates.label().key == "update.latest", "latest remains for five seconds");
             updates.click(24.999);
             updates.tick(25);
-            require(updates.label() == "Check for updates", "latest expires exactly after five seconds");
+            require(updates.label().key == "update.check", "latest expires exactly after five seconds");
         }
         {
             Updates updates("0.6.0", {"available"}, helper);
             updates.click(10);
-            wait_label(updates, "Download and install update", 20);
+            wait_label(updates, "update.available", 20);
             updates.tick(100000);
-            require(updates.label() == "Download and install update", "offer never expires");
+            require(updates.label().key == "update.available", "offer never expires");
             require(!updates.prepared(), "checking never installs");
             updates.click(100001);
             require(updates.busy(), "install is asynchronous");
-            wait_label(updates, "Restarting keyboard...", 100002);
+            wait_label(updates, "update.restarting", 100002);
             require(updates.prepared(), "only a validated preparation requests restart");
             NullSink sink;
             Options options;
@@ -507,11 +508,11 @@ if mode=='marked':
             app.down(0, 800, 30, monotonic_seconds());
             app.up(0, 800, 30);
             app.down(1, 800, 30, monotonic_seconds()); // Held while the async label changes.
-            for (int i = 0; i < 300 && updates.label() != "Download and install update"; ++i) {
+            for (int i = 0; i < 300 && updates.label().key != "update.available"; ++i) {
                 app.tick(monotonic_seconds());
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
-            require(updates.label() == "Download and install update", "App polls the update offer");
+            require(updates.label().key == "update.available", "App polls the update offer");
             app.up(1, 800, 30);
             require(!updates.busy(), "an old held press cannot accept a newly arrived offer");
             app.back();
@@ -554,7 +555,7 @@ if mode=='marked':
             };
             button(800, 30);
             require(updates.busy() && !app.view().confirm, "checking never asks");
-            for (int i = 0; i < 300 && updates.label() != "Download and install update"; ++i) {
+            for (int i = 0; i < 300 && updates.label().key != "update.available"; ++i) {
                 app.tick(monotonic_seconds());
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
@@ -580,17 +581,16 @@ if mode=='marked':
         {
             Updates updates("0.6.0", {"failure"}, helper);
             updates.click(10);
-            wait_label(updates, "Download and install update", 20);
+            wait_label(updates, "update.available", 20);
             updates.click(21);
-            wait_label(updates, "Update failed. Try again", 22);
-            require(updates.failure_reason() == "Update checksum verification failed.",
+            wait_label(updates, "update.failed", 22);
+            require(updates.failure_reason().key == "update.error.checksum-failed",
                     "fixed helper failure reason reaches the UI");
             updates.tick(27);
-            require(updates.failure_reason().empty(), "expired error clears the status reason");
-            require(updates.label() == "Download and install update",
-                    "failed install retains the offer");
+            require(updates.failure_reason().key.empty(), "expired error clears the status reason");
+            require(updates.label().key == "update.available", "failed install retains the offer");
             updates.click(28);
-            wait_label(updates, "Update failed. Try again", 29);
+            wait_label(updates, "update.failed", 29);
         }
         {
             Updates updates("0.6.0", {"unknown-failure"}, helper);
@@ -601,9 +601,9 @@ if mode=='marked':
             App app(options, sink, {}, &updates);
             app.show_settings();
             updates.click(10);
-            wait_label(updates, "Download and install update", 20);
+            wait_label(updates, "update.available", 20);
             updates.click(21);
-            wait_label(updates, "Update failed. Try again", 22);
+            wait_label(updates, "update.failed", 22);
             require(app.view().status == "The update could not be completed. Try again.",
                     "Settings status uses a fixed fallback and never displays helper exception text");
             updates.tick(27);
@@ -613,9 +613,9 @@ if mode=='marked':
         {
             Updates updates("0.6.0", {"exit"}, helper);
             updates.click(10);
-            wait_label(updates, "Update failed. Try again", 20);
+            wait_label(updates, "update.failed", 20);
             updates.tick(26);
-            require(updates.label() == "Check for updates", "failed check can retry");
+            require(updates.label().key == "update.check", "failed check can retry");
         }
         std::filesystem::remove_all(directory);
         std::cout << "Update button timing, silent checks, persistent offers, duplicate clicks, "

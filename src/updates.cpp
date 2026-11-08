@@ -46,36 +46,37 @@ std::string field(json_object* object, const char* key) {
                ? json_object_get_string(value)
                : "";
 }
-std::string failure_message(const std::string& code) {
+// The message for a failure code from the helper, by key.
+UiText failure_message(const std::string& code) {
     static const std::pair<const char*, const char*> reasons[] = {
-        {"network-unavailable", "Network unavailable. Check your connection."},
-        {"server-unavailable", "GitHub could not serve the update. Try again later."},
-        {"rate-limit", "GitHub request limit reached. Try again later."},
-        {"download-timeout", "The update download timed out."},
-        {"download-failed", "The update download is incomplete or invalid."},
-        {"checksum-failed", "Update checksum verification failed."},
-        {"install-busy", "Another installation is running."},
-        {"not-installed-release", "Install a release package before updating."},
-        {"installation-changed", "The installation changed. Relaunch Full Keyboard."},
-        {"wrong-platform", "Updates require a Steam Frame ARM64 installation."},
-        {"version-mismatch", "The package version does not match the release."},
-        {"startup-failed", "The updated keyboard could not finish startup."},
-        {"service-handoff-failed", "The keyboard service could not take over the update."},
-        {"validation-failed", "The update package could not run its validation."},
-        {"invalid-release", "The release package or metadata is invalid."},
-        {"not-newer-release", "That update is no longer available."},
-        {"disk-full", "Not enough disk space to install the update."},
-        {"permission-denied", "The installation is not writable."},
-        {"files-unavailable", "Update files could not be read or written."},
-        {"helper-unavailable", "The update helper could not start."},
-        {"prepared-expired", "The prepared update is no longer available. Try again."},
-        {"connection-lost", "The update helper connection was lost."}};
+        {"network-unavailable", "update.error.network-unavailable"},
+        {"server-unavailable", "update.error.server-unavailable"},
+        {"rate-limit", "update.error.rate-limit"},
+        {"download-timeout", "update.error.download-timeout"},
+        {"download-failed", "update.error.download-failed"},
+        {"checksum-failed", "update.error.checksum-failed"},
+        {"install-busy", "update.error.install-busy"},
+        {"not-installed-release", "update.error.not-installed-release"},
+        {"installation-changed", "update.error.installation-changed"},
+        {"wrong-platform", "update.error.wrong-platform"},
+        {"version-mismatch", "update.error.version-mismatch"},
+        {"startup-failed", "update.error.startup-failed"},
+        {"service-handoff-failed", "update.error.service-handoff-failed"},
+        {"validation-failed", "update.error.validation-failed"},
+        {"invalid-release", "update.error.invalid-release"},
+        {"not-newer-release", "update.error.not-newer-release"},
+        {"disk-full", "update.error.disk-full"},
+        {"permission-denied", "update.error.permission-denied"},
+        {"files-unavailable", "update.error.files-unavailable"},
+        {"helper-unavailable", "update.error.helper-unavailable"},
+        {"prepared-expired", "update.error.prepared-expired"},
+        {"connection-lost", "update.error.connection-lost"}};
     for (const auto& [reason, message] : reasons) {
         if (code == reason) {
-            return message;
+            return ui(message);
         }
     }
-    return "The update could not be completed. Try again.";
+    return ui("update.error.failed");
 }
 } // namespace
 std::vector<std::string> update_restart_arguments(const std::vector<std::string>& arguments) {
@@ -201,27 +202,27 @@ bool Updates::send(const std::string& operation, bool silent) {
 bool Updates::busy() const {
     return state_ == State::Checking || state_ == State::Installing || state_ == State::Prepared;
 }
-std::string Updates::label() const {
+UiText Updates::label() const {
     switch (state_) {
     case State::Checking:
-        return "Checking for updates...";
+        return ui("update.checking");
     case State::Latest:
-        return "You are on latest version";
+        return ui("update.latest");
     case State::Available:
-        return "Download and install update";
+        return ui("update.available");
     case State::Installing:
-        return progress_.empty() ? "Downloading update..." : progress_;
+        return progress_.key.empty() ? ui("update.downloading") : progress_;
     case State::Error:
-        return "Update failed. Try again";
+        return ui("update.failed");
     case State::Prepared:
-        return "Restarting keyboard...";
+        return ui("update.restarting");
     case State::Idle:
-        return "Check for updates";
+        return ui("update.check");
     }
     return {};
 }
-std::string Updates::failure_reason() const {
-    return state_ == State::Error ? failure_ : "";
+UiText Updates::failure_reason() const {
+    return state_ == State::Error ? failure_ : UiText{};
 }
 void Updates::fail(double now, const std::string& reason) {
     if (std::exchange(silent_check_, false)) {
@@ -234,7 +235,7 @@ void Updates::fail(double now, const std::string& reason) {
     state_ = State::Error;
     reason_ = reason.empty() ? "failed" : reason;
     failure_ = failure_message(reason);
-    std::cerr << failure_ << '\n';
+    std::cerr << english_text(failure_) << '\n';
     reset_at_ = now + 5;
     release_helper();
 }
@@ -253,7 +254,7 @@ void Updates::click(double now) {
         return;
     }
     state_ = offer_.empty() ? State::Checking : State::Installing;
-    progress_.clear();
+    progress_ = {};
 }
 void Updates::check_periodically(double clock) {
     if (next_check_ < 0 || clock - last_clock_ > sleep_gap) {
@@ -320,7 +321,7 @@ bool Updates::install(double now, const std::string& version, int protocol) {
         return false;
     }
     state_ = State::Installing;
-    progress_.clear();
+    progress_ = {};
     reason_.clear();
     done_ = total_ = 0;
     hosted_install_ = true;
@@ -333,7 +334,7 @@ bool Updates::cancel(double now) {
     }
     stop();
     state_ = offer_.empty() ? State::Idle : State::Available;
-    progress_.clear();
+    progress_ = {};
     return true;
 }
 bool Updates::tick(double now) {
@@ -395,11 +396,11 @@ bool Updates::tick(double now) {
                 total_ = json_object_object_get_ex(packet.get(), "total", &value)
                              ? static_cast<std::uint64_t>(json_object_get_int64(value))
                              : 0;
-                progress_ = total_
-                                ? "Downloading update... " + std::to_string(done_ * 100 / total_) + "%"
-                                : "Downloading update...";
+                progress_ = total_ ? ui("update.downloading-percent",
+                                        {{"percent", static_cast<long long>(done_ * 100 / total_)}})
+                                   : ui("update.downloading");
             } else {
-                progress_ = phase == "verify" ? "Verifying update..." : "Preparing update...";
+                progress_ = ui(phase == "verify" ? "update.verifying" : "update.preparing");
             }
         } else if (state == "prepared" && state_ == State::Installing) {
             state_ = State::Prepared;

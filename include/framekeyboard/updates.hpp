@@ -1,4 +1,5 @@
 #pragma once
+#include "localization.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -16,8 +17,10 @@ class Updates {
     Updates(const Updates&) = delete;
     Updates& operator=(const Updates&) = delete;
     const std::string& version() const { return version_; }
-    std::string label() const;
-    std::string failure_reason() const;
+    // The Updates button's words, and why the last attempt failed, as keys
+    // App shows in the interface language.
+    UiText label() const;
+    UiText failure_reason() const;
     bool busy() const;
     void click(double now);
     bool tick(double now);
@@ -57,7 +60,8 @@ class Updates {
     void stop();
     void fail(double now, const std::string& reason = {});
     void release_helper();
-    std::string version_, offer_, progress_, failure_, reason_;
+    std::string version_, offer_, reason_;
+    UiText progress_, failure_;
     std::uint64_t done_{}, total_{};
     // Installed for a shell, whose keyboard waits for idleness while
     // Prepared: losing the helper then must not leave Prepared behind.

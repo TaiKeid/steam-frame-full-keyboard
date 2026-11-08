@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -30,6 +31,35 @@ struct UiText {
 };
 inline UiText ui(std::string key, UiArgs args = {}) {
     return {std::move(key), std::move(args)};
+}
+// A message's English text from the bundled en.json alone, on any thread:
+// for logs, reports and shell protocol messages, which stay English.
+std::string english_text(const UiText& message);
+
+// An error whose message is interface text, thrown by a module: App shows it
+// in the interface language, and what() is its English text, for logs and
+// the shell. Any other exception's text is a system's or library's own and
+// stays English.
+class UiError : public std::runtime_error {
+  public:
+    explicit UiError(UiText message)
+        : std::runtime_error(english_text(message)), message_(std::move(message)) {}
+    const UiText& message() const { return message_; }
+
+  private:
+    UiText message_;
+};
+// An error kept as data, as an answer from a worker thread carries it.
+struct ErrorText {
+    bool operator==(const ErrorText&) const = default;
+    bool empty() const { return english.empty(); }
+    std::string english; // what() as thrown; empty: no error
+    UiText message;      // a UiError's key, for App to show in the interface language
+};
+ErrorText error_text(const std::exception& error);
+inline ErrorText error_text(UiText message) {
+    auto english = english_text(message);
+    return {std::move(english), std::move(message)};
 }
 
 // Where the system's language comes from: Steam's own setting, which is

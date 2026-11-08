@@ -716,4 +716,19 @@ std::string Localization::fonts() const {
     }
     return "sans-serif";
 }
+std::string english_text(const UiText& message) {
+    // Built once, from the bundled file only, and only read after: any
+    // thread may ask. App's own tables stay on its thread.
+    static const Localization english = [] {
+        Localization result;
+        result.load({}, {});
+        result.choose({}, "en");
+        return result;
+    }();
+    return english.text(message);
+}
+ErrorText error_text(const std::exception& error) {
+    const auto* shown = dynamic_cast<const UiError*>(&error);
+    return {error.what(), shown ? shown->message() : UiText{}};
+}
 } // namespace framekeyboard

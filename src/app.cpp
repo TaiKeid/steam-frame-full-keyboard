@@ -406,9 +406,8 @@ std::vector<Control> App::controls() const {
         add({ControlKind::Apply}, {"apply", tr("tooltip.apply"), {88, 12, 60, 42}, false, Icon::Apply});
         add({ControlKind::Reload},
             {"reload", tr("tooltip.reload"), {158, 12, 60, 42}, false, Icon::Reload});
-        // The updater's own states are its words (Updates::label).
         add({ControlKind::Updates},
-            {"updates", updates_ ? updates_->label() : tr("update.check"), {550, 12, 500, 42}});
+            {"updates", tr(updates_ ? updates_->label() : ui("update.check")), {550, 12, 500, 42}});
         if (settings_.replace_native_keyboard && native_session_) {
             add({ControlKind::NativeFallback},
                 {"native-fallback", tr("button.native-fallback"), {250, 12, 245, 42}});
@@ -1147,8 +1146,8 @@ PanelView App::build_view(bool picker) const {
     if (settings_open_ && updates_) {
         v.version = "v" + updates_->version();
     }
-    if (settings_open_ && updates_ && !updates_->failure_reason().empty()) {
-        v.status = updates_->failure_reason();
+    if (settings_open_ && updates_ && !updates_->failure_reason().key.empty()) {
+        v.status = tr(updates_->failure_reason());
     }
     if (settings_open_ && v.status.empty() && settings_ui_.open_field() == "language" &&
         std::any_of(profiles_.languages.begin(), profiles_.languages.end(), [&](const auto& item) {

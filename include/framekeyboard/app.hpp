@@ -848,6 +848,12 @@ class App {
         return localization_.text(key, args);
     }
     std::string tr(const UiText& message) const { return localization_.text(message); }
+    std::string tr(const ErrorText& error) const {
+        return error.message.key.empty() ? error.english : tr(error.message);
+    }
+    // An exception's message as shown: a module's UiError in the interface
+    // language, any other in its own text, which stays English.
+    std::string tr(const std::exception& error) const { return tr(error_text(error)); }
     // Whether the status line shows the message `key` names. Compared as text:
     // the interface language changes only as Settings opens, applies or
     // reloads, and a message from before a change no longer matches.
