@@ -56,14 +56,14 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
 
 安装发布包不需要任何 AI 工具、编译、`sudo` 或 SteamOS 写入权限。
 
-1. 在 **Steam Frame** 上，用浏览器打开 [GitHub 发布页面](https://github.com/TaiKeid/steam-frame-full-keyboard/releases)。从发布资源中将 `framekeyboard-0.15.0-aarch64.tar.gz` 和 `SHA256SUMS` 下载到 **Downloads**。本次安装请勿下载 GitHub 自动生成的源代码压缩包。
+1. 在 **Steam Frame** 上，用浏览器打开 [GitHub 发布页面](https://github.com/TaiKeid/steam-frame-full-keyboard/releases)。从发布资源中将 `framekeyboard-0.16.0-aarch64.tar.gz` 和 `SHA256SUMS` 下载到 **Downloads**。本次安装请勿下载 GitHub 自动生成的源代码压缩包。
 2. 在 Frame 的桌面环境中打开终端并运行：
 
    ```sh
    cd ~/Downloads
    sha256sum -c SHA256SUMS
-   tar -xzf framekeyboard-0.15.0-aarch64.tar.gz
-   cd framekeyboard-0.15.0-aarch64
+   tar -xzf framekeyboard-0.16.0-aarch64.tar.gz
+   cd framekeyboard-0.16.0-aarch64
    bash install.sh
    ```
 

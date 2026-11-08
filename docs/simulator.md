@@ -92,8 +92,8 @@ kyouhaiitenkidane → きょうはいいてんきだね
 An AppImage holds the simulator, the libraries it needs and Japanese completion's words and kaomoji, and optionally Mozc, swipe typing, Anthy with its dictionary, the emoji dictionary and the Cangjie and Quick tables, in one file that runs without installing anything:
 
 ```sh
-chmod +x Full_Keyboard_simulator-0.15.0-x86_64.AppImage
-./Full_Keyboard_simulator-0.15.0-x86_64.AppImage --layout ja-flick-12 --language ja-flick
+chmod +x Full_Keyboard_simulator-0.16.0-x86_64.AppImage
+./Full_Keyboard_simulator-0.16.0-x86_64.AppImage --layout ja-flick-12 --language ja-flick
 ```
 
 It takes the same options as the simulator and keeps its settings in the same folder. Without FUSE, add `--appimage-extract-and-run`. It runs only on systems at least as new as the one that built it: its libraries are that system's, so it needs C and C++ runtime libraries at least as new, and a CPU those libraries were compiled for. The build prints the glibc version it needs. It does not include swipe typing unless built with the swipe engine, nor Mozc unless built with its server, and never dictation.
