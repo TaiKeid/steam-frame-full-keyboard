@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+#include "localization.hpp"
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -14,8 +15,11 @@ class SettingsWriter {
   public:
     using Write = std::function<void(const Settings&)>;
     struct Result {
-        std::string error;
-        std::string startup_warning;
+        ErrorText error;
+        // Saved, but the replacement and startup flags kept their old values:
+        // the warning's lead-in by key, and what kept them.
+        UiText startup_warning;
+        ErrorText startup_reason;
         bool reconcile{};
     };
     explicit SettingsWriter(fs::path directory, Write write = {}, Write reconcile = {});

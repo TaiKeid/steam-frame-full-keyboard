@@ -1,5 +1,6 @@
 #pragma once
 #include "input.hpp"
+#include "localization.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -34,7 +35,8 @@ class NativeReplacement : public KeySink {
     void update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback, double now,
                 bool watch_main_loop = false, bool standby = false);
     const State& state() const { return state_; }
-    const char* unavailable_reason() const;
+    // Why replacement is unavailable, as a key App shows; empty while it works.
+    UiText unavailable_reason() const;
     void route(bool remote) { remote_ = remote; }
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool steam_field_target() const override { return remote_ && state_.active; }

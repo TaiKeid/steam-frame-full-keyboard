@@ -68,11 +68,12 @@ void SettingsWriter::run() {
         try {
             (request.reconcile ? reconcile_ : write_)(request.settings);
         } catch (const StartupPreferencesWarning& warning) {
-            result.startup_warning = warning.what();
+            result.startup_warning = warning.message();
+            result.startup_reason = warning.reason();
         } catch (const std::exception& error) {
-            result.error = error.what();
+            result.error = error_text(error);
         } catch (...) {
-            result.error = "unknown settings write failure";
+            result.error.english = "unknown settings write failure";
         }
         lock.lock();
         writing_ = false;

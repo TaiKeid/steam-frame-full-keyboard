@@ -1169,11 +1169,11 @@ PanelView App::build_view(bool picker) const {
     v.settings = settings_open_;
     if (settings_open_ && settings_.replace_native_keyboard && !replacement_available_ &&
         v.status.empty()) {
-        // The reason is the replacement's own text, before App's closing words.
-        v.status = replacement_unavailable_reason_.empty()
+        // The replacement's own reason, before App's closing words.
+        v.status = replacement_unavailable_reason_.key.empty()
                        ? tr("status.replacement-unavailable")
                        : tr("status.replacement-unavailable-reason",
-                            {{"reason", replacement_unavailable_reason_}});
+                            {{"reason", tr(replacement_unavailable_reason_)}});
     }
     // The digits page composes once it holds a reading; before that its band
     // says it is the digits page.
@@ -2658,7 +2658,7 @@ void App::save() {
         }
         settings_writer_.enqueue(std::move(saved));
     } catch (const std::exception& error) {
-        status_ = tr("status.not-saved", {{"error", std::string(error.what())}});
+        status_ = tr("status.not-saved", {{"error", tr(error)}});
     }
 }
 void App::update_save_status() {
@@ -2675,8 +2675,10 @@ void App::update_save_status() {
             host_event("saved", std::move(fields));
             host_.unsaved_requests.clear();
         }
-        if (!result->startup_warning.empty()) {
-            save_status_ = status_ = result->startup_warning;
+        if (!result->startup_warning.key.empty()) {
+            auto warning = result->startup_warning;
+            warning.args.emplace_back("error", tr(result->startup_reason));
+            save_status_ = status_ = tr(warning);
             save_status_is_startup_ = true;
         } else if (result->error.empty()) {
             // Reconciliation does not save JSON, so it cannot resolve a prior
@@ -2690,9 +2692,9 @@ void App::update_save_status() {
             }
         } else {
             save_status_is_startup_ = result->reconcile;
-            // The error is the system's own text, after a translated lead-in.
+            // The error follows a translated lead-in.
             save_status_ = tr(result->reconcile ? "status.startup-not-configured" : "status.not-saved",
-                              {{"error", result->error}});
+                              {{"error", tr(result->error)}});
             status_ = save_status_;
         }
         dirty = true;

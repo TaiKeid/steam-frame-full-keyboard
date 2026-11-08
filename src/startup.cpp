@@ -20,7 +20,7 @@ std::string condition_path(const fs::path& path) {
     std::string result;
     for (const auto c : path.string()) {
         if (static_cast<unsigned char>(c) < 32 || c == 127) {
-            throw std::runtime_error("Startup paths cannot contain control characters.");
+            throw UiError(ui("startup.control-characters"));
         }
         result += c;
         if (c == '%') {
@@ -43,7 +43,7 @@ void write_atomic(const fs::path& path, const std::string& text) {
     auto temporary = (path.parent_path() / ".framekeyboard-startup-XXXXXX").string();
     const int fd = mkstemp(temporary.data());
     if (fd < 0) {
-        throw std::runtime_error("Could not prepare SteamOS startup settings.");
+        throw UiError(ui("startup.prepare-failed"));
     }
     try {
         std::size_t offset = 0;
@@ -53,12 +53,12 @@ void write_atomic(const fs::path& path, const std::string& text) {
                 continue;
             }
             if (count <= 0) {
-                throw std::runtime_error("Could not write SteamOS startup settings.");
+                throw UiError(ui("startup.write-failed"));
             }
             offset += static_cast<std::size_t>(count);
         }
         if (fsync(fd) != 0) {
-            throw std::runtime_error("Could not save SteamOS startup settings.");
+            throw UiError(ui("startup.save-failed"));
         }
         fs::rename(temporary, path);
     } catch (...) {
@@ -116,9 +116,9 @@ void reload_manager() {
         return;
     }
     if (!systemctl && !direct) {
-        throw std::runtime_error("SteamOS startup manager is unavailable.");
+        throw UiError(ui("startup.manager-unavailable"));
     }
-    throw std::runtime_error("Could not refresh SteamOS startup settings.");
+    throw UiError(ui("startup.refresh-failed"));
 }
 } // namespace
 int deliberate_exit_status(bool autostart) {
@@ -133,7 +133,8 @@ void save_preferences_with_startup(const Settings& settings, const fs::path& exe
     std::vector<std::string> errors, field_errors;
     const auto previous = load_settings(config_dir, errors, &field_errors);
     if (!errors.empty()) {
-        throw std::runtime_error("Could not read saved preferences: " + errors.front());
+        // The parse error stays as config gives it, in English.
+        throw UiError(ui("preferences.unreadable", {{"error", errors.front()}}));
     }
     bool persist_failed = false;
     try {
@@ -156,10 +157,9 @@ void save_preferences_with_startup(const Settings& settings, const fs::path& exe
         save_settings(config_dir, saved); // A failure here is still a real unsaved-preferences error.
         const bool changed = settings.replace_native_keyboard != previous.replace_native_keyboard ||
                              settings.start_with_steamos != previous.start_with_steamos;
-        throw StartupPreferencesWarning(
-            std::string(changed ? "Other preferences saved. Replacement/startup changes not saved: "
-                                : "Preferences saved. SteamOS startup not configured: ") +
-            error.what());
+        throw StartupPreferencesWarning(changed ? "startup.saved-without-changes"
+                                                : "startup.saved-not-configured",
+                                        error_text(error));
     }
 }
 void configure_startup(const Settings& settings, const fs::path& executable, const fs::path& config_dir,
@@ -176,21 +176,21 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
     std::optional<std::string> previous;
     if (fs::exists(unit) || fs::is_symlink(unit)) {
         if (fs::is_symlink(unit) || !fs::is_regular_file(unit) || fs::file_size(unit) > 65536) {
-            throw std::runtime_error("A custom SteamOS startup unit already exists.");
+            throw UiError(ui("startup.custom-unit"));
         }
         std::ifstream stream(unit);
         if (!stream) {
-            throw std::runtime_error("Could not read SteamOS startup settings.");
+            throw UiError(ui("startup.read-failed"));
         }
         previous = std::string(std::istreambuf_iterator<char>(stream), {});
         if (!previous->starts_with(marker)) {
-            throw std::runtime_error("A custom SteamOS startup unit already exists.");
+            throw UiError(ui("startup.custom-unit"));
         }
     }
     auto owned_link = [&](const fs::path& path) {
         const bool linked = fs::is_symlink(path);
         if ((linked && fs::read_symlink(path) != link_target) || (!linked && fs::exists(path))) {
-            throw std::runtime_error("A custom SteamOS startup link already exists.");
+            throw UiError(ui("startup.custom-link"));
         }
         return linked;
     };
@@ -209,7 +209,7 @@ void configure_startup(const Settings& settings, const fs::path& executable, con
         if (binary.filename() != "framekeyboard" || binary.parent_path().filename() != "bin" ||
             old.parent_path().filename() != "releases" || !fs::is_symlink(root / "current") ||
             fs::canonical(root / "current") != old) {
-            throw std::runtime_error("Install a release package before enabling SteamOS startup.");
+            throw UiError(ui("startup.release-only"));
         }
         const auto current = root / "current";
         contents = std::string(marker) +

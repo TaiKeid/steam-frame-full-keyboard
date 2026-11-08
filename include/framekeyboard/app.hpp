@@ -263,9 +263,9 @@ class App {
     // X: discards dictation without asking, then closes the panel.
     void close_with_x();
     bool take_dismissal();
-    void set_replacement_available(bool available, std::string reason = {}) {
+    void set_replacement_available(bool available, UiText reason = {}) {
         if (available) {
-            reason.clear();
+            reason = {};
         }
         dirty |= replacement_available_ != available || replacement_unavailable_reason_ != reason;
         replacement_available_ = available;
@@ -1073,7 +1073,7 @@ class App {
     void test_dictation_server();
     bool native_fallback_{};
     bool replacement_available_{};
-    std::string replacement_unavailable_reason_;
+    UiText replacement_unavailable_reason_;
     bool native_session_{};
     bool dismiss_requested_{};
     SettingsUi settings_ui_;

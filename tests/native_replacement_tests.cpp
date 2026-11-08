@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <sys/socket.h>
 #include <thread>
+#include <tuple>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -389,7 +390,7 @@ void installation_budget() {
         });
         replacement.update(true, false, 0, false, 100);
         take(peer);
-        const std::string waiting = replacement.unavailable_reason();
+        const auto waiting = replacement.unavailable_reason();
         replacement.poll(102.2);
         require(replacement.unavailable_reason() == waiting && !replacement.state().available,
                 "startup survives ordinary freshness timeout without claiming availability");
@@ -405,8 +406,7 @@ void installation_budget() {
             put(peer, R"({"op":"state","version":1,"open":false})");
             replacement.poll(103.01);
             require(!replacement.state().available &&
-                        std::string(replacement.unavailable_reason()) ==
-                            "Steam keyboard bridge installation timed out.",
+                        replacement.unavailable_reason().key == "replacement.install-timeout",
                     "startup has a fixed deadline, including late state and repeated updates");
         }
         replacement.update(false, false, 0, false, 104);
@@ -433,8 +433,7 @@ void installation_budget() {
             require(replacement.state().available, "a state sent in time counts though read late");
         } else {
             require(!replacement.state().available &&
-                        std::string(replacement.unavailable_reason()) ==
-                            "Steam keyboard bridge installation timed out.",
+                        replacement.unavailable_reason().key == "replacement.install-timeout",
                     "a state sent after the deadline does not");
         }
         replacement.update(false, false, 0, false, 104);
@@ -574,8 +573,8 @@ void failure_reason_survives_a_late_release() {
     take(pair[1]); // the key, held in the Steam field
     put(pair[1], R"({"op":"unavailable","reason":"steam-incompatible"})");
     replacement.poll(10.2);
-    const std::string reason = replacement.unavailable_reason();
-    require(reason == "Steam keyboard interfaces are incompatible.", "the helper's reason is shown");
+    const auto reason = replacement.unavailable_reason();
+    require(reason.key == "replacement.steam-incompatible", "the helper's reason is shown");
     replacement.send(KEY_BACKSPACE, 0);
     replacement.update(true, false, 0, true, 10.3);
     require(replacement.unavailable_reason() == reason,
@@ -1303,15 +1302,21 @@ void unavailable_reasons() {
     {
         App app(options, local);
         app.show_settings();
-        for (const auto& [code, message] : std::vector<std::pair<std::string, std::string>>{
-                 {"debugger-unavailable", "Steam debugger is unavailable."},
-                 {"debugger-blocked", "Local Steam debugger access is blocked."},
-                 {"steam-incompatible", "Steam keyboard interfaces are incompatible."},
-                 {"install-timeout", "Steam keyboard bridge installation timed out."},
-                 {"reply-timeout", "Steam debugger stopped responding."},
-                 {"replacement-busy", "Another keyboard replacement is active."},
-                 {"connection-lost", "Replacement connection was lost."},
-                 {"private fixture", "Replacement helper is unavailable."}}) {
+        for (const auto& [code, key, message] :
+             std::vector<std::tuple<std::string, std::string, std::string>>{
+                 {"debugger-unavailable", "replacement.debugger-unavailable",
+                  "Steam debugger is unavailable."},
+                 {"debugger-blocked", "replacement.debugger-blocked",
+                  "Local Steam debugger access is blocked."},
+                 {"steam-incompatible", "replacement.steam-incompatible",
+                  "Steam keyboard interfaces are incompatible."},
+                 {"install-timeout", "replacement.install-timeout",
+                  "Steam keyboard bridge installation timed out."},
+                 {"reply-timeout", "replacement.reply-timeout", "Steam debugger stopped responding."},
+                 {"replacement-busy", "replacement.busy", "Another keyboard replacement is active."},
+                 {"connection-lost", "replacement.connection-lost", "Replacement connection was lost."},
+                 {"private fixture", "replacement.helper-unavailable",
+                  "Replacement helper is unavailable."}}) {
             int pair[2];
             require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
                     "failure reason fixture socketpair");
@@ -1319,7 +1324,7 @@ void unavailable_reasons() {
             put(pair[1], "{\"op\":\"unavailable\",\"reason\":\"" + code + "\"}");
             close(pair[1]); // The last status must survive helper EOF.
             replacement.poll(1);
-            require(!replacement.state().available && replacement.unavailable_reason() == message,
+            require(!replacement.state().available && replacement.unavailable_reason().key == key,
                     "unavailable metadata maps only to fixed user-facing reasons");
             app.dirty = false;
             app.set_replacement_available(false, replacement.unavailable_reason());
@@ -1438,8 +1443,7 @@ int main(int argc, char** argv) {
                 replacement.watchdog_tick(now);
                 replacement.update(true, false, 0, false, now);
                 if (std::string(argv[1]) == "--helper-error-fixture") {
-                    if (std::string(replacement.unavailable_reason()) ==
-                        "Local Steam debugger access is blocked.") {
+                    if (replacement.unavailable_reason().key == "replacement.debugger-blocked") {
                         std::cout << "Exited helper failure reason preserved.\n";
                         return 0;
                     }
@@ -1456,8 +1460,8 @@ int main(int argc, char** argv) {
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
-            throw std::runtime_error(std::string("unarmed Steam handshake unavailable: ") +
-                                     replacement.unavailable_reason());
+            throw std::runtime_error("unarmed Steam handshake unavailable: " +
+                                     english_text(replacement.unavailable_reason()));
         }
         if (argc == 2 && std::string(argv[1]) == "--helper-adopt-fixture") {
             // The first helper after an in-app update adopts an open native

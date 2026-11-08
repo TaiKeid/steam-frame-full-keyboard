@@ -157,28 +157,28 @@ bool NativeReplacement::packet(const std::string& data) {
     return ::send(fd_, data.data(), data.size(), MSG_NOSIGNAL | MSG_DONTWAIT) ==
            static_cast<ssize_t>(data.size());
 }
-const char* NativeReplacement::unavailable_reason() const {
+UiText NativeReplacement::unavailable_reason() const {
     switch (failure_) {
     case Failure::DebuggerUnavailable:
-        return "Steam debugger is unavailable.";
+        return ui("replacement.debugger-unavailable");
     case Failure::DebuggerBlocked:
-        return "Local Steam debugger access is blocked.";
+        return ui("replacement.debugger-blocked");
     case Failure::SteamIncompatible:
-        return "Steam keyboard interfaces are incompatible.";
+        return ui("replacement.steam-incompatible");
     case Failure::InstallTimeout:
-        return "Steam keyboard bridge installation timed out.";
+        return ui("replacement.install-timeout");
     case Failure::ReplyTimeout:
-        return "Steam debugger stopped responding.";
+        return ui("replacement.reply-timeout");
     case Failure::ReplacementBusy:
-        return "Another keyboard replacement is active.";
+        return ui("replacement.busy");
     case Failure::HelperUnavailable:
-        return "Replacement helper is unavailable.";
+        return ui("replacement.helper-unavailable");
     case Failure::ConnectionLost:
-        return "Replacement connection was lost.";
+        return ui("replacement.connection-lost");
     case Failure::None:
-        return "";
+        return {};
     }
-    return "";
+    return {};
 }
 const char* NativeReplacement::failure_code() const {
     switch (failure_) {
