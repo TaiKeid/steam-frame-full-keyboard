@@ -232,8 +232,9 @@ class App {
     // such as Steam handing over a new field, does not.
     void panel_hidden();
     // Nobody is wearing the headset, or it slept: the microphone closes at
-    // once, with `reason` shown. Editor text stays; Type as I speak stops.
-    void stop_listening(const std::string& reason);
+    // once, with the message `key` names shown. Editor text stays; Type as I
+    // speak stops.
+    void stop_listening(std::string_view key);
     // A prepared update discards dictation and stops its helper, which has
     // exited by the time App is destroyed and the handoff starts.
     void end_dictation_for_update();
@@ -1441,8 +1442,9 @@ class App {
     }
     // Characters waiting before listening pauses.
     static constexpr long max_direct_waiting = 1000;
-    // Stops capture and drops every phrase not yet typed, with a status.
-    void stop_direct(std::string status);
+    // Stops capture and drops every phrase not yet typed, with the status
+    // `key` names, if any.
+    void stop_direct(std::string_view key);
     void direct_phrase(const std::string& text);
     // Live words (docs/dictation.md, Type as I speak): the phrase being
     // spoken, its last partial guesses and the words typed from them. A word

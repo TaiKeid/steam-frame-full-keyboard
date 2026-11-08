@@ -2158,9 +2158,9 @@ void passthrough_message_tests() {
         press(app, "Dictation");
         require(app.dashboard_visibility(false), "listening with the dashboard closed");
         app.tick(clock += .01);
-        app.stop_listening("Dictation stopped: the headset was taken off.");
+        app.stop_listening("dictation.stopped-taken-off");
         app.tick(clock += 6);
-        require(notice(app) == "Dictation stopped: the headset was taken off.",
+        require(notice(app) == "Listening stopped: the headset was taken off.",
                 "a newer notice stays past the five seconds");
     }
     {
@@ -3533,16 +3533,18 @@ void away_tests() {
     options.input = InputBackend::Ei;
     options.start_enabled = true;
     use_fake_helper(options, directory.path, "silent");
+    // stop_listening takes the message's key; the view shows its English.
+    const char* key = "dictation.stopped-taken-off";
     const std::string reason = "Listening stopped: the headset was taken off.";
     {
         write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
         Sink sink;
         App app(options, sink);
-        app.stop_listening(reason);
+        app.stop_listening(key);
         require(app.view().status.empty(), "nothing to stop while not listening");
         press(app, "Dictation");
         require(app.listening(), "the mic key listens");
-        app.stop_listening(reason);
+        app.stop_listening(key);
         require(!app.listening() && app.dictation_open() && app.view().dictation->notice == reason &&
                     !app.view().dictation->notice_error,
                 "in the editor, listening stops and the notice says why");
@@ -3575,7 +3577,7 @@ void away_tests() {
     app.up(0, x, y);
     require(app.listening() && !app.take_sound_preview() && !app.haptic_sounds(), "nor a preview");
     app.back();
-    app.stop_listening(reason);
+    app.stop_listening(key);
     require(!app.listening() && app.view().status == reason, "Type as I speak stops and says why");
     require(app.pops(KeyFeedback::Release) && app.haptic_sounds(), "keys pop again once it stops");
     const auto after = sounds_button(app.view());

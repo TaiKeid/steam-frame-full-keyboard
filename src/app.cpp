@@ -31,27 +31,20 @@ double monotonic_seconds() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 namespace {
-// Messages compared with what the status line shows, by key.
+// Messages by key, some compared later with what the status line shows.
 constexpr const char* no_reading_status = "status.no-reading";
-constexpr const char* editor_full_notice = "The editor is full. Send or shorten the text to type more.";
+constexpr const char* editor_full_notice = "dictation.editor-full-typing";
 // Refused while Steam's dashboard has the keys and no Focus mode button can
 // shake to say so, as with replacement off.
 constexpr const char* dashboard_keys_status = "status.dashboard-keys";
-// Every message for output stopped because another window took focus starts so.
-constexpr std::string_view window_moved_status = "Another window took focus.";
+// Every message for output stopped because another window took focus starts
+// with the same sentence (dictation.window-moved*, dictation.send-stopped-moved*).
 // Type as I speak, when another window took focus mid-session (App::direct_window_).
-constexpr const char* window_status =
-    "Another window took focus. Click where the rest should go and press Enter, or Esc to drop it.";
+constexpr const char* window_status = "dictation.window-moved";
 // The same, when the stop also dropped keys or text queued after the rest
 // (OutputController::discarded), in the queue's own words.
-constexpr const char* window_discarded_status =
-    "Another window took focus. Click where the rest should go and press Enter, or Esc to drop it. "
-    "Queued actions and later text were discarded.";
-constexpr const char* window_paste_status =
-    "Another window took focus. Nothing was pasted; the text stays here.";
-static_assert(std::string_view(window_status).starts_with(window_moved_status) &&
-              std::string_view(window_discarded_status).starts_with(window_status) &&
-              std::string_view(window_paste_status).starts_with(window_moved_status));
+constexpr const char* window_discarded_status = "dictation.window-moved-discarded";
+constexpr const char* window_paste_status = "dictation.window-moved-paste";
 bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
@@ -638,9 +631,10 @@ std::vector<Control> App::controls() const {
         const auto editor = panel_rect(geometry, dictation_layout_.editor);
         const double y = editor.y + editor.height - dictation_notice_height + 5;
         const double right = editor.x + editor.width - 12;
-        add({ControlKind::DictationKeep}, {"dictation-keep", "Keep", {right - 110, y, 110, 36}});
+        add({ControlKind::DictationKeep},
+            {"dictation-keep", tr("button.dictation-keep"), {right - 110, y, 110, 36}});
         add({ControlKind::DictationDiscard},
-            {"dictation-discard", "Discard", {right - 230, y, 110, 36}});
+            {"dictation-discard", tr("button.dictation-discard"), {right - 230, y, 110, 36}});
     }
     const auto ime_start = result.size();
     // Full layouts type kana only, as Japanese keyboards do; English has its
@@ -1072,15 +1066,12 @@ PanelView App::geometry() const {
     return v;
 }
 std::string App::game_sound_message() const {
-    // A user dictating in these languages may not read English comfortably.
+    // Written in the dictation language for those dictating Japanese or Korean,
+    // whatever the interface language.
     const auto& language = profiles_.languages.at(settings_.active.language).dictation_language;
-    if (language == "ja") {
-        return "プレイ中はゲームの音が入ることがあります。";
-    }
-    if (language == "ko") {
-        return "플레이 중에는 게임 소리가 입력될 수 있습니다.";
-    }
-    return "Game sounds may be picked up during a play session.";
+    return tr(language == "ja"   ? "dictation.game-sounds-ja"
+              : language == "ko" ? "dictation.game-sounds-ko"
+                                 : "dictation.game-sounds");
 }
 // What the composing line says before anything is typed. Japanese hints
 // are written in Japanese for everyone typing it.
@@ -1362,9 +1353,9 @@ PanelView App::build_view(bool picker) const {
         }
         if (v.status.empty()) {
             v.status = download_->quantizing
-                           ? "Preparing the speech model…"
-                           : "Downloading the speech model: " +
-                                 std::to_string(static_cast<int>(*v.dictation_download * 100)) + "%";
+                           ? tr("dictation.model-preparing")
+                           : tr("dictation.model-downloading",
+                                {{"percent", static_cast<long long>(*v.dictation_download * 100)}});
         }
     }
     v.dictation_levels = mic_levels_;
@@ -1775,7 +1766,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
         if (keyboard_.pointer_pressed(pointer) || !keyboard_.down(pointer, *key, now, true, 0)) {
             return false;
         }
-        stop_direct("Dictation stopped.");
+        stop_direct("dictation.stopped");
         return true;
     }
     if (direct_blocked_ && key->action_kind == ActionKind::Key && key->action == "Enter") {
@@ -2265,8 +2256,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     dirty = true;
 }
 void App::suspend_input(bool asleep) {
-    const std::string reason = asleep ? "Listening stopped: the headset was asleep."
-                                      : "Listening stopped: the headset was taken off.";
+    const char* reason = asleep ? "dictation.stopped-asleep" : "dictation.stopped-taken-off";
     // stop_send needs the existing retry suffix before cancel clears it. An
     // unacknowledged in-flight piece stays here marked uncertain, as on Esc.
     if (sending_) {
@@ -4286,9 +4276,9 @@ void App::commit_failed() {
         return;
     }
     if (dictation_open_) {
-        notice_ = editor_full_notice;
+        notice_ = tr(editor_full_notice);
         notice_error_ = true;
-        status_ = editor_full_notice; // A reading's candidates cover the notice.
+        status_ = notice_; // A reading's candidates cover the notice.
     } else {
         status_ = tr("status.text-not-sent");
     }
@@ -5894,7 +5884,7 @@ bool App::EditorOutput::fits(const std::string& text, std::size_t freed) const {
 }
 void App::text_refused() {
     if (dictation_open_) {
-        notice_ = editor_full_notice;
+        notice_ = tr(editor_full_notice);
         notice_error_ = true;
     } else if (!refuse_without_target(monotonic_seconds())) {
         status_ = tr("status.text-not-sent");
@@ -6211,22 +6201,22 @@ void App::panel_hidden() {
     // Phrases already spoken are still recognized and inserted.
     pause_capture();
 }
-void App::stop_listening(const std::string& reason) {
+void App::stop_listening(std::string_view key) {
     if (!capturing_) {
         return;
     }
     if (direct_active()) {
-        stop_direct(reason);
+        stop_direct(key);
         return;
     }
-    std::cout << "Dictation stopped: " << reason << '\n' << std::flush; // Fixed text only.
+    std::cout << "Dictation stopped: " << key << '\n' << std::flush; // the message's key
     pause_capture();
-    dictation_message(reason, false);
+    dictation_message(tr(key), false);
 }
 namespace {
 // Shown for a few seconds when the dashboard closes during dictation, so the
 // keyboard staying in view has an explanation.
-constexpr const char* passthrough_message = "The keyboard stayed open because dictation is active.";
+constexpr const char* passthrough_message = "dictation.stayed-open"; // a key, compared as shown
 constexpr double passthrough_message_seconds = 5;
 } // namespace
 
@@ -6242,10 +6232,10 @@ bool App::dashboard_visibility(bool visible) {
     // The VR loop switches to the passthrough pointer and releases presses.
     dictation_passthrough_ = true;
     if (settings_open_) {
-        status_ = passthrough_message; // Settings covers the editor's band.
+        status_ = tr(passthrough_message); // Settings covers the editor's band.
         dirty = true;
     } else {
-        dictation_message(passthrough_message, false);
+        dictation_message(tr(passthrough_message), false);
     }
     passthrough_message_since_ = -1; // Timed from the next tick.
     return true;
@@ -6257,7 +6247,7 @@ void App::tick_passthrough_message(double now) {
     if (*passthrough_message_since_ < 0) {
         passthrough_message_since_ = now;
     }
-    if (status_ != passthrough_message && notice_ != passthrough_message) {
+    if (const auto message = tr(passthrough_message); status_ != message && notice_ != message) {
         passthrough_message_since_.reset(); // A newer message took its place and stays.
     } else if (!dictation_passthrough_ ||
                now - *passthrough_message_since_ >= passthrough_message_seconds) {
@@ -6266,8 +6256,9 @@ void App::tick_passthrough_message(double now) {
 }
 void App::end_passthrough_message() {
     passthrough_message_since_.reset();
+    const auto shown = tr(passthrough_message);
     for (auto* message : {&status_, &notice_}) {
-        if (*message == passthrough_message) {
+        if (*message == shown) {
             message->clear();
             dirty = true;
         }
@@ -6750,23 +6741,24 @@ void App::set_dictation_view(PanelView& view) const {
     }
     editor.capturing = capturing_;
     if (confirm_discard_) {
-        editor.notice = "Discard text?";
+        editor.notice = tr("dictation.discard-question");
     } else if (editor.candidates) {
         // Typing is under way; a notice returns once the reading is committed.
     } else if (!notice_.empty()) {
         editor.notice = notice_;
         editor.notice_error = notice_error_;
     } else if (waiting_) {
-        editor.notice = "Waiting for recognition…";
+        editor.notice = tr("dictation.waiting");
     } else if (field_needed_) {
-        editor.notice = "The text field closed. Select a text field to send.";
+        editor.notice = tr("dictation.field-closed");
     } else if (dashboard_focus_) {
-        editor.notice = "Steam's dashboard has focus. Select a text field or window to send.";
+        editor.notice = tr("dictation.dashboard-focus");
     }
     if (sending_) {
         editor.sending = true;
-        editor.counter =
-            "Sending " + std::to_string(sending_->done) + "/" + std::to_string(sending_->total);
+        // Digits as they are, without grouping, as the counter's own N/900.
+        editor.counter = tr("dictation.counter-sending", {{"done", std::to_string(sending_->done)},
+                                                          {"total", std::to_string(sending_->total)}});
     } else {
         editor.counter =
             std::to_string(editor_.length()) + "/" + std::to_string(DictationEditor::dictation_limit);
@@ -6971,7 +6963,7 @@ void App::clear_editor_error() {
         notice_.clear();
         notice_error_ = false;
     }
-    if (status_ == editor_full_notice) {
+    if (status_is(editor_full_notice)) {
         status_.clear();
     }
 }
@@ -7030,7 +7022,7 @@ bool App::start_capture() {
         return false;
     }
     if (dictation_open_ && !editor_.can_dictate()) {
-        notice_ = "The editor is full. Send or shorten the text to dictate more.";
+        notice_ = tr("dictation.editor-full");
         notice_error_ = true;
         dirty = true;
         return false;
@@ -7052,7 +7044,7 @@ bool App::start_capture() {
         }
     }
     if (!dictation().configure(target) || !dictation_->capture(true)) {
-        dictation_message("Dictation could not start.", true);
+        dictation_message(tr("dictation.could-not-start"), true);
         return false;
     }
     // Listening again before the last session's phrases are typed continues
@@ -7193,7 +7185,7 @@ void App::set_native_request(std::uint64_t request) {
     if (direct_active() && request != direct_request_) {
         // Text still queued was meant for the old field.
         output_.cancel();
-        stop_direct("Dictation stopped: the text field changed.");
+        stop_direct("dictation.stopped-field-changed");
     }
     // So was the editor's Send, between pieces too, and a Send still waiting
     // for phrases; the rest stays in the editor for the user to send again.
@@ -7207,12 +7199,13 @@ void App::block_direct_for_window() {
     std::cout << "Type as I speak: another window took focus; listening paused.\n" << std::flush;
     direct_blocked_ = true;
     pause_capture();
-    status_ = window_status;
+    status_ = tr(window_status);
     dirty = true;
 }
 
-void App::stop_direct(std::string status) {
-    std::cout << "Type as I speak stopped: " << (status.empty() ? "panel hidden" : status) << '\n'
+void App::stop_direct(std::string_view key) {
+    // Logged by key: the message is in the interface language.
+    std::cout << "Type as I speak stopped: " << (key.empty() ? "panel hidden" : key) << '\n'
               << std::flush;
     cancel_capture();
     if (output_.text_pending() || output_.retry_available()) {
@@ -7222,8 +7215,8 @@ void App::stop_direct(std::string status) {
     direct_paste_.reset();
     direct_blocked_ = false;
     direct_ = false;
-    if (!status.empty()) {
-        status_ = std::move(status);
+    if (!key.empty()) {
+        status_ = tr(key);
     }
     dirty = true;
 }
@@ -7458,7 +7451,7 @@ void App::flush_direct(double now) {
             std::cout << "Type as I speak: the target refused a phrase.\n" << std::flush;
             direct_blocked_ = true;
             pause_capture();
-            status_ = "A phrase did not reach the app. Press Enter to try again, or Esc to drop it.";
+            status_ = tr("dictation.phrase-refused");
             dirty = true;
             break;
         }
@@ -7492,7 +7485,7 @@ void App::flush_direct(double now) {
     if (waiting > max_direct_waiting && capturing_) {
         // What was said still goes out; listening waits for it to catch up.
         pause_capture();
-        status_ = "Typing fell behind, so dictation paused. The rest is still typed.";
+        status_ = tr("dictation.fell-behind");
     }
 }
 
@@ -7510,7 +7503,7 @@ void App::tick_direct_paste(double now) {
         std::cout << "Type as I speak: " << why << ".\n" << std::flush;
         direct_paste_.reset();
         pause_capture();
-        status_ = message;
+        status_ = tr(message);
         dirty = true;
     };
     switch (p.stage) {
@@ -7560,15 +7553,14 @@ void App::tick_direct_paste(double now) {
     }
     case 3:
         if (output_.failures() != p.failures) {
-            return give_up("Ctrl+V failed",
-                           "A phrase may not have been pasted. Dictation paused; check the text.");
+            return give_up("Ctrl+V failed", "dictation.paste-uncertain");
         }
         if (clipboard()->served() != p.served) {
             p.stage = 4;
             p.at = now;
         } else if (now - p.at > 2) {
             return give_up("the application did not take the pasted phrase",
-                           "The app did not take a pasted phrase. Dictation paused.");
+                           "dictation.paste-not-taken");
         }
         return;
     default:
@@ -7585,7 +7577,7 @@ void App::tick_direct_paste(double now) {
 
 void App::tick_direct(double now) {
     if (direct_ && capturing_ && !dictation_available()) {
-        stop_direct("Dictation stopped."); // the profile or settings no longer allow it
+        stop_direct("dictation.stopped"); // the profile or settings no longer allow it
     }
     if (direct_) {
         if (output_.failures() != direct_failures_) {
@@ -7598,7 +7590,7 @@ void App::tick_direct(double now) {
                 // The queue stopped the phrase for it; Enter retries the rest.
                 // A key or phrase queued behind it is gone, and the card says so.
                 output_.take_status();
-                status_ = output_.discarded() ? window_discarded_status : window_status;
+                status_ = tr(output_.discarded() ? window_discarded_status : window_status);
                 dirty = true;
             }
         }
@@ -7621,29 +7613,29 @@ void App::tick_direct(double now) {
 }
 
 namespace {
-// What the editor says about a helper error; the codes are fixed.
-std::string dictation_problem(const std::string& reason, bool device) {
+// The key of what the editor says about a helper error; the codes are fixed.
+const char* dictation_problem(const std::string& reason, bool device) {
     if (device && reason == "timeout") {
-        return "Recognition on the device took too long.";
+        return "dictation.problem.device-timeout";
     }
-    static const std::map<std::string, std::string> messages{
-        {"no-microphone", "No microphone. Put the headset on, then press the mic key."},
-        {"capture-stopped", "The system stopped the microphone."},
-        {"not-configured", "No speech server is configured."},
-        {"unreachable", "The speech server cannot be reached."},
-        {"timeout", "The speech server did not answer in time."},
-        {"server-error", "The speech server reported an error."},
-        {"bad-reply", "The speech server's reply was unusable."},
-        {"key-rejected", "The API key was rejected."},
-        {"rate-limited", "The provider is rate limiting requests. Try again shortly."},
-        {"backlog-full", "Too much speech is waiting for recognition."},
-        {"keyboard-stalled", "Dictation stopped while the keyboard was busy."},
-        {"helper-exited", "The dictation helper stopped."},
-        {"model-missing", "The speech model is missing. Download it in Settings."},
-        {"device-failed", "Recognition on the device failed."},
+    static const std::map<std::string, const char*> messages{
+        {"no-microphone", "dictation.problem.no-microphone"},
+        {"capture-stopped", "dictation.problem.capture-stopped"},
+        {"not-configured", "dictation.problem.not-configured"},
+        {"unreachable", "dictation.problem.unreachable"},
+        {"timeout", "dictation.problem.timeout"},
+        {"server-error", "dictation.problem.server-error"},
+        {"bad-reply", "dictation.problem.bad-reply"},
+        {"key-rejected", "dictation.problem.key-rejected"},
+        {"rate-limited", "dictation.problem.rate-limited"},
+        {"backlog-full", "dictation.problem.backlog-full"},
+        {"keyboard-stalled", "dictation.problem.keyboard-stalled"},
+        {"helper-exited", "dictation.problem.helper-exited"},
+        {"model-missing", "dictation.problem.model-missing"},
+        {"device-failed", "dictation.problem.device-failed"},
     };
     const auto found = messages.find(reason);
-    return found != messages.end() ? found->second : "Dictation stopped.";
+    return found != messages.end() ? found->second : "dictation.stopped";
 }
 } // namespace
 
@@ -7696,7 +7688,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
             // The fallback recognized it on the Frame; said quietly, never blocking.
             device_fallback_ = event.device;
             if (direct_ && event.device) {
-                status_ = "Recognized on the device: the speech server did not answer.";
+                status_ = tr("dictation.device-fallback");
             }
             dirty = true;
         }
@@ -7741,7 +7733,8 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         capturing_ = false;
         mic_levels_.clear();
         if (event.reason != "silence") {
-            dictation_message(dictation_problem(event.reason, settings_.dictation == "device"), true);
+            dictation_message(tr(dictation_problem(event.reason, settings_.dictation == "device")),
+                              true);
         }
         dirty = true;
         break;
@@ -7768,11 +7761,12 @@ void App::dictation_event(const Dictation::Event& event, double now) {
             // would wait for it until the keyboard restarts.
             std::cout << "Model download failed: helper-exited.\n" << std::flush;
             download_.reset();
-            status_ = "The speech model download stopped. Try again.";
+            status_ = tr("dictation.download-stopped");
             update_settings_ui();
         }
         if (dictation_open_ || (direct_ && active)) {
-            dictation_message(dictation_problem(event.reason, settings_.dictation == "device"), true);
+            dictation_message(tr(dictation_problem(event.reason, settings_.dictation == "device")),
+                              true);
         }
         dirty = true;
         break;
@@ -7793,14 +7787,13 @@ void App::dictation_event(const Dictation::Event& event, double now) {
             std::cout << "Model download " << event.text << (event.reason.empty() ? "" : ": ")
                       << event.reason << ".\n"
                       << std::flush;
-            status_ = event.text == "ready"         ? "The speech model is ready."
-                      : event.reason == "cancelled" ? ""
-                      : event.reason == "checksum"
-                          ? "The speech model download was corrupted. Try again."
-                      : event.reason == "disk" ? "The speech model could not be saved. Check free space."
-                      : event.reason == "quantize"
-                          ? "The speech model could not be prepared."
-                          : "The speech model could not be downloaded. Check the network.";
+            status_ = event.reason == "cancelled" && event.text != "ready"
+                          ? ""
+                          : tr(event.text == "ready"        ? "dictation.model-ready"
+                               : event.reason == "checksum" ? "dictation.download-corrupted"
+                               : event.reason == "disk"     ? "dictation.download-disk"
+                               : event.reason == "quantize" ? "dictation.model-not-prepared"
+                                                            : "dictation.download-failed");
             download_.reset();
             update_settings_ui();
         }
@@ -7985,7 +7978,7 @@ void App::start_download(const std::string& model) {
     }
     pause_capture();
     if (!dictation().download(model, models_dir_)) {
-        status_ = "The speech model could not be downloaded: the dictation helper did not start.";
+        status_ = tr("dictation.download-no-helper");
         dirty = true;
         return;
     }
@@ -8113,7 +8106,7 @@ bool App::tick_dictation(double now) {
             start_send();
         } else if (now - *send_wait_since_ > recognition_limit()) {
             send_wait_since_.reset();
-            notice_ = "Recognition took too long. Send again when the text is in.";
+            notice_ = tr("dictation.send-timeout");
             notice_error_ = true;
         }
         dirty = true;
@@ -8301,9 +8294,9 @@ Clipboard* App::clipboard() {
 bool App::tick_paste(double now) {
     auto& s = *sending_;
     const auto& piece = s.pieces[s.next];
-    auto give_up = [&](const char* why) {
+    auto give_up = [&](const char* key) {
         stop_send(false);
-        status_ = why;
+        status_ = tr(key);
         send_status_ = status_;
         return true;
     };
@@ -8324,12 +8317,12 @@ bool App::tick_paste(double now) {
     case 1:
         if (const auto owned = paste_ready(s.paste_write)) {
             if (!*owned) {
-                return give_up("The clipboard is not available. The text stays here.");
+                return give_up("dictation.send-clipboard-unavailable");
             }
             s.paste_stage = 2;
             s.paste_at = now;
         } else if (now - s.paste_at > 1) {
-            return give_up("The clipboard is not available. The text stays here.");
+            return give_up("dictation.send-clipboard-unavailable");
         }
         return false;
     case 2: {
@@ -8343,14 +8336,13 @@ bool App::tick_paste(double now) {
         }
         const auto paste = paste_keys();
         if (paste.empty()) {
-            return give_up("Paste could not be pressed. The text stays here.");
+            return give_up("dictation.send-paste-failed");
         }
         s.paste_served = clipboard()->served();
         s.completed = output_.completed();
         s.failures = output_.failures();
         if (!output_.tap(paste)) {
-            return now - s.paste_at > 2 ? give_up("Paste could not be pressed. The text stays here.")
-                                        : false;
+            return now - s.paste_at > 2 ? give_up("dictation.send-paste-failed") : false;
         }
         s.paste_stage = 3;
         s.in_flight = true; // From here an interrupted paste may have arrived.
@@ -8359,13 +8351,13 @@ bool App::tick_paste(double now) {
     }
     case 3:
         if (output_.failures() != s.failures) {
-            return give_up("Paste could not be pressed. The text stays here.");
+            return give_up("dictation.send-paste-failed");
         }
         if (clipboard()->served() != s.paste_served) {
             s.paste_stage = 4;
             s.paste_at = now;
         } else if (now - s.paste_at > 2) {
-            return give_up("The application did not take the pasted text. It stays here.");
+            return give_up("dictation.send-paste-not-taken");
         }
         return false;
     default:
@@ -8406,9 +8398,11 @@ void App::stop_send(bool attempted, bool moved) {
     output_.take_status();
     editor_.erase_front(keep - s.sent);
     editor_.mark_uncertain(uncertain - keep);
-    status_ = uncertain > keep
-                  ? "Sending stopped. The rest stays here; the marked start may already have arrived."
-                  : "Sending stopped. The rest stays here; Send continues.";
+    // Another window taking focus is said first, in the same message as the rest.
+    status_ = tr(moved              ? uncertain > keep ? "dictation.send-stopped-moved-uncertain"
+                                                       : "dictation.send-stopped-moved"
+                 : uncertain > keep ? "dictation.send-stopped-uncertain"
+                                    : "dictation.send-stopped");
     if (moved) {
         // Counts only, never text: what the editor erased, including the
         // piece's acknowledged characters, and what it marked.
@@ -8428,7 +8422,6 @@ void App::stop_send(bool attempted, bool moved) {
             std::cout << ", " << characters(keep, uncertain) << " uncertain";
         }
         std::cout << ".\n" << std::flush;
-        status_.insert(0, std::string(window_moved_status) + " ");
     }
     send_status_ = status_;
     follow_cursor();
