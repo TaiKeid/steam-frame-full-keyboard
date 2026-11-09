@@ -20,6 +20,9 @@
     "Noto Sans",
     "sans-serif"
   ],
+  "swipe": {
+    "lexicon": "fil-ph"
+  },
   "dictation": {
     "language": "tl"
   }

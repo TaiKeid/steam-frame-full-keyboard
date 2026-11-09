@@ -16,6 +16,14 @@ Formats:
 --blend adds a FrequencyWords list ("word count", lowercase, from film
 subtitles), so everyday chat words that news text rarely uses rank as they
 are spoken.
+
+--turkic-case lowercases I to ı and İ to i (Turkish, Azerbaijani).
+--script keeps only words in one script, as Bulgarian, Macedonian and Greek
+sources carry Latin words. --serbian-cyrillic implies --script cyrillic and
+converts Latin subtitle words to Cyrillic, as Serbian subtitles are mostly
+written in Latin.
+--respell replaces letters, merging the words that then match: Romanian ş and
+ţ with a cedilla become ș and ț with a comma, as Romanian keyboards type them.
 """
 
 import argparse
@@ -24,9 +32,62 @@ import re
 import statistics
 import sys
 
-WORD = re.compile(r"^ word=([^,]+),f=(\d+)")
+# Some lists drop the leading space or add one after the comma.
+WORD = re.compile(r"^ ?word=([^,]+), ?f=(\d+)")
 # Natural-log units per 0-255 step, matching the runtime's interpretation.
 FREQUENCY_SCALE = 13.0
+
+
+# Set by --turkic-case: dotted and dotless I are separate letters.
+TURKIC_CASE = False
+
+
+def lower(text):
+    if TURKIC_CASE:
+        text = text.replace("I", "ı").replace("İ", "i")
+    return text.lower()
+
+
+def lower_initial(word):
+    return lower(word[:1]) + word[1:]
+
+
+def fold_case(text):
+    return lower(text) if TURKIC_CASE else text.casefold()
+
+
+# Serbian Latin to Cyrillic, digraphs first. A few loanwords split lj, nj or dž
+# across morphemes (injekcija); they come out wrong and rank low.
+SERBIAN_DIGRAPHS = {"lj": "љ", "nj": "њ", "dž": "џ"}
+SERBIAN_LETTERS = dict(zip("abvgdđežzijklmnoprstćufhcčš", "абвгдђежзијклмнопрстћуфхцчш"))
+
+
+def serbian_cyrillic(word):
+    """Cyrillic for a Serbian Latin word, None for other Latin text."""
+    out, i, lowered = [], 0, word.lower()
+    while i < len(lowered):
+        pair = lowered[i : i + 2]
+        if pair in SERBIAN_DIGRAPHS:
+            letter, step = SERBIAN_DIGRAPHS[pair], 2
+        elif lowered[i] in SERBIAN_LETTERS:
+            letter, step = SERBIAN_LETTERS[lowered[i]], 1
+        elif lowered[i] in "'’":
+            letter, step = lowered[i], 1
+        else:
+            return None  # q, w, x, y and accents are not Serbian Latin.
+        out.append(letter.upper() if word[i].isupper() else letter)
+        i += step
+    return "".join(out)
+
+
+SCRIPTS = {"cyrillic": ("\u0400", "\u04ff"), "greek": ("\u0370", "\u03ff")}
+
+
+def in_script(word, script):
+    first, last = SCRIPTS[script]
+    # Greek accents beyond the monotonic ones sit in Greek Extended.
+    extended = script == "greek"
+    return all(first <= ch <= last or (extended and "\u1f00" <= ch <= "\u1fff") or ch in "'’" for ch in word)
 
 
 def letters_only(word):
@@ -61,7 +122,7 @@ def fold_initial_capitals(entries):
     """
     folded = dict(entries)
     for word, frequency in entries.items():
-        lower = word[:1].lower() + word[1:]
+        lower = lower_initial(word)
         if lower != word and lower in entries and frequency <= entries[lower] + CAPITAL_FOLD_STEPS:
             folded[lower] = max(folded[lower], frequency)
             del folded[word]
@@ -88,7 +149,7 @@ def from_leipzig(path, minimum):
             if len(parts) != 3 or not letters_only(parts[1]):
                 continue
             word, count = parts[1], int(parts[2])
-            key = word.lower()
+            key = lower(word)
             totals[key] = totals.get(key, 0) + count
             best = forms.get(key)
             if best is None or count > best[1]:
@@ -112,7 +173,7 @@ def from_tsv(path):
 BLEND_CALIBRATION_WORDS = 5000
 
 
-def blend_subtitles(entries, path, lowercase_capitals=False):
+def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None):
     """Raise words to their film-subtitle frequency; add the missing ones.
 
     Subtitle counts go on the same 0-255 log scale, shifted by the median
@@ -121,38 +182,42 @@ def blend_subtitles(entries, path, lowercase_capitals=False):
     a new one is added as the subtitle list spells it, in lowercase. With
     lowercase_capitals, a word listed only with an initial capital (Dutch Hoi,
     from sentence starts) takes the lowercase spelling when the subtitles use
-    it about as often (see fold_initial_capitals).
+    it about as often (see fold_initial_capitals). transliterate converts
+    each subtitle word first, or returns None to skip it.
     """
     counts = {}
     with open(path, encoding="utf-8") as source:
         for line in source:
             parts = line.split()
             if len(parts) == 2 and letters_only(parts[0]) and parts[1].isdigit():
-                counts[parts[0]] = counts.get(parts[0], 0) + int(parts[1])
+                word = transliterate(parts[0]) if transliterate else parts[0]
+                if word:
+                    counts[word] = counts.get(word, 0) + int(parts[1])
     subtitle = scaled(counts, 1)
     spellings = {}
     for word, frequency in entries.items():
-        key = word.casefold()
+        key = fold_case(word)
         if key not in spellings or frequency > entries[spellings[key]]:
             spellings[key] = word
     ranked = sorted(subtitle, key=lambda word: -subtitle[word])[:BLEND_CALIBRATION_WORDS]
-    shared = [entries[spellings[w.casefold()]] - subtitle[w] for w in ranked if w.casefold() in spellings]
+    shared = [entries[spellings[fold_case(w)]] - subtitle[w] for w in ranked if fold_case(w) in spellings]
     offset = statistics.median(shared) if shared else 0
     blended = dict(entries)
     added = raised = 0
     for word, frequency in subtitle.items():
         frequency = max(0, min(255, round(frequency + offset)))
-        listed = spellings.get(word.casefold())
+        listed = spellings.get(fold_case(word))
         if listed is None:
             blended[word] = frequency
             added += 1
         elif (
             lowercase_capitals
             and listed != word
-            and listed[:1].lower() + listed[1:] == word
+            and lower_initial(listed) == word
             and frequency + CAPITAL_FOLD_STEPS >= blended[listed]
         ):
             blended[word] = max(frequency, blended.pop(listed))
+            spellings[fold_case(word)] = word  # Greek ας and ασ fold alike.
             raised += 1
         elif frequency > blended[listed]:
             blended[listed] = frequency
@@ -189,6 +254,15 @@ def from_jieba(path, minimum):
     return scaled(counts, minimum)
 
 
+def respelled(entries, pairs):
+    table = str.maketrans(dict(pair.split("=", 1) for pair in pairs))
+    merged = {}
+    for word, frequency in entries.items():
+        word = word.translate(table)
+        merged[word] = max(frequency, merged.get(word, 0))
+    return merged
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("source")
@@ -203,7 +277,17 @@ def main():
         action="store_true",
         help="fold a capitalised word into its lowercase form when both exist",
     )
+    parser.add_argument("--turkic-case", action="store_true", help="lowercase I to ı and İ to i")
+    parser.add_argument("--respell", action="append", default=[], metavar="FROM=TO", help="replace a letter")
+    parser.add_argument("--script", choices=sorted(SCRIPTS), help="keep only words in this script")
+    parser.add_argument(
+        "--serbian-cyrillic",
+        action="store_true",
+        help="keep Cyrillic words and convert Serbian Latin subtitle words to Cyrillic",
+    )
     args = parser.parse_args()
+    global TURKIC_CASE
+    TURKIC_CASE = args.turkic_case
 
     if args.format == "combined":
         entries = from_combined(args.source)
@@ -213,8 +297,14 @@ def main():
         entries = from_tsv(args.source)
     else:
         entries = from_jieba(args.source, args.minimum_count)
+    script = "cyrillic" if args.serbian_cyrillic else args.script
     if args.blend:
-        entries = blend_subtitles(entries, args.blend, args.fold_initial_capitals)
+        transliterate = serbian_cyrillic if args.serbian_cyrillic else None
+        entries = blend_subtitles(entries, args.blend, args.fold_initial_capitals, transliterate)
+    if args.respell:
+        entries = respelled(entries, args.respell)
+    if script:
+        entries = {word: f for word, f in entries.items() if in_script(word, script)}
     if args.fold_initial_capitals:
         entries = fold_initial_capitals(entries)
     ranked = sorted(entries.items(), key=lambda item: (-item[1], item[0]))[: args.limit]

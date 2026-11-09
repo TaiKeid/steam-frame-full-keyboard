@@ -20,6 +20,9 @@
     "Noto Sans",
     "sans-serif"
   ],
+  "swipe": {
+    "lexicon": "ro-ro"
+  },
   "dictation": {
     "language": "ro"
   }

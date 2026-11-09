@@ -23,6 +23,9 @@
   "required_keys": [
     "IntlBackslash"
   ],
+  "swipe": {
+    "lexicon": "ca-es"
+  },
   "dictation": {
     "language": "ca"
   }

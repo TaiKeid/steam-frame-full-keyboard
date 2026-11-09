@@ -20,6 +20,9 @@
     "Noto Sans",
     "sans-serif"
   ],
+  "swipe": {
+    "lexicon": "tr-tr"
+  },
   "dictation": {
     "language": "tr"
   }

@@ -13,7 +13,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 - Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
 - Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V, or a terminal's own keys, such as Ctrl+Shift+C and Ctrl+Shift+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
-- Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian and Chinese Pinyin. Swipe typing is powered by "FUTO Swipe" technology.
+- Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian, Chinese Pinyin and [23 more languages](docs/configuration.md#swipe-typing), from Czech to Vietnamese. Swipe typing is powered by "FUTO Swipe" technology.
 - Typing suggestions, on by default, in the languages swipe typing has: up to five completions of the word you're typing, the words you use most first.
 - Japanese conversion with Mozc, with candidates as you type, and a phone-style Japanese 12-key flick keyboard.
 - Pull for Shift, off by default: pull a key down for its Shift character, such as ^ on the 6 key, or a capital while swipe typing is off.

@@ -23,6 +23,9 @@
   "required_keys": [
     "IntlBackslash"
   ],
+  "swipe": {
+    "lexicon": "mk-mk"
+  },
   "dictation": {
     "language": "mk"
   }

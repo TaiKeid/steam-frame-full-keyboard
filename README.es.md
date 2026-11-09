@@ -13,7 +13,7 @@ Una alternativa de tamaño completo al teclado virtual integrado de Steam Frame,
 - Distribución de tamaño completo con F1–F12, teclas de navegación, flechas, un teclado numérico que puedes ocultar, Ctrl, Alt y un Shift que se bloquea al mantenerlo pulsado.
 - Teclas dedicadas de Cortar, Copiar y Pegar que envían Ctrl+X, Ctrl+C y Ctrl+V, o las teclas propias de un terminal, como Ctrl+Shift+C y Ctrl+Shift+V.
 - Dictado: habla en lugar de escribir, con reconocimiento en el visor o en tu propio servidor de voz Whisper. Corrige el texto en un editor y envíalo, o deja que **Escribir mientras hablo** (Type as I speak) escriba cada frase directamente en la app. Consulta [dictado](#dictation).
-- Escritura deslizante, desactivada por defecto, para inglés, alemán, francés, español, italiano, portugués, polaco, neerlandés, sueco, ucraniano, ruso y chino pinyin. La escritura deslizante funciona con la tecnología "FUTO Swipe".
+- Escritura deslizante, desactivada por defecto, para inglés, alemán, francés, español, italiano, portugués, polaco, neerlandés, sueco, ucraniano, ruso, chino pinyin y [23 idiomas más](docs/configuration.md#swipe-typing), del checo al vietnamita. La escritura deslizante funciona con la tecnología "FUTO Swipe".
 - Sugerencias de escritura, activadas por defecto, en los idiomas que tienen escritura deslizante: hasta cinco formas de completar la palabra que escribes, con las que más usas primero.
 - Conversión de japonés con Mozc, con candidatos mientras escribes, y un teclado flick japonés de 12 teclas como el de los móviles.
 - **Tirar para Mayús**, desactivado por defecto: tira de una tecla hacia abajo para obtener su carácter con Mayús; por ejemplo ^ en la tecla 6, o una mayúscula mientras la escritura deslizante está desactivada.

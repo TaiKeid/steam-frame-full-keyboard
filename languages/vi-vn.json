@@ -20,6 +20,9 @@
     "Noto Sans",
     "sans-serif"
   ],
+  "swipe": {
+    "lexicon": "vi-vn"
+  },
   "dictation": {
     "language": "vi"
   }

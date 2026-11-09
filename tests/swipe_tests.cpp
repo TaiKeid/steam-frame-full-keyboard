@@ -154,6 +154,18 @@ void keyboard_geometry() {
     require(es.index_of(U'ñ') >= 0 && es.index_of(U'ñ') != es.index_of(U'n'),
             "Spanish ñ has its own key");
     require(letter(es, U'á') == letter(es, U'a'), "Spanish dead-key accents fold");
+    const auto vi = keyboard_for("international-full", "vi-vn");
+    require(letter(vi, U'đ') == letter(vi, U'd') && letter(vi, U'ê') == letter(vi, U'e'),
+            "Vietnamese đ and ê on the number row are swiped on D and E");
+    require(letter(vi, U'ừ') == letter(vi, U'ư') && letter(vi, U'ư') != letter(vi, U'u') &&
+                letter(vi, U'ợ') == letter(vi, U'ơ'),
+            "a Vietnamese tone mark keeps ư and ơ on their own keys");
+    const auto hr = keyboard_for("international-full", "hr-hr-qwerty");
+    require(letter(hr, U'đ') == letter(hr, U'd'), "đ without a key of its own is swiped on D");
+    const auto tr = keyboard_for("international-full", "tr-tr");
+    require(tr.index_of(U'I') == tr.index_of(U'ı') && tr.index_of(U'İ') == tr.index_of(U'i') &&
+                tr.index_of(U'ı') != tr.index_of(U'i'),
+            "Turkish I is the capital of ı, İ of i");
 }
 
 void lexicon_paths() {
@@ -1932,7 +1944,7 @@ void toolbar_toggle() {
     }
     // A main language that can't swipe, with an additional one that can.
     const auto english = R"({"id":"a","name":"a","layout":"en-us-full","language":"en-us"})";
-    config("bg-bg", english);
+    config("th-th", english);
     {
         TextSink sink;
         App app(options, sink);
@@ -1952,7 +1964,7 @@ void toolbar_toggle() {
                 "Settings can turn swiping off for the language that can swipe");
     }
     // No language that can swipe: the press shakes the icon and changes nothing.
-    config("bg-bg", "");
+    config("th-th", "");
     {
         TextSink sink;
         App app(options, sink);
@@ -2035,14 +2047,21 @@ int model() {
                                   {"en-us-full", "nl-nl", U"ideeën", "ideeën"},
                                   {"international-full", "sv-se", U"också", "också"},
                                   {"international-full", "sv-se", U"tack", "tack"},
+                                  {"international-full", "cs-cz", U"dekuji", "děkuji"},
+                                  {"international-full", "tr-tr", U"teşekkürler", "teşekkürler"},
+                                  {"international-full", "el-gr", U"ευχαριστω", "ευχαριστώ"},
+                                  {"international-full", "sr-rs-latin", U"hvala", "hvala"},
+                                  {"international-full", "vi-vn", U"cam", "cảm"},
                                   {"en-us-full", "zh-cn-pinyin", U"zhongguo", "zhongguo"},
                                   {"en-us-full", "zh-cn-pinyin", U"nihao", "nihao"}};
     auto encoder = load_swipe_encoder(swipe_model_path({}));
     int first = 0;
     for (const auto& item : cases) {
-        const auto keyboard = keyboard_for(item.layout, item.language);
-        const auto lexicon = SwipeLexicon::load(
-            swipe_lexicon_path({}, {}, profiles().languages.at(item.language).swipe_lexicon), keyboard);
+        auto keyboard = keyboard_for(item.layout, item.language);
+        const auto& profile = profiles().languages.at(item.language);
+        keyboard.spelling = profile.swipe_replace; // Serbian Latin respells the Cyrillic list.
+        const auto lexicon =
+            SwipeLexicon::load(swipe_lexicon_path({}, {}, profile.swipe_lexicon), keyboard);
         // "strasse" is swiped as s-t-r-a-ß-e on QWERTZ: ß has its own key.
         auto path = item.path;
         if (item.word == "Straße") {

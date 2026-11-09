@@ -56,7 +56,7 @@ The language profile gains an optional `swipe` object, for example `{"lexicon": 
 ### Data files
 
 - Model: `share/framekeyboard/swipe/futo-swipe/model_fp32.pte` (2.65 MB, SHA-256 `725242ba…fbaf`), with FUTO's `LICENSE.md` and a provenance file. Keep the original `.pte`; converting the weights would make them a modified Derivative Model with extra notice duties.
-- Word lists: `share/framekeyboard/swipe/lexicons/<id>.tsv` with `word<TAB>frequency`, plus user overrides under `~/.config/framekeyboard/swipe/lexicons/`. Size target is about 100k entries per language, loaded lazily and bounded.
+- Word lists: `share/framekeyboard/swipe/lexicons/<id>.tsv` with `word<TAB>frequency`, plus user overrides under `~/.config/framekeyboard/swipe/lexicons/`. Size target is about 100k entries per language (50k for the languages added from 2026-11-08), loaded lazily and bounded.
 - Scoring constants: in the lexicon file header or a small JSON file, tuned per language on held-out data.
 
 ### Build
@@ -94,6 +94,36 @@ Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shippe
 - News-based lists ranked everyday chat words low or missed them: Polish "dziękuję", Dutch "hoi" and "doei", Swedish "godnatt", English "lol". Every list except Chinese is now blended with FrequencyWords subtitle frequencies (OpenSubtitles 2018, CC BY-SA 4.0), which makes those lists CC BY-SA 4.0; sources and method are in `swipe/lexicons/README.md`. "dziękuję" now ranks 245, "спасибо" 99 (was 47,002), German "hallo" 427 (was 71,057).
 - Same synthetic method on fixed word sets, old and new list: chat words (subtitle ranks 50–3,000) top-1 rose from 93.0% to 95.7% in English, 83.3% to 90.3% German, 84.3% to 90.3% Spanish, 83.7% to 88.7% French, 85.7% to 94.7% Russian and 78.0% to 88.3% Italian; news words (old list ranks 100–10,000) moved by −1.3 to +0.3 points.
 - Swear words rise with the blend (English "fuck" from rank 15,000 to 428), so a misread swipe can produce one more easily. There is no offensive-word filter.
+
+## Added languages (2026-11-08)
+
+- Czech, Slovak, Danish, Norwegian, Finnish, Estonian, Latvian, Lithuanian, Hungarian, Romanian, Croatian, Serbian, Slovenian, Bulgarian, Macedonian, Greek, Turkish, Catalan, Icelandic, Indonesian, Filipino, Vietnamese and Azerbaijani, on every existing profile of each. Albanian and Malay wait for a word list: HeliBoard has none. Sources and build steps are in `swipe/lexicons/README.md`.
+- 50,000 words per list, about 0.6 MB (1 MB in Cyrillic and Greek) instead of 1.2–2.2 MB, which roughly halves the loaded list: the suggestion list was measured at 3.2–4.2 MB for 100k words, and the swipe trie is estimated at 4.7–5.9 MB for 50k words against 9.5–12 MB for 100k. Only the active language is loaded, so more languages add no memory.
+- Every list's words were checked against its profiles' xkb keymaps with the runtime's letter mapping. Three runtime changes came out of it: đ folds to d like ß to s, as Vietnamese types it on the number row and Croatian QWERTY has no key for it; a letter is decomposed one step at a time so a tone mark keeps ư and ơ on their keys; and I maps to ı where the layout has ı. Left: Bulgarian phonetic types ю on the number row (0.7% of word use can't be swiped) and the traditional phonetic layout ч (6.8%).
+- Filipino has 9,863 words and no subtitle blend; Vietnamese 43,806 syllables.
+- Synthetic swipes as on 2026-10-27, rebuilt as a C++ evaluator on the runtime decoder (minimum-jerk motion, 0.25 key-pitch landing error, 60 ms corner rounding, 300 words from ranks 100–10,000, seed 1); the same run gives English 94.7%, German 92.3% and Polish 93.7% top-1. Top-1 / top-3:
+
+| Profile | Top-1 | Top-3 | Profile | Top-1 | Top-3 |
+| --- | --- | --- | --- | --- | --- |
+| cs-cz | 93.0% | 99.3% | sr-rs | 94.0% | 99.0% |
+| cs-cz-qwerty | 92.3% | 99.0% | sr-rs-latin | 93.7% | 99.0% |
+| sk-sk | 91.7% | 99.0% | sl-si | 93.7% | 99.7% |
+| sk-sk-qwerty | 91.0% | 99.3% | bg-bg | 94.3% | 98.7% |
+| da-dk | 91.7% | 97.7% | bg-bg-phonetic | 95.3% | 98.7% |
+| nb-no | 91.3% | 98.0% | bg-bg-traditional | 93.0% | 98.3% |
+| fi-fi | 86.0% | 98.3% | mk-mk | 97.0% | 99.0% |
+| et-ee | 89.7% | 97.7% | el-gr | 96.7% | 99.3% |
+| lv-lv | 86.3% | 98.3% | tr-tr | 92.7% | 99.3% |
+| lt-lt | 92.3% | 99.7% | tr-tr-f | 86.3% | 98.0% |
+| hu-hu | 95.3% | 98.3% | ca-es | 87.7% | 98.3% |
+| hu-hu-qwerty | 96.3% | 99.7% | is-is | 87.7% | 97.7% |
+| ro-ro | 94.7% | 99.3% | id-id | 94.3% | 98.0% |
+| hr-hr | 96.7% | 99.3% | fil-ph | 90.0% | 95.3% |
+| hr-hr-qwerty | 97.3% | 99.7% | az-az | 95.3% | 99.7% |
+| vi-vn | 52.3% | 66.7% | | | |
+
+  Bulgarian phonetic layouts sample only swipeable words, so their numbers leave out the words with ю or ч. Vietnamese swipes base letters only: tones and ă, â, ê, ô are not on letter keys, so up to eight syllables share a path (cảm, cám, cầm, cam, cấm, câm, căm, cẩm), and the alternatives choose among them.
+- Not measured: real swipes and in-headset acceptance.
 
 ## Feasibility results
 

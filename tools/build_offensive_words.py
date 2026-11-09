@@ -26,9 +26,15 @@ import argparse
 import re
 import sys
 
-FLAGGED = re.compile(r"^ word=([^,]+),f=\d+.*possibly_offensive=true")
+FLAGGED = re.compile(r"^ ?word=([^,]+), ?f=\d+.*possibly_offensive=true")
 
 ROOTS = {
+    "cs": "kurv zkurv prdel hovn zmrd kokot čurák píč",
+    "da": "fisse kneppe røvhul",
+    "fi": "vittu vitun perkele kusipää runkk mulkk huora",
+    "hu": "basz kibasz bazd geci kurv",
+    "nb": "fitte faen jævl knull",
+    "tr": "siktir sikiş siker sikim sikt amcık orospu yarra",
     "de": "fick fotz wichs scheiß arschloch hurensohn schlampe nutte",
     "en": "fuck cunt nigger nigga motherf shit bitch whore slut wanker wankin twat fagg fags jizz dildo porn "
     "orgasm masturb cocksuck asshole bullshit dickhead blowjob handjob",
@@ -43,6 +49,13 @@ ROOTS = {
 }
 
 KEEP = {
+    "cs": "bordel",
+    "da": "anus",
+    "fi": "jätkä muna panna pistää reikä tavara paljaalla hitto piru",
+    "fil": "bobo tanga",
+    "hu": "marha barom barmok pofa franc francot francokat",
+    "nb": "fan sinnsykt pokker fanken skitt forbanna forbannet",
+    "tr": "çingene",
     "de": "nackt fratze rosette pinkeln popel lümmel dödel möpse",
     "en": "hardcore fingering snowballing swinger swingers suck sucks sucking sucker suckers cocked "
     "cocking twinkie hooker hooker's escort domination undressing xx butt snatch shiitake",
@@ -100,11 +113,13 @@ def main():
     parser.add_argument("output")
     parser.add_argument("--bad", action="append", required=True, help="LDNOOBW list")
     parser.add_argument("--flags", help="AOSP .combined list with possibly_offensive marks")
-    parser.add_argument("--language", choices=sorted(KEEP), help="language whose roots and kept words apply")
+    parser.add_argument(
+        "--language", choices=sorted(KEEP.keys() | ROOTS.keys()), help="language whose roots and kept words apply"
+    )
     parser.add_argument("--header", action="append", default=[], help="comment line to record")
     args = parser.parse_args()
 
-    keep = set(KEEP[args.language].split()) if args.language else set()
+    keep = set(KEEP.get(args.language, "").split())
     roots = tuple(ROOTS.get(args.language, "").split())
     bad = bad_words(args.bad) - keep
     # Short stems would catch unrelated words the AOSP marks are loose about.

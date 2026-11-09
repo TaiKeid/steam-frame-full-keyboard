@@ -42,6 +42,9 @@ char32_t base_letter(char32_t c) {
     if (c == U'ß') {
         return U's'; // No decomposition; phones offer it on S.
     }
+    if (c == U'đ') {
+        return U'd'; // Likewise; Vietnamese types it on the number row.
+    }
     gunichar decomposed[8];
     if (g_unichar_fully_decompose(c, FALSE, decomposed, 8) > 0) {
         return static_cast<char32_t>(g_unichar_tolower(decomposed[0]));
@@ -130,12 +133,27 @@ int SwipeKeyboard::index_of(char32_t character) const {
         const auto it = std::find(letters.begin(), letters.end(), c);
         return it == letters.end() ? -1 : static_cast<int>(it - letters.begin());
     };
-    const auto lower = static_cast<char32_t>(g_unichar_tolower(character));
-    if (const int index = find(lower); index >= 0) {
-        return index;
+    // Turkish and Azerbaijani I is the capital of ı, not of i.
+    if (const int dotless = find(U'ı'); character == U'I' && dotless >= 0) {
+        return dotless;
     }
-    if (const auto shifted = shifted_letters.find(lower); shifted != shifted_letters.end()) {
-        return shifted->second;
+    const auto lower = static_cast<char32_t>(g_unichar_tolower(character));
+    auto keyed = [&](char32_t c) {
+        if (const int index = find(c); index >= 0) {
+            return index;
+        }
+        const auto shifted = shifted_letters.find(c);
+        return shifted != shifted_letters.end() ? shifted->second : -1;
+    };
+    // A letter with its own key is swiped there, also under a tone mark that
+    // is typed separately: Vietnamese ừ is ư plus a grave, so it is ư's key.
+    for (gunichar c = lower, mark{};;) {
+        if (const int index = keyed(c); index >= 0) {
+            return index;
+        }
+        if (!g_unichar_decompose(c, &c, &mark) || c == 0) {
+            break;
+        }
     }
     // Letters typed through dead keys or on the number row are swiped on
     // their base key (é -> e, ß -> s).

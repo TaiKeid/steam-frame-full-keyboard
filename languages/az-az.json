@@ -23,6 +23,9 @@
   "required_keys": [
     "IntlBackslash"
   ],
+  "swipe": {
+    "lexicon": "az-az"
+  },
   "dictation": {
     "language": "az"
   }

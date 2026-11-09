@@ -13,7 +13,7 @@ Eine vollwertige Alternative zur eingebauten virtuellen Tastatur der Steam Frame
 - Vollständiges Layout mit F1–F12, Navigationstasten, Pfeiltasten, einem ausblendbaren Ziffernblock, Ctrl, Alt und einer Shift-Taste, die beim Halten einrastet.
 - Eigene Tasten für Ausschneiden, Kopieren und Einfügen, die Ctrl+X, Ctrl+C und Ctrl+V senden oder die Tasten eines Terminals, etwa Ctrl+Shift+C und Ctrl+Shift+V.
 - Diktieren: Sprechen statt Tippen, erkannt im Headset oder von Ihrem eigenen Whisper-Sprachserver. Korrigieren Sie den Text in einem Editor und senden Sie ihn, oder lassen Sie **Beim Sprechen tippen** (Type as I speak) jeden Satz direkt in die App tippen. Siehe [Diktieren](#dictation).
-- Wischeingabe, standardmäßig aus, für Englisch, Deutsch, Französisch, Spanisch, Italienisch, Portugiesisch, Polnisch, Niederländisch, Schwedisch, Ukrainisch, Russisch und chinesisches Pinyin. Die Wischeingabe nutzt die Technologie „FUTO Swipe“.
+- Wischeingabe, standardmäßig aus, für Englisch, Deutsch, Französisch, Spanisch, Italienisch, Portugiesisch, Polnisch, Niederländisch, Schwedisch, Ukrainisch, Russisch, chinesisches Pinyin und [23 weitere Sprachen](docs/configuration.md#swipe-typing), von Tschechisch bis Vietnamesisch. Die Wischeingabe nutzt die Technologie „FUTO Swipe“.
 - Wortvorschläge, standardmäßig an, in den Sprachen mit Wischeingabe: bis zu fünf Ergänzungen des Wortes, das Sie gerade tippen, die meistgenutzten Wörter zuerst.
 - Japanische Umwandlung mit Mozc, mit Kandidaten während des Tippens, und eine japanische 12-Tasten-Flick-Tastatur wie auf dem Telefon.
 - **Umschalt durch Ziehen**, standardmäßig aus: Ziehen Sie eine Taste nach unten für ihr Umschalt-Zeichen, etwa ^ auf der Taste 6 oder einen Großbuchstaben, solange die Wischeingabe aus ist.

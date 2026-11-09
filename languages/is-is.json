@@ -23,6 +23,9 @@
   "required_keys": [
     "IntlBackslash"
   ],
+  "swipe": {
+    "lexicon": "is-is"
+  },
   "dictation": {
     "language": "is"
   }

@@ -57,8 +57,10 @@ when the module would otherwise unload, without a leak-report suppression.
 
 Word lists in `../swipe/lexicons/` are derived from CC BY lists (Leipzig Corpora
 Collection, partly via HeliBoard) blended with CC BY-SA 4.0 subtitle frequencies
-(FrequencyWords, from OpenSubtitles 2018), so those lists are CC BY-SA 4.0; the
-Chinese Pinyin list comes from jieba and pypinyin under MIT. See their README
+(FrequencyWords, from OpenSubtitles 2018), so those lists are CC BY-SA 4.0. The
+Filipino list has no subtitles blended in and stays CC BY 4.0; the Azerbaijani
+list comes from a CC BY-SA 4.0 list; the Chinese Pinyin list comes from jieba
+and pypinyin under MIT. See their README
 and licence files for sources, hashes and changes.
 
 Japanese conversion dynamically uses the system Anthy public C API (`anthy.h`, 9100h). Anthy and its dictionary are not vendored. Its commit and prediction APIs learn under Full Keyboard's own personality (docs/japanese.md, Learning). Only the desktop simulator's AppImage can carry a copy of Anthy; `anthy/` records which and its licenses.
