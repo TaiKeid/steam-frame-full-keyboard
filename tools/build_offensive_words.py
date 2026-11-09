@@ -19,6 +19,11 @@ Words in KEEP are never listed: everyday words the bad words lists include
 (Italian regina, Portuguese comer, Swedish sås, English hardcore), reviewed by
 hand from each language's output. Their inflections are not caught either.
 
+Languages without an LDNOOBW list take --words instead: a file of their own
+in tools/offensive_words/, one entry per line, "word", "root*" or "!kept word",
+drafted with an AI model, matched against the word list and reviewed for
+everyday words.
+
 Output: comment lines, then one word per line as the lexicon spells it.
 """
 
@@ -49,7 +54,7 @@ ROOTS = {
 }
 
 KEEP = {
-    "cs": "bordel",
+    "cs": "bordel debil",
     "da": "anus",
     "fi": "jätkä muna panna pistää reikä tavara paljaalla hitto piru",
     "fil": "bobo tanga",
@@ -97,6 +102,23 @@ def bad_words(paths):
     return words
 
 
+def drafted_words(path):
+    """Words, roots and kept words from a tools/offensive_words/ file."""
+    words, roots, keep = set(), [], set()
+    with open(path, encoding="utf-8") as source:
+        for line in source:
+            entry = line.strip().lower()
+            if not entry or entry.startswith("#"):
+                continue
+            if entry.startswith("!"):
+                keep.add(entry[1:])
+            elif entry.endswith("*"):
+                roots.append(entry[:-1])
+            else:
+                words.add(entry)
+    return words, roots, keep
+
+
 def flagged_words(path):
     words = set()
     with open(path, encoding="utf-8") as source:
@@ -111,7 +133,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("lexicon")
     parser.add_argument("output")
-    parser.add_argument("--bad", action="append", required=True, help="LDNOOBW list")
+    parser.add_argument("--bad", action="append", default=[], help="LDNOOBW list")
+    parser.add_argument("--words", help="tools/offensive_words/ list: word, root* or !kept word")
     parser.add_argument("--flags", help="AOSP .combined list with possibly_offensive marks")
     parser.add_argument(
         "--language", choices=sorted(KEEP.keys() | ROOTS.keys()), help="language whose roots and kept words apply"
@@ -120,8 +143,15 @@ def main():
     args = parser.parse_args()
 
     keep = set(KEEP.get(args.language, "").split())
-    roots = tuple(ROOTS.get(args.language, "").split())
-    bad = bad_words(args.bad) - keep
+    roots = ROOTS.get(args.language, "").split()
+    bad = bad_words(args.bad)
+    if args.words:
+        drafted, drafted_roots, drafted_keep = drafted_words(args.words)
+        bad |= drafted
+        roots += drafted_roots
+        keep |= drafted_keep
+    roots = tuple(roots)
+    bad -= keep
     # Short stems would catch unrelated words the AOSP marks are loose about.
     stems = sorted((word for word in bad if len(word) >= 4), key=len)
     flagged = flagged_words(args.flags) if args.flags else set()

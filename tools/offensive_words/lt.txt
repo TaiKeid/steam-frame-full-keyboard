@@ -1,0 +1,36 @@
+# Lithuanian offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7, matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+blet
+kekšė
+kekšės
+papai
+pimpalas
+pimpalo
+pimpis
+subinė
+subinės
+subinę
+supistas
+sušiktas
+sušikti
+šikna
+šiknius
+šikną
+šliundra
+šunsnukis
+šūdas
+šūde
+šūdo
+šūdu
+šūdą
+šūdžius
+kekš*
+subin*
+sukruš*
+sušikt*
+šikn*
+šikt*
+šunsnuk*
+šūdi*
+šūdž*

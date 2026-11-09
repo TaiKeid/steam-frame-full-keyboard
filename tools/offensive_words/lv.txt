@@ -1,0 +1,20 @@
+# Latvian offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7, matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+dirst
+dirsā
+mauka
+padauza
+padauzu
+pauti
+pautiem
+pautus
+sūda
+sūdabrālis
+sūdi
+sūdiem
+sūds
+sūdu
+sūdus
+sūdīgi
+nēģer*

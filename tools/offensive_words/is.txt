@@ -1,0 +1,41 @@
+# Icelandic offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7, matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+drullusokk
+drullusokkar
+drullusokkur
+fokk
+fokka
+fokking
+hóra
+negra
+negrar
+negrarnir
+negri
+niggara
+niggarar
+niggari
+píka
+píkan
+píku
+píkum
+píkuna
+píkunni
+píkur
+rassgat
+rassgati
+rassgatinu
+rassgatið
+sjitt
+skít
+skíta
+skítinn
+skítur
+skíturinn
+typpi
+typpinu
+typpið
+fokk*
+negr*
+rassg*
+typp*

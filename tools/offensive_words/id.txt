@@ -1,0 +1,45 @@
+# Indonesian offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7, matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+bacot
+bajingan
+banci
+bangsat
+bedebah
+bego
+bencong
+berak
+bokep
+brengsek
+cuk
+gigolo
+jablay
+jancok
+jancuk
+keparat
+kontol
+kunyuk
+lacur
+lonte
+memek
+negro
+ngentot
+pantek
+pelacur
+peler
+perek
+porno
+puki
+sundal
+taek
+tai
+taik
+titit
+toket
+bajingan*
+brengs*
+colm*
+keparat*
+pelacu*
+titit*
+!pornografi

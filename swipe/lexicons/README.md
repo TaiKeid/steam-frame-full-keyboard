@@ -178,6 +178,18 @@ with a listed word of four letters or more; the AOSP marks alone are too broad
 words the bad words lists include, such as Italian "regina", Portuguese "comer"
 or English "hardcore", are kept out by hand (`KEEP` in the tool). Ukrainian
 uses the Russian bad words list, and Italian and Ukrainian have no AOSP marks.
+
+The bad words lists have no Slovak, Estonian, Latvian, Lithuanian, Romanian,
+Croatian, Serbian, Slovenian, Bulgarian, Macedonian, Greek, Catalan,
+Icelandic, Indonesian or Vietnamese. Their lists come from
+`tools/offensive_words/<language>.txt` instead (`--words`: one word, `root*`
+or `!kept word` per line), drafted with Grok 4.7, matched against the word
+list, and reviewed for everyday words by AI models, not native speakers; plain
+words for "idiot" stay out, as Spanish "idiota" does, and so do the neutral
+words for Roma (Turkish "çingene" too). They don't use the AOSP marks, so
+every listed word was reviewed. Corrections are welcome. Azerbaijani has no
+list: none of the drafted words is in its word list, which has no subtitles
+blended in.
 Drawn from the word lists, the lists are licensed under CC BY-SA 4.0 as they are.
 
 | Bad words list | Used for | SHA-256 |

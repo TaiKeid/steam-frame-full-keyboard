@@ -1,0 +1,38 @@
+# Vietnamese offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7, matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+buồi
+cave
+chệt
+chịch
+clgt
+cmm
+cmn
+cặc
+cặt
+cứt
+hĩm
+khựa
+loàn
+lồn
+mịa
+nứng
+thoã
+vcl
+vkl
+vếu
+xoạc
+đcm
+điếm
+đkm
+đm
+đmm
+đách
+đéo
+đĩ
+đếch
+đệch
+đệt
+địt
+đụ
+buồi*

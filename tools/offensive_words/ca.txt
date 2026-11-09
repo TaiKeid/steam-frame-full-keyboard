@@ -1,0 +1,40 @@
+# Catalan offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7, matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+cabrona
+cabrons
+cabró
+caga
+cagada
+cagant
+cagar
+cagat
+cago
+cagues
+carall
+carallot
+carallots
+cardar
+collons
+cony
+conys
+follant
+follar
+follat
+follem
+follo
+gilipolles
+malparida
+malparit
+malparits
+mamada
+marica
+meuca
+puta
+putada
+putes
+puteta
+puto
+putos
+emmerd*
+merd*
