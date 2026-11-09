@@ -2830,6 +2830,80 @@ void whole_words_lead() {
     require(first("ねんし") == "年始", "a word the list lacks leads a rarer completion");
     require(first("おもしろ") == "面白い", "an adjective's stem still completes to it first");
 }
+// With the bundled lists, a reading partly typed still completes first while
+// a whole word, as Mozc reads it, keeps its place before its completions.
+// Each reading converts as Mozc converted it (2026-11-08).
+void partial_and_whole_words() {
+    using Segments = std::vector<JapaneseConverter::Segment>;
+    struct Scripted : JapaneseConverter {
+        const std::map<std::string, Segments>* readings;
+        explicit Scripted(const std::map<std::string, Segments>* known) : readings(known) {}
+        std::vector<Segment> convert(const std::string& reading) override {
+            const auto found = readings->find(reading);
+            require(found != readings->end(), "every reading has Mozc's conversion");
+            return found->second;
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    const auto one = [](const std::string& reading, const std::string& text) {
+        return Segments{{reading, {text, reading}}};
+    };
+    // Partly typed: the completion leads.
+    const std::vector<std::tuple<std::string, std::string, std::string>> partial{
+        {"ありが", "アリが", "ありがとう"}, {"おめでと", "おめでと", "おめでとう"},
+        {"すご", "巣子", "すごい"},         {"さむ", "サム", "寒い"},
+        {"やば", "ヤバ", "ヤバい"},         {"いただき", "いただき", "いただきます"},
+        {"ひさし", "久", "久しぶり"},       {"ひさ", "久", "久しぶり"},
+        {"こんに", "根に", "こんにちは"},   {"おもしろ", "おもしろ", "面白い"},
+        {"よろし", "よろし", "よろしく"},   {"おつか", "大塚", "お疲れ様"},
+        {"おやす", "小安", "おやすみ"},     {"おは", "おは", "おはよう"},
+        {"たの", "他の", "楽しい"},         {"うれ", "売れ", "嬉しい"},
+        {"ごめ", "米", "ごめん"},           {"かわい", "カワイ", "可愛い"},
+        {"ぜんぜ", "ゼンゼ", "全然"},       {"おだいじ", "お大事", "お大事に"},
+        {"つら", "面", "つらい"},           {"しつれ", "しつれ", "失礼"},
+    };
+    // A whole word, listed or as Mozc reads it, leads its completions.
+    const std::vector<std::tuple<std::string, std::string, std::string>> whole{
+        {"じひ", "自費", "自費"},         {"けち", "ケチ", "ケチ"},       {"にら", "ニラ", "ニラ"},
+        {"がむ", "ガム", "ガム"},         {"とだ", "戸田", "戸田"},       {"おでん", "おでん", "おでん"},
+        {"えんか", "演歌", "演歌"},       {"けいと", "毛糸", "毛糸"},     {"いっぽ", "一歩", "一歩"},
+        {"しっと", "嫉妬", "嫉妬"},       {"てんき", "天気", "天気"},     {"かえり", "帰り", "帰り"},
+        {"かたづけ", "片付け", "片付け"}, {"はな", "花", "花"},           {"うま", "馬", "馬"},
+        {"ねむ", "ねむ", "ねむ"}, // Chat writes it so, for 眠い.
+        {"やべ", "矢部", "やべ"},         {"あいす", "アイス", "アイス"},
+    };
+    std::map<std::string, Segments> readings;
+    for (const auto& list : {partial, whole}) {
+        for (const auto& [reading, text, expected] : list) {
+            readings.emplace(reading, one(reading, text));
+        }
+    }
+    // さんじ goes to Mozc as 3じ, which it splits as a number and its counter.
+    readings.emplace("3じ", Segments{{"3", {"3", "三"}}, {"じ", {"時", "字"}}});
+    readings.emplace("くるまで", one("くるまで", "車で"));
+    const JapaneseWords words(data_resource({}, "japanese/words.tsv"));
+    const JapaneseWords phrases(data_resource({}, "japanese/preferred.tsv"));
+    JapaneseComposer composer([&readings] { return std::make_unique<Scripted>(&readings); });
+    composer.set_words(&words);
+    composer.set_phrases(&phrases);
+    // Their usual conversions too, as the keyboard sets them: ねむ, やべ.
+    composer.set_preferred([&phrases](const std::string& reading) { return phrases.exact(reading, 1); });
+    const auto first = [&](const std::string& kana) {
+        composer.cancel();
+        composer.kana(kana);
+        composer.prepare_live();
+        return composer.live().front();
+    };
+    for (const auto& [reading, text, expected] : partial) {
+        require(first(reading) == expected, "a partly typed reading completes first: " + reading);
+    }
+    for (const auto& [reading, text, expected] : whole) {
+        require(first(reading) == expected, "a whole word leads its completions: " + reading);
+    }
+    require(first("さんじ") == "3時",
+            "a phrase going on past a particle follows its start: 3時に会おう");
+    require(first("くるまで") == "車で", "a phrase follows a word and a particle Mozc reads so");
+}
 // Numbers spelled in kana before a counter go to the converter as digits,
 // which Mozc converts as chat writes them (30分, 1万円); a digit and counter
 // that make a word, or a に that is a particle, stay as typed.
@@ -5315,6 +5389,7 @@ int main() {
         object_verbs();
         chat_kana();
         whole_words_lead();
+        partial_and_whole_words();
         spelled_numbers();
         carried_conversion();
         context_converter();

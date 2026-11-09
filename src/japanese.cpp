@@ -1310,6 +1310,12 @@ bool hiragana_only(const std::string& text) {
     }
     return !text.empty();
 }
+// 辛い is つらい where it is read so, not からい; call only for a reading with つら.
+void tsura_in_kana(std::string& text) {
+    for (auto at = text.find("辛"); at != std::string::npos; at = text.find("辛", at)) {
+        text.replace(at, std::string_view("辛").size(), "つら");
+    }
+}
 // A katakana word, as Anthy reads loanwords: カレー, コーヒー.
 bool katakana_word(const std::string& text) {
     bool letters = false;
@@ -2049,11 +2055,8 @@ void JapaneseComposer::chat_kana(std::vector<Segment>& segments) {
             !text.starts_with("曇り")) {
             text.insert(std::string_view("曇").size(), "り");
         }
-        // 辛い is つらい where it is read so, not からい.
         if (segment.reading.find("つら") != std::string::npos) {
-            for (auto at = text.find("辛"); at != std::string::npos; at = text.find("辛", at)) {
-                text.replace(at, std::string_view("辛").size(), "つら");
-            }
+            tsura_in_kana(text);
         }
         for (const auto& word : words) {
             for (auto at = text.find(word.kanji); at != std::string::npos;
@@ -2646,22 +2649,41 @@ void JapaneseComposer::prepare_live() {
     for (const auto& segment : live.segments) {
         whole += segment.candidates.front();
     }
+    // A word and a particle, as the converter reads it too: くるまで as 車で.
+    // Where it reads them as one word instead (演歌 for えんか), it is that word.
+    const char* last = g_utf8_find_prev_char(reading.c_str(), reading.c_str() + reading.size());
+    const bool with_particle =
+        words_ && last && words_->word_and_particle(reading) && std::string_view(whole).ends_with(last);
     // A reading that is no word yet, or a rarer one than what it begins,
     // completes first, as on a phone: おめでと to おめでとう.
     bool completes_first = false;
+    bool stem = false;
     std::vector<std::pair<std::string, int>> completed;
     const bool long_enough = g_utf8_strlen(reading.c_str(), -1) >= 2;
     if (words_ && long_enough) {
-        completed = words_->completions(reading, 3, completes_first);
+        completed = words_->completions(reading, 3, completes_first, &stem);
     }
+    // Completions write 辛い as conversions do, つらい for つら, once.
+    if (reading.find("つら") != std::string::npos) {
+        std::vector<std::pair<std::string, int>> kana;
+        for (auto& [text, cost] : completed) {
+            tsura_in_kana(text);
+            if (std::none_of(kana.begin(), kana.end(),
+                             [&](const auto& got) { return got.first == text; })) {
+                kana.emplace_back(std::move(text), cost);
+            }
+        }
+        completed = std::move(kana);
+    }
+    const std::string stem_word = stem ? completed.front().first : std::string{};
     // Common chat phrases complete it too, ranked as fairly common words:
     // いただき to いただきます, ひさし to 久しぶり, but きょうは and こんや to 今日は
     // and 今夜 first. A word the phrases list too ranks well ahead, as
     // chatted: こんに to こんにちは before 今日 (こんにち).
+    std::set<std::string> phrases_only;
     if (phrases_ && long_enough) {
         constexpr int phrase_cost = 3000, chatted = 1000;
         bool ignored = false;
-        std::set<std::string> phrases_only;
         for (auto& [text, cost] : phrases_->completions(reading, 3, ignored)) {
             const auto same = std::find_if(completed.begin(), completed.end(),
                                            [&](const auto& got) { return got.first == text; });
@@ -2679,22 +2701,59 @@ void JapaneseComposer::prepare_live() {
         }
         // A phrase only the list has doesn't lead a word and a particle:
         // くるまで is 車で before 車で来た.
-        const bool over_particle = !completed.empty() &&
-                                   phrases_only.contains(completed.front().first) && words_ &&
-                                   words_->word_and_particle(reading);
+        const bool over_particle =
+            !completed.empty() && phrases_only.contains(completed.front().first) && with_particle;
         completes_first = completes_first ||
                           (!completed.empty() && !over_particle &&
                            (!words_ || words_->completion_leads(reading, completed.front().second)));
     }
-    // A reading the list lacks that the converter reads whole as a word, as
-    // Mozc's larger dictionary does (法事, 薄着, 年始), counts as a word rarer
-    // than any listed: only a clearly commoner completion leads it.
-    // Two kana are too few to tell: すご completes to すごい.
-    if (completes_first && words_ && !completed.empty() && live.segments.size() == 1 &&
-        g_utf8_strlen(reading.c_str(), -1) > 2 &&
-        words_->own_cost(reading) == std::numeric_limits<int>::max() && has_kanji(whole)) {
-        constexpr int unlisted = 5500;
-        completes_first = words_->completion_leads(reading, completed.front().second, unlisted);
+    // A phrase only the list has that goes on past a particle doesn't lead
+    // the conversion it begins with, a word in its own right: さんじ is 3時
+    // before 3時に会おう, てんき 天気 before 天気がいいね, but おだいじ
+    // completes to お大事に.
+    const auto goes_on = [&](const std::string& phrase) {
+        if (whole.empty() || !std::string_view(phrase).starts_with(whole)) {
+            return false;
+        }
+        const auto end =
+            g_utf8_get_char(g_utf8_find_prev_char(whole.c_str(), whole.c_str() + whole.size()));
+        if (end >= 0x3041 && end <= 0x3096) { // Hiragana: the conversion ends mid-word, perhaps.
+            return false;
+        }
+        const auto full = phrases_->completed_reading(reading, phrase);
+        if (full.size() <= reading.size()) {
+            return false;
+        }
+        const std::string rest = full.substr(reading.size());
+        return g_utf8_strlen(rest.c_str(), -1) > 1 &&
+               (rest.starts_with("へ") ||
+                std::any_of(std::begin(case_particles), std::end(case_particles),
+                            [&](std::string_view particle) { return rest.starts_with(particle); }));
+    };
+    // The converter's conversion is one of the list's words for the reading,
+    // other than its kana: 一歩 for いっぽ, アイス for あいす.
+    bool listed_whole = false;
+    if (words_ && live.segments.size() == 1 && whole != in_script(reading, false)) {
+        const auto listed = words_->exact(reading, 16);
+        listed_whole = std::find(listed.begin(), listed.end(), whole) != listed.end();
+    }
+    if (completes_first && !completed.empty() && phrases_only.contains(completed.front().first) &&
+        goes_on(completed.front().first)) {
+        completes_first = false;
+    } else if (completes_first && words_ && !completed.empty() && live.segments.size() == 1 &&
+               !with_particle && completed.front().first != stem_word) {
+        // A reading the converter reads whole as one word, in any script, is
+        // a word, though the list may lack it, as Mozc's larger dictionary
+        // has more (磯, ガム, おでん, 演歌, 年始): only a clearly common
+        // completion leads it, as すご completes to すごい, ありが to ありがとう
+        // and ひさし to 久しぶり, while じひ stays 自費 before 慈悲深い.
+        // Three kana or more left as typed are a weaker sign: しつれ still
+        // completes to 失礼, while しびれ stays before 痺れる.
+        const bool as_typed =
+            whole == in_script(reading, false) && g_utf8_strlen(reading.c_str(), -1) > 2;
+        const int read_whole = as_typed ? 5000 : 4300;
+        completes_first =
+            words_->completion_leads(reading, completed.front().second, read_whole, listed_whole);
     }
     auto complete = [&] {
         for (auto& [word, cost] : completed) {
@@ -2735,10 +2794,13 @@ void JapaneseComposer::prepare_live() {
     if (std::find(predicted.begin(), predicted.end(), whole) != predicted.end()) {
         completes_first = false;
     }
-    // Nor before a stretched word or a katakana word Anthy reads whole:
-    // だめー is ダメー before ダメージ, こーら コーラ before コーラス.
-    if (!stretch_.empty() ||
-        (live.segments.size() == 1 && katakana_word(whole) && loanword_length(reading))) {
+    // Nor before a stretched word or a katakana word the converter reads
+    // whole, with ー or listed: だめー is ダメー before ダメージ, こーら コーラ
+    // before コーラス, あいす アイス before 愛する. Otherwise katakana may be
+    // only the converter's guess at an unknown start, which the rule above
+    // weighs: かわい completes to 可愛い, not カワイ.
+    if (!stretch_.empty() || (live.segments.size() == 1 && katakana_word(whole) &&
+                              (listed_whole || reading.find("ー") != std::string::npos))) {
         completes_first = false;
     }
     if (completes_first) {
@@ -3161,27 +3223,37 @@ int JapaneseWords::own_cost(const std::string& reading) const {
     }
     return cost;
 }
-bool JapaneseWords::completion_leads(const std::string& reading, int cost, int unlisted) const {
+bool JapaneseWords::completion_leads(const std::string& reading, int cost, int whole,
+                                     bool agreed) const {
     // A word read so leads its completions unless they are clearly commoner:
     // おめでとう (1842) leads おめでと (4192), but 涙 keeps its place before
-    // 涙する and だめ before ダメージ. A word of two kana always leads, as a
-    // phone's does: はな is 花 before 話 (はなし).
+    // 涙する and だめ before ダメージ. A listed word of two kana always leads,
+    // as a phone's does: はな is 花 before 話 (はなし).
     // A reading ending in った or んだ is a verb's past, as typed: あった
     // before あったかい, やった before ヤッター, しんだ (死んだ) before 診断.
     if (std::string_view(reading).ends_with("った") || std::string_view(reading).ends_with("んだ")) {
         return false;
     }
+    // Where the converter and the list agree on the word, it is surely one:
+    // 一歩 stays before 一方 (いっぽ), 嫉妬 before しっとり.
+    constexpr int much_commoner = 1500;
+    const bool two_kana = g_utf8_strlen(reading.c_str(), -1) <= 2;
     int own = own_cost(reading);
-    if (own == std::numeric_limits<int>::max()) {
-        if (unlisted == std::numeric_limits<int>::max()) {
-            return true;
+    if (whole != std::numeric_limits<int>::max()) {
+        if (two_kana && !exact(reading, 1).empty()) {
+            return false;
         }
-        own = unlisted;
+        own = std::min(own, whole);
+    } else if (own == std::numeric_limits<int>::max()) {
+        return true;
+    } else if (two_kana) {
+        return false;
     }
-    return g_utf8_strlen(reading.c_str(), -1) > 2 && cost + clearly_commoner < own;
+    return cost + (agreed ? much_commoner : clearly_commoner) < own;
 }
-std::vector<std::pair<std::string, int>>
-JapaneseWords::completions(const std::string& reading, std::size_t most, bool& first) const {
+std::vector<std::pair<std::string, int>> JapaneseWords::completions(const std::string& reading,
+                                                                    std::size_t most, bool& first,
+                                                                    bool* stem_first) const {
     load();
     int exact = std::numeric_limits<int>::max(); // The reading's own cost as a word.
     const auto reading_of = [&](const Entry& entry) {
@@ -3207,13 +3279,22 @@ JapaneseWords::completions(const std::string& reading, std::size_t most, bool& f
                      [](const Entry* a, const Entry* b) { return a->cost < b->cost; });
     // An adjective's stem completes to it first unless the stem is clearly
     // the commoner word: おもしろ to 面白い. Only an adjective: 協会 is no
-    // stem's completion of きょうか, nor 見解 of けんか.
-    const bool stem =
+    // stem's completion of きょうか, nor 見解 of けんか. A stem of two kana
+    // completes so only where it is a far rarer word of its own: つら (面)
+    // to つらい, while うま stays 馬 before うまい and はな 花.
+    constexpr int far_rarer = 2000;
+    const bool adjective =
         !found.empty() && reading_of(*found.front()) == reading + "い" &&
         std::string_view(text_.data() + found.front()->word, found.front()->word_size).ends_with("い") &&
-        exact != std::numeric_limits<int>::max() && g_utf8_strlen(reading.c_str(), -1) > 2 &&
-        exact + clearly_commoner >= static_cast<int>(found.front()->cost);
+        exact != std::numeric_limits<int>::max();
+    const int adjective_cost = found.empty() ? 0 : static_cast<int>(found.front()->cost);
+    const bool stem =
+        adjective && (g_utf8_strlen(reading.c_str(), -1) > 2 ? exact + clearly_commoner >= adjective_cost
+                                                             : exact >= adjective_cost + far_rarer);
     first = !found.empty() && (stem || completion_leads(reading, static_cast<int>(found.front()->cost)));
+    if (stem_first) {
+        *stem_first = stem;
+    }
     std::vector<std::pair<std::string, int>> result;
     for (const auto* entry : found) {
         std::string word(text_.data() + entry->word, entry->word_size);

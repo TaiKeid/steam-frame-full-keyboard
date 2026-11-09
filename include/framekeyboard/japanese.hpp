@@ -98,14 +98,17 @@ class JapaneseWords {
     // word and a particle (きょうは), or a clearly rarer one of three kana or
     // more than the commonest of them (おめでと, before おめでとう).
     std::vector<std::string> complete(const std::string& reading, std::size_t most, bool& first) const;
-    // complete() with each word's cost, lower is commoner.
+    // complete() with each word's cost, lower is commoner. `stem`, when
+    // given, says whether the first leads as the reading's adjective.
     std::vector<std::pair<std::string, int>> completions(const std::string& reading, std::size_t most,
-                                                         bool& first) const;
+                                                         bool& first, bool* stem = nullptr) const;
     // Whether a completion of this cost leads the reading's own conversion,
-    // by complete()'s rule but for an adjective's stem. A reading the list
-    // lacks counts as a word of cost `unlisted`, by default none.
+    // by complete()'s rule but for an adjective's stem. A reading the
+    // converter reads whole as one word counts as a word of cost `whole` at
+    // most, listed or not, by default none; `agreed` says that word is one
+    // the list has for the reading, which only a much commoner one leads.
     bool completion_leads(const std::string& reading, int cost,
-                          int unlisted = std::numeric_limits<int>::max()) const;
+                          int whole = std::numeric_limits<int>::max(), bool agreed = false) const;
     // The reading's lowest cost as a word, or as a word and a particle a
     // little more; the largest int when it is neither.
     int own_cost(const std::string& reading) const;
