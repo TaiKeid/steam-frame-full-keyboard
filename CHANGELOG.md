@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added a **Key vibration** checkbox to Settings → Typing: it turns the controller's haptic clicks off (press, release, hover and Pull for Shift ticks) while key sounds and dictation's listening cues keep their own switches. Saved as the optional global boolean `vibration`, on by default, applied with Apply and save.
+- Added a **Key vibration** checkbox to Settings → Typing. Unchecked, the keyboard's own vibration stops: the hover tick, the stronger press, the release click and the Pull for Shift tick. The controller's own click on trigger press stays, and key sounds and dictation's listening cues keep their own switches. Saved as the optional global boolean `vibration`, on by default, applied with Apply and save. Thanks to @netux for the change (#13).
 
 ## 0.16.0: Interface languages and fixes
 

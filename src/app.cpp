@@ -894,12 +894,12 @@ void App::update_settings_ui() {
         field(ControlKind::AutoLeveling,
               checkbox("auto-leveling", tr("setting.auto-leveling"), pending_auto_leveling_))};
     std::vector<SettingField> typing_fields{haptic_sounds};
-    typing_fields.push_back(
-        field(ControlKind::Vibration, checkbox("vibration", tr("setting.vibration"), pending_vibration_)));
     if (pending_haptic_sounds_ != "off") {
         typing_fields.push_back(haptic_effect);
         typing_fields.push_back(haptic_volume);
     }
+    typing_fields.push_back(
+        field(ControlKind::Vibration, checkbox("vibration", tr("setting.vibration"), pending_vibration_)));
     typing_fields.insert(typing_fields.end(),
                          {field(ControlKind::EmojiCloseOnSelect,
                                 checkbox("emoji-close-on-select", tr("setting.emoji-close-on-select"),

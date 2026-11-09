@@ -314,7 +314,7 @@ A shell that owns the controllers, for example a scene app, forwards its own poi
 - The move line and corner resizers need a world ray and separate overlays, so they are disabled in forwarded mode. The shell moves and resizes the panel with `set_pose` and `set_width`.
 - `pointer` messages have no `id` and get no response, to keep latency low. They are applied in order. Moves are never merged across `down`, `up` or `cancel`. Hover moves may be merged to the latest. Moves during a press are kept, up to 8 per hand per frame, so swipe recognition keeps enough samples.
 - `cancel`, hiding, a context change, lease expiry and the connection closing cancel each forwarded pointer. A cancel never releases into a key press.
-- Haptics stay with the keyboard. It pulses the hand named in `hand`, through the existing per-controller path. A shell that wants to play haptics itself sets `"haptics":"shell"` and receives `haptic` events (`hand`, `kind`: `press`, `release`, `hover`) instead.
+- Haptics stay with the keyboard. It pulses the hand named in `hand`, through the existing per-controller path. A shell that wants to play haptics itself sets `"haptics":"shell"` and receives `haptic` events (`hand`, `kind`: `press`, `release`, `hover`) instead, none while `vibration` is off.
 
 ## Text sink
 

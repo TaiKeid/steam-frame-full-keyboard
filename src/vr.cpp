@@ -2507,6 +2507,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // Pulses the controller in `hand`, or tells a shell that plays its own.
     auto forwarded_haptic = [&](std::size_t hand, unsigned pointer, KeyFeedback kind) {
         if (shell_haptics) {
+            // Key vibration off: the shell plays nothing either.
+            if (!app.vibration()) {
+                return;
+            }
             auto fields = json_ptr(json_object_new_object());
             json_object_object_add(fields.get(), "hand",
                                    json_object_new_string(hand == 0 ? "left" : "right"));
