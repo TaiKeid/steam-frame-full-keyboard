@@ -76,6 +76,8 @@ The Typing card's **Haptic sounds** dropdown adds a pop to keyboard keys: **Off*
 
 With Haptic sounds on, the toolbar shows a haptic sounds button, saved as the optional global boolean `haptic_sounds_switch`, true by default. It is a switch of its own: it mutes and unmutes keys, survives restarts, and leaves the dropdown as it is, and Settings previews respect its mute state. With Haptic sounds at Off the button is hidden. While the microphone is listening or recognition is still working, it is disabled like the language button, and crossed while keys are silent.
 
+The Typing card's **Key vibration** checkbox turns the controller's vibration pulses on or off: the press and release clicks, the hover tick and the flick tick of Pull for Shift. It is saved as the optional global boolean `vibration`, true by default, and applies with **Apply and save** like the other Typing card choices. It leaves **Haptic sounds** and dictation's listening cues alone: those are switches of their own.
+
 The General card's Hide numpad checkbox removes Num Lock and all Numpad keys, narrows the case, and keeps the remaining keys at the same size. It is saved as the optional global boolean `hide_numpad`, defaulting to false, and applies to every layout and favorite. Showing the numpad again restores its remembered Num Lock state. The transparent space beside the narrower case is excluded from VR interaction. Settings retains its full card area.
 
 Checkbox edits stay pending across dropdown selections. Apply and save activates the chosen profiles and saves all pending additional languages, numpad visibility and movement behavior; Back discards pending edits. At most 32 favorite records can be saved.

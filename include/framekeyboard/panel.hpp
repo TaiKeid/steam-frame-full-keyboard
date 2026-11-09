@@ -65,6 +65,7 @@ enum class ControlKind {
     ChooseHapticVolume,
     UseDragToMove,
     AutoLeveling,
+    Vibration,
     ReplaceNativeKeyboard,
     StartWithSteamos,
     EmojiCloseOnSelect,

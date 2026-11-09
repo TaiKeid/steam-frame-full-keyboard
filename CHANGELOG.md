@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added a **Key vibration** checkbox to Settings → Typing: it turns the controller's haptic clicks off (press, release, hover and Pull for Shift ticks) while key sounds and dictation's listening cues keep their own switches. Saved as the optional global boolean `vibration`, on by default, applied with Apply and save.
+
 ## 0.16.0: Interface languages and fixes
 
 - The keyboard's own interface (Settings, messages, tooltips and dialogs) now follows the system language: Simplified and Traditional Chinese, Russian, Spanish, Brazilian Portuguese, German, Japanese, French, Polish, Korean, Turkish, Ukrainian and Italian, with English otherwise. On SteamOS the system language is Steam's own language setting. Keyboard layouts and key legends follow the typing language as before. The translations are AI-made; corrections are welcome. See [localization design](docs/localization-design.md).
