@@ -10,7 +10,7 @@ Status: design, not built. It covers the keyboard's own interface text: Settings
 - Plurals, placeholders and number formats are data in each language's file, so adding a language needs no code.
 - Light on the Frame: two small tables in memory (the chosen language and English), no per-frame work.
 
-First languages, by Steam's language survey of October 2026 (about 97% of Steam users): English, Simplified Chinese, Russian, Spanish, Brazilian Portuguese, German, Japanese, French, Polish, Korean, Turkish, Traditional Chinese, Ukrainian and Italian. Thai and Czech next; Latin American Spanish and European Portuguese later, as variants.
+First languages, by Steam's language survey of October 2026 (about 97% of Steam users): English, Simplified Chinese, Russian, Spanish, Brazilian Portuguese, German, Japanese, French, Polish, Korean, Turkish, Traditional Chinese, Ukrainian and Italian. Czech, Latin American Spanish (`es-419`) and European Portuguese (`pt-PT`) followed; Thai is next.
 
 ## Files
 
@@ -90,6 +90,8 @@ Debug card dropdown (development builds, this run only, never saved; languages b
        └─ else English
 Each key: the chosen file → its `fallback`, if any (es-419 → es) → English
 ```
+
+A `posix` locale matches whole before its language alone, so regional variants list their locales: `es-419` names `es_419` and every Latin American locale (`es_MX`, `es_AR`, … `es_US`), leaving `es_ES` and plain `es` to `es`; `pt-PT` names `pt_PT` and the other countries that follow European spelling (`pt_AO`, `pt_MZ`, …), while `pt_BR` and plain `pt` stay with `pt-BR`. Each Steam name belongs to one file: `latam` to `es-419`, `portuguese` to `pt-PT`, `brazilian` to `pt-BR`. `pt-PT` has no `fallback`, so a missing key shows in English rather than in Brazilian Portuguese.
 
 On SteamOS the system language is Steam's own language setting; the session's `LANG` may stay English. The keyboard reads Steam's value when it starts and again whenever Settings opens (one `stat`, and a read only when the file changed), so a language change shows up without a restart. Hosted mode uses the same detection; a shell protocol field for the shell's own language can come later.
 

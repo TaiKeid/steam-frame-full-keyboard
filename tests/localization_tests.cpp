@@ -229,6 +229,30 @@ void bundled_tests() {
     require(l.errors().empty(), "the bundled files load");
     l.choose({"", ""});
     require(l.tag() == "en" && l.fonts() == "Noto Sans,sans-serif", "English by default");
+    // Regional variants: Steam's own names, then whole locales before the
+    // language alone, so es_MX and pt_PT never land on es or pt-BR.
+    const std::pair<SystemLanguage, const char*> variants[]{
+        {{"latam", ""}, "es-419"},       {{"spanish", ""}, "es"},
+        {{"portuguese", ""}, "pt-PT"},   {{"brazilian", ""}, "pt-BR"},
+        {{"czech", ""}, "cs"},           {{"", "es_MX.UTF-8"}, "es-419"},
+        {{"", "es_AR.UTF-8"}, "es-419"}, {{"", "es_US.UTF-8"}, "es-419"},
+        {{"", "es_ES.UTF-8"}, "es"},     {{"", "es"}, "es"},
+        {{"", "pt_PT.UTF-8"}, "pt-PT"},  {{"", "pt_AO.UTF-8"}, "pt-PT"},
+        {{"", "pt_BR.UTF-8"}, "pt-BR"},  {{"", "pt"}, "pt-BR"},
+        {{"", "cs_CZ.UTF-8"}, "cs"}};
+    for (const auto& [system, tag] : variants) {
+        l.choose(system);
+        require(l.tag() == tag, system.steam + system.posix + ": " + tag + ", not " + l.tag());
+    }
+    l.choose({"latam", ""});
+    require(l.number(1234) == "1234" && l.number(12345) == "12,345", "es-419 numbers");
+    l.choose({"portuguese", ""});
+    require(l.text("popup.clear-learned.row.words", {{"count", 0LL}}) == "0 palavras que escreveu",
+            "pt-PT plurals: 0 is plural, unlike pt-BR");
+    l.choose({"czech", ""});
+    require(l.text("popup.clear-learned.row.words", {{"count", 3LL}}) == "3 napsaná slova" &&
+                l.text("popup.clear-learned.row.words", {{"count", 5LL}}) == "5 napsaných slov",
+            "Czech plurals");
     Folder home;
     home.write(
         ".steam/registry.vdf",

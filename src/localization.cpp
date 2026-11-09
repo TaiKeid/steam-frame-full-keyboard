@@ -418,7 +418,7 @@ void Localization::apply(Locale& locale, json_object* root, bool with_strings) {
         locale.steam = strings_of(value, "steam", 8);
     }
     if (auto* value = member(root, "posix", json_type_array)) {
-        locale.posix = strings_of(value, "posix", 16);
+        locale.posix = strings_of(value, "posix", 32); // es-419 names each Latin American locale
     }
     if (auto* value = member(root, "font_families", json_type_array)) {
         const auto families = strings_of(value, "font_families", 8);
