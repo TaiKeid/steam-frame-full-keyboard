@@ -57,6 +57,8 @@ sources; each file's header names its sources.
 | `is/is_50k.txt` | `is-is.tsv` | `8c47a7795970edb55178a84d16a568422186c2299024b12a2fc4a0df85ef4e27` |
 | `id/id_50k.txt` | `id-id.tsv` | `f2eea0da9735b7040efbfa813f5f875ec931de5a0ec70a6f28213ea60a87bb38` |
 | `vi/vi_50k.txt` | `vi-vn.tsv` | `3f5b112e4324136c2ba82d3151038607e3dd1dfa0911c226929d7544cc11adf3` |
+| `ar/ar_50k.txt` | `ar.tsv` | `bbe98b4b92902b392bdefa2e555a108fdb42a5dd79d261674be5ab666229e19f` |
+| `he/he_full.txt` | `he-il.tsv` (its only source) | `a69a3f390eb53183bf191c4eac18282592992aef9ff184c5dcf8919f5ea0f773` |
 
 Blending (`--format tsv --blend`): subtitle counts are put on the same 0–255
 log scale, shifted by the median difference on the 5,000 most frequent subtitle
@@ -93,6 +95,7 @@ added in lowercase; the 100,000 most frequent are kept.
 | `vi-vn.tsv` | `wordlists/main_vi__experimental.combined` | `7fda1a6068a5756ec228db0603db3f5b0b5daff111dace223d97e0cc5135ca08` |
 | `fil-ph.tsv` | `wordlists/main_tl__experimental.combined` | `78239349374d24a7214e26ec08b3a937abbec7ecb25842b597d9f403c67a0675` |
 | `az-az.tsv` | `wordlists/main_az.combined` | `38ce388162db65d7f7ff751f9deda98377cc768319ea5e9a34f9f620645d91a3` |
+| `ar.tsv` | `wordlists/main_ar__experimental.combined` | `d5fd8e726331fccfc9bb3818b2414e048760bd4ae41fc01c57afe9df11abaf07` |
 
 Changes from the source: bigram and shortcut entries removed; only words of at
 least two letters (apostrophes allowed) kept; the 100,000 most frequent kept;
@@ -149,6 +152,18 @@ The lists added on 2026-11-08 are built the same way, with these differences:
   https://github.com/subhangadirli/aosp-dict-az from Leipzig lists and
   licensed under CC BY-SA 4.0, which this list keeps.
 
+Arabic and Hebrew followed the same day:
+
+- `ar.tsv` is built like the others and keeps only Arabic letters
+  (`--script arabic`), which drops Latin words, words written with harakat and
+  words stretched with tatweel. Both sources are Modern Standard Arabic, so
+  dialect chat words rank low or are missing.
+- `he-il.tsv` comes from the FrequencyWords full Hebrew list alone
+  (`--format tsv` with an empty list and `--blend`), Hebrew letters only. The
+  HeliBoard Hebrew list ranks its commonest words out of order (מר above של,
+  אני outside its top 20), and Hebrew has no capitals for a subtitle list to
+  lose. It is CC BY-SA 4.0 like its source.
+
 `zh-pinyin.tsv`, used by both Chinese Pinyin profiles, holds toneless Pinyin
 (`v` for ü, apostrophes before vowel-initial syllables) rather than characters:
 the composer then offers characters. It is derived from jieba's `dict.txt`
@@ -181,13 +196,15 @@ uses the Russian bad words list, and Italian and Ukrainian have no AOSP marks.
 
 The bad words lists have no Slovak, Estonian, Latvian, Lithuanian, Romanian,
 Croatian, Serbian, Slovenian, Bulgarian, Macedonian, Greek, Catalan,
-Icelandic, Indonesian or Vietnamese. Their lists come from
+Icelandic, Indonesian, Vietnamese or Hebrew. Their lists come from
 `tools/offensive_words/<language>.txt` instead (`--words`: one word, `root*`
 or `!kept word` per line), drafted with Grok 4.7, matched against the word
 list, and reviewed for everyday words by AI models, not native speakers; plain
 words for "idiot" stay out, as Spanish "idiota" does, and so do the neutral
 words for Roma (Turkish "çingene" too). They don't use the AOSP marks, so
-every listed word was reviewed. Corrections are welcome. Azerbaijani has no
+every listed word was reviewed. Corrections are welcome. Arabic's file joins
+the LDNOOBW Arabic list to Grok's draft and is reviewed the same way, since the
+LDNOOBW list holds medical and news words (ثدي, قضيب). Azerbaijani has no
 list: none of the drafted words is in its word list, which has no subtitles
 blended in.
 Drawn from the word lists, the lists are licensed under CC BY-SA 4.0 as they are.
@@ -211,6 +228,7 @@ Drawn from the word lists, the lists are licensed under CC BY-SA 4.0 as they are
 | `hu` | `hu-hu` | `a6943a971496f16e9a9d59ba6fde146d229699600e9636828d8d34ed9160aff5` |
 | `no` | `nb-no` | `e55b46bcec1ea288256924523a997d8d99e124c9aa3e61cbbbfaeca294f745b4` |
 | `tr` | `tr-tr` | `6c7ae03baee0f3fdc22eed169030567669005dad9a1923e0b571c4bd4f2f2ab5` |
+| `ar` | `ar` | `23dbd9c55257bf2a4965f46664dc7eac04b61ff4eb3571e41f7e964c7c3ed96b` |
 
 The AOSP marks come from the source lists in the table above, except for
 `pt-br`, whose marks come from `wordlists/main_pt_BR.combined` at the same

@@ -166,6 +166,13 @@ void keyboard_geometry() {
     require(tr.index_of(U'I') == tr.index_of(U'ı') && tr.index_of(U'İ') == tr.index_of(U'i') &&
                 tr.index_of(U'ı') != tr.index_of(U'i'),
             "Turkish I is the capital of ı, İ of i");
+    const auto ar = keyboard_for("international-full", "ar");
+    require(letter(ar, U'ذ') == letter(ar, U'د') && !ar.key_index.contains("Backquote"),
+            "Arabic ذ on the number row is swiped on د");
+    require(letter(ar, U'أ') == letter(ar, U'ا') && letter(ar, U'ة') != letter(ar, U'ه'),
+            "Arabic hamza forms fold to ا; ة keeps its key");
+    const auto he = keyboard_for("international-full", "he-il");
+    require(letter(he, U'ם') != letter(he, U'מ'), "Hebrew final forms have keys of their own");
 }
 
 void lexicon_paths() {
@@ -2052,6 +2059,8 @@ int model() {
                                   {"international-full", "el-gr", U"ευχαριστω", "ευχαριστώ"},
                                   {"international-full", "sr-rs-latin", U"hvala", "hvala"},
                                   {"international-full", "vi-vn", U"cam", "cảm"},
+                                  {"international-full", "ar", U"شكرا", "شكرا"},
+                                  {"international-full", "he-il", U"תודה", "תודה"},
                                   {"en-us-full", "zh-cn-pinyin", U"zhongguo", "zhongguo"},
                                   {"en-us-full", "zh-cn-pinyin", U"nihao", "nihao"}};
     auto encoder = load_swipe_encoder(swipe_model_path({}));

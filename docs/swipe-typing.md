@@ -125,6 +125,14 @@ Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shippe
   Bulgarian phonetic layouts sample only swipeable words, so their numbers leave out the words with ю or ч. Vietnamese swipes base letters only: tones and ă, â, ê, ô are not on letter keys, so up to eight syllables share a path (cảm, cám, cầm, cam, cấm, câm, căm, cẩm), and the alternatives choose among them.
 - Not measured: real swipes and in-headset acceptance.
 
+## Arabic and Hebrew (2026-11-08)
+
+- Right-to-left needs nothing of its own: a swipe follows the letters in typing order, word tracking counts Arabic harakat as part of a word, and Pango draws the toolbar's Arabic and Hebrew. Not yet looked at in the headset.
+- Coverage of film-subtitle text by the most frequent words, to check that clitics and prefixes don't need longer lists: Hebrew 95.5% at 50k (97.7% at 100k), Arabic 92.3% (95.4%), against Polish 93.9% and Finnish 90.7%. Both stay at 50,000 words.
+- Hebrew's 27 letters, finals included, all have letter-row keys. Arabic ذ is alone on the number row and is swiped on د, as đ on d; hamza forms fold to ا by decomposition.
+- Synthetic swipes as above: Hebrew 87.7% top-1 / 97.0% top-3, Arabic 78.3% / 93.0%. Paths shared with a commoner word are no more frequent than in English (Arabic 4.4%, English 3.7%); Arabic loses on the layout, where ا and ل are neighbours, so the article ال and لل ("for the"), or the prefixes ب and ي, are one short hop apart. Phone Arabic layouts share that row.
+- Arabic lists are Modern Standard Arabic; dialect chat words (عايز, كيفك) are missing.
+
 ## Feasibility results
 
 All results were measured on 2026-10-23. Unless noted, they come from host x86_64 runs using ExecuTorch's Python runtime and a simplified Python beam search (width 64, frequency and length terms tuned on English dev swipes). Production numbers will differ.

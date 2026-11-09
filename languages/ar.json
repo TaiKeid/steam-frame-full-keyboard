@@ -24,6 +24,9 @@
   "required_keys": [
     "IntlBackslash"
   ],
+  "swipe": {
+    "lexicon": "ar"
+  },
   "dictation": {
     "language": "ar"
   }

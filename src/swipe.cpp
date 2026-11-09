@@ -45,6 +45,9 @@ char32_t base_letter(char32_t c) {
     if (c == U'đ') {
         return U'd'; // Likewise; Vietnamese types it on the number row.
     }
+    if (c == U'ذ') {
+        return U'د'; // Arabic types it on the number row; it is د with a dot.
+    }
     gunichar decomposed[8];
     if (g_unichar_fully_decompose(c, FALSE, decomposed, 8) > 0) {
         return static_cast<char32_t>(g_unichar_tolower(decomposed[0]));

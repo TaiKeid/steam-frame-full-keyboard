@@ -18,8 +18,8 @@ subtitles), so everyday chat words that news text rarely uses rank as they
 are spoken.
 
 --turkic-case lowercases I to ı and İ to i (Turkish, Azerbaijani).
---script keeps only words in one script, as Bulgarian, Macedonian and Greek
-sources carry Latin words. --serbian-cyrillic implies --script cyrillic and
+--script keeps only words in one script, as Bulgarian, Macedonian, Greek,
+Arabic and Hebrew sources carry Latin words. --serbian-cyrillic implies --script cyrillic and
 converts Latin subtitle words to Cyrillic, as Serbian subtitles are mostly
 written in Latin.
 --respell replaces letters, merging the words that then match: Romanian ş and
@@ -80,14 +80,21 @@ def serbian_cyrillic(word):
     return "".join(out)
 
 
-SCRIPTS = {"cyrillic": ("\u0400", "\u04ff"), "greek": ("\u0370", "\u03ff")}
+SCRIPTS = {
+    "arabic": ("\u0621", "\u064a"),  # Letters, harakat and digits after it; tatweel is dropped below.
+    "cyrillic": ("\u0400", "\u04ff"),
+    "greek": ("\u0370", "\u03ff"),
+    "hebrew": ("\u05d0", "\u05ea"),  # Letters, final forms included; no points.
+}
 
 
 def in_script(word, script):
     first, last = SCRIPTS[script]
     # Greek accents beyond the monotonic ones sit in Greek Extended.
     extended = script == "greek"
-    return all(first <= ch <= last or (extended and "\u1f00" <= ch <= "\u1fff") or ch in "'’" for ch in word)
+    return "\u0640" not in word and all(  # Arabic tatweel only stretches a letter.
+        first <= ch <= last or (extended and "\u1f00" <= ch <= "\u1fff") or ch in "'’" for ch in word
+    )
 
 
 def letters_only(word):

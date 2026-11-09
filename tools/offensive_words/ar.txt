@@ -1,0 +1,17 @@
+# Arabic offensive words for typing suggestions: word, root* or !kept word.
+# Drafted with Grok 4.7 and joined by the LDNOOBW Arabic list (commit 5faf2ba), matched against the word list and reviewed for everyday words
+# by AI models, not native speakers. Corrections are welcome.
+اغتصاب
+العاهرة
+الكس
+اير
+بورن
+زنجي
+عاهر
+عاهرات
+عاهرة
+عاهره
+كس
+مخنث
+مومس
+نيك

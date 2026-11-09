@@ -21,6 +21,9 @@
     "Noto Sans Hebrew",
     "sans-serif"
   ],
+  "swipe": {
+    "lexicon": "he-il"
+  },
   "dictation": {
     "language": "he"
   }
