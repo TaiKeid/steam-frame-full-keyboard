@@ -729,6 +729,9 @@ class App {
         xkb_keysym_t symbol{};    // The tap's, before down() consumes a latched Shift.
         bool shifts{}, flicked{}; // A Shift character to flick to; pulled down far enough.
         double pull{};            // How far toward a flick, 0 to 1, for the legend.
+        // The tap composes and the pull types, or the other way round: the
+        // target's admission waits for the release (R143).
+        bool admit_on_release{};
     };
     std::optional<KeyFlickTrack> key_flick_;
     bool key_flick_key(const Key& key, const std::set<int>& modifiers);
@@ -745,6 +748,9 @@ class App {
     // True when the pull crosses into a flick, for VR's haptic tick.
     bool key_flick_move(double x, double y);
     void finish_key_flick();
+    // The key only composes with these modifiers: nothing reaches the target
+    // yet. Chinese punctuation is text.
+    bool key_flick_composes(const Key& key, const std::set<int>& modifiers);
     // Says why text went nowhere: a full editor or a missing target.
     void text_refused();
     // With `gap` the press is between keys, in the letter's reach: until it

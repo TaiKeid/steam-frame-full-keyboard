@@ -198,6 +198,8 @@ class LibimeEngine final : public CjkEngine {
             chosen_.pop_back();
             chosen_display_.pop_back();
             picked_.resize(std::min(picked_.size(), context_.selectedWords().size()));
+        } else if (!front_.empty()) {
+            front_.resize(utf8_prefix(front_, utf8_length(front_) - 1));
         }
         refresh();
     }
@@ -209,6 +211,19 @@ class LibimeEngine final : public CjkEngine {
         defaults_ = false;
         front_.clear();
         front_produced_ = false;
+        refresh();
+    }
+    // Esc: the reading goes, and front text the field refused stays to go
+    // with the next commit (R149); with only that left, it goes too (R156).
+    void cancel_open() override {
+        if (context_.empty()) {
+            cancel();
+            return;
+        }
+        auto front = std::move(front_);
+        cancel();
+        front_ = std::move(front);
+        front_produced_ = !front_.empty();
         refresh();
     }
     void cycle(int direction) override {
@@ -260,7 +275,7 @@ class LibimeEngine final : public CjkEngine {
     }
     std::vector<std::string> candidates() const override { return shown_; }
     int selected() const override { return selected_; }
-    bool empty() const override { return context_.empty(); }
+    bool empty() const override { return context_.empty() && front_.empty(); }
     bool has_reading() const override { return context_.size() > context_.selectedLength(); }
     bool chinese() const override { return true; }
     void committed(bool learn) override {

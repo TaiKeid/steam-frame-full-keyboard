@@ -1323,6 +1323,33 @@ int chinese_flow() {
         app.up(0, x, y);
         require(app.view().preedit != before_tap && app.view().status.empty(), "so does a tap");
     }
+    {
+        // A Shift letter types its capital at once, after the reading, with
+        // swipe on as without it (R134).
+        const auto [sx, sy] = key_point(app, "ShiftLeft");
+        app.down(0, sx, sy, 40);
+        app.up(0, sx, sy);
+        app.down(0, x, y, 41);
+        app.up(0, x, y);
+        require(!sink.text.empty() && sink.text.back() == "A" && app.view().preedit.empty(),
+                "a Shift tap types the capital after the reading");
+    }
+    {
+        // Without a target it is refused as a press would be: the Focus mode
+        // icon shakes, from the refused commit (R160 needed no change).
+        const auto typed = sink.text.size();
+        const auto shaken = app.view().focus_shake_since;
+        app.set_dashboard_focus(true);
+        const auto [sx, sy] = key_point(app, "ShiftLeft");
+        app.down(0, sx, sy, 43);
+        app.up(0, sx, sy);
+        app.down(0, x, y, 44);
+        app.up(0, x, y);
+        require(sink.text.size() == typed && app.view().preedit.empty() &&
+                    app.view().focus_shake_since != shaken,
+                "a Shift tap without a target is refused as a press is");
+        app.set_dashboard_focus(false);
+    }
     app.cancel();
     return 0;
 }

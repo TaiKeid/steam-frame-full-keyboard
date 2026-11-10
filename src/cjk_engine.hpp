@@ -33,7 +33,9 @@ class CjkEngine {
     // Zhuyin reading's front. It stays part of text() until dropped after delivery.
     virtual std::string finished() const { return {}; }
     virtual void drop_finished() {}
-    // Drops what is still open, keeping finished text for its commit.
+    // Drops what is still open, keeping finished text for its commit. Pinyin
+    // and Zhuyin take Esc's steps: the reading, then, with nothing else
+    // left, the finished text the field refused.
     virtual void cancel_open() { cancel(); }
     // text() reached the field; the app clears the reading next. An engine
     // that learns does so only when `learn` is set (never in a password, PIN

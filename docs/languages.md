@@ -177,7 +177,8 @@ defaults do:
 - New syllables and punctuation (Shift+`,` for ，) go in at the cursor and
   convert with the rest. Backspace takes the syllable before the cursor and
   Delete the one after it. Esc takes one step at a time: choosing, then a
-  syllable still open, then the whole reading. Cangjie takes up to five keys and Quick two; a third
+  syllable still open, then the whole reading, and last any front the field
+  refused (below). Cangjie takes up to five keys and Quick two; a third
 Quick key types the highlighted character and starts the next code, as Microsoft's
 Quick does. Each shows the keys as radicals, lists matching characters, longer codes after exact ones,
 and types one character at a time. A code's characters come in the table's own
@@ -231,7 +232,9 @@ chosen, as on a PC (`steam`, `gg`); in Zhuyin, Cangjie and Quick it submits the
 current conversion. Escape discards it. A second Enter sends an ordinary Enter.
 Letters typed with Shift or Caps Lock type themselves, a capital at once, after
 any reading. A reading longer than 30 keys (Pinyin) or syllables (Zhuyin) sends
-its converted front ahead and goes on, so no key is lost. Both script profiles
+its converted front ahead and goes on, so no key is lost. A front the field
+refuses stays in the reading line to go with the next commit; Esc discards
+the reading after it first, and the front only with nothing else left. Both script profiles
 use Pinyin; Traditional here does not mean a Zhuyin layout.
 
 In Traditional Pinyin, a candidate you select keeps exactly the characters

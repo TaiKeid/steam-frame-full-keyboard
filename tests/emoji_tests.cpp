@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/cjk.hpp"
 #include "framekeyboard/grip.hpp"
 
 #include <algorithm>
@@ -1452,6 +1453,43 @@ void closed_picker_cache_tests() {
     toggle();
 }
 
+// In Chinese, 3, an emoji, then . types 。: the emoji ends the digit's
+// exception (R161).
+void after_digit_tests() {
+    if (!CjkComposer::supported("chinese-pinyin-simplified")) {
+        return;
+    }
+    TemporaryDirectory directory;
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    App app(options, sink);
+    app.apply({"en-us-full", "zh-cn-pinyin", "graphite"});
+    const auto tap = [&](const std::string& action) {
+        const auto [x, y] = key_center(app, action);
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+    };
+    tap("Digit3");
+    tap("picker");
+    wait_for_emoji(app);
+    if (!app.emoji_open()) {
+        std::cout << "No color emoji font here; skipping the emoji after a digit.\n";
+        return;
+    }
+    const auto view = app.view();
+    const auto [x, y] = center(cell(*view.emoji, "😀")->bounds);
+    app.down(0, x, y, 2);
+    app.up(0, x, y);
+    tap("picker");
+    tap("Period");
+    require((sink.text == std::vector<std::string>{"3", "😀", "。"}),
+            "after an emoji, . is Chinese punctuation again");
+}
+
 void shutdown_tests() {
     // Quitting with the picker open still saves what was chosen.
     TemporaryDirectory directory;
@@ -1506,6 +1544,7 @@ int main() {
         picker_tests();
         favorites_tests();
         app_tests();
+        after_digit_tests();
         side_keys_stay();
         app_favorites_tests();
         tone_render();

@@ -83,6 +83,9 @@ void App::set_context(std::optional<std::string> context, const HostHints& hints
         swipe_space_ = false;
         cancel(true);
         output_.cancel();
+        // A new field's first quote opens (R144), after no digit (R158).
+        punctuation_turns_.clear();
+        after_digit_ = false;
         // The old context's hints end with it.
         end_language_hint();
         if (host_.num_before) {

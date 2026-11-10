@@ -182,6 +182,24 @@ void key_flicks() {
         flick("Slash", 60);
         require(typed() == "^?", "and its digits and punctuation flick as on US QWERTY");
     }
+    if (CjkComposer::supported("chinese-zhuyin")) {
+        // Zhuyin's ㄅ composes and its pull types ！: without a target only
+        // the pull is refused (R143).
+        app.apply({"en-us-full", "zh-tw-zhuyin", "graphite"});
+        app.set_dashboard_focus(true);
+        sink.events.clear();
+        const auto shaken = app.view().focus_shake_since;
+        flick("Digit1", 0);
+        require(app.view().preedit == "ㄅ" && app.view().focus_shake_since == shaken,
+                "a tap that only composes needs no target");
+        click(app, "Escape");
+        flick("Digit1", 60);
+        require(typed().empty() && app.view().focus_shake_since != shaken,
+                "a pull that types waits for a target");
+        app.set_dashboard_focus(false);
+        flick("Digit1", 60);
+        require(typed() == "！", "with one, the pull types its punctuation");
+    }
     // Text the field refuses at release waits for Enter's retry, as a press's does.
     app.apply({"en-us-full", "en-us", "graphite"});
     sink.events.clear();
@@ -939,7 +957,17 @@ void chinese_engines() {
             require(!pinyin.finished().empty() && pinyin.text().starts_with(pinyin.finished()) &&
                         pinyin.preedit().ends_with("chi fan"),
                     "no key of a long reading is lost");
-            pinyin.drop_finished();
+            const auto front = pinyin.finished();
+            pinyin.cancel_open();
+            require(pinyin.finished() == front && pinyin.text() == front,
+                    "Esc keeps front text the field refused (R149)");
+            type(pinyin, "ni");
+            pinyin.cancel_open();
+            require(pinyin.finished() == front && pinyin.text() == front,
+                    "a reading typed after it goes first");
+            pinyin.cancel_open();
+            require(pinyin.empty(), "with nothing else left, Esc drops it too (R156)");
+            type(pinyin, "wojintianwanshangyaoqupengyoujiachifan");
             pinyin.committed(false);
             require(!learned("libime"), "nothing is learned where learning isn't allowed");
             pinyin.cancel();
@@ -1090,6 +1118,64 @@ void chinese_engines() {
         zhuyin.cancel();
     } else {
         std::cout << "McBopomofo skipped: build lacks the module\n";
+    }
+}
+void zhuyin_edited_picks() {
+    if (!CjkComposer::supported("chinese-zhuyin")) {
+        return;
+    }
+    const auto root =
+        fs::temp_directory_path() / ("framekeyboard-zhuyin-edits-" + std::to_string(getpid()));
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{root};
+    fs::create_directories(root);
+    for (int edit = 0; edit < 4; ++edit) {
+        const auto dir = root / std::to_string(edit);
+        fs::create_directories(dir);
+        const std::string expected = edit == 3 ? "妳好" : "你好";
+        {
+            CjkComposer composer("chinese-zhuyin", dir);
+            const auto choose = [&](const std::string& word) {
+                const auto offered = composer.candidates();
+                const auto found = std::find(offered.begin(), offered.end(), word);
+                require(found != offered.end(), "the Zhuyin edit fixture offers its candidate");
+                composer.choose(static_cast<int>(found - offered.begin()));
+            };
+            type(composer, "su3cl3");
+            choose("妳好");
+            if (edit == 0) {
+                composer.move(-30);
+                composer.delete_forward();
+                type(composer, "su3");
+            } else if (edit == 1) {
+                composer.move(-1);
+                type(composer, "8 ");
+                composer.backspace();
+            } else if (edit == 2) {
+                choose("好"); // A later overlapping choice supersedes the whole phrase.
+            } else {
+                composer.move(-30);
+                type(composer, "8 ");
+                composer.backspace(); // An edit before the phrase keeps the pick intact.
+            }
+            composer.move(30);
+            require(composer.text() == expected, "the edit leaves the expected final phrase");
+            composer.committed(true);
+            composer.cancel();
+            type(composer, "su3cl3");
+            require(composer.text() == expected, "only surviving Zhuyin picks affect later conversion");
+        }
+        CjkComposer reloaded("chinese-zhuyin", dir);
+        type(reloaded, "su3cl3");
+        require(reloaded.text() == expected, "reloaded learning agrees with the committed phrase");
+        if (edit != 3) {
+            std::ifstream in(dir / "mcbopomofo/picks.tsv");
+            const std::string saved{std::istreambuf_iterator<char>(in), {}};
+            require(saved.find("妳好") == std::string::npos,
+                    "edited or superseded whole-phrase picks are not persisted");
+        }
     }
 }
 void traditional_selected_display(const fs::path& config) {
@@ -1843,13 +1929,45 @@ void chinese_report() {
             "an engine without the method is left out");
     require(!std::getenv("FRAMEKEYBOARD_CHINESE_ENGINE"), "the report puts the engine choice back");
 }
+// Overflow text still belongs to the composer until the output accepts it.
+void chinese_pending_front() {
+    for (const auto* method : {"chinese-pinyin-simplified", "chinese-zhuyin"}) {
+        if (!CjkComposer::supported(method)) {
+            continue;
+        }
+        CjkComposer composer(method);
+        if (composer.has_cursor()) {
+            for (int i = 0; i < 29; ++i) {
+                type(composer, "8 ");
+            }
+            require(composer.insert_symbol('<', "，"), "punctuation fits after a long Zhuyin reading");
+        } else {
+            type(composer, "wojintianwanshangyaoqupengyoujiachifan");
+        }
+        const auto pending = composer.finished();
+        require(!pending.empty(), "the long reading produces an unsent prefix");
+        for (int i = 0; i < 100 && composer.preedit() != pending; ++i) {
+            composer.backspace();
+        }
+        require(composer.text() == pending && !composer.empty(),
+                "deleting the remaining reading keeps the unsent prefix committable");
+        composer.backspace();
+        require(utf8_length(composer.text()) + 1 == utf8_length(pending),
+                "Backspace can edit the last character of an unsent prefix");
+        composer.drop_finished();
+        require(composer.empty(), "acknowledging the prefix empties the composer");
+    }
+}
 // Chinese keys as a PC input method's: Chinese punctuation after the reading,
 // plain . , : after a digit, Pinyin's letters as typed with Enter, Shift
 // letters at once, and - = paging the candidates.
-void chinese_keys() {
-    const auto path =
-        fs::temp_directory_path() / ("framekeyboard-chinese-keys-" + std::to_string(getpid()));
+void chinese_keys(bool flicks = false) {
+    const auto path = fs::temp_directory_path() / ("framekeyboard-chinese-keys-" +
+                                                   std::to_string(getpid()) + (flicks ? "-flicks" : ""));
     fs::create_directories(path);
+    std::ofstream(path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"key_flicks":)"
+        << (flicks ? "true}" : "false}");
     struct Cleanup {
         fs::path path;
         ~Cleanup() { fs::remove_all(path); }
@@ -1863,6 +1981,8 @@ void chinese_keys() {
     Sink sink;
     App app(options, sink);
     // Keys in order; "Shift+" latches Shift first.
+    require(app.view().key_flick_hints == flicks,
+            "the punctuation fixture uses the requested input path");
     const auto press = [&](std::initializer_list<std::string> keys) {
         sink.events.clear();
         for (auto key : keys) {
@@ -1881,6 +2001,30 @@ void chinese_keys() {
     require(sink.events == Typed{"“", "”", "！", "、", "￥"}, "quotes take turns; ！ 、 ￥");
     press({"Digit3", "Period", "Digit5", "Shift+Semicolon", "Comma"});
     require(sink.events == Typed{"3", ".", "5", ":", "，"}, "after a digit, . and : type themselves");
+    press({"Digit1", "Comma", "Digit2", "Comma", "Period"});
+    require(sink.events == Typed{"1", ",", "2", ",", "。"},
+            "a numeric comma consumes the exception before ordinary Chinese punctuation");
+    press({"Digit3", "KeyN", "KeyI", "Space", "Period"});
+    require(sink.events == Typed{"3", "你", "。"}, "composition clears the preceding digit context");
+    press({"Digit3", "Shift+Period", "Digit4", "Shift+Comma"});
+    require(sink.events == Typed{"3", "》", "4", "《"},
+            "after a digit, Shift+. and Shift+, stay 》《 (R136)");
+    press({"Digit3"});
+    app.set_interaction_active(false);
+    app.set_interaction_active(true);
+    press({"Period"});
+    require(sink.events == Typed{"。"},
+            "a digit before the keyboard was hidden no longer counts (R137)");
+    press({"Digit3"});
+    app.set_dragging(true, false);
+    app.set_dragging(false, false);
+    press({"Period", "Digit5"});
+    require(sink.events == Typed{".", "5"}, "moving the panel keeps the digit before (R158)");
+    press({"Shift+Quote"});
+    app.set_interaction_active(false);
+    app.set_interaction_active(true);
+    press({"Shift+Quote", "Shift+Quote"});
+    require(sink.events == Typed{"“", "”"}, "reopened, the first quote opens again (R144)");
     press({"KeyS", "KeyT", "KeyE", "KeyA", "KeyM", "Enter"});
     require(sink.events == Typed{"steam"} && app.view().preedit.empty(), "Enter types Pinyin's letters");
     press({"Shift+KeyO", "KeyK"});
@@ -1910,6 +2054,22 @@ void chinese_keys() {
                 "Esc stops choosing; ， goes into the reading at the cursor");
         press({"Enter"});
         require(sink.events == Typed{"你，好"}, "Enter sends the whole line");
+        // ㄅㄩ can't finish: ， can't go in at the cursor, nor after the
+        // whole reading (R146).
+        press({"KeyS", "KeyU", "Digit3", "KeyC", "KeyL", "Digit3", "ArrowLeft", "Digit1", "KeyM"});
+        const auto open = app.view().preedit;
+        press({"Shift+Comma"});
+        require(sink.events.empty() && app.view().preedit == open && !app.view().status.empty(),
+                "punctuation that can't go in at the cursor waits, saying why");
+        press({"Escape", "End", "Enter"});
+        require(sink.events == Typed{"你好"}, "the reading is as it was");
+        for (int i = 0; i < 29; ++i) {
+            press({"Digit8", "Space"});
+        }
+        press({"Shift+Comma"});
+        require(!sink.events.empty() && app.view().preedit.ends_with("，"),
+                "punctuation flushes Zhuyin's overflow prefix immediately");
+        press({"Escape"});
     }
     app.apply({"en-us-full", "zh-tw-pinyin", "graphite"});
     press({"BracketLeft", "Shift+BracketRight"});
@@ -2464,7 +2624,10 @@ int main(int argc, char** argv) {
             if (group == "--chinese") {
                 app_traditional();
                 chinese_keys();
+                chinese_keys(true);
+                chinese_pending_front();
                 chinese_engines();
+                zhuyin_edited_picks();
                 pinyin_reranking();
                 zhuyin_reranking();
                 chinese_report();

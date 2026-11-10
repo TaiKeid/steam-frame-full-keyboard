@@ -2305,6 +2305,7 @@ void App::suspend_input(bool asleep) {
     // Release actual backend holds and queued actions. The editor and settings
     // drafts remain available; the VR gate retains its existing preedit policy.
     cancel(false);
+    after_digit_ = false; // Taken off or asleep, the field may change (R158).
 }
 bool App::tick(double now) {
     if (status_is(no_reading_status) && (!cjk_ || cjk_->empty())) {
@@ -2500,7 +2501,12 @@ void App::set_interaction_active(bool active) {
     // (docs/integration.md, Presentation).
     if (!hosted()) {
         close_emoji();
+        // Reopened, it likely types into another field: quotes open again (R144).
+        punctuation_turns_.clear();
     }
+    // Hidden or shown, the next field starts with no digit before (R137);
+    // a move, Pin or Settings keeps it, as they keep the field (R158).
+    after_digit_ = false;
     cancel(!hosted());
     candidate_list_ = false; // Reopens over the keys, as it does on its main layout.
     sync_candidates();
@@ -2667,6 +2673,8 @@ void App::activate(Selection selection, bool keep_reading) {
     auto cjk = prepare_cjk(profiles_.languages.at(selection.language), chinese_learning_dir());
     close_emoji();
     release_input(!keep_reading);
+    after_digit_ = false; // Another language or layout starts fresh (R137).
+    punctuation_turns_.clear();
     if (keep_reading && cjk_) {
         cjk = std::move(cjk_); // The same language's composer, with its reading.
     }
@@ -3603,6 +3611,7 @@ void App::refresh_typing() {
         const auto stop = [&] {
             cancel(false);
             output_.set_enabled(false);
+            after_digit_ = false; // The target went: no digit before (R158).
         };
         if (direct_) {
             // So does the rest of a Type as I speak phrase another window
@@ -4302,6 +4311,7 @@ void App::place_candidates(std::vector<std::string> texts, int selected) {
     dirty |= candidates_.view() != before;
 }
 void App::pick_candidate(int index) {
+    after_digit_ = false; // A candidate's text follows the digit (R137).
     try {
         if (cjk_) {
             choose_cjk(index);
@@ -4495,7 +4505,9 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
                 clear_table_context();
                 // In the editor, Korean's Esc takes the open syllable first;
                 // syllables the editor refused, when full, go with the next.
-                if (!cjk_->chinese() && cjk_->preedit().size() > cjk_->finished().size()) {
+                // Chinese takes its steps too: text the field refused stays
+                // until an Esc finds nothing else (R156).
+                if (cjk_->chinese() || cjk_->preedit().size() > cjk_->finished().size()) {
                     cjk_->cancel_open();
                 } else {
                     cjk_->cancel();
@@ -4547,10 +4559,23 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         return true;
     }
     if (const auto* texts = chinese_punctuation(key, mods)) {
-        if (execute &&
-            !(composing && cjk_->has_cursor() && insert_punctuation(key, mods, texts->front()))) {
-            type_chinese_punctuation(key.action + (shift ? "+" : ""), *texts);
+        if (!execute ||
+            (composing && cjk_->has_cursor() && insert_punctuation(key, mods, texts->front()))) {
+            return true;
         }
+        if (composing && cjk_->has_cursor()) {
+            // McBopomofo has no reading for it, or the open syllable can't
+            // finish. Typed now it would land after the whole reading, so
+            // unless the cursor is at its end it waits for the reading to go
+            // (R146); there it follows as text, which a refused commit
+            // reports as it does for a press (R159).
+            const auto at = cjk_->highlight(); // None while a syllable is open.
+            if (!at || at->caret < cjk_->preedit().size()) {
+                status_ = tr("ime.commit-first");
+                return true;
+            }
+        }
+        type_chinese_punctuation(key.action + (shift ? "+" : ""), *texts);
         return true;
     }
     return false;
@@ -4618,7 +4643,11 @@ bool App::zhuyin_key(const std::string& code, bool execute, const std::set<int>&
 bool App::insert_punctuation(const Key& key, const std::set<int>& mods, const std::string& text) {
     const auto symbol =
         xkb_keysym_to_utf32(keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num()));
-    return symbol > 32 && symbol < 127 && cjk_->insert_symbol(static_cast<char>(symbol), text);
+    if (symbol <= 32 || symbol >= 127 || !cjk_->insert_symbol(static_cast<char>(symbol), text)) {
+        return false;
+    }
+    send_finished_syllables();
+    return true;
 }
 const std::vector<std::string>* App::chinese_punctuation(const Key& key,
                                                          const std::set<int>& mods) const {
@@ -4632,8 +4661,11 @@ const std::vector<std::string>* App::chinese_punctuation(const Key& key,
         }
     }
     const bool shift = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    // After a digit, 3.5, 1,000 and 10:30 keep their plain . , and :; Shift+.
+    // and Shift+, still give 》 《 (R136).
     if (after_digit_ && cjk_->empty() &&
-        (key.action == "Period" || key.action == "Comma" || (shift && key.action == "Semicolon"))) {
+        ((!shift && (key.action == "Period" || key.action == "Comma")) ||
+         (shift && key.action == "Semicolon"))) {
         return nullptr;
     }
     const auto& language = profiles_.languages.at(settings_.active.language);
@@ -5841,6 +5873,9 @@ bool App::swipe_down(unsigned pointer, const Key& key, double x, double y, doubl
     if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || swipe_track_) {
         return false;
     }
+    if (!gap) {
+        after_digit_ = false; // A letter tap or swipe follows the digit (R137, R158).
+    }
     // Pinyin letters only reach the local composer, and the editor is local too:
     // neither needs an output slot.
     if (!gap) {
@@ -5911,6 +5946,7 @@ void App::swipe_move(double x, double y) {
             return; // Refused, and the track is gone.
         }
         track.swiping = true;
+        after_digit_ = false; // A swipe from between keys types a word (R158).
         keyboard_.cancel_pointer(track.pointer);
     }
     // Every point feeds the decoder, but the trail only needs repainting once
@@ -6020,18 +6056,23 @@ std::string App::key_flick_legend(const Key& key) const {
     }
     return keymap_->legend(key, {key_code("ShiftLeft")}, false, keyboard_.num());
 }
+bool App::key_flick_composes(const Key& key, const std::set<int>& modifiers) {
+    return (japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers)) &&
+           !punctuation_key(key, modifiers);
+}
 bool App::key_flick_down(unsigned pointer, const Key& key, double x, double y, double now,
                          const std::set<int>& modifiers) {
     if ((!backend_ready_ && !dictation_open_) || keyboard_.pointer_pressed(pointer) || key_flick_) {
         return false;
     }
     // The composers and the editor are local; text for the target needs a
-    // place in its queue, as when it types on press.
-    // Chinese punctuation, plain or pulled for Shift, is text too.
-    const bool composes = (japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers)) &&
-                          !punctuation_key(key, modifiers) &&
-                          !punctuation_key(key, {key_code("ShiftLeft")});
-    if (!composes && !dictation_open_) {
+    // place in its queue, as when it types on press. Where only the tap or
+    // only the pull would type (Zhuyin's ㄅ composes, pulled it is ，), the
+    // release decides.
+    const bool shifts = key_flick_shifts(key);
+    const bool tap_composes = key_flick_composes(key, modifiers);
+    const bool pull_composes = !shifts || key_flick_composes(key, {key_code("ShiftLeft")});
+    if (!tap_composes && !pull_composes && !dictation_open_) {
         refuse_without_target(now);
         if (!output_.admit(true, now)) {
             update_output_status();
@@ -6040,11 +6081,12 @@ bool App::key_flick_down(unsigned pointer, const Key& key, double x, double y, d
         }
     }
     KeyFlickTrack track;
+    track.admit_on_release = tap_composes != pull_composes && !dictation_open_;
     track.pointer = pointer;
     track.key = key.id;
     track.modifiers = modifiers;
     track.symbol = keymap_->symbol(key, modifiers, keyboard_.caps(), keyboard_.num());
-    track.shifts = key_flick_shifts(key);
+    track.shifts = shifts;
     // A local press shows the key and owns the pointer; nothing is typed until release.
     if (!keyboard_.down(pointer, key, now, true, 0)) {
         return false;
@@ -6083,8 +6125,20 @@ void App::finish_key_flick() {
     // Caps Lock do; a latched Shift went with the press, as for any key.
     const std::set<int> shift{key_code("ShiftLeft")};
     const auto& modifiers = track.flicked ? shift : track.modifiers;
+    if (track.admit_on_release && !key_flick_composes(*key, modifiers)) {
+        const auto now = monotonic_seconds();
+        refuse_without_target(now);
+        if (!output_.admit(true, now)) {
+            update_output_status();
+            return;
+        }
+    }
     try {
-        if (japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers)) {
+        // Resolve decimal punctuation before consuming the previous digit's
+        // context, just as the ordinary press path does.
+        const bool ime_local = japanese_key(*key, false, modifiers) || cjk_key(*key, false, modifiers);
+        after_digit_ = false;
+        if (ime_local) {
             const bool was_open = reading_open();
             japanese_key(*key, true, modifiers);
             cjk_key(*key, true, modifiers);
@@ -6107,6 +6161,7 @@ void App::finish_key_flick() {
             const auto symbol =
                 track.flicked ? keymap_->symbol(*key, shift, false, keyboard_.num()) : track.symbol;
             const auto text = keymap_->compose(symbol);
+            after_digit_ = text.size() == 1 && g_ascii_isdigit(text[0]);
             if (preview_input()) {
                 status_.clear();
             } else if (!text.empty() && text_output_ == &output_) {
@@ -6137,6 +6192,9 @@ void App::type_swipe_tap(const SwipeTrack& track) {
     if (track.gap) {
         return; // Between keys only a swipe starts.
     }
+    // A key the composer leaves to the keymap, as a Chinese Shift or Caps Lock
+    // letter, types its character as it does without swipe, after the reading.
+    bool composed = cjk_ != nullptr;
     if (cjk_) {
         // A Pinyin tap types into the composer, as it does without swipe.
         const auto& keys = profiles_.layouts.at(settings_.active.layout).keys;
@@ -6145,13 +6203,19 @@ void App::type_swipe_tap(const SwipeTrack& track) {
         if (key != keys.end()) {
             const bool was_open = reading_open();
             try {
-                cjk_key(*key, true, track.modifiers);
+                composed = cjk_key(*key, true, track.modifiers);
+                if (!composed) {
+                    commit_cjk();
+                    composed = !cjk_->empty(); // Refused: the reading stays and the key isn't typed.
+                }
             } catch (const std::exception& error) {
                 status_ = tr(error); // As for presses: the composition is full.
+                composed = true;
             }
             reading_replaces_selection(was_open);
         }
-    } else {
+    }
+    if (!composed) {
         const auto text = keymap_->compose(track.symbol);
         if (!text.empty() && !preview_output() && !text_output_->commit_text(text)) {
             text_refused();
@@ -6817,6 +6881,7 @@ bool App::type_emoji(const std::string& text) {
         dirty = true;
         return false;
     }
+    after_digit_ = false; // 3, an emoji, then . is 。 (R161).
     status_.clear();
     return true;
 }
@@ -6872,6 +6937,7 @@ void App::open_dictation() {
     discard_swipe();
     swipe_space_ = false;
     release_input();
+    after_digit_ = false; // The editor is another field (R161).
     dictation_open_ = true;
     dictation_layout_for_.reset();
     refresh_dictation_layout();
@@ -6904,6 +6970,7 @@ void App::close_dictation() {
     // a held tap types into the editor, not the app. The text stays in memory
     // until the mode opens again.
     release_input();
+    after_digit_ = false; // Back to the app, another field (R161).
     dictation_open_ = false;
     text_output_ = options_.text_output ? options_.text_output : &output_;
     lose_word(); // What was typed went to the editor.
@@ -7182,6 +7249,9 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         return false;
     }
     dirty = true;
+    if (!(key.action_kind == ActionKind::Key && is_modifier(key_code(key.action)))) {
+        after_digit_ = false; // As on the keyboard: only a digit just typed keeps . , : plain.
+    }
     if (keyboard_.num() != old_num) {
         settings_.num_lock = keyboard_.num();
         save();
@@ -7253,6 +7323,7 @@ bool App::dictation_down(unsigned pointer, const Key& key, double x, double y, d
         return true;
     }
     if (!text.empty() && text_output_->text_press(pointer, text, now)) {
+        after_digit_ = text.size() == 1 && g_ascii_isdigit(text[0]);
         editor_goal_x_.reset();
         follow_cursor();
         editor_repeat_ = EditorRepeat{pointer, EditorCommand::None, text, now + .5};
@@ -7728,6 +7799,7 @@ void App::flush_direct(double now) {
         lose_word();
         direct_paste_ = DirectPaste{std::move(direct_waiting_.front())};
         direct_waiting_.pop_front();
+        after_digit_ = !direct_paste_->text.empty() && g_ascii_isdigit(direct_paste_->text.back());
         direct_paste_->write = clipboard()->write(direct_paste_->text);
         direct_paste_->at = now;
     }
@@ -7757,6 +7829,8 @@ void App::flush_direct(double now) {
             dirty = true;
             break;
         }
+        // As for a key: only a digit just typed keeps . , : plain (R161).
+        after_digit_ = !commit.empty() && g_ascii_isdigit(commit.back());
         front.erase(0, commit.size());
         if (front.empty()) {
             direct_waiting_.pop_front();

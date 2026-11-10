@@ -1017,9 +1017,14 @@ void language_tests() {
     {
         Sink sink;
         App app(options, sink);
+        press(app, "Digit3"); // In the app, not the editor (R161).
         open_editor(app);
         wait_until(app, [&] { return editor_text(app) == "Hello there."; });
         settle(app);
+        press(app, "Period");
+        require(editor_text(app) == "Hello there.。",
+                "a digit typed in the app does not keep the editor's . plain");
+        press(app, "Backspace");
         type_text(app, "nihao");
         app.tick(clock += .1);
         {

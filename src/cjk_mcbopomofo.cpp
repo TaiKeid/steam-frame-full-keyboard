@@ -47,7 +47,7 @@ constexpr std::size_t saved_commits = 500;
 double now() {
     return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
-// A candidate the user picked: where it starts, among the syllables, and what.
+// A candidate the user picked: its anchor syllable, reading and value.
 struct Pick {
     std::size_t start{};
     std::string reading, value;
@@ -227,6 +227,8 @@ class McBopomofoEngine final : public CjkEngine {
             reading_.backspace();
         } else if (cursor_ > 0) {
             remove(cursor_ - 1);
+        } else if (syllables_.empty() && !front_.empty()) {
+            front_.resize(utf8_prefix(front_, utf8_length(front_) - 1));
         }
         refresh();
     }
@@ -236,12 +238,19 @@ class McBopomofoEngine final : public CjkEngine {
             refresh();
         }
     }
-    // Esc takes one step: the open syllable, then the whole reading.
+    // Esc takes one step: the open syllable, then the reading, keeping
+    // front text the field refused for the next commit (R149), then that
+    // text (R156).
     void cancel_open() override {
-        if (reading_.isEmpty()) {
+        if (!reading_.isEmpty()) {
+            reading_.clear();
+            refresh();
+        } else if (syllables_.empty()) {
             cancel();
         } else {
-            reading_.clear();
+            auto front = std::move(front_);
+            cancel();
+            front_ = std::move(front);
             refresh();
         }
     }
@@ -250,7 +259,6 @@ class McBopomofoEngine final : public CjkEngine {
         grid_.clear();
         syllables_.clear();
         cursor_ = 0;
-        picks_.clear();
         fixed_.clear();
         preferred_.clear();
         front_.clear();
@@ -271,10 +279,7 @@ class McBopomofoEngine final : public CjkEngine {
         const auto at = active();
         if (grid_.overrideCandidate(at, gram::ReadingGrid::Candidate(choice.reading, choice.value))) {
             fix(at, choice.reading, choice.value,
-                gram::ReadingGrid::Node::OverrideType::kOverrideValueWithHighScore);
-            if (index > 0) {
-                picks_.push_back({at, choice.reading, choice.value});
-            }
+                gram::ReadingGrid::Node::OverrideType::kOverrideValueWithHighScore, index > 0);
         }
         refresh();
     }
@@ -292,7 +297,7 @@ class McBopomofoEngine final : public CjkEngine {
         return result;
     }
     int selected() const override { return selected_; }
-    bool empty() const override { return syllables_.empty() && reading_.isEmpty(); }
+    bool empty() const override { return syllables_.empty() && reading_.isEmpty() && front_.empty(); }
     // A pick never ends the reading: only Enter sends it.
     bool has_reading() const override { return !empty(); }
     bool chinese() const override { return true; }
@@ -333,7 +338,11 @@ class McBopomofoEngine final : public CjkEngine {
         }
         for (const auto& reading :
              {std::string("_punctuation_Standard_") + symbol, std::string("_punctuation_") + symbol}) {
-            if (!learning_->model->hasUnigrams(reading)) {
+            // Checked before insert(), which drops the picks of a phrase it
+            // splits: a refused override would lose them for nothing (R148).
+            const auto unigrams = learning_->model->getUnigrams(reading);
+            if (std::none_of(unigrams.begin(), unigrams.end(),
+                             [&](const auto& unigram) { return unigram.value() == text; })) {
                 continue;
             }
             const auto at = insert(reading);
@@ -465,8 +474,19 @@ class McBopomofoEngine final : public CjkEngine {
     }
     // The picks of the text that reached the field teach the model.
     void committed(bool learn) override {
-        if (learn && !picks_.empty() && !learning_->folder.empty()) {
-            learning_->remember(syllables_, picks_);
+        if (!learn || learning_->folder.empty()) {
+            return;
+        }
+        // The display and learning share override ownership. Editing or
+        // replacing a phrase must remove its learning intent at the same time.
+        std::vector<Pick> picks;
+        for (const auto& fixed : fixed_) {
+            if (fixed.picked) {
+                picks.push_back({fixed.at, fixed.reading, fixed.value});
+            }
+        }
+        if (!picks.empty()) {
+            learning_->remember(syllables_, picks);
         }
     }
 
@@ -481,7 +501,6 @@ class McBopomofoEngine final : public CjkEngine {
     gram::ReadingGrid grid_;
     std::vector<std::string> syllables_; // Finished syllables, as in the grid.
     std::size_t cursor_{};               // Syllables before the cursor.
-    std::vector<Pick> picks_;            // This reading's picks, to learn once committed.
     // An override of the grid: where it was made, the phrase it pinned (its
     // first syllable and length), and what. fixed_ holds the user's picks,
     // learned suggestions and punctuation; preferred_ the proposed sentence
@@ -490,6 +509,7 @@ class McBopomofoEngine final : public CjkEngine {
         std::size_t at{}, begin{}, length{};
         std::string reading, value;
         gram::ReadingGrid::Node::OverrideType type{};
+        bool picked{}; // An explicit non-default choice, learned only if it survives until commit.
     };
     std::vector<Fixed> fixed_, preferred_;
     bool choosing_{};       // Choosing for the phrase at the cursor.
@@ -538,7 +558,7 @@ class McBopomofoEngine final : public CjkEngine {
     }
     // Records an override just made at `at`, with the phrase it pinned.
     void fix(std::size_t at, const std::string& reading, const std::string& value,
-             gram::ReadingGrid::Node::OverrideType type) {
+             gram::ReadingGrid::Node::OverrideType type, bool picked = false) {
         std::size_t begin = 0;
         for (const auto& node : grid_.walk().nodes) {
             if (at < begin + node->spanningLength()) {
@@ -546,7 +566,7 @@ class McBopomofoEngine final : public CjkEngine {
                 std::erase_if(fixed_, [&](const Fixed& f) {
                     return f.begin < begin + node->spanningLength() && begin < f.begin + f.length;
                 });
-                fixed_.push_back({at, begin, node->spanningLength(), reading, value, type});
+                fixed_.push_back({at, begin, node->spanningLength(), reading, value, type, picked});
                 return;
             }
             begin += node->spanningLength();
@@ -660,9 +680,6 @@ class McBopomofoEngine final : public CjkEngine {
         grid_.setCursor(cursor_);
         grid_.insertReading(reading);
         syllables_.insert(syllables_.begin() + static_cast<std::ptrdiff_t>(cursor_), reading);
-        for (auto& pick : picks_) {
-            pick.start += pick.start >= cursor_ ? 1 : 0;
-        }
         shift(fixed_, cursor_, 1);
         shift(preferred_, cursor_, 1);
         return cursor_++;
@@ -673,10 +690,6 @@ class McBopomofoEngine final : public CjkEngine {
         grid_.setCursor(at + 1);
         grid_.deleteReadingBeforeCursor();
         syllables_.erase(syllables_.begin() + static_cast<std::ptrdiff_t>(at));
-        std::erase_if(picks_, [&](const Pick& pick) { return pick.start == at; });
-        for (auto& pick : picks_) {
-            pick.start -= pick.start > at ? 1 : 0;
-        }
         shift(fixed_, at, -1);
         shift(preferred_, at, -1);
         cursor_ -= cursor_ > at ? 1 : 0;
@@ -695,10 +708,6 @@ class McBopomofoEngine final : public CjkEngine {
             grid_.deleteReadingBeforeCursor();
         }
         syllables_.erase(syllables_.begin(), syllables_.begin() + static_cast<std::ptrdiff_t>(length));
-        std::erase_if(picks_, [&](const Pick& pick) { return pick.start < length; });
-        for (auto& pick : picks_) {
-            pick.start -= length;
-        }
         for (std::size_t i = 0; i < length; ++i) {
             shift(fixed_, 0, -1);
             shift(preferred_, 0, -1);

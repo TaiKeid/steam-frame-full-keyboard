@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Pull for Shift now keeps decimal points, numeric commas and time separators as ordinary punctuation in Chinese input, matching normal taps.
+- Zhuyin learns only selections that survive editing and later choices. Deleting or splitting a selected phrase no longer teaches a choice absent from the committed text.
+- Chinese overflow text stays editable and committable if delivery is refused and the rest of the reading is deleted. Zhuyin punctuation now sends a completed overflow prefix immediately, as ordinary syllable input does.
 - Removed the unused PyZy fallback and its initialization-only storage helper. Chinese composition now uses libime/OpenCC for Pinyin and McBopomofo for Zhuyin. Two-set Hangul keeps its own adapter, and packaging includes only retained engine modules.
 
 - Added a separate opt-in Zhuyin residual experiment with an external fixed model over tone-compatible sentences and the native conversion. It protects user and learned choices, separates punctuation runs, and preserves converted text while an ordinary syllable is unfinished. It is off by default and includes no weights.
