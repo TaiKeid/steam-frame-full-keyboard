@@ -1,5 +1,6 @@
 #include "installer.hpp"
 #include "framekeyboard/paint.hpp"
+#include "framekeyboard/panel.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -14,12 +15,18 @@ extern const std::size_t keyboard_png_size;
 namespace {
 
 constexpr double pi = 3.141592653589793;
-// The keyboard picture on Home, 1600 x 672 scaled to 65%; Setup slides it up.
-constexpr Rect picture{120, 56, 1040, 436.8};
+// The keyboard picture on Home: the case, 1600 x panel_height, at 65%.
+// Setup slides it up.
+constexpr double picture_scale = .65;
+constexpr Rect picture{120, 70, panel_width * picture_scale, panel_height * picture_scale};
 constexpr double slide_distance = 300, slide_seconds = .7;
 // Setup's card holds the wizard pages and Finish.
-constexpr Rect card{200, 250, 880, 500};
+constexpr Rect card{200, 220, 880, 556};
 constexpr double card_margin = 48;
+// The swipe page's demonstration: words traced over three rows of letters.
+constexpr std::array<const char*, 3> letter_rows{"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+constexpr std::array<const char*, 3> demo_words{"swipe", "frame", "keys"};
+constexpr double demo_key = 40, demo_pitch = 46, demo_step = .32, demo_hold = 1.1, demo_fade = .35;
 
 double ease_out(double t) {
     t = std::clamp(t, 0.0, 1.0);
@@ -46,7 +53,7 @@ constexpr std::array<std::pair<const char*, const char*>, Installer::pages> page
     {"installer.page.swipe", "installer.page.swipe.text"},
     {"installer.page.suggestions", "installer.page.suggestions.text"},
     {"installer.page.pull", "installer.page.pull.text"},
-    {"installer.page.numpad", "installer.page.numpad.text"},
+    {"installer.page.use-numpad", "installer.page.use-numpad.text"},
 }};
 
 } // namespace
@@ -57,7 +64,21 @@ Installer::Installer(Backend& backend, Theme theme, const Localization& localiza
       canvas_(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height), cairo_surface_destroy),
       keyboard_(nullptr, cairo_surface_destroy) {
     PngReader reader{keyboard_png, keyboard_png_size};
-    keyboard_.reset(cairo_image_surface_create_from_png_stream(read_png, &reader));
+    std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)> image(
+        cairo_image_surface_create_from_png_stream(read_png, &reader), cairo_surface_destroy);
+    if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS) {
+        // Only the case: the README picture also has the movement line below
+        // it, and its x would read as the installer's own (App's close
+        // control: body.x + body.width - 78, 12, 60 x 42).
+        keyboard_.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height));
+        auto* cr = cairo_create(keyboard_.get());
+        cairo_set_source_surface(cr, image.get(), 0, 0);
+        cairo_paint(cr);
+        paint::source(cr, theme_.surface);
+        cairo_rectangle(cr, panel_width - 84, 6, 72, 54);
+        cairo_fill(cr);
+        cairo_destroy(cr);
+    }
     backend_.releases();
 }
 
@@ -120,9 +141,6 @@ void Installer::pointer_up(double x, double y) {
 
 void Installer::activate(const Hit& hit) {
     switch (hit.action) {
-    case Action::Close:
-        quit_ = true;
-        break;
     case Action::Install:
         versions_open_ = false;
         begin_install();
@@ -163,7 +181,7 @@ void Installer::activate(const Hit& hit) {
             choices_.pull_for_shift = yes;
             break;
         case 4:
-            choices_.hide_numpad = yes;
+            choices_.numpad = yes;
             break;
         }
         break;
@@ -331,16 +349,27 @@ void Installer::spinner(double x, double y, double radius, double now) {
 }
 
 void Installer::paint_keyboard(double slide) {
-    if (!keyboard_ || cairo_surface_status(keyboard_.get()) != CAIRO_STATUS_SUCCESS) {
+    if (!keyboard_) {
         return;
     }
-    const double scale = picture.width / cairo_image_surface_get_width(keyboard_.get());
     const double y = picture.y - slide_distance * slide;
+    if (slide <= 0) {
+        // A soft shadow lifts the case off the backdrop.
+        const double radius = theme_.surface_radius * picture_scale;
+        for (int i = 1; i <= 6; ++i) {
+            const double spread = i * 3.0;
+            paint::rounded(cr_,
+                           {picture.x - spread / 2, y + spread, picture.width + spread, picture.height},
+                           radius + spread);
+            cairo_set_source_rgba(cr_, 0, 0, 0, .07);
+            cairo_fill(cr_);
+        }
+    }
     // The pattern's own matrix places the picture, so the mask below stays
     // in canvas coordinates.
     auto* image = cairo_pattern_create_for_surface(keyboard_.get());
     cairo_matrix_t placed;
-    cairo_matrix_init_scale(&placed, 1 / scale, 1 / scale);
+    cairo_matrix_init_scale(&placed, 1 / picture_scale, 1 / picture_scale);
     cairo_matrix_translate(&placed, -picture.x, -y);
     cairo_pattern_set_matrix(image, &placed);
     cairo_pattern_set_filter(image, CAIRO_FILTER_GOOD);
@@ -350,7 +379,7 @@ void Installer::paint_keyboard(double slide) {
         cairo_paint(cr_);
         return;
     }
-    // Fades into the case colour downward: dim at the top, gone before the card.
+    // Fades downward: dim at the top, gone before the card.
     const double fade_end = height + (card.y - 60 - height) * slide;
     auto* mask = cairo_pattern_create_linear(0, 0, 0, fade_end);
     cairo_pattern_add_color_stop_rgba(mask, 0, 0, 0, 0, 1 - .86 * slide);
@@ -365,15 +394,21 @@ void Installer::paint(double now) {
     now_ = now;
     cr_ = cairo_create(canvas_.get());
     hits_.clear();
-    paint::source(cr_, theme_.surface);
+    // Lighter than the keyboard's case above, so the case stands out, and
+    // darker toward the bottom. Closing is the window's own (KDE, Gamescope).
+    auto* backdrop = cairo_pattern_create_linear(0, 0, 0, height);
+    const auto top = paint::mix(theme_.surface, theme_.middle, .55);
+    const auto bottom = paint::mix(theme_.surface, theme_.bottom, .12);
+    cairo_pattern_add_color_stop_rgb(backdrop, 0, top.r, top.g, top.b);
+    cairo_pattern_add_color_stop_rgb(backdrop, 1, bottom.r, bottom.g, bottom.b);
+    cairo_set_source(cr_, backdrop);
     cairo_paint(cr_);
+    cairo_pattern_destroy(backdrop);
     if (screen_ == Screen::Home) {
         paint_home();
     } else {
         paint_setup(now);
     }
-    // The ×, as on the keyboard; it waits while something runs.
-    button({width - 76, 16, 60, 48}, Action::Close, 0, "×", false, !busy(), 28);
     cairo_destroy(cr_);
     cr_ = nullptr;
     cairo_surface_flush(canvas_.get());
@@ -392,7 +427,7 @@ void Installer::paint_home() {
     } else if (!installed_.empty()) {
         line = tr("installer.installed", {{"version", installed_}});
     }
-    text(line, {240, 506, 800, 36}, 21, dim());
+    text(line, {240, 494, 800, 36}, 21, dim());
 
     const Rect main{440, 560, 320, 76}, more{764, 560, 76, 76};
     if (list_failed) {
@@ -582,9 +617,12 @@ void Installer::paint_wizard_page() {
             {{"page", static_cast<long long>(page_ + 1)}, {"count", static_cast<long long>(pages)}}),
          {card.x + card.width - card_margin - 120, card.y + 36, 120, 40}, 20, dim(), PANGO_ALIGN_RIGHT);
     text(tr(page_keys[page_].first), {x, card.y + 32, w - 130, 56}, 34, theme_.legend, PANGO_ALIGN_LEFT);
-    paragraph(tr(page_keys[page_].second), {x, card.y + 108, w, 150}, 22, dim());
+    paragraph(tr(page_keys[page_].second), {x, card.y + 104, w, 108}, 22, dim());
+    if (page_ == 1) {
+        paint_swipe_demo({card.x, card.y + 222, card.width, 132}, now_);
+    }
 
-    std::optional<bool> value;
+    bool value{};
     switch (page_) {
     case 0:
         value = choices_.replace_native;
@@ -599,18 +637,17 @@ void Installer::paint_wizard_page() {
         value = choices_.pull_for_shift;
         break;
     case 4:
-        value = choices_.hide_numpad;
+        value = choices_.numpad;
         break;
     }
-    segments({x, card.y + 280, 360, 64}, Action::Choice, value ? (*value ? 0 : 1) : -1);
+    segments({card.x + (card.width - 360) / 2, card.y + 368, 360, 64}, Action::Choice, value ? 0 : 1);
 
     const double buttons = card.y + card.height - card_margin - 60;
     if (page_ > 0) {
         button({x, buttons, 180, 60}, Action::Back, 0, tr("installer.back"), false);
     }
-    // Picking doesn't advance; Next waits for the one choice without a default.
-    button({x + w - 180, buttons, 180, 60}, Action::Next, 0, tr("installer.next"), false,
-           value.has_value());
+    // Picking doesn't advance; Next does.
+    button({x + w - 180, buttons, 180, 60}, Action::Next, 0, tr("installer.next"), false);
 }
 
 void Installer::paint_finish_page(double now) {
@@ -622,7 +659,7 @@ void Installer::paint_finish_page(double now) {
 
     const bool installing = status_.task == Task::Install && status_.state == State::Running;
     const bool finishing = status_.task == Task::Finish && status_.state == State::Running;
-    const Rect finish{card.x + (card.width - 360) / 2, card.y + 220, 360, 84};
+    const Rect finish{card.x + (card.width - 360) / 2, card.y + 250, 360, 84};
     const bool enabled = install_done_ && !finish_pressed_;
     button(finish, Action::Finish, 0, "", true, enabled);
     // The label, with a spinner beside it while waiting.
@@ -637,6 +674,98 @@ void Installer::paint_finish_page(double now) {
     if (first_install_ && !finish_pressed_) {
         button({x, card.y + card.height - card_margin - 60, 180, 60}, Action::Back, 0,
                tr("installer.back"), false);
+    }
+}
+
+// Three rows of letters with a trail tracing one word after another, as a
+// swipe does on the keyboard: the keys it crosses light up, and the word
+// shows when the trail ends.
+void Installer::paint_swipe_demo(const Rect& area, double now) {
+    const auto key_rect = [&](int row, int column) {
+        const double stagger[] = {0, demo_pitch * .25, demo_pitch * .75};
+        const double left = area.x + (area.width - (10 * demo_pitch - (demo_pitch - demo_key))) / 2;
+        return Rect{left + stagger[row] + column * demo_pitch, area.y + row * demo_pitch, demo_key,
+                    demo_key};
+    };
+    const auto key_of = [&](char letter) {
+        for (int row = 0; row < 3; ++row) {
+            if (const char* at = std::strchr(letter_rows[row], letter)) {
+                return key_rect(row, static_cast<int>(at - letter_rows[row]));
+            }
+        }
+        return Rect{};
+    };
+    // Which word, and how far along it: trace, hold, fade.
+    std::array<double, demo_words.size()> lengths{};
+    double cycle = 0;
+    for (std::size_t i = 0; i < demo_words.size(); ++i) {
+        lengths[i] =
+            static_cast<double>(std::strlen(demo_words[i]) - 1) * demo_step + demo_hold + demo_fade;
+        cycle += lengths[i];
+    }
+    double t = std::fmod(std::max(0.0, now - setup_started_), cycle);
+    std::size_t word = 0;
+    while (word + 1 < demo_words.size() && t >= lengths[word]) {
+        t -= lengths[word++];
+    }
+    const std::string letters = demo_words[word];
+    std::vector<std::pair<double, double>> points;
+    for (char letter : letters) {
+        const auto r = key_of(letter);
+        points.emplace_back(r.x + r.width / 2, r.y + r.height / 2);
+    }
+    const double last = static_cast<double>(points.size()) - 1;
+    const double trace = last * demo_step;
+    const double progress = std::min(t / demo_step, last);
+    const double fade =
+        t > trace + demo_hold ? std::max(0.0, 1 - (t - trace - demo_hold) / demo_fade) : 1;
+
+    // While the word shows, the keys step back behind it.
+    const double shown = t >= trace ? fade * std::min(1.0, (t - trace) / .15) : 0;
+    cairo_push_group(cr_);
+    for (int row = 0; row < 3; ++row) {
+        for (int column = 0; letter_rows[row][column]; ++column) {
+            const char letter = letter_rows[row][column];
+            const auto r = key_rect(row, column);
+            // Latched once the trail has reached it, as a held key is.
+            const auto found = letters.find(letter);
+            const bool lit = found != std::string::npos && static_cast<double>(found) <= progress + .01;
+            paint::cap(cr_, theme_, r, false, lit && fade > .5, true);
+            text(std::string(1, letter), r, 18, theme_.legend);
+        }
+    }
+    // The trail, up to its moving head.
+    const auto at = [&](double along) {
+        const auto i = std::min(static_cast<std::size_t>(along), points.size() - 2);
+        const double f = along - static_cast<double>(i);
+        return std::pair{points[i].first + (points[i + 1].first - points[i].first) * f,
+                         points[i].second + (points[i + 1].second - points[i].second) * f};
+    };
+    cairo_move_to(cr_, points[0].first, points[0].second);
+    for (std::size_t i = 1; i <= static_cast<std::size_t>(progress); ++i) {
+        cairo_line_to(cr_, points[i].first, points[i].second);
+    }
+    const auto head = at(progress);
+    cairo_line_to(cr_, head.first, head.second);
+    const Color ink = paint::mix(theme_.latched, theme_.legend, .45);
+    cairo_set_source_rgba(cr_, ink.r, ink.g, ink.b, .85 * fade);
+    cairo_set_line_width(cr_, 9);
+    cairo_set_line_cap(cr_, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr_, CAIRO_LINE_JOIN_ROUND);
+    cairo_stroke(cr_);
+    cairo_arc(cr_, head.first, head.second, 9, 0, 2 * pi);
+    cairo_set_source_rgba(cr_, theme_.legend.r, theme_.legend.g, theme_.legend.b, .9 * fade);
+    cairo_fill(cr_);
+    cairo_pop_group_to_source(cr_);
+    cairo_paint_with_alpha(cr_, 1 - .7 * shown);
+    // The word it typed, once the trail ends.
+    if (shown > 0) {
+        const Rect chip{area.x + area.width / 2 - 90, area.y + demo_pitch - 6, 180, 52};
+        cairo_push_group(cr_);
+        paint::latched(cr_, theme_, chip, chip.height / 2);
+        text(letters, chip, 26, theme_.legend);
+        cairo_pop_group_to_source(cr_);
+        cairo_paint_with_alpha(cr_, shown);
     }
 }
 

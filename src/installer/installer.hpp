@@ -23,7 +23,6 @@ class Installer {
     static constexpr int pages = 5;
     enum class Action {
         None,
-        Close,
         Install,
         Versions, // opens the version list
         Version,  // one row of it, by index
@@ -75,6 +74,7 @@ class Installer {
     void paint_versions();
     void paint_confirm();
     void paint_keyboard(double slide);
+    void paint_swipe_demo(const Rect& area, double now);
     // A button: a keycap face, or the latched fill for the main action.
     void button(const Rect& r, Action action, int index, const std::string& text, bool primary,
                 bool enabled = true, double size = 22);

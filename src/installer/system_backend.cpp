@@ -311,7 +311,7 @@ class SystemBackend : public Backend {
             settings.swipe_typing = choices.swipe;
             settings.typing_suggestions = choices.suggestions;
             settings.key_flicks = choices.pull_for_shift;
-            settings.hide_numpad = choices.hide_numpad.value_or(false);
+            settings.hide_numpad = !choices.numpad;
             try {
                 save_preferences_with_startup(settings, install_root() / "current/bin/framekeyboard",
                                               config);

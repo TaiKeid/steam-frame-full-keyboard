@@ -98,9 +98,11 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
     if (installer.control(A::Choice)) {
         for (int page = 0; page < in::Installer::pages; ++page) {
             save("page-" + std::to_string(page + 1));
-            if (!installer.control(A::Next) || page == in::Installer::pages - 1) {
-                click(A::Choice, 1);
-                save("page-" + std::to_string(page + 1) + "-chosen");
+            if (page == 1) {
+                wait(1.2); // the swipe demonstration, mid-word
+                save("page-2-swiping");
+                wait(.9);
+                save("page-2-word");
             }
             click(A::Next);
         }

@@ -19,10 +19,10 @@ struct Release {
     std::string tag, version;
 };
 
-// The wizard's answers. Hide numpad has no default: the user must choose.
+// The wizard's answers, all Yes by default: the installer shows off what
+// the keyboard can do, while features new in an update stay opt-in.
 struct Choices {
-    bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true};
-    std::optional<bool> hide_numpad;
+    bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true};
 };
 
 enum class Task { None, Releases, Install, Uninstall, Finish };
