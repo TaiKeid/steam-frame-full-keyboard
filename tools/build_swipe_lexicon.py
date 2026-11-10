@@ -81,7 +81,9 @@ def serbian_cyrillic(word):
 
 
 SCRIPTS = {
-    "arabic": ("\u0621", "\u064a"),  # Letters, harakat and digits after it; tatweel is dropped below.
+    # Letters only: a word with harakat (U+064B on) is left out, as no key
+    # types them; tatweel (U+0640, inside the range) is dropped below.
+    "arabic": ("\u0621", "\u064a"),
     "cyrillic": ("\u0400", "\u04ff"),
     "greek": ("\u0370", "\u03ff"),
     "hebrew": ("\u05d0", "\u05ea"),  # Letters, final forms included; no points.
