@@ -16,7 +16,7 @@ A check that finds an update puts a dot on the Settings button and turns the Set
 
 ## Verification and installation
 
-A private helper handles all network, hashing, archive and installation work. The VR loop exchanges bounded nonblocking packets and keeps rendering/input responsive. Requests go to the fixed public GitHub repository over certificate-verified HTTPS, without credentials or proxy-environment forwarding. Asset URLs must match the exact release/tag/name. Redirects are restricted to HTTPS GitHub release download hosts. Requests, sizes and unpacked files are bounded.
+A private helper handles all network, hashing, archive and installation work. The VR loop exchanges bounded nonblocking packets and keeps rendering/input responsive. Requests go to the fixed public GitHub repository over certificate-verified HTTPS, without credentials or proxy-environment forwarding. Asset URLs must match the exact release/tag/name. Redirects are restricted to HTTPS GitHub release download hosts. API replies and `SHA256SUMS` are bounded in size and time. The release archive has no size limit, so a release may grow without stranding installs: its download takes as long as it needs and stops only after 120 s without data. Unpacked files are bounded in number.
 
 Each stable release must publish `framekeyboard-VERSION-aarch64.tar.gz` and `SHA256SUMS`. The helper requires exactly one checksum entry for that exact archive and verifies SHA-256 before extraction. If GitHub also provides an asset digest, it must agree. This trusts the project's GitHub release and protects against download corruption; it is not a separate signature system.
 

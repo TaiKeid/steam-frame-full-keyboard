@@ -25,8 +25,10 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 REPOSITORY = "TaiKeid/steam-frame-full-keyboard"
 API = f"https://api.github.com/repos/{REPOSITORY}/releases"
-MAX_ARCHIVE = 64 * 1024 * 1024
-MAX_UNPACKED = 256 * 1024 * 1024
+# The release archive has no size limit: a release may grow, and an install
+# whose helper capped it could never update past the cap. Only the GitHub API
+# replies and SHA256SUMS are bounded.
+STALL_SECONDS = 120
 array_int_size = 4  # SCM_RIGHTS carries C ints
 
 
@@ -101,7 +103,7 @@ def network_deadline():
     def expired(signum, frame):
         raise UpdateError("download-timeout")
     previous = signal.signal(signal.SIGALRM, expired)
-    signal.setitimer(signal.ITIMER_REAL, 120)
+    signal.setitimer(signal.ITIMER_REAL, STALL_SECONDS)
     try:
         yield
     finally:
@@ -109,7 +111,9 @@ def network_deadline():
         signal.signal(signal.SIGALRM, previous)
 
 
-def download(url, output, limit, expected_size=None):
+# `limit` bounds a small reply in bytes and in time; without one (the release
+# archive) the download takes as long as it needs, stopped only by a stall.
+def download(url, output, limit=None, expected_size=None):
     with network_deadline():
         return download_response(url, output, limit, expected_size)
 
@@ -124,7 +128,7 @@ def download_response(url, output, limit, expected_size=None):
     size = 0
     with opener.open(request, timeout=10) as response:
         length = response.headers.get("Content-Length")
-        if length and (int(length) > limit or
+        if length and ((limit is not None and int(length) > limit) or
                        (expected_size is not None and int(length) != expected_size)):
             raise UpdateError("invalid-download-size")
         while True:
@@ -132,8 +136,10 @@ def download_response(url, output, limit, expected_size=None):
             if not chunk:
                 break
             size += len(chunk)
-            if size > limit or time.monotonic() - started > 120:
+            if limit is not None and (size > limit or time.monotonic() - started > STALL_SECONDS):
                 raise UpdateError("download-limit")
+            if limit is None:
+                signal.setitimer(signal.ITIMER_REAL, STALL_SECONDS)  # Moving: the deadline starts again.
             output.write(chunk)
             digest.update(chunk)
     if expected_size is not None and size != expected_size:
@@ -165,7 +171,7 @@ def release(tag=None):
         if name in assets or asset.get("browser_download_url") != url:
             raise UpdateError("invalid-asset")
         size = asset.get("size")
-        if type(size) is not int or size <= 0 or size > (MAX_ARCHIVE if name == archive else 65536):
+        if type(size) is not int or size <= 0 or (name != archive and size > 65536):
             raise UpdateError("invalid-asset-size")
         assets[name] = asset
     if set(assets) != {archive, "SHA256SUMS"}:
@@ -187,7 +193,6 @@ def expected_checksum(contents, name):
 def extract(archive, destination, number):
     prefix = f"framekeyboard-{number}-aarch64"
     names = set()
-    total = 0
     with tarfile.open(archive, "r:gz") as source:
         members = []
         for item in source:
@@ -199,8 +204,7 @@ def extract(archive, destination, number):
                     not (item.isdir() or item.isfile()) or item.mode & 0o7000):
                 raise UpdateError("unsafe-archive")
             names.add(str(PurePosixPath(item.name)))
-            total += item.size
-            if item.size < 0 or total > MAX_UNPACKED or len(names) > 10000:
+            if item.size < 0 or len(names) > 10000:
                 raise UpdateError("archive-limit")
             members.append(item)
         # Reject links, devices, duplicate paths and traversal before writing any member.
@@ -569,8 +573,8 @@ class Installation:
         with archive.open("wb") as output:
             if self.downloaded:
                 output = CountingOutput(output, archive_asset["size"], self.downloaded)
-            actual = download(archive_asset["browser_download_url"], output, MAX_ARCHIVE,
-                              archive_asset["size"])
+            actual = download(archive_asset["browser_download_url"], output,
+                              expected_size=archive_asset["size"])
         progress("verify")
         if actual != expected:
             raise UpdateError("checksum-mismatch")

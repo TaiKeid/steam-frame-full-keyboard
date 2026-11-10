@@ -63,6 +63,10 @@ class Metadata(unittest.TestCase):
         data = metadata()
         with patch.object(u, "read_url", return_value=json.dumps(data).encode()):
             self.assertEqual(u.release()["number"], "9.0.0")
+        large = copy.deepcopy(data)
+        large["assets"][0]["size"] = 1 << 31  # No limit on the release archive.
+        with patch.object(u, "read_url", return_value=json.dumps(large).encode()):
+            self.assertEqual(u.release()["number"], "9.0.0")
         for change in ("draft", "prerelease", "missing", "url", "duplicate", "size"):
             bad = copy.deepcopy(data)
             if change in ("draft", "prerelease"):
@@ -74,7 +78,7 @@ class Metadata(unittest.TestCase):
             elif change == "duplicate":
                 bad["assets"].append(bad["assets"][0])
             else:
-                bad["assets"][0]["size"] = u.MAX_ARCHIVE + 1
+                bad["assets"][1]["size"] = 65537  # SHA256SUMS stays small.
             with self.subTest(change=change), patch.object(u, "read_url", return_value=json.dumps(bad).encode()), self.assertRaises(u.UpdateError):
                 u.release()
 
@@ -127,8 +131,6 @@ class Archives(unittest.TestCase):
         hard.type = tarfile.LNKTYPE
         device = copy.copy(link)
         device.type = tarfile.CHRTYPE
-        oversized, _ = member(prefix + "huge")
-        oversized.size = u.MAX_UNPACKED + 1
         cases = [
             [member("../escape")], [member("/tmp/escape")], [member(prefix + "../escape")],
             [member(prefix + "a//b")], [(link, b"")], [(hard, b"")], [(device, b"")],
@@ -145,8 +147,6 @@ class Archives(unittest.TestCase):
             archive.write_bytes(archive_bytes([member(prefix + "file")]))
             package = u.extract(archive, root / "valid", "9.0.0")
             self.assertEqual((package / "file").read_bytes(), b"hello")
-            with patch.object(u, "MAX_UNPACKED", 1), self.assertRaises(u.UpdateError):
-                u.extract(archive, root / "limited", "9.0.0")
 
     def test_elf_architecture_rejected_before_execution(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -187,7 +187,7 @@ class Transaction(unittest.TestCase):
         self.directory.cleanup()
 
     def prepare(self, checksum=None, validation_error=None):
-        def download(url, output, limit, expected_size=None):
+        def download(url, output, limit=None, expected_size=None):
             output.write(self.archive)
             return self.sha
         sums = f"{checksum or self.sha}  {self.selected['archive']}\n".encode()
