@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Full Keyboard installer
+Comment=Install, reinstall or remove Full Keyboard for Steam Frame
+Exec=framekeyboard-installer
+Icon=framekeyboard-installer
+Terminal=false
+Categories=Utility;

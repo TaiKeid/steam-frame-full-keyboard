@@ -108,7 +108,7 @@ def check(root, release=False, context_path=None):
         errors += shape_errors(node, f'en.json: {key}')
 
     used, literals = set(), set()
-    for path in sorted([*root.glob('src/*.cpp'), *root.glob('include/framekeyboard/*.hpp')]):
+    for path in sorted([*root.glob('src/**/*.cpp'), *root.glob('src/**/*.hpp'), *root.glob('include/framekeyboard/*.hpp')]):
         code = path.read_text(encoding='utf-8', errors='replace')
         used |= set(KEY_USE.findall(code))
         literals |= set(KEY_LITERAL.findall(code))

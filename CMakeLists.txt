@@ -360,6 +360,28 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_definitions(framekeyboard-simulator PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
 endif()
 
+# The installer (docs/installer.md): a window that downloads, installs and
+# sets up a release, shipped as its own AppImage and not in the package.
+# Host builds always compile it, for its --simulate mode; an ARM64 tree
+# builds it only when asked (scripts/installer-appimage.sh).
+set(INSTALLER_PICTURE "${CMAKE_CURRENT_BINARY_DIR}/generated/installer_keyboard.cpp")
+add_custom_command(OUTPUT "${INSTALLER_PICTURE}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_file.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/docs/images/keyboard-graphite.png" "${INSTALLER_PICTURE}"
+            framekeyboard::installer keyboard_png
+    DEPENDS docs/images/keyboard-graphite.png tools/embed_file.py
+    VERBATIM)
+add_executable(framekeyboard-installer src/installer/main.cpp src/installer/installer.cpp
+    src/installer/simulated_backend.cpp src/installer/system_backend.cpp "${INSTALLER_PICTURE}")
+if(CMAKE_CROSSCOMPILING)
+    set_target_properties(framekeyboard-installer PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+target_link_libraries(framekeyboard-installer PRIVATE keyboard_core PkgConfig::SDL)
+# Only the libraries it calls: the keyboard's other dependencies stay out of the AppImage.
+target_link_options(framekeyboard-installer PRIVATE -Wl,--as-needed)
+target_compile_options(framekeyboard-installer PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+target_compile_definitions(framekeyboard-installer PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bridge")
 foreach(bridge_file native_bridge.py steam_bridge.js)
     configure_file("bridge/${bridge_file}" "bridge/${bridge_file}" COPYONLY)

@@ -1,6 +1,7 @@
 #include "framekeyboard/panel.hpp"
 #include "framekeyboard/emoji_glyphs.hpp"
 #include "framekeyboard/japanese.hpp"
+#include "framekeyboard/paint.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -4003,4 +4004,32 @@ void PanelRenderer::write_png(const fs::path& path) const {
         throw std::runtime_error("cannot write preview PNG");
     }
 }
+// Qualified calls reach the file's own helpers in the unnamed namespace.
+namespace paint {
+void rounded(cairo_t* cr, Rect r, double radius) {
+    framekeyboard::rounded(cr, r, radius);
+}
+void source(cairo_t* cr, Color color) {
+    framekeyboard::source(cr, color);
+}
+Color mix(Color a, Color b, double amount) {
+    return framekeyboard::mix(a, b, amount);
+}
+void settings_card(cairo_t* cr, const Theme& theme, const Rect& r) {
+    draw_settings_card(cr, theme, r);
+}
+void cap(cairo_t* cr, const Theme& theme, const Rect& r, bool hovered, bool selected, bool enabled) {
+    draw_cap(cr, theme, r, hovered, selected, enabled);
+}
+Color well(cairo_t* cr, const Theme& theme, const Rect& r) {
+    return draw_well(cr, theme, r);
+}
+void latched(cairo_t* cr, const Theme& theme, const Rect& r, double radius) {
+    fill_latched(cr, theme, r, radius);
+}
+void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
+           Color color, PangoAlignment alignment, bool wrap) {
+    interface_label(cr, text, r, size, family, color, false, alignment, wrap);
+}
+} // namespace paint
 } // namespace framekeyboard

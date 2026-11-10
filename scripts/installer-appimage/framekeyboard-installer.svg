@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- The installer: a graphite keycap (themes/graphite.json) with a
+       download arrow, on the flat case. -->
+  <defs>
+    <linearGradient id="key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c333b"/>
+      <stop offset=".5" stop-color="#232a32"/>
+      <stop offset="1" stop-color="#1c232a"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="40" fill="#0b1016"/>
+  <rect x="44" y="50" width="168" height="160" rx="22" fill="#0c1015"/>
+  <rect x="44" y="44" width="168" height="160" rx="22" fill="url(#key)"/>
+  <path d="M128 78 V150 M98 122 L128 152 L158 122" fill="none" stroke="#ffffff" stroke-width="14"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="94" y="166" width="68" height="12" rx="6" fill="#355b7a"/>
+</svg>

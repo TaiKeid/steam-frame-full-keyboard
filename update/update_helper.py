@@ -155,7 +155,12 @@ def read_url(url, limit):
 
 
 def release(tag=None):
-    data = json.loads(read_url(API + ("/tags/" + quote(tag, safe="") if tag else "/latest"), 1024 * 1024))
+    return stable_release(json.loads(read_url(
+        API + ("/tags/" + quote(tag, safe="") if tag else "/latest"), 1024 * 1024)))
+
+
+# One release from the GitHub API, checked as the updater checks it.
+def stable_release(data):
     if not isinstance(data, dict) or data.get("draft") is not False or data.get("prerelease") is not False:
         raise UpdateError("not-stable-release")
     tag = data.get("tag_name", "")
@@ -836,7 +841,76 @@ def serve(peer, executable, current, arguments):
         peer.close()
 
 
+# The installer (src/installer) talks to these two modes through JSON lines on
+# stdout. Neither touches an installation: fetching only prepares a verified
+# package for the package's own install.sh.
+def report(event, **values):
+    print(json.dumps(dict(event=event, **values)), flush=True)
+
+
+def installer_releases(oldest):
+    # One page of 100 is years of releases; older ones fall below `oldest` anyway.
+    listed = json.loads(read_url(API + "?per_page=100", 4 * 1024 * 1024))
+    if not isinstance(listed, list):
+        raise UpdateError("invalid-release")
+    found = {}
+    for data in listed:
+        try:
+            selected = stable_release(data)
+        except UpdateError:
+            continue  # A draft, a prerelease or a release without its assets.
+        if selected["parts"] >= oldest:
+            found[selected["parts"]] = selected
+    report("releases", releases=[{"tag": found[parts]["tag"], "version": found[parts]["number"]}
+                                 for parts in sorted(found, reverse=True)])
+
+
+def installer_fetch(tag, destination):
+    if platform.machine() != "aarch64":
+        raise UpdateError("wrong-platform")
+    selected = release(tag)
+    archive_asset = selected["assets"][selected["archive"]]
+    sums = read_url(selected["assets"]["SHA256SUMS"]["browser_download_url"], 65536)
+    expected = expected_checksum(sums, selected["archive"])
+    api_digest = archive_asset.get("digest")
+    if api_digest and api_digest != "sha256:" + expected:
+        raise UpdateError("inconsistent-checksum")
+    archive = destination / "package.tar.gz"
+    with archive.open("wb") as output:
+        counting = CountingOutput(output, archive_asset["size"],
+                                  lambda done, total: report("download", done=done, total=total))
+        actual = download(archive_asset["browser_download_url"], counting,
+                          expected_size=archive_asset["size"])
+    report("verify")
+    if actual != expected:
+        raise UpdateError("checksum-mismatch")
+    package = extract(archive, destination, selected["number"])
+    archive.unlink()
+    validate(package, selected["number"])
+    report("ready", package=str(package), version=selected["number"])
+
+
+def installer_main(arguments):
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
+    try:
+        if arguments[:1] == ["--installer-releases"] and len(arguments) == 2:
+            installer_releases(version(arguments[1]))
+        elif arguments[:1] == ["--installer-fetch"] and len(arguments) == 3:
+            destination = Path(arguments[2])
+            if not destination.is_dir() or any(destination.iterdir()):
+                raise UpdateError("invalid-destination")
+            installer_fetch(arguments[1], destination)
+        else:
+            return 2
+    except Exception as error:  # Reported by reason only, as the updater does.
+        report("error", reason=failure_reason(error))
+        return 1
+    return 0
+
+
 def main():
+    if sys.argv[1:2] in (["--installer-releases"], ["--installer-fetch"]):
+        return installer_main(sys.argv[1:])
     # Package install.sh shares the marker and conservative cleanup rules with
     # the updater. The caller holds both installation and instance locks.
     if sys.argv[1:2] == ["--mark-production"] and len(sys.argv) == 5:
