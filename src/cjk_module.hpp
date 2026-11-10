@@ -32,6 +32,21 @@ inline bool make_learning_dir(const std::filesystem::path& dir) {
     }
     return true;
 }
+// A rare character: one from CJK Extension A or later, or a compatibility
+// ideograph, which fonts often lack. Candidate lists offer it after the rest.
+inline bool rare_character(std::string_view text) {
+    if (text.empty()) {
+        return false;
+    }
+    const auto byte = [&](std::size_t i) { return static_cast<char32_t>(static_cast<unsigned char>(text[i])); };
+    char32_t point = byte(0);
+    if (point >= 0xF0 && text.size() >= 4) {
+        point = (point & 0x07) << 18 | (byte(1) & 0x3F) << 12 | (byte(2) & 0x3F) << 6 | (byte(3) & 0x3F);
+    } else if (point >= 0xE0 && text.size() >= 3) {
+        point = (point & 0x0F) << 12 | (byte(1) & 0x3F) << 6 | (byte(2) & 0x3F);
+    }
+    return (point >= 0x3400 && point <= 0x4DBF) || (point >= 0xF900 && point <= 0xFAFF) || point >= 0x20000;
+}
 // Characters in UTF-8 text; the engines count positions in characters.
 inline std::size_t utf8_length(std::string_view text) {
     std::size_t count = 0;

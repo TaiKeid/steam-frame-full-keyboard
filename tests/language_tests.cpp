@@ -374,8 +374,8 @@ void table_engine() {
                         "values(?,?,?,0)',[('a','日',10),('a','曰',5),('ab','明',90),('b','月',1),"
                         "('e','𠮷',1),('f','明日',1)]"
                         "+[('c',str(i),1) for i in range(60)]+[('c'+chr(97+i%26)+chr(97+i//26),"
-                        "'x',1) for i in range(120)]+[('d'+chr(97+i%26)+chr(97+i//26),'y',1) "
-                        "for i in range(120)])\n"
+                        "'x'+str(i),1) for i in range(120)]+[('d'+chr(97+i%26)+chr(97+i//26),"
+                        "'y'+str(i),1) for i in range(120)])\n"
                         "c.commit()\n";
     const auto file = path.string() + ".py";
     std::ofstream(file) << script;
@@ -386,7 +386,7 @@ void table_engine() {
         std::cout << "Table engine test skipped: no SQLite.\n";
         return;
     }
-    TableEngine table(path, 2);
+    TableEngine table(TableEngine::load(path), 2);
     table.type('a');
     require(table.preedit() == "日", "keys show as radicals");
     require(table.candidates() == std::vector<std::string>({"日", "曰", "明"}),
@@ -969,6 +969,17 @@ void chinese_engines() {
                 "Space finishes the syllable in the first tone");
         zhuyin.backspace();
         require(zhuyin.empty(), "Backspace removes the syllable");
+        // ㄨㄛˇ: rare characters (Extension A and later) come after common ones.
+        type(zhuyin, "ji3");
+        bool rare = false;
+        for (const auto& candidate : zhuyin.candidates()) {
+            const auto point = g_utf8_get_char(candidate.c_str());
+            const bool this_rare = (point >= 0x3400 && point <= 0x4DBF) || point >= 0x20000;
+            require(!rare || this_rare || g_utf8_strlen(candidate.c_str(), -1) > 1,
+                    "no common character comes after a rare one");
+            rare = rare || this_rare;
+        }
+        zhuyin.cancel();
         // A pick is learned once its text reached the field, and only then.
         const auto pick = [&](bool learn) {
             type(zhuyin, "su3cl3");

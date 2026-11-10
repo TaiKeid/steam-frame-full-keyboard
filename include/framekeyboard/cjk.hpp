@@ -62,4 +62,8 @@ class CjkComposer {
 // quick5.db, for the simulator and tests on a desktop without them; before
 // the first composer.
 void set_table_directory(const std::filesystem::path& directory);
+// Cangjie and Quick offer a code's characters commonest first, by the rank
+// list in chinese/char-ranks.txt (tools/build_chinese_ranks.py); before the
+// first composer. Without a readable list they keep the tables' own order.
+void set_character_ranks(const std::filesystem::path& file);
 } // namespace framekeyboard

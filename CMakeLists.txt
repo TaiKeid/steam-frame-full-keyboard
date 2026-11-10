@@ -273,6 +273,7 @@ if(FRAMEKEYBOARD_CHINESE_PREFIX)
     # OpenCC's Taiwan configuration with the dictionaries it names.
     file(CREATE_LINK "${chinese}/share/opencc" "${CHINESE_OUT}/opencc" SYMBOLIC)
     install(DIRECTORY "${chinese}/share/opencc/" DESTINATION "lib/framekeyboard/chinese/opencc")
+    install(DIRECTORY third_party/chinese-engines/ DESTINATION third_party/chinese-engines)
 else()
     file(REMOVE_RECURSE "${CHINESE_OUT}")
     message(STATUS "New Chinese engines unavailable: set FRAMEKEYBOARD_CHINESE_PREFIX to build them")
@@ -290,6 +291,7 @@ configure_file(japanese/words.tsv japanese/words.tsv COPYONLY)
 configure_file(japanese/kaomoji.tsv japanese/kaomoji.tsv COPYONLY)
 configure_file(japanese/preferred.tsv japanese/preferred.tsv COPYONLY)
 configure_file(japanese/mozc-words.tsv japanese/mozc-words.tsv COPYONLY)
+configure_file(chinese/char-ranks.txt chinese/char-ranks.txt COPYONLY)
 
 if(FRAMEKEYBOARD_VR)
     # Link the matching architecture from the sysroot; embed only the device runtime path.
@@ -673,6 +675,9 @@ install(DIRECTORY swipe/lexicons DESTINATION share/framekeyboard/swipe)
 install(FILES japanese/words.tsv japanese/kaomoji.tsv japanese/preferred.tsv japanese/mozc-words.tsv
         japanese/README.md
         DESTINATION share/framekeyboard/japanese)
+# Cangjie and Quick are built in, so their rank list and its notices always ship.
+install(FILES chinese/char-ranks.txt chinese/README.md DESTINATION share/framekeyboard/chinese)
+install(DIRECTORY third_party/chinese-ranks/ DESTINATION third_party/chinese-ranks)
 install(FILES bridge/native_bridge.py bridge/steam_bridge.js DESTINATION share/framekeyboard/bridge)
 install(FILES update/update_helper.py DESTINATION share/framekeyboard/update)
 install(FILES dictation/dictation_helper.py DESTINATION share/framekeyboard/dictation)

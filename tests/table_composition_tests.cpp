@@ -215,6 +215,80 @@ void text_loss_drops_queued_suffix(const char* language) {
     require(f.sink.calls == 1 && f.sink.delivered() == expected.substr(0, 32 * 3),
             "text transport loss cancels the owned suffix rather than replaying it after recovery");
 }
+// A table of every kind of row, in id order: ranked characters, an unranked
+// one, Extension A and B, a compatibility ideograph, a symbol, a ranked
+// character on a lower frequency tier (a second code for it), completions
+// (one character with two longer codes), and a code with more exact matches
+// than a page.
+fs::path make_ordering_table(const fs::path& directory) {
+    const auto script = directory / "ordering.py";
+    const auto table = directory / "ordering.db";
+    std::ofstream(script) << R"PY(import sys, sqlite3
+c = sqlite3.connect(sys.argv[1])
+c.execute('create table phrases(id integer primary key, tabkeys text, phrase text, freq integer, user_freq integer)')
+rows = [('hi', '\u34d8', 1000), ('hi', '\u4e1f', 1000), ('hi', '我', 1000), ('hi', '的', 1000),
+        ('hi', '\u2192', 1000), ('hi', '\uf900', 1000), ('hi', '\U00020000', 1000), ('hi', '是', 900),
+        ('hij', '\u3400', 1000), ('hij', '人', 1000)]
+rows += [('zz', chr(0x4e00 + i), 1000) for i in range(60)] + [('zza', '大', 1000), ('hik', '人', 1000)]
+c.executemany('insert into phrases(tabkeys,phrase,freq,user_freq) values(?,?,?,0)', rows)
+c.commit()
+)PY";
+    const auto filename = script.string(), database = table.string();
+    char python[] = "python3", isolated[] = "-I";
+    std::string file = filename, out = database;
+    char* arguments[]{python, isolated, file.data(), out.data(), nullptr};
+    pid_t child{};
+    require(posix_spawnp(&child, python, nullptr, nullptr, arguments, environ) == 0, "start the ordering fixture");
+    int status{};
+    while (waitpid(child, &status, 0) < 0) {
+        require(errno == EINTR, "wait for the ordering fixture");
+    }
+    require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "create the ordering fixture");
+    return table;
+}
+std::string joined(const std::vector<std::string>& texts) {
+    std::string result;
+    for (const auto& text : texts) {
+        result += text;
+    }
+    return result;
+}
+std::vector<std::string> offered(const fs::path& table, const char* keys) {
+    TableEngine engine(TableEngine::load(table), 5);
+    for (const char* key = keys; *key; ++key) {
+        engine.type(*key);
+    }
+    return engine.candidates();
+}
+// Cangjie and Quick offer a code's characters by the rank list, within the
+// table's own frequency tiers; without a usable list, in the table's order.
+void ranked_order(const fs::path& directory) {
+    const auto table = make_ordering_table(directory);
+    const auto ranks = directory / "ranks.txt", malformed = directory / "malformed.txt";
+    std::ofstream(ranks) << "是\n的\n我\n人\n";
+    std::ofstream(malformed) << "的我\n";
+    set_character_ranks(ranks);
+    require(joined(offered(table, "hi")) == "的我是人\u4e1f\u34d8\u3400\U00020000\uf900\u2192",
+            "ranked exact matches by tier and rank, then ranked completions, each character once, then "
+            "the rare ones by block, exact matches before completions, compatibility ideographs and symbols");
+    // Characters after the list's empty line are in its repertoire but unranked:
+    // rare, so they follow the completions.
+    const auto bounded = directory / "bounded.txt";
+    std::ofstream(bounded) << "是\n的\n人\n\n我\n";
+    set_character_ranks(bounded);
+    require(joined(offered(table, "hi")) == "的是人我\u4e1f\u34d8\u3400\U00020000\uf900\u2192",
+            "an unranked character of the repertoire comes after common completions, before other rare ones");
+    set_character_ranks(ranks);
+    const auto many = offered(table, "zz");
+    require(many.size() == 60, "every exact match is offered, and no completion past a full page");
+    require(TableEngine::load(table) == TableEngine::load(table), "composers of a table share it");
+    for (const auto& unusable : {malformed, directory / "missing.txt"}) {
+        set_character_ranks(unusable);
+        require(joined(offered(table, "hi")) == "\u34d8\u4e1f我的\u2192\uf900\U00020000是\u3400人",
+                "without a usable rank list, the table's own order");
+    }
+    set_character_ranks({});
+}
 } // namespace
 
 // The only wrapped function substitutes a private table path. App, composer,
@@ -236,6 +310,7 @@ int main() {
             std::cout << "Table composition tests skipped: SQLite or Python unavailable.\n";
             return 77;
         }
+        ranked_order(database.path);
         for (const auto* language : {"zh-tw-quick", "zh-tw-cangjie"}) {
             recovery(language, 32);
             recovery(language, 33);

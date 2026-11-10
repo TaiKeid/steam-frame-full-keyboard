@@ -92,6 +92,9 @@ for name in "${chinese_git_sources[@]}"; do
     c_tag=$(latest_tag "${!url}" "${chinese_tags[$name]}")
     row "$name (Chinese)" "${!tag}" "$c_tag" "$(same "${!commit}" "$(tag_commit "${!url}" "$c_tag")")"
 done
+ranks_cantonese=$(pin tools/build_chinese_ranks.py 'RIME_CANTONESE_COMMIT = "[0-9a-f]{40}"' | cut -d'"' -f2)
+r_head=$(head_commit https://github.com/rime/rime-cantonese.git)
+row "rime-cantonese (ranks)" "${ranks_cantonese:0:12}" "${r_head:0:12}" "$(same "$ranks_cantonese" "$r_head")"
 b_tag=$(latest_tag https://github.com/boostorg/boost.git '^boost-[0-9]+\.[0-9]+\.[0-9]+$')
 row "Boost (Chinese)" "$boost_DIR" "$b_tag" "$(same "$boost_DIR" "$b_tag")"
 echo

@@ -21,7 +21,8 @@ struct ChineseCandidatesOptions {
 // Pinyin leaves out spaces and tone digits. Zhuyin symbols are typed on the
 // standard Zhuyin keys: a space gives a syllable without a tone mark the
 // first tone, as one left open at the end gets, and after a tone mark only
-// separates. With a Zhuyin method named, a Latin line is those keys themselves.
+// separates. With a Zhuyin method named, a Latin line is those keys themselves;
+// with Cangjie or Quick named (chinese-cangjie, chinese-quick), it is their keys.
 // Empty lines and lines starting with # are copied as they are.
 void report_chinese_candidates(std::istream& readings, std::ostream& report,
                                const ChineseCandidatesOptions& options = {});

@@ -91,6 +91,9 @@ if [[ $pack_mozc == 1 ]]; then
 else
     echo 'Packing without Mozc: Japanese converts with Anthy alone.' >&2
 fi
+# Cangjie's and Quick's character order, built in like the tables' engine.
+mkdir -p "$appdir/usr/share/framekeyboard/chinese"
+cp chinese/char-ranks.txt chinese/README.md "$appdir/usr/share/framekeyboard/chinese/"
 # Japanese completion's common words, with their sources.
 mkdir -p "$appdir/usr/share/framekeyboard/japanese"
 cp japanese/words.tsv japanese/kaomoji.tsv japanese/preferred.tsv japanese/mozc-words.tsv \
@@ -146,7 +149,7 @@ fi
 mkdir -p "$appdir/usr/share/licenses/framekeyboard/third_party"
 cp LICENSE third_party/README.md "$appdir/usr/share/licenses/framekeyboard/"
 cp -r third_party/libei third_party/gamescope third_party/wlr-protocols third_party/wayland-protocols \
-    third_party/unicode third_party/mozc \
+    third_party/unicode third_party/mozc third_party/chinese-ranks \
     "$appdir/usr/share/licenses/framekeyboard/third_party/"
 if [[ $pack_chinese == 1 ]]; then
     cp -r third_party/chinese-engines "$appdir/usr/share/licenses/framekeyboard/third_party/"

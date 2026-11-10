@@ -19,7 +19,13 @@ class TableEngine final : public CjkEngine {
     // Accepted choices remain local while output is unavailable. Keep that
     // backlog bounded independently of the transport's smaller commit size.
     static constexpr std::size_t retained_limit = 1024;
-    TableEngine(const std::filesystem::path& table, std::size_t max_keys);
+    // A table read whole and put in order: one per file and rank list in the
+    // process, shared by every composer of it and never changed once loaded.
+    struct Table;
+    // Loads a table, or finds it already loaded. It takes its own lock, not
+    // the engines' (CjkComposer), so reading a file holds up no typing.
+    static std::shared_ptr<const Table> load(const std::filesystem::path& table);
+    TableEngine(std::shared_ptr<const Table> table, std::size_t max_keys);
     ~TableEngine() override;
     // The table opens, holds characters, and SQLite is present.
     static bool available(const std::filesystem::path& table);
@@ -39,7 +45,7 @@ class TableEngine final : public CjkEngine {
   private:
     struct Database;
     void look_up();
-    std::unique_ptr<Database> database_;
+    std::shared_ptr<const Table> table_;
     std::size_t max_keys_{};
     std::string keys_, chosen_;
     std::vector<std::string> candidates_;

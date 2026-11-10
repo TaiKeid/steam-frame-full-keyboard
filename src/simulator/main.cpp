@@ -6,6 +6,7 @@
 #include "framekeyboard/emoji_words.hpp"
 #include "framekeyboard/japanese_candidates.hpp"
 #include "framekeyboard/mozc.hpp"
+#include "framekeyboard/swipe.hpp"
 #include "platform.hpp"
 #include "simulator.hpp"
 #include <SDL.h>
@@ -47,7 +48,8 @@ void help() {
               << "                            method, without a window or learning\n"
               << "  --chinese-engine NAME     Compare this engine there (pyzy, libime, mcbopomofo,\n"
               << "                            or all); again for more\n"
-              << "  --chinese-method ID       Type the readings with this method only; again for more\n"
+              << "  --chinese-method ID       Type the readings with this method only, such as\n"
+              << "                            chinese-zhuyin or chinese-quick; again for more\n"
               << "  --candidates N            How many candidates it lists, 12 live and 6 a segment\n"
               << "  --mozc-server PATH        Convert with this mozc_server, not the bundled one\n"
               << "  --anthy-only              Convert with Anthy alone, to compare\n"
@@ -210,6 +212,7 @@ int main(int argc, char** argv) {
         }
         if (chinese_candidates) {
             // Nothing is learned or written: the composers get no learning folder.
+            fk::set_character_ranks(fk::data_resource(setup.data_dir, "chinese/char-ranks.txt"));
             fk::report_chinese_candidates(std::cin, std::cout, chinese_options);
             return 0;
         }

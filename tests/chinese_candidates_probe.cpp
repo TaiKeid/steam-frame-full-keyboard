@@ -6,6 +6,8 @@
 //   chinese-candidates-probe [--chinese-engine NAME|all]... [--chinese-method ID]...
 //                            [--candidates N] < readings
 #include "framekeyboard/chinese_candidates.hpp"
+#include "framekeyboard/cjk.hpp"
+#include "framekeyboard/swipe.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -33,6 +35,7 @@ int main(int argc, char** argv) {
                 throw std::runtime_error("unknown argument: " + argument);
             }
         }
+        framekeyboard::set_character_ranks(framekeyboard::data_resource({}, "chinese/char-ranks.txt"));
         framekeyboard::report_chinese_candidates(std::cin, std::cout, options);
         return 0;
     } catch (const std::exception& error) {

@@ -99,9 +99,11 @@ struct CjkComposer::State {
     std::shared_ptr<Module> module;
     std::unique_ptr<CjkEngine> engine; // Reverse destruction keeps module code alive.
     std::string name = "table";
-    State(const std::string& method, const std::filesystem::path& learning_dir) {
-        if (const auto table = table_for(method)) {
-            engine = std::make_unique<TableEngine>(table->path, table->max_keys);
+    // A table method's table comes loaded (TableEngine::load()).
+    State(const std::string& method, const std::filesystem::path& learning_dir,
+          std::shared_ptr<const TableEngine::Table> table) {
+        if (table) {
+            engine = std::make_unique<TableEngine>(std::move(table), table_for(method)->max_keys);
             return;
         }
         module = load(method);
@@ -125,8 +127,14 @@ bool CjkComposer::supported(const std::string& method) {
 }
 CjkComposer::CjkComposer(const std::string& method, const std::filesystem::path& learning_dir)
     : state_([&] {
+          // Reading a whole table takes a moment: it happens before the
+          // engines' lock, so a preview loading one holds up no typing.
+          std::shared_ptr<const TableEngine::Table> table;
+          if (const auto input_table = table_for(method)) {
+              table = TableEngine::load(input_table->path);
+          }
           std::lock_guard lock(engine_mutex());
-          return std::make_unique<State>(method, learning_dir);
+          return std::make_unique<State>(method, learning_dir, std::move(table));
       }()),
       phonetic_keys_(method == "chinese-zhuyin"), syllables_(method.starts_with("chinese-pinyin-")) {
 }

@@ -49,6 +49,12 @@ std::string keys_for(const std::string& method, const std::string& line) {
                 keys += static_cast<char>(g_ascii_tolower(c[0]));
             }
         }
+    } else if (method == "chinese-cangjie" || method == "chinese-quick") {
+        for (const char c : line) {
+            if (g_ascii_isalpha(c)) {
+                keys += static_cast<char>(g_ascii_tolower(c));
+            }
+        }
     } else {
         for (const char c : line) {
             if (g_ascii_isalpha(c) || c == '\'') {
@@ -143,7 +149,9 @@ void report_chinese_candidates(std::istream& readings, std::ostream& report,
                                  : std::vector<std::string>{"chinese-pinyin-simplified",
                                                             "chinese-pinyin-traditional"};
         for (const auto& method : methods) {
-            for (const auto& engine : engines) {
+            // Cangjie and Quick have one engine, the table, whatever is compared.
+            const bool table = method == "chinese-cangjie" || method == "chinese-quick";
+            for (const auto& engine : table ? std::vector<std::string>{""} : engines) {
                 choice.use(engine);
                 // Every engine compared, where it has the method and was built.
                 if (!engine.empty() && (!has_method(engine, method) || !CjkComposer::supported(method))) {

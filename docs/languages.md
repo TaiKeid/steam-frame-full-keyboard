@@ -165,7 +165,18 @@ punctuation keys, and converts phrases; finish a syllable with a tone key, and S
 chooses the highlighted candidate. With McBopomofo (below), Space also gives a
 syllable still open the first tone. Cangjie takes up to five keys and Quick two. Each
 shows the keys as radicals, lists matching characters, longer codes after exact ones,
-and types one character at a time. Cangjie and Quick read the tables SteamOS installs
+and types one character at a time. A code's characters come in the table's own
+frequency order, which also puts a character's main codes before its second ones.
+Where the table gives characters the same frequency, the commonest in Taiwan or
+Hong Kong usage (`chinese/char-ranks.txt`) come first. Characters neither
+source uses, those outside Big5-HKSCS (Simplified and Japanese forms, most of
+Extensions A and B, which fonts often lack), compatibility forms and symbols
+come after a code's common completions, together with rare completions, the
+rest of Big5-HKSCS first and exact matches before completions, so every
+character stays typable but none is offered before a common one. Each character is listed once. SteamOS's
+tables already carry frequencies, so there the list only breaks ties; the fuller
+tables the desktop simulator bundles have nearly none, and the list orders them:
+Quick `hi` offers 我 and 的 first, `ru` 嘅. The table is read once and kept while the language is added. Cangjie and Quick read the tables SteamOS installs
 in `/usr/share/ibus-table/tables`; without them those languages stay listed, and choosing
 one reports the error. A reading that matches nothing stays to be corrected: other keys
 are refused, and the status line says so, until Backspace fixes it or Esc cancels it.
@@ -266,7 +277,8 @@ offered, because it needs tone numbers, and 1–5 choose candidates here.
 Zhuyin converts a syllable as soon as its tone is typed, and takes the tones
 as written in the dictionary or as spoken (不客氣 with ㄅㄨˋ or ㄅㄨˊ). The
 first candidate is the conversion as it stands, so Space keeps it; the others
-are the phrases starting there, longest first. The engines' dictionaries stay
+are the phrases starting there, longest first, with characters from
+Extension A and later last. The engines' dictionaries stay
 loaded while a Chinese language is added, main or additional, and are freed
 when it is removed, as Mozc's server is. Traditional Pinyin's OpenCC needs
 about 50 MB more than Simplified while it is added.

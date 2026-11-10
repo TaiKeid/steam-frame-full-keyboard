@@ -55,10 +55,10 @@ std::unique_ptr<CjkComposer> prepare_cjk(const Language& language, const fs::pat
     }
     return {};
 }
-// Pinyin and Zhuyin load dictionaries worth keeping; Cangjie and Quick read
-// small tables as they are used.
-bool phonetic_chinese(const std::string& method) {
-    return method.starts_with("chinese-pinyin-") || method == "chinese-zhuyin";
+// Every Chinese method loads data worth keeping: Pinyin's and Zhuyin's
+// dictionaries, and Cangjie's and Quick's whole tables.
+bool loaded_chinese(const std::string& method) {
+    return method.starts_with("chinese-");
 }
 // The language a newly chosen layout most likely serves: the current one if it
 // fits, then a favorite pair, a variant of the same language (ja-flick ->
@@ -202,6 +202,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
                       "framekeyboard/models";
     }
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
+    // Cangjie's and Quick's character order; before any composer loads a table.
+    set_character_ranks(data_resource(options.data_dir, "chinese/char-ranks.txt"));
     localization_.load(options.data_dir, options.config_dir);
     profiles_.errors.insert(profiles_.errors.end(), localization_.errors().begin(),
                             localization_.errors().end());
@@ -2983,7 +2985,7 @@ void App::sync_chinese() {
     if (owns_anthy()) {
         const auto add = [&](const std::string& id) {
             const auto found = profiles_.languages.find(id);
-            if (found != profiles_.languages.end() && phonetic_chinese(found->second.input_method)) {
+            if (found != profiles_.languages.end() && loaded_chinese(found->second.input_method)) {
                 methods.insert(found->second.input_method);
             }
         };

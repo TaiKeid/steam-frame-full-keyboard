@@ -349,6 +349,13 @@ class McBopomofoEngine final : public CjkEngine {
                 shown_.push_back({unigram.value(), reading, length});
             }
         }
+        // A rare single character waits behind the rest: ㄨㄛˇ offers 我 婐 捰
+        // before 䂺. The conversion's own phrase stays first.
+        if (shown_.size() > 1) {
+            std::stable_partition(shown_.begin() + 1, shown_.end(), [](const Choice& choice) {
+                return choice.length > 1 || utf8_length(choice.value) > 1 || !rare_character(choice.value);
+            });
+        }
     }
 };
 } // namespace
