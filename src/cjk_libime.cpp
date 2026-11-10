@@ -21,6 +21,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <sstream>
 
 namespace framekeyboard {
@@ -56,6 +57,14 @@ bool experimental_search() {
     return value && std::string_view(value) == "20";
 }
 
+// Guards the Library cache, the model cache and each Library's converter
+// slot, which framekeyboard_prepare_cjk_v1 fills outside the engines' lock.
+// Everything else in a Library is only used under the engines' lock.
+std::mutex& library_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
 // Dictionaries and learned history belong to each Library. The immutable
 // model does not: Pinyin and Zhuyin's proposer can share it even with different
 // learning folders and n-best counts. The last context still releases it.
@@ -75,7 +84,10 @@ std::shared_ptr<const libime::StaticLanguageModelFile> static_model(const fs::pa
 struct Library {
     fs::path learning; // Empty, or after a learned file failed to load: nothing is saved.
     std::unique_ptr<libime::PinyinIME> ime;
-    opencc::ConverterPtr traditional;
+    // OpenCC's Taiwan converter (~50 MB), shared while a Traditional engine
+    // holds it: Simplified engines keep the Library but not the converter,
+    // so it goes with the last Traditional engine (R141).
+    std::weak_ptr<opencc::Converter> traditional;
 
     Library(const fs::path& dir, std::size_t sentences) : learning(dir) {
         const auto data = engine_data_dir() / "libime";
@@ -115,25 +127,29 @@ struct Library {
         ime->setFuzzyFlags(fuzzy);
         ime->setNBest(sentences);
     }
-    void open_traditional() {
-        if (!traditional) {
+    opencc::ConverterPtr open_traditional() {
+        std::lock_guard lock(library_mutex());
+        auto converter = traditional.lock();
+        if (!converter) {
             try {
-                traditional =
+                converter =
                     opencc::Config().NewFromFile((engine_data_dir() / "opencc/s2twp.json").string());
             } catch (const opencc::Exception&) {
                 throw CjkMessage("ime.pinyin-dictionary-unavailable");
             }
+            traditional = converter;
         }
+        return converter;
     }
-    std::string to_traditional(const std::string& text, const std::string& prefix,
-                               const std::string& selected) const {
+    static std::string to_traditional(const opencc::ConverterPtr& converter, const std::string& text,
+                                      const std::string& prefix, const std::string& selected) {
         try {
             if (!prefix.empty()) {
-                if (auto suffix = contextual_suffix(traditional, prefix, text, selected)) {
+                if (auto suffix = contextual_suffix(converter, prefix, text, selected)) {
                     return *suffix;
                 }
             }
-            return traditional->Convert(text);
+            return converter->Convert(text);
         } catch (const opencc::Exception&) {
             return text;
         }
@@ -152,6 +168,7 @@ struct Library {
 };
 // By learning folder and the number of whole sentences offered.
 std::shared_ptr<Library> library_for(const fs::path& learning, std::size_t sentences) {
+    std::lock_guard lock(library_mutex());
     static std::map<std::pair<fs::path, std::size_t>, std::weak_ptr<Library>> libraries;
     auto& slot = libraries[{learning, sentences}];
     auto library = slot.lock();
@@ -161,6 +178,17 @@ std::shared_ptr<Library> library_for(const fs::path& learning, std::size_t sente
     }
     return library;
 }
+// A method's Library: Zhuyin's sentence proposer learns nothing, and it and
+// the wider search ask for many sentences.
+std::shared_ptr<Library> library_for(bool sentences, bool wider_search, const fs::path& learning_dir) {
+    return library_for(learning_dir.empty() || sentences ? fs::path{} : learning_dir / "libime",
+                       sentences || wider_search ? proposed_sentences : 2);
+}
+// Kept from framekeyboard_prepare_cjk_v1 until create() holds its own.
+struct PreparedLibrary {
+    std::shared_ptr<Library> library;
+    opencc::ConverterPtr converter;
+};
 
 class LibimeEngine final : public CjkEngine {
   public:
@@ -169,15 +197,13 @@ class LibimeEngine final : public CjkEngine {
     LibimeEngine(const std::string& method, const fs::path& learning_dir)
         : sentences_(method == sentences_method), reranker_(experimental_reranker(method)),
           wider_search_(!sentences_ && (reranker_.has_value() || experimental_search())),
-          library_(library_for(learning_dir.empty() || sentences_ ? fs::path{} : learning_dir / "libime",
-                               sentences_ || wider_search_ ? proposed_sentences : 2)),
-          context_(library_->ime.get()),
+          library_(library_for(sentences_, wider_search_, learning_dir)), context_(library_->ime.get()),
           traditional_(method == "chinese-pinyin-traditional" || sentences_) {
         if (method != "chinese-pinyin-simplified" && !traditional_) {
             throw CjkMessage("ime.engine-missing");
         }
         if (traditional_) {
-            library_->open_traditional();
+            converter_ = library_->open_traditional();
         }
     }
     void type(char key) override {
@@ -320,6 +346,7 @@ class LibimeEngine final : public CjkEngine {
     std::shared_ptr<Library> library_; // Before context_, which uses its IME.
     libime::PinyinContext context_;
     bool traditional_;
+    opencc::ConverterPtr converter_; // Traditional only: keeps the shared converter loaded.
     int selected_{};
     std::vector<std::size_t> chosen_; // selectedLength() before each choice.
     // The displayed script belongs to the user's selection. Keep it apart
@@ -389,7 +416,8 @@ class LibimeEngine final : public CjkEngine {
     }
     std::string shown(const std::string& text) const {
         return traditional_ && !text.empty()
-                   ? library_->to_traditional(text, context_.selectedSentence(), selected_display())
+                   ? Library::to_traditional(converter_, text, context_.selectedSentence(),
+                                             selected_display())
                    : text;
     }
     void refresh() {
@@ -533,4 +561,27 @@ class LibimeEngine final : public CjkEngine {
 extern "C" __attribute__((visibility("default"))) framekeyboard::CjkEngine*
 framekeyboard_create_cjk_v3(const char* method, const char* learning_dir) {
     return new framekeyboard::LibimeEngine(method, learning_dir ? learning_dir : "");
+}
+// The default Pinyin engines' Library and converter, which create() then finds
+// loaded. The opt-in reranker and Zhuyin's proposer load in create().
+extern "C" __attribute__((visibility("default"))) void*
+framekeyboard_prepare_cjk_v1(const char* method, const char* learning_dir) {
+    using namespace framekeyboard;
+    const std::string name = method ? method : "";
+    const bool traditional = name == "chinese-pinyin-traditional";
+    const char* reranker = std::getenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY");
+    if ((!traditional && name != "chinese-pinyin-simplified") || (reranker && *reranker)) {
+        return nullptr;
+    }
+    try {
+        auto library = library_for(false, experimental_search(), learning_dir ? learning_dir : "");
+        auto converter = traditional ? library->open_traditional() : nullptr;
+        return new PreparedLibrary{std::move(library), std::move(converter)};
+    } catch (...) {
+        return nullptr; // create() reports it.
+    }
+}
+extern "C" __attribute__((visibility("default"))) void
+framekeyboard_release_prepared_cjk_v1(void* prepared) {
+    delete static_cast<framekeyboard::PreparedLibrary*>(prepared);
 }

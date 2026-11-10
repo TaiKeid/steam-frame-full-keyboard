@@ -33,6 +33,8 @@ struct Module {
     std::string name;
     void* handle{};
     CreateCjkEngine create{};
+    PrepareCjkEngine prepare{};
+    ReleasePreparedCjkEngine release{};
     explicit Module(const std::string& module) : name(module) {
         const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path();
         const auto filename = "framekeyboard-" + name + ".so";
@@ -50,6 +52,12 @@ struct Module {
         if (!create) {
             dlclose(handle);
             throw UiError(ui("ime.engine-incompatible", {{"engine", name}}));
+        }
+        prepare = reinterpret_cast<PrepareCjkEngine>(dlsym(handle, "framekeyboard_prepare_cjk_v1"));
+        release = reinterpret_cast<ReleasePreparedCjkEngine>(
+            dlsym(handle, "framekeyboard_release_prepared_cjk_v1"));
+        if (!release) {
+            prepare = nullptr;
         }
     }
     ~Module() { dlclose(handle); }
@@ -85,6 +93,26 @@ std::shared_ptr<Module> load_module(const std::string& name) {
 }
 std::shared_ptr<Module> load(const std::string& method) {
     return load_module(module_name(method));
+}
+// A module's data for the method, loaded before the engines' lock so a
+// preview's engine holds up no typing (R140); create() then finds it loaded.
+// The handle goes after the lock is released.
+std::shared_ptr<void> prepare_engine(const std::string& method,
+                                     const std::filesystem::path& learning_dir) {
+    std::shared_ptr<Module> module;
+    {
+        std::lock_guard lock(engine_mutex());
+        try {
+            module = load(method);
+        } catch (const std::exception&) {
+            return {}; // Creating the engine reports it.
+        }
+    }
+    void* prepared = module->prepare ? module->prepare(method.c_str(), learning_dir.c_str()) : nullptr;
+    if (!prepared) {
+        return {};
+    }
+    return {prepared, [module](void* handle) { module->release(handle); }};
 }
 } // namespace
 struct CjkComposer::State {
@@ -137,11 +165,15 @@ bool CjkComposer::supported(const std::string& method) {
 }
 CjkComposer::CjkComposer(const std::string& method, const std::filesystem::path& learning_dir)
     : state_([&] {
-          // Reading a whole table takes a moment: it happens before the
-          // engines' lock, so a preview loading one holds up no typing.
+          // Reading a whole table or dictionary takes a moment: it happens
+          // before the engines' lock, so a preview loading one holds up no
+          // typing. Declared before the lock, prepared data outlives it.
           std::shared_ptr<const TableEngine::Table> table;
+          std::shared_ptr<void> prepared;
           if (const auto input_table = table_for(method)) {
               table = TableEngine::load(input_table->path);
+          } else {
+              prepared = prepare_engine(method, learning_dir);
           }
           std::lock_guard lock(engine_mutex());
           return std::make_unique<State>(method, learning_dir, std::move(table));

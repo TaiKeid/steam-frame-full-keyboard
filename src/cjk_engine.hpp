@@ -92,4 +92,9 @@ class CjkEngine {
 // The method's ID, and the folder for what the engine learns: empty learns
 // nothing and writes nothing.
 using CreateCjkEngine = CjkEngine* (*)(const char* method, const char* learning_dir);
+// Optional, both or neither: loads what create() will need, called before the
+// engines' lock. The handle (nullptr: nothing prepared) is released after
+// create(), outside the lock. Neither throws.
+using PrepareCjkEngine = void* (*)(const char* method, const char* learning_dir);
+using ReleasePreparedCjkEngine = void (*)(void* prepared);
 } // namespace framekeyboard
