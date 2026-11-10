@@ -35,6 +35,8 @@ struct Module {
     CreateCjkEngine create{};
     PrepareCjkEngine prepare{};
     ReleasePreparedCjkEngine release{};
+    SaveCjkLearning save{};
+    ClearCjkLearning clear{};
     explicit Module(const std::string& module) : name(module) {
         const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path();
         const auto filename = "framekeyboard-" + name + ".so";
@@ -59,6 +61,8 @@ struct Module {
         if (!release) {
             prepare = nullptr;
         }
+        save = reinterpret_cast<SaveCjkLearning>(dlsym(handle, "framekeyboard_save_cjk_v1"));
+        clear = reinterpret_cast<ClearCjkLearning>(dlsym(handle, "framekeyboard_clear_cjk_v1"));
     }
     ~Module() { dlclose(handle); }
 };
@@ -80,14 +84,18 @@ std::string module_name(const std::string& method) {
     }
     return pinyin ? "libime" : "mcbopomofo";
 }
+// Applying a profile briefly keeps old and new contexts alive together.
+// Share their module, then unload after its last context is destroyed.
+std::map<std::string, std::weak_ptr<Module>>& modules() {
+    static std::map<std::string, std::weak_ptr<Module>> loaded;
+    return loaded;
+}
 std::shared_ptr<Module> load_module(const std::string& name) {
-    // Applying a profile briefly keeps old and new contexts alive together.
-    // Share their module, then unload after its last context is destroyed.
-    static std::map<std::string, std::weak_ptr<Module>> modules;
-    auto module = modules[name].lock();
+    auto& slot = modules()[name];
+    auto module = slot.lock();
     if (!module) {
         module = std::make_shared<Module>(name);
-        modules[name] = module;
+        slot = module;
     }
     return module;
 }
@@ -152,6 +160,22 @@ struct CjkComposer::State {
         }
     }
 };
+void CjkComposer::save_learning() {
+    std::lock_guard lock(engine_mutex());
+    for (const auto& [name, weak] : modules()) {
+        if (const auto module = weak.lock(); module && module->save) {
+            module->save();
+        }
+    }
+}
+void CjkComposer::clear_learning(const std::filesystem::path& learning_dir) {
+    std::lock_guard lock(engine_mutex());
+    for (const auto& [name, weak] : modules()) {
+        if (const auto module = weak.lock(); module && module->clear) {
+            module->clear(learning_dir.c_str());
+        }
+    }
+}
 bool CjkComposer::supported(const std::string& method) {
     std::lock_guard lock(engine_mutex());
     if (const auto table = table_for(method)) {

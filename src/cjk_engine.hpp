@@ -97,4 +97,11 @@ using CreateCjkEngine = CjkEngine* (*)(const char* method, const char* learning_
 // create(), outside the lock. Neither throws.
 using PrepareCjkEngine = void* (*)(const char* method, const char* learning_dir);
 using ReleasePreparedCjkEngine = void (*)(void* prepared);
+// Optional: writes what the module's engines learned and have not saved yet,
+// called under the engines' lock. Never throws.
+using SaveCjkLearning = void (*)();
+// Optional: the engines learning into this folder forget it all in memory,
+// keeping their readings; removing the files is the app's. Called under the
+// engines' lock. Never throws.
+using ClearCjkLearning = void (*)(const char* learning_dir);
 } // namespace framekeyboard

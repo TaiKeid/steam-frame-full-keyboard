@@ -44,8 +44,14 @@ class CjkComposer {
     // Drops only the open syllable; refused finished text still commits.
     void cancel_open();
     // text() reached the field, before cancel(); `learn` lets the engine learn
-    // from it.
+    // from it. What is learned is written by save_learning(), or when the
+    // last engine using it goes.
     void committed(bool learn);
+    // Writes what every loaded engine learned and has not saved yet.
+    static void save_learning();
+    // Every loaded engine forgets what it learned into this folder, in
+    // memory, keeping its reading; the caller removes the files.
+    static void clear_learning(const std::filesystem::path& learning_dir);
     bool table_context_enabled() const;
     void set_table_context(const std::string& previous);
     // Clears future context without reordering a presented lookup.

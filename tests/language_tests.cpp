@@ -910,6 +910,16 @@ void chinese_engines() {
     remembered.clear();
     require(!remember_picked_words({"你好"}, {}, remember) && remembered.empty(),
             "an unpicked default after an earlier choice writes no history");
+    {
+        // Picks keep their Pinyin, so 得 picked for de isn't raised for dei (R139).
+        using WordWithCode = std::pair<std::string, std::string>;
+        std::vector<std::vector<WordWithCode>> coded;
+        require(remember_picked_words(std::vector<WordWithCode>{{"得", "de"}, {"到", "dao"}},
+                                      {true, false},
+                                      [&](const auto& words) { coded.push_back(words); }) &&
+                    coded == std::vector<std::vector<WordWithCode>>{{{"得", "de"}}},
+                "a pick is remembered with its Pinyin");
+    }
     const auto dir =
         fs::temp_directory_path() / ("framekeyboard-chinese-test-" + std::to_string(getpid()));
     struct Cleanup {
@@ -980,6 +990,8 @@ void chinese_engines() {
         pinyin.cancel();
         type(pinyin, "nihao");
         pinyin.committed(true);
+        require(!fs::exists(dir / "libime/user.history"), "a commit is not saved on its own");
+        CjkComposer::save_learning();
         require(fs::exists(dir / "libime/user.history"), "a commit is learned into the folder");
         pinyin.cancel();
         type(pinyin, "laiyijuma");
@@ -993,6 +1005,28 @@ void chinese_engines() {
         pinyin.cancel();
         type(pinyin, "laiyijuma");
         require(pinyin.text() != "来一局马", "an accepted default tail does not teach a whole word");
+        pinyin.cancel();
+        // Clear learned words: the composer forgets in memory and keeps its
+        // reading (R145).
+        const auto rank = [&](const char* word) {
+            pinyin.cancel();
+            type(pinyin, "ni");
+            const auto offered = pinyin.candidates();
+            const auto found = std::find(offered.begin(), offered.end(), word);
+            require(found != offered.end(), "the clearing fixture offers 倪");
+            return found - offered.begin();
+        };
+        const auto cold = rank("倪");
+        pinyin.choose(static_cast<int>(cold));
+        pinyin.committed(true);
+        require(rank("倪") < cold, "a pick rises once learned");
+        CjkComposer::clear_learning(dir);
+        fs::remove_all(dir / "libime"); // As the app does next.
+        require(pinyin.preedit() == "ni", "clearing keeps the open reading");
+        require(rank("倪") == cold, "cleared, the pick is forgotten without a reload");
+        pinyin.cancel();
+        CjkComposer::save_learning();
+        require(!fs::exists(dir / "libime/user.history"), "nothing forgotten is written back");
         CjkComposer elsewhere("chinese-pinyin-simplified");
         type(elsewhere, "nihao");
         elsewhere.committed(true); // No folder: nothing is written anywhere.
@@ -1131,10 +1165,10 @@ void zhuyin_edited_picks() {
         ~Cleanup() { fs::remove_all(path); }
     } cleanup{root};
     fs::create_directories(root);
-    for (int edit = 0; edit < 4; ++edit) {
+    for (int edit = 0; edit < 5; ++edit) {
         const auto dir = root / std::to_string(edit);
         fs::create_directories(dir);
-        const std::string expected = edit == 3 ? "妳好" : "你好";
+        const std::string expected = edit >= 3 ? "妳好" : "你好";
         {
             CjkComposer composer("chinese-zhuyin", dir);
             const auto choose = [&](const std::string& word) {
@@ -1155,6 +1189,8 @@ void zhuyin_edited_picks() {
                 composer.backspace();
             } else if (edit == 2) {
                 choose("好"); // A later overlapping choice supersedes the whole phrase.
+            } else if (edit == 4) {
+                choose("妳好"); // Accepting the same row again must keep its learning intent.
             } else {
                 composer.move(-30);
                 type(composer, "8 ");
@@ -1170,7 +1206,7 @@ void zhuyin_edited_picks() {
         CjkComposer reloaded("chinese-zhuyin", dir);
         type(reloaded, "su3cl3");
         require(reloaded.text() == expected, "reloaded learning agrees with the committed phrase");
-        if (edit != 3) {
+        if (edit < 3) {
             std::ifstream in(dir / "mcbopomofo/picks.tsv");
             const std::string saved{std::istreambuf_iterator<char>(in), {}};
             require(saved.find("妳好") == std::string::npos,
@@ -1982,6 +2018,56 @@ void chinese_pending_front() {
 // Chinese keys as a PC input method's: Chinese punctuation after the reading,
 // plain . , : after a digit, Pinyin's letters as typed with Enter, Shift
 // letters at once, and - = paging the candidates.
+// A terminal the output detects, with no shell hint, learns nothing (R138).
+void chinese_terminal_learning() {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-terminal-learning-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    struct TerminalSink : Sink {
+        EditKeys keys{EditKeys::CtrlShift};
+        EditKeys edit_keys() const override { return keys; }
+    };
+    Options options;
+    options.config_dir = path;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    TerminalSink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "zh-cn-pinyin", "graphite"});
+    const auto learned = path / "chinese" / "libime" / "user.history";
+    const auto type_and_pick = [&] {
+        for (const auto* action : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
+            click(app, action);
+        }
+        click(app, "Digit2"); // a pick, not the top candidate
+        if (!app.view().preedit.empty()) {
+            click(app, "Space"); // the rest as offered (Enter would type the letters)
+        }
+    };
+    type_and_pick();
+    app.tick(10);
+    require(!sink.events.empty() && !fs::exists(learned), "a detected terminal learns nothing");
+    sink.keys = EditKeys::Standard;
+    type_and_pick();
+    // Saved once typing pauses for 3 s, not on the commit (R142).
+    app.tick(11);
+    require(!fs::exists(learned), "a learned pick waits for the pause");
+    app.tick(13.5);
+    require(fs::exists(learned), "an ordinary field learns the pick");
+    // Opening Settings writes learning still waiting, for Clear (R155).
+    fs::remove(learned);
+    type_and_pick();
+    require(!fs::exists(learned), "the next pick waits for the pause");
+    app.show_settings();
+    require(fs::exists(learned), "Settings opens with what was learned written");
+    app.apply({"en-us-full", "en-us", "graphite"});
+}
 void chinese_keys(bool flicks = false) {
     const auto path = fs::temp_directory_path() / ("framekeyboard-chinese-keys-" +
                                                    std::to_string(getpid()) + (flicks ? "-flicks" : ""));
@@ -2645,6 +2731,7 @@ int main(int argc, char** argv) {
             if (group == "--chinese") {
                 app_traditional();
                 chinese_keys();
+                chinese_terminal_learning();
                 chinese_keys(true);
                 chinese_pending_front();
                 chinese_engines();

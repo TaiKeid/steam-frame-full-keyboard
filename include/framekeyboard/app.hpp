@@ -981,6 +981,10 @@ class App {
     double mozc_clock_{}; // tick()'s last time, for moves, which come without one
     double active_at_{};
     std::uint64_t mozc_unsaved_{};
+    // Chinese learning waits for the same pause, or the panel hiding, and is
+    // saved in one go rather than on each commit (R142).
+    bool chinese_unsaved_ = false;
+    void save_chinese();
     struct Aim {
         double x, y, at; // Where a laser was, and when, as its motion began.
     };

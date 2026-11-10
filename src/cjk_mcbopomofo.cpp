@@ -118,6 +118,13 @@ struct Learning {
             }
         }
     }
+    // Clear learned words: the files go separately, a file it couldn't read
+    // too, so it learns into `dir` again.
+    void forget(const fs::path& dir) {
+        folder = dir;
+        overrides = McBopomofo::UserOverrideModel{override_capacity, override_half_life};
+        commits.clear();
+    }
     void remember(const std::vector<std::string>& syllables, const std::vector<Pick>& picks) {
         const double time = now();
         learn(syllables, picks, time);
@@ -172,12 +179,16 @@ struct Learning {
         return true;
     }
 };
-std::shared_ptr<Learning> learning_for(const fs::path& folder) {
+std::map<fs::path, std::weak_ptr<Learning>>& learning_cache() {
     static std::map<fs::path, std::weak_ptr<Learning>> learnings;
-    auto learning = learnings[folder].lock();
+    return learnings;
+}
+std::shared_ptr<Learning> learning_for(const fs::path& folder) {
+    auto& slot = learning_cache()[folder];
+    auto learning = slot.lock();
     if (!learning) {
         learning = std::make_shared<Learning>(folder, language_model());
-        learnings[folder] = learning;
+        slot = learning;
     }
     return learning;
 }
@@ -562,6 +573,12 @@ class McBopomofoEngine final : public CjkEngine {
         std::size_t begin = 0;
         for (const auto& node : grid_.walk().nodes) {
             if (at < begin + node->spanningLength()) {
+                // Reaccepting the same displayed choice is still that pick.
+                // Only an edited span or a different phrase replaces its intent.
+                picked |= std::any_of(fixed_.begin(), fixed_.end(), [&](const Fixed& f) {
+                    return f.picked && f.begin == begin && f.length == node->spanningLength() &&
+                           f.reading == reading && f.value == value;
+                });
                 // A later override of the same phrase replaces the earlier.
                 std::erase_if(fixed_, [&](const Fixed& f) {
                     return f.begin < begin + node->spanningLength() && begin < f.begin + f.length;
@@ -792,4 +809,16 @@ class McBopomofoEngine final : public CjkEngine {
 extern "C" __attribute__((visibility("default"))) framekeyboard::CjkEngine*
 framekeyboard_create_cjk_v3(const char* method, const char* learning_dir) {
     return new framekeyboard::McBopomofoEngine(method, learning_dir ? learning_dir : "");
+}
+extern "C" __attribute__((visibility("default"))) void
+framekeyboard_clear_cjk_v1(const char* learning_dir) {
+    if (!learning_dir || !*learning_dir) {
+        return;
+    }
+    const auto folder = std::filesystem::path(learning_dir) / "mcbopomofo";
+    for (const auto& [key, weak] : framekeyboard::learning_cache()) {
+        if (const auto learning = weak.lock(); learning && key == folder) {
+            learning->forget(folder);
+        }
+    }
 }

@@ -14,13 +14,15 @@ namespace framekeyboard {
 // Joining picks across a default invents adjacency. Even contiguous picks
 // can promote the wrong accepted tail through history's sentence transitions.
 // The mask can stop before the words: the unmarked tail was accepted too.
-template <class Remember>
-bool remember_picked_words(const std::vector<std::string>& words, const std::vector<bool>& picked,
+// Words are strings, or libime's word-with-Pinyin pairs so a pick is learned
+// for the reading it was picked with (R139).
+template <class Word = std::string, class Remember>
+bool remember_picked_words(const std::vector<Word>& words, const std::vector<bool>& picked,
                            Remember&& remember) {
     bool remembered = false;
     for (std::size_t i = 0; i < words.size(); ++i) {
         if (i < picked.size() && picked[i]) {
-            remember(std::vector<std::string>{words[i]});
+            remember(std::vector<Word>{words[i]});
             remembered = true;
         }
     }

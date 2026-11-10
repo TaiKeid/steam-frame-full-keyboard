@@ -5,7 +5,7 @@
 - Traditional Pinyin uses selected words as context for the remaining conversion, keeping 皇后 correct after selecting 皇. Selected spellings stay unchanged; ambiguous length-changing conversions keep the suffix separate.
 - Shift-swipe uses dotted İ in Turkish and Azerbaijani, while dotless ı still becomes I. Caps Lock and locked Shift use the same language rules throughout the word.
 - Pull for Shift now keeps decimal points, numeric commas and time separators as ordinary punctuation in Chinese input, matching normal taps.
-- Zhuyin learns only selections that survive editing and later choices. Deleting or splitting a selected phrase no longer teaches a choice absent from the committed text.
+- Zhuyin learns only selections that survive editing and later choices. Deleting or splitting a selected phrase no longer teaches a choice absent from the committed text. Accepting the same selected choice again retains its learning intent.
 - Chinese overflow text stays editable and committable if delivery is refused and the rest of the reading is deleted. Zhuyin punctuation now sends a completed overflow prefix immediately, as ordinary syllable input does.
 - Removed the unused PyZy fallback and its initialization-only storage helper. Chinese composition now uses libime/OpenCC for Pinyin and McBopomofo for Zhuyin. Two-set Hangul keeps its own adapter, and packaging includes only retained engine modules.
 

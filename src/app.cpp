@@ -357,7 +357,8 @@ App::~App() {
     } else {
         japanese_worker_.finish();
     }
-    save_emoji(); // Reports failure only in a status nobody will see; never throws.
+    save_emoji();   // Reports failure only in a status nobody will see; never throws.
+    save_chinese(); // The engines would also save as they go.
     next_words_.save();
     for (auto& [lexicon, learned] : learned_words_) {
         learned.save();
@@ -2518,6 +2519,7 @@ void App::set_interaction_active(bool active) {
         if (owns_anthy() && !mozc_server_.empty()) {
             save_mozc(); // Hidden, whatever Mozc learned is saved.
         }
+        save_chinese();
     }
 }
 void App::set_dragging(bool dragging, bool resizing) {
@@ -2570,6 +2572,9 @@ void App::show_settings() {
     // Settings now covers: replayed, they would land on its controls.
     held_input_.clear();
     held_pointers_.clear();
+    // Chinese learning waiting for a pause is written now, so Clear learned
+    // words finds it: nothing is learned while Settings is open (R155).
+    save_chinese();
     address_.reset();
     confirm_ = Confirm::None;
     languages_.reset();
@@ -3049,28 +3054,23 @@ bool App::chinese_learned() const {
     }
     return false;
 }
-// The engines save what they learn after each commit, not as they go, so
-// once they are gone the files can go; the composers come back empty.
+// The loaded engines forget what they learned, keeping a reading kept
+// through Settings and needing no reload (R145); then the files go.
 void App::clear_chinese_learning() {
-    const bool active = cjk_ && cjk_->chinese();
-    chinese_engines_.clear();
-    if (active) {
-        cjk_.reset();
+    chinese_unsaved_ = false;
+    const auto dir = chinese_learning_dir();
+    if (dir.empty()) {
+        return;
     }
+    CjkComposer::clear_learning(dir);
     std::error_code error;
-    fs::remove_all(chinese_learning_dir(), error);
-    if (active) {
-        try {
-            cjk_ =
-                prepare_cjk(profiles_.languages.at(settings_.active.language), chinese_learning_dir());
-        } catch (const std::exception& failure) {
-            status_ = tr(failure);
-        }
-    }
-    sync_chinese();
+    fs::remove_all(dir, error);
 }
 void App::tick_mozc_save(double now) {
     mozc_clock_ = now;
+    if (chinese_unsaved_ && now - active_at_ >= 3) {
+        save_chinese();
+    }
     if (!owns_anthy() || mozc_server_.empty()) {
         return;
     }
@@ -3081,6 +3081,12 @@ void App::tick_mozc_save(double now) {
     }
     if (unsaved && now - active_at_ >= 3) {
         save_mozc();
+    }
+}
+void App::save_chinese() {
+    if (chinese_unsaved_) {
+        chinese_unsaved_ = false;
+        CjkComposer::save_learning();
     }
 }
 void App::save_mozc() {
@@ -3367,9 +3373,10 @@ bool App::owns_anthy() const {
            options_.mode != Mode::RenderEmoji && options_.mode != Mode::RenderDictation;
 }
 // Learning, always on as on Steam's keyboard, where the field may keep what
-// is typed: never a password, PIN or terminal.
+// is typed: never a password, PIN or terminal, whether the shell's hint or
+// the output's own detection says terminal, as suggestions check (R138).
 bool App::learning_allowed() const {
-    return !hint_private() && !hint_no_suggestions();
+    return !hint_private() && !hint_no_suggestions() && edit_keys() == EditKeys::Standard;
 }
 void App::apply_learning() {
     if (owns_anthy() && configure_anthy({true, anthy_home()}) && !restarting_anthy()) {
@@ -4106,7 +4113,9 @@ void App::commit_cjk() {
     // In dictation mode the editor takes the text, even in a preview.
     if (!text.empty() && (preview_output() || text_output_->commit_text(text))) {
         // A preview's text goes nowhere, so nothing is learned from it.
-        cjk_->committed(!preview_output() && learning_allowed());
+        const bool learn = !preview_output() && learning_allowed();
+        cjk_->committed(learn);
+        chinese_unsaved_ |= learn && cjk_->chinese();
         cjk_->cancel();
         finish_table_delivery(table_delivery, text);
         status_.clear();

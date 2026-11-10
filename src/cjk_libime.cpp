@@ -83,6 +83,9 @@ std::shared_ptr<const libime::StaticLanguageModelFile> static_model(const fs::pa
 // added Chinese language keeps one waiting while another language is in use.
 struct Library {
     fs::path learning; // Empty, or after a learned file failed to load: nothing is saved.
+    // Learned since the last save: written on an idle tick
+    // (framekeyboard_save_cjk_v1), or when the last engine using it goes.
+    bool unsaved = false;
     std::unique_ptr<libime::PinyinIME> ime;
     // OpenCC's Taiwan converter (~50 MB), shared while a Traditional engine
     // holds it: Simplified engines keep the Library but not the converter,
@@ -154,7 +157,19 @@ struct Library {
             return text;
         }
     }
-    // Small files, written whole after each learned commit.
+    ~Library() { save_unsaved(); }
+    void save_unsaved() noexcept {
+        if (!unsaved) {
+            return;
+        }
+        unsaved = false;
+        try {
+            save();
+        } catch (const std::exception&) {
+            // Kept in memory; the next learned commit tries again.
+        }
+    }
+    // Small files, written whole: never on the commit itself (R142).
     void save() const {
         if (learning.empty() || !make_learning_dir(learning)) {
             return;
@@ -167,10 +182,13 @@ struct Library {
     }
 };
 // By learning folder and the number of whole sentences offered.
+std::map<std::pair<fs::path, std::size_t>, std::weak_ptr<Library>>& library_cache() {
+    static std::map<std::pair<fs::path, std::size_t>, std::weak_ptr<Library>> libraries;
+    return libraries;
+}
 std::shared_ptr<Library> library_for(const fs::path& learning, std::size_t sentences) {
     std::lock_guard lock(library_mutex());
-    static std::map<std::pair<fs::path, std::size_t>, std::weak_ptr<Library>> libraries;
-    auto& slot = libraries[{learning, sentences}];
+    auto& slot = library_cache()[{learning, sentences}];
     auto library = slot.lock();
     if (!library) {
         library = std::make_shared<Library>(learning, sentences);
@@ -183,6 +201,25 @@ std::shared_ptr<Library> library_for(const fs::path& learning, std::size_t sente
 std::shared_ptr<Library> library_for(bool sentences, bool wider_search, const fs::path& learning_dir) {
     return library_for(learning_dir.empty() || sentences ? fs::path{} : learning_dir / "libime",
                        sentences || wider_search ? proposed_sentences : 2);
+}
+void clear_libraries(const fs::path& learning) {
+    std::lock_guard lock(library_mutex());
+    for (const auto& [key, weak] : library_cache()) {
+        if (const auto library = weak.lock(); library && key.first == learning) {
+            library->ime->model()->history().clear();
+            library->ime->dict()->clear(libime::PinyinDictionary::UserDict);
+            library->unsaved = false;
+            library->learning = learning; // A file it couldn't read goes too: it learns again.
+        }
+    }
+}
+void save_libraries() {
+    std::lock_guard lock(library_mutex());
+    for (const auto& [key, weak] : library_cache()) {
+        if (const auto library = weak.lock()) {
+            library->save_unsaved();
+        }
+    }
 }
 // Kept from framekeyboard_prepare_cjk_v1 until create() holds its own.
 struct PreparedLibrary {
@@ -225,6 +262,7 @@ class LibimeEngine final : public CjkEngine {
             context_.cancelTill(chosen_.back());
             chosen_.pop_back();
             chosen_display_.pop_back();
+            defaulted_.pop_back();
             picked_.resize(std::min(picked_.size(), context_.selectedWords().size()));
         } else if (!front_.empty()) {
             front_.resize(utf8_prefix(front_, utf8_length(front_) - 1));
@@ -235,8 +273,8 @@ class LibimeEngine final : public CjkEngine {
         context_.clear();
         chosen_.clear();
         chosen_display_.clear();
+        defaulted_.clear();
         picked_.clear();
-        defaults_ = false;
         front_.clear();
         front_produced_ = false;
         refresh();
@@ -266,7 +304,7 @@ class LibimeEngine final : public CjkEngine {
         const auto before = context_.selectedWords().size();
         // After an earlier choice, the top candidate for the rest is what
         // the user accepted, not picked: 来, 一局, then Space for 马.
-        defaults_ |= index == 0 && !chosen_.empty();
+        defaulted_.push_back(index == 0 && !chosen_.empty());
         chosen_.push_back(context_.selectedLength());
         chosen_display_.push_back(shown_[static_cast<std::size_t>(index)]);
         context_.select(source_[static_cast<std::size_t>(index)]);
@@ -316,7 +354,7 @@ class LibimeEngine final : public CjkEngine {
              ++i) {
             // The delivered default may differ from libime's original row 0.
             // Select exactly that source before learning its words/history.
-            defaults_ |= !chosen_.empty();
+            defaulted_.push_back(!chosen_.empty());
             chosen_.push_back(context_.selectedLength());
             chosen_display_.push_back(shown_.front());
             context_.select(default_source());
@@ -325,18 +363,24 @@ class LibimeEngine final : public CjkEngine {
         if (!context_.selected()) {
             return;
         }
-        if (!defaults_) {
+        if (std::find(defaulted_.begin(), defaulted_.end(), true) == defaulted_.end()) {
             context_.learn(); // The whole sentence, as a word of its own if picked in parts.
         } else {
             // Learn each pick alone, with no sentence transitions: even a
             // contiguous 来, 一局 run can promote an accepted 马 tail.
-            if (!remember_picked_words(context_.selectedWords(), picked_, [&](const auto& word) {
-                    library_->ime->model()->history().add(word);
-                })) {
+            // With its Pinyin, so a pick raises the character only for the
+            // reading it was picked with (R139); a word without Pinyin is
+            // left out, as libime's own learn() does.
+            if (!remember_picked_words(context_.selectedWordsWithPinyin(), picked_,
+                                       [&](const auto& word) {
+                                           if (!word.front().second.empty()) {
+                                               library_->ime->model()->history().addWithCode(word);
+                                           }
+                                       })) {
                 return;
             }
         }
-        library_->save();
+        library_->unsaved = true;
     }
 
   private:
@@ -353,10 +397,12 @@ class LibimeEngine final : public CjkEngine {
     // from libime's Simplified words/readings, which still own learning.
     std::vector<std::string> chosen_display_; // Aligned with chosen_ for undo.
     std::vector<bool> picked_;                // Each selected word: picked, not the top candidate.
-    bool defaults_{};                         // A top candidate was taken after an earlier choice.
-    bool typed_{};                            // Enter: the rest goes as typed (as_typed()).
-    bool front_produced_{};                   // Survives drop_finished() until this reading ends.
-    std::string front_;                       // Sent ahead of a long reading (finished()).
+    // Aligned with chosen_: a top candidate taken after an earlier choice.
+    // Undoing that choice undoes its flag (R147).
+    std::vector<bool> defaulted_;
+    bool typed_{};          // Enter: the rest goes as typed (as_typed()).
+    bool front_produced_{}; // Survives drop_finished() until this reading ends.
+    std::string front_;     // Sent ahead of a long reading (finished()).
     // Candidates as shown, Traditional ones once each, and libime's index of each.
     std::vector<std::string> shown_;
     std::vector<std::size_t> source_;
@@ -548,8 +594,8 @@ class LibimeEngine final : public CjkEngine {
         context_.clear();
         chosen_.clear();
         chosen_display_.clear();
+        defaulted_.clear();
         picked_.clear();
-        defaults_ = false;
         context_.type(rest);
     }
 };
@@ -584,4 +630,13 @@ framekeyboard_prepare_cjk_v1(const char* method, const char* learning_dir) {
 extern "C" __attribute__((visibility("default"))) void
 framekeyboard_release_prepared_cjk_v1(void* prepared) {
     delete static_cast<framekeyboard::PreparedLibrary*>(prepared);
+}
+extern "C" __attribute__((visibility("default"))) void framekeyboard_save_cjk_v1() {
+    framekeyboard::save_libraries();
+}
+extern "C" __attribute__((visibility("default"))) void
+framekeyboard_clear_cjk_v1(const char* learning_dir) {
+    if (learning_dir && *learning_dir) {
+        framekeyboard::clear_libraries(std::filesystem::path(learning_dir) / "libime");
+    }
 }
