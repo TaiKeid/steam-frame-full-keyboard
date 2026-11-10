@@ -226,7 +226,7 @@ Settings written over the protocol persist, exactly like the same change in Sett
 | `dictation_send_gap` | 10, 20, 30 or 40 (ms) |
 | `dictation_send_paste`, `dictation_direct`, `dictation_fallback` | boolean |
 
-Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-only, see [modes](#standalone-and-hosted-modes)), `developer_options`, `dictation_device_model`, `dictation_url`, `dictation_model`, and favorites (read-only in protocol 1). Any key not in the table above, such as a setting added after protocol 1, returns `invalid_setting`. `settings.get` returns exactly the keys in the table.
+Not writable: `replace_native_keyboard` and `start_with_steamos` (standalone-only, see [modes](#standalone-and-hosted-modes)), `developer_options`, `dictation_device_model`, `dictation_url`, `dictation_model`, and favorites (read-only in protocol 1). Any key not in the table above returns `invalid_setting`. Like operations and fields, keys may be added within protocol 1 (`vibration` came after 0.16.0): `settings.get` returns the keys this release supports, so a shell ignores keys it does not know and checks one it needs before writing it.
 
 - `settings.set` is all-or-nothing: one invalid value rejects the request with `invalid_setting` and the key name.
 - `ok` means validated and applied. Saving is asynchronous and the writer coalesces snapshots, so the save result comes later as a `saved` event listing the `requests` (their `id`s) it covers, with `ok` true or false.
